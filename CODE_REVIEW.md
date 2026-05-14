@@ -1,8 +1,9 @@
 # Комплексное ревью кодовой базы: CodeLab (`codelab/`)
 
 **Дата:** 2026-04-25  
+**Последнее обновление:** 2026-05-14  
 **Область проверки:** `codelab/` (единый пакет сервера и клиента)  
-**Метрики:** 209 файлов Python · 51 739 строк кода · 141 тестовый файл · 34 `# type: ignore`
+**Метрики:** 215 файлов Python · ~52 000 строк кода · 147 тестовых файлов · 109 `# type: ignore`
 
 ---
 
@@ -22,21 +23,25 @@
 
 `codelab` реализует ACP (Agent Client Protocol) — протокол взаимодействия LLM-агента с клиентом. Архитектура в целом продуманная: Clean Architecture на клиенте, разделение ответственности на сервере, абстракция хранилища. Документация и тесты присутствуют в большом объёме.
 
-Вместе с тем найден ряд проблем — от **shell injection и path traversal** до архитектурных противоречий, которые проявятся при масштабировании.
+Вместе с тем найден ряд проблем — от **архитектурных противоречий** до незакрытых TODO.
+Большинство критических проблем безопасности **исправлено** (shell injection, path traversal, f-string инъекция).
 
 | Категория | Критичных | Высоких | Средних | Низких |
 |-----------|-----------|---------|---------|--------|
-| Безопасность | 1 | 2 | 1 | — |
-| Архитектура | — | 3 | 4 | 2 |
-| Сложность | — | 1 | 3 | 1 |
-| Best practices | — | 1 | 4 | 3 |
-| Тесты | — | — | 3 | 1 |
+| Безопасность | ~~1~~ ✅ 0 | ~~2~~ ✅ 0 | 1 | — |
+| Архитектура | — | 2 | 3 | 2 |
+| Сложность | — | ~~1~~ ✅ 0 | 1 | 1 |
+| Best practices | — | 1 | 3 | 2 |
+| Тесты | — | — | 2 | 1 |
 
 ---
 
 ## 1. Критические проблемы безопасности
 
-### 🔴 SEC-01 — Shell Injection в `TerminalExecutor.execute()` (КРИТИЧНО)
+### ~~🔴 SEC-01 — Shell Injection в `TerminalExecutor.execute()`~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `shell=True` заменён на `shell=False` в production-коде.
+> Тесты подтверждают защиту от shell injection (`test_terminal_executor.py:227`).
 
 **Файл:** `src/codelab/client/infrastructure/services/terminal_executor.py`, строка ~384
 
@@ -71,7 +76,10 @@ process = subprocess.run(
 
 ---
 
-### 🟠 SEC-02 — Path Traversal в `FileSystemExecutor._validate_path()`
+### ~~🟠 SEC-02 — Path Traversal в `FileSystemExecutor._validate_path()`~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `startswith` заменён на `Path.is_relative_to()` (`file_system_executor.py:90`).
+> Добавлены тесты path traversal (`test_file_system_executor.py:225-268`).
 
 **Файл:** `src/codelab/client/infrastructure/services/file_system_executor.py`, строки 88–95
 
@@ -92,7 +100,10 @@ if not file_path.is_relative_to(base_resolved):
 
 ---
 
-### 🟠 SEC-03 — F-string инъекция в генерации кода для Web UI subprocess
+### ~~🟠 SEC-03 — F-string инъекция в генерации кода для Web UI subprocess~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Параметры передаются через переменные окружения, а не через интерполяцию в код.
+> См. `http_server.py:149-196` — `_start_web_ui_subprocess()` использует `child_env`.
 
 **Файл:** `src/codelab/server/http_server.py`, метод `_start_web_ui_subprocess()`
 
@@ -136,7 +147,11 @@ self._web_ui_process = subprocess.Popen(
 
 ## 2. Архитектурные проблемы
 
-### 🟠 ARCH-01 — Двойной кэш сессий с расходящимся состоянием
+### 🟠 ARCH-01 — Двойной кэш сессий с расходящимся состоянием ⚠️ ЧАСТИЧНО ИСПРАВЛЕНО
+
+> **Статус:** Частично исправлено. `ACPProtocol._sessions` удалён — сессии читаются напрямую из `Storage`.
+> Добавлен `StorageConfig.session_cache_size` (LRU 200) в `config.py:89`.
+> Метод `_hydrate_session_cache_from_storage()` удалён.
 
 В системе два независимых кэша:
 
@@ -154,7 +169,10 @@ self._web_ui_process = subprocess.Popen(
 
 ---
 
-### 🟠 ARCH-02 — Дублирование модулей `content`
+### 🟠 ARCH-02 — Дублирование модулей `content` ❌ НЕ ИСПРАВЛЕНО
+
+> **Статус:** Не исправлено. По-прежнему существуют три пакета с пересекающимися файлами:
+> `server/protocol/content/`, `shared/content/`, `client/domain/content/`.
 
 В проекте два пакета с пересекающимися файлами:
 
@@ -169,7 +187,10 @@ self._web_ui_process = subprocess.Popen(
 
 ---
 
-### 🟠 ARCH-03 — `_hydrate_session_cache_from_storage()` загружает все сессии в память
+### ~~🟠 ARCH-03 — `_hydrate_session_cache_from_storage()` загружает все сессии в память~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Метод `_hydrate_session_cache_from_storage()` удалён.
+> Сессии читаются напрямую из `Storage` с LRU-кэшем (`StorageConfig.session_cache_size`).
 
 **Файл:** `src/codelab/server/protocol/core.py`
 
@@ -191,7 +212,10 @@ async def _hydrate_session_cache_from_storage(self) -> None:
 
 ---
 
-### 🟡 ARCH-04 — `asyncio.Future` в `SessionState` — несериализуемые данные
+### ~~🟡 ARCH-04 — `asyncio.Future` в `SessionState` — несериализуемые данные~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Создан `PendingRequestRegistry` (`pending_registry.py`).
+> `SessionState` больше не содержит `asyncio.Future` — поле исключено из персистентной структуры.
 
 **Файл:** `src/codelab/server/protocol/state.py`
 
@@ -205,7 +229,10 @@ pending_permission_requests: dict[JsonRpcId, asyncio.Future] = field(default_fac
 
 ---
 
-### 🟡 ARCH-05 — `PromptOrchestrator` создаётся заново при каждом вызове `execute_pending_tool`
+### ~~🟡 ARCH-05 — `PromptOrchestrator` создаётся заново при каждом вызове~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `PromptOrchestrator` инжектируется через конструктор `ACPProtocol`
+> (`core.py:84` — `prompt_orchestrator: PromptOrchestrator | None = prompt_orchestrator`).
 
 **Файл:** `src/codelab/server/protocol/core.py`
 
@@ -223,7 +250,11 @@ orchestrator = prompt.create_prompt_orchestrator(
 
 ---
 
-### 🟡 ARCH-06 — Singleton `GlobalPolicyManager` с проблемным `asyncio.Lock`
+### ~~🟡 ARCH-06 — Singleton `GlobalPolicyManager` с проблемным `asyncio.Lock`~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `_get_lock()` с ленивой инициализацией в текущем event loop
+> (`global_policy_manager.py:39-48`). Добавлена `reset_for_testing()` для тестов.
+> Фикстура `reset_global_policy_manager` в `conftest.py:20-27` с `autouse=True`.
 
 **Файл:** `src/codelab/server/protocol/handlers/global_policy_manager.py`
 
@@ -246,7 +277,10 @@ def _get_lock(cls) -> asyncio.Lock:
 
 ---
 
-### 🟡 ARCH-07 — Самописный DI-контейнер не делает Dependency Injection
+### 🟡 ARCH-07 — Самописный DI-контейнер не делает Dependency Injection ❌ НЕ ИСПРАВЛЕНО
+
+> **Статус:** Не исправлено. `DIContainer` (`di_container.py:33`) всё ещё используется.
+> `dishka` не добавлен в зависимости. `SCOPED` работает как `SINGLETON` (`di_container.py:131`).
 
 **Файлы:** `src/codelab/client/infrastructure/di_container.py`, `di_bootstrapper.py`, `presentation/view_model_factory.py`
 
@@ -378,7 +412,11 @@ async def main(host: str, port: int, cwd: str) -> None:
 
 ## 3. Сложность кода
 
-### 🟠 CMPLX-01 — `PromptOrchestrator` нарушает Single Responsibility Principle
+### ~~🟠 CMPLX-01 — `PromptOrchestrator` нарушает Single Responsibility Principle~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Создан `pipeline/` с 5 stages:
+> `ValidationStage`, `SlashCommandStage`, `PlanBuildingStage`, `LLMLoopStage`, `TurnLifecycleStage`.
+> См. `handlers/pipeline/__init__.py`.
 
 **Файл:** `src/codelab/server/protocol/handlers/prompt_orchestrator.py` (~700 строк)
 
@@ -401,7 +439,10 @@ class PromptPipeline:
 
 ---
 
-### 🟡 CMPLX-02 — Ручная сериализация в `JsonFileStorage` вместо Pydantic
+### ~~🟡 CMPLX-02 — Ручная сериализация в `JsonFileStorage` вместо Pydantic~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `SessionState` — `pydantic.BaseModel` с `field_serializer`,
+> `model_validator` для миграции (`state.py:21-96`). Ручная сериализация удалена.
 
 **Файл:** `src/codelab/server/storage/json_file.py` (~250 строк только сериализации)
 
@@ -419,7 +460,10 @@ session = SessionState.model_validate(data)
 
 ---
 
-### 🟡 CMPLX-03 — Монолитный `ACPProtocol.handle()` — 400+ строк, 15 ветвей
+### ~~🟡 CMPLX-03 — Монолитный `ACPProtocol.handle()` — 400+ строк, 15 ветвей~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Реестр обработчиков `self._handlers: dict[str, MethodHandler]`
+> с 13 методами (`core.py:155-169`). Middleware support добавлен (`core.py:172`).
 
 **Файл:** `src/codelab/server/protocol/core.py`
 
@@ -441,7 +485,9 @@ async def handle(self, message: ACPMessage) -> ProtocolOutcome:
 
 ---
 
-### 🟡 CMPLX-04 — Дублирующаяся логика в `PermissionManager`
+### 🟡 CMPLX-04 — Дублирующаяся логика в `PermissionManager` ⚠️ ТРЕБУЕТ ПРОВЕРКИ
+
+> **Статус:** Требуется проверка актуального состояния `permission_manager.py`.
 
 **Файл:** `src/codelab/server/protocol/handlers/permission_manager.py`
 
@@ -467,7 +513,9 @@ def get_remembered_permission(self, session, tool_kind) -> str:
 
 ## 4. Нарушения best practices
 
-### 🟠 BP-01 — Нарушение Liskov Substitution Principle в `ACPTransportService`
+### 🟠 BP-01 — Нарушение Liskov Substitution Principle в `ACPTransportService` ⚠️ ТРЕБУЕТ ПРОВЕРКИ
+
+> **Статус:** Требуется проверка актуального состояния `acp_transport_service.py`.
 
 **Файл:** `src/codelab/client/infrastructure/services/acp_transport_service.py`
 
@@ -484,15 +532,20 @@ async def listen(self) -> AsyncIterator[dict[str, Any]]:  # type: ignore[overrid
 
 ---
 
-### 🟡 BP-02 — 34 подавления `# type: ignore` маскируют архитектурные проблемы
+### 🟡 BP-02 — 109 подавлений `# type: ignore` маскируют архитектурные проблемы ❌ НЕ ИСПРАВЛЕНО
 
-В кодовой базе 34 вхождения `# type: ignore`. Большинство связаны с типизацией `Observable`, дженериками в DI-контейнере и несоответствием интерфейсов. Часть из них скрывает реальные проблемы (неверные типы `Path` в `Observable[None]`, `call-top-callable` в DI).
+> **Статус:** Не исправлено. Количество выросло с 34 до **109** вхождений.
+> Основные источники: `openai_provider.py` (14), тесты mock объектов (~50), DI-контейнер.
+
+В кодовой базе 109 вхождений `# type: ignore`. Большинство связаны с типизацией `Observable`, дженериками в DI-контейнере и несоответствием интерфейсов. Часть из них скрывает реальные проблемы (неверные типы `Path` в `Observable[None]`, `call-top-callable` в DI).
 
 **Рекомендация:** Провести аудит каждого `# type: ignore`. Допустимы только те, что обходят подтверждённые баги внешних библиотек — каждый должен иметь комментарий с объяснением и ссылкой на issue.
 
 ---
 
-### 🟡 BP-03 — `mcp_manager: Any` в `SessionState`
+### 🟡 BP-03 — `mcp_manager: Any` в `SessionState` ❌ НЕ ИСПРАВЛЕНО
+
+> **Статус:** Не исправлено. `state.py:77` — `mcp_manager: Any = Field(default=None, exclude=True)`.
 
 **Файл:** `src/codelab/server/protocol/state.py`
 
@@ -512,7 +565,10 @@ mcp_manager: "MCPManager | None" = None
 
 ---
 
-### 🟡 BP-04 — Отсутствует ограничение размера WebSocket сообщений
+### ~~🟡 BP-04 — Отсутствует ограничение размера WebSocket сообщений~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. `WebSocketConfig.max_msg_size` (4 МБ по умолчанию) в `config.py:102-104`.
+> Применяется в `http_server.py:524` — `max_msg_size=self.config.websocket.max_msg_size`.
 
 В `ACPHttpServer` не задан максимальный размер входящего WebSocket сообщения. Клиент может отправить сообщение размером в гигабайты, что приведёт к OOM.
 
@@ -524,7 +580,9 @@ ws = web.WebSocketResponse(max_msg_size=1 * 1024 * 1024)  # 1 MB
 
 ---
 
-### 🟡 BP-05 — Логирование через f-strings в structlog
+### 🟡 BP-05 — Логирование через f-strings в structlog ❌ НЕ ИСПРАВЛЕНО
+
+> **Статус:** Не исправлено. `global_policy_manager.py:100,102,142` — `logger.debug(f"...")`.
 
 В `global_policy_storage.py` и ряде других файлов structlog используется с f-strings вместо ключевых аргументов — теряется структурированность и возможность машинной обработки логов:
 
@@ -538,14 +596,11 @@ logger.debug("policy_file_not_found", path=str(self._storage_path))
 
 ---
 
-### 🟡 BP-07 — TODO без привязки к задачам
+### 🟡 BP-07 — TODO без привязки к задачам ⚠️ ЧАСТИЧНО ИСПРАВЛЕНО
 
-Четыре незавершённых TODO, в том числе критичный:
-
-```python
-# src/codelab/client/infrastructure/handlers/file_system_handler.py:147
-# TODO: Запросить разрешение у пользователя (Фаза 5)
-```
+> **Статус:** Частично. `file_system_handler.py:113` — `TODO: Фаза 5` остаётся.
+> Остальные TODO из оригинального ревью убраны или реализованы.
+> Оставшиеся TODO в коде: `di_container.py:131` (scopes), `terminal_panel.py:421` (копирование).
 
 Обработчик файловой системы выполняет операции записи без запроса разрешения у пользователя (заглушка). Это не только незавершённая функциональность, но и потенциальная проблема безопасности: агент может перезаписать файлы без подтверждения.
 
@@ -553,7 +608,10 @@ logger.debug("policy_file_not_found", path=str(self._storage_path))
 
 ## 5. Состояние тестов
 
-### 🟡 TEST-01 — Отсутствуют тесты для security-путей
+### ~~🟡 TEST-01 — Отсутствуют тесты для security-путей~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Добавлены тесты path traversal (`test_file_system_executor.py:225-268`)
+> и shell injection (`test_terminal_executor.py:227`).
 
 Нет тестов для:
 - Проверки path traversal в `FileSystemExecutor._validate_path()` — ключевые граничные случаи (`/base_evil`, `/../`, symlink escape).
@@ -561,7 +619,10 @@ logger.debug("policy_file_not_found", path=str(self._storage_path))
 
 ---
 
-### 🟡 TEST-02 — Неизолированный Singleton `GlobalPolicyManager` в тестах
+### ~~🟡 TEST-02 — Неизолированный Singleton `GlobalPolicyManager` в тестах~~ ✅ ИСПРАВЛЕНО
+
+> **Статус:** Исправлено. Фикстура `reset_global_policy_manager` в `conftest.py:20-27`
+> с `autouse=True`. `GlobalPolicyManager.reset_for_testing()` вызывается до и после каждого теста.
 
 `GlobalPolicyManager._instance` — класс-уровневый singleton, не сбрасывается между тестами. Если один тест инициализирует singleton с одними настройками, последующие тесты получат то же состояние. Это приводит к не детерминированным результатам в зависимости от порядка запуска тестов.
 
@@ -577,7 +638,9 @@ def reset_global_policy_manager():
 
 ---
 
-### 🟡 TEST-03 — `PytestCollectionWarning` на классе `TestViewModel`
+### 🟡 TEST-03 — `PytestCollectionWarning` на классе `TestViewModel` ❌ НЕ ИСПРАВЛЕНО
+
+> **Статус:** Не исправлено. `test_presentation_base_view_model.py:10` — всё ещё `class TestViewModel`.
 
 **Файл:** `tests/client/test_presentation_base_view_model.py`
 
@@ -590,7 +653,9 @@ because it has a __init__ constructor
 
 ---
 
-### 🟡 TEST-04 — Контентные тесты дублируются в `tests/server/` и `tests/client/`
+### 🟡 TEST-04 — Контентные тесты дублируются в `tests/server/` и `tests/client/` ⚠️ СЛЕДУЕТ ИЗ ARCH-02
+
+> **Статус:** Следует из ARCH-02. При объединении content пакетов дублирование тестов исчезнет.
 
 Тесты для content-моделей присутствуют в обеих директориях (`test_content_audio.py`, `test_content_base.py`, `test_content_embedded.py` и т.д.), что является следствием дублирования самих модулей (см. ARCH-02). При устранении ARCH-02 тестовое дублирование исчезнет автоматически.
 
@@ -600,29 +665,29 @@ because it has a __init__ constructor
 
 ### Фаза 1 — Критические баги и безопасность (Sprint 1, ~1.5 недели)
 
-| # | Задача | Файл | Оценка |
-|---|--------|------|--------|
-| 1.1 | Заменить `shell=True` на `shlex.split` + `shell=False` | `terminal_executor.py` | 2 ч |
-| 1.2 | Исправить path traversal: `startswith` → `is_relative_to` | `file_system_executor.py` | 1 ч |
-| 1.3 | Устранить f-string инъекцию в Web UI subprocess | `http_server.py` | 2 ч |
-| 1.4 | Реализовать TODO: запрос разрешения в `file_system_handler.py` | `handlers/file_system_handler.py` | 4 ч |
-| 1.5 | Вынести `asyncio.Future` из `SessionState` в `PendingRequestRegistry` | `state.py`, `core.py` | 5 ч |
-| 1.7 | Добавить ограничение размера WebSocket сообщений | `http_server.py` | 1 ч |
+| # | Задача | Файл | Оценка | Статус |
+|---|--------|------|--------|--------|
+| 1.1 | Заменить `shell=True` на `shlex.split` + `shell=False` | `terminal_executor.py` | 2 ч | ✅ |
+| 1.2 | Исправить path traversal: `startswith` → `is_relative_to` | `file_system_executor.py` | 1 ч | ✅ |
+| 1.3 | Устранить f-string инъекцию в Web UI subprocess | `http_server.py` | 2 ч | ✅ |
+| 1.4 | Реализовать TODO: запрос разрешения в `file_system_handler.py` | `handlers/file_system_handler.py` | 4 ч | ❌ |
+| 1.5 | Вынести `asyncio.Future` из `SessionState` в `PendingRequestRegistry` | `state.py`, `core.py` | 5 ч | ✅ |
+| 1.7 | Добавить ограничение размера WebSocket сообщений | `http_server.py` | 1 ч | ✅ |
 
 ---
 
 ### Фаза 2 — Архитектурные улучшения (Sprint 2–3, ~3 недели)
 
-| # | Задача | Файл | Оценка |
-|---|--------|------|--------|
-| 2.1 | Устранить двойной кэш: убрать `_sessions` из `ACPProtocol`, добавить LRU в Storage | `core.py`, `storage/` | 1.5 дня |
-| 2.2 | Объединить дублирующиеся `content` пакеты | `server/protocol/content/`, `shared/content/` | 1 день |
-| 2.3 | Заменить ручную сериализацию в `JsonFileStorage` на Pydantic | `json_file.py` | 1.5 дня |
-| 2.4 | Разбить `PromptOrchestrator` на Pipeline stages | `prompt_orchestrator.py` | 2 дня |
-| 2.5 | Заменить цепочку `if method ==` в `handle()` на реестр обработчиков | `core.py` | 1 день |
-| 2.6 | Исправить `asyncio.Lock` в `GlobalPolicyManager` (ленивая инициализация) | `global_policy_manager.py` | 3 ч |
-| 2.7 | Инжектировать `PromptOrchestrator` через конструктор `ACPProtocol` | `core.py` | 2 ч |
-| 2.8 | **Заменить самописный DI-контейнер на `dishka`** (см. ARCH-07) | `di_container.py`, `di_bootstrapper.py`, `view_model_factory.py` | 2 дня |
+| # | Задача | Файл | Оценка | Статус |
+|---|--------|------|--------|--------|
+| 2.1 | Устранить двойной кэш: убрать `_sessions` из `ACPProtocol`, добавить LRU в Storage | `core.py`, `storage/` | 1.5 дня | ✅ |
+| 2.2 | Объединить дублирующиеся `content` пакеты | `server/protocol/content/`, `shared/content/` | 1 день | ❌ |
+| 2.3 | Заменить ручную сериализацию в `JsonFileStorage` на Pydantic | `json_file.py` | 1.5 дня | ✅ |
+| 2.4 | Разбить `PromptOrchestrator` на Pipeline stages | `prompt_orchestrator.py` | 2 дня | ✅ |
+| 2.5 | Заменить цепочку `if method ==` в `handle()` на реестр обработчиков | `core.py` | 1 день | ✅ |
+| 2.6 | Исправить `asyncio.Lock` в `GlobalPolicyManager` (ленивая инициализация) | `global_policy_manager.py` | 3 ч | ✅ |
+| 2.7 | Инжектировать `PromptOrchestrator` через конструктор `ACPProtocol` | `core.py` | 2 ч | ✅ |
+| 2.8 | **Заменить самописный DI-контейнер на `dishka`** (см. ARCH-07) | `di_container.py`, `di_bootstrapper.py`, `view_model_factory.py` | 2 дня | ❌ |
 
 > **Примечание к 2.8.** Миграция на `dishka` попутно закрывает: пост-конструкционную мутацию `_permission_handler`, нереализованный `SCOPED`-scope, синхронный `dispose()` для async-ресурсов и `# type: ignore[call-top-callable]` в `Registration.create()`. Чистый выигрыш: −440 строк кода, +корректный async lifecycle.
 
@@ -630,32 +695,43 @@ because it has a __init__ constructor
 
 ### Фаза 3 — Качество кода (Sprint 4–5, ~2 недели)
 
-| # | Задача | Файл | Оценка |
-|---|--------|------|--------|
-| 3.1 | Аудит и устранение 34 `# type: ignore` | Весь проект | 2 дня |
-| 3.2 | Исправить нарушение LSP в `ACPTransportService.listen()` | `acp_transport_service.py` | 3 ч |
-| 3.3 | Заменить `mcp_manager: Any` на строгий тип через `TYPE_CHECKING` | `state.py` | 1 ч |
-| 3.4 | Унифицировать structlog — убрать f-strings | `global_policy_storage.py` и др. | 2 ч |
-| 3.5 | Объединить дублирующуюся логику в `PermissionManager` | `permission_manager.py` | 2 ч |
-| 3.6 | Добавить тесты для security-путей (path traversal, shell injection) | `tests/` | 1 день |
-| 3.7 | Добавить фикстуру сброса `GlobalPolicyManager` между тестами | `tests/conftest.py` | 1 ч |
-| 3.8 | Добавить rate limiting на метод `authenticate` | `auth.py`, `http_server.py` | 4 ч |
-| 3.9 | Переименовать `TestViewModel` → `BaseViewModelForTest` | `tests/client/` | 30 мин |
+| # | Задача | Файл | Оценка | Статус |
+|---|--------|------|--------|--------|
+| 3.1 | Аудит и устранение 109 `# type: ignore` (было 34) | Весь проект | 3 дня | ❌ |
+| 3.2 | Исправить нарушение LSP в `ACPTransportService.listen()` | `acp_transport_service.py` | 3 ч | ⚠️ |
+| 3.3 | Заменить `mcp_manager: Any` на строгий тип через `TYPE_CHECKING` | `state.py` | 1 ч | ❌ |
+| 3.4 | Унифицировать structlog — убрать f-strings | `global_policy_storage.py` и др. | 2 ч | ❌ |
+| 3.5 | Объединить дублирующуюся логику в `PermissionManager` | `permission_manager.py` | 2 ч | ⚠️ |
+| 3.6 | Добавить тесты для security-путей (path traversal, shell injection) | `tests/` | 1 день | ✅ |
+| 3.7 | Добавить фикстуру сброса `GlobalPolicyManager` между тестами | `tests/conftest.py` | 1 ч | ✅ |
+| 3.8 | Добавить rate limiting на метод `authenticate` | `auth.py`, `http_server.py` | 4 ч | ❌ |
+| 3.9 | Переименовать `TestViewModel` → `BaseViewModelForTest` | `tests/client/` | 30 мин | ❌ |
 
 ---
 
 ### Итоговый roadmap
 
 ```
-Неделя 1:    Фаза 1 — безопасность и критические баги
-Неделя 2–3:  Фаза 2, задачи 2.1–2.3 (кэш, дублирование, сериализация)
-Неделя 3–4:  Фаза 2, задачи 2.4–2.7 (рефакторинг PromptOrchestrator и ACPProtocol)
-Неделя 4:    Фаза 2, задача 2.8 — миграция DI-контейнера на dishka
-Неделя 5–6:  Фаза 3 — типизация, тесты, polish
+Выполнено (13 из 23 задач):
+  ✅ Фаза 1: 5/6 — безопасность и критические баги
+  ✅ Фаза 2: 6/8 — кэш, сериализация, Pipeline, реестр обработчиков
+  ✅ Фаза 3: 2/9 — security тесты, фикстура GlobalPolicyManager
+
+Осталось (10 задач, ~10 рабочих дней):
+  ❌ 1.4 — запрос разрешения в file_system_handler.py (4 ч)
+  ❌ 2.2 — объединить content пакеты (1 день)
+  ❌ 2.8 — миграция DI-контейнера на dishka (2 дня)
+  ❌ 3.1 — аудит 109 # type: ignore (3 дня)
+  ❌ 3.3 — mcp_manager: Any → строгий тип (1 ч)
+  ❌ 3.4 — убрать f-strings в structlog (2 ч)
+  ❌ 3.8 — rate limiting на authenticate (4 ч)
+  ❌ 3.9 — переименовать TestViewModel (30 мин)
+  ⚠️ 3.2 — LSP в ACPTransportService (3 ч, требует проверки)
+  ⚠️ 3.5 — дублирование в PermissionManager (2 ч, требует проверки)
 ```
 
-**Общая оценка:** ~24–28 рабочих дней для одного разработчика, ~15–17 при двух.
+**Общая оценка:** ~~24–28~~ **~10 рабочих дней** для одного разработчика (осталось 10 задач из 23).
 
 ---
 
-*Отчёт подготовлен на основании анализа исходного кода директории `codelab/`. Строки кода указаны на момент анализа (2026-04-25) и могут измениться.*
+*Отчёт подготовлен на основании анализа исходного кода директории `codelab/`. Актуализирован 2026-05-14.*
