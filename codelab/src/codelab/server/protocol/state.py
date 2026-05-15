@@ -10,12 +10,15 @@ tool calls, и других компонентов протокола.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from ..messages import ACPMessage, JsonRpcId
 from ..models import AvailableCommand, HistoryMessage, PlanStep
+
+if TYPE_CHECKING:
+    from ..mcp.manager import MCPManager
 
 
 class SessionState(BaseModel):
@@ -74,7 +77,7 @@ class SessionState(BaseModel):
     # MCPManager для управления подключёнными MCP серверами.
     # Используется для интеграции с внешними MCP серверами и их инструментами.
     # Runtime-поле: не сериализуется, пересоздаётся при session/load.
-    mcp_manager: Any = Field(default=None, exclude=True)
+    mcp_manager: MCPManager | None = Field(default=None, exclude=True)
 
     @field_serializer("cancelled_permission_requests", "cancelled_client_rpc_requests")
     def serialize_set(self, value: set) -> list:
