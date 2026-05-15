@@ -493,7 +493,7 @@ class ACPTransportService(TransportService):
         params: dict[str, Any] | None = None,
         on_update: Callable[[dict[str, Any]], None] | None = None,
         on_fs_read: Callable[[str], str] | None = None,
-        on_fs_write: Callable[[str, str], str | None] | None = None,
+            on_fs_write: Callable[[str, str], bool] | None = None,
         on_terminal_create: Callable[[str], str] | None = None,
         on_terminal_output: Callable[[str], dict[str, Any]] | None = None,
         on_terminal_wait: Callable[[str], int | tuple[int | None, str | None]] | None = None,
@@ -864,7 +864,7 @@ class ACPTransportService(TransportService):
         notification_data: dict[str, Any],
         on_update: Callable[[dict[str, Any]], None] | None,
         on_fs_read: Callable[[str], str] | None,
-        on_fs_write: Callable[[str, str], str | None] | None,
+        on_fs_write: Callable[[str, str], bool] | None,
         on_terminal_create: Callable[[str], str] | None,
         on_terminal_output: Callable[[str], dict[str, Any]] | None,
         on_terminal_wait: Callable[[str], int | tuple[int | None, str | None]] | None,
@@ -959,25 +959,46 @@ class ACPTransportService(TransportService):
                 text_size=len(text) if isinstance(text, str) else 0,
                 has_callback=on_fs_write is not None,
             )
-            if on_fs_write is not None and isinstance(path, str) and isinstance(text, str):
-                on_fs_write(path, text)
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            self._logger.debug(
-                "tool_lifecycle_response_sending",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                result_keys=[],
-            )
-            await self.send(ACPMessage.response(notification.id, {}).to_dict())
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
+            try:
+                success = (
+                    on_fs_write(path, text)
+                    if on_fs_write is not None and isinstance(path, str) and isinstance(text, str)
+                    else False
+                )
+                self._logger.debug(
+                    "tool_lifecycle_callback_done",
+                    rpc_id=notification.id,
+                    rpc_method=rpc_method,
+                    success=success,
+                )
+                self._logger.debug(
+                    "tool_lifecycle_response_sending",
+                    rpc_id=notification.id,
+                    rpc_method=rpc_method,
+                    result_keys=["success"],
+                )
+                response_data = {"success": success}
+                await self.send(ACPMessage.response(notification.id, response_data).to_dict())
+                self._logger.debug(
+                    "tool_lifecycle_response_sent",
+                    rpc_id=notification.id,
+                    rpc_method=rpc_method,
+                    success=success,
+                )
+            except Exception as e:
+                self._logger.error(
+                    "fs_write_rpc_error",
+                    rpc_id=notification.id,
+                    path=path,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": notification.id,
+                    "error": {"code": -32603, "message": str(e)},
+                }
+                await self.send(error_response)
             return
 
         if rpc_method == "terminal/create":
