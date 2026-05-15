@@ -1,7 +1,7 @@
 # Комплексное ревью кодовой базы: CodeLab (`codelab/`)
 
 **Дата:** 2026-04-25  
-**Последнее обновление:** 2026-05-14 (ARCH-07 ✅, BP-02 ✅, BP-05 ✅, 3.3 ✅)  
+**Последнее обновление:** 2026-05-15 (ARCH-07 ✅, BP-02 ✅, BP-05 ✅, 3.3 ✅, 3.9 ✅)  
 **Область проверки:** `codelab/` (единый пакет сервера и клиента)  
 **Метрики:** 215 файлов Python · ~52 000 строк кода · 147 тестовых файлов · 109 `# type: ignore`
 
@@ -713,26 +713,25 @@ because it has a __init__ constructor
 | 3.6 | Добавить тесты для security-путей (path traversal, shell injection) | `tests/` | 1 день | ✅ |
 | 3.7 | Добавить фикстуру сброса `GlobalPolicyManager` между тестами | `tests/conftest.py` | 1 ч | ✅ |
 | 3.8 | Добавить rate limiting на метод `authenticate` | `auth.py`, `http_server.py` | 4 ч | ❌ |
-| 3.9 | Переименовать `TestViewModel` → `BaseViewModelForTest` | `tests/client/` | 30 мин | ❌ |
+| 3.9 | Переименовать `TestViewModel` → `MockViewModel` | `tests/client/` | 30 мин | ✅ |
 
 ---
 
 ### Итоговый roadmap
 
 ```
-Выполнено (18 из 23 задач):
+Выполнено (19 из 23 задач):
   ✅ Фаза 1: 6/6 — безопасность и критические баги
   ✅ Фаза 2: 8/8 — кэш, сериализация, Pipeline, реестр обработчиков, дедупликация content, DI-контейнер
-  ✅ Фаза 3: 5/9 — security тесты, фикстура GlobalPolicyManager, аудит type: ignore, mcp_manager тип, structlog f-strings
+  ✅ Фаза 3: 6/9 — security тесты, фикстура GlobalPolicyManager, аудит type: ignore, mcp_manager тип, structlog f-strings, TestViewModel
 
-Осталось (4 задачи, ~1.5 рабочих дней):
+Осталось (3 задачи, ~1 рабочий день):
   ❌ 3.8 — rate limiting на authenticate (4 ч)
-  ❌ 3.9 — переименовать TestViewModel (30 мин)
   ⚠️ 3.2 — LSP в ACPTransportService (3 ч, требует проверки)
   ⚠️ 3.5 — дублирование в PermissionManager (2 ч, требует проверки)
 ```
 
-**Общая оценка:** **~1.5 рабочих дней** для одного разработчика (осталось 4 задачи из 23).
+**Общая оценка:** **~1 рабочий день** для одного разработчика (осталось 3 задачи из 23).
 
 ---
 
