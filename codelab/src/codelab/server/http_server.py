@@ -109,7 +109,7 @@ class ACPHttpServer:
         # Реестр инструментов инициализируется в методе run()
         self._tool_registry: ToolRegistry | None = None
         # Subprocess для textual-serve (Web UI)
-        self._web_ui_process: subprocess.Popen | None = None  # type: ignore[type-arg]
+        self._web_ui_process: subprocess.Popen[bytes] | None = None
         # URL для Web UI (локальный адрес)
         self._web_ui_url: str | None = None
 

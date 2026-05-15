@@ -104,7 +104,7 @@ def create_prompt_orchestrator(
         # В реальном коде это должно быть передано из ACPProtocol
         logger.warning("client_rpc_service not provided, using None for compatibility")
         # Для совместимости с session_cancel, который не нуждается в RPC
-        client_rpc_service = None  # type: ignore[assignment]
+        client_rpc_service = None
     else:
         logger.info("client_rpc_service provided")
 

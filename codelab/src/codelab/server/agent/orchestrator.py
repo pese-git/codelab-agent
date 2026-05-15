@@ -166,10 +166,12 @@ class AgentOrchestrator:
         messages: list[LLMMessage] = []
 
         for entry in history:
-            # Конвертировать Pydantic модель в dict если необходимо
-            entry_dict = (
-                entry if isinstance(entry, dict) else entry.model_dump()  # type: ignore[attr-defined]
-            )
+            if isinstance(entry, dict):
+                entry_dict = entry
+            elif hasattr(entry, "model_dump"):
+                entry_dict = entry.model_dump()
+            else:
+                continue
 
             # Определить роль сообщения
             role = entry_dict.get("role", "user")
