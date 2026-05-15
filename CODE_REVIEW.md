@@ -1,7 +1,7 @@
 # Комплексное ревью кодовой базы: CodeLab (`codelab/`)
 
 **Дата:** 2026-04-25  
-**Последнее обновление:** 2026-05-15 (ARCH-07 ✅, BP-02 ✅, BP-05 ✅, 3.3 ✅, 3.9 ✅)  
+**Последнее обновление:** 2026-05-15 (ARCH-07 ✅, BP-02 ✅, BP-05 ✅, 3.3 ✅, 3.5 ✅, 3.9 ✅)  
 **Область проверки:** `codelab/` (единый пакет сервера и клиента)  
 **Метрики:** 215 файлов Python · ~52 000 строк кода · 147 тестовых файлов · 109 `# type: ignore`
 
@@ -480,18 +480,17 @@ async def handle(self, message: ACPMessage) -> ProtocolOutcome:
 
 ---
 
-### 🟡 CMPLX-04 — Дублирующаяся логика в `PermissionManager` ⚠️ ТРЕБУЕТ ПРОВЕРКИ
+### ~~🟡 CMPLX-04 — Дублирующаяся логика в `PermissionManager`~~ ✅ ИСПРАВЛЕНО
 
-> **Статус:** Требуется проверка актуального состояния `permission_manager.py`.
+> **Статус:** Исправлено. Введён `_resolve_policy()` как единый источник truth для policy resolution.
+> `should_request_permission()` и `get_remembered_permission()` делегируют этому методу.
 
 **Файл:** `src/codelab/server/protocol/handlers/permission_manager.py`
 
-Методы `should_request_permission` и `get_remembered_permission` оба читают `permission_policy` и принимают решение на основе одних и тех же значений. При добавлении нового типа политики нужно синхронно обновлять оба метода.
-
-**Исправление:**
+Оба метода читали `session.permission_policy.get(tool_kind)` и принимали решение на основе одних и тех же значений. Теперь используется единый метод `_resolve_policy()`:
 
 ```python
-def _resolve_policy(self, session: SessionState, tool_kind: str) -> Literal["allow", "reject", "ask"]:
+def _resolve_policy(self, session: SessionState, tool_kind: str) -> str:
     match session.permission_policy.get(tool_kind):
         case "allow_always": return "allow"
         case "reject_always": return "reject"
@@ -550,25 +549,23 @@ async def listen(self) -> AsyncIterator[dict[str, Any]]:  # type: ignore[overrid
 
 ---
 
-### 🟡 BP-03 — `mcp_manager: Any` в `SessionState` ❌ НЕ ИСПРАВЛЕНО
+### ~~🟡 BP-03 — `mcp_manager: Any` в `SessionState`~~ ✅ ИСПРАВЛЕНО
 
-> **Статус:** Не исправлено. `state.py:77` — `mcp_manager: Any = Field(default=None, exclude=True)`.
+> **Статус:** Исправлено. `state.py:81` — `mcp_manager: "MCPManager | None"` со строковой аннотацией.
+> Добавлен `_rebuild_models()` для разрешения forward references в Pydantic v2.
 
 **Файл:** `src/codelab/server/protocol/state.py`
 
 ```python
+# Было:
 mcp_manager: Any = None
+
+# Стало:
+mcp_manager: "MCPManager | None" = Field(default=None, exclude=True)  # noqa: UP037
 ```
 
-`Any` отключает статическую типизацию для этого поля. Если прямой импорт `MCPManager` создаёт циклическую зависимость, нужно использовать `TYPE_CHECKING`:
-
-```python
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from ..mcp import MCPManager
-
-mcp_manager: "MCPManager | None" = None
-```
+`MCPManager` импортируется только под `TYPE_CHECKING`, поэтому используется строковая аннотация.
+Функция `_rebuild_models()` вызывается после определения всех классов для разрешения forward references.
 
 ---
 
@@ -707,9 +704,9 @@ because it has a __init__ constructor
 |---|--------|------|--------|--------|
 | 3.1 | Аудит и устранение 109 `# type: ignore` (было 34) | Весь проект | 3 дня | ✅ |
 | 3.2 | Исправить нарушение LSP в `ACPTransportService.listen()` | `acp_transport_service.py` | 3 ч | ⚠️ |
-| 3.3 | Заменить `mcp_manager: Any` на строгий тип через `TYPE_CHECKING` | `state.py` | 1 ч | ❌ |
+| 3.3 | Заменить `mcp_manager: Any` на строгий тип через `TYPE_CHECKING` | `state.py` | 1 ч | ✅ |
 | 3.4 | Унифицировать structlog — убрать f-strings | `global_policy_storage.py` и др. | 2 ч | ✅ |
-| 3.5 | Объединить дублирующуюся логику в `PermissionManager` | `permission_manager.py` | 2 ч | ⚠️ |
+| 3.5 | Объединить дублирующуюся логику в `PermissionManager` | `permission_manager.py` | 2 ч | ✅ |
 | 3.6 | Добавить тесты для security-путей (path traversal, shell injection) | `tests/` | 1 день | ✅ |
 | 3.7 | Добавить фикстуру сброса `GlobalPolicyManager` между тестами | `tests/conftest.py` | 1 ч | ✅ |
 | 3.8 | Добавить rate limiting на метод `authenticate` | `auth.py`, `http_server.py` | 4 ч | ❌ |
@@ -720,18 +717,17 @@ because it has a __init__ constructor
 ### Итоговый roadmap
 
 ```
-Выполнено (19 из 23 задач):
+Выполнено (20 из 23 задач):
   ✅ Фаза 1: 6/6 — безопасность и критические баги
   ✅ Фаза 2: 8/8 — кэш, сериализация, Pipeline, реестр обработчиков, дедупликация content, DI-контейнер
-  ✅ Фаза 3: 6/9 — security тесты, фикстура GlobalPolicyManager, аудит type: ignore, mcp_manager тип, structlog f-strings, TestViewModel
+  ✅ Фаза 3: 7/9 — security тесты, фикстура GlobalPolicyManager, аудит type: ignore, mcp_manager тип, structlog f-strings, TestViewModel, PermissionManager дублирование
 
-Осталось (3 задачи, ~1 рабочий день):
+Осталось (2 задачи, ~7 часов):
   ❌ 3.8 — rate limiting на authenticate (4 ч)
   ⚠️ 3.2 — LSP в ACPTransportService (3 ч, требует проверки)
-  ⚠️ 3.5 — дублирование в PermissionManager (2 ч, требует проверки)
 ```
 
-**Общая оценка:** **~1 рабочий день** для одного разработчика (осталось 3 задачи из 23).
+**Общая оценка:** **~7 часов** для одного разработчика (осталось 2 задачи из 23).
 
 ---
 
