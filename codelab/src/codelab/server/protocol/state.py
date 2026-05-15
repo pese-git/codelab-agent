@@ -48,6 +48,9 @@ class SessionState(BaseModel):
     # Упрощенная история, достаточная для текущих update-сценариев.
     history: list[HistoryMessage | dict[str, Any]] = Field(default_factory=list)
     # Текущее активное выполнение prompt-turn (если есть).
+    # Сериализуется для корректного сопоставления permission/client_rpc ответов
+    # с сессией через find_session_by_permission_request_id.
+    # Очищается при старте нового prompt-turn (см. session_prompt).
     active_turn: ActiveTurnState | None = None
     # Локальный счетчик для стабильной генерации toolCallId.
     tool_call_counter: int = 0

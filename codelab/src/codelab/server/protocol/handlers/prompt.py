@@ -207,6 +207,12 @@ async def session_prompt(
 
     # === ЭТАП 2: Обработка через PromptOrchestrator ===
 
+    # Очищаем stale active_turn от предыдущего незавершённого turn.
+    # Если turn был deferred (ожидает permission/client RPC), а соединение
+    # разорвалось или сервер перезапустился — active_turn остаётся в storage
+    # и блокирует новые запросы. Новый turn создаст свой active_turn.
+    session.active_turn = None
+
     # Если передан agent_orchestrator, использовать оркестратор для полной обработки
     if agent_orchestrator is not None:
         # Создать оркестратор с доступными параметрами
@@ -274,6 +280,40 @@ async def session_prompt(
 
     session.active_turn = ActiveTurnState(prompt_request_id=request_id, session_id=session_id)
 
+    try:
+        outcome = await _handle_prompt_body(
+            session=session,
+            session_id=session_id,
+            request_id=request_id,
+            params=params,
+            prompt=prompt,
+            storage=storage,
+            global_manager=global_manager,
+        )
+        return outcome
+    except Exception:
+        # Гарантированная очистка active_turn при любой ошибке.
+        # Предотвращает вечное состояние "Session busy".
+        session.active_turn = None
+        raise
+
+
+async def _handle_prompt_body(
+    *,
+    session: SessionState,
+    session_id: str,
+    request_id: JsonRpcId | None,
+    params: dict[str, Any],
+    prompt: list[dict[str, Any]],
+    storage: SessionStorage,
+    global_manager: GlobalPolicyManager | None = None,
+) -> ProtocolOutcome:
+    """Основная логика обработки prompt после установки active_turn.
+
+    Вынесена в отдельную функцию для корректной работы try/finally
+    в вызывающем коде. Любое исключение здесь приведёт к сбросу
+    active_turn в блоке except вызывающей функции.
+    """
     # Создать ReplayManager для сохранения событий в events_history
     # Это обеспечивает корректный replay при session/load
     replay_manager = ReplayManager()
