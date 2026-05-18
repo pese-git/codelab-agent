@@ -201,6 +201,7 @@ class PipelineProvider(Provider):
         permission_manager: PermissionManager,
         state_manager: StateManager,
         plan_builder: PlanBuilder,
+        global_policy_manager: GlobalPolicyManager,
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -210,7 +211,7 @@ class PipelineProvider(Provider):
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
-            # global_policy_manager=None (default)
+            global_policy_manager=global_policy_manager,
         )
 
 
@@ -234,6 +235,7 @@ class PromptOrchestratorProvider(Provider):
         tool_registry: ToolRegistryProtocol,
         llm_loop_stage: LLMLoopStage,
         holder: ClientRPCServiceHolder,
+        global_policy_manager: GlobalPolicyManager,
     ) -> PromptOrchestrator:
         """Создаёт PromptOrchestrator со всеми зависимостями."""
         return PromptOrchestrator(
@@ -246,6 +248,7 @@ class PromptOrchestratorProvider(Provider):
             tool_registry=tool_registry,
             llm_loop_stage=llm_loop_stage,
             client_rpc_service_holder=holder,
+            global_policy_manager=global_policy_manager,
         )
 
 
