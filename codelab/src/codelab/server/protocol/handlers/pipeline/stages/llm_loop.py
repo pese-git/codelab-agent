@@ -55,12 +55,28 @@ class LLMLoopStage(PromptStage):
     async def process(self, context: PromptContext) -> PromptContext:
         agent_orchestrator: AgentOrchestrator | None = context.meta.get("agent_orchestrator")
         if agent_orchestrator is None:
-            context.error_response = ACPMessage.error_response(
-                context.request_id,
-                code=-32603,
-                message="Agent orchestrator not configured",
-            )
-            context.should_stop = True
+            # Demo mode: no LLM configured, return simple ack
+            if context.raw_text:
+                ack_text = f"ACK: {context.raw_text[:80]}"
+                ack_content = {"type": "text", "text": ack_text}
+                context.notifications.append(
+                    ACPMessage.notification(
+                        "session/update",
+                        {
+                            "sessionId": context.session_id,
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": ack_content,
+                            },
+                        },
+                    )
+                )
+                # Сохраняем ACK в events_history для replay
+                self._replay_manager.save_agent_message_chunk(context.session, ack_content)
+                # Сохраняем ACK в history для conversation replay
+                self._state_manager.add_assistant_message(context.session, ack_text)
+            # Не переопределяем forced_stop_reason установленный ранее (например, DirectivesStage)
+            # context.stop_reason остаётся тем, что было установлено ранее (по умолчанию "end_turn")
             return context
 
         result = await self.run_loop(

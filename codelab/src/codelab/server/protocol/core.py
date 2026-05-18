@@ -436,10 +436,11 @@ class ACPProtocol:
                 if session_state.active_turn is None:
                     continue
 
-                await prompt.session_cancel(
+                orchestrator = await self._get_prompt_orchestrator()
+                orchestrator.handle_cancel(
                     request_id=None,
                     params={"sessionId": session_state.session_id},
-                    storage=self._storage,
+                    session=session_state,
                 )
                 cancelled_count += 1
 
@@ -454,27 +455,91 @@ class ACPProtocol:
 
         return cancelled_count
 
-    async def _get_prompt_orchestrator(self) -> PromptOrchestrator | None:
+    async def _get_prompt_orchestrator(self) -> PromptOrchestrator:
         """Получить PromptOrchestrator.
 
         Если передан явно в конструктор — использует его.
         Если нет — создаёт лениво при первом обращении.
+        Если tool_registry не настроен, создаёт SimpleToolRegistry по умолчанию.
 
         Returns:
-            PromptOrchestrator или None, если tool_registry не настроен.
+            PromptOrchestrator (всегда не None).
         """
         if self._prompt_orchestrator is not None:
             return self._prompt_orchestrator
 
+        from .handlers.client_rpc_handler import ClientRPCHandler
+        from ..tools.registry import SimpleToolRegistry
+
         if self._tool_registry is None:
-            return None
+            self._tool_registry = SimpleToolRegistry()
+        from .handlers.permission_manager import PermissionManager
+        from .handlers.pipeline import (
+            PlanBuildingStage,
+            PromptPipeline,
+            SlashCommandStage,
+            TurnLifecycleStage,
+            ValidationStage,
+        )
+        from .handlers.pipeline.stages import LLMLoopStage
+        from .handlers.pipeline.stages.directives import DirectivesStage
+        from .handlers.plan_builder import PlanBuilder
+        from .handlers.prompt_orchestrator import PromptOrchestrator
+        from .handlers.slash_commands import CommandRegistry, SlashCommandRouter
+        from .handlers.slash_commands.builtin import (
+            HelpCommandHandler,
+            ModeCommandHandler,
+            StatusCommandHandler,
+        )
+        from .handlers.state_manager import StateManager
+        from .handlers.tool_call_handler import ToolCallHandler
+        from .handlers.turn_lifecycle_manager import TurnLifecycleManager
 
-        from .handlers.prompt import create_prompt_orchestrator
+        state_manager = StateManager()
+        plan_builder = PlanBuilder()
+        turn_lifecycle_manager = TurnLifecycleManager()
+        tool_call_handler = ToolCallHandler()
+        permission_manager = PermissionManager()
+        client_rpc_handler = ClientRPCHandler()
 
-        self._prompt_orchestrator = create_prompt_orchestrator(
+        llm_loop_stage = LLMLoopStage(
             tool_registry=self._tool_registry,
+            tool_call_handler=tool_call_handler,
+            permission_manager=permission_manager,
+            state_manager=state_manager,
+            plan_builder=plan_builder,
+            global_policy_manager=self._global_policy_manager,
+        )
+
+        command_registry = CommandRegistry()
+        slash_router = SlashCommandRouter(command_registry)
+        command_registry.register(StatusCommandHandler())
+        command_registry.register(ModeCommandHandler())
+        command_registry.register(HelpCommandHandler(command_registry))
+
+        pipeline = PromptPipeline(stages=[
+            ValidationStage(state_manager),
+            SlashCommandStage(slash_router),
+            PlanBuildingStage(plan_builder),
+            TurnLifecycleStage(turn_lifecycle_manager, action="open"),
+            DirectivesStage(self._tool_registry, permission_manager),
+            llm_loop_stage,
+            TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+        ])
+
+        self._prompt_orchestrator = PromptOrchestrator(
+            state_manager=state_manager,
+            plan_builder=plan_builder,
+            turn_lifecycle_manager=turn_lifecycle_manager,
+            tool_call_handler=tool_call_handler,
+            permission_manager=permission_manager,
+            client_rpc_handler=client_rpc_handler,
+            tool_registry=self._tool_registry,
+            llm_loop_stage=llm_loop_stage,
             client_rpc_service=self._client_rpc_service,
             global_policy_manager=self._global_policy_manager,
+            command_registry=command_registry,
+            pipeline=pipeline,
         )
         return self._prompt_orchestrator
 
@@ -603,106 +668,100 @@ class ACPProtocol:
     async def _handle_session_prompt(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/prompt."""
         params = message.params or {}
-        
-        # Попробовать использовать DI-injected orchestrator
+
         orchestrator = await self._get_prompt_orchestrator()
-        if orchestrator is not None:
-            session_id = params.get("sessionId")
-            if not isinstance(session_id, str):
-                return ProtocolOutcome(
-                    response=ACPMessage.error_response(
-                        message.id,
-                        code=-32602,
-                        message="Invalid params: sessionId is required",
-                    )
+        session_id = params.get("sessionId")
+        if not isinstance(session_id, str):
+            return ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    message.id,
+                    code=-32602,
+                    message="Invalid params: sessionId is required",
                 )
-
-            session = await self._storage.load_session(session_id)
-            if session is None:
-                return ProtocolOutcome(
-                    response=ACPMessage.error_response(
-                        message.id,
-                        code=-32001,
-                        message=f"Session not found: {session_id}",
-                    )
-                )
-
-            # Очищаем stale active_turn от предыдущего незавершённого turn.
-            # Если turn был deferred (ожидает permission/client RPC), а соединение
-            # разорвалось или сервер перезапустился — active_turn остаётся в storage
-            # и блокирует новые запросы. Новый turn создаст свой active_turn.
-            session.active_turn = None
-
-            outcome = await orchestrator.handle_prompt(
-                request_id=message.id,
-                params=params,
-                session=session,
-                storage=self._storage,
-                agent_orchestrator=self._agent_orchestrator,  # type: ignore[arg-type]
             )
 
-            # Сохраняем сессию (критично для permission flow)
-            try:
-                await self._storage.save_session(session)
-            except Exception as e:
-                logger.error(
-                    "failed_to_save_session_after_prompt",
-                    session_id=session_id,
-                    error=str(e),
+        session = await self._storage.load_session(session_id)
+        if session is None:
+            return ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    message.id,
+                    code=-32001,
+                    message=f"Session not found: {session_id}",
                 )
+            )
 
-            return outcome
-        
-        # Fallback к legacy handler для обратной совместимости (тесты)
-        from .handlers import prompt
-        return await prompt.session_prompt(
-            message.id,
-            params,
-            self._storage,
-            self._config_specs,
-            agent_orchestrator=self._agent_orchestrator,
-            tool_registry=self._tool_registry,
-            client_rpc_service=self._client_rpc_service,
-            global_manager=self._global_policy_manager,
+        # Очищаем stale active_turn от предыдущего незавершённого turn.
+        # Если turn был deferred (ожидает permission/client RPC), а соединение
+        # разорвалось или сервер перезапустился — active_turn остаётся в storage
+        # и блокирует новые запросы. Новый turn создаст свой active_turn.
+        session.active_turn = None
+
+        outcome = await orchestrator.handle_prompt(
+            request_id=message.id,
+            params=params,
+            session=session,
+            storage=self._storage,
+            agent_orchestrator=self._agent_orchestrator,  # type: ignore[arg-type]
         )
+
+        # Сохраняем сессию (критично для permission flow)
+        try:
+            await self._storage.save_session(session)
+        except Exception as e:
+            logger.error(
+                "failed_to_save_session_after_prompt",
+                session_id=session_id,
+                error=str(e),
+            )
+
+        return outcome
 
     async def _handle_session_cancel(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/cancel."""
         params = message.params or {}
-        
-        # Попробовать использовать DI-injected orchestrator
+
         orchestrator = await self._get_prompt_orchestrator()
-        if orchestrator is not None:
-            session_id = params.get("sessionId")
-            if not isinstance(session_id, str):
-                return ProtocolOutcome(response=None, notifications=[])
+        session_id = params.get("sessionId")
+        if not isinstance(session_id, str):
+            return ProtocolOutcome(response=None, notifications=[])
 
-            session = await self._storage.load_session(session_id)
-            if session is None:
-                return ProtocolOutcome(
-                    response=ACPMessage.response(message.id, None),
-                    notifications=[],
-                )
-
-            outcome = orchestrator.handle_cancel(
-                request_id=message.id,
-                params=params,
-                session=session,
+        session = await self._storage.load_session(session_id)
+        if session is None:
+            return ProtocolOutcome(
+                response=ACPMessage.response(message.id, None),
+                notifications=[],
             )
 
+        outcome = orchestrator.handle_cancel(
+            request_id=message.id,
+            params=params,
+            session=session,
+        )
+
+        await self._storage.save_session(session)
+
+        # Если cancel завершил deferred turn, отправляем followup response на prompt request
+        followup: list[ACPMessage] = list(outcome.followup_responses)
+        pending = session.pending_prompt_response
+        if pending is not None:
+            followup.append(
+                ACPMessage.response(
+                    pending["request_id"],
+                    {"stopReason": pending["stop_reason"]},
+                )
+            )
+            session.pending_prompt_response = None
             await self._storage.save_session(session)
 
-            return ProtocolOutcome(
-                response=outcome.response or ACPMessage.response(message.id, None),
-                notifications=outcome.notifications,
-            )
-        
-        # Fallback к legacy handler для обратной совместимости (тесты)
-        from .handlers import prompt
-        return await prompt.session_cancel(
-            message.id,
-            params,
-            self._storage,
+        # Для notification (id=None) не отправляем response
+        cancel_response = outcome.response or (
+            ACPMessage.response(message.id, None) if message.id is not None else None
+        )
+
+        return ProtocolOutcome(
+            response=cancel_response,
+            notifications=outcome.notifications,
+            followup_responses=followup,
         )
 
     async def _handle_permission_response_method(self, message: ACPMessage) -> ProtocolOutcome:

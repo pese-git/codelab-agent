@@ -192,6 +192,21 @@ class PromptOrchestrator:
         # Добавить session info независимо от того, завершён turn или отложен
         summary = self.state_manager.get_session_summary(session)
         result.notifications.append(_build_session_info_notification(session_id, summary))
+
+        from .session import _serialize_available_commands
+
+        result.notifications.append(
+            ACPMessage.notification(
+                "session/update",
+                {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "available_commands_update",
+                        "availableCommands": _serialize_available_commands(session.available_commands),
+                    },
+                },
+            )
+        )
         self.state_manager.add_event(
             session,
             {
@@ -392,9 +407,9 @@ def _build_session_info_notification(session_id: str, summary: dict[str, Any]) -
         {
             "sessionId": session_id,
             "update": {
-                "sessionUpdate": "session_info",
+                "sessionUpdate": "session_info_update",
                 "title": summary.get("title"),
-                "updated_at": summary.get("updated_at"),
+                "updatedAt": summary.get("updated_at"),
             },
         },
     )
