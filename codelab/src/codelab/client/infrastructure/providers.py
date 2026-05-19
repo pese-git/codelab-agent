@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import cast
 
 import structlog
+import structlog.stdlib
 from dishka import Provider, Scope, provide
 
 from codelab.client.application.permission_handler import PermissionHandler
@@ -62,6 +63,11 @@ class ClientProvider(Provider):
     # =========================================================================
     # Базовые сервисы
     # =========================================================================
+
+    @provide(scope=Scope.APP)
+    def get_client_logger(self, config: ClientConfig) -> structlog.stdlib.BoundLogger:
+        """Создаёт logger для всего клиентского приложения."""
+        return config.logger or structlog.get_logger("client")  # type: ignore[return-value]
 
     @provide(scope=Scope.APP)
     def get_event_bus(self) -> EventBus:
@@ -122,7 +128,7 @@ class ClientProvider(Provider):
         self,
         transport: TransportService,
         session_repo: SessionRepository,
-        config: ClientConfig,
+        logger: structlog.stdlib.BoundLogger,
     ) -> CoreServices:
         """Создаёт Coordinator и PermissionHandler, разрывая цикл.
 
@@ -136,7 +142,6 @@ class ClientProvider(Provider):
         2. Создаём PermissionHandler с координатором
         3. Связываем обратно через _permission_handler
         """
-        logger = config.logger or structlog.get_logger("client")
 
         # Фаза 1: Coordinator без PermissionHandler
         coordinator = SessionCoordinator(

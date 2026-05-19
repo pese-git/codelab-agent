@@ -36,9 +36,7 @@ from codelab.client.messages import (
 
 if TYPE_CHECKING:
     from codelab.client.application.session_coordinator import SessionCoordinator
-    from codelab.client.infrastructure.services.acp_transport_service import (
-        ACPTransportService,
-    )
+    from codelab.client.domain.services import TransportService
 
 
 @dataclass
@@ -385,14 +383,14 @@ class PermissionHandler:
     def __init__(
         self,
         coordinator: SessionCoordinator,
-        transport: ACPTransportService,
+        transport: TransportService,
         logger: Any,
     ) -> None:
         """Инициализировать PermissionHandler.
 
         Args:
             coordinator: SessionCoordinator для доступа к активным сессиям
-            transport: ACPTransportService для отправки response
+            transport: TransportService для отправки response
             logger: Logger для структурированного логирования
 
         Пример:
