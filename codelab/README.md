@@ -240,6 +240,98 @@ graph TD
 3. При каждом WebSocket-подключении создаётся `ClientRPCService`, устанавливается в `ClientRPCServiceHolder`, и REQUEST scope получает `ACPProtocol` с уже настроенным holder.
 4. `ClientRPCServiceHolder` — мост между APP и REQUEST scope: сервис обновляется per-request, а `PromptOrchestrator` и `ACPProtocol` используют holder без пересоздания.
 
+## Архитектура клиента
+
+Клиент использует DI-контейнер **Dishka** (`make_container`) со скоупом `APP` — все зависимости создаются один раз и живут до завершения процесса. Провайдеры разделены на два класса:
+
+- **`ClientProvider`** — инфраструктурные сервисы (транспорт, репозитории, обработчики).
+- **`ViewModelProvider`** — ViewModels для MVVM-слоя.
+
+Циклическая зависимость `SessionCoordinator ↔ PermissionHandler` разрешается через двухфазную инициализацию в `CoreServices`.
+
+```mermaid
+graph TD
+    subgraph APP["APP Scope — один контейнер на весь процесс"]
+        CFG["ClientConfig\n(from context)"]
+
+        subgraph ClientProv["ClientProvider"]
+            EB[EventBus]
+            TS["TransportService\n↳ ACPTransportService"]
+            SR["SessionRepository\n↳ InMemorySessionRepository"]
+            FSE[FileSystemExecutor]
+            FSH[FileSystemHandler]
+            TE[TerminalExecutor]
+            TH[TerminalHandler]
+
+            subgraph CoreSvcs["CoreServices  ⟳ двухфазная инициализация"]
+                SC[SessionCoordinator]
+                PH[PermissionHandler]
+            end
+        end
+
+        subgraph VMProv["ViewModelProvider"]
+            UI_VM[UIViewModel]
+            SESS_VM[SessionViewModel]
+            PLAN_VM[PlanViewModel]
+            CHAT_VM[ChatViewModel]
+            TERM_VM[TerminalViewModel]
+            FS_VM[FileSystemViewModel]
+            FV_VM[FileViewerViewModel]
+            PERM_VM[PermissionViewModel]
+            TLOG_VM[TerminalLogViewModel]
+        end
+    end
+
+    TUI["ACPClientApp\ntui/app.py"]
+
+    %% Config
+    CFG -->|host, port| TS
+    CFG -->|cwd| FSE
+    CFG -->|logger| CoreSvcs
+
+    %% Infrastructure
+    FSE --> FSH
+    TE --> TH
+
+    %% CoreServices: разрыв цикла
+    TS --> CoreSvcs
+    SR --> CoreSvcs
+    CoreSvcs --> SC
+    CoreSvcs --> PH
+    SC -. "_permission_handler\npost-init" .-> PH
+    TS -. "_permission_handler\npost-init" .-> PH
+
+    %% ViewModels: все получают EventBus + ClientConfig
+    EB --> UI_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM
+    SC --> SESS_VM & CHAT_VM
+    EB --> SESS_VM & CHAT_VM
+    PLAN_VM --> CHAT_VM
+    FSE --> CHAT_VM
+    TE --> CHAT_VM
+
+    %% TUI резолвит из контейнера
+    TUI -->|"get(SessionCoordinator)"| SC
+    TUI -->|"get(TransportService)"| TS
+    TUI -->|get ViewModels| UI_VM & SESS_VM & CHAT_VM & PLAN_VM
+    TUI -->|get ViewModels| TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM
+
+    classDef svc fill:#e1f5fe,stroke:#01579b
+    classDef vm fill:#f3e5f5,stroke:#4a148c
+    classDef cfg fill:#fff3e0,stroke:#e65100
+    classDef tui fill:#e8f5e9,stroke:#1b5e20
+    class EB,TS,SR,FSE,FSH,TE,TH,SC,PH svc
+    class UI_VM,SESS_VM,PLAN_VM,CHAT_VM,TERM_VM,FS_VM,FV_VM,PERM_VM,TLOG_VM vm
+    class CFG cfg
+    class TUI tui
+```
+
+### Как это работает
+
+1. При запуске `codelab connect` создаётся DI-контейнер через `create_client_container()` — все APP-зависимости инициализируются один раз.
+2. `CoreServices` — фабрика, которая создаёт `SessionCoordinator` и `PermissionHandler` в два шага, а затем связывает их через `_permission_handler`, обходя циклическую зависимость.
+3. `ACPClientApp` резолвит `SessionCoordinator`, `TransportService` и все 9 ViewModels в `__init__` через `container.get()` — без Service Locator в методах.
+4. При выходе `on_unmount` вызывает `transport.disconnect()` и `container.close()`.
+
 ## Разработка
 
 ```bash
