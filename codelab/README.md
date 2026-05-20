@@ -343,6 +343,21 @@ graph TD
 3. `ACPClientApp` резолвит `SessionCoordinator`, `TransportService` и все 9 ViewModels в `__init__` через `container.get()` — без Service Locator в методах.
 4. При выходе `on_unmount` вызывает `transport.disconnect()` и `container.close()`.
 
+### Отмена промпта
+
+`TransportService.request_with_callbacks()` удерживает глобальный `asyncio.Lock` на всё время выполнения `session/prompt`. Чтобы отмена не вставала в очередь за этим локом, `TransportService` предоставляет отдельный метод:
+
+```
+cancel_prompt(session_id) → обходит _callbacks_request_lock
+    └─ создаёт per-request response queue
+    └─ отправляет session/cancel напрямую через send()
+    └─ ждёт ответа (timeout 5 с) и очищает очередь
+```
+
+`ACPTransportService` переопределяет этот метод с lock-free реализацией. Базовый класс `TransportService` содержит fallback через `request_with_callbacks` для совместимости с другими реализациями транспорта.
+
+На стороне сервера `session/cancel` отменяет активный `asyncio.Task` с LLM-запросом через `AgentOrchestrator.cancel_prompt()`, что немедленно прерывает HTTP-запрос к модели (`CancelledError`).
+
 ## Разработка
 
 ```bash
