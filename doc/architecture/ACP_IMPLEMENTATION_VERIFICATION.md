@@ -184,25 +184,13 @@
 
 ### 🔴 Критичные (нарушают spec compliance или стабильность)
 
-#### 1. `session/mcp/*` методы не зарегистрированы
-
-**Файл:** `server/protocol/handlers/mcp.py` (376 строк)
-**Проблема:** Реализация существует (`session_mcp_add`, `session_mcp_remove`, `session_mcp_list`) но методы не добавлены в `_handlers` словарь в `core.py:156-167`.
-
-**Исправление:** Добавить в `_handlers`:
-```python
-"session/mcp/add": self._handle_session_mcp_add,
-"session/mcp/remove": self._handle_session_mcp_remove,
-"session/mcp/list": self._handle_session_mcp_list,
-```
-
-#### 2. `handlers/legacy.py` отсутствует
+#### 1. `handlers/legacy.py` отсутствует в AGENTS.md
 
 **Проблема:** Упомянут в AGENTS.md с методами `ping`, `echo`, `shutdown`, но файл не существует. Эти методы не являются частью ACP spec, поэтому это скорее cleanup AGENTS.md.
 
 ### 🟡 Важные (рекомендуется для production)
 
-#### 3. `NaiveAgent.cancel_prompt()` — заглушка
+#### 1. `NaiveAgent.cancel_prompt()` — заглушка
 
 **Файл:** `server/agent/naive.py:202-210`
 ```python
@@ -211,7 +199,7 @@ async def cancel_prompt(self, session_id: str) -> None:
 ```
 **Влияние:** Отмена prompt turn работает на уровне `TurnLifecycleManager` (флаг `cancel_requested`), но LLM запрос не прерывается реально.
 
-#### 4. `PlanBuildingStage` — no-op
+#### 2. `PlanBuildingStage` — no-op
 
 **Файл:** `server/protocol/handlers/pipeline/stages/plan_building.py`
 ```python
@@ -220,7 +208,7 @@ async def process(self, context: PromptContext) -> PromptContext:
 ```
 **Влияние:** План строится в `LLMLoopStage` из ответа LLM, а не на этой стадии.
 
-#### 5. Дублирование `directives.py`
+#### 3. Дублирование `directives.py`
 
 | Файл | Функции |
 |---|---|
@@ -229,7 +217,7 @@ async def process(self, context: PromptContext) -> PromptContext:
 
 **Влияние:** Риск рассинхронизации, путаница при поддержке.
 
-#### 6. Несоответствие имён инструментов wire-формату ACP
+#### 4. Несоответствие имён инструментов wire-формату ACP
 
 | Ожидается (ACP spec) | Реализовано | Файл |
 |---|---|---|
@@ -241,24 +229,24 @@ async def process(self, context: PromptContext) -> PromptContext:
 
 **Влияние:** Имена инструментов используются для LLM function calling, а не для wire-формата JSON-RPC. Это не нарушает ACP spec (wire-формат — это `session/update` notifications, а не tool names), но создаёт путаницу.
 
-#### 7. Только OpenAI LLM провайдер
+#### 5. Только OpenAI LLM провайдер
 
 - `llm/openai_provider.py` — полная реализация
 - `llm/mock_provider.py` — для тестов
 - ❌ Нет Anthropic/Claude, Google Gemini, Ollama, локальных моделей
 
-#### 8. MCP HTTP/SSE не реализованы
+#### 6. MCP HTTP/SSE не реализованы
 
 - Объявлены в `agentCapabilities.mcpCapabilities` (http/sse: true)
 - `mcp/transport.py` — только `StdioTransport`
 - HTTP/SSE transport MCP не реализован
 
-#### 9. MCP auto-reconnect отсутствует
+#### 7. MCP auto-reconnect отсутствует
 
 - Нет переподключения при падении MCP сервера
 - `MCPManager` не отслеживает состояние серверов после shutdown
 
-#### 10. MCP resources/prompts не поддерживаются
+#### 8. MCP resources/prompts не поддерживаются
 
 - Реализованы только `tools/list` и `tools/call`
 - MCP resources и prompts не обрабатываются
@@ -267,14 +255,14 @@ async def process(self, context: PromptContext) -> PromptContext:
 
 | # | Проблема | Статус |
 |---|---|---|
-| 11 | Нет тестов extensibility (`_meta`, custom methods) | Не покрыто |
-| 12 | Нет тестов session/list pagination edge cases | Минимально |
-| 13 | Stop reasons `max_tokens`, `max_turn_requests`, `refusal` не тестированы | Не покрыто |
-| 14 | Tool call `locations`, `rawInput`, `rawOutput` не тестированы | Не покрыто |
-| 15 | Rate limiting для tool execution | Не реализовано |
-| 16 | SQLite storage | Не реализовано (только memory + JSON file) |
-| 17 | Streaming tool_calls в OpenAI | Не обрабатывается (только текст) |
-| 18 | `authenticate` — минимальное тестовое покрытие | 4 теста |
+| 9 | Нет тестов extensibility (`_meta`, custom methods) | Не покрыто |
+| 10 | Нет тестов session/list pagination edge cases | Минимально |
+| 11 | Stop reasons `max_tokens`, `max_turn_requests`, `refusal` не тестированы | Не покрыто |
+| 12 | Tool call `locations`, `rawInput`, `rawOutput` не тестированы | Не покрыто |
+| 13 | Rate limiting для tool execution | Не реализовано |
+| 14 | SQLite storage | Не реализовано (только memory + JSON file) |
+| 15 | Streaming tool_calls в OpenAI | Не обрабатывается (только текст) |
+| 16 | `authenticate` — минимальное тестовое покрытие | 4 теста |
 
 ---
 
@@ -393,21 +381,21 @@ graph TB
 
 ### P0 — Критичные
 
-1. **Зарегистрировать `session/mcp/*` методы** в `core.py`
-2. **Обновить AGENTS.md** — убрать упоминание несуществующего `legacy.py`
+1. **Обновить AGENTS.md** — убрать упоминание несуществующего `legacy.py`
+2. **Удалить `session/mcp/*` dead code** — методы не являются частью ACP spec (файл `handlers/mcp.py` удалён)
 
 ### P1 — Важные
 
-3. **Реализовать `NaiveAgent.cancel_prompt()`** — отмена LLM запроса
-4. **Устранить дублирование `directives.py`** — оставить один источник
-5. **Добавить тесты extensibility** — `_meta`, custom methods
-6. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`
+1. **Реализовать `NaiveAgent.cancel_prompt()`** — отмена LLM запроса
+2. **Устранить дублирование `directives.py`** — оставить один источник
+3. **Добавить тесты extensibility** — `_meta`, custom methods
+4. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`
 
 ### P2 — Желательные
 
-7. **Добавить LLM провайдеры** — Anthropic, Gemini, Ollama
-8. **Реализовать MCP HTTP transport**
-9. **Добавить MCP auto-reconnect**
-10. **Реализовать SQLite storage**
-11. **Добавить rate limiting для tool execution**
-12. **Добавить stdio transport E2E тесты**
+5. **Добавить LLM провайдеры** — Anthropic, Gemini, Ollama
+6. **Реализовать MCP HTTP transport**
+7. **Добавить MCP auto-reconnect**
+8. **Реализовать SQLite storage**
+9. **Добавить rate limiting для tool execution**
+10. **Добавить stdio transport E2E тесты**
