@@ -1,6 +1,6 @@
 # Верифицированный отчёт: Реализация ACP Protocol
 
-**Дата:** 2026-05-19
+**Дата:** 2026-05-20
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
 
 ---
@@ -77,6 +77,8 @@
 - Permission request flow с 4 опциями (allow_once, allow_always, reject_once, reject_always)
 - Stop reasons: `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`
 - Cancellation с корректной обработкой pending requests и tombstones
+- `session/cancel` отправляется немедленно: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` через per-request response queue, не ожидая завершения `session/prompt`
+- На сервере `ACPProtocol._handle_session_cancel()` вызывает `AgentOrchestrator.cancel_prompt()`, который отменяет активный `asyncio.Task` с LLM-запросом (`CancelledError`)
 
 ### ✅ 06. Content — Полностью реализовано
 
@@ -185,14 +187,13 @@
 
 ### 🟡 Важные (рекомендуется для production)
 
-#### 1. `NaiveAgent.cancel_prompt()` — заглушка
+#### ~~1. `NaiveAgent.cancel_prompt()` — заглушка~~ ✅ Решено (2026-05-20)
 
-**Файл:** `server/agent/naive.py:202-210`
-```python
-async def cancel_prompt(self, session_id: str) -> None:
-    pass  # Наивная реализация
-```
-**Влияние:** Отмена prompt turn работает на уровне `TurnLifecycleManager` (флаг `cancel_requested`), но LLM запрос не прерывается реально.
+**Файл:** `server/agent/naive.py`
+
+Реализована реальная отмена: агент хранит ссылку на активный `asyncio.Task` с LLM-запросом и отменяет его через `task.cancel()`. `ACPProtocol._handle_session_cancel()` теперь явно вызывает `AgentOrchestrator.cancel_prompt()` после завершения `handle_cancel()`.
+
+Дополнительно исправлена клиентская сторона: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` и отправляет `session/cancel` немедленно, не ожидая завершения `session/prompt`. Время отмены сократилось с ~16 с до ~3 мс.
 
 #### 2. `PlanBuildingStage` — no-op
 
@@ -380,10 +381,9 @@ graph TB
 
 ### P1 — Важные
 
-1. **Реализовать `NaiveAgent.cancel_prompt()`** — отмена LLM запроса
-2. **Устранить дублирование `directives.py`** — оставить один источник
-3. **Добавить тесты extensibility** — `_meta`, custom methods
-4. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`
+1. **Устранить дублирование `directives.py`** — оставить один источник
+2. **Добавить тесты extensibility** — `_meta`, custom methods
+3. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`
 
 ### P2 — Желательные
 
