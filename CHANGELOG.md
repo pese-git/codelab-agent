@@ -642,7 +642,6 @@
   - `handlers/prompt.py` — обработка prompt-turn (session/prompt, cancel)
   - `handlers/permissions.py` — управление разрешениями (session/request_permission)
   - `handlers/config.py` — конфигурация сессий (session/set_config_option)
-  - `handlers/legacy.py` — legacy методы (ping, echo, shutdown)
   - Централизованная диспетчеризация в `protocol/core.py`
 
 - ✅ **Storage Abstraction Layer**
