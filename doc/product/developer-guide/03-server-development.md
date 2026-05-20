@@ -310,6 +310,96 @@ class AgentOrchestrator:
                 yield SessionUpdate.plan_update(event.plan)
 ```
 
+### Взаимодействие агента с LLM
+
+```mermaid
+sequenceDiagram
+    participant PO as PromptOrchestrator
+    participant LL as LLMLoopStage
+    participant AG as NaiveAgent
+    participant LLM as OpenAIProvider
+    participant TR as ToolRegistry
+
+    PO->>LL: LLMLoopStage.process(context)
+
+    loop LLM Loop (до 10 итераций)
+        LL->>AG: process_prompt() / continue_with_tool_results()
+        Note over AG: Создаёт asyncio.Task<br/>для отмены по cancel_requested
+        AG->>LLM: create_completion(messages, tools)
+        LLM-->>AG: LLMResponse(text, tool_calls, stop_reason)
+        AG-->>LL: AgentResponse
+
+        alt stop_reason = end_turn
+            LL-->>PO: notifications + stop_reason=end_turn
+        else stop_reason = tool_use
+            loop Для каждого tool call
+                LL->>LL: decide_policy(allow / ask / reject)
+                alt allow
+                    LL->>TR: execute_tool(name, args)
+                    TR-->>LL: ToolResult
+                else ask
+                    LL-->>PO: pending_permission=True
+                    Note over PO: Пайплайн приостановлен.<br/>Ожидание permission response.
+                else reject
+                    LL->>LL: mark tool_call as failed
+                end
+            end
+            LL->>AG: continue_with_tool_results(tool_results)
+        end
+    end
+```
+
+### Отмена LLM запроса
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as ACPProtocol
+    participant AG as AgentOrchestrator
+    participant NA as NaiveAgent
+    participant LLM as OpenAI API
+
+    Note over NA,LLM: asyncio.Task выполняет HTTP запрос к LLM
+    NA->>LLM: POST /v1/chat/completions
+
+    C->>S: session/cancel
+    S->>AG: cancel_prompt(session_id)
+    AG->>NA: active_task.cancel()
+    LLM--xNA: asyncio.CancelledError
+    NA-->>AG: CancelledError propagates
+    AG-->>S: stop_reason=cancelled
+    S-->>C: {stopReason: "cancelled"}
+```
+
+### Permission flow
+
+```mermaid
+sequenceDiagram
+    participant U as Пользователь
+    participant C as Client
+    participant S as ACPProtocol
+    participant PO as PromptOrchestrator
+    participant LL as LLMLoopStage
+    participant TR as ToolRegistry
+
+    Note over LL: LLM вернул tool call
+    LL->>LL: decide_policy() → ask
+    LL-->>S: pending_permission=True
+    S-->>C: session/request_permission\n{toolCall, options}
+    C-->>U: Диалог разрешения
+
+    U->>C: allow_once / allow_always / reject_once / reject_always
+    C->>S: permission response {outcome, optionId}
+    S->>PO: handle_permission_response()
+    PO->>LL: execute_pending_tool()
+    LL->>TR: execute_tool()
+    TR-->>LL: ToolResult
+    LL->>LL: _run_llm_loop() — цикл продолжается
+    LL-->>S: следующая итерация или end_turn
+    S-->>C: session/update (tool result + ответ LLM)
+    C-->>U: Результат
+```
+
 ### BaseAgent
 
 ```python

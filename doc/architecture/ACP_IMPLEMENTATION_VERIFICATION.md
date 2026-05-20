@@ -310,6 +310,64 @@ graph TB
     E --> H[FS/Terminal Handlers]
 ```
 
+### Взаимодействие агента и LLM
+
+```mermaid
+sequenceDiagram
+    participant PO as PromptOrchestrator
+    participant LL as LLMLoopStage
+    participant AG as NaiveAgent
+    participant LLM as OpenAIProvider
+    participant TR as ToolRegistry
+
+    PO->>LL: process(context)
+
+    loop LLM Loop (до 10 итераций)
+        LL->>AG: process_prompt() / continue_with_tool_results()
+        AG->>LLM: create_completion(messages, tools)
+        LLM-->>AG: LLMResponse(text?, tool_calls?, stop_reason)
+        AG-->>LL: AgentResponse
+
+        alt end_turn — нет tool calls
+            LL-->>PO: stop_reason=end_turn
+        else tool_use — есть tool calls
+            loop Каждый tool call
+                LL->>LL: decide_policy()
+                alt allow
+                    LL->>TR: execute_tool()
+                    TR-->>LL: ToolResult
+                else ask
+                    LL-->>PO: pending_permission=True
+                else reject
+                    LL->>LL: mark failed
+                end
+            end
+        end
+    end
+```
+
+### Отмена промпта (Cancellation)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant TS as ACPTransportService
+    participant S as ACPProtocol
+    participant AG as NaiveAgent
+    participant LLM as OpenAI API
+
+    Note over AG,LLM: asyncio.Task — HTTP запрос к LLM
+    AG->>LLM: POST /v1/chat/completions
+
+    C->>TS: Stop (cancel_prompt)
+    Note over TS: Обходит _callbacks_request_lock<br/>через per-request response queue
+    TS->>S: session/cancel (немедленно)
+    S->>AG: active_task.cancel()
+    LLM--xAG: CancelledError
+    AG-->>S: stop_reason=cancelled
+    S-->>C: {stopReason: "cancelled"}
+```
+
 ---
 
 ## Тестовое покрытие

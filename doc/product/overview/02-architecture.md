@@ -135,6 +135,104 @@ sequenceDiagram
     S-->>C: prompt/finished
 ```
 
+## Агент и LLM
+
+### Цикл обработки prompt
+
+Полный путь запроса от пользователя до ответа LLM:
+
+```mermaid
+sequenceDiagram
+    participant U as Пользователь
+    participant C as Client
+    participant S as ACPProtocol
+    participant PO as PromptOrchestrator
+    participant AG as NaiveAgent
+    participant LLM as OpenAIProvider
+    participant TR as ToolRegistry
+
+    U->>C: Вводит prompt
+    C->>S: session/prompt
+    S->>PO: handle_prompt()
+    PO->>AG: process_prompt(messages, tools)
+    AG->>LLM: create_completion()
+    LLM-->>AG: LLMResponse
+
+    alt Ответ без tool calls (end_turn)
+        AG-->>PO: AgentResponse(text)
+        PO-->>S: stop_reason=end_turn
+        S-->>C: session/update + result
+        C-->>U: Показывает ответ
+    else Ответ с tool calls
+        AG-->>PO: AgentResponse(tool_calls)
+        loop Для каждого tool call
+            PO->>TR: execute_tool() или request_permission
+            TR-->>PO: ToolResult
+            S-->>C: session/update (статус инструмента)
+        end
+        PO->>AG: continue_with_tool_results()
+        AG->>LLM: create_completion() (с результатами)
+        LLM-->>AG: LLMResponse (финальный)
+        PO-->>S: stop_reason=end_turn
+        S-->>C: result
+        C-->>U: Показывает ответ
+    end
+```
+
+### LLM Loop — алгоритм
+
+```mermaid
+flowchart TD
+    START([session/prompt]) --> HIST[Подготовить историю сообщений]
+    HIST --> TOOLS[Получить список инструментов]
+    TOOLS --> CANCEL{Отмена\nзапрошена?}
+    CANCEL -->|Да| CANCELLED([stop_reason = cancelled])
+    CANCEL -->|Нет| LLM[Вызов LLM API]
+    LLM --> PARSE[Разобрать ответ]
+    PARSE --> HAS_TOOLS{Есть\ntool calls?}
+
+    HAS_TOOLS -->|Нет| END_TURN([stop_reason = end_turn])
+
+    HAS_TOOLS -->|Да| FOREACH[Для каждого tool call]
+    FOREACH --> POLICY{Политика}
+    POLICY -->|allow| EXEC[Выполнить инструмент]
+    POLICY -->|ask| PERM([Запросить разрешение\nПайплайн приостановлен])
+    POLICY -->|reject| FAIL[Пометить failed]
+
+    EXEC --> RESULT[ToolResult]
+    FAIL --> RESULT
+    RESULT --> MORE{Ещё\ntool calls?}
+    MORE -->|Да| FOREACH
+    MORE -->|Нет| MAXITER{Макс.\nитераций?}
+    MAXITER -->|Да| MAX([stop_reason = max_turn_requests])
+    MAXITER -->|Нет| CANCEL
+```
+
+### Отмена prompt
+
+```mermaid
+sequenceDiagram
+    participant U as Пользователь
+    participant C as Client
+    participant TS as ACPTransportService
+    participant S as ACPProtocol
+    participant AG as NaiveAgent
+    participant LLM as OpenAI API
+
+    Note over AG,LLM: LLM запрос выполняется...
+    AG->>LLM: POST /chat/completions
+
+    U->>C: Нажимает Stop
+    Note over TS: cancel_prompt() обходит<br/>_callbacks_request_lock
+    C->>TS: stop_button_pressed
+    TS->>S: session/cancel (немедленно)
+    S->>AG: task.cancel()
+    LLM--xAG: CancelledError
+    AG-->>S: stop_reason=cancelled
+    S-->>C: session/update {stopReason: cancelled}
+    C-->>U: Стриминг остановлен
+```
+
 ## Потоки данных
 
 ### Prompt Turn
