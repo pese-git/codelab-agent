@@ -3,7 +3,7 @@
 **Дата:** 2026-05-21
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
 **Обновлено:** 2026-05-22 — устранён гэп #10 (session/list pagination edge cases), +22 теста
-**Обновлено:** 2026-05-22 — устранён гэп #11 (stop reasons тесты), +57 тестов
+**Обновлено:** 2026-05-22 — устранён гэп #11 (terminal output flow tests), +13 тестов
 **Обновлено:** 2026-05-21 — ToolMapping модуль, handle_and_process, async client callbacks, Content API в TUI
 **Обновлено:** 2026-05-20 — устранены гэпы #2, #3, #4, #10, удалён мёртвый код DirectiveResolver, рефакторинг LLMAgent interface
 
@@ -18,10 +18,10 @@
 | Spec sections not covered | 1 из 17 (6%) — Streamable HTTP (draft) |
 | Все ACP методы реализованы | ✅ 17 из 17 |
 | stdio transport | ✅ Полностью (сервер + клиент) |
-| Тестовых файлов | ~148 (+1: pagination edge cases) |
-| Тестовых методов | ~2,317 (+22) |
+| Тестовых файлов | ~148 (+1: terminal output flow) |
+| Тестовых методов | ~2,330 (+13: terminal output flow tests) |
 | Критичных проблем | ✅ 0 |
-| Известных гэпов | 6 |
+| Известных гэпов | 5 |
 
 ---
 
@@ -351,6 +351,34 @@ LLM: terminal/release → cleanup
 - Реализованы только `tools/list` и `tools/call`
 - MCP resources и prompts не обрабатываются
 
+#### ~~11. Terminal output flow не тестирован~~ ✅ Решено (2026-05-22)
+
+**Файлы:** `tests/server/test_terminal_executors.py` (новый, 13 тестов), `server/tools/executors/terminal_executor.py`
+
+**Проблема:** Отсутствовали интеграционные тесты для terminal output flow. Реализация `execute_wait_for_exit` уже корректно вызывала `terminal/output` → `wait_for_exit` → `terminal/output` согласно ACP spec, но это не было проверено тестами.
+
+**Дополнительная проблема:** Условие `if is_complete and exit_code is not None:` не учитывало случай когда терминал завершён сигналом (`exit_code=None`, `signal="SIGTERM"`), из-за чего код шёл бы к `wait_for_exit` вместо немедленного возврата результата.
+
+**Исправления применены:**
+
+1. **`terminal_executor.py`** — Исправлено условие завершения: `if is_complete and (exit_code is not None or signal is not None):`
+2. **`terminal_executor.py`** — Улучшено формирование сообщения: signal показывается если есть, иначе exit_code
+3. **`test_terminal_executors.py`** — Добавлено 13 интеграционных тестов:
+   - `test_wait_for_exit_already_complete_skips_wait` — уже завершён, wait не вызывается
+   - `test_wait_for_exit_running_terminal_calls_output_then_wait_then_output` — полный flow
+   - `test_wait_for_exit_with_signal` — завершение сигналом
+   - `test_wait_for_exit_non_zero_exit_code` — ненулевой exit code
+   - `test_wait_for_exit_wait_returns_none` — ошибка wait
+   - `test_wait_for_exit_output_returns_none_before_wait` — None от первого output
+   - `test_wait_for_exit_final_output_returns_none` — None от финального output
+   - `test_wait_for_exit_call_sequence_order` — точная последовательность вызовов
+   - `test_wait_for_exit_content_includes_exit_message` — content с exit code
+   - `test_wait_for_exit_content_includes_signal_message` — content с signal
+   - `test_wait_for_exit_terminal_id_passed_correctly` — корректная передача terminal_id
+   - `test_wait_for_exit_exception_handling` — обработка исключений
+
+**Результат:** Terminal output flow полностью протестирован и соответствует ACP spec.
+
 ### 🟢 Желательные (улучшение качества)
 
 | # | Проблема | Статус |
@@ -556,7 +584,6 @@ sequenceDiagram
 - Tool call `locations`, `rawInput`, `rawOutput`
 - MCP HTTP/SSE transports
 - stdio transport E2E (сервер + клиент через subprocess)
-- Terminal output flow: `execute_wait_for_exit` → `terminal/output` + `wait_for_exit`
 - Совместимость со сторонними ACP клиентами (Zed IDE)
 
 ---
@@ -573,7 +600,7 @@ sequenceDiagram
 ~~2. **Добавить тесты extensibility** — `_meta`, custom methods~~ ✅ Решено (частично)
 ~~3. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`~~ ✅ Решено (2026-05-22)
 ~~4. **Добавить тесты session/list pagination edge cases** — invalid cursor, empty results~~ ✅ Решено (2026-05-22)
-5. **Исправить terminal output flow** — `execute_wait_for_exit` должен вызывать `terminal/output` перед `wait_for_exit` (см. ГЭП #11)
+~~5. **Исправить terminal output flow** — `execute_wait_for_exit` должен вызывать `terminal/output` перед `wait_for_exit` (см. ГЭП #11)~~ ✅ Решено (2026-05-22)
 
 ### P2 — Желательные
 

@@ -218,7 +218,7 @@ class TerminalToolExecutor(ToolExecutor):
                 signal = output_data.get("signal")
                 
                 # Если терминал уже завершён — не нужно ждать
-                if is_complete and exit_code is not None:
+                if is_complete and (exit_code is not None or signal is not None):
                     logger.debug(
                         "Терминал уже завершён (получено из terminal/output)",
                         extra={
@@ -227,7 +227,10 @@ class TerminalToolExecutor(ToolExecutor):
                             "exit_code": exit_code,
                         },
                     )
-                    exit_message = f"Terminal {terminal_id} exited with code {exit_code}"
+                    if signal:
+                        exit_message = f"Terminal {terminal_id} exited with signal {signal}"
+                    else:
+                        exit_message = f"Terminal {terminal_id} exited with code {exit_code}"
                     content_items = [
                         {
                             "type": "text",
@@ -235,7 +238,7 @@ class TerminalToolExecutor(ToolExecutor):
                         }
                     ]
                     return ToolExecutionResult(
-                        success=exit_code == 0,
+                        success=(exit_code == 0) if exit_code is not None else False,
                         output=output,
                         metadata={
                             "terminal_id": terminal_id,
