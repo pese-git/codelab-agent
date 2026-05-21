@@ -19,7 +19,7 @@
 | Тестовых файлов | ~145 (+4: mapping, async callbacks) |
 | Тестовых методов | ~2,238 (+28) |
 | Критичных проблем | ✅ 0 |
-| Известных гэпов | 6 |
+| Известных гэпов | 8 |
 
 ---
 
@@ -111,14 +111,19 @@
 - Capability checking перед вызовами
 - Path normalization к absolute paths в рамках cwd
 
-### ✅ 10. Terminal — Полностью реализовано
+### ⚠️ 10. Terminal — Частично реализовано
 
-- `terminal/create` с command, args, env, cwd, outputByteLimit
-- `terminal/output` с truncated flag и exitStatus
-- `terminal/wait_for_exit` с exitCode/signal
-- `terminal/kill` без release
-- `terminal/release` с kill + cleanup
-- Terminal embedding в tool calls
+- ✅ `terminal/create` с command, args, env, cwd, outputByteLimit
+- ✅ `terminal/output` с truncated flag и exitStatus (ClientRPCService реализован)
+- ✅ `terminal/wait_for_exit` с exitCode/signal (по spec)
+- ✅ `terminal/kill` без release
+- ✅ `terminal/release` с kill + cleanup
+- ✅ Terminal embedding в tool calls
+- ⚠️ **ГЭП:** `TerminalWaitForExitResponse` содержал поле `output` — не определено в ACP spec
+- ⚠️ **ГЭП:** `TerminalToolExecutor.execute_wait_for_exit()` ожидал output от `wait_for_exit` вместо вызова `terminal/output`
+- ⚠️ **ГЭП:** `ClientRPCBridge` не имел метода `terminal_output()` для получения вывода
+- ⚠️ **Сторонние клиенты:** Zed IDE возвращает `{"exitCode": 0}` без `output` для `wait_for_exit` — это корректно по spec
+- ⚠️ **Сторонние клиенты:** Zed IDE возвращает `{}` для `terminal/release` — missing `success` field
 
 ### ✅ 11. Agent Plan — Полностью реализовано
 
@@ -205,6 +210,66 @@
 Реализована реальная отмена: агент хранит ссылку на активный `asyncio.Task` с LLM-запросом и отменяет его через `task.cancel()`. `ACPProtocol._handle_session_cancel()` теперь явно вызывает `AgentOrchestrator.cancel_prompt()` после завершения `handle_cancel()`.
 
 Дополнительно исправлена клиентская сторона: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` и отправляет `session/cancel` немедленно, не ожидая завершения `session/prompt`. Время отмены сократилось с ~16 с до ~3 мс.
+
+#### 12. Сторонние ACP клиенты возвращают неполные response поля
+
+**Файл:** `server/client_rpc/models.py`
+
+**Проблема:** Сторонние ACP клиенты (Zed IDE) могут возвращать неполные response объекты:
+- `terminal/wait_for_exit` → `{"exitCode": 0}` (без `output` — корректно по spec)
+- `terminal/release` → `{}` (без `success` — некорректно, но нужно поддерживать)
+- `terminal/kill` → вероятно тоже `{}`
+
+**Решение (применено 2026-05-21):**
+- `TerminalWaitForExitResponse.output` → опциональное, default `""`
+- `TerminalReleaseResponse.success` → опциональное, default `True`
+- `TerminalKillResponse.success` → опциональное, default `True`
+
+Это позволяет codelab работать с любыми ACP клиентами, даже если они не fully implement terminal protocol.
+
+#### 11. Terminal output не получается через `wait_for_exit`
+
+**Файлы:** `server/client_rpc/models.py`, `server/client_rpc/service.py`, `server/tools/integrations/client_rpc_bridge.py`, `server/tools/executors/terminal_executor.py`
+
+**Проблема:** По спецификации ACP `terminal/wait_for_exit` возвращает **только** `exitCode` и `signal` — **без output**. Output получается через **отдельный метод** `terminal/output`.
+
+Текущая реализация ожидала `output` в ответе `wait_for_exit`, что не соответствует спецификации. При работе со сторонними клиентами (Zed IDE) output всегда пустой.
+
+**План исправления:**
+
+1. **`client_rpc/models.py`** — Убрать `output` из `TerminalWaitForExitResponse`
+   - Удалить поле `output: str = ""` (не определено в ACP spec)
+   - Добавить поле `signal: str | None = None` (по spec)
+
+2. **`client_rpc/service.py`** — Обновить `wait_for_exit`
+   - Изменить возвращаемый тип с `tuple[str, int]` на `tuple[int, str | None]` (exit_code, signal)
+
+3. **`tools/integrations/client_rpc_bridge.py`** — Добавить `terminal_output`
+   - Новый метод `terminal_output(session, terminal_id)` → `dict | None`
+   - Вызывает `ClientRPCService.terminal_output()` и возвращает `{output, is_complete, exit_code}`
+
+4. **`tools/executors/terminal_executor.py`** — Обновить `execute_wait_for_exit`
+   - Сначала вызвать `terminal/output` для получения output
+   - Затем вызвать `terminal/wait_for_exit` для exit_code (если ещё не завершён)
+   - Объединить результаты в `ToolExecutionResult`
+
+5. **`tools/definitions/terminal.py`** — Обновить описание `wait_for_exit`
+   - Обновить description: убрать упоминание output (он получается через `terminal/output`)
+
+6. **Тесты**
+   - Обновить тесты `test_client_rpc_service.py` для нового сигнатуры `wait_for_exit`
+   - Добавить тесты для `ClientRPCBridge.terminal_output`
+   - Добавить тесты для обновлённого `execute_wait_for_exit`
+
+**Поток после исправления:**
+```
+LLM: terminal/create → terminal_id
+LLM: terminal/wait_for_exit → executor internally:
+  1. terminal/output → output + is_complete + exit_code (если завершён)
+  2. terminal/wait_for_exit → exit_code (если ещё не завершён)
+  3. Return combined result: output + exit_code
+LLM: terminal/release → cleanup
+```
 
 #### ~~10. `LLMAgent.process_prompt` — неясный контракт~~ ✅ Решено (2026-05-20)
 
@@ -485,6 +550,8 @@ sequenceDiagram
 - Tool call `locations`, `rawInput`, `rawOutput`
 - MCP HTTP/SSE transports
 - stdio transport E2E (сервер + клиент через subprocess)
+- Terminal output flow: `execute_wait_for_exit` → `terminal/output` + `wait_for_exit`
+- Совместимость со сторонними ACP клиентами (Zed IDE)
 
 ---
 
@@ -500,14 +567,17 @@ sequenceDiagram
 ~~2. **Добавить тесты extensibility** — `_meta`, custom methods~~ ✅ Решено (частично)
 3. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`
 4. **Добавить тесты session/list pagination edge cases** — invalid cursor, empty results
+5. **Исправить terminal output flow** — `execute_wait_for_exit` должен вызывать `terminal/output` перед `wait_for_exit` (см. ГЭП #11)
 
 ### P2 — Желательные
 
-5. **Добавить LLM провайдеры** — Anthropic, Gemini, Ollama
-6. **Реализовать MCP HTTP transport**
-7. **Добавить MCP auto-reconnect**
-8. **Реализовать SQLite storage**
-9. **Добавить rate limiting для tool execution**
-10. **Добавить stdio transport E2E тесты**
-11. **Реализовать MCP resources/prompts** — только tools/list и tools/call
-12. **Добавить тесты ToolMapping round-trip** — edge cases с неизвестными префиксами
+6. **Добавить LLM провайдеры** — Anthropic, Gemini, Ollama
+7. **Реализовать MCP HTTP transport**
+8. **Добавить MCP auto-reconnect**
+9. **Реализовать SQLite storage**
+10. **Добавить rate limiting для tool execution**
+11. **Добавить stdio transport E2E тесты**
+12. **Реализовать MCP resources/prompts** — только tools/list и tools/call
+13. **Добавить тесты ToolMapping round-trip** — edge cases с неизвестными префиксами
+14. **Добавить тесты для ClientRPCBridge.terminal_output** — новый метод
+15. **Добавить тесты совместимости со сторонними клиентами** — Zed IDE, etc.
