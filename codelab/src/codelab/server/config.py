@@ -34,7 +34,7 @@ class LLMConfig(BaseModel):
     """Конфигурация LLM провайдера.
 
     Атрибуты:
-        provider: Тип провайдера LLM (openai, mock)
+        provider: Тип провайдера LLM (openai, mock, anthropic, openrouter, zen, go, ollama, lmstudio)
         api_key: API ключ для провайдера
         base_url: Base URL для провайдера (опционально)
         model: Модель LLM для использования

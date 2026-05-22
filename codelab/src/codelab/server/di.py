@@ -27,6 +27,7 @@ from .agent.orchestrator import AgentOrchestrator
 from .agent.state import OrchestratorConfig
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider, OpenAIProvider
+from .llm.base import LLMConfig
 from .protocol.core import ACPProtocol
 from .protocol.handlers.client_rpc_handler import ClientRPCHandler
 from .protocol.handlers.global_policy_manager import GlobalPolicyManager
@@ -132,24 +133,29 @@ class LLMProvider_(Provider):
     async def get_llm_provider(
         self,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
-    ) -> LLMProvider | None:
+    ) -> LLMProvider:
         """Создаёт LLM провайдера на основе конфигурации."""
         if config.llm.provider == "openai":
             provider = OpenAIProvider()
-            config_dict = {
-                "api_key": config.llm.api_key,
-                "model": config.llm.model,
-                "temperature": config.llm.temperature,
-                "max_tokens": config.llm.max_tokens,
-            }
-            if config.llm.base_url:
-                config_dict["base_url"] = config.llm.base_url
-            await provider.initialize(config_dict)
+            llm_config = LLMConfig(
+                api_key=config.llm.api_key,
+                model=config.llm.model,
+                base_url=config.llm.base_url,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens,
+            )
+            await provider.initialize(llm_config)
             return provider
-        elif config.llm.provider == "mock":
-            return MockLLMProvider()
         else:
-            return MockLLMProvider()
+            # mock и любой другой неизвестный провайдер
+            provider = MockLLMProvider()
+            llm_config = LLMConfig(
+                model=config.llm.model,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens,
+            )
+            await provider.initialize(llm_config)
+            return provider
 
 
 class ToolsProvider(Provider):
@@ -168,13 +174,10 @@ class AgentProvider(Provider):
     def get_agent_orchestrator(
         self,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
-        llm_provider: LLMProvider | None,
+        llm_provider: LLMProvider,
         tool_registry: ToolRegistryProtocol,
-    ) -> AgentOrchestrator | None:
-        """Создаёт AgentOrchestrator если есть LLM провайдер."""
-        if llm_provider is None:
-            return None
-
+    ) -> AgentOrchestrator:
+        """Создаёт AgentOrchestrator."""
         orchestrator_config = OrchestratorConfig(
             enabled=True,
             agent_class="naive",
@@ -296,7 +299,7 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         storage: SessionStorage,
-        agent_orchestrator: AgentOrchestrator | None,
+        agent_orchestrator: AgentOrchestrator,
         tool_registry: ToolRegistryProtocol,
         prompt_orchestrator: PromptOrchestrator,
         holder: ClientRPCServiceHolder,

@@ -71,16 +71,16 @@
 
 ## 10. Configuration Update
 
-- [ ] 10.1 Обновить `server/config.py` — расширить LLMConfig: providers dict, FallbackConfig, ProviderConfig
-- [ ] 10.2 Обновить env vars — CODELAB_LLM_PROVIDERS, CODELAB_FALLBACK_* 
-- [ ] 10.3 Тесты для новой конфигурации — parsing, defaults, validation
+- [x] 10.1 Обновить `server/config.py` — расширить LLMConfig: providers dict, FallbackConfig, ProviderConfig
+- [x] 10.2 Обновить env vars — CODELAB_LLM_PROVIDERS, CODELAB_FALLBACK_* 
+- [x] 10.3 Тесты для новой конфигурации — parsing, defaults, validation
 
 ## 11. DI Container Update
 
-- [ ] 11.1 Обновить `server/di.py` — LLMProvider_ заменяется на Registry-based factory
-- [ ] 11.2 Обновить AgentProvider — AgentOrchestrator получает ModelResolver вместо LLMProvider
-- [ ] 11.3 Зарегистрировать все провайдеры в Registry при инициализации
-- [ ] 11.4 Тесты для DI — registry creation, provider resolution, orchestrator wiring
+- [x] 11.1 Обновить `server/di.py` — LLMProvider_ заменяется на Registry-based factory
+- [x] 11.2 Обновить AgentProvider — AgentOrchestrator получает ModelResolver вместо LLMProvider
+- [x] 11.3 Зарегистрировать все провайдеры в Registry при инициализации
+- [x] 11.4 Тесты для DI — registry creation, provider resolution, orchestrator wiring
 
 ## 12. ConfigOptions и Model Switching
 
