@@ -15,6 +15,8 @@ from typing import Any
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
+    LLMMessage,
+    LLMToolCall,
     ModelInfo,
 )
 
@@ -140,5 +142,13 @@ class LLMProvider(ABC):
         return []
 
 
-# Алиас для обратной совместимости (LLMResponse → CompletionResponse)
+# Алиасы для обратной совместимости
 LLMResponse = CompletionResponse
+__all__ = [
+    "LLMCapabilities",
+    "LLMConfig",
+    "LLMMessage",
+    "LLMProvider",
+    "LLMResponse",
+    "LLMToolCall",
+]

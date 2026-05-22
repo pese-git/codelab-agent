@@ -316,7 +316,7 @@ class AgentOrchestrator:
         Returns:
             Список LLMMessage для передачи в LLM провайдер.
         """
-        from codelab.server.llm.base import LLMToolCall
+        from codelab.server.llm.models import LLMToolCall
 
         messages: list[LLMMessage] = []
 
