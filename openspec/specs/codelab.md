@@ -17,6 +17,7 @@
 - textual-serve (Web UI)
 - ruff (линтер), ty (тайпчекер), pytest (тесты)
 - uv (менеджер пакетов)
+- dishka (DI контейнер)
 
 ## 2. Проектирование системы
 
@@ -31,125 +32,97 @@
 
 ### 2.2 Высокоуровневая архитектура
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Client (codelab.client)                 │
-│  ┌──────────┐ ┌────────────┐ ┌──────────┐ ┌──────────────┐ │
-│  │ TUI Layer│ │Presentation│ │Application│ │Infrastructure│ │
-│  │ (Textual)│ │ (MVVM)     │ │(UseCases) │ │(Transport,DI)│ │
-│  └──────────┘ └────────────┘ └──────────┘ └──────┬───────┘ │
-│  ┌──────────────────────────────────────────┐     │         │
-│  │       Domain Layer (Entities, Events)    │     │         │
-│  └──────────────────────────────────────────┘     │         │
-└────────────────────────────────────────────┬──────┘         │
-                                             │                │
-                                    WebSocket │ JSON-RPC       │
-                                             │                │
-┌────────────────────────────────────────────▼──────────────┐ │
-│                      Server (codelab.server)               │ │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐  │ │
-│  │ HTTP/WS      │ │  Protocol    │ │  Agent + Tools   │  │ │
-│  │ Transport    │◄┤  (ACPProtocol)├┤  (Orchestrator,  │  │ │
-│  │ (aiohttp)    │ │  + Handlers) │ │  Registry, MCP)  │  │ │
-│  └──────────────┘ └──────┬───────┘ └──────────────────┘  │ │
-│                          │                                │ │
-│                   ┌──────▼───────┐                       │ │
-│                   │   Storage    │                       │ │
-│                   │ (InMemory,   │                       │ │
-│                   │  JsonFile)   │                       │ │
-│                   └──────────────┘                       │ │
-└──────────────────────────────────────────────────────────┘ │
+```mermaid
+flowchart TB
+    subgraph Client["Client (codelab.client)"]
+        direction LR
+        TUI["TUI Layer\n(Textual)"]
+        Presentation["Presentation\n(MVVM)"]
+        Application["Application\n(UseCases)"]
+        Infrastructure["Infrastructure\n(Transport, DI)"]
+        Domain["Domain Layer\n(Entities, Events)"]
+
+        TUI --> Presentation --> Application --> Infrastructure
+        Domain <--> Infrastructure
+    end
+
+    subgraph Server["Server (codelab.server)"]
+        direction TB
+
+        subgraph TransportLayer["Transport Layer\n(AcpServerTransport protocol)"]
+            WS["WebSocketTransport\n(aiohttp WS)"]
+            STDIO["StdioServerTransport\n(stdin/stdout JSON-RPC)"]
+        end
+
+        Protocol["Protocol\n(ACPProtocol + Handlers)"]
+        Agent["Agent + Tools\n(Orchestrator, Registry, MCP)"]
+        Storage["Storage\n(InMemory, JsonFile)"]
+
+        TransportLayer --> Protocol
+        Protocol <--> Agent
+        Protocol --> Storage
+    end
+
+    Client <==>|WebSocket / stdio / JSON-RPC| Server
 ```
 
 ## 3. Структура проекта
 
-```
-acp-protocol/
-├── codelab/                        # Основной Python-пакет
-│   ├── src/codelab/
-│   │   ├── __init__.py
-│   │   ├── cli.py                  # CLI точка входа (serve, connect, local)
-│   │   ├── client/                 # ACP-клиент (Clean Architecture)
-│   │   │   ├── domain/             # Сущности (Session, Message, Permission, ToolCall)
-│   │   │   ├── application/        # Use Cases + State Machine + DTOs
-│   │   │   ├── infrastructure/     # DI, Transport, Event Bus, Handlers
-│   │   │   ├── presentation/       # ViewModels (MVVM, Observable)
-│   │   │   └── tui/                # Textual UI компоненты
-│   │   ├── server/                 # ACP-сервер
-│   │   │   ├── http_server.py      # WebSocket транспорт
-│   │   │   ├── web_app.py          # Web UI (textual-web)
-│   │   │   ├── config.py           # Pydantic конфигурация (LLM, Agent, WS)
-│   │   │   ├── messages.py         # ACPMessage для сервера
-│   │   │   ├── models.py           # Pydantic модели (HistoryMessage, PlanStep и др.)
-│   │   │   ├── exceptions.py       # Исключения сервера
-│   │   │   ├── protocol/           # Протокольный слой
-│   │   │   │   ├── core.py         # ACPProtocol (диспетчер)
-│   │   │   │   ├── state.py        # SessionState, ToolCallState, ActiveTurnState и др.
-│   │   │   │   ├── session_factory.py
-│   │   │   │   ├── pending_registry.py
-│   │   │   │   ├── handlers/       # Обработчики методов ACP
-│   │   │   │   │   ├── auth.py, session.py, prompt.py
-│   │   │   │   │   ├── config.py, permissions.py
-│   │   │   │   │   ├── prompt_orchestrator.py  # Главный оркестратор
-│   │   │   │   │   ├── turn_lifecycle_manager.py
-│   │   │   │   │   ├── state_manager.py
-│   │   │   │   │   ├── plan_builder.py
-│   │   │   │   │   ├── tool_call_handler.py
-│   │   │   │   │   ├── client_rpc_handler.py
-│   │   │   │   │   ├── permission_manager.py
-│   │   │   │   │   ├── global_policy_manager.py
-│   │   │   │   │   ├── replay_manager.py
-│   │   │   │   │   ├── mcp.py
-│   │   │   │   │   ├── pipeline/   # Pipeline Pattern стадии
-│   │   │   │   │   │   ├── base.py, context.py, runner.py
-│   │   │   │   │   │   └── stages/ (validation, slash_commands, plan_building, turn_lifecycle, llm_loop)
-│   │   │   │   │   └── slash_commands/ (builtin: status, mode, help)
-│   │   │   │   ├── content/        # ACP Content Types
-│   │   │   │   └── prompt_handlers/ # Directive resolver, validator
-│   │   │   ├── agent/              # LLM-агенты
-│   │   │   │   ├── orchestrator.py # AgentOrchestrator
-│   │   │   │   ├── base.py         # LLMAgent ABC
-│   │   │   │   ├── naive.py        # NaiveAgent
-│   │   │   │   └── state.py        # OrchestratorConfig
-│   │   │   ├── tools/              # Инструменты агента
-│   │   │   │   ├── base.py         # ToolDefinition ABC, ToolExecutor ABC
-│   │   │   │   ├── registry.py     # SimpleToolRegistry
-│   │   │   │   ├── definitions/    # filesystem.py, terminal.py, plan.py
-│   │   │   │   ├── executors/      # filesystem_executor.py, terminal_executor.py, plan_executor.py
-│   │   │   │   └── integrations/   # client_rpc_bridge.py, permission_checker.py
-│   │   │   ├── llm/                # LLM провайдеры
-│   │   │   │   ├── base.py         # LLMProvider ABC
-│   │   │   │   ├── openai_provider.py
-│   │   │   │   └── mock_provider.py
-│   │   │   ├── mcp/                # MCP интеграция
-│   │   │   │   ├── manager.py, client.py, models.py, tool_adapter.py, transport.py
-│   │   │   ├── client_rpc/         # Agent → Client RPC
-│   │   │   │   ├── service.py      # ClientRPCService
-│   │   │   │   ├── models.py       # PendingRequest, request/response модели
-│   │   │   │   └── exceptions.py
-│   │   │   └── storage/            # Хранилище сессий
-│   │   │       ├── base.py         # SessionStorage ABC
-│   │   │       ├── memory.py       # InMemoryStorage
-│   │   │       └── json_file.py    # JsonFileStorage
-│   │   └── shared/                 # Общие модули
-│   │       ├── messages.py         # ACPMessage (JSON-RPC 2.0)
-│   │       ├── logging.py          # structlog настройка
-│   │       └── content/            # Типы контента ACP
-│   └── tests/                      # ~1800 тестов
-│       ├── client/
-│       ├── server/
-│       ├── conftest.py
-│       └── test_cli.py
-├── doc/
-│   ├── Agent Client Protocol/      # Спецификация ACP (не изменять!)
-│   ├── product/                    # Продуктовая документация
-│   ├── architecture/               # Архитектурные документы
-│   └── ACP_IMPLEMENTATION_STATUS.md
-├── openspec/                       # OpenSpec конфигурация
-├── Makefile                        # Команды сборки и проверок
-├── AGENTS.md                       # Инструкции для агентов
-├── ARCHITECTURE.md                 # Детальная архитектура (Mermaid диаграммы)
-└── README.md
+```mermaid
+mindmap
+  root((acp-protocol))
+    codelab
+      src/codelab
+        cli.py
+        client
+          domain
+          application
+          infrastructure
+          presentation
+          tui
+        server
+          http_server.py
+          transport
+            base.py
+            websocket.py
+            stdio.py
+            stdio_runner.py
+          web_app.py
+          config.py
+          messages.py
+          models.py
+          exceptions.py
+          protocol
+            core.py
+            state.py
+            handlers
+            pipeline
+            content
+            prompt_handlers
+          agent
+          tools
+          llm
+          mcp
+          client_rpc
+          storage
+        shared
+          messages.py
+          logging.py
+          content
+      tests
+        client
+        server
+        conftest.py
+        test_cli.py
+    doc
+      Agent Client Protocol
+      product
+      architecture
+    openspec
+    Makefile
+    AGENTS.md
+    ARCHITECTURE.md
+    README.md
 ```
 
 ## 4. Ключевые компоненты и их ответственность
@@ -165,7 +138,11 @@ acp-protocol/
 | `NaiveAgent` | `agent/naive.py` | Базовая реализация LLM-агента (агностична к провайдеру) |
 | `SimpleToolRegistry` | `tools/registry.py` | Реестр инструментов агента |
 | `ClientRPCService` | `client_rpc/service.py` | Асинхронный RPC сервис для Agent → Client вызовов (fs/*, terminal/*) |
-| `ACPHttpServer` | `http_server.py` | WebSocket транспорт на aiohttp, управление WS-соединениями |
+| `ACPHttpServer` | `http_server.py` | WebSocket HTTP сервер на aiohttp, делегирование в WebSocketTransport |
+| `AcpServerTransport` | `transport/base.py` | Протокол (ABC) транспорта сервера: `run(on_message)`, `send(message)`, `close()` |
+| `WebSocketTransport` | `transport/websocket.py` | WebSocket реализация AcpServerTransport, deferred prompts, background tool execution |
+| `StdioServerTransport` | `transport/stdio.py` | Stdio реализация AcpServerTransport, чтение JSON-RPC из stdin, запись в stdout (newline-delimited) |
+| `run_stdio_server` | `transport/stdio_runner.py` | Функция запуска сервера в stdio режиме: DI контейнер, ClientRPCService, цикл обработки |
 | `SessionStorage` | `storage/base.py` | ABC для хранилищ сессий (InMemory, JsonFile) |
 | `MCPManager` | `mcp/manager.py` | Управление MCP серверами (подключение, инструменты) |
 
@@ -195,61 +172,50 @@ acp-protocol/
 
 ### 5.1 Prompt Turn (основной сценарий)
 
-```
-Client → Server: session/prompt (user message)
-  ↓
-ACPProtocol.handle() → PromptOrchestrator.handle_prompt()
-  ↓
-Pipeline.run([
-  ValidationStage,       # Валидация входа
-  SlashCommandStage,     # Обработка /команд
-  PlanBuildingStage,     # Построение плана
-  TurnLifecycleStage(open),  # Открытие turn
-  LLMLoopStage,          # LLM итерация (цикл agent + tools)
-  TurnLifecycleStage(close)  # Закрытие turn
-])
-  ↓
-LLMLoop: Agent → LLM → tool calls → ClientRPC → результаты → LLM → ...
-  ↓
-Server → Client: session/update (notifications поток)
-Server → Client: session/prompt response (stopReason)
+```mermaid
+flowchart LR
+    A["Client"] -->|"session/prompt"| B["ACPProtocol.handle()"]
+    B --> C["PromptOrchestrator.handle_prompt()"]
+    C --> D["Pipeline.run()"]
+
+    subgraph Pipeline["Pipeline stages"]
+        direction TB
+        S1["1. ValidationStage"]
+        S2["2. SlashCommandStage"]
+        S3["3. PlanBuildingStage"]
+        S4["4. TurnLifecycleStage(open)"]
+        S5["5. LLMLoopStage"]
+        S6["6. TurnLifecycleStage(close)"]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
+
+    D --> Pipeline
+    S5 --> E["Agent → LLM → tool calls → ClientRPC → результаты"]
+    E -->|"session/update"| F["Client (notifications)"]
+    E -->|"session/prompt response"| G["Client (stopReason)"]
 ```
 
 ### 5.2 Permission Flow
 
-```
-Agent → Client: session/request_permission
-  ↓
-Client TUI: показывает PermissionModal пользователю
-  ↓
-User: Allow / Deny / Allow Always
-  ↓
-Client → Server: session/request_permission_response
-  ↓
-Server: ToolCallHandler выполняет/отклоняет инструмент
-Server → Client: session/update (tool_call status)
-  ↓
-Server: continue_with_tool_results → LLM loop продолжается
+```mermaid
+flowchart LR
+    A["Agent"] -->|"session/request_permission"| B["Client TUI\nPermissionModal"]
+    B --> C["User: Allow / Deny / Allow Always"]
+    C -->|"session/request_permission_response"| D["Server\nToolCallHandler"]
+    D -->|"session/update\ntool_call status"| E["Client"]
+    D --> F["continue_with_tool_results\n→ LLM loop"]
 ```
 
 ### 5.3 Client RPC (Agent → Client)
 
-```
-Agent (LLM loop) → ToolRegistry → Executor
-  ↓
-ClientRPCBridge → ClientRPCService
-  ↓
-ClientRPCService отправляет JSON-RPC через WebSocket клиенту
-  ↓
-Client (BackgroundReceiveLoop → Router → Handler)
-  ↓
-Executor на клиенте (fs/readTextFile, terminal/create и т.д.)
-  ↓
-Client → Server: результат выполнения
-  ↓
-ClientRPCService.handle_response() → asyncio.Future.set_result()
-  ↓
-Executor получает результат → LLM loop продолжается
+```mermaid
+flowchart LR
+    A["Agent (LLM loop)"] --> B["ToolRegistry\n→ Executor"]
+    B --> C["ClientRPCBridge\n→ ClientRPCService"]
+    C -->|"JSON-RPC via\nWebSocket/stdio"| D["Client\nBackgroundReceiveLoop\n→ Router → Handler"]
+    D --> E["Executor на клиенте\nfs/readTextFile, terminal/create"]
+    E -->|"результат"| F["ClientRPCService\n.handle_response()\n→ Future.set_result()"]
+    F --> G["LLM loop продолжается"]
 ```
 
 ## 6. Модели данных
@@ -376,14 +342,22 @@ Logging:
 ### 8.2 CLI команды
 
 ```yaml
-codelab:                         # Локальный режим (сервер + TUI)
+codelab:                         # Локальный режим (сервер как subprocess + TUI через stdio)
   flags: [-v, --verbose]
+  transport: stdio (сервер запускается как subprocess)
 
 codelab serve:                   # Режим сервера
-  flags: [--host, --port, --no-web]
+  flags: [--host, --port, --no-web, --stdio]
+  поведение:
+    - Без --stdio: WebSocket сервер на host:port
+    - С --stdio: stdio транспорт (stdin/stdout), --host/--port игнорируются, Web UI отключается
 
 codelab connect:                 # Режим клиента
-  flags: [--host, --port, --cwd]
+  flags: [--host, --port, --cwd, --stdio, --agent-command]
+  поведение:
+    - Без --stdio: WebSocket подключение к host:port
+    - С --stdio: запуск subprocess через StdioClientTransport
+    - --agent-command: кастомная команда агента (default: "codelab serve --stdio")
 ```
 
 ## 9. Инструменты агента
@@ -445,134 +419,170 @@ uv run python -m pytest       # Тесты (~1800)
 
 ### 11.1 Архитектура Pipeline
 
-```
-PromptPipeline.run(context)
-  │
-  ├─ [1] ValidationStage
-  │     ├─ Проверка: session.active_turn is None (иначе "Session busy")
-  │     └─ Проверка: raw_text не пустой (иначе "Empty prompt")
-  │
-  ├─ [2] SlashCommandStage
-  │     ├─ Если текст начинается с "/" — парсинг команды
-  │     ├─ Маршрутизация через SlashCommandRouter
-  │     ├─ Встроенные команды: /status, /mode, /help
-  │     └─ При успехе: should_stop=True (LLM не вызывается)
-  │
-  ├─ [3] PlanBuildingStage
-  │     └─ Зарезервировано для pre-plan логики (пока no-op)
-  │
-  ├─ [4] TurnLifecycleStage(action="open")
-  │     ├─ TurnLifecycleManager.create_active_turn()
-  │     └─ phase → "running"
-  │
-  ├─ [5] LLMLoopStage
-  │     ├─ _run_llm_loop() — основной цикл
-  │     └─ (см. детальную схему ниже)
-  │
-  └─ [6] TurnLifecycleStage(action="close")
-        ├─ TurnLifecycleManager.finalize_turn(session, stop_reason)
-        └─ TurnLifecycleManager.clear_active_turn(session)
+```mermaid
+flowchart TD
+    Root["PromptPipeline.run(context)"]
+
+    subgraph S1["1. ValidationStage"]
+        V1["session.active_turn is None\n(иначе Session busy)"]
+        V2["raw_text не пустой\n(иначе Empty prompt)"]
+    end
+
+    subgraph S2["2. SlashCommandStage"]
+        SC1["Парсинг команды (/)"]
+        SC2["Маршрутизация через SlashCommandRouter"]
+        SC3["Встроенные: /status, /mode, /help"]
+        SC4["При успехе: should_stop=True"]
+    end
+
+    subgraph S3["3. PlanBuildingStage"]
+        PB["Зарезервировано для pre-plan\n(пока no-op)"]
+    end
+
+    subgraph S4["4. TurnLifecycleStage(open)"]
+        TL1["TurnLifecycleManager.create_active_turn()"]
+        TL2["phase → running"]
+    end
+
+    subgraph S5["5. LLMLoopStage"]
+        LL["_run_llm_loop()\n(см. детальную схему ниже)"]
+    end
+
+    subgraph S6["6. TurnLifecycleStage(close)"]
+        TC1["TurnLifecycleManager.finalize_turn()"]
+        TC2["TurnLifecycleManager.clear_active_turn()"]
+    end
+
+    Root --> S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    S1 --- V1 & V2
+    S2 --- SC1 --> SC2 --> SC3 --> SC4
+    S3 --- PB
+    S4 --- TL1 --> TL2
+    S5 --- LL
+    S6 --- TC1 --> TC2
 ```
 
 ### 11.2 LLM Loop (детально)
 
-```
-LLMLoopStage._run_llm_loop()
-  │
-  │  max_iterations = 10
-  │
-  ├─ iteration == 1:
-  │   └─ agent_orchestrator.process_prompt(session, initial_prompt_text)
-  │
-  ├─ iteration > 1:
-  │   └─ agent_orchestrator.continue_with_tool_results(session, tool_results)
-  │
-  ├─ Проверка cancel_requested → return "cancelled"
-  │
-  ├─ Обработка ответа агента:
-  │   ├─ agent_response_text → state_manager.add_assistant_message()
-  │   │                     → notification (agent_message_chunk)
-  │   ├─ agent_plan → plan_builder.validate_plan_entries()
-  │   │            → session.latest_plan
-  │   │            → notification (plan_update)
-  │   └─ has_tool_calls?
-  │       ├─ Нет → return "end_turn"
-  │       └─ Да → _process_tool_calls_for_llm_loop()
-  │
-  └─ _process_tool_calls_for_llm_loop()
-      └─ Для каждого tool_call:
-          ├─ tool_call_handler.create_tool_call()
-          ├─ notification (tool_call)
-          ├─ _decide_tool_execution():
-          │   ├─ session policy allow_always → allow
-          │   ├─ session policy reject_always → reject
-          │   ├─ global_policy allow_always → allow
-          │   ├─ global_policy reject_always → reject
-          │   └─ иначе → ask (permission request)
-          ├─ decision == "ask":
-          │   ├─ permission_manager.build_permission_request()
-          │   ├─ notification (session/request_permission)
-          │   ├─ phase → "awaiting_permission"
-          │   └─ return pending_permission=True
-          ├─ decision == "reject":
-          │   ├─ tool_call status → "failed"
-          │   └─ notification (tool_call_update: failed)
-          └─ decision == "allow":
-              ├─ tool_call status → "in_progress"
-              ├─ notification (tool_call_update: in_progress)
-              ├─ tool_registry.execute_tool(session_id, tool_name, args)
-              ├─ content_extractor.extract_from_result()
-              ├─ content_validator.validate_content_list()
-              ├─ content_formatter.format_for_llm()
-              ├─ success → status "completed" + ToolResult(success=True)
-              ├─ fail → status "failed" + ToolResult(success=False)
-              └─ notification (tool_call_update: completed/failed)
+```mermaid
+flowchart TD
+    Root["LLMLoopStage._run_llm_loop()\nmax_iterations = 10"]
+
+    subgraph Iter1["iteration == 1"]
+        P1["agent_orchestrator.process_prompt\n(session, initial_prompt_text)"]
+    end
+
+    subgraph IterN["iteration > 1"]
+        PN["agent_orchestrator.continue_with_tool_results\n(session, tool_results)"]
+    end
+
+    Cancel{"cancel_requested?"}
+    
+    subgraph Response["Обработка ответа агента"]
+        Text["agent_response_text\n→ add_assistant_message()\n→ notification (agent_message_chunk)"]
+        Plan["agent_plan\n→ validate_plan_entries()\n→ session.latest_plan\n→ notification (plan_update)"]
+        Tools{"has_tool_calls?"}
+    end
+
+    subgraph ToolProcessing["_process_tool_calls_for_llm_loop()"]
+        subgraph PerTool["Для каждого tool_call"]
+            Create["tool_call_handler.create_tool_call()\n→ notification (tool_call)"]
+            Decide["_decide_tool_execution()"]
+            
+            subgraph Decision["Цепочка решений"]
+                SP["session policy\nallow_always → allow\nreject_always → reject"]
+                GP["global_policy\nallow_always → allow\nreject_always → reject"]
+                Ask["иначе → ask"]
+            end
+
+            subgraph Outcomes["Результаты"]
+                AskOutcome["decision == ask:\n→ build_permission_request()\n→ notification (request_permission)\n→ phase → awaiting_permission\n→ return pending_permission=True"]
+                RejectOutcome["decision == reject:\n→ status → failed\n→ notification (tool_call_update: failed)"]
+                AllowOutcome["decision == allow:\n→ status → in_progress\n→ notification (in_progress)\n→ execute_tool()\n→ extract/validate/format content\n→ completed/failed\n→ notification (completed/failed)"]
+            end
+        end
+    end
+
+    Root --> Iter1 --> IterN --> Cancel
+    Cancel -->|Да| ExitCancel["return cancelled"]
+    Cancel -->|Нет| Response
+    Response --> Text --> Plan --> Tools
+    Tools -->|Нет| ExitEnd["return end_turn"]
+    Tools -->|Да| ToolProcessing
+    
+    Create --> Decide --> Decision
+    Decision --> Ask --> AskOutcome
+    Decision --> SP --> RejectOutcome
+    Decision --> GP --> AllowOutcome
 ```
 
 ### 11.3 Tool Call State Machine
 
-```
-Состояния:       Допустимые переходы:
-pending     →   in_progress, cancelled, failed
-in_progress →   completed, cancelled, failed
-completed   →   (терминальное)
-cancelled   →   (терминальное)
-failed      →   (терминальное)
+```mermaid
+flowchart LR
+    Start([*]) --> pending
+    pending --> in_progress
+    pending --> cancelled
+    pending --> failed
+    in_progress --> completed
+    in_progress --> cancelled
+    in_progress --> failed
+    completed --> End([*])
+    cancelled --> End
+    failed --> End
 
-ToolCallState:
-  - tool_call_id: str            # Уникальный ID
-  - title: str                   # Отображаемое название
-  - kind: str                    # read/edit/delete/move/search/execute/think/fetch/switch_mode/other
-  - status: str                  # Текущий статус
-  - content: list[dict]          # Контент при завершении
-  - result_content: list[dict]   # Результат выполнения
-  - tool_name: str | None        # Имя инструмента в registry
-  - tool_arguments: dict         # Аргументы для выполнения
-  - tool_call_id_from_llm: str | None  # ID из LLM ответа
+    classDef terminal fill:#f9d0d0,stroke:#c00
+    class completed,cancelled,failed terminal
 ```
+
+**ToolCallState поля:**
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `tool_call_id` | str | Уникальный ID |
+| `title` | str | Отображаемое название |
+| `kind` | str | read/edit/delete/move/search/execute/think/fetch/switch_mode/other |
+| `status` | str | Текущий статус |
+| `content` | list[dict] | Контент при завершении |
+| `result_content` | list[dict] | Результат выполнения |
+| `tool_name` | str \| None | Имя инструмента в registry |
+| `tool_arguments` | dict | Аргументы для выполнения |
+| `tool_call_id_from_llm` | str \| None | ID из LLM ответа |
 
 ### 11.4 Permission Decision Chain
 
-```
-LLMLoopStage._decide_tool_execution(session, tool_kind)
-  │
-  ├─ 1. Session permission_policy[tool_kind]
-  │     ├─ "allow_always"  → return "allow"
-  │     ├─ "reject_always" → return "reject"
-  │     └─ иначе → fall through
-  │
-  ├─ 2. GlobalPolicyManager.get_global_policy(tool_kind)
-  │     ├─ "allow_always"  → return "allow"
-  │     ├─ "reject_always" → return "reject"
-  │     └─ None → fall through
-  │
-  └─ 3. return "ask"  (permission request пользователю)
+```mermaid
+flowchart TD
+    Root["LLMLoopStage._decide_tool_execution\n(session, tool_kind)"]
 
-Permission response options:
-  - allow_once     → выполнить инструмент, не сохранять policy
-  - allow_always   → выполнить + session.permission_policy[kind] = "allow_always"
-  - reject_once    → отклонить, не сохранять policy
-  - reject_always  → отклонить + session.permission_policy[kind] = "reject_always"
+    subgraph Step1["1. Session permission_policy"]
+        S1A["allow_always → return allow"]
+        S1B["reject_always → return reject"]
+        S1C["иначе → fall through"]
+    end
+
+    subgraph Step2["2. GlobalPolicyManager"]
+        S2A["allow_always → return allow"]
+        S2B["reject_always → return reject"]
+        S2C["None → fall through"]
+    end
+
+    subgraph Step3["3. Результат"]
+        S3["return ask\n(permission request пользователю)"]
+    end
+
+    subgraph Options["Permission response options"]
+        O1["allow_once → выполнить,\nне сохранять policy"]
+        O2["allow_always → выполнить +\nsession.policy[kind] = allow_always"]
+        O3["reject_once → отклонить,\nне сохранять policy"]
+        O4["reject_always → отклонить +\nsession.policy[kind] = reject_always"]
+    end
+
+    Root --> Step1 --> Step2 --> Step3
+    Step1 --- S1A & S1B & S1C
+    Step2 --- S2A & S2B & S2C
+    Step3 --> Options
+    Options --- O1 & O2 & O3 & O4
 ```
 
 ## 12. Turn Lifecycle
@@ -602,14 +612,24 @@ Stop reasons:
 
 ### 12.2 Late Response Handling
 
-```
-session/cancel → client RPC уже отправлен:
-  ├─ cancelled_permission_requests: set[JsonRpcId] — отменённые permission requests
-  └─ cancelled_client_rpc_requests: set[JsonRpcId] — отменённые client RPC
+```mermaid
+flowchart TD
+    Cancel["session/cancel\nclient RPC уже отправлен"]
+    
+    subgraph Track["Отслеживание отменённых запросов"]
+        CPR["cancelled_permission_requests\nset[JsonRpcId]"]
+        CRR["cancelled_client_rpc_requests\nset[JsonRpcId]"]
+    end
 
-При получении позднего ответа:
-  ├─ Проверка в cancelled_permission_requests → игнорировать как no-op
-  └─ Проверка в cancelled_client_rpc_requests → игнорировать как no-op
+    subgraph Handle["При получении позднего ответа"]
+        Check1["Проверка в cancelled_permission_requests\n→ игнорировать как no-op"]
+        Check2["Проверка в cancelled_client_rpc_requests\n→ игнорировать как no-op"]
+    end
+
+    Cancel --> Track
+    Track --- CPR & CRR
+    CPR --> Check1
+    CRR --> Check2
 ```
 
 ## 13. Контент (Content Types)
@@ -719,87 +739,111 @@ class SessionStorage(ABC):
 
 ### 16.1 Слои Clean Architecture
 
-```
-Domain Layer (domain/):
-├─ entities.py: Session, Message, Permission, ToolCall — dataclass сущности
-└─ repositories.py: SessionRepository, MessageRepository — ABC интерфейсы
+```mermaid
+flowchart TB
+    subgraph Domain["Domain Layer (domain/)"]
+        D1["entities.py: Session, Message,\nPermission, ToolCall"]
+        D2["repositories.py: SessionRepository,\nMessageRepository (ABC)"]
+    end
 
-Application Layer (application/):
-├─ use_cases/: create_session.py, send_prompt.py, load_session.py
-├─ state_machine.py: UIConnectionStateMachine
-└─ dtos.py: SessionDTO, MessageDTO
+    subgraph Application["Application Layer (application/)"]
+        A1["use_cases/: create_session,\nsend_prompt, load_session"]
+        A2["state_machine.py:\nUIConnectionStateMachine"]
+        A3["dtos.py: SessionDTO, MessageDTO"]
+    end
 
-Infrastructure Layer (infrastructure/):
-├─ di_container.py: DIContainer
-├─ di_bootstrapper.py: DI инициализация
-├─ transport.py: WebSocket транспорт
-├─ services/:
-│   ├─ background_receive_loop.py: Единственный receive()
-│   ├─ message_router.py: Маршрутизация по очередям
-│   └─ routing_queues.py: response, notification, permission очереди
-├─ events/bus.py: EventBus (Pub/Sub)
-├─ handlers/:
-│   ├─ fs/: filesystem_handler.py, filesystem_executor.py
-│   └─ terminal/: terminal_handler.py, terminal_executor.py
-├─ handler_registry.py: Регистрация обработчиков (fs/*, terminal/*)
-├─ message_parser.py: Парсинг JSON-RPC
-├─ plugins/: Плагины
-└─ repositories.py: Реализации репозиториев
+    subgraph Infrastructure["Infrastructure Layer (infrastructure/)"]
+        I1["di_container.py, di_bootstrapper.py"]
+        I2["transport.py, stdio_transport.py"]
+        I3["services/: acp_transport_service,\nbackground_receive_loop,\nmessage_router, routing_queues"]
+        I4["events/bus.py: EventBus"]
+        I5["handlers/: fs/, terminal/"]
+        I6["handler_registry, message_parser,\nplugins, repositories,\nclient_config, providers"]
+    end
 
-Presentation Layer (presentation/):
-├─ chat_view_model.py: ChatViewModel (Observable)
-├─ session_view_model.py: SessionViewModel
-├─ permission_view_model.py: PermissionViewModel
-└─ file_system_view_model.py: FileSystemViewModel
+    subgraph Presentation["Presentation Layer (presentation/)"]
+        P1["chat_view_model.py:\nChatViewModel (Observable)"]
+        P2["session_view_model.py:\nSessionViewModel"]
+        P3["permission_view_model.py:\nPermissionViewModel"]
+        P4["file_system_view_model.py:\nFileSystemViewModel"]
+    end
 
-TUI Layer (tui/):
-├─ app.py: ACPClientApp (Textual App)
-├─ components/: chat_view.py, file_tree.py, prompt_input.py, permission_modal.py
-├─ navigation/manager.py: NavigationManager
-├─ styles/: Стили
-├─ themes/: Темы оформления
-└─ config.py: Конфигурация TUI
+    subgraph TUI["TUI Layer (tui/)"]
+        T1["app.py: ACPClientApp"]
+        T2["components/: chat_view,\nfile_tree, prompt_input,\npermission_modal"]
+        T3["navigation/manager.py"]
+        T4["styles/, themes/, config.py"]
+    end
+
+    Domain --> Application --> Infrastructure --> Presentation --> TUI
 ```
 
 ### 16.2 BackgroundReceiveLoop — маршрутизация сообщений
 
-```yaml
-WebSocket receive() Loop:
-  1. await transport.receive() — единственный receive()
-  2. Парсинг JSON строки
-  3. Анализ сообщения:
-     ├─ method == "session/update"        → notification_queue → on_update_callback
-     ├─ method == "session/request_permission" → permission_queue → on_permission_callback
-     ├─ method in ("fs/*", "terminal/*")  → notification_queue → request_with_callbacks
-     ├─ есть message.id                   → response_queue[id] → asyncio.Future.set_result()
-     └─ неизвестный тип                   → логирование ошибки
-  4. Распределение в очереди
-  5. Вызов callbacks / установка Future
+```mermaid
+flowchart TD
+    Receive["await transport.receive_text()"]
+    Parse["Парсинг JSON строки"]
+    
+    subgraph Analyze["Анализ сообщения"]
+        A1["method == session/update\n→ notification_queue"]
+        A2["method == session/request_permission\n→ permission_queue"]
+        A3["method in (fs/*, terminal/*)\n→ notification_queue"]
+        A4["message.id is not None\n→ response_queue[id]"]
+        A5["неизвестный тип\n→ логирование ошибки"]
+    end
+
+    subgraph Distribute["Распределение"]
+        D1["response_queue[id]\n→ asyncio.Future.set_result()"]
+        D2["notification_queue\n→ on_update callback"]
+        D3["permission_queue\n→ on_permission callback"]
+    end
+
+    Receive --> Parse --> Analyze --> Distribute
+    Analyze --- A1 --> D2
+    Analyze --- A2 --> D3
+    Analyze --- A3 --> D2
+    Analyze --- A4 --> D1
+    Analyze --- A5
 ```
 
 ## 17. Тестирование
 
 ### 17.1 Структура тестов
 
-```
-codelab/tests/
-├── __init__.py
-├── conftest.py                  # Общие фикстуры
-├── test_cli.py                  # CLI тесты
-├── test_imports.py              # Проверка импортов
-├── client/                      # ~1100 тестов клиента
-│   ├── test_domain/
-│   ├── test_application/
-│   ├── test_infrastructure/
-│   ├── test_presentation/
-│   └── test_tui_*.py
-└── server/                      # ~700 тестов сервера
-    ├── test_protocol/
-    ├── test_handlers/
-    ├── test_agent/
-    ├── test_tools/
-    ├── test_storage/
-    └── test_mcp/
+```mermaid
+flowchart TB
+    Root["codelab/tests/"]
+
+    subgraph Common["Общие"]
+        C1["__init__.py"]
+        C2["conftest.py (фикстуры)"]
+        C3["test_cli.py"]
+        C4["test_imports.py"]
+    end
+
+    subgraph ClientTests["client/ (~1100 тестов)"]
+        CL1["test_domain/"]
+        CL2["test_application/"]
+        CL3["test_infrastructure/"]
+        CL4["test_presentation/"]
+        CL5["test_tui_*.py"]
+    end
+
+    subgraph ServerTests["server/ (~700 тестов)"]
+        SR1["test_protocol/"]
+        SR2["test_handlers/"]
+        SR3["test_agent/"]
+        SR4["test_tools/"]
+        SR5["test_storage/"]
+        SR6["test_mcp/"]
+    end
+
+    Root --> Common
+    Root --> ClientTests
+    Root --> ServerTests
+    ClientTests --- CL1 & CL2 & CL3 & CL4 & CL5
+    ServerTests --- SR1 & SR2 & SR3 & SR4 & SR5 & SR6
 ```
 
 ### 17.2 Конфигурация тестов
@@ -833,14 +877,18 @@ pytest:
 
 ### 18.2 Client RPC Exception Hierarchy
 
-```
-ClientRPCError (base)
-├── ClientCapabilityMissingError  # Клиент не поддерживает capability
-├── ClientRPCCancelledError       # RPC отменён (session/cancel или disconnect)
-└── ClientRPCResponseError        # Клиент вернул ошибку
-    - code: int
-    - message: str
-    - data: Any
+```mermaid
+flowchart TD
+    Base["ClientRPCError (base)"]
+    subgraph Exceptions["Производные исключения"]
+        E1["ClientCapabilityMissingError\nКлиент не поддерживает capability"]
+        E2["ClientRPCCancelledError\nRPC отменён (session/cancel или disconnect)"]
+        E3["ClientRPCResponseError\nКлиент вернул ошибку\n+ code: int\n+ message: str\n+ data: Any"]
+    end
+
+    Base --> E1
+    Base --> E2
+    Base --> E3
 ```
 
 ## 19. MCP (Model Context Protocol) интеграция
@@ -857,24 +905,27 @@ ClientRPCError (base)
 
 ### 19.2 Жизненный цикл
 
-```
-session/new или session/load
-  └→ ACPProtocol._setup_mcp_if_needed()
-      └→ ACPProtocol._initialize_mcp_servers()
-          ├─ MCPManager(session_id) — создаётся для сессии
-          ├─ MCPManager.add_server(config) — подключение
-          │   ├─ MCPClient запускает subprocess (command + args)
-          │   ├─ Инициализация через JSON-RPC
-          │   ├─ Получение списка инструментов
-          │   └─ Адаптация в ToolDefinition через ToolAdapter
-          └─ Инструменты доступны через session_state.mcp_manager
+```mermaid
+flowchart TD
+    A["session/new или session/load"]
+    B["ACPProtocol._setup_mcp_if_needed()"]
+    C["ACPProtocol._initialize_mcp_servers()"]
+    D["MCPManager(session_id)"]
+    E["MCPManager.add_server(config)"]
+    F["MCPClient запускает subprocess"]
+    G["Инициализация через JSON-RPC"]
+    H["Получение списка инструментов"]
+    I["Адаптация в ToolDefinition"]
+    J["Инструменты доступны через session_state.mcp_manager"]
 
-Особенности:
-  - MCPManager не сериализуется (exclude=True в SessionState)
-  - Пересоздаётся при session/load
-  - Graceful degradation при ошибке подключения
-  - Инструменты привязаны к сессии (не регистрируются в глобальном ToolRegistry)
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J
 ```
+
+**Особенности:**
+- MCPManager не сериализуется (exclude=True в SessionState)
+- Пересоздаётся при session/load
+- Graceful degradation при ошибке подключения
+- Инструменты привязаны к сессии (не регистрируются в глобальном ToolRegistry)
 
 ## 20. LLM Провайдеры
 
@@ -948,26 +999,39 @@ AgentResponse:
 
 ### 21.3 Алгоритм NaiveAgent
 
-```
-NaiveAgent.process_prompt(context)
-  │
-  ├─ 1. Подготовка messages:
-  │     ├─ system prompt (из config)
-  │     ├─ conversation_history (из SessionState)
-  │     └─ user prompt (из context.prompt → форматирование)
-  │
-  ├─ 2. Получение tools_dict:
-  │     └─ context.available_tools → [{type:"function", function:{name, description, parameters}}]
-  │
-  ├─ 3. Цикл tool-calling (max 5 итераций):
-  │     ├─ llm.create_completion(messages, tools=tools_dict)
-  │     ├─ Если response содержит tool_calls:
-  │     │   ├─ Выполнение через tool_registry.execute_tool()
-  │     │   ├─ Добавление результатов в messages (role: "tool")
-  │     │   └─ Повтор цикла
-  │     └─ Если response.text без tool_calls → выход
-  │
-  └─ 4. Возврат AgentResponse(text, tool_calls, plan)
+```mermaid
+flowchart TD
+    Root["NaiveAgent.process_prompt(context)"]
+
+    subgraph Step1["1. Подготовка messages"]
+        M1["system prompt (из config)"]
+        M2["conversation_history (из SessionState)"]
+        M3["user prompt (из context.prompt)"]
+    end
+
+    subgraph Step2["2. Получение tools_dict"]
+        T["context.available_tools →\n[{type: function, function: {name, desc, params}}]"]
+    end
+
+    subgraph Step3["3. Цикл tool-calling (max 5 итераций)"]
+        Loop{"llm.create_completion\n(messages, tools=tools_dict)"}
+        HasTools{"response содержит\ntool_calls?"}
+        Execute["tool_registry.execute_tool()\n→ результаты в messages (role: tool)\n→ повтор цикла"]
+        Exit["response.text без tool_calls\n→ выход из цикла"]
+    end
+
+    subgraph Step4["4. Возврат"]
+        R["AgentResponse(text, tool_calls, plan)"]
+    end
+
+    Root --> Step1 --> Step2 --> Step3
+    Step1 --- M1 & M2 & M3
+    Step2 --- T
+    Step3 --- Loop --> HasTools
+    HasTools -->|Да| Execute --> Loop
+    HasTools -->|Нет| Exit
+    Step3 --> Step4
+    Step4 --- R
 ```
 
 ### 21.4 AgentOrchestrator — конвертер SessionState ↔ AgentContext
@@ -1280,19 +1344,36 @@ PendingRequest:
 
 ### 25.2 Алгоритм replay
 
-```
-ReplayManager.replay_history(session) → list[ACPMessage]:
-  1. Перебор всех событий в session.events_history
-  2. Фильтр по type == "session_update"
-  3. Фильтр по update.sessionUpdate in _REPLAYABLE_UPDATE_TYPES:
-     - user_message_chunk, agent_message_chunk, tool_call,
-       tool_call_update, plan, session_info
-  4. Конвертация каждого в ACPMessage.notification("session/update", ...)
-  5. Возврат списка notifications (в хронологическом порядке)
+```mermaid
+flowchart TD
+    Root["ReplayManager.replay_history(session)"]
+    
+    subgraph Steps["Шаги"]
+        S1["1. Перебор всех событий\nв session.events_history"]
+        S2["2. Фильтр: type == 'session_update'"]
+        S3["3. Фильтр: sessionUpdate in\n_REPLAYABLE_UPDATE_TYPES"]
+        S4["4. Конвертация в ACPMessage.notification\n('session/update', ...)"]
+        S5["5. Возврат списка notifications\n(хронологический порядок)"]
+    end
 
-ReplayManager.replay_latest_plan(session) → ACPMessage | None:
-  - Если session.latest_plan не пуст → plan notification
-  - Иначе → None
+    subgraph Types["Replayable типы"]
+        T1["user_message_chunk"]
+        T2["agent_message_chunk"]
+        T3["tool_call"]
+        T4["tool_call_update"]
+        T5["plan"]
+        T6["session_info"]
+    end
+
+    subgraph Plan["Replay latest plan"]
+        P["session.latest_plan не пуст?\n→ plan notification\n→ иначе None"]
+    end
+
+    Root --> Steps
+    Steps --- S1 --> S2 --> S3 --> S4 --> S5
+    S3 --> Types
+    Types --- T1 & T2 & T3 & T4 & T5 & T6
+    Root --> Plan
 ```
 
 ## 26. PlanBuilder — построение планов
@@ -1638,7 +1719,11 @@ ACPClientApp(App[None], Textual App):
     - ToastContainer (overlay)
 
   Инициализация конструктора:
-    DIBootstrapper.build(host, port, cwd, history_dir) → DIContainer
+    Параметры:
+      host: str, port: int, cwd: str | None,
+      transport_mode: str ("websocket" | "stdio"),
+      stdio_command: str | None, stdio_args: list[str] | None
+    DIBootstrapper.build(host, port, cwd, history_dir, transport_mode, stdio_command, stdio_args) → DIContainer
     resolve ViewModels: UIViewModel, SessionViewModel, ChatViewModel,
       PlanViewModel, FileSystemViewModel, TerminalLogViewModel,
       FileViewerViewModel, PermissionViewModel, TerminalViewModel (9 шт.)
@@ -1671,20 +1756,58 @@ ACPClientApp(App[None], Textual App):
   TUIConfigStore:
     Конфигурация TUI (connection params и т.д.)
     resolve_tui_connection(host, port) → resolved_host, resolved_port
+
+  Завершение (on_unmount):
+    - transport_mode == "stdio": graceful shutdown subprocess (close stdin, wait, terminate)
+    - Остановка BackgroundReceiveLoop
+    - Очистка ресурсов
 ```
 
 ## 30. Client Infrastructure Services
 
-### 30.1 Transport
+### 30.1 Транспортный протокол (Transport)
+
+```yaml
+Transport (протокол):
+  - send_str(data: str) → отправка строки
+  - receive_text() → str → получение строки
+  - is_connected() → bool → проверка соединения
+  - __aenter__() / __aexit__() → async context manager
+
+WebSocketTransport:
+  - connect() → установка WebSocket соединения
+  - disconnect() → закрытие
+  - send_str(data) → отправка через ws.send_str()
+  - receive_text() → получение через ws.receive_str()
+  - is_connected() → bool
+
+StdioClientTransport:
+  файл: client/infrastructure/stdio_transport.py
+  - __aenter__() → asyncio.create_subprocess_exec(command, *args, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+  - __aexit__() → close stdin, wait (timeout 5s), terminate/kill if needed
+  - send_str(data) → запись в stdin subprocess (data + "\n")
+  - receive_text() → чтение из stdout queue (asyncio.Queue, timeout 30s)
+  - is_connected() → проверка: process.returncode is None
+  - _stdout_reader: фоновая задача чтения stdout → queue
+  - _stderr_reader: фоновая задача чтения stderr → только логирование
+```
+
+### 30.2 ACPTransportService (параметризованный)
 
 ```yaml
 ACPTransportService:
-  - connect() → установка WebSocket соединения
-  - disconnect() → закрытие
-  - send(data) → отправка JSON-RPC сообщения
-  - receive_text() → получение JSON строки (только в BackgroundReceiveLoop)
-  - is_connected() → bool
-  - _permission_handler: PermissionHandler (опционально, добавляется после создания)
+  - __init__(transport: Transport) → принимает любой Transport (не создаёт внутри)
+  - connect() → вызов transport.__aenter__()
+  - disconnect() → вызов transport.__aexit__()
+  - send(data) → вызов transport.send_str(data)
+  - receive_text() → вызов transport.receive_text()
+  - is_connected() → вызов transport.is_connected()
+  - request_with_callbacks(method, params, callbacks) → JSON-RPC request с callbacks
+  - _permission_handler: PermissionHandler (опционально)
+
+create_websocket_transport_service(host, port) → ACPTransportService:
+  - Factory функция для обратной совместимости
+  - Создаёт WebSocketTransport, оборачивает в ACPTransportService
 ```
 
 ### 30.2 BackgroundReceiveLoop
@@ -1798,19 +1921,34 @@ DIContainer:
     register_singleton(interface, instance) → упрощённая регистрация
     build() → возвращает готовый DIContainer
 
-  DIBootstrapper.build(host, port, cwd, history_dir) → DIContainer:
+  DIBootstrapper.build(host, port, cwd, history_dir, transport_mode, stdio_command, stdio_args) → DIContainer:
     Порядок регистрации:
     1. EventBus (singleton)
-    2. ACPTransportService (singleton, с host/port)
-    3. InMemorySessionRepository (singleton)
-    4. FileSystemExecutor (singleton, с base_path)
-    5. FileSystemHandler (singleton)
-    6. TerminalExecutor (singleton)
-    7. TerminalHandler (singleton)
-    8. SessionCoordinator (singleton, с transport + session_repo + permission_handler=None)
-    9. PermissionHandler (singleton, с coordinator + transport)
-    10. Обновление зависимостей: SessionCoordinator._permission_handler и ACPTransportService._permission_handler
-    11. ViewModelFactory.register_view_models() → 9 ViewModels (все SINGLETON)
+    2. Transport (singleton):
+       - transport_mode == "websocket" → WebSocketTransport(host, port)
+       - transport_mode == "stdio" → StdioClientTransport(stdio_command, stdio_args, cwd)
+    3. ACPTransportService (singleton, с transport)
+    4. InMemorySessionRepository (singleton)
+    5. FileSystemExecutor (singleton, с base_path)
+    6. FileSystemHandler (singleton)
+    7. TerminalExecutor (singleton)
+    8. TerminalHandler (singleton)
+    9. SessionCoordinator (singleton, с transport + session_repo + permission_handler=None)
+    10. PermissionHandler (singleton, с coordinator + transport)
+    11. Обновление зависимостей: SessionCoordinator._permission_handler и ACPTransportService._permission_handler
+    12. ViewModelFactory.register_view_models() → 9 ViewModels (все SINGLETON)
+
+### 30.6 ClientConfig (transport поля)
+
+```yaml
+ClientConfig:
+  transport_mode: str = "websocket"    # "websocket" | "stdio"
+  stdio_command: str | None = None     # команда для запуска агента (напр. "codelab")
+  stdio_args: list[str] | None = None  # аргументы (напр. ["serve", "--stdio"])
+  host: str                            # адрес сервера (для websocket)
+  port: int                            # порт сервера (для websocket)
+  cwd: str | None                      # рабочая директория (для stdio subprocess)
+```
 ```
 
 ## 31. Критические архитектурные решения (ADRs)
@@ -1832,3 +1970,128 @@ DIContainer:
 15. **MVVM с Observable** — Presentation слой через ViewModel + Observable паттерн для реактивного UI
 16. **DIContainer с bootstrapper** — централизованное управление зависимостями через DI контейнер с явным bootstrapper для инициализации
 17. **EventBus для слабой связанности** — Pub/Sub система для коммуникации между слоями без прямых зависимостей
+18. **AcpServerTransport протокол** — серверный транспорт абстрагирован через Protocol с методами run/send/close. Позволяет добавлять новые транспорты (stdio, SSE, gRPC) без изменения ACPProtocol и handlers. WebSocketTransport и StdioServerTransport — две реализации.
+19. **Stdio как основной транспорт** — `codelab` без подкоманды (local mode) теперь запускает сервер как subprocess через stdio вместо thread + WebSocket. Это соответствует спецификации ACP и упрощает интеграцию с IDE plugins.
+20. **Параметризация ACPTransportService** — клиентский сервис транспорта принимает любой объект Transport через конструктор, а не создаёт WebSocketTransport внутри. Factory функции обеспечивают обратную совместимость.
+
+## 32. Транспортный слой сервера
+
+### 32.1 Протокол AcpServerTransport
+
+```python
+class AcpServerTransport(Protocol):
+    async def run(
+        self,
+        on_message: Callable[[ACPMessage], Awaitable[ProtocolOutcome]],
+    ) -> None:
+        """Основной цикл транспорта. Читает сообщения, вызывает on_message."""
+        ...
+
+    async def send(self, message: ACPMessage) -> None:
+        """Отправить сообщение клиенту (response, notification, RPC request)."""
+        ...
+
+    async def close(self) -> None:
+        """Graceful shutdown транспорта. Идемпотентен."""
+        ...
+```
+
+Протокол определяет минимальный интерфейс для любого транспорта сервера.
+Реализации: `WebSocketTransport`, `StdioServerTransport`.
+
+### 32.2 WebSocketTransport
+
+```yaml
+WebSocketTransport:
+  файл: server/transport/websocket.py
+  зависимости: aiohttp WebSocketResponse, DI AsyncContainer, AppConfig
+  методы:
+    - run(on_message): цикл чтения WS сообщений, обработка initialize, session/prompt в фоне
+    - send(message): отправка через ws.send_str() с asyncio.Lock
+    - close(): закрытие WS соединения
+  особенности:
+    - Deferred prompt tasks: session/prompt без response → background task с 30s timeout
+    - Prompt request tasks: session/prompt выполняется в фоне, не блокируя receive-loop
+    - ClientRPCService: создаётся с callback на отправку через WS
+    - Cleanup при disconnect: отмена prompt tasks, active turns, pending RPC requests
+    - ws_send_lock: asyncio.Lock для предотвращения interleaving JSON
+```
+
+### 32.3 StdioServerTransport
+
+```yaml
+StdioServerTransport:
+  файл: server/transport/stdio.py
+  зависимости: sys.stdin, sys.stdout, asyncio
+  методы:
+    - run(on_message): цикл чтения из stdin (StreamReader.readline), парсинг JSON-RPC
+    - send(message): запись в sys.stdout.buffer + flush, с asyncio.Lock
+    - close(): установка флага _closed
+  особенности:
+    - newline-delimited JSON-RPC: каждое сообщение завершается \n
+    - asyncio.Lock (_send_lock): защита всех записей в stdout
+    - Логирование ТОЛЬКО в stderr: stdout содержит исключительно JSON-RPC
+    - Signal handlers: SIGTERM, SIGINT → graceful shutdown
+    - EOF обработка: пустая строка от readline → завершение цикла
+    - Parse error: отправка {"jsonrpc":"2.0","id":null,"error":{"code":-32700,...}}
+    - sys.stdout.reconfigure(line_buffering=True)
+```
+
+### 32.4 Функция run_stdio_server
+
+```yaml
+run_stdio_server(storage, config, require_auth, auth_api_key):
+  файл: server/transport/stdio_runner.py
+  шаги:
+    1. Создание DI контейнера (make_container)
+    2. Создание StdioServerTransport
+    3. Создание ClientRPCService с callback на transport.send()
+    4. Установка ClientRPCService в ClientRPCServiceHolder
+    5. Создание REQUEST scope, получение ACPProtocol
+    6. Настройка protocol._send_callback = transport.send
+    7. Запуск transport.run(on_message=protocol.handle_and_process)
+    8. Cleanup: отмена pending RPC, закрытие DI контейнера
+  особенности:
+    - Web UI не запускается
+    - Все JSON-RPC через stdin/stdout
+    - Agent→Client RPC тоже через stdout (тот же канал)
+```
+
+### 32.5 Sequence: stdio transport flow
+
+```mermaid
+flowchart LR
+    subgraph Client["TUI Client"]
+        C1["create_subprocess_exec\ncodelab serve --stdio"]
+        C2["send_str initialize"]
+        C3["send_str session/prompt"]
+        C4["receive_text"]
+        C5["disconnect"]
+    end
+
+    subgraph StdioC["StdioClientTransport"]
+        SC1["stdin.write json+\\n"]
+        SC2["stdout queue"]
+        SC3["stdin.close"]
+        SC4["wait process 5s"]
+    end
+
+    subgraph StdioS["StdioServerTransport"]
+        SS1["stdin.readline"]
+        SS2["on_message ACPMessage"]
+        SS3["stdout.write json+\\n"]
+        SS4["EOF graceful exit"]
+    end
+
+    subgraph Protocol["ACPProtocol"]
+        P1["handle_and_process"]
+        P2["notifications session/update"]
+        P3["response stopReason"]
+    end
+
+    C1 --> SC1 --> SS1 --> SS2 --> P1
+    C2 --> SC1 --> SS1 --> SS2 --> P1 --> P3 --> SS3 --> SC2 --> C4
+    C3 --> SC1 --> SS1 --> SS2 --> P1 --> P2 --> SS3 --> SC2 --> C4
+    P3 --> SS3 --> SC2 --> C4
+    C5 --> SC3 --> SS4 --> SC4
+```
