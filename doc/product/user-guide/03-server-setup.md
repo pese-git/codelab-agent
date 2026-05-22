@@ -71,12 +71,28 @@ codelab serve --verbose
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `CODELAB_LLM_PROVIDER` | Тип провайдера (`openai`, `anthropic`, `mock`) | `mock` |
+| `CODELAB_LLM_PROVIDER` | Активный провайдер | `mock` |
+| `CODELAB_LLM_MODEL` | Модель в формате `"provider/model"` | `mock/mock-model` |
 | `CODELAB_LLM_API_KEY` | API ключ LLM | — |
-| `CODELAB_LLM_MODEL` | Модель LLM | `gpt-4o` |
 | `CODELAB_LLM_BASE_URL` | Base URL (для OpenAI-совместимых) | — |
 | `CODELAB_LLM_TEMPERATURE` | Temperature (0.0-1.0) | `0.7` |
 | `CODELAB_LLM_MAX_TOKENS` | Максимум токенов | `8192` |
+| `CODELAB_FALLBACK_ENABLED` | Включить fallback | `false` |
+| `CODELAB_FALLBACK_STRATEGY` | Стратегия fallback | `sequential` |
+| `CODELAB_FALLBACK_ORDER` | Порядок провайдеров (через запятую) | — |
+
+**Поддерживаемые провайдеры:**
+
+| ID | Провайдер | API Key | Base URL |
+|----|-----------|---------|----------|
+| `openai` | OpenAI | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` |
+| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `zen` | Zen | `ZEN_API_KEY` | `https://zen.opencode.ai/v1` |
+| `go` | Go | `GO_API_KEY` | `https://go.opencode.ai/v1` |
+| `ollama` | Ollama | — | `http://localhost:11434/v1` |
+| `lmstudio` | LMStudio | — | `http://localhost:1234/v1` |
+| `mock` | Mock (для тестов) | — | N/A |
 
 ### Логирование
 

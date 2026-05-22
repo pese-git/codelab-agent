@@ -64,28 +64,27 @@ CODELAB_LLM_TEMPERATURE=0.3
 |----------|----------|
 | `openai` | OpenAI API (GPT-4, GPT-3.5) |
 | `anthropic` | Anthropic API (Claude) |
+| `openrouter` | OpenRouter (множество моделей) |
+| `zen` | Zen API |
+| `go` | Go API |
+| `ollama` | Локальные модели через Ollama |
+| `lmstudio` | Локальные модели через LMStudio |
 | `mock` | Тестовый провайдер (без API) |
-
-#### CODELAB_LLM_API_KEY
-
-API ключ для выбранного провайдера.
-
-```bash
-# OpenAI
-CODELAB_LLM_API_KEY=sk-...
-
-# Anthropic
-CODELAB_LLM_API_KEY=sk-ant-...
-```
 
 #### CODELAB_LLM_MODEL
 
-Модель LLM:
+Модель LLM в формате `"provider/model"`:
 
 | Провайдер | Модели |
 |-----------|--------|
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` |
-| Anthropic | `claude-3-opus-20240229`, `claude-3-sonnet-20240229` |
+| OpenAI | `openai/gpt-4o`, `openai/o3`, `openai/o4-mini` |
+| Anthropic | `anthropic/claude-sonnet-4`, `anthropic/claude-opus-4` |
+| OpenRouter | `openrouter/mistral-large`, `openrouter/llama-3.1` |
+| Zen | `zen/zen-sonnet` |
+| Go | `go/go-fast` |
+| Ollama | `ollama/llama3.1:70b`, `ollama/mistral` |
+| LMStudio | `lmstudio/local-model` |
+| Mock | `mock/mock-model` |
 
 #### CODELAB_LLM_BASE_URL
 

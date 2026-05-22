@@ -215,7 +215,7 @@ graph TB
 | `ManagersProvider` | APP | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ClientRPCHandler |
 | `SlashCommandsProvider` | APP | CommandRegistry, SlashCommandRouter |
 | `StorageProvider` | APP | GlobalPolicyStorage, GlobalPolicyManager |
-| `LLMProvider_` | APP | OpenAIProvider или MockLLMProvider |
+| `LLMProvider_` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
 | `ToolsProvider` | APP | SimpleToolRegistry |
 | `AgentProvider` | APP | AgentOrchestrator |
 | `PipelineProvider` | APP | LLMLoopStage, PromptPipeline (7 стадий) |

@@ -94,7 +94,7 @@ container = make_container(
 | `ManagersProvider` | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ClientRPCHandler |
 | `SlashCommandsProvider` | CommandRegistry (Status, Mode, Help), SlashCommandRouter |
 | `StorageProvider` | GlobalPolicyStorage, GlobalPolicyManager |
-| `LLMProvider_` | OpenAIProvider или MockLLMProvider |
+| `LLMProvider_` | LLMProviderRegistry (8+ провайдеров) |
 | `ToolsProvider` | SimpleToolRegistry |
 | `AgentProvider` | AgentOrchestrator |
 | `PipelineProvider` | LLMLoopStage, PromptPipeline (7 стадий) |

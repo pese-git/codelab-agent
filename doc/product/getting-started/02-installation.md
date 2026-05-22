@@ -85,14 +85,15 @@ nano .env  # или используйте любой редактор
 ```bash
 # .env файл
 
-# LLM провайдер (openai, anthropic, mock)
+# LLM провайдер (openai, anthropic, openrouter, zen, go, ollama, lmstudio, mock)
 CODELAB_LLM_PROVIDER=openai
 
-# API ключ OpenAI
-OPENAI_API_KEY=sk-your-key-here
+# Модель LLM в формате "provider/model"
+CODELAB_LLM_MODEL=openai/gpt-4o
 
-# Модель LLM
-CODELAB_LLM_MODEL=gpt-4o
+# API ключи
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
 
 # Порт сервера
 CODELAB_PORT=8765
@@ -108,10 +109,13 @@ CODELAB_LOG_LEVEL=INFO
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `CODELAB_LLM_PROVIDER` | Провайдер LLM | `mock` |
+| `CODELAB_LLM_PROVIDER` | Активный провайдер LLM | `mock` |
+| `CODELAB_LLM_MODEL` | Модель в формате `"provider/model"` | `mock/mock-model` |
 | `OPENAI_API_KEY` | API ключ OpenAI | — |
 | `ANTHROPIC_API_KEY` | API ключ Anthropic | — |
-| `CODELAB_LLM_MODEL` | Модель LLM | `gpt-4o` |
+| `OPENROUTER_API_KEY` | API ключ OpenRouter | — |
+| `CODELAB_FALLBACK_ENABLED` | Включить fallback | `false` |
+| `CODELAB_FALLBACK_ORDER` | Порядок fallback провайдеров | — |
 | `CODELAB_PORT` | Порт сервера | `8765` |
 | `CODELAB_HOST` | Хост сервера | `127.0.0.1` |
 | `CODELAB_LOG_LEVEL` | Уровень логов | `INFO` |

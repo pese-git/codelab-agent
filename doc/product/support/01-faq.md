@@ -8,10 +8,17 @@ CodeLab — это AI-ассистент для программирования
 
 ### Какие LLM провайдеры поддерживаются?
 
-CodeLab поддерживает:
-- **OpenAI** — GPT-4, GPT-4o и другие модели
-- **Anthropic** — Claude 3 (Opus, Sonnet, Haiku)
-- **OpenAI-совместимые API** — OpenRouter, Azure OpenAI, vLLM, Ollama
+CodeLab поддерживает 8+ провайдеров:
+- **OpenAI** — GPT-4o, o3, o4-mini
+- **Anthropic** — Claude Sonnet 4, Claude Opus 4
+- **OpenRouter** — множество моделей через один API
+- **Zen** — Zen Sonnet
+- **Go** — Go Fast
+- **Ollama** — локальные open-source модели
+- **LMStudio** — локальные GGUF модели
+- **Mock** — для разработки и тестирования
+
+Подробнее: [Настройка LLM провайдеров](../user-guide/11-llm-providers.md)
 
 ### Нужен ли API ключ?
 

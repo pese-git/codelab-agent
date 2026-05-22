@@ -101,6 +101,11 @@ git --version
 |-----------|---------------------|-----------|
 | OpenAI | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
 | Anthropic | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
+| OpenRouter | `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| Zen | `ZEN_API_KEY` | [zen.opencode.ai](https://zen.opencode.ai) |
+| Go | `GO_API_KEY` | [go.opencode.ai](https://go.opencode.ai) |
+| Ollama | — | Локальный сервер, не требует ключа |
+| LMStudio | — | Локальный сервер, не требует ключа |
 
 > **Примечание:** Для тестирования можно использовать mock-провайдер без API-ключа.
 

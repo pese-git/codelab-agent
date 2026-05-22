@@ -18,22 +18,35 @@ CodeLab использует `.env` файлы для конфигурации:
 
 | Опция | Значения | По умолчанию | Описание |
 |-------|----------|--------------|----------|
-| `CODELAB_LLM_PROVIDER` | `openai`, `anthropic`, `mock` | `mock` | Тип LLM провайдера |
+| `CODELAB_LLM_PROVIDER` | `openai`, `anthropic`, `openrouter`, `zen`, `go`, `ollama`, `lmstudio`, `mock` | `mock` | Тип LLM провайдера |
+| `CODELAB_LLM_MODEL` | `provider/model` | `mock/mock-model` | Модель в формате `"provider/model"` |
 
 ### Аутентификация
 
 | Опция | Описание |
 |-------|----------|
-| `CODELAB_LLM_API_KEY` | API ключ провайдера |
+| `OPENAI_API_KEY` | API ключ OpenAI |
+| `ANTHROPIC_API_KEY` | API ключ Anthropic |
+| `OPENROUTER_API_KEY` | API ключ OpenRouter |
+| `ZEN_API_KEY` | API ключ Zen |
+| `GO_API_KEY` | API ключ Go |
 | `CODELAB_LLM_BASE_URL` | Кастомный URL API (для совместимых сервисов) |
 
 ### Параметры модели
 
 | Опция | По умолчанию | Описание |
 |-------|--------------|----------|
-| `CODELAB_LLM_MODEL` | `gpt-4o` | Модель LLM |
+| `CODELAB_LLM_MODEL` | `mock/mock-model` | Модель LLM в формате `"provider/model"` |
 | `CODELAB_LLM_TEMPERATURE` | `0.7` | Temperature (0.0-1.0) |
 | `CODELAB_LLM_MAX_TOKENS` | `8192` | Максимум токенов ответа |
+
+### Fallback
+
+| Опция | Значения | По умолчанию | Описание |
+|-------|----------|--------------|----------|
+| `CODELAB_FALLBACK_ENABLED` | `true`, `false` | `false` | Включить fallback цепочку |
+| `CODELAB_FALLBACK_STRATEGY` | `sequential` | `sequential` | Стратегия fallback |
+| `CODELAB_FALLBACK_ORDER` | `openai,openrouter,ollama` | — | Порядок провайдеров |
 
 ## Конфигурация сервера
 
