@@ -3,8 +3,6 @@
 import sys
 from unittest.mock import patch
 
-import pytest
-
 from codelab.server.cli import run_server
 
 

@@ -14,18 +14,15 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from codelab.server.toml_config import (
     FallbackConfig,
     ModelConfig,
     ProviderConfig,
-    TOMLConfig,
+    _deep_merge,
+    _parse_toml_config,
     expand_env_vars,
     load_config,
     load_toml_file,
-    _deep_merge,
-    _parse_toml_config,
 )
 
 

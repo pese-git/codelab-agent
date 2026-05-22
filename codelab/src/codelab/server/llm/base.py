@@ -15,10 +15,7 @@ from typing import Any
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
-    LLMMessage,
-    LLMToolCall,
     ModelInfo,
-    StopReason,
 )
 
 

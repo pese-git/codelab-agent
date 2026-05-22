@@ -1,6 +1,5 @@
 """Тесты для моделей данных LLM."""
 
-import pytest
 
 from codelab.server.llm.models import (
     CompletionRequest,

@@ -2,7 +2,6 @@
 
 import pytest
 
-from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.session import build_config_options
 from codelab.server.protocol.state import SessionState

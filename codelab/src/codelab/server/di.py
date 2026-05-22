@@ -29,9 +29,9 @@ from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider, OpenAIProvider
 from .llm.base import LLMConfig
 from .llm.registry import LLMProviderRegistry
-from .protocol.handlers.config_option_builder import ConfigOptionBuilder
 from .protocol.core import ACPProtocol
 from .protocol.handlers.client_rpc_handler import ClientRPCHandler
+from .protocol.handlers.config_option_builder import ConfigOptionBuilder
 from .protocol.handlers.global_policy_manager import GlobalPolicyManager
 from .protocol.handlers.permission_manager import PermissionManager
 from .protocol.handlers.pipeline import PromptPipeline

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import structlog
 
 from codelab.server.llm.base import LLMConfig, LLMProvider
-from codelab.server.llm.errors import ModelNotFoundError, ProviderNotFoundError
+from codelab.server.llm.errors import ProviderNotFoundError
 from codelab.server.llm.registry import LLMProviderRegistry
 
 logger = structlog.get_logger()

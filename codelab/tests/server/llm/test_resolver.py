@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.llm.base import LLMConfig
-from codelab.server.llm.errors import ModelNotFoundError, ProviderNotFoundError
+from codelab.server.llm.errors import ProviderNotFoundError
 from codelab.server.llm.models import ModelInfo, ProviderInfo
 from codelab.server.llm.registry import LLMProviderRegistry
 from codelab.server.llm.resolver import ModelRef, ModelResolver
