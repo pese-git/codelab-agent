@@ -272,7 +272,38 @@ env | grep CODELAB_
 3. Проверьте новые параметры в документации
 4. Добавьте новые параметры при необходимости
 
+## TOML конфигурация
+
+Помимо `.env` файлов, CodeLab поддерживает конфигурацию через TOML-файлы. TOML обеспечивает более структурированную настройку с поддержкой вложенных конфигураций, per-model параметров и fallback цепочек.
+
+### Файлы TOML
+
+| Файл | Назначение | Приоритет |
+|------|------------|-----------|
+| `~/.codelab/auth.toml` | Глобальные API keys | Низший |
+| `codelab.toml` | Конфигурация проекта | Средний |
+| `codelab.local.toml` | Локальные overrides | Высокий |
+
+### Пример codelab.toml
+
+```toml
+[llm]
+provider = "openai"
+model = "openai/gpt-4o"
+temperature = 0.7
+
+[llm.providers.openai]
+api_key = "${OPENAI_API_KEY}"
+
+[llm.fallback]
+enabled = true
+order = ["openai", "openrouter", "ollama"]
+```
+
+> **Подробное руководство:** [TOML конфигурация](13-toml-configuration.md)
+
 ## См. также
 
+- [TOML конфигурация](13-toml-configuration.md) — полное руководство по TOML
 - [Настройка сервера](03-server-setup.md) — параметры запуска
 - [Разрешения](05-permissions.md) — политики безопасности

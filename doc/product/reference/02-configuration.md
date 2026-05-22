@@ -4,13 +4,26 @@
 
 ## Файлы конфигурации
 
-CodeLab использует `.env` файлы для конфигурации:
+CodeLab поддерживает два формата конфигурации:
+
+### TOML файлы
+
+| Файл | Приоритет | Описание | Коммитится |
+|------|-----------|----------|------------|
+| `~/.codelab/auth.toml` | Низший | Глобальные API keys | Нет |
+| `codelab.toml` | Средний | Конфигурация проекта | Да |
+| `codelab.local.toml` | Высокий | Локальные overrides | Нет |
+| `--config <path>` | Высший | Кастомный файл | Зависит |
+
+### Переменные окружения
 
 | Файл | Приоритет | Описание |
 |------|-----------|----------|
 | Системные переменные | Высший | Переменные окружения ОС |
-| `.env` (локальный) | Средний | Настройки проекта |
+| `.env` (локальный) | Высокий | Настройки проекта |
 | `~/.codelab/config/.env` | Низший | Глобальные настройки |
+
+> **Примечание:** Переменные окружения переопределяют TOML значения.
 
 ## Конфигурация LLM
 
@@ -71,13 +84,13 @@ CODELAB_LLM_PROVIDER=openai
 CODELAB_LLM_API_KEY=sk-your-api-key-here
 ```
 
-### Полная конфигурация
+### Полная конфигурация (.env)
 
 ```env
 # LLM Configuration
 CODELAB_LLM_PROVIDER=openai
 CODELAB_LLM_API_KEY=sk-your-api-key-here
-CODELAB_LLM_MODEL=gpt-4o
+CODELAB_LLM_MODEL=openai/gpt-4o
 CODELAB_LLM_TEMPERATURE=0.7
 CODELAB_LLM_MAX_TOKENS=8192
 
@@ -88,6 +101,29 @@ CODELAB_HOME=~/.codelab
 
 # Logging
 CODELAB_LOG_LEVEL=INFO
+```
+
+### TOML конфигурация (codelab.toml)
+
+```toml
+[llm]
+provider = "openai"
+model = "openai/gpt-4o"
+temperature = 0.7
+max_tokens = 8192
+
+[llm.providers.openai]
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+
+[llm.providers.openai.models.gpt-4o]
+context_window = 128000
+max_output_tokens = 16384
+
+[llm.fallback]
+enabled = true
+order = ["openai", "openrouter", "ollama"]
+retry_on = ["rate_limit", "timeout"]
 ```
 
 ### Использование совместимого API (OpenRouter, Azure)
@@ -144,6 +180,7 @@ CODELAB_LLM_MODEL=anthropic/claude-3-opus
 
 ## См. также
 
+- [TOML конфигурация](../user-guide/13-toml-configuration.md) — полное руководство по TOML
 - [Переменные окружения](03-environment.md) — детальное описание переменных
 - [CLI команды](01-cli.md) — справочник командной строки
 - [Настройка сервера](../user-guide/03-server-setup.md) — руководство по настройке
