@@ -2,6 +2,7 @@
 
 **Дата:** 2026-05-21
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
+**Обновлено:** 2026-05-22 — устранён гэп #12 (RPC response models aligned with ACP spec), WriteTextFileResponse/TerminalKillResponse/TerminalReleaseResponse
 **Обновлено:** 2026-05-22 — устранён гэп #10 (session/list pagination edge cases), +22 теста
 **Обновлено:** 2026-05-22 — устранён гэп #11 (terminal output flow tests), +13 тестов
 **Обновлено:** 2026-05-21 — ToolMapping модуль, handle_and_process, async client callbacks, Content API в TUI
@@ -13,15 +14,15 @@
 
 | Метрика | Значение |
 |---|---|
-| Spec sections fully covered | **14** из 17 (82%) |
-| Spec sections partially covered | 2 из 17 (12%) |
+| Spec sections fully covered | **15** из 17 (88%) |
+| Spec sections partially covered | 1 из 17 (6%) |
 | Spec sections not covered | 1 из 17 (6%) — Streamable HTTP (draft) |
 | Все ACP методы реализованы | ✅ 17 из 17 |
 | stdio transport | ✅ Полностью (сервер + клиент) |
-| Тестовых файлов | ~148 (+1: terminal output flow) |
-| Тестовых методов | ~2,330 (+13: terminal output flow tests) |
+| Тестовых файлов | ~148 |
+| Тестовых методов | ~2,330 |
 | Критичных проблем | ✅ 0 |
-| Известных гэпов | 5 |
+| Известных гэпов | 4 |
 
 ---
 
@@ -214,21 +215,23 @@
 
 Дополнительно исправлена клиентская сторона: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` и отправляет `session/cancel` немедленно, не ожидая завершения `session/prompt`. Время отмены сократилось с ~16 с до ~3 мс.
 
-#### 12. Сторонние ACP клиенты возвращают неполные response поля
+#### ~~12. Сторонние ACP клиенты возвращают неполные response поля~~ ✅ Решено (2026-05-22)
 
-**Файл:** `server/client_rpc/models.py`
+**Файлы:** `server/client_rpc/models.py`, `server/client_rpc/service.py`, `client/infrastructure/handlers/file_system_handler.py`, `client/infrastructure/handlers/terminal_handler.py`, `client/infrastructure/services/acp_transport_service.py`
 
-**Проблема:** Сторонние ACP клиенты (Zed IDE) могут возвращать неполные response объекты:
-- `terminal/wait_for_exit` → `{"exitCode": 0}` (без `output` — корректно по spec)
-- `terminal/release` → `{}` (без `success` — некорректно, но нужно поддерживать)
-- `terminal/kill` → вероятно тоже `{}`
+**Проблема:** Сторонние ACP клиенты (Zed IDE) возвращают `{}` для `fs/write_text_file`, `terminal/kill`, `terminal/release` — что корректно по ACP spec. Наши модели ожидали поле `success: bool`, что вызывало Pydantic validation error.
 
-**Решение (применено 2026-05-21):**
-- `TerminalWaitForExitResponse.output` → опциональное, default `""`
-- `TerminalReleaseResponse.success` → опциональное, default `True`
-- `TerminalKillResponse.success` → опциональное, default `True`
+**Спецификация ACP:** `WriteTextFileResponse`, `KillTerminalResponse`, `ReleaseTerminalResponse` содержат только опциональное `_meta`. Наличие ответа без ошибки означает успешное выполнение.
 
-Это позволяет codelab работать с любыми ACP клиентами, даже если они не fully implement terminal protocol.
+**Исправления применены:**
+1. **`client_rpc/models.py`** — `WriteTextFileResponse`, `TerminalKillResponse`, `TerminalReleaseResponse` теперь пустые модели с `extra="allow"` (только `_meta`)
+2. **`client_rpc/service.py`** — `write_text_file()`, `kill_terminal()`, `release_terminal()` возвращают `True` напрямую (response received = success)
+3. **`client/infrastructure/handlers/file_system_handler.py`** — `handle_write_text_file` возвращает `{}` вместо `{"success": success}`
+4. **`client/infrastructure/handlers/terminal_handler.py`** — `handle_kill` и `handle_release` возвращают `{}` вместо `{"success": success}`
+5. **`client/infrastructure/services/acp_transport_service.py`** — callback для `fs/write_text_file` возвращает `{}`
+6. **Тесты** — обновлены все затронутые тесты (server + client)
+
+**Результат:** codelab полностью совместим с ACP spec и сторонними клиентами (Zed IDE). Pydantic validation error устранён.
 
 #### ~~11. Terminal output не получается через `wait_for_exit`~~ ✅ Решено (2026-05-21)
 
@@ -584,7 +587,6 @@ sequenceDiagram
 - Tool call `locations`, `rawInput`, `rawOutput`
 - MCP HTTP/SSE transports
 - stdio transport E2E (сервер + клиент через subprocess)
-- Совместимость со сторонними ACP клиентами (Zed IDE)
 
 ---
 
@@ -601,6 +603,7 @@ sequenceDiagram
 ~~3. **Добавить тесты stop reasons** — `max_tokens`, `max_turn_requests`, `refusal`~~ ✅ Решено (2026-05-22)
 ~~4. **Добавить тесты session/list pagination edge cases** — invalid cursor, empty results~~ ✅ Решено (2026-05-22)
 ~~5. **Исправить terminal output flow** — `execute_wait_for_exit` должен вызывать `terminal/output` перед `wait_for_exit` (см. ГЭП #11)~~ ✅ Решено (2026-05-22)
+~~6. **Согласовать RPC response models с ACP spec** — `WriteTextFileResponse`, `KillTerminalResponse`, `ReleaseTerminalResponse` (см. ГЭП #12)~~ ✅ Решено (2026-05-22)
 
 ### P2 — Желательные
 
@@ -613,4 +616,3 @@ sequenceDiagram
 12. **Реализовать MCP resources/prompts** — только tools/list и tools/call
 13. **Добавить тесты ToolMapping round-trip** — edge cases с неизвестными префиксами
 14. **Добавить тесты для ClientRPCBridge.terminal_output** — новый метод
-15. **Добавить тесты совместимости со сторонними клиентами** — Zed IDE, etc.
