@@ -1,14 +1,27 @@
-"""Mock LLM провайдер для тестирования."""
-# mypy: ignore-errors
+"""Mock LLM провайдер для тестирования.
+
+Использует новые модели (CompletionRequest/Response вместо dict).
+"""
+
+from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import structlog
 
-from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse, LLMToolCall
+from codelab.server.llm.base import (
+    LLMCapabilities,
+    LLMConfig,
+    LLMProvider,
+)
+from codelab.server.llm.models import (
+    CompletionRequest,
+    CompletionResponse,
+    LLMToolCall,
+    StopReason,
+)
 
-# Получаем структурированный logger
 logger = structlog.get_logger()
 
 
@@ -30,64 +43,65 @@ class MockLLMProvider(LLMProvider):
             response: Текст ответа, который будет возвращен
             tool_calls: Список tool calls для возврата
         """
-        self.response = response
-        self.tool_calls = tool_calls or []
-        self.last_messages: list[LLMMessage] | None = None
-        self.last_tools: list[dict[str, Any]] | None = None
+        self._response = response
+        self._tool_calls = tool_calls or []
+        self._config: LLMConfig | None = None
+        self.last_request: CompletionRequest | None = None
 
-    async def initialize(self, config: dict[str, Any]) -> None:
+    @property
+    def name(self) -> str:
+        """Имя провайдера."""
+        return "mock"
+
+    @property
+    def capabilities(self) -> LLMCapabilities:
+        """Возможности провайдера."""
+        return LLMCapabilities(
+            supports_tools=True,
+            supports_streaming=True,
+            supports_function_calling=True,
+        )
+
+    async def initialize(self, config: LLMConfig) -> None:
         """Mock инициализация."""
+        self._config = config
         logger.debug("mock llm provider initialized", config=config)
 
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
+        request: CompletionRequest,
+    ) -> CompletionResponse:
         """Вернуть mock ответ."""
-        self.last_messages = messages
-        self.last_tools = tools
+        self.last_request = request
 
         logger.debug(
             "mock llm create_completion called",
-            num_messages=len(messages),
-            num_tools=len(tools) if tools else 0,
-            tool_calls_count=len(self.tool_calls),
+            num_messages=len(request.messages),
+            num_tools=len(request.tools) if request.tools else 0,
         )
 
-        response = LLMResponse(
-            text=self.response,
-            tool_calls=self.tool_calls,
-            stop_reason="end_turn" if not self.tool_calls else "tool_use",
+        return CompletionResponse(
+            text=self._response,
+            tool_calls=self._tool_calls,
+            stop_reason=StopReason.END_TURN if not self._tool_calls else StopReason.TOOL_USE,
+            model=request.model,
         )
-
-        logger.debug(
-            "mock llm completion response created",
-            response_length=len(self.response),
-            stop_reason=response.stop_reason,
-        )
-
-        return response
 
     async def stream_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[LLMResponse, None]:
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionResponse, None]:
         """Вернуть mock потоковый ответ."""
-        self.last_messages = messages
-        self.last_tools = tools
+        self.last_request = request
 
         logger.debug(
             "mock llm stream_completion called",
-            num_messages=len(messages),
-            num_tools=len(tools) if tools else 0,
+            num_messages=len(request.messages),
         )
 
-        yield LLMResponse(
-            text=self.response,
-            tool_calls=self.tool_calls,
-            stop_reason="end_turn" if not self.tool_calls else "tool_use",
+        yield CompletionResponse(
+            text=self._response,
+            tool_calls=self._tool_calls,
+            stop_reason=StopReason.END_TURN if not self._tool_calls else StopReason.TOOL_USE,
+            model=request.model,
         )

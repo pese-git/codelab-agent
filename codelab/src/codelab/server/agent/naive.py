@@ -20,7 +20,8 @@ from codelab.server.agent.base import (
     LLMAgent,
 )
 from codelab.server.agent.plan_extractor import PlanExtractor
-from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse
+from codelab.server.llm.base import LLMMessage, LLMProvider
+from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name
 
@@ -202,10 +203,13 @@ class NaiveAgent(LLMAgent):
         """
         tools_dict = _to_openai_tools_format(tools)
 
-        response: LLMResponse = await self.llm.create_completion(
+        request = CompletionRequest(
+            model="gpt-4o",  # Будет переопределено через resolver
             messages=messages,
             tools=tools_dict if tools_dict else None,
         )
+
+        response: CompletionResponse = await self.llm.create_completion(request)
 
         logger.info(
             "llm_response_received",
@@ -229,7 +233,7 @@ class NaiveAgent(LLMAgent):
         return AgentResponse(
             text=response.text,
             tool_calls=response.tool_calls if response.tool_calls else [],
-            stop_reason=response.stop_reason,
+            stop_reason=response.stop_reason.value if isinstance(response.stop_reason, StopReason) else response.stop_reason,
             metadata={},
             plan=plan,
         )

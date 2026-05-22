@@ -2,72 +2,72 @@
 
 ## 1. Foundation — Models и Interfaces
 
-- [ ] 1.1 Создать `server/llm/models.py` — CompletionRequest, CompletionResponse, LLMMessage, LLMToolCall, ModelInfo, ProviderInfo, StopReason enum
-- [ ] 1.2 Создать `server/llm/errors.py` — ProviderError, ProviderNotFoundError, ModelNotFoundError, AllProvidersFailed, ProviderErrorType enum
-- [ ] 1.3 Обновить `server/llm/base.py` — обновить LLMProvider ABC: `initialize(config: LLMConfig)`, `name` property, `capabilities` property
-- [ ] 1.4 Создать `server/llm/events.py` — ProviderEventBus, ProviderInitialized, ProviderFailed, ModelsUpdated, FallbackTriggered events
-- [ ] 1.5 Тесты для models.py — сериализация, валидация, enum values
-- [ ] 1.6 Тесты для errors.py — иерархия исключений, error types
+- [x] 1.1 Создать `server/llm/models.py` — CompletionRequest, CompletionResponse, LLMMessage, LLMToolCall, ModelInfo, ProviderInfo, StopReason enum
+- [x] 1.2 Создать `server/llm/errors.py` — ProviderError, ProviderNotFoundError, ModelNotFoundError, AllProvidersFailed, ProviderErrorType enum
+- [x] 1.3 Обновить `server/llm/base.py` — обновить LLMProvider ABC: `initialize(config: LLMConfig)`, `name` property, `capabilities` property
+- [x] 1.4 Создать `server/llm/events.py` — ProviderEventBus, ProviderInitialized, ProviderFailed, ModelsUpdated, FallbackTriggered events
+- [x] 1.5 Тесты для models.py — сериализация, валидация, enum values
+- [x] 1.6 Тесты для errors.py — иерархия исключений, error types
 
 ## 2. Registry и Resolver
 
-- [ ] 2.1 Создать `server/llm/registry.py` — LLMProviderRegistry с register(), create_provider(), list_all_models(), get_provider_info(), get_model_info()
-- [ ] 2.2 Создать `server/llm/resolver.py` — ModelRef.parse(), ModelResolver.resolve()
-- [ ] 2.3 Тесты для registry.py — регистрация, создание, листинг, ошибки
-- [ ] 2.4 Тесты для resolver.py — парсинг "provider/model", разрешение в провайдер, ошибки
+- [x] 2.1 Создать `server/llm/registry.py` — LLMProviderRegistry с register(), create_provider(), list_all_models(), get_provider_info(), get_model_info()
+- [x] 2.2 Создать `server/llm/resolver.py` — ModelRef.parse(), ModelResolver.resolve()
+- [x] 2.3 Тесты для registry.py — регистрация, создание, листинг, ошибки
+- [x] 2.4 Тесты для resolver.py — парсинг "provider/model", разрешение в провайдер, ошибки
 
 ## 3. Fallback System
 
-- [ ] 3.1 Создать `server/llm/fallback/base.py` — FallbackStrategy ABC, FallbackContext
-- [ ] 3.2 Создать `server/llm/fallback/sequential.py` — SequentialFallback реализация
-- [ ] 3.3 Создать `server/llm/fallback/circuit_breaker.py` — CircuitBreaker (extension point)
-- [ ] 3.4 Создать `server/llm/fallback/config.py` — FallbackConfig dataclass
-- [ ] 3.5 Создать `server/llm/fallback/factory.py` — FallbackStrategyFactory
-- [ ] 3.6 Создать `server/llm/fallback/orchestrator.py` — FallbackOrchestrator
-- [ ] 3.7 Тесты для SequentialFallback — порядок, circuit open, all failed
-- [ ] 3.8 Тесты для CircuitBreaker — failure threshold, open/closed states, reset
-- [ ] 3.9 Тесты для FallbackOrchestrator — success first, fallback, non-retryable error, all failed
+- [x] 3.1 Создать `server/llm/fallback/base.py` — FallbackStrategy ABC, FallbackContext
+- [x] 3.2 Создать `server/llm/fallback/sequential.py` — SequentialFallback реализация
+- [x] 3.3 Создать `server/llm/fallback/circuit_breaker.py` — CircuitBreaker (extension point)
+- [x] 3.4 Создать `server/llm/fallback/config.py` — FallbackConfig dataclass
+- [x] 3.5 Создать `server/llm/fallback/factory.py` — FallbackStrategyFactory
+- [x] 3.6 Создать `server/llm/fallback/orchestrator.py` — FallbackOrchestrator
+- [x] 3.7 Тесты для SequentialFallback — порядок, circuit open, all failed
+- [x] 3.8 Тесты для CircuitBreaker — failure threshold, open/closed states, reset
+- [x] 3.9 Тесты для FallbackOrchestrator — success first, fallback, non-retryable error, all failed
 
 ## 4. Discovery System
 
-- [ ] 4.1 Создать `server/llm/discovery/base.py` — ModelDiscovery ABC
-- [ ] 4.2 Создать `server/llm/discovery/static.py` — StaticDiscovery
-- [ ] 4.3 Создать `server/llm/discovery/config.py` — DiscoveryConfig
-- [ ] 4.4 Тесты для StaticDiscovery — static list, empty list
-- [ ] 4.5 Тесты для ModelDiscovery ABC — interface compliance
+- [x] 4.1 Создать `server/llm/discovery/base.py` — ModelDiscovery ABC
+- [x] 4.2 Создать `server/llm/discovery/static.py` — StaticDiscovery
+- [x] 4.3 Создать `server/llm/discovery/config.py` — DiscoveryConfig
+- [x] 4.4 Тесты для StaticDiscovery — static list, empty list
+- [x] 4.5 Тесты для ModelDiscovery ABC — interface compliance
 
 ## 5. Telemetry System
 
-- [ ] 5.1 Создать `server/llm/telemetry/base.py` — TelemetrySink ABC
-- [ ] 5.2 Создать `server/llm/telemetry/noop.py` — NoOpTelemetry
-- [ ] 5.3 Тесты для NoOpTelemetry — silent pass-through
+- [x] 5.1 Создать `server/llm/telemetry/base.py` — TelemetrySink ABC
+- [x] 5.2 Создать `server/llm/telemetry/noop.py` — NoOpTelemetry
+- [x] 5.3 Тесты для NoOpTelemetry — silent pass-through
 
 ## 6. OpenAI-Compatible Provider Base
 
-- [ ] 6.1 Создать `server/llm/providers/openai_compatible.py` — OpenAICompatibleProvider базовый класс с _convert_to_openai_format(), _parse_completion(), _validate_message_history()
-- [ ] 6.2 Рефакторинг `server/llm/providers/openai.py` — OpenAIProvider наследуется от OpenAICompatibleProvider
-- [ ] 6.3 Тесты для OpenAICompatibleProvider — conversion, parsing, validation
-- [ ] 6.4 Тесты для OpenAIProvider — backward compatibility, completion, streaming
+- [x] 6.1 Создать `server/llm/providers/openai_compatible.py` — OpenAICompatibleProvider базовый класс
+- [x] 6.2 Рефакторинг `server/llm/providers/openai.py` — OpenAIProvider наследуется от OpenAICompatibleProvider
+- [x] 6.3 Тесты для OpenAICompatibleProvider — conversion, parsing, validation
+- [x] 6.4 Тесты для OpenAIProvider — backward compatibility, completion, streaming
 
 ## 7. Anthropic Provider
 
-- [ ] 7.1 Создать `server/llm/providers/anthropic.py` — AnthropicProvider с Messages API, tool format conversion, stop reason mapping
-- [ ] 7.2 Добавить `anthropic` в основные dependencies pyproject.toml
-- [ ] 7.3 Тесты для AnthropicProvider — completion, tools, stop reasons, error handling
+- [x] 7.1 Создать `server/llm/providers/anthropic.py` — AnthropicProvider с Messages API
+- [x] 7.2 Добавить `anthropic` в основные dependencies pyproject.toml
+- [x] 7.3 Тесты для AnthropicProvider — completion, tools, stop reasons, error handling
 
 ## 8. OpenAI-Compatible Derivatives
 
-- [ ] 8.1 Создать `server/llm/providers/openrouter.py` — OpenRouterProvider (base_url="https://openrouter.ai/api/v1")
-- [ ] 8.2 Создать `server/llm/providers/zen.py` — ZenProvider (base_url="https://zen.opencode.ai/v1")
-- [ ] 8.3 Создать `server/llm/providers/go.py` — GoProvider (base_url="https://go.opencode.ai/v1")
-- [ ] 8.4 Создать `server/llm/providers/ollama.py` — OllamaProvider (base_url="http://localhost:11434/v1", default models)
-- [ ] 8.5 Создать `server/llm/providers/lmstudio.py` — LMStudioProvider (base_url="http://localhost:1234/v1", default models)
-- [ ] 8.6 Тесты для каждого derivative provider — initialization, base_url, default model
+- [x] 8.1 Создать `server/llm/providers/openrouter.py` — OpenRouterProvider
+- [x] 8.2 Создать `server/llm/providers/zen.py` — ZenProvider
+- [x] 8.3 Создать `server/llm/providers/go.py` — GoProvider
+- [x] 8.4 Создать `server/llm/providers/ollama.py` — OllamaProvider
+- [x] 8.5 Создать `server/llm/providers/lmstudio.py` — LMStudioProvider
+- [x] 8.6 Тесты для каждого derivative provider — initialization, base_url, default model
 
 ## 9. Mock Provider Update
 
-- [ ] 9.1 Обновить `server/llm/providers/mock.py` — использовать новые модели (LLMConfig вместо dict)
-- [ ] 9.2 Обновить тесты mock provider — compatibility с новым интерфейсом
+- [x] 9.1 Обновить `server/llm/mock_provider.py` — использовать новые модели
+- [x] 9.2 Обновить тесты mock provider — compatibility с новым интерфейсом
 
 ## 10. Configuration Update
 

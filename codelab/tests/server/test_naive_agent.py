@@ -12,8 +12,9 @@ import pytest
 
 from codelab.server.agent.base import AgentContext, ContinuationContext
 from codelab.server.agent.naive import NaiveAgent, _format_prompt, _to_openai_tools_format
-from codelab.server.llm.base import LLMMessage, LLMResponse, LLMToolCall
+from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
+from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
@@ -163,12 +164,10 @@ async def test_start_turn_adds_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     prior_history = [
         LLMMessage(role="user", content="Предыдущее сообщение"),
@@ -206,12 +205,10 @@ async def test_start_turn_empty_prompt_no_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
     context = AgentContext(
@@ -290,13 +287,11 @@ async def test_start_turn_uses_available_tools_from_context(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            if tools:
-                captured_tool_names.append([t["function"]["name"] for t in tools])
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            if request.tools:
+                captured_tool_names.append([t["function"]["name"] for t in request.tools])
+            return await super().create_completion(request)
 
     # В context.available_tools — только calculator, не echo
     only_calculator = [t for t in tool_registry.list_tools() if t.name == "calculator"]
@@ -336,12 +331,10 @@ async def test_continue_turn_does_not_add_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     # История: user → assistant(tool_calls) → tool(result)
     history = [
@@ -436,12 +429,10 @@ class _SlowLLMProvider(MockLLMProvider):
 
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
+        request: CompletionRequest,
+    ) -> CompletionResponse:
         await asyncio.sleep(10)
-        return await super().create_completion(messages, tools, **kwargs)
+        return await super().create_completion(request)
 
 
 @pytest.mark.asyncio
@@ -689,16 +680,14 @@ class CapturingMockLLMProvider(MockLLMProvider):
 
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
-        self.last_messages = messages
-        self.last_tools = tools
-        return LLMResponse(
-            text=self.response,
-            tool_calls=self.tool_calls,
-            stop_reason=self._stop_reason,
+        request: CompletionRequest,
+    ) -> CompletionResponse:
+        self.last_messages = request.messages
+        self.last_tools = request.tools
+        return CompletionResponse(
+            text=self._response,
+            tool_calls=self._tool_calls,
+            stop_reason=StopReason(self._stop_reason),
         )
 
 
