@@ -12,19 +12,19 @@
 from codelab.server.llm.base import (
     LLMCapabilities,
     LLMConfig,
-    LLMMessage,
     LLMProvider,
     LLMResponse,  # Алиас для CompletionResponse
+)
+from codelab.server.llm.models import (
+    LLMMessage,
     LLMToolCall,
 )
 
-# Модели данных
-from codelab.server.llm.models import (
-    CompletionRequest,
-    CompletionResponse,
-    ModelInfo,
-    ProviderInfo,
-    StopReason,
+# Discovery система
+from codelab.server.llm.discovery import (
+    DiscoveryConfig,
+    ModelDiscovery,
+    StaticDiscovery,
 )
 
 # Исключения
@@ -36,9 +36,16 @@ from codelab.server.llm.errors import (
     ProviderNotFoundError,
 )
 
-# Registry и Resolver
-from codelab.server.llm.registry import LLMProviderRegistry
-from codelab.server.llm.resolver import ModelRef, ModelResolver
+# Event Bus
+from codelab.server.llm.events import (
+    FallbackTriggered,
+    ModelsUpdated,
+    ProviderEvent,
+    ProviderEventBus,
+    ProviderFailed,
+    ProviderInitialized,
+    event_bus,
+)
 
 # Fallback система
 from codelab.server.llm.fallback import (
@@ -50,29 +57,15 @@ from codelab.server.llm.fallback import (
     FallbackStrategyFactory,
     SequentialFallback,
 )
+from codelab.server.llm.mock_provider import MockLLMProvider
 
-# Discovery система
-from codelab.server.llm.discovery import (
-    DiscoveryConfig,
-    ModelDiscovery,
-    StaticDiscovery,
-)
-
-# Telemetry система
-from codelab.server.llm.telemetry import (
-    NoOpTelemetry,
-    TelemetrySink,
-)
-
-# Event Bus
-from codelab.server.llm.events import (
-    ProviderEvent,
-    ProviderEventBus,
-    ProviderFailed,
-    ProviderInitialized,
-    FallbackTriggered,
-    ModelsUpdated,
-    event_bus,
+# Модели данных
+from codelab.server.llm.models import (
+    CompletionRequest,
+    CompletionResponse,
+    ModelInfo,
+    ProviderInfo,
+    StopReason,
 )
 
 # Провайдеры
@@ -81,12 +74,21 @@ from codelab.server.llm.providers import (
     OpenAIProvider,
 )
 from codelab.server.llm.providers.anthropic import AnthropicProvider
+from codelab.server.llm.providers.go import GoProvider
+from codelab.server.llm.providers.lmstudio import LMStudioProvider
+from codelab.server.llm.providers.ollama import OllamaProvider
 from codelab.server.llm.providers.openrouter import OpenRouterProvider
 from codelab.server.llm.providers.zen import ZenProvider
-from codelab.server.llm.providers.go import GoProvider
-from codelab.server.llm.providers.ollama import OllamaProvider
-from codelab.server.llm.providers.lmstudio import LMStudioProvider
-from codelab.server.llm.mock_provider import MockLLMProvider
+
+# Registry и Resolver
+from codelab.server.llm.registry import LLMProviderRegistry
+from codelab.server.llm.resolver import ModelRef, ModelResolver
+
+# Telemetry система
+from codelab.server.llm.telemetry import (
+    NoOpTelemetry,
+    TelemetrySink,
+)
 
 __all__ = [
     # Базовые классы

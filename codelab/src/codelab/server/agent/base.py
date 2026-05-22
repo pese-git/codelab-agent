@@ -11,7 +11,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.llm.base import LLMMessage, LLMProvider, LLMToolCall
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import LLMMessage, LLMToolCall
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 
 if TYPE_CHECKING:

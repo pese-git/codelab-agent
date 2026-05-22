@@ -10,14 +10,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codelab.server.agent.orchestrator import AgentOrchestrator
 from codelab.server.agent.state import OrchestratorConfig
-from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider, LLMMessage
+from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
+from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.llm.models import (
@@ -28,7 +27,7 @@ from codelab.server.llm.models import (
     StopReason,
 )
 from codelab.server.llm.registry import LLMProviderRegistry
-from codelab.server.llm.resolver import ModelRef, ModelResolver
+from codelab.server.llm.resolver import ModelResolver
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.protocol.handlers.config import session_set_config_option

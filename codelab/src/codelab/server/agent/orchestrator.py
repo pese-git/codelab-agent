@@ -19,7 +19,8 @@ from codelab.server.agent.base import (
 )
 from codelab.server.agent.naive import NaiveAgent
 from codelab.server.agent.state import OrchestratorConfig
-from codelab.server.llm.base import LLMConfig, LLMMessage, LLMProvider
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.registry import LLMProviderRegistry
 from codelab.server.llm.resolver import ModelResolver
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState, ToolResult

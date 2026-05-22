@@ -20,7 +20,8 @@ from codelab.server.agent.base import (
     LLMAgent,
 )
 from codelab.server.agent.plan_extractor import PlanExtractor
-from codelab.server.llm.base import LLMMessage, LLMProvider
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name
