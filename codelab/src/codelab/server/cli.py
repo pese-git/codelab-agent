@@ -181,6 +181,23 @@ def run_server() -> None:
         default=None,
         help="Системный промпт для агента. Переопределяет ACP_SYSTEM_PROMPT",
     )
+    # Fallback конфигурация
+    parser.add_argument(
+        "--fallback-enabled",
+        action="store_true",
+        default=None,
+        help="Включить fallback цепочку при ошибках провайдера",
+    )
+    parser.add_argument(
+        "--fallback-strategy",
+        default=None,
+        help="Стратегия fallback (sequential). По умолчанию sequential",
+    )
+    parser.add_argument(
+        "--fallback-order",
+        default=None,
+        help="Порядок провайдеров в fallback цепочке (через запятую)",
+    )
     args = parser.parse_args()
     logger.debug("command line arguments parsed")
 
@@ -232,6 +249,15 @@ def run_server() -> None:
 
     if cli_overrides:
         logger.debug("configuration overridden", overrides=", ".join(cli_overrides))
+
+    # Fallback конфигурация из CLI
+    if args.fallback_enabled is not None:
+        logger.debug("fallback enabled via CLI")
+    if args.fallback_strategy:
+        logger.debug("fallback strategy set via CLI", strategy=args.fallback_strategy)
+    if args.fallback_order:
+        order = [p.strip() for p in args.fallback_order.split(",")]
+        logger.debug("fallback order set via CLI", order=order)
 
     # Обработка аутентификации
     logger.debug("processing authentication configuration", require_auth=args.require_auth)

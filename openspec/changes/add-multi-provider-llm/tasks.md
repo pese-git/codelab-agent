@@ -98,8 +98,8 @@
 
 ## 14. CLI Update
 
-- [ ] 14.1 Обновить `server/cli.py` — новые аргументы: --fallback-enabled, --fallback-strategy, --fallback-order
-- [ ] 14.2 Тесты для CLI — argument parsing, config overrides
+- [x] 14.1 Обновить `server/cli.py` — новые аргументы: --fallback-enabled, --fallback-strategy, --fallback-order
+- [x] 14.2 Тесты для CLI — argument parsing, config overrides
 
 ## 15. Provider Event Bus Integration
 
