@@ -1,25 +1,24 @@
-"""TOML Configuration Loader для CodeLab."""
+"""TOML Configuration Loader для CodeLab.
 
-from codelab.server.toml_config.toml_loader import (
+Использует Pydantic Settings с TomlConfigSettingsSource для парсинга TOML.
+"""
+
+from codelab.server.toml_config.pydantic_config import (
     FallbackConfig,
+    LLMSectionConfig,
     ModelConfig,
     ProviderConfig,
     TOMLConfig,
-    _deep_merge,
-    _parse_toml_config,
-    expand_env_vars,
-    load_config,
-    load_toml_file,
+    _expand_env_vars,
+    _humanize_name,
 )
 
 __all__ = [
     "FallbackConfig",
+    "LLMSectionConfig",
     "ModelConfig",
     "ProviderConfig",
     "TOMLConfig",
-    "_deep_merge",
-    "_parse_toml_config",
-    "expand_env_vars",
-    "load_config",
-    "load_toml_file",
+    "_expand_env_vars",
+    "_humanize_name",
 ]

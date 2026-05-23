@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import structlog
 from dishka import (
     AsyncContainer,
     Provider,
@@ -303,19 +304,68 @@ class PromptOrchestratorProvider(Provider):
         )
 
 
+logger = structlog.get_logger()
+
+
 class RegistryProvider(Provider):
     """Провайдер LLM Registry и ConfigOptionBuilder (APP scope)."""
 
     @provide(scope=Scope.APP)
-    def get_llm_registry(self) -> LLMProviderRegistry:
-        """Создаёт реестр провайдеров."""
+    def get_llm_registry(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+    ) -> LLMProviderRegistry:
+        """Создаёт реестр провайдеров с ProviderInfo из TOML config."""
         registry = LLMProviderRegistry()
 
-        # Зарегистрировать все доступные провайдеры
-        registry.register("openai", lambda: OpenAIProvider())
-        registry.register("mock", lambda: MockLLMProvider())
+        # Загружаем TOML config и регистрируем провайдеры с ProviderInfo
+        # Ищем codelab.toml или codelab.toml.example
+        from pathlib import Path
+
+        from codelab.server.toml_config.pydantic_config import TOMLConfig
+
+        toml_path = Path.cwd() / "codelab.toml"
+        if not toml_path.exists():
+            toml_path = Path.cwd() / "codelab.toml.example"
+
+        toml_config = TOMLConfig.from_toml_file(toml_path) if toml_path.exists() else TOMLConfig()
+
+        # Зарегистрировать провайдеры из TOML с ProviderInfo
+        for provider_id, provider_cfg in toml_config.providers.items():
+            provider_info = provider_cfg.to_provider_info(provider_id)
+            factory = self._get_provider_factory(provider_id)
+            registry.register(provider_id, factory, info=provider_info)
+            logger.debug(
+                "provider registered from toml",
+                provider_id=provider_id,
+                models_count=len(provider_cfg.models),
+            )
+
+        # Mock провайдер без TOML config
+        if "mock" not in registry.get_registered_providers():
+            registry.register("mock", lambda: MockLLMProvider())
+
+        logger.info(
+            "llm registry created",
+            providers_count=len(registry.get_registered_providers()),
+            models_count=len(registry.list_all_models()),
+        )
 
         return registry
+
+    @staticmethod
+    def _get_provider_factory(provider_id: str):
+        """Возвращает factory-функцию для провайдера."""
+        if provider_id == "openai":
+            return lambda: OpenAIProvider()
+        elif provider_id in ("anthropic", "openrouter", "zen", "go", "ollama", "lmstudio"):
+            # Все эти провайдеры используют OpenAI-compatible API
+            from codelab.server.llm.providers.openai_compatible import OpenAICompatibleProvider
+
+            return lambda pid=provider_id: OpenAICompatibleProvider()
+        else:
+            # Fallback на mock
+            return lambda: MockLLMProvider()
 
     @provide(scope=Scope.APP)
     def get_config_option_builder(
