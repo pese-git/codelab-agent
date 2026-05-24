@@ -1,5 +1,7 @@
 """Тесты для model switching через session/set_config_option."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from codelab.server.protocol.handlers.config import session_set_config_option
@@ -196,3 +198,80 @@ async def test_build_config_options_with_model(
     assert model_option is not None
     assert model_option["currentValue"] == "openai/gpt-4o"
     assert model_option["category"] == "model"
+
+
+@pytest.mark.asyncio
+async def test_model_change_invalidates_resolver_cache(
+    storage: InMemoryStorage,
+    config_specs: dict[str, dict],
+) -> None:
+    """Проверить что смена модели вызывает invalidate_session на resolver."""
+    # Создать mock resolver
+    mock_resolver = MagicMock()
+
+    outcome = await session_set_config_option(
+        request_id="req-1",
+        params={
+            "sessionId": "test-session",
+            "configId": "model",
+            "value": "anthropic/claude-sonnet-4",
+        },
+        storage=storage,
+        config_specs=config_specs,
+        model_resolver=mock_resolver,
+    )
+
+    # Проверить что invalidate_session был вызван
+    mock_resolver.invalidate_session.assert_called_once_with("test-session")
+    # Проверить что операция успешна
+    assert outcome.response is not None
+    assert outcome.response.error is None
+
+
+@pytest.mark.asyncio
+async def test_non_model_change_does_not_invalidate_resolver_cache(
+    storage: InMemoryStorage,
+    config_specs: dict[str, dict],
+) -> None:
+    """Проверить что смена не-model config не вызывает invalidate."""
+    mock_resolver = MagicMock()
+
+    outcome = await session_set_config_option(
+        request_id="req-1",
+        params={
+            "sessionId": "test-session",
+            "configId": "mode",
+            "value": "code",
+        },
+        storage=storage,
+        config_specs=config_specs,
+        model_resolver=mock_resolver,
+    )
+
+    # invalidate_session НЕ должен быть вызван
+    mock_resolver.invalidate_session.assert_not_called()
+    assert outcome.response is not None
+    assert outcome.response.error is None
+
+
+@pytest.mark.asyncio
+async def test_model_change_without_resolver(
+    storage: InMemoryStorage,
+    config_specs: dict[str, dict],
+) -> None:
+    """Проверить что смена модели без resolver работает корректно."""
+    # Без model_resolver — не должно быть ошибок
+    outcome = await session_set_config_option(
+        request_id="req-1",
+        params={
+            "sessionId": "test-session",
+            "configId": "model",
+            "value": "openrouter/mistral-large",
+        },
+        storage=storage,
+        config_specs=config_specs,
+        model_resolver=None,
+    )
+
+    assert outcome.response is not None
+    assert outcome.response.error is None

@@ -116,7 +116,10 @@ class LLMProviderRegistry:
         provider_id: str,
         config: LLMConfig,
     ) -> LLMProvider:
-        """Создать и инициализировать провайдер.
+        """Создать новый экземпляр провайдера и инициализировать.
+
+        Каждый вызов создаёт НОВЫЙ экземпляр (не использует кэш).
+        Это позволяет переинициализировать провайдер с другой конфигурацией.
 
         Args:
             provider_id: Идентификатор провайдера
@@ -128,7 +131,12 @@ class LLMProviderRegistry:
         Raises:
             ProviderNotFoundError: Если провайдер не зарегистрирован
         """
-        provider = await self.get_provider(provider_id)
+        if provider_id not in self._factories:
+            raise ProviderNotFoundError(provider_id)
+
+        # Создать НОВЫЙ экземпляр (не из кэша)
+        factory = self._factories[provider_id]
+        provider = factory()
         try:
             await provider.initialize(config)
             logger.info("provider initialized", provider_id=provider_id, model=config.model)

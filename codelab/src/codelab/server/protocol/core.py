@@ -926,11 +926,16 @@ class ACPProtocol:
     async def _handle_set_config_option(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/set_config_option."""
         params = message.params or {}
+        # Получить model_resolver из agent_orchestrator для инвалидации кэша
+        model_resolver = None
+        if self._agent_orchestrator is not None:
+            model_resolver = self._agent_orchestrator.model_resolver
         return await config.session_set_config_option(
             message.id,
             params,
             self._storage,
             self._config_specs,
+            model_resolver=model_resolver,
         )
 
     async def _handle_set_mode(self, message: ACPMessage) -> ProtocolOutcome:

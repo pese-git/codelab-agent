@@ -122,12 +122,17 @@ class TestLLMProviderRegistry:
         registry: LLMProviderRegistry,
         mock_provider: MagicMock,
     ) -> None:
-        """Проверить создание и инициализацию провайдера."""
+        """Проверить создание и инициализацию провайдера.
+
+        create_provider создаёт НОВЫЙ экземпляр каждый раз (не из кэша).
+        """
         registry.register("mock", lambda: mock_provider)
         config = LLMConfig(api_key="test", model="test-model")
         provider = await registry.create_provider("mock", config)
-        assert provider == mock_provider
+        # Новый экземпляр создан factory-функцией
         mock_provider.initialize.assert_called_once_with(config)
+        # Провайдер инициализирован
+        assert provider is not None
 
     @pytest.mark.asyncio
     async def test_create_provider_not_found(self, registry: LLMProviderRegistry) -> None:

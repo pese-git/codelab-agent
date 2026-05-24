@@ -811,3 +811,131 @@ async def test_start_turn_default_stop_reason_is_end_turn(
     response = await naive_agent.start_turn(context)
 
     assert response.stop_reason == "end_turn"
+
+
+# ============================================================================
+# Тесты set_llm — динамическая смена провайдера
+# ============================================================================
+
+
+def test_set_llm_changes_provider() -> None:
+    """set_llm меняет LLM провайдер."""
+    old_llm = MockLLMProvider(response="old")
+    agent = NaiveAgent(llm=old_llm, tools=SimpleToolRegistry())
+
+    new_llm = MockLLMProvider(response="new")
+    agent.set_llm(new_llm)
+
+    assert agent.llm is new_llm
+
+
+@pytest.mark.asyncio
+async def test_set_llm_affects_next_call(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """После set_llm следующий вызов использует новый провайдер."""
+    llm1 = MockLLMProvider(response="from provider 1")
+    llm2 = MockLLMProvider(response="from provider 2")
+    agent = NaiveAgent(llm=llm1, tools=tool_registry)
+
+    context = _make_context(session_state, tool_registry, "test")
+    response1 = await agent.start_turn(context)
+    assert response1.text == "from provider 1"
+
+    # Сменить провайдер
+    agent.set_llm(llm2)
+
+    response2 = await agent.start_turn(context)
+    assert response2.text == "from provider 2"
+
+
+# ============================================================================
+# Тесты model parameter — передача модели из контекста
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_start_turn_uses_model_from_context(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """start_turn передаёт model из context в CompletionRequest."""
+    captured_models: list[str] = []
+
+    class CapturingProvider(MockLLMProvider):
+        async def create_completion(
+            self,
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_models.append(request.model)
+            return await super().create_completion(request)
+
+    agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
+    context = AgentContext(
+        session_id="test",
+        session=session_state,
+        prompt=[{"type": "text", "text": "test"}],
+        conversation_history=[],
+        available_tools=tool_registry.list_tools(),
+        config={},
+        model="anthropic/claude-sonnet-4",
+    )
+    await agent.start_turn(context)
+
+    assert captured_models == ["anthropic/claude-sonnet-4"]
+
+
+@pytest.mark.asyncio
+async def test_continue_turn_uses_model_from_context(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """continue_turn передаёт model из context в CompletionRequest."""
+    captured_models: list[str] = []
+
+    class CapturingProvider(MockLLMProvider):
+        async def create_completion(
+            self,
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_models.append(request.model)
+            return await super().create_completion(request)
+
+    agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
+    history = [LLMMessage(role="user", content="test")]
+    context = ContinuationContext(
+        session_id="test",
+        session=session_state,
+        history=history,
+        available_tools=tool_registry.list_tools(),
+        config={},
+        model="openrouter/mistral-large",
+    )
+    await agent.continue_turn(context)
+
+    assert captured_models == ["openrouter/mistral-large"]
+
+
+@pytest.mark.asyncio
+async def test_context_default_model() -> None:
+    """AgentContext и ContinuationContext имеют default model."""
+    session = SessionState(session_id="test", cwd="/tmp")
+    ctx = AgentContext(
+        session_id="test",
+        session=session,
+        prompt=[{"type": "text", "text": "test"}],
+        conversation_history=[],
+        available_tools=[],
+        config={},
+    )
+    assert ctx.model == "openai/gpt-4o"
+
+    cont = ContinuationContext(
+        session_id="test",
+        session=session,
+        history=[],
+        available_tools=[],
+        config={},
+    )
+    assert cont.model == "openai/gpt-4o"

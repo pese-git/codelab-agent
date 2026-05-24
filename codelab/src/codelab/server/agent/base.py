@@ -36,6 +36,8 @@ class AgentContext:
     # Инструменты, уже отфильтрованные по capabilities клиента
     available_tools: list[ToolDefinition]
     config: dict[str, Any]
+    # Ссылка на модель в формате "provider/model" (например, "openai/gpt-4o")
+    model: str = "openai/gpt-4o"
 
 
 @dataclass
@@ -55,6 +57,8 @@ class ContinuationContext:
     # Инструменты, уже отфильтрованные по capabilities клиента
     available_tools: list[ToolDefinition]
     config: dict[str, Any]
+    # Ссылка на модель в формате "provider/model" (например, "openai/gpt-4o")
+    model: str = "openai/gpt-4o"
 
 
 @dataclass

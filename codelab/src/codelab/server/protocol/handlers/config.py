@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionStorage
@@ -17,12 +17,16 @@ from .session import (
     session_info_notification,
 )
 
+if TYPE_CHECKING:
+    from codelab.server.llm.resolver import ModelResolver
+
 
 async def session_set_config_option(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
     storage: SessionStorage,
     config_specs: dict[str, dict[str, Any]],
+    model_resolver: ModelResolver | None = None,
 ) -> ProtocolOutcome:
     """Изменяет значение конфигурационной опции сессии.
 
@@ -96,6 +100,11 @@ async def session_set_config_option(
 
     session.config_values[config_id] = value
     session.updated_at = datetime.now(UTC).isoformat()
+
+    # Инвалидировать кэш провайдера при смене модели
+    if config_id == "model" and model_resolver is not None:
+        model_resolver.invalidate_session(session_id)
+
     config_options = build_config_options(session.config_values, config_specs)
     # Отправляем полный snapshot configOptions, чтобы клиент не делал merge вручную.
     config_notification = ACPMessage.notification(
