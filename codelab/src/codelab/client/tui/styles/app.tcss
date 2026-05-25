@@ -1,11 +1,18 @@
 /* ============================================
-   CodeLab TUI - Layout Styles Only
-   Цвета определены в themes/light.tcss и themes/dark.tcss
+   CodeLab TUI - Layout & Theme-Aware Styles
+   Цвета определяются через CSS-variables из Textual Theme.
+   При переключении темы Textual автоматически обновляет:
+   - $background, $foreground, $primary, $secondary
+   - $success, $warning, $error, $accent
+   - $surface, $panel, $border
+   - $header-bg, $sidebar-bg, $border-focus, и др.
    ============================================ */
 
 /* --- Screen & Global --- */
 Screen {
     layout: vertical;
+    background: $background;
+    color: $foreground;
 }
 
 /* --- Header --- */
@@ -13,6 +20,26 @@ Screen {
     height: 1;
     padding: 0 1;
     text-style: bold;
+    background: $header-bg;
+    color: $foreground;
+}
+
+HeaderBar {
+    background: $header-bg;
+    color: $foreground;
+}
+
+/* --- Footer --- */
+#footer {
+    height: 1;
+    padding: 0 1;
+    background: $footer-bg;
+    color: $foreground;
+}
+
+FooterBar {
+    background: $footer-bg;
+    color: $foreground;
 }
 
 /* --- Body Layout --- */
@@ -56,18 +83,27 @@ Screen {
     height: 1fr;
     padding: 1;
     layout: vertical;
+    background: $sidebar-bg;
+    border: round $border;
 }
 
 #sidebar:focus {
+    border: round $border-focus;
+    background: $surface;
 }
 
-/* --- Sidebar SearchInput --- */
+Sidebar {
+    background: $sidebar-bg;
+    border: round $border;
+}
+
 #sidebar-search {
     height: 3;
     margin-bottom: 1;
 }
 
 #sidebar-search .search-container {
+    background: $surface;
 }
 
 /* --- Sidebar Sessions List --- */
@@ -79,12 +115,24 @@ Screen {
 #file-tree {
     height: 1fr;
     padding: 0 1;
+    background: $panel;
+    border: round $border;
+}
+
+FileTree {
+    background: $panel;
 }
 
 /* --- Chat View --- */
 #chat-view {
     height: 1fr;
     padding: 1;
+    background: $background;
+    border: round $border;
+}
+
+ChatView {
+    background: $background;
 }
 
 #chat_content {
@@ -97,12 +145,24 @@ Screen {
 #plan-panel {
     height: 8;
     padding: 1;
+    background: $panel;
+    border: round $border;
+}
+
+PlanPanel {
+    background: $panel;
 }
 
 /* --- Tool Panel --- */
 #tool-panel {
     width: 2fr;
     padding: 1;
+    background: $panel;
+    border: round $border;
+}
+
+ToolPanel {
+    background: $panel;
 }
 
 /* --- Prompt Input --- */
@@ -114,9 +174,18 @@ Screen {
 #prompt-textarea {
     width: 1fr;
     height: 100%;
+    background: $surface;
+    border: round $border;
+    color: $foreground;
 }
 
 #prompt-textarea:focus {
+    border: round $border-focus;
+    background: $background;
+}
+
+PromptInput {
+    background: $background;
 }
 
 #submit-button {
@@ -131,12 +200,6 @@ Screen {
     margin-left: 1;
 }
 
-/* --- Footer --- */
-#footer {
-    height: 1;
-    padding: 0 1;
-}
-
 /* --- Dock Region (OpenCode-style) --- */
 #dock-region {
     height: auto;
@@ -144,6 +207,8 @@ Screen {
     max-height: 15;
     layout: vertical;
     padding: 0 1;
+    background: $panel;
+    border-top: solid $border;
 }
 
 #dock-region.hidden {
@@ -201,14 +266,18 @@ StyledContainer {
 
 StyledContainer.bordered {
     padding: 1;
+    border: solid $border;
 }
 
 StyledContainer.rounded {
     padding: 1;
+    border: round $border;
 }
 
 StyledContainer.panel {
     padding: 1;
+    border: round $border;
+    background: $panel;
 }
 
 StyledContainer > .container-header {
@@ -216,6 +285,7 @@ StyledContainer > .container-header {
     width: 100%;
     margin-bottom: 1;
     text-style: bold;
+    color: $primary;
 }
 
 /* ============================================
@@ -224,9 +294,12 @@ StyledContainer > .container-header {
 Card {
     padding: 1;
     margin: 0 0 1 0;
+    background: $surface;
+    border: round $border;
 }
 
 Card:focus-within {
+    border: round $border-focus;
 }
 
 /* ============================================
@@ -235,9 +308,12 @@ Card:focus-within {
 CollapsiblePanel {
     width: 100%;
     height: auto;
+    background: $panel;
+    border: round $border;
 }
 
 CollapsiblePanel:focus-within {
+    border: round $border-focus;
 }
 
 CollapsiblePanel > .panel-header {
@@ -245,9 +321,11 @@ CollapsiblePanel > .panel-header {
     height: 3;
     layout: horizontal;
     padding: 0 1;
+    background: $surface;
 }
 
 CollapsiblePanel > .panel-header:hover {
+    background: $panel;
 }
 
 CollapsiblePanel > .panel-header > .panel-icon {
@@ -260,6 +338,7 @@ CollapsiblePanel > .panel-header > .panel-title {
     width: 1fr;
     height: 1;
     text-style: bold;
+    color: $primary;
 }
 
 CollapsiblePanel > .panel-header > .panel-toggle {
@@ -272,6 +351,7 @@ CollapsiblePanel > .panel-header > .panel-toggle {
 }
 
 CollapsiblePanel > .panel-header > .panel-toggle:hover {
+    background: $surface;
 }
 
 CollapsiblePanel > .panel-content {
@@ -295,6 +375,8 @@ AccordionPanel {
     width: 100%;
     height: auto;
     layout: vertical;
+    background: $panel;
+    border: solid $border;
 }
 
 AccordionPanel > CollapsiblePanel {
@@ -302,137 +384,173 @@ AccordionPanel > CollapsiblePanel {
 }
 
 /* ============================================
-   Modal Styles
+   Message Bubbles
    ============================================ */
-#permission-modal {
-    width: 80;
-    max-width: 90%;
+MessageBubble {
+    width: 100%;
     height: auto;
-    padding: 1 2;
-}
-
-#permission-title {
-    margin: 0 0 1 0;
-}
-
-#file-viewer-modal {
-    width: 90;
-    max-width: 95%;
-    height: 80%;
     padding: 1;
-}
-
-#file-viewer-title {
     margin: 0 0 1 0;
+    background: $surface;
+    border: solid $border;
 }
 
-#file-viewer-search {
-    margin: 0 0 1 0;
+MessageBubble.user {
+    background: $message-user-bg;
+    border: solid $border;
 }
 
-#file-viewer-search-status {
-    margin: 0 0 1 0;
+MessageBubble.assistant {
+    background: $surface;
+    border: solid $border;
 }
 
-#file-viewer-content {
-    height: 1fr;
-    overflow: auto;
-    padding: 0 1;
+MessageBubble.system {
+    background: $panel;
+    border: solid $border;
 }
 
-#terminal-log-modal {
-    width: 110;
-    max-width: 95%;
-    height: 80%;
-    padding: 1;
+MessageBubble.error {
+    background: $message-error-bg;
+    border: solid $border;
 }
 
-#terminal-log-title {
-    margin: 0 0 1 0;
+MessageBubble.agent {
+    background: $surface;
 }
 
-#terminal-log-content {
-    height: 1fr;
-    overflow: auto;
-    padding: 0 1;
-}
-
-#help-modal {
-    width: 78;
-    max-width: 90%;
+MessageBubble > .message-row {
+    width: 100%;
     height: auto;
-    padding: 1 2;
 }
 
-#help-title {
-    margin: 0 0 1 0;
-}
-
-#help-content {
-    margin: 0 0 1 0;
+MessageBubble > .message-row > .message-body {
+    width: 1fr;
+    height: auto;
 }
 
 /* ============================================
-   Utility Classes
+   Buttons
    ============================================ */
-.hidden {
-    display: none;
+Button {
+    background: $surface;
+    color: $foreground;
 }
 
-.collapsed {
-    height: 0;
-    padding: 0;
-    overflow: hidden;
+Button:hover {
+    background: $panel;
+}
+
+Button.primary {
+    background: $primary;
+    color: $background;
+}
+
+Button.primary:hover {
+    background: $accent;
+}
+
+ActionButton {
+    background: $surface;
+    color: $foreground;
+}
+
+ActionButton:hover {
+    background: $panel;
+}
+
+ActionButton.-primary {
+    background: $primary;
+    color: $background;
+}
+
+ActionButton.-success {
+    background: $success;
+    color: $background;
+}
+
+ActionButton.-danger {
+    background: $error;
+    color: $background;
 }
 
 /* ============================================
-   Focus Styles
+   Tool Call Cards
    ============================================ */
-*:focus {
+ToolCallCard {
+    background: $surface;
+    border: solid $border;
+}
+
+ToolCallCard.-running {
+    border: solid $primary;
+}
+
+ToolCallCard.-success {
+    border: solid $success;
+}
+
+ToolCallCard.-error {
+    border: solid $error;
 }
 
 /* ============================================
-   Status Indicators
+   Permission Components
    ============================================ */
-.status-connected {
+PermissionBadge {
+    background: $surface;
 }
 
-.status-disconnected {
+PermissionBadge.-pending {
+    background: $badge-pending-bg;
+    color: $badge-pending-fg;
 }
 
-.status-error {
+PermissionBadge.-approved {
+    background: $success;
+    color: $background;
 }
 
-.status-loading {
+PermissionBadge.-denied {
+    background: $error;
+    color: $background;
+}
+
+PermissionRequest {
+    background: $surface;
+    border: solid $border;
 }
 
 /* ============================================
-   Session Components
+   Markdown
    ============================================ */
-
-/* --- MarkdownViewer --- */
 MarkdownViewer {
     padding: 0;
     margin: 0;
+    background: transparent;
 }
 
 MarkdownViewer > .code_inline {
+    background: $panel;
+    color: $foreground;
 }
 
-/* --- InlineMarkdown --- */
 InlineMarkdown {
     padding: 0;
     margin: 0;
     height: auto;
 }
 
-/* --- CodeBlock --- */
 CodeBlock {
     padding: 1;
     margin: 1 0;
+    background: $panel;
+    border: solid $border;
 }
 
-/* --- StreamingText --- */
+/* ============================================
+   StreamingText
+   ============================================ */
 StreamingText {
     height: auto;
     padding: 0;
@@ -446,6 +564,7 @@ StreamingText > .streaming-content {
 StreamingText > .streaming-cursor {
     width: 1;
     height: 1;
+    background: $primary;
 }
 
 StreamingText > .streaming-cursor.hidden {
@@ -456,6 +575,7 @@ StreamingText > .streaming-cursor.hidden {
 ThinkingIndicator {
     height: 1;
     padding: 0 1;
+    color: $foreground-muted;
 }
 
 /* --- Avatar --- */
@@ -468,15 +588,19 @@ Avatar {
 }
 
 Avatar.user {
+    color: $primary;
 }
 
 Avatar.assistant {
+    color: $success;
 }
 
 Avatar.system {
+    color: $warning;
 }
 
 Avatar.error {
+    color: $error;
 }
 
 /* --- MessageHeader --- */
@@ -492,17 +616,21 @@ MessageHeader > .sender-name {
 }
 
 MessageHeader > .sender-name.user {
+    color: $primary;
 }
 
 MessageHeader > .sender-name.assistant {
+    color: $success;
 }
 
 MessageHeader > .sender-name.system {
+    color: $warning;
 }
 
 MessageHeader > .timestamp {
     width: auto;
     margin-left: 1;
+    color: $foreground-muted;
 }
 
 /* --- MessageContent --- */
@@ -512,42 +640,13 @@ MessageContent {
     padding: 0;
 }
 
-/* --- MessageBubble --- */
-MessageBubble {
-    width: 100%;
-    height: auto;
-    padding: 1;
-    margin: 0 0 1 0;
-}
-
-MessageBubble.user {
-}
-
-MessageBubble.assistant {
-}
-
-MessageBubble.system {
-}
-
-MessageBubble.error {
-}
-
-MessageBubble > .message-row {
-    width: 100%;
-    height: auto;
-}
-
-MessageBubble > .message-row > .message-body {
-    width: 1fr;
-    height: auto;
-}
-
 /* --- DateSeparator --- */
 DateSeparator {
     width: 100%;
     height: 1;
     text-align: center;
     margin: 1 0;
+    color: $foreground-muted;
 }
 
 /* --- MessageList --- */
@@ -555,6 +654,7 @@ MessageList {
     width: 100%;
     height: 1fr;
     padding: 1;
+    background: $background;
 }
 
 MessageList > #message-container {
@@ -568,6 +668,7 @@ MessageList > .empty-state {
     height: auto;
     text-align: center;
     padding: 2;
+    color: $foreground-muted;
 }
 
 /* --- TurnStatusIndicator --- */
@@ -578,18 +679,23 @@ TurnStatusIndicator {
 }
 
 TurnStatusIndicator.pending {
+    color: $foreground-muted;
 }
 
 TurnStatusIndicator.streaming {
+    color: $primary;
 }
 
 TurnStatusIndicator.complete {
+    color: $success;
 }
 
 TurnStatusIndicator.error {
+    color: $error;
 }
 
 TurnStatusIndicator.cancelled {
+    color: $warning;
 }
 
 /* --- ToolCallWidget --- */
@@ -598,14 +704,18 @@ ToolCallWidget {
     height: auto;
     padding: 1;
     margin: 1 0;
+    background: $panel;
+    border: dashed $border;
 }
 
 ToolCallWidget > .tool-header {
     text-style: bold;
+    color: $primary;
 }
 
 ToolCallWidget > .tool-args {
     margin-left: 2;
+    color: $foreground-muted;
 }
 
 /* --- SessionTurn --- */
@@ -614,12 +724,15 @@ SessionTurn {
     height: auto;
     padding: 1;
     margin: 0 0 1 0;
+    border: solid $border;
 }
 
 SessionTurn.complete {
+    border: solid $success;
 }
 
 SessionTurn.error {
+    border: solid $error;
 }
 
 SessionTurn > .turn-header {
@@ -643,4 +756,163 @@ SessionTurn > .tool-calls-section {
     width: 100%;
     height: auto;
     margin-top: 1;
+}
+
+/* ============================================
+   Modal Styles
+   ============================================ */
+ModalScreen {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+#permission-modal {
+    width: 80;
+    max-width: 90%;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border: round $border;
+}
+
+#permission-title {
+    margin: 0 0 1 0;
+}
+
+#file-viewer-modal {
+    width: 90;
+    max-width: 95%;
+    height: 80%;
+    padding: 1;
+    background: $panel;
+    border: round $border;
+}
+
+#file-viewer-title {
+    margin: 0 0 1 0;
+}
+
+#file-viewer-search {
+    margin: 0 0 1 0;
+    background: $surface;
+    border: round $border;
+}
+
+#file-viewer-search-status {
+    margin: 0 0 1 0;
+    color: $foreground;
+}
+
+#file-viewer-content {
+    height: 1fr;
+    overflow: auto;
+    padding: 0 1;
+    background: $surface;
+    border: round $border;
+}
+
+#terminal-log-modal {
+    width: 110;
+    max-width: 95%;
+    height: 80%;
+    padding: 1;
+    background: $panel;
+    border: round $border;
+}
+
+#terminal-log-title {
+    margin: 0 0 1 0;
+}
+
+#terminal-log-content {
+    height: 1fr;
+    overflow: auto;
+    padding: 0 1;
+    background: $surface;
+    border: round $border;
+}
+
+#help-modal {
+    width: 78;
+    max-width: 90%;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border: round $border;
+}
+
+#help-title {
+    margin: 0 0 1 0;
+}
+
+#help-content {
+    margin: 0 0 1 0;
+}
+
+HelpModal {
+    background: $surface;
+    border: solid $border;
+}
+
+PermissionModal {
+    background: $surface;
+    border: solid $border;
+}
+
+FileViewerModal {
+    background: $surface;
+    border: solid $border;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+.hidden {
+    display: none;
+}
+
+.collapsed {
+    height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* ============================================
+   Focus Styles
+   ============================================ */
+*:focus {
+    border: round $border-focus;
+}
+
+/* ============================================
+   Status Indicators
+   ============================================ */
+.status-connected {
+    color: $success;
+}
+
+.status-disconnected {
+    color: $foreground-muted;
+}
+
+.status-error {
+    color: $error;
+}
+
+.status-loading {
+    color: $warning;
+}
+
+/* ============================================
+   Scrollbars
+   ============================================ */
+ScrollBar {
+    background: $panel;
+}
+
+ScrollBar > .scrollbar--slider {
+    background: $border;
+}
+
+ScrollBar > .scrollbar--slider:hover {
+    background: $foreground-muted;
 }

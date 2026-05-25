@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from codelab.client.tui.themes.manager import (
     DARK_THEME,
@@ -31,6 +28,27 @@ class TestTheme:
         css = theme.get_css_variables()
         assert "--bg: #000000" in css
         assert "--fg: #ffffff" in css
+
+    def test_to_textual_theme_dark(self) -> None:
+        """Конвертация dark темы в Textual Theme."""
+        textual_theme = DARK_THEME.to_textual_theme()
+        assert textual_theme.name == "dark"
+        assert textual_theme.primary == "#7aa2f7"
+        assert textual_theme.background == "#1a1b26"
+        assert textual_theme.foreground == "#c0caf5"
+        assert textual_theme.dark is True
+        # Проверяем что дополнительные переменные переданы (без -- префикса)
+        assert "border" in textual_theme.variables
+        assert textual_theme.variables["border"] == "#565f89"
+
+    def test_to_textual_theme_light(self) -> None:
+        """Конвертация light темы в Textual Theme."""
+        textual_theme = LIGHT_THEME.to_textual_theme()
+        assert textual_theme.name == "light"
+        assert textual_theme.primary == "#1d4ed8"
+        assert textual_theme.background == "#f3f4f7"
+        assert textual_theme.foreground == "#141a22"
+        assert textual_theme.dark is False
 
 
 class TestThemeManager:
@@ -91,28 +109,57 @@ class TestThemeManager:
         manager.register_theme(custom_theme)
         assert "custom" in manager.available_themes
 
+    def test_register_textual_themes(self) -> None:
+        """Регистрация тем в Textual."""
+        mock_app = MagicMock()
+        manager = ThemeManager(app=mock_app)
+
+        manager.register_textual_themes()
+
+        # Проверяем что register_theme был вызван для каждой темы
+        assert mock_app.register_theme.call_count == 2
+
+        # Проверяем что темы зарегистрированы
+        assert manager._themes_registered is True
+
+    def test_register_textual_themes_idempotent(self) -> None:
+        """register_textual_themes можно вызывать только один раз."""
+        mock_app = MagicMock()
+        manager = ThemeManager(app=mock_app)
+
+        manager.register_textual_themes()
+        manager.register_textual_themes()
+        manager.register_textual_themes()
+
+        # register_theme должен быть вызван только 2 раза (по одному на тему)
+        assert mock_app.register_theme.call_count == 2
+
+    def test_register_textual_themes_no_app(self) -> None:
+        """register_textual_themes без app не делает ничего."""
+        manager = ThemeManager()
+        manager.register_textual_themes()
+        # Не должно быть ошибок
+        assert manager._themes_registered is False
+
     def test_apply_theme_with_app(self) -> None:
         """Применение темы с приложением."""
         mock_app = MagicMock()
+        mock_app.theme = "light"  # Initial theme
+
         manager = ThemeManager(app=mock_app)
 
         # Применяем тему
         manager.set_theme("dark")
 
-        # Проверяем что refresh_css был вызван
-        mock_app.refresh_css.assert_called_once()
+        # Проверяем что theme был установлен
+        assert mock_app.theme == "dark"
 
-    def test_apply_theme_missing_tcss_no_refresh(self) -> None:
-        """Отсутствующий TCSS файл не вызывает refresh_css."""
-        mock_app = MagicMock()
-        manager = ThemeManager(app=mock_app)
-
-        # Патчим _css_path на несуществующую директорию
-        with patch.object(manager, "_css_path", Path("/nonexistent")):
-            manager.set_theme("dark")
-
-        # refresh_css не должен вызываться если TCSS файл не найден
-        mock_app.refresh_css.assert_not_called()
+    def test_apply_theme_no_app(self) -> None:
+        """Применение темы без app не делает ничего."""
+        manager = ThemeManager()
+        manager.set_theme("dark")
+        # Не должно быть ошибок
+        assert manager.current_theme_name == "dark"
 
     def test_predefined_themes_have_all_colors(self) -> None:
         """Предустановленные темы имеют все необходимые цвета."""

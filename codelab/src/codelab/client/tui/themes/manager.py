@@ -1,8 +1,8 @@
 """ThemeManager - менеджер тем для CodeLab TUI.
 
 Обеспечивает:
-- Регистрацию и переключение тем
-- Загрузку CSS стилей темы
+- Регистрацию и переключение тем через Textual Theme API
+- Загрузку TCSS стилей для компонент-specific стилей
 - Сохранение выбранной темы в настройках
 """
 
@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
+from textual.theme import Theme as TextualTheme
 
 if TYPE_CHECKING:
     from textual.app import App
@@ -41,6 +41,46 @@ class Theme:
     name: str
     display_name: str
     colors: dict[str, str] = field(default_factory=dict)
+
+    def to_textual_theme(self) -> TextualTheme:
+        """Конвертирует Theme в Textual Theme.
+
+        Returns:
+            TextualTheme объект для регистрации в Textual
+        """
+        colors = self.colors
+        is_dark = self.name == "dark"
+
+        # Все кастомные цвета передаём как CSS-variables
+        # Textual Theme требует primary, background, foreground, surface, panel
+        # Остальные цвета идут в variables для использования в TCSS
+        standard_keys = {
+            "primary", "secondary", "warning", "error",
+            "success", "accent", "foreground", "background",
+            "surface", "panel",
+        }
+
+        return TextualTheme(
+            name=self.name,
+            primary=colors.get("primary", "#7aa2f7"),
+            secondary=colors.get("secondary", "#bb9af7"),
+            warning=colors.get("warning", "#e0af68"),
+            error=colors.get("error", "#f7768e"),
+            success=colors.get("success", "#9ece6a"),
+            accent=colors.get("info", "#7dcfff"),
+            foreground=colors.get("foreground", "#c0caf5"),
+            background=colors.get("background", "#1a1b26"),
+            surface=colors.get("background-secondary", "#24283b"),
+            panel=colors.get("background-tertiary", "#2f3348"),
+            dark=is_dark,
+            # Дополнительные CSS-variables для использования в TCSS
+            # Textual TCSS использует $variable синтаксис, поэтому убираем --
+            variables={
+                k: v
+                for k, v in colors.items()
+                if k not in standard_keys
+            },
+        )
 
     def get_css_variables(self) -> str:
         """Генерирует CSS с переменными темы."""
@@ -81,8 +121,9 @@ DARK_THEME = Theme(
         "sidebar-border": "#565f89",       # Было #3b4261
         # Chat
         "chat-bg": "#1a1b26",
-        "message-user-bg": "#24283b",
+        "message-user-bg": "#2a3a5a",
         "message-agent-bg": "#1f2335",
+        "message-error-bg": "#3b2428",
         # Input
         "input-bg": "#24283b",
         "input-border": "#565f89",         # Было #3b4261
@@ -92,6 +133,9 @@ DARK_THEME = Theme(
         "button-hover": "#4a5577",
         "button-primary-bg": "#7aa2f7",
         "button-primary-hover": "#89b4fa",
+        # Badge
+        "badge-pending-bg": "#e0af68",
+        "badge-pending-fg": "#1a1b26",
     },
 )
 
@@ -128,6 +172,7 @@ LIGHT_THEME = Theme(
         "chat-bg": "#ffffff",
         "message-user-bg": "#e3ecff",
         "message-agent-bg": "#f8fafc",
+        "message-error-bg": "#fef2f2",
         # Input
         "input-bg": "#ffffff",
         "input-border": "#6d7f9a",
@@ -137,6 +182,9 @@ LIGHT_THEME = Theme(
         "button-hover": "#d1d5db",
         "button-primary-bg": "#1d4ed8",
         "button-primary-hover": "#2563eb",
+        # Badge
+        "badge-pending-bg": "#fef3c7",
+        "badge-pending-fg": "#92400e",
     },
 )
 
@@ -145,7 +193,8 @@ class ThemeManager:
     """Менеджер тем приложения.
 
     Управляет регистрацией, переключением и применением тем.
-    Использует систему CSS Textual для применения стилей.
+    Использует Textual Theme API для переключения базовых цветов
+    и TCSS файлы для компонент-specific стилей.
     """
 
     def __init__(self, app: App | None = None) -> None:
@@ -160,7 +209,7 @@ class ThemeManager:
             LIGHT_THEME.name: LIGHT_THEME,
         }
         self._current_theme: Theme = LIGHT_THEME
-        self._css_path = Path(__file__).parent
+        self._themes_registered = False
 
     @property
     def current_theme(self) -> Theme:
@@ -185,6 +234,22 @@ class ThemeManager:
         """
         self._themes[theme.name] = theme
         logger.debug("theme_registered", theme_name=theme.name)
+
+    def register_textual_themes(self) -> None:
+        """Регистрирует все темы в Textual через register_theme().
+
+        Вызывается один раз когда приложение готово (on_mount).
+        """
+        if self._app is None or self._themes_registered:
+            return
+
+        for theme in self._themes.values():
+            textual_theme = theme.to_textual_theme()
+            self._app.register_theme(textual_theme)
+            logger.debug("textual_theme_registered", theme_name=theme.name)
+
+        self._themes_registered = True
+        logger.info("all_textual_themes_registered")
 
     def set_theme(self, theme_name: str) -> bool:
         """Устанавливает тему по имени.
@@ -238,25 +303,20 @@ class ThemeManager:
         return "\n".join(css_parts)
 
     def _apply_theme(self) -> None:
-        """Применяет текущую тему к приложению."""
+        """Применяет текущую тему к приложению.
+
+        Переключает тему через Textual Theme API.
+        Textual автоматически обновляет все CSS-variables
+        ($background, $primary, --border, --header-bg, и т.д.)
+        """
         if self._app is None:
             return
 
-        # Загружаем TCSS файл темы
-        tcss_file = self._css_path / f"{self._current_theme.name}.tcss"
-        
-        if not tcss_file.exists():
-            logger.error("theme_tcss_not_found", tcss_file=str(tcss_file))
-            return
-
         try:
-            # Применяем TCSS через refresh CSS
-            # Textual автоматически подхватывает изменения
-            self._app.refresh_css()
-            
-            logger.info("theme_applied", theme=self._current_theme.name, tcss_file=str(tcss_file))
+            self._app.theme = self._current_theme.name
+            logger.info("textual_theme_applied", theme=self._current_theme.name)
         except Exception as e:
-            logger.error("theme_apply_error", error=str(e))
+            logger.error("textual_theme_apply_error", error=str(e))
 
     def set_app(self, app: App) -> None:
         """Устанавливает приложение для управления темами.

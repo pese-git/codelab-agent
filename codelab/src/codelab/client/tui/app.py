@@ -137,7 +137,8 @@ class ACPClientApp(App[None]):
 
         # ThemeManager для переключения тем
         self._theme_manager = ThemeManager(app=self)
-        
+        # Регистрируем темы в Textual ДО применения начальной темы
+        self._theme_manager.register_textual_themes()
         # Применяем тему из конфига или CLI
         self._apply_initial_theme(theme)
         
