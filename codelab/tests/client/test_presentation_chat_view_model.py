@@ -336,7 +336,12 @@ def test_message_with_explicit_session_id_is_persisted(tmp_path) -> None:
 
 
 def test_restore_session_persists_all_replay_updates(tmp_path) -> None:
-    """В локальном кэше сохраняются все replay-события, а не только сообщения."""
+    """В локальном кэше сохраняются все replay-события, кроме message chunks.
+    
+    Message chunks пересобираются в messages, поэтому не дублируются в replay_updates.
+    Остальные события (tool_call, config_option_update и т.д.) сохраняются через
+    _handle_session_update для полного восстановления состояния.
+    """
 
     history_dir = tmp_path / "history"
     vm = ChatViewModel(
@@ -388,10 +393,18 @@ def test_restore_session_persists_all_replay_updates(tmp_path) -> None:
 
     cache_payload = json.loads((history_dir / "sess_events.json").read_text(encoding="utf-8"))
     cached_replay_updates = cache_payload.get("replay_updates")
+    cached_messages = cache_payload.get("messages")
 
+    # Message chunks пересобраны в messages
+    assert isinstance(cached_messages, list)
+    assert len(cached_messages) == 2
+    assert cached_messages[0] == {"role": "user", "content": "hello"}
+    assert cached_messages[1] == {"role": "assistant", "content": "world"}
+
+    # В replay_updates сохраняется только tool_call (не-message updates)
     assert isinstance(cached_replay_updates, list)
-    assert len(cached_replay_updates) == 3
-    assert cached_replay_updates[1]["params"]["update"]["sessionUpdate"] == "tool_call"
+    assert len(cached_replay_updates) == 1
+    assert cached_replay_updates[0]["params"]["update"]["sessionUpdate"] == "tool_call"
 
 
 def test_streaming_flag_resets_after_background_session_completion(
@@ -531,3 +544,112 @@ def test_handle_terminal_execute_error(
 
     assert result["success"] is False
     assert "Execution error" in result.get("error", "")
+
+
+def test_restore_session_populates_model_list(chat_view_model: ChatViewModel) -> None:
+    """Replay updates восстанавливают список моделей из config_option_update."""
+    
+    config_updated_events = []
+    
+    def on_config_updated(event):
+        config_updated_events.append(event)
+    
+    try:
+        from codelab.client.domain.events import ConfigOptionUpdatedEvent
+        
+        chat_view_model.on_event(ConfigOptionUpdatedEvent, on_config_updated)
+    except ImportError:
+        pytest.skip("ConfigOptionUpdatedEvent not available")
+    
+    chat_view_model.set_active_session("sess_with_models")
+    
+    replay_updates = [
+        {
+            "params": {
+                "sessionId": "sess_with_models",
+                "update": {
+                    "sessionUpdate": "config_option_update",
+                    "configOptions": [
+                        {
+                            "id": "model",
+                            "category": "model",
+                            "currentValue": "openai/gpt-4o",
+                            "options": [
+                                {
+                                    "value": "openai/gpt-4o",
+                                    "name": "gpt-4o",
+                                    "description": "128K context",
+                                },
+                                {"value": "anthropic/claude-sonnet-4", "name": "claude-sonnet-4"},
+                            ],
+                        }
+                    ],
+                },
+            }
+        },
+    ]
+    
+    chat_view_model.restore_session_from_replay("sess_with_models", replay_updates)
+    
+    assert len(config_updated_events) == 1
+    assert config_updated_events[0].session_id == "sess_with_models"
+    assert len(config_updated_events[0].config_options) == 1
+
+
+def test_restore_session_restores_tool_calls(chat_view_model: ChatViewModel) -> None:
+    """Replay updates восстанавливают tool calls."""
+    
+    chat_view_model.set_active_session("sess_with_tools")
+    
+    replay_updates = [
+        {
+            "params": {
+                "sessionId": "sess_with_tools",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "tool_123",
+                    "title": "Read file",
+                    "kind": "read",
+                    "status": "completed",
+                },
+            }
+        },
+    ]
+    
+    chat_view_model.restore_session_from_replay("sess_with_tools", replay_updates)
+    
+    assert len(chat_view_model.tool_calls.value) == 1
+    assert chat_view_model.tool_calls.value[0]["toolCallId"] == "tool_123"
+    assert chat_view_model.tool_calls.value[0]["title"] == "Read file"
+
+
+def test_restore_session_does_not_duplicate_replay_updates(tmp_path) -> None:
+    """Replay updates не дублируются при восстановлении сессии."""
+    
+    history_dir = tmp_path / "history"
+    vm = ChatViewModel(
+        coordinator=None,
+        event_bus=EventBus(),
+        logger=None,
+        history_dir=history_dir,
+    )
+    vm.set_active_session("sess_no_dupes")
+    
+    replay_updates = [
+        {
+            "params": {
+                "sessionId": "sess_no_dupes",
+                "update": {
+                    "sessionUpdate": "config_option_update",
+                    "configOptions": [],
+                },
+            }
+        },
+    ]
+    
+    vm.restore_session_from_replay("sess_no_dupes", replay_updates)
+    
+    cache_payload = json.loads((history_dir / "sess_no_dupes.json").read_text(encoding="utf-8"))
+    cached_replay_updates = cache_payload.get("replay_updates", [])
+    
+    assert len(cached_replay_updates) == 1
