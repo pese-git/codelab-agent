@@ -447,7 +447,7 @@ class TestFindTomlFile:
             os.chdir(old_cwd)
 
     def test_find_toml_fallback_to_example(self, tmp_path: Path) -> None:
-        """Если нет codelab.toml, ищем codelab.toml.example."""
+        """codelab.toml.example НЕ загружается — это только шаблон."""
         example_toml = tmp_path / "codelab.toml.example"
         example_toml.write_text("[llm]\nprovider = 'mock'")
 
@@ -460,7 +460,8 @@ class TestFindTomlFile:
             empty_home.mkdir()
             with unittest.mock.patch.object(Path, "home", return_value=empty_home):
                 result = AppConfig._find_toml_file()
-                assert result == example_toml
+                # codelab.toml.example не загружается — возвращается None
+                assert result is None
         finally:
             os.chdir(old_cwd)
 

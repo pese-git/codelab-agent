@@ -21,13 +21,13 @@ class TestRegistryToConfigOptionsFlow:
 
         models = registry.list_all_models()
 
-        # Должны быть модели из codelab.toml.example
+        # Должны быть модели из codelab.toml
         assert len(models) > 0
 
-        # Проверим что есть модели от разных провайдеров
+        # Проверим что есть модели от провайдеров из TOML
         provider_ids = {m.provider_id for m in models}
-        assert "openai" in provider_ids
-        assert "anthropic" in provider_ids
+        assert "openrouter" in provider_ids
+        assert "lmstudio" in provider_ids
 
     def test_config_options_model_contains_all_toml_models(self) -> None:
         """configOptions.model.options содержит все модели из TOML."""

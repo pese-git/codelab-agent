@@ -1,10 +1,9 @@
-"""Pydantic Settings models для TOML конфигурации.
+"""Pydantic models для TOML конфигурации.
 
 Содержит типы для Registry metadata (providers, models, fallback).
-Runtime конфигурация (provider, model, temperature) перенесена в config.py.
+Runtime конфигурация (provider, model, temperature) определена в config.py.
 
 Поддерживает:
-- Парсинг TOML файлов через Pydantic Settings
 - Валидацию типов через Pydantic
 - Environment variable expansion через field_validator
 - Генерацию ProviderInfo/ModelInfo для LLMProviderRegistry
@@ -14,15 +13,8 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    TomlConfigSettingsSource,
-)
 
 from codelab.server.llm.models import ModelInfo, ProviderInfo
 
@@ -159,112 +151,3 @@ class FallbackConfig(BaseModel):
     order: list[str] = Field(default_factory=list)
     max_attempts: int = 3
     retry_on: list[str] = Field(default_factory=lambda: ["rate_limit", "timeout"])
-
-
-# ============================================================================
-# Обратная совместимость — Deprecated
-# Эти классы перенесены в config.py, оставлены для обратной совместимости
-# ============================================================================
-
-
-class LLMSectionConfig(BaseModel):
-    """Конфигурация LLM секции в TOML.
-
-    Deprecated: используйте LLMConfig из codelab.server.config.
-    """
-
-    provider: str = "mock"
-    model: str = "mock-model"
-    temperature: float = 0.7
-    max_tokens: int = 8192
-    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
-    fallback: FallbackConfig = Field(default_factory=FallbackConfig)
-
-
-class TOMLConfig(BaseSettings):
-    """Корневая конфигурация TOML файла.
-
-    Deprecated: используйте AppConfig.load() из codelab.server.config.
-    """
-
-    llm: LLMSectionConfig = Field(default_factory=LLMSectionConfig)
-
-    model_config = SettingsConfigDict(
-        env_prefix="CODELAB_",
-        extra="ignore",
-    )
-
-    @property
-    def llm_provider(self) -> str:
-        """Активный LLM провайдер."""
-        return self.llm.provider
-
-    @property
-    def llm_model(self) -> str:
-        """Активная LLM модель."""
-        return self.llm.model
-
-    @property
-    def temperature(self) -> float:
-        """Температура генерации."""
-        return self.llm.temperature
-
-    @property
-    def max_tokens(self) -> int:
-        """Максимальное количество токенов."""
-        return self.llm.max_tokens
-
-    @property
-    def providers(self) -> dict[str, ProviderConfig]:
-        """Конфигурация провайдеров."""
-        return self.llm.providers
-
-    @property
-    def fallback(self) -> FallbackConfig:
-        """Конфигурация fallback."""
-        return self.llm.fallback
-
-    @classmethod
-    def from_toml_file(cls, path: Path | str | None = None) -> TOMLConfig:
-        """Создаёт конфигурацию из TOML файла.
-
-        Args:
-            path: Путь к TOML файлу. Если None, ищет codelab.toml в cwd.
-
-        Returns:
-            TOMLConfig с загруженной конфигурацией
-        """
-        if path is None:
-            path = Path.cwd() / "codelab.toml"
-
-        toml_path = Path(path) if isinstance(path, str) else path
-
-        if not toml_path.exists():
-            return cls()
-
-        class TOMLConfigWithFile(cls):
-            model_config = SettingsConfigDict(
-                env_prefix="CODELAB_",
-                toml_file=str(toml_path),
-                extra="ignore",
-            )
-
-            @classmethod
-            def settings_customise_sources(
-                cls,
-                settings_cls: type[BaseSettings],
-                init_settings: PydanticBaseSettingsSource,
-                env_settings: PydanticBaseSettingsSource,
-                dotenv_settings: PydanticBaseSettingsSource,
-                file_secret_settings: PydanticBaseSettingsSource,
-            ) -> tuple[PydanticBaseSettingsSource, ...]:
-                toml_settings = TomlConfigSettingsSource(settings_cls)
-                return (
-                    init_settings,
-                    env_settings,
-                    dotenv_settings,
-                    file_secret_settings,
-                    toml_settings,
-                )
-
-        return TOMLConfigWithFile()
