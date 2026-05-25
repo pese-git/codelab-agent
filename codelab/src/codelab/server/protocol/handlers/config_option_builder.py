@@ -111,7 +111,7 @@ class ConfigOptionBuilder:
 
             option: dict[str, Any] = {
                 "value": model.full_id,
-                "label": f"{model.name or model.id}",
+                "name": f"{model.name or model.id}",
             }
 
             if description:
@@ -124,7 +124,7 @@ class ConfigOptionBuilder:
             if model.cost_per_output_token is not None:
                 pricing_parts.append(f"${model.cost_per_output_token:.6f}/output")
             if pricing_parts:
-                option["pricing"] = ", ".join(pricing_parts)
+                option["_pricing"] = ", ".join(pricing_parts)
 
             options.append(option)
 

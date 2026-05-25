@@ -69,6 +69,7 @@ from .main_layout import LayoutConfig, MainLayout
 from .markdown import CodeBlock, InlineMarkdown, MarkdownViewer
 from .message_bubble import Avatar, MessageBubble, MessageRole
 from .message_list import DateSeparator, MessageList
+from .model_selector import ModelItem, ModelSelectorModal
 from .panel import AccordionPanel, CollapsiblePanel
 from .permission_badge import PermissionBadge, PermissionStatus
 from .permission_modal import PermissionModal
@@ -205,6 +206,8 @@ __all__ = [
     "Command",
     "CommandCategory",
     "CommandItem",
+    "ModelSelectorModal",
+    "ModelItem",
     "StatusLine",
     "CompactStatusLine",
     "StatusMode",

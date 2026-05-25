@@ -192,3 +192,16 @@ class ToolCallFailedEvent(DomainEvent):
     tool_name: str  # Имя инструмента
     tool_use_id: str  # ID вызова
     error_message: str  # Описание ошибки
+
+
+# ============================================================================
+# Config Events
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class ConfigOptionUpdatedEvent(DomainEvent):
+    """Событие: конфигурационная опция сессии была обновлена."""
+
+    session_id: str  # ID сессии
+    config_options: list[dict[str, Any]]  # Полный список config options

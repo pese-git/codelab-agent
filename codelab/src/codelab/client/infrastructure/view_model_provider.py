@@ -24,6 +24,7 @@ from codelab.client.infrastructure.services.terminal_executor import (
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.file_viewer_view_model import FileViewerViewModel
 from codelab.client.presentation.filesystem_view_model import FileSystemViewModel
+from codelab.client.presentation.model_selector_view_model import ModelSelectorViewModel
 from codelab.client.presentation.permission_view_model import PermissionViewModel
 from codelab.client.presentation.plan_view_model import PlanViewModel
 from codelab.client.presentation.session_view_model import SessionViewModel
@@ -35,7 +36,7 @@ from codelab.client.presentation.ui_view_model import UIViewModel
 class ViewModelProvider(Provider):
     """Провайдер ViewModels клиентского приложения.
 
-    Регистрирует 9 ViewModels как синглтоны (Scope.APP):
+    Регистрирует 10 ViewModels как синглтоны (Scope.APP):
     1. UIViewModel — глобальное UI состояние
     2. SessionViewModel — управление сессиями
     3. PlanViewModel — управление планом (создаётся до ChatViewModel)
@@ -45,6 +46,7 @@ class ViewModelProvider(Provider):
     7. FileViewerViewModel — просмотр файлов
     8. PermissionViewModel — управление разрешениями
     9. TerminalLogViewModel — просмотр логов терминала
+    10. ModelSelectorViewModel — выбор LLM модели
     """
 
     scope = Scope.APP
@@ -158,4 +160,18 @@ class ViewModelProvider(Provider):
             fs_executor=fs_executor,
             terminal_executor=terminal_executor,
             plan_vm=plan_vm,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_model_selector_vm(
+        self,
+        coordinator: SessionCoordinator,
+        event_bus: EventBus,
+        logger: structlog.stdlib.BoundLogger,
+    ) -> ModelSelectorViewModel:
+        """Создаёт ModelSelectorViewModel для выбора LLM модели."""
+        return ModelSelectorViewModel(
+            coordinator=coordinator,
+            event_bus=event_bus,
+            logger=logger,
         )

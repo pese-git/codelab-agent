@@ -372,6 +372,50 @@ class SessionCoordinator:
                 error=str(e),
             )
 
+    async def set_config_option(
+        self,
+        session_id: str,
+        config_id: str,
+        value: str,
+    ) -> dict[str, Any] | None:
+        """Установить конфигурационную опцию сессии.
+
+        Args:
+            session_id: ID сессии
+            config_id: ID конфигурационной опции (например, "model")
+            value: Новое значение (например, "openai/gpt-4o")
+
+        Returns:
+            Результат с обновлёнными configOptions или None при ошибке
+        """
+        self._logger.info(
+            "setting_config_option",
+            session_id=session_id,
+            config_id=config_id,
+            value=value,
+        )
+
+        try:
+            result = await self.transport.set_config_option(
+                session_id=session_id,
+                config_id=config_id,
+                value=value,
+            )
+            self._logger.info(
+                "config_option_set_successfully",
+                session_id=session_id,
+                config_id=config_id,
+            )
+            return result
+        except Exception as e:
+            self._logger.error(
+                "config_option_set_failed",
+                session_id=session_id,
+                config_id=config_id,
+                error=str(e),
+            )
+            return None
+
     async def handle_permission(
         self,
         session_id: str,

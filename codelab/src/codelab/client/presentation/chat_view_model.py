@@ -459,6 +459,31 @@ class ChatViewModel(BaseViewModel):
                         entries_count=len(entries),
                     )
 
+            # Обработка config_option_update - обновление конфигурации сессии
+            elif session_update_type == "config_option_update":
+                config_options = update.get("configOptions", [])
+                self.logger.info(
+                    "config_option_update_received",
+                    session_id=target_session_id,
+                    config_options_count=len(config_options),
+                )
+
+                # Публикуем событие для обновления ModelSelectorViewModel
+                if target_session_id is not None and config_options:
+                    try:
+                        from codelab.client.domain.events import ConfigOptionUpdatedEvent
+
+                        self.publish_event(
+                            ConfigOptionUpdatedEvent(
+                                session_id=target_session_id,
+                                config_options=config_options,
+                            )
+                        )
+                    except ImportError:
+                        self.logger.debug(
+                            "ConfigOptionUpdatedEvent not available, skipping event publish"
+                        )
+
         except Exception as e:
             self.logger.error(
                 "Error handling session update",
