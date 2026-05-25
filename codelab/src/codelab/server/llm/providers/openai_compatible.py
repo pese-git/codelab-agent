@@ -126,6 +126,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self._validate_message_history(openai_messages)
 
         model = request.model or self._config.model if self._config else self._default_model
+        model = self._normalize_model_id(model)
 
         request_params: dict[str, Any] = {
             "model": model,
@@ -164,6 +165,7 @@ class OpenAICompatibleProvider(LLMProvider):
         openai_messages = self._convert_to_openai_format(request.messages)
 
         model = request.model or self._config.model if self._config else self._default_model
+        model = self._normalize_model_id(model)
 
         request_params: dict[str, Any] = {
             "model": model,
@@ -333,3 +335,24 @@ class OpenAICompatibleProvider(LLMProvider):
                     raise ValueError(
                         f"Tool message at index {i} must follow an assistant message with tool_calls"
                     )
+
+    def _normalize_model_id(self, model: str) -> str:
+        """Нормализовать model ID для отправки в API.
+
+        Strip-ает префикс внутреннего провайдера (например, 'openrouter/')
+        чтобы получить model ID, который ожидает внешнее API.
+
+        Args:
+            model: Model ID во внутреннем формате (например, 'openrouter/gpt-4o')
+
+        Returns:
+            Model ID для внешнего API (например, 'gpt-4o')
+        """
+        if not model:
+            return model
+
+        prefix = f"{self.name}/"
+        if model.startswith(prefix):
+            return model[len(prefix):]
+
+        return model
