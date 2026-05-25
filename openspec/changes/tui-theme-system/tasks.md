@@ -3,15 +3,8 @@
 - [x] 1.1 Добавить метод `_load_from_toml_chain()` в `TUIConfigStore` для загрузки `[tui]` секции из цепочки TOML файлов
 - [x] 1.2 Добавить метод `load_with_priority()` объединяющий JSON и TOML конфиги с правильным приоритетом
 - [x] 1.3 Обновить `resolve_tui_connection()` → `resolve_tui_config()` для возврата полной конфигурации (host, port, theme)
-- [ ] 1.4 Написать unit-тесты для TOML loading в `tests/client/tui/test_config.py`
-- [ ] 1.5 Написать unit-тесты для priority resolution в `tests/client/tui/test_config.py`
-
-## 2. CLI флаг --theme
-
-- [x] 2.1 Добавить `--theme` аргумент в `connect_parser` в `cli.py` с choices=["light", "dark"]
-- [x] 2.2 Обновить `run_connect()` для передачи theme в `_run_tui_app()`
-- [x] 2.3 Обновить `_run_tui_app()` для передачи theme в `ACPClientApp.__init__()`
-- [x] 2.4 Добавить поддержку env variable `CODELAB_THEME` в `cli.py`
+- [x] 1.4 Написать unit-тесты для TOML loading в `tests/client/tui/test_config.py`
+- [x] 1.5 Написать unit-тесты для priority resolution в `tests/client/tui/test_config.py`
 
 ## 3. Исправление багов в app.py
 
@@ -19,15 +12,15 @@
 - [x] 3.2 Добавить сохранение темы в конфиг после переключения в `action_toggle_theme()`
 - [x] 3.3 Загрузить тему из конфига в `__init__()` после создания `ThemeManager`
 - [x] 3.4 Передать theme из CLI args в `__init__()` с приоритетом над конфигом
-- [ ] 3.5 Написать интеграционные тесты для применения темы при старте в `tests/client/tui/test_app_theme.py`
+- [x] 3.5 Написать интеграционные тесты для применения темы при старте в `tests/client/tui/test_app_theme.py`
 
 ## 4. Динамическое применение темы в ThemeManager
 
 - [x] 4.1 Реализовать `_apply_theme()` для загрузки TCSS файла (`light.tcss` или `dark.tcss`)
 - [x] 4.2 Использовать Textual API для применения TCSS к приложению без перезапуска
 - [x] 4.3 Добавить fallback на дефолтные цвета если TCSS файл не найден
-- [ ] 4.4 Написать unit-тесты для `_apply_theme()` в `tests/client/tui/themes/test_manager.py`
-- [ ] 4.5 Написать тесты для toggle_theme() в `tests/client/tui/themes/test_manager.py`
+- [x] 4.4 Написать unit-тесты для `_apply_theme()` в `tests/client/tui/themes/test_manager.py`
+- [x] 4.5 Написать тесты для toggle_theme() в `tests/client/tui/themes/test_manager.py`
 
 ## 5. Разделение app.tcss на layout и theme
 
