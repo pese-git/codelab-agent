@@ -17,7 +17,7 @@ class TestRegistryToConfigOptionsFlow:
     def test_registry_list_all_models_returns_toml_models(self) -> None:
         """registry.list_all_models() возвращает модели из TOML."""
         provider = RegistryProvider()
-        registry = provider.get_llm_registry(AppConfig())
+        registry = provider.get_llm_registry(AppConfig.load())
 
         models = registry.list_all_models()
 
@@ -32,7 +32,7 @@ class TestRegistryToConfigOptionsFlow:
     def test_config_options_model_contains_all_toml_models(self) -> None:
         """configOptions.model.options содержит все модели из TOML."""
         provider = RegistryProvider()
-        registry = provider.get_llm_registry(AppConfig())
+        registry = provider.get_llm_registry(AppConfig.load())
         builder = ConfigOptionBuilder(registry)
 
         model_option = builder.build_model_config_option()
@@ -51,7 +51,7 @@ class TestRegistryToConfigOptionsFlow:
     def test_config_options_format_matches_acp_spec(self) -> None:
         """Формат configOptions соответствует ACP spec."""
         provider = RegistryProvider()
-        registry = provider.get_llm_registry(AppConfig())
+        registry = provider.get_llm_registry(AppConfig.load())
         builder = ConfigOptionBuilder(registry)
 
         model_spec = builder.build_model_config_option()
@@ -101,7 +101,7 @@ model = "mock-model"
 
             try:
                 provider = RegistryProvider()
-                registry = provider.get_llm_registry(AppConfig())
+                registry = provider.get_llm_registry(AppConfig.load())
 
                 # Registry должен иметь только mock
                 assert "mock" in registry.get_registered_providers()

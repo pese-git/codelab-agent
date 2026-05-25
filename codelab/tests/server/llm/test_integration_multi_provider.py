@@ -16,12 +16,12 @@ import pytest
 from codelab.server.agent.orchestrator import AgentOrchestrator
 from codelab.server.agent.state import OrchestratorConfig
 from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
-from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
+    LLMMessage,
     ModelInfo,
     ProviderInfo,
     StopReason,

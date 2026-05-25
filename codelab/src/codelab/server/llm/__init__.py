@@ -15,10 +15,6 @@ from codelab.server.llm.base import (
     LLMProvider,
     LLMResponse,  # Алиас для CompletionResponse
 )
-from codelab.server.llm.models import (
-    LLMMessage,
-    LLMToolCall,
-)
 
 # Discovery система
 from codelab.server.llm.discovery import (
@@ -63,6 +59,8 @@ from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
+    LLMMessage,
+    LLMToolCall,
     ModelInfo,
     ProviderInfo,
     StopReason,

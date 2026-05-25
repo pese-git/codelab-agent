@@ -1,8 +1,10 @@
-"""Pydantic Settings models for TOML configuration.
+"""Pydantic Settings models для TOML конфигурации.
 
-Заменяет кастомный toml_loader.py на Pydantic Settings с TomlConfigSettingsSource.
+Содержит типы для Registry metadata (providers, models, fallback).
+Runtime конфигурация (provider, model, temperature) перенесена в config.py.
+
 Поддерживает:
-- Парсинг TOML файлов через SettingsConfigDict(toml_file=...)
+- Парсинг TOML файлов через Pydantic Settings
 - Валидацию типов через Pydantic
 - Environment variable expansion через field_validator
 - Генерацию ProviderInfo/ModelInfo для LLMProviderRegistry
@@ -159,16 +161,16 @@ class FallbackConfig(BaseModel):
     retry_on: list[str] = Field(default_factory=lambda: ["rate_limit", "timeout"])
 
 
+# ============================================================================
+# Обратная совместимость — Deprecated
+# Эти классы перенесены в config.py, оставлены для обратной совместимости
+# ============================================================================
+
+
 class LLMSectionConfig(BaseModel):
     """Конфигурация LLM секции в TOML.
 
-    Атрибуты:
-        provider: Активный провайдер
-        model: Активная модель
-        temperature: Температура генерации
-        max_tokens: Максимальное количество токенов
-        providers: Конфигурация провайдеров
-        fallback: Конфигурация fallback
+    Deprecated: используйте LLMConfig из codelab.server.config.
     """
 
     provider: str = "mock"
@@ -182,8 +184,7 @@ class LLMSectionConfig(BaseModel):
 class TOMLConfig(BaseSettings):
     """Корневая конфигурация TOML файла.
 
-    TOML структура имеет [llm] секцию, поэтому этот класс
-    содержит одно поле `llm` типа LLMSectionConfig.
+    Deprecated: используйте AppConfig.load() из codelab.server.config.
     """
 
     llm: LLMSectionConfig = Field(default_factory=LLMSectionConfig)
@@ -239,10 +240,8 @@ class TOMLConfig(BaseSettings):
         toml_path = Path(path) if isinstance(path, str) else path
 
         if not toml_path.exists():
-            # Если файл не найден, создаём с пустыми providers
             return cls()
 
-        # Создаём подкласс с динамическим toml_file
         class TOMLConfigWithFile(cls):
             model_config = SettingsConfigDict(
                 env_prefix="CODELAB_",
