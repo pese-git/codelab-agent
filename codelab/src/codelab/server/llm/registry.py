@@ -139,9 +139,8 @@ class LLMProviderRegistry:
         provider = factory()
         try:
             await provider.initialize(config)
-            logger.info("provider initialized", provider_id=provider_id, model=config.model)
 
-            # Emit event
+            # Emit event (event bus logs ProviderInitialized via _log_event)
             await event_bus.publish(
                 ProviderInitialized(
                     provider_id=provider_id,

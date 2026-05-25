@@ -94,8 +94,8 @@ def run_server() -> None:
         # Загружает .env из текущей директории
         run_server()
     """
-    # Инициализируем базовое логирование для вывода ошибок инициализации
-    logger = setup_logging(level="INFO", json_format=False)
+    # Логирование будет настроено после парсинга аргументов (line 210)
+    logger = structlog.get_logger()
     logger.debug("codelab-server starting up")
 
     # Загружаем переменные окружения из .env файла если он существует
@@ -219,9 +219,9 @@ def run_server() -> None:
         log_file=args.log_file or "console only",
     )
 
-    # Загружаем конфигурацию из переменных окружения
+    # Загружаем конфигурацию из всех источников (TOML + env + .env)
     logger.debug("loading application configuration")
-    config = AppConfig.from_env()
+    config = AppConfig.load(toml_path=args.config)
     logger.debug(
         "application configuration loaded",
         llm_provider=config.llm.provider,
@@ -358,11 +358,8 @@ def _run_stdio_server(
     """
     from codelab.server.transport.stdio_runner import run_stdio_server
 
-    logger = setup_logging(
-        level=log_level,
-        json_format=log_json,
-        log_file=log_file or None,
-    )
+    # Логирование уже настроено в run_server() (line 210)
+    logger = structlog.get_logger()
 
     logger.info(
         "stdio server starting",
