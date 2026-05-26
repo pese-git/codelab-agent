@@ -390,11 +390,21 @@ class RequestProvider(Provider):
         holder: ClientRPCServiceHolder,
         registry: LLMProviderRegistry,
         config_option_builder: ConfigOptionBuilder,
+        trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
         # ClientRPCService создаётся вручную в handle_ws_request (требует runtime callback)
         # и устанавливается в holder перед созданием ACPProtocol
         client_rpc_service = holder.service
+
+        # Создаем middleware для трассировки сообщений если включено
+        middleware = []
+        if trace_messages:
+            from codelab.server.protocol.middleware.message_trace import (
+                create_message_trace_middleware,
+            )
+
+            middleware.append(create_message_trace_middleware(enabled=True))
 
         return ACPProtocol(
             require_auth=require_auth,
@@ -406,6 +416,7 @@ class RequestProvider(Provider):
             prompt_orchestrator=prompt_orchestrator,
             llm_registry=registry,
             config_option_builder=config_option_builder,
+            middleware=middleware if middleware else None,
         )
 
 
@@ -415,6 +426,7 @@ def make_container(
     *,
     require_auth: bool = False,
     auth_api_key: str | None = None,
+    trace_messages: bool = False,
 ) -> AsyncContainer:
     """Создаёт DI контейнер со всеми провайдерами.
 
@@ -423,6 +435,7 @@ def make_container(
         storage: Хранилище сессий.
         require_auth: Требовать аутентификацию.
         auth_api_key: API ключ для аутентификации.
+        trace_messages: Включить детальное логирование всех JSON-RPC сообщений.
 
     Returns:
         AsyncContainer для получения зависимостей.
@@ -443,6 +456,7 @@ def make_container(
             SessionStorage: storage,
             bool: require_auth,
             str | None: auth_api_key,
+            "trace_messages": trace_messages,
         },
     )
     return container

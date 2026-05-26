@@ -66,6 +66,7 @@ class ACPHttpServer:
         storage: SessionStorage | None = None,
         config: AppConfig | None = None,
         enable_web: bool = True,
+        trace_messages: bool = False,
     ) -> None:
         """Создает транспортный сервер с адресом прослушивания.
 
@@ -77,6 +78,7 @@ class ACPHttpServer:
             storage: Backend для хранения сессий (по умолчанию InMemoryStorage).
             config: Глобальная конфигурация приложения (LLM, агент и т.д.).
             enable_web: Включить Web UI на корневом пути "/" (по умолчанию True).
+            trace_messages: Включить детальное логирование всех JSON-RPC сообщений.
 
         Пример использования:
             ACPHttpServer(host="0.0.0.0", port=8080)
@@ -89,6 +91,7 @@ class ACPHttpServer:
         self.storage = storage
         self.config = config or AppConfig()
         self.enable_web = enable_web
+        self.trace_messages = trace_messages
         # DI контейнер приложения
         self._app_container: AsyncContainer | None = None
         # Subprocess для textual-serve (Web UI)
@@ -104,6 +107,7 @@ class ACPHttpServer:
             require_auth=require_auth,
             has_auth_key=bool(auth_api_key),
             enable_web=enable_web,
+            trace_messages=trace_messages,
         )
 
     def _validate_host(self, host: str) -> str:
@@ -215,6 +219,7 @@ class ACPHttpServer:
             storage=self.storage,
             require_auth=self.require_auth,
             auth_api_key=self.auth_api_key,
+            trace_messages=self.trace_messages,
         )
 
         app = web.Application()

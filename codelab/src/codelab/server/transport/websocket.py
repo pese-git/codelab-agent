@@ -152,6 +152,8 @@ class WebSocketTransport:
 
                             self._conn_logger.debug(
                                 "message received",
+                                direction="in",
+                                trace_type="message_trace",
                                 payload=_truncate_payload(message.data),
                             )
 
@@ -349,6 +351,15 @@ class WebSocketTransport:
 
     async def _send_rpc_request(self, request_dict: dict) -> None:
         """Отправляет JSON-RPC request клиенту (callback для ClientRPCService)."""
+        # Trace logging для RPC запросов Agent -> Client
+        self._conn_logger.debug(
+            "rpc_request_to_client",
+            direction="out",
+            trace_type="message_trace",
+            payload_type="rpc_request",
+            payload=request_dict,
+        )
+
         async with self._ws_send_lock:
             if not self._ws.closed:
                 await self._ws.send_json(request_dict)
@@ -359,9 +370,20 @@ class WebSocketTransport:
         Используется ACPProtocol._execute_tool_in_background для отправки
         notifications и turn completion.
         """
+        # Trace logging для сообщений из фоновых задач
+        message_json = message.to_json()
+        self._conn_logger.debug(
+            "protocol_message_from_background",
+            direction="out",
+            trace_type="message_trace",
+            payload_type="protocol_message",
+            method=message.method,
+            payload=message_json,
+        )
+
         async with self._ws_send_lock:
             if not self._ws.closed:
-                await self._ws.send_str(message.to_json())
+                await self._ws.send_str(message_json)
 
     async def _send_outcome(
         self,
@@ -370,6 +392,22 @@ class WebSocketTransport:
         request_id: str | None,
     ) -> None:
         """Отправляет notifications/response/followups в рамках одного lock."""
+        # Trace logging для всего outcome
+        has_response = outcome.response is not None
+        notifications_count = len(outcome.notifications)
+        followups_count = len(outcome.followup_responses)
+
+        self._conn_logger.debug(
+            "outcome_sending",
+            direction="out",
+            trace_type="message_trace",
+            payload_type="outcome",
+            request_id=request_id,
+            has_response=has_response,
+            notifications_count=notifications_count,
+            followups_count=followups_count,
+        )
+
         async with self._ws_send_lock:
             if self._ws.closed:
                 return

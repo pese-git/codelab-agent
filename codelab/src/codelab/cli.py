@@ -207,6 +207,23 @@ def main() -> None:
         action="store_true",
         help="Отключить Web UI на корневом пути /",
     )
+    serve_parser.add_argument(
+        "--trace-messages",
+        action="store_true",
+        default=False,
+        help="Включить детальное логирование всех JSON-RPC сообщений",
+    )
+    serve_parser.add_argument(
+        "--require-auth",
+        action="store_true",
+        help="Требовать аутентификацию перед session/new и session/load",
+    )
+    serve_parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+        help="Уровень логирования (переопределяет CODELAB_LOG_LEVEL и -v)",
+    )
 
     # codelab connect - режим клиента
     connect_parser = subparsers.add_parser(
@@ -249,12 +266,13 @@ def main() -> None:
     ensure_home_directory()
 
     # Настраиваем логирование
-    # Для режима serve включаем вывод в консоль (TUI не используется)
+    # Для режима serve логирование настраивается в run_serve() (с поддержкой trace_file)
     is_serve_mode = args.command == "serve"
-    _configure_logging(
-        verbose=getattr(args, "verbose", False),
-        console_output=is_serve_mode,
-    )
+    if not is_serve_mode:
+        _configure_logging(
+            verbose=getattr(args, "verbose", False),
+            console_output=False,
+        )
 
     try:
         if args.command == "serve":
@@ -268,6 +286,29 @@ def main() -> None:
         # Graceful shutdown при Ctrl+C
         logger.info("shutdown_requested", reason="KeyboardInterrupt")
         sys.exit(0)
+
+
+def _get_log_level_for_serve(args: argparse.Namespace) -> str:
+    """Определить уровень логирования для режима serve.
+
+    Приоритет:
+    1. --log-level (если указан)
+    2. --verbose/-v (DEBUG если True)
+    3. CODELAB_LOG_LEVEL (из env)
+    4. INFO (по умолчанию)
+    """
+    # Явный --log-level имеет высший приоритет
+    log_level_arg = getattr(args, "log_level", None)
+    if log_level_arg:
+        return log_level_arg
+
+    # Флаг --verbose
+    if getattr(args, "verbose", False):
+        return "DEBUG"
+
+    # Переменная окружения
+    env_log_level = os.getenv("CODELAB_LOG_LEVEL", "INFO").upper()
+    return env_log_level
 
 
 def run_local(args: argparse.Namespace) -> None:
@@ -298,11 +339,25 @@ def run_serve(args: argparse.Namespace) -> None:
     """Режим сервера: запускает WebSocket или stdio API.
 
     Args:
-        args: Аргументы командной строки с host, port, stdio и no_web
+        args: Аргументы командной строки с host, port, stdio, no_web, trace_messages
     """
     from codelab.server.config import AppConfig
     from codelab.server.http_server import ACPHttpServer
     from codelab.server.storage.json_file import JsonFileStorage
+
+    # Настраиваем логирование с учетом --log-level
+    log_level = _get_log_level_for_serve(args)
+    trace_messages = getattr(args, "trace_messages", False)
+    require_auth = getattr(args, "require_auth", False)
+
+    from codelab.shared.logging import setup_logging
+
+    setup_logging(
+        level=log_level,
+        json_format=False,
+        log_file="default",
+        console_output=True,  # В serve режиме всегда выводим в консоль
+    )
 
     host = args.host
     port = args.port
@@ -329,8 +384,9 @@ def run_serve(args: argparse.Namespace) -> None:
                 run_stdio_server(
                     storage=storage,
                     config=config,
-                    require_auth=False,
+                    require_auth=require_auth,
                     auth_api_key=auth_api_key,
+                    trace_messages=trace_messages,
                 )
             )
         except KeyboardInterrupt:
@@ -342,6 +398,7 @@ def run_serve(args: argparse.Namespace) -> None:
             host=host,
             port=port,
             enable_web=enable_web,
+            trace_messages=trace_messages,
         )
         logger.info(
             "endpoints_available",
@@ -355,6 +412,9 @@ def run_serve(args: argparse.Namespace) -> None:
             enable_web=enable_web,
             storage=storage,
             config=config,
+            require_auth=require_auth,
+            auth_api_key=auth_api_key,
+            trace_messages=trace_messages,
         )
 
         try:

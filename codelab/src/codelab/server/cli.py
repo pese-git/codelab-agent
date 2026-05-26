@@ -203,6 +203,12 @@ def run_server() -> None:
         default=None,
         help="Путь к custom TOML файлу конфигурации. Переопределяет codelab.toml",
     )
+    parser.add_argument(
+        "--trace-messages",
+        action="store_true",
+        default=False,
+        help="Включить детальное логирование всех JSON-RPC сообщений (DEBUG level)",
+    )
     args = parser.parse_args()
     logger.debug("command line arguments parsed")
 
@@ -312,6 +318,7 @@ def run_server() -> None:
         host=args.host,
         port=args.port,
         require_auth=args.require_auth,
+        trace_messages=args.trace_messages,
     )
     server = ACPHttpServer(
         host=args.host,
@@ -321,6 +328,7 @@ def run_server() -> None:
         storage=storage,
         config=config,
         enable_web=True,
+        trace_messages=args.trace_messages,
     )
     logger.debug("http server initialized, preparing to start")
 
