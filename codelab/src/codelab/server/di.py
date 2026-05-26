@@ -191,6 +191,7 @@ class AgentProvider(Provider):
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
             llm_provider_class=config.llm.provider,
+            system_prompt=config.agent.system_prompt,
         )
 
         # Создать model resolver для multi-provider support

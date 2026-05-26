@@ -258,6 +258,60 @@ class AgentOrchestrator:
 
     # ── Вспомогательные методы ───────────────────────────────────────────────
 
+    def _build_system_message(self, session_state: SessionState) -> str:
+        """Собрать system message с информацией о MCP серверах.
+
+        Args:
+            session_state: Состояние сессии.
+
+        Returns:
+            Текст system message или пустая строка.
+        """
+        parts: list[str] = []
+
+        # Кастомный системный промпт из конфигурации
+        if self.config.system_prompt:
+            parts.append(self.config.system_prompt)
+
+        # Информация о подключённых MCP серверах
+        if session_state.mcp_manager is not None:
+            mcp_info = self._format_mcp_info(session_state.mcp_manager)
+            if mcp_info:
+                parts.append(mcp_info)
+
+        return "\n\n".join(parts)
+
+    def _format_mcp_info(self, mcp_manager: Any) -> str:
+        """Сформировать текст о MCP серверах для LLM.
+
+        Args:
+            mcp_manager: MCPManager с подключёнными серверами.
+
+        Returns:
+            Форматированный текст или пустая строка.
+        """
+        if mcp_manager.server_count == 0:
+            return ""
+
+        lines = [
+            "You have access to the following MCP (Model Context Protocol) servers:",
+        ]
+
+        for server_id in mcp_manager.server_ids:
+            tools = mcp_manager.get_tools_for_server(server_id)
+            tool_names = [t.name.split(":")[-1] for t in tools]
+            names_str = ", ".join(tool_names)
+            lines.append(
+                f"- **{server_id}** ({len(tools)} tools): {names_str}"
+            )
+
+        lines.append(
+            "\nWhen the user asks about MCP capabilities, "
+            "reference these servers and their tools."
+        )
+
+        return "\n".join(lines)
+
     def _build_history(self, session_state: SessionState) -> list[LLMMessage]:
         """Конвертировать session_state.history в список LLMMessage для LLM.
 
@@ -267,9 +321,21 @@ class AgentOrchestrator:
         Returns:
             Список LLMMessage, готовый к передаче в LLM провайдер.
         """
-        return self._sanitize_orphaned_tool_calls(
-            self._convert_to_llm_messages(session_state.history)
+        messages: list[LLMMessage] = []
+
+        # System message (кастомный промпт + MCP информация)
+        system_msg = self._build_system_message(session_state)
+        if system_msg:
+            messages.append(LLMMessage(role="system", content=system_msg))
+
+        # История сессии
+        messages.extend(
+            self._sanitize_orphaned_tool_calls(
+                self._convert_to_llm_messages(session_state.history)
+            )
         )
+
+        return messages
 
     def _filter_tools(self, session_state: SessionState) -> list[ToolDefinition]:
         """Получить инструменты, доступные для данной сессии.
