@@ -2,6 +2,7 @@
 
 **Дата:** 2026-05-21
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
+**Обновлено:** 2026-05-26 — TOML Configuration System (26 тестов), Cached Storage, ToolMapping тесты, Auth тесты расширены
 **Обновлено:** 2026-05-22 — Multi-Provider LLM: 7 провайдеров, Registry, Resolver, Fallback, Model Discovery, Telemetry, ProviderEventBus, Integration Tests (8 тестов)
 **Обновлено:** 2026-05-22 — добавлены E2E тесты stdio transport (8 тестов), тесты ClientRPCBridge.terminal_output (29 тестов), тесты Tool Call advanced features (56 тестов), тесты extensibility (25 тестов)
 **Обновлено:** 2026-05-22 — устранён гэп #12 (RPC response models aligned with ACP spec), WriteTextFileResponse/TerminalKillResponse/TerminalReleaseResponse
@@ -17,14 +18,14 @@
 | Метрика | Значение |
 |---|---|
 | Spec sections fully covered | **16** из 17 (94%) |
-| Spec sections partially covered | 0 из 17 (0%) |
-| Spec sections not covered | 1 из 17 (6%) — Streamable HTTP (draft) |
+| Spec sections partially covered | 1 из 17 (6%) — Transports (Streamable HTTP draft) |
+| Spec sections not covered | 0 из 17 |
 | Все ACP методы реализованы | ✅ 17 из 17 |
 | stdio transport | ✅ Полностью (сервер + клиент + E2E тесты) |
-| Тестовых файлов | ~152 |
-| Тестовых методов | ~2,448 (+118 новых) |
+| Тестовых файлов | **165** |
+| Тестовых методов | **2,665** |
 | Критичных проблем | ✅ 0 |
-| Известных гэпов | 0 |
+| Известных гэпов | **5** |
 
 ---
 
@@ -335,11 +336,23 @@ LLM: terminal/release → cleanup
 6. **LLM propagation** — `NaiveAgent.start_turn/continue_turn` propagates `max_tokens`, `refusal`, `tool_use` от LLM провайдера
 7. **Integration** — `_meta` forcedStopReason для `max_turn_requests` и `refusal` через полный pipeline
 
-#### 5. Только OpenAI LLM провайдер
+#### ~~5. Только OpenAI LLM провайдер~~ ✅ Решено (2026-05-22)
 
-- `llm/openai_provider.py` — полная реализация
-- `llm/mock_provider.py` — для тестов
-- ❌ Нет Anthropic/Claude, Google Gemini, Ollama, локальных моделей
+- ✅ **7 провайдеров реализовано:** OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio
+- ✅ Registry, Resolver, Fallback, Model Discovery, Telemetry
+- ❌ Нет Google Gemini как отдельного провайдера
+- ❌ Нет локальных моделей (llama.cpp, MLX)
+
+#### ~~15. TOML Configuration System — в разработке~~ ✅ Решено (2026-05-26)
+
+**Файлы:** `server/toml_config/toml_loader.py` (355 строк), `server/toml_config/pydantic_config.py`
+
+**Реализовано:**
+- Multi-level config merge: `~/.codelab/auth.toml` → `codelab.toml` → `codelab.local.toml` → `.env` → CLI
+- Env var expansion (`${OPENAI_API_KEY}`)
+- Pydantic-модели для всех секций (llm, fallback, providers, models)
+- Fallback config с retry policies (`retry_on: ["rate_limit", "timeout"]`)
+- 26 интеграционных тестов
 
 #### 6. MCP HTTP/SSE не реализованы
 
@@ -443,9 +456,11 @@ LLM: terminal/release → cleanup
 | 11 | ~~Stop reasons `max_tokens`, `max_turn_requests`, `refusal` не тестированы~~ | ✅ Решено (2026-05-22) |
 | 12 | ~~Tool call `locations`, `rawInput`, `rawOutput` не тестированы~~ | ✅ Решено (2026-05-22) |
 | 13 | Rate limiting для tool execution | Не реализовано |
-| 14 | SQLite storage | Не реализовано (только memory + JSON file) |
-| 15 | Streaming tool_calls в OpenAI | Не обрабатывается (только текст) |
-| 16 | `authenticate` — минимальное тестовое покрытие | 4 теста |
+| 14 | SQLite storage | Не реализовано (memory + JSON file + cached decorator) |
+| 15 | ~~TOML Configuration System~~ | ✅ Решено (2026-05-26) — 26 тестов |
+| 16 | Streaming tool_calls в OpenAI | Не обрабатывается (только текст) |
+| 17 | ToolMapping round-trip edge cases | ✅ Покрыто в tool definition/executors тестах |
+| 18 | `authenticate` — расширенное покрытие | ✅ Покрыто в protocol test suite |
 
 ---
 
@@ -483,8 +498,10 @@ graph TB
     H --> L[ToolMapping: acp↔llm names]
     I --> M[Policy: session + global]
     J --> N[ClientRPCService]
-    B --> O[SessionStorage: memory/json]
+    B --> O[SessionStorage: memory/json/cached]
     B --> P[MCPManager]
+    B --> Q[TOML Config Loader]
+    Q --> R[Pydantic Config Models]
 ```
 
 ### Компоненты клиента (Clean Architecture)
@@ -591,7 +608,7 @@ sequenceDiagram
 | Turn Lifecycle | 1 | 32 | ✅ Полное |
 | State Manager | 1 | 21 | ✅ Полное |
 | Session Factory | 1 | 15 | ✅ Полное |
-| Storage | 3 | 41 | ✅ Полное |
+| Storage | 4 | 41 | ✅ Полное (memory, json, cached, global_policy) |
 | Session List Pagination | 1 | 22 | ✅ Полное |
 | Plan Builder/Extractor | 2 | 46 | ✅ Полное |
 | Tool Definitions | 1 | 40 | ✅ Полное |
@@ -614,6 +631,7 @@ sequenceDiagram
 | Prompt Directives | 1 | 33 | ✅ Полное |
 | Extensibility | 1 | 25 | ✅ Полное (новый) |
 | Stdio Transport E2E | 1 | 8 | ✅ Полное (новый) |
+| TOML Configuration | 2 | 26 | ✅ Полное (новый) |
 | Интеграционные | 10+ | ~106 | ✅ Полное |
 
 ### Клиент (~1,030 тестов, 69 файлов)
@@ -640,9 +658,11 @@ sequenceDiagram
 ### Не покрыто тестами
 
 - MCP HTTP/SSE transports
-- ToolMapping round-trip edge cases с неизвестными префиксами
-- `authenticate` — расширенное покрытие (сейчас 4 теста)
-- TOML Configuration System (в разработке)
+- MCP auto-reconnect logic
+- MCP resources/prompts handling
+- Rate limiting для tool execution
+- SQLite storage (не реализован)
+- Streaming tool_calls в OpenAI (только текст обрабатывается)
 
 ---
 
@@ -730,10 +750,12 @@ sequenceDiagram
 ### P2 — Желательные
 
 ~~1. **Добавить LLM провайдеры** — Anthropic, Gemini, Ollama~~ ✅ Решено (2026-05-22) — 7 провайдеров, Registry, Fallback, Model Discovery
-2. **Реализовать MCP HTTP transport**
-3. **Добавить MCP auto-reconnect**
-4. **Реализовать SQLite storage**
-5. **Добавить rate limiting для tool execution**
-6. **Реализовать MCP resources/prompts** — только tools/list и tools/call
-7. **Добавить тесты ToolMapping round-trip** — edge cases с неизвестными префиксами
-8. **Расширить покрытие `authenticate`** — сейчас 4 теста
+~~2. **TOML Configuration System**~~ ✅ Решено (2026-05-26) — multi-level merge, env expansion, 26 тестов
+3. **Добавить Google Gemini провайдер** — отдельный провайдер или через OpenAI-compatible
+4. **Добавить локальные модели** — llama.cpp, MLX integration
+5. **Реализовать MCP HTTP/SSE transport**
+6. **Добавить MCP auto-reconnect**
+7. **Реализовать MCP resources/prompts handling** — модели готовы, нужна логика
+8. **Добавить rate limiting для tool execution**
+9. **Реализовать SQLite storage** — для production persistence
+10. **Обработать streaming tool_calls в OpenAI** — сейчас только текст
