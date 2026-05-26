@@ -199,25 +199,52 @@ class MCPToolInputSchema(BaseModel):
     """Список обязательных аргументов."""
 
 
+class MCPToolAnnotations(BaseModel):
+    """Аннотации MCP инструмента (ToolAnnotations по MCP spec 2025-06-18).
+
+    Используются для UX/kind mapping — не влияют на security/permission решения.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str | None = None
+    """Человекочитаемое название инструмента."""
+
+    read_only_hint: bool | None = Field(default=None, alias="readOnlyHint")
+    """True если инструмент только читает данные (не изменяет)."""
+
+    destructive_hint: bool | None = Field(default=None, alias="destructiveHint")
+    """True если инструмент может разрушительно изменять данные."""
+
+    idempotent_hint: bool | None = Field(default=None, alias="idempotentHint")
+    """True если повторный вызов с теми же аргументами не меняет результат."""
+
+    open_world_hint: bool | None = Field(default=None, alias="openWorldHint")
+    """True если инструмент работает с открытым миром (внешние API, веб)."""
+
+
 class MCPTool(BaseModel):
     """Определение инструмента MCP сервера.
-    
+
     Содержит имя, описание и схему входных параметров.
     """
-    
+
     model_config = ConfigDict(populate_by_name=True)
-    
+
     name: str
     """Уникальное имя инструмента."""
-    
+
     description: str | None = None
     """Описание назначения инструмента."""
-    
+
     input_schema: MCPToolInputSchema = Field(
         alias="inputSchema",
         default_factory=MCPToolInputSchema
     )
     """JSON Schema входных параметров."""
+
+    annotations: MCPToolAnnotations | None = None
+    """Опциональные аннотации инструмента (hints для kind inference)."""
 
 
 class MCPListToolsResult(BaseModel):

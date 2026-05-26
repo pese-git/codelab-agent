@@ -19,6 +19,7 @@ from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import LLMLoopResult, SessionState, ToolResult
 from codelab.server.tools.base import ToolRegistry
+from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
 
 from ..base import PromptStage
@@ -155,9 +156,18 @@ class LLMLoopStage(PromptStage):
         )
 
         try:
-            result = await self._tool_registry.execute_tool(
-                session_id, tool_name, tool_arguments, session=session
-            )
+            # MCP инструменты выполняются через MCPExecutor
+            if MCPToolExecutor.is_mcp_tool(tool_name):
+                if session.mcp_manager is None:
+                    raise RuntimeError("MCP manager not available for session")
+                mcp_executor = MCPToolExecutor(session.mcp_manager)
+                result = await mcp_executor.execute_tool(
+                    session_id, tool_name, tool_arguments, session=session
+                )
+            else:
+                result = await self._tool_registry.execute_tool(
+                    session_id, tool_name, tool_arguments, session=session
+                )
 
             extracted_content = await self._content_extractor.extract_from_result(
                 tool_call_id, result
@@ -411,7 +421,12 @@ class LLMLoopStage(PromptStage):
             # Конвертируем LLM имя обратно в ACP формат
             acp_tool_name = llm_name_to_acp_name(tool_name)
 
+            # Определяем тип инструмента
+            # MCP инструменты теперь имеют inferred kind (read, edit, execute и т.д.)
+            # вместо отдельного kind="mcp"
             tool_kind = "other"
+            is_mcp = MCPToolExecutor.is_mcp_tool(acp_tool_name)
+
             tool_definition = self._tool_registry.get(acp_tool_name)
             if tool_definition is not None:
                 tool_kind = tool_definition.kind
@@ -435,7 +450,10 @@ class LLMLoopStage(PromptStage):
                 session=session, tool_call_id=tool_call_id, title=acp_tool_name, kind=tool_kind, status="pending"
             )
 
-            if tool_definition is not None and not tool_definition.requires_permission:
+            # MCP инструменты всегда требуют разрешения (по умолчанию)
+            if is_mcp:
+                decision = await self._decide_tool_execution(session, tool_kind)
+            elif tool_definition is not None and not tool_definition.requires_permission:
                 decision = "allow"
             else:
                 decision = await self._decide_tool_execution(session, tool_kind)
@@ -487,9 +505,18 @@ class LLMLoopStage(PromptStage):
                     session=session, tool_call_id=tool_call_id, status="in_progress"
                 )
 
-                result = await self._tool_registry.execute_tool(
-                    session_id, acp_tool_name, tool_arguments, session=session
-                )
+                # MCP инструменты выполняются через MCPExecutor
+                if is_mcp:
+                    if session.mcp_manager is None:
+                        raise RuntimeError("MCP manager not available for session")
+                    mcp_executor = MCPToolExecutor(session.mcp_manager)
+                    result = await mcp_executor.execute_tool(
+                        session_id, acp_tool_name, tool_arguments, session=session
+                    )
+                else:
+                    result = await self._tool_registry.execute_tool(
+                        session_id, acp_tool_name, tool_arguments, session=session
+                    )
 
                 extracted_content = await self._content_extractor.extract_from_result(tool_call_id, result)
 

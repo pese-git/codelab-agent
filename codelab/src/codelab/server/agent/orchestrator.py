@@ -278,12 +278,20 @@ class AgentOrchestrator:
             session_state: Состояние сессии с runtime_capabilities.
 
         Returns:
-            Список ToolDefinition, отфильтрованный по capabilities клиента.
+            Список ToolDefinition, отфильтрованный по capabilities клиента,
+            включая MCP инструменты из session.mcp_manager.
         """
         all_tools = self.tool_registry.get_available_tools(session_state.session_id)
-        return self._filter_tools_by_capabilities(
+        filtered = self._filter_tools_by_capabilities(
             all_tools, session_state.runtime_capabilities
         )
+
+        # Добавляем MCP инструменты из MCPManager
+        if session_state.mcp_manager is not None:
+            mcp_tools = session_state.mcp_manager.get_all_tools()
+            filtered.extend(mcp_tools)
+
+        return filtered
 
     def _add_tool_result_to_history(
         self,
