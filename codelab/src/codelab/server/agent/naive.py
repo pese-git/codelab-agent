@@ -20,7 +20,8 @@ from codelab.server.agent.base import (
     LLMAgent,
 )
 from codelab.server.agent.plan_extractor import PlanExtractor
-from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import CompletionRequest, CompletionResponse, LLMMessage, StopReason
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name
 
@@ -85,6 +86,7 @@ class NaiveAgent(LLMAgent):
             messages=messages,
             tools=context.available_tools,
             session_id=context.session_id,
+            model=context.model,
         )
 
     async def continue_turn(self, context: ContinuationContext) -> AgentResponse:
@@ -104,6 +106,7 @@ class NaiveAgent(LLMAgent):
             messages=context.history,
             tools=context.available_tools,
             session_id=context.session_id,
+            model=context.model,
         )
 
     async def cancel_prompt(self, session_id: str) -> None:
@@ -139,6 +142,17 @@ class NaiveAgent(LLMAgent):
         self.llm = llm_provider
         self._tools = tool_registry
 
+    def set_llm(self, provider: LLMProvider) -> None:
+        """Сменить LLM провайдер для динамического переключения моделей.
+
+        Вызывается AgentOrchestrator перед каждым turn, чтобы использовать
+        провайдер, указанный в session.config_values["model"].
+
+        Args:
+            provider: Новый LLM провайдер.
+        """
+        self.llm = provider
+
     async def end_session(self, session_id: str) -> None:
         """Отменить активный запрос и очистить ресурсы сессии.
 
@@ -156,6 +170,7 @@ class NaiveAgent(LLMAgent):
         messages: list[LLMMessage],
         tools: list[ToolDefinition],
         session_id: str,
+        model: str = "gpt-4o",
     ) -> AgentResponse:
         """Одиночный вызов LLM. Общая реализация для start_turn и continue_turn.
 
@@ -165,6 +180,7 @@ class NaiveAgent(LLMAgent):
             messages: Полный список сообщений для LLM.
             tools: Доступные инструменты (уже отфильтрованы по capabilities).
             session_id: ID сессии для управления отменой.
+            model: Ссылка на модель в формате "provider/model".
 
         Returns:
             AgentResponse с текстом ответа и/или tool_calls.
@@ -177,7 +193,7 @@ class NaiveAgent(LLMAgent):
             self._active_tasks[session_id] = task
 
         try:
-            return await self._execute_llm_call(messages, tools, session_id)
+            return await self._execute_llm_call(messages, tools, session_id, model)
         except asyncio.CancelledError:
             logger.info("llm_call_cancelled", session_id=session_id)
             raise
@@ -189,6 +205,7 @@ class NaiveAgent(LLMAgent):
         messages: list[LLMMessage],
         tools: list[ToolDefinition],
         session_id: str,
+        model: str = "gpt-4o",
     ) -> AgentResponse:
         """Непосредственный вызов LLM провайдера и парсинг ответа.
 
@@ -196,16 +213,20 @@ class NaiveAgent(LLMAgent):
             messages: Список сообщений для LLM.
             tools: Доступные инструменты.
             session_id: ID сессии для логирования.
+            model: Ссылка на модель в формате "provider/model".
 
         Returns:
             AgentResponse с разобранным ответом LLM.
         """
         tools_dict = _to_openai_tools_format(tools)
 
-        response: LLMResponse = await self.llm.create_completion(
+        request = CompletionRequest(
+            model=model,
             messages=messages,
             tools=tools_dict if tools_dict else None,
         )
+
+        response: CompletionResponse = await self.llm.create_completion(request)
 
         logger.info(
             "llm_response_received",
@@ -229,7 +250,7 @@ class NaiveAgent(LLMAgent):
         return AgentResponse(
             text=response.text,
             tool_calls=response.tool_calls if response.tool_calls else [],
-            stop_reason=response.stop_reason,
+            stop_reason=response.stop_reason.value if isinstance(response.stop_reason, StopReason) else response.stop_reason,
             metadata={},
             plan=plan,
         )

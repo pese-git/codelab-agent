@@ -13,6 +13,21 @@
 
 ## Последние изменения
 
+### Multi-Provider LLM Architecture
+
+Полная переработка LLM подсистемы:
+- **8+ провайдеров**: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock
+- **Registry паттерн**: `LLMProviderRegistry` с factory-функциями для ленивой инициализации
+- **Model Resolver**: Резолвинг `"provider/model"` в конкретный провайдер
+- **Fallback цепочки**: Sequential fallback с Circuit Breaker
+- **Model Discovery**: Static discovery с extension point для dynamic
+- **Telemetry**: NoOpTelemetry с extension point для Prometheus/Datadog
+- **ProviderEventBus**: Шина событий для lifecycle monitoring
+- **TOML конфигурация**: `codelab.toml` с multi-level merge
+- **Model switching**: Переключение модели mid-session через `session/set_config_option`
+- **OpenAICompatibleProvider**: Базовый класс для всех OpenAI-совместимых провайдеров
+- **AnthropicProvider**: Отдельная реализация через Messages API
+
 ### MCP Integration (Stage 8)
 
 Добавлена поддержка Model Context Protocol:
@@ -46,6 +61,7 @@
 
 ### Выполнено
 
+- ✅ **Multi-Provider LLM** — 8+ провайдеров, fallback, model switching, TOML config
 - ✅ **Global Policy Management** — глобальные политики разрешений (Stage 5)
 - ✅ **MCP Integration** — поддержка Model Context Protocol (Stage 8)
 - ✅ **Content Types** — полная интеграция типов контента (Stage 4)

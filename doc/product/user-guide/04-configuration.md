@@ -64,28 +64,27 @@ CODELAB_LLM_TEMPERATURE=0.3
 |----------|----------|
 | `openai` | OpenAI API (GPT-4, GPT-3.5) |
 | `anthropic` | Anthropic API (Claude) |
+| `openrouter` | OpenRouter (множество моделей) |
+| `zen` | Zen API |
+| `go` | Go API |
+| `ollama` | Локальные модели через Ollama |
+| `lmstudio` | Локальные модели через LMStudio |
 | `mock` | Тестовый провайдер (без API) |
-
-#### CODELAB_LLM_API_KEY
-
-API ключ для выбранного провайдера.
-
-```bash
-# OpenAI
-CODELAB_LLM_API_KEY=sk-...
-
-# Anthropic
-CODELAB_LLM_API_KEY=sk-ant-...
-```
 
 #### CODELAB_LLM_MODEL
 
-Модель LLM:
+Модель LLM в формате `"provider/model"`:
 
 | Провайдер | Модели |
 |-----------|--------|
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` |
-| Anthropic | `claude-3-opus-20240229`, `claude-3-sonnet-20240229` |
+| OpenAI | `openai/gpt-4o`, `openai/o3`, `openai/o4-mini` |
+| Anthropic | `anthropic/claude-sonnet-4`, `anthropic/claude-opus-4` |
+| OpenRouter | `openrouter/mistral-large`, `openrouter/llama-3.1` |
+| Zen | `zen/zen-sonnet` |
+| Go | `go/go-fast` |
+| Ollama | `ollama/llama3.1:70b`, `ollama/mistral` |
+| LMStudio | `lmstudio/local-model` |
+| Mock | `mock/mock-model` |
 
 #### CODELAB_LLM_BASE_URL
 
@@ -273,7 +272,38 @@ env | grep CODELAB_
 3. Проверьте новые параметры в документации
 4. Добавьте новые параметры при необходимости
 
+## TOML конфигурация
+
+Помимо `.env` файлов, CodeLab поддерживает конфигурацию через TOML-файлы. TOML обеспечивает более структурированную настройку с поддержкой вложенных конфигураций, per-model параметров и fallback цепочек.
+
+### Файлы TOML
+
+| Файл | Назначение | Приоритет |
+|------|------------|-----------|
+| `~/.codelab/auth.toml` | Глобальные API keys | Низший |
+| `codelab.toml` | Конфигурация проекта | Средний |
+| `codelab.local.toml` | Локальные overrides | Высокий |
+
+### Пример codelab.toml
+
+```toml
+[llm]
+provider = "openai"
+model = "openai/gpt-4o"
+temperature = 0.7
+
+[llm.providers.openai]
+api_key = "${OPENAI_API_KEY}"
+
+[llm.fallback]
+enabled = true
+order = ["openai", "openrouter", "ollama"]
+```
+
+> **Подробное руководство:** [TOML конфигурация](13-toml-configuration.md)
+
 ## См. также
 
+- [TOML конфигурация](13-toml-configuration.md) — полное руководство по TOML
 - [Настройка сервера](03-server-setup.md) — параметры запуска
 - [Разрешения](05-permissions.md) — политики безопасности

@@ -19,7 +19,10 @@ from codelab.server.agent.base import (
 )
 from codelab.server.agent.naive import NaiveAgent
 from codelab.server.agent.state import OrchestratorConfig
-from codelab.server.llm.base import LLMMessage, LLMProvider
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import LLMMessage
+from codelab.server.llm.registry import LLMProviderRegistry
+from codelab.server.llm.resolver import ModelResolver
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState, ToolResult
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 
@@ -46,20 +49,95 @@ class AgentOrchestrator:
         config: OrchestratorConfig,
         llm_provider: LLMProvider,
         tool_registry: ToolRegistry,
+        llm_registry: LLMProviderRegistry | None = None,
+        model_resolver: ModelResolver | None = None,
     ) -> None:
         """Инициализация оркестратора.
 
         Args:
             config: Конфигурация (класс агента, параметры LLM).
-            llm_provider: Провайдер LLM для запросов.
+            llm_provider: Провайдер LLM для запросов (legacy).
             tool_registry: Реестр всех зарегистрированных инструментов.
+            llm_registry: Реестр LLM провайдеров для multi-provider (опционально).
+            model_resolver: Резолвер моделей для выбора провайдера (опционально).
         """
         self.config = config
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
+        self.llm_registry = llm_registry
+        self.model_resolver = model_resolver
 
         # NaiveAgent — единственная реализация; tools передаём для initialize()
         self.agent: LLMAgent = NaiveAgent(llm=llm_provider, tools=tool_registry)
+
+    async def resolve_provider_for_session(
+        self,
+        session_state: SessionState,
+    ) -> LLMProvider:
+        """Резолвить провайдер для сессии на основе config values.
+
+        Если model_resolver доступен — использует его для выбора провайдера
+        из session config values. Иначе возвращает дефолтный llm_provider.
+
+        Args:
+            session_state: Состояние сессии
+
+        Returns:
+            LLMProvider для данной сессии
+        """
+        if self.model_resolver:
+            model_value = session_state.config_values.get("model", "")
+            if model_value:
+                try:
+                    provider, _ = await self.model_resolver.resolve(model_value)
+                    return provider
+                except Exception:
+                    logger.warning(
+                        "failed to resolve model, using default provider",
+                        model=model_value,
+                    )
+
+        return self.llm_provider
+
+    @property
+    def _default_model_ref(self) -> str:
+        """Сформировать default model reference из config.
+
+        Returns:
+            Строка в формате "provider/model" (например, "openai/gpt-4o").
+        """
+        return f"{self.config.llm_provider_class}/{self.config.model}"
+
+    async def _resolve_provider_for_turn(
+        self,
+        session_id: str,
+        model_ref: str,
+    ) -> tuple[LLMProvider, str]:
+        """Резолвить провайдер для turn с кэшированием.
+
+        Если model_resolver доступен — использует его с кэшированием.
+        Иначе возвращает legacy llm_provider.
+
+        Args:
+            session_id: ID сессии для кэширования
+            model_ref: Ссылка на модель в формате "provider/model"
+
+        Returns:
+            Кортеж (LLMProvider, model_id)
+        """
+        if self.model_resolver:
+            try:
+                return await self.model_resolver.resolve_for_session(
+                    session_id, model_ref
+                )
+            except Exception:
+                logger.warning(
+                    "failed to resolve model, using default provider",
+                    session_id=session_id,
+                    model=model_ref,
+                )
+        # Fallback на legacy provider
+        return self.llm_provider, self.config.model
 
     async def process_prompt(
         self,
@@ -78,6 +156,20 @@ class AgentOrchestrator:
         Returns:
             AgentResponse с ответом LLM (текст и/или tool_calls).
         """
+        # Определить модель из config_values с fallback на default
+        model_ref = session_state.config_values.get("model", "")
+        if not model_ref:
+            # Fallback: собрать из config.llm.provider и config.llm.model
+            model_ref = self._default_model_ref
+
+        # Резолвить провайдер для данной сессии (с кэшированием)
+        provider, model_id = await self._resolve_provider_for_turn(
+            session_state.session_id, model_ref
+        )
+
+        # Установить провайдер на агенте для этого turn
+        self.agent.set_llm(provider)
+
         context = AgentContext(
             session_id=session_state.session_id,
             session=session_state,
@@ -85,6 +177,7 @@ class AgentOrchestrator:
             conversation_history=self._build_history(session_state),
             available_tools=self._filter_tools(session_state),
             config=session_state.config_values,
+            model=model_ref,
         )
 
         agent_response = await self.agent.start_turn(context)
@@ -94,6 +187,7 @@ class AgentOrchestrator:
             session_id=session_state.session_id,
             response_length=len(agent_response.text),
             has_tool_calls=bool(agent_response.tool_calls),
+            model=model_ref,
         )
         return agent_response
 
@@ -119,6 +213,19 @@ class AgentOrchestrator:
         for result in tool_results:
             self._add_tool_result_to_history(session_state, result)
 
+        # Определить модель из config_values с fallback на default
+        model_ref = session_state.config_values.get("model", "")
+        if not model_ref:
+            model_ref = self._default_model_ref
+
+        # Резолвить провайдер для данной сессии (с кэшированием)
+        provider, model_id = await self._resolve_provider_for_turn(
+            session_state.session_id, model_ref
+        )
+
+        # Установить провайдер на агенте для этого turn
+        self.agent.set_llm(provider)
+
         context = ContinuationContext(
             session_id=session_state.session_id,
             session=session_state,
@@ -126,6 +233,7 @@ class AgentOrchestrator:
             history=self._build_history(session_state),
             available_tools=self._filter_tools(session_state),
             config=session_state.config_values,
+            model=model_ref,
         )
 
         agent_response = await self.agent.continue_turn(context)
@@ -136,6 +244,7 @@ class AgentOrchestrator:
             tool_results_count=len(tool_results),
             response_length=len(agent_response.text),
             has_tool_calls=bool(agent_response.tool_calls),
+            model=model_ref,
         )
         return agent_response
 
@@ -278,7 +387,7 @@ class AgentOrchestrator:
         Returns:
             Список LLMMessage для передачи в LLM провайдер.
         """
-        from codelab.server.llm.base import LLMToolCall
+        from codelab.server.llm.models import LLMToolCall
 
         messages: list[LLMMessage] = []
 

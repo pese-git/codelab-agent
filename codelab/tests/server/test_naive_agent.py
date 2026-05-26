@@ -6,14 +6,14 @@
 """
 
 import asyncio
-from typing import Any
 
 import pytest
 
 from codelab.server.agent.base import AgentContext, ContinuationContext
 from codelab.server.agent.naive import NaiveAgent, _format_prompt, _to_openai_tools_format
-from codelab.server.llm.base import LLMMessage, LLMResponse, LLMToolCall
+from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
+from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
@@ -163,12 +163,10 @@ async def test_start_turn_adds_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     prior_history = [
         LLMMessage(role="user", content="Предыдущее сообщение"),
@@ -206,12 +204,10 @@ async def test_start_turn_empty_prompt_no_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
     context = AgentContext(
@@ -290,13 +286,11 @@ async def test_start_turn_uses_available_tools_from_context(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            if tools:
-                captured_tool_names.append([t["function"]["name"] for t in tools])
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            if request.tools:
+                captured_tool_names.append([t["function"]["name"] for t in request.tools])
+            return await super().create_completion(request)
 
     # В context.available_tools — только calculator, не echo
     only_calculator = [t for t in tool_registry.list_tools() if t.name == "calculator"]
@@ -336,12 +330,10 @@ async def test_continue_turn_does_not_add_user_message(
     class CapturingProvider(MockLLMProvider):
         async def create_completion(
             self,
-            messages: list[LLMMessage],
-            tools: list[dict[str, Any]] | None = None,
-            **kwargs: Any,
-        ) -> LLMResponse:
-            captured_messages.append(list(messages))
-            return await super().create_completion(messages, tools, **kwargs)
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_messages.append(list(request.messages))
+            return await super().create_completion(request)
 
     # История: user → assistant(tool_calls) → tool(result)
     history = [
@@ -436,12 +428,10 @@ class _SlowLLMProvider(MockLLMProvider):
 
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
+        request: CompletionRequest,
+    ) -> CompletionResponse:
         await asyncio.sleep(10)
-        return await super().create_completion(messages, tools, **kwargs)
+        return await super().create_completion(request)
 
 
 @pytest.mark.asyncio
@@ -689,16 +679,14 @@ class CapturingMockLLMProvider(MockLLMProvider):
 
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
-        self.last_messages = messages
-        self.last_tools = tools
-        return LLMResponse(
-            text=self.response,
-            tool_calls=self.tool_calls,
-            stop_reason=self._stop_reason,
+        request: CompletionRequest,
+    ) -> CompletionResponse:
+        self.last_messages = request.messages
+        self.last_tools = request.tools
+        return CompletionResponse(
+            text=self._response,
+            tool_calls=self._tool_calls,
+            stop_reason=StopReason(self._stop_reason),
         )
 
 
@@ -823,3 +811,131 @@ async def test_start_turn_default_stop_reason_is_end_turn(
     response = await naive_agent.start_turn(context)
 
     assert response.stop_reason == "end_turn"
+
+
+# ============================================================================
+# Тесты set_llm — динамическая смена провайдера
+# ============================================================================
+
+
+def test_set_llm_changes_provider() -> None:
+    """set_llm меняет LLM провайдер."""
+    old_llm = MockLLMProvider(response="old")
+    agent = NaiveAgent(llm=old_llm, tools=SimpleToolRegistry())
+
+    new_llm = MockLLMProvider(response="new")
+    agent.set_llm(new_llm)
+
+    assert agent.llm is new_llm
+
+
+@pytest.mark.asyncio
+async def test_set_llm_affects_next_call(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """После set_llm следующий вызов использует новый провайдер."""
+    llm1 = MockLLMProvider(response="from provider 1")
+    llm2 = MockLLMProvider(response="from provider 2")
+    agent = NaiveAgent(llm=llm1, tools=tool_registry)
+
+    context = _make_context(session_state, tool_registry, "test")
+    response1 = await agent.start_turn(context)
+    assert response1.text == "from provider 1"
+
+    # Сменить провайдер
+    agent.set_llm(llm2)
+
+    response2 = await agent.start_turn(context)
+    assert response2.text == "from provider 2"
+
+
+# ============================================================================
+# Тесты model parameter — передача модели из контекста
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_start_turn_uses_model_from_context(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """start_turn передаёт model из context в CompletionRequest."""
+    captured_models: list[str] = []
+
+    class CapturingProvider(MockLLMProvider):
+        async def create_completion(
+            self,
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_models.append(request.model)
+            return await super().create_completion(request)
+
+    agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
+    context = AgentContext(
+        session_id="test",
+        session=session_state,
+        prompt=[{"type": "text", "text": "test"}],
+        conversation_history=[],
+        available_tools=tool_registry.list_tools(),
+        config={},
+        model="anthropic/claude-sonnet-4",
+    )
+    await agent.start_turn(context)
+
+    assert captured_models == ["anthropic/claude-sonnet-4"]
+
+
+@pytest.mark.asyncio
+async def test_continue_turn_uses_model_from_context(
+    tool_registry: SimpleToolRegistry,
+    session_state: SessionState,
+) -> None:
+    """continue_turn передаёт model из context в CompletionRequest."""
+    captured_models: list[str] = []
+
+    class CapturingProvider(MockLLMProvider):
+        async def create_completion(
+            self,
+            request: CompletionRequest,
+        ) -> CompletionResponse:
+            captured_models.append(request.model)
+            return await super().create_completion(request)
+
+    agent = NaiveAgent(llm=CapturingProvider(response="ok"), tools=tool_registry)
+    history = [LLMMessage(role="user", content="test")]
+    context = ContinuationContext(
+        session_id="test",
+        session=session_state,
+        history=history,
+        available_tools=tool_registry.list_tools(),
+        config={},
+        model="openrouter/mistral-large",
+    )
+    await agent.continue_turn(context)
+
+    assert captured_models == ["openrouter/mistral-large"]
+
+
+@pytest.mark.asyncio
+async def test_context_default_model() -> None:
+    """AgentContext и ContinuationContext имеют default model."""
+    session = SessionState(session_id="test", cwd="/tmp")
+    ctx = AgentContext(
+        session_id="test",
+        session=session,
+        prompt=[{"type": "text", "text": "test"}],
+        conversation_history=[],
+        available_tools=[],
+        config={},
+    )
+    assert ctx.model == "openai/gpt-4o"
+
+    cont = ContinuationContext(
+        session_id="test",
+        session=session,
+        history=[],
+        available_tools=[],
+        config={},
+    )
+    assert cont.model == "openai/gpt-4o"

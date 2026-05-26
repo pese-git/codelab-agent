@@ -11,7 +11,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.llm.base import LLMMessage, LLMProvider, LLMToolCall
+from codelab.server.llm.base import LLMProvider
+from codelab.server.llm.models import LLMMessage, LLMToolCall
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 
 if TYPE_CHECKING:
@@ -35,6 +36,8 @@ class AgentContext:
     # Инструменты, уже отфильтрованные по capabilities клиента
     available_tools: list[ToolDefinition]
     config: dict[str, Any]
+    # Ссылка на модель в формате "provider/model" (например, "openai/gpt-4o")
+    model: str = "openai/gpt-4o"
 
 
 @dataclass
@@ -54,6 +57,8 @@ class ContinuationContext:
     # Инструменты, уже отфильтрованные по capabilities клиента
     available_tools: list[ToolDefinition]
     config: dict[str, Any]
+    # Ссылка на модель в формате "provider/model" (например, "openai/gpt-4o")
+    model: str = "openai/gpt-4o"
 
 
 @dataclass

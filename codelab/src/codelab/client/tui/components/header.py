@@ -5,7 +5,7 @@
 Отвечает за отображение:
 - Логотип/название слева
 - Центр: breadcrumbs или title сессии
-- Справа: статус соединения, настройки
+- Справа: статус соединения, настройки, текущая модель
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from textual.widgets import Static
 
 if TYPE_CHECKING:
+    from codelab.client.presentation.model_selector_view_model import ModelSelectorViewModel
     from codelab.client.presentation.ui_view_model import ConnectionStatus, UIViewModel
 
 
@@ -46,6 +47,7 @@ class HeaderBar(Static):
     def __init__(
         self,
         ui_vm: UIViewModel,
+        model_selector_vm: ModelSelectorViewModel | None = None,
         *,
         session_title: str = "",
         show_breadcrumbs: bool = True,
@@ -54,17 +56,23 @@ class HeaderBar(Static):
 
         Args:
             ui_vm: UIViewModel для управления состоянием header'a
+            model_selector_vm: ModelSelectorViewModel для отображения модели
             session_title: Название текущей сессии
             show_breadcrumbs: Показывать ли breadcrumbs
         """
         super().__init__("", id="header")
         self.ui_vm = ui_vm
+        self._model_selector_vm = model_selector_vm
         self._session_title = session_title
         self._show_breadcrumbs = show_breadcrumbs
 
         # Подписываемся на изменения в UIViewModel
         self.ui_vm.connection_status.subscribe(self._on_connection_status_changed)
         self.ui_vm.is_loading.subscribe(self._on_loading_changed)
+
+        # Подписываемся на изменения модели если ViewModel доступен
+        if self._model_selector_vm:
+            self._model_selector_vm.current_model.subscribe(self._on_model_changed)
 
         # Инициализируем UI с текущим состоянием
         self._update_display()
@@ -82,6 +90,14 @@ class HeaderBar(Static):
 
         Args:
             is_loading: True если идет загрузки, False иначе
+        """
+        self._update_display()
+
+    def _on_model_changed(self, model: str | None) -> None:
+        """Обновить header при изменении модели.
+
+        Args:
+            model: Новая модель или None
         """
         self._update_display()
 
@@ -123,7 +139,15 @@ class HeaderBar(Static):
         # Индикатор загрузки
         loading_indicator = "⟳ " if is_loading else ""
 
-        return f"{loading_indicator}{status_icon} {status_text}"
+        parts = [f"{loading_indicator}{status_icon} {status_text}"]
+
+        # Добавляем текущую модель если ViewModel доступен
+        if self._model_selector_vm:
+            model_label = self._model_selector_vm.get_current_model_label()
+            if model_label and model_label != "Не выбрано":
+                parts.append(f"🤖 {model_label}")
+
+        return " │ ".join(parts)
 
     def _get_status_icon(self, status: ConnectionStatus) -> str:
         """Получить иконку для статуса соединения.

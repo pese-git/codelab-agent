@@ -7,7 +7,7 @@
 CodeLab — это полнофункциональная реализация [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/01-Introduction.md), стандартизированного протокола взаимодействия между AI-агентами и редакторами кода.
 
 CodeLab объединяет в себе:
-- **ACP-сервер** — интеллектуальный агент с поддержкой LLM (OpenAI, Anthropic, mock)
+- **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)
 - **TUI-клиент** — терминальный интерфейс пользователя на базе Textual (Clean Architecture + MVVM)
 - **Web UI** — браузерный интерфейс для работы через веб (textual-web)
 - **stdio транспорт** — основной транспорт ACP для интеграции с IDE (stdin/stdout JSON-RPC)
@@ -26,7 +26,9 @@ CodeLab позволяет:
 ## Ключевые возможности
 
 ### 🤖 Интеллектуальный агент
-- Поддержка OpenAI GPT-4, Anthropic Claude и других LLM-провайдеров
+- Поддержка 8+ LLM провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock
+- Переключение модели mid-session через `session/set_config_option`
+- Fallback цепочки при ошибках провайдера (Sequential с Circuit Breaker)
 - Автоматическое планирование задач (plan-first mode)
 - Контекстное понимание кодовой базы
 - Цикл LLM с tool calls (до 10 итераций)

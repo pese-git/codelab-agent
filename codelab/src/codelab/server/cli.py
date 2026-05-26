@@ -94,8 +94,8 @@ def run_server() -> None:
         # Загружает .env из текущей директории
         run_server()
     """
-    # Инициализируем базовое логирование для вывода ошибок инициализации
-    logger = setup_logging(level="INFO", json_format=False)
+    # Логирование будет настроено после парсинга аргументов (line 210)
+    logger = structlog.get_logger()
     logger.debug("codelab-server starting up")
 
     # Загружаем переменные окружения из .env файла если он существует
@@ -181,6 +181,28 @@ def run_server() -> None:
         default=None,
         help="Системный промпт для агента. Переопределяет ACP_SYSTEM_PROMPT",
     )
+    # Fallback конфигурация
+    parser.add_argument(
+        "--fallback-enabled",
+        action="store_true",
+        default=None,
+        help="Включить fallback цепочку при ошибках провайдера",
+    )
+    parser.add_argument(
+        "--fallback-strategy",
+        default=None,
+        help="Стратегия fallback (sequential). По умолчанию sequential",
+    )
+    parser.add_argument(
+        "--fallback-order",
+        default=None,
+        help="Порядок провайдеров в fallback цепочке (через запятую)",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Путь к custom TOML файлу конфигурации. Переопределяет codelab.toml",
+    )
     args = parser.parse_args()
     logger.debug("command line arguments parsed")
 
@@ -197,9 +219,9 @@ def run_server() -> None:
         log_file=args.log_file or "console only",
     )
 
-    # Загружаем конфигурацию из переменных окружения
+    # Загружаем конфигурацию из всех источников (TOML + env + .env)
     logger.debug("loading application configuration")
-    config = AppConfig.from_env()
+    config = AppConfig.load(toml_path=args.config)
     logger.debug(
         "application configuration loaded",
         llm_provider=config.llm.provider,
@@ -232,6 +254,15 @@ def run_server() -> None:
 
     if cli_overrides:
         logger.debug("configuration overridden", overrides=", ".join(cli_overrides))
+
+    # Fallback конфигурация из CLI
+    if args.fallback_enabled is not None:
+        logger.debug("fallback enabled via CLI")
+    if args.fallback_strategy:
+        logger.debug("fallback strategy set via CLI", strategy=args.fallback_strategy)
+    if args.fallback_order:
+        order = [p.strip() for p in args.fallback_order.split(",")]
+        logger.debug("fallback order set via CLI", order=order)
 
     # Обработка аутентификации
     logger.debug("processing authentication configuration", require_auth=args.require_auth)
@@ -327,11 +358,8 @@ def _run_stdio_server(
     """
     from codelab.server.transport.stdio_runner import run_stdio_server
 
-    logger = setup_logging(
-        level=log_level,
-        json_format=log_json,
-        log_file=log_file or None,
-    )
+    # Логирование уже настроено в run_server() (line 210)
+    logger = structlog.get_logger()
 
     logger.info(
         "stdio server starting",

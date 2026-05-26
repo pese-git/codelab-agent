@@ -6,6 +6,8 @@
 Использует structlog для структурированного логирования с timestamps,
 уровнями логов и поддержкой контекстных переменных.
 
+Функция setup_logging() идемпотентна — безопасна при повторных вызовах.
+
 Пример использования:
     # Базовая настройка
     logger = setup_logging(level="DEBUG")
@@ -19,10 +21,25 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 from pathlib import Path
 from typing import Any
 
 import structlog
+
+# Guard-флаг для предотвращения повторной настройки логирования.
+# Обеспечивает идемпотентность setup_logging() при многократных вызовах.
+_logging_configured = False
+
+
+def _add_pid(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """Добавляет PID процесса к каждому log entry для диагностики."""
+    event_dict["pid"] = os.getpid()
+    return event_dict
 
 
 def get_codelab_dir() -> Path:
@@ -71,12 +88,16 @@ def setup_logging(
     отключен, чтобы не мешать работе TUI. Для серверного режима (serve) можно
     включить console_output для вывода логов в терминал.
 
+    Функция идемпотентна — повторные вызовы безопасны и не создают
+    дублирующих handlers. При повторном вызове возвращается уже
+    настроенный logger.
+
     Args:
         level: Уровень логирования (DEBUG, INFO, WARNING, ERROR).
         json_format: Использовать JSON формат (True) или консольный (False).
         log_file: Путь к файлу логов. Поддерживает спецпути:
                   - None - логи не сохраняются в файл
-                  - "default" - использует ~/.codelab/logs/codelab.log
+                  - "default" - использует ~/.codelab/logs/codelab-{pid}.log
                   - абсолютный или относительный путь
         log_dir: Кастомная директория для логов (опционально).
                  Используется вместо ~/.codelab/logs/ если указана.
@@ -105,6 +126,12 @@ def setup_logging(
             console_output=True
         )
     """
+    # Проверка идемпотентности — предотвращает дублирование handlers
+    # при повторных вызовах (defensive programming)
+    global _logging_configured
+    if _logging_configured:
+        return structlog.get_logger("codelab")
+
     # Настройка уровня логирования
     log_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -112,9 +139,9 @@ def setup_logging(
     file_path: Path | None = None
     if log_file:
         if log_file == "default":
-            # Используем стандартный путь ~/.codelab/logs/codelab.log
+            # Используем стандартный путь ~/.codelab/logs/codelab-{pid}.log
             logs_directory = get_logs_dir(log_dir)
-            file_path = logs_directory / "codelab.log"
+            file_path = logs_directory / f"codelab-{os.getpid()}.log"
         else:
             # Используем указанный путь
             file_path = Path(log_file)
@@ -140,16 +167,21 @@ def setup_logging(
         handlers.append(file_handler)
 
     # Базовая конфигурация logging
+    # force=True ensures that handlers are replaced even if root logger
+    # already has handlers (important for test isolation)
     logging.basicConfig(
         format="%(message)s",
         handlers=handlers,
         level=log_level,
+        force=True,
     )
 
     # Процессоры для structlog — определяют обработку сообщений
     processors: list[Any] = [
         # Объединяем контекстные переменные в сообщение
         structlog.contextvars.merge_contextvars,
+        # Добавляем PID процесса для диагностики
+        _add_pid,
         # Добавляем уровень логирования
         structlog.processors.add_log_level,
         # Добавляем timestamp в ISO формате (UTC)
@@ -185,4 +217,25 @@ def setup_logging(
         cache_logger_on_first_use=True,
     )
 
+    # Устанавливаем guard-флаг — логирование настроено
+    _logging_configured = True
+
     return structlog.get_logger("codelab")
+
+
+def reset_logging() -> None:
+    """Сбрасывает состояние логирования для тестов.
+
+    Позволяет тестам изолированно проверять настройку логирования
+    без влияния других тестов. Не использовать в production коде.
+    """
+    global _logging_configured
+    _logging_configured = False
+
+    # Сбрасываем handlers root logger
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Сбрасываем конфигурацию structlog
+    structlog.reset_defaults()

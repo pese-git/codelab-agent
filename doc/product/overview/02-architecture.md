@@ -32,7 +32,7 @@ graph TB
     end
     
     subgraph External["Внешние системы"]
-        LLM[LLM Provider<br/>OpenAI/Anthropic/Mock]
+        LLM[LLM Providers<br/>OpenAI/Anthropic/OpenRouter/Zen/Go/Ollama/LMStudio/Mock]
         FS[File System]
         TERM[Terminal]
     end
@@ -157,7 +157,7 @@ graph TB
     subgraph Agent["Agent Layer"]
         AO[AgentOrchestrator]
         AG[NaiveAgent]
-        LLM[LLM Provider]
+        LLM[LLM Registry<br/>8+ Providers]
     end
     
     subgraph Tools["Tools Layer"]
@@ -615,7 +615,7 @@ codelab/src/codelab/
 │   ├── storage/         # Хранилище сессий (LRU cache)
 │   ├── mcp/             # MCP интеграция
 │   ├── client_rpc/      # Agent→Client RPC
-│   ├── llm/             # LLM провайдеры (OpenAI, Mock)
+│   ├── llm/             # LLM подсистема (Registry, 8+ Providers, Fallback, Events)
 │   └── transport/       # WebSocket, stdio
 │
 └── client/              # Клиентская часть

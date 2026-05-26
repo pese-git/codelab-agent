@@ -207,6 +207,15 @@ DEFAULT_COMMANDS: list[Command] = [
         icon="⌨",
     ),
     Command(
+        id="select_model",
+        name="Выбрать модель",
+        description="Выбрать LLM модель для сессии",
+        category=CommandCategory.SESSION,
+        action="select_model",
+        hotkey="Ctrl+M",
+        icon="🤖",
+    ),
+    Command(
         id="quit",
         name="Выход",
         description="Выйти из приложения",

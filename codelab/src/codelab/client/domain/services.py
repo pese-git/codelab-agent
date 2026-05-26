@@ -124,6 +124,31 @@ class TransportService(ABC):
             params={"sessionId": session_id},
         )
 
+    async def set_config_option(
+        self,
+        session_id: str,
+        config_id: str,
+        value: str,
+    ) -> dict[str, Any]:
+        """Установить конфигурационную опцию сессии.
+
+        Args:
+            session_id: ID сессии
+            config_id: ID конфигурационной опции
+            value: Новое значение
+
+        Returns:
+            Результат с обновлёнными configOptions
+        """
+        return await self.request_with_callbacks(
+            method="session/set_config_option",
+            params={
+                "sessionId": session_id,
+                "configId": config_id,
+                "value": value,
+            },
+        )
+
     @abstractmethod
     async def request_with_callbacks(
         self,

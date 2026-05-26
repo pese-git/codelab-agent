@@ -13,7 +13,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import structlog
 from textual.app import App, ComposeResult
@@ -26,6 +26,7 @@ from codelab.client.messages import PermissionOption, PermissionToolCall
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.file_viewer_view_model import FileViewerViewModel
 from codelab.client.presentation.filesystem_view_model import FileSystemViewModel
+from codelab.client.presentation.model_selector_view_model import ModelSelectorViewModel
 from codelab.client.presentation.permission_view_model import PermissionViewModel
 from codelab.client.presentation.plan_view_model import PlanViewModel
 from codelab.client.presentation.session_view_model import SessionViewModel
@@ -43,6 +44,7 @@ from .components import (
     HeaderBar,
     HelpModal,
     MainLayout,
+    ModelSelectorModal,
     PermissionModal,
     PlanPanel,
     PromptInput,
@@ -86,6 +88,7 @@ class ACPClientApp(App[None]):
         # Новые горячие клавиши Фазы 5
         ("ctrl+p", "command_palette", "Палитра команд"),
         ("ctrl+t", "toggle_theme", "Переключить тему"),
+        ("ctrl+m", "select_model", "Выбрать модель"),
         ("escape", "close_modal", "Закрыть"),
     ]
 
@@ -177,6 +180,7 @@ class ACPClientApp(App[None]):
             self._file_viewer_vm = self._container.get(FileViewerViewModel)
             self._permission_vm = self._container.get(PermissionViewModel)
             self._terminal_vm = self._container.get(TerminalViewModel)
+            self._model_selector_vm = self._container.get(ModelSelectorViewModel)
 
             self._coordinator = self._container.get(SessionCoordinator)
             self._transport = self._container.get(TransportService)
@@ -186,6 +190,14 @@ class ACPClientApp(App[None]):
             # Синхронизируем ChatViewModel с выбранной сессией.
             self._session_vm.selected_session_id.subscribe(self._on_selected_session_changed)
             self._chat_vm.set_active_session(self._session_vm.selected_session_id.value)
+
+            # Подписываемся на события обновления config options
+            try:
+                from codelab.client.domain.events import ConfigOptionUpdatedEvent
+
+                self._ui_vm.on_event(ConfigOptionUpdatedEvent, self._on_config_option_updated)
+            except ImportError:
+                self._app_logger.debug("ConfigOptionUpdatedEvent not available")
 
             # Синхронизируем layout левой колонки с глобальным UI состоянием.
             self._ui_vm.sidebar_tab.subscribe(self._on_sidebar_state_changed)
@@ -211,7 +223,7 @@ class ACPClientApp(App[None]):
         - FooterBar (статус-бар внизу)
         - ToastContainer (overlay)
         """
-        yield HeaderBar(self._ui_vm)
+        yield HeaderBar(self._ui_vm, self._model_selector_vm)
         # MainLayout с dock-region внутри main-column (OpenCode-style)
         self._main_layout = MainLayout(ui_vm=self._ui_vm, id="body")
         yield self._main_layout
@@ -516,6 +528,43 @@ class ACPClientApp(App[None]):
         self._app_logger.debug(
             "theme_toggled",
             new_theme=self._theme_manager.current_theme.name,
+        )
+
+    def action_select_model(self) -> None:
+        """Открывает модальное окно выбора LLM модели."""
+        session_id = self._session_vm.selected_session_id.value
+        if not session_id:
+            self._app_logger.warning("select_model_no_active_session")
+            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
+            return
+
+        self._app_logger.debug("opening_model_selector", session_id=session_id)
+
+        def on_model_selected(model_value: str | None) -> None:
+            """Обработка выбранной модели."""
+            if model_value:
+                self._app_logger.info(
+                    "model_selected",
+                    session_id=session_id,
+                    model=model_value,
+                )
+                self.run_worker(
+                    self._model_selector_vm.select_model_cmd.execute(
+                        session_id=session_id,
+                        model_value=model_value,
+                    ),
+                    exclusive=False,
+                )
+                self.show_toast(f"Модель изменена на {model_value.split('/')[-1]}", level="success")
+            else:
+                self._app_logger.debug("model_selection_cancelled")
+
+        self.push_screen(
+            ModelSelectorModal(
+                view_model=self._model_selector_vm,
+                session_id=session_id,
+            ),
+            callback=on_model_selected,
         )
 
     def action_close_modal(self) -> None:
@@ -834,6 +883,28 @@ class ACPClientApp(App[None]):
             tool_name=tool_name,
         )
         self.push_screen(modal)
+
+    def _on_config_option_updated(self, event: Any) -> None:
+        """Обработать обновление конфигурационных опций сессии.
+
+        Обновляет ModelSelectorViewModel новыми данными из configOptions.
+
+        Args:
+            event: ConfigOptionUpdatedEvent
+        """
+        session_id = getattr(event, "session_id", None)
+        config_options = getattr(event, "config_options", [])
+
+        if session_id and config_options:
+            self._app_logger.debug(
+                "config_option_updated",
+                session_id=session_id,
+                config_options_count=len(config_options),
+            )
+            self._model_selector_vm.update_models_from_config(
+                config_options=config_options,
+                session_id=session_id,
+            )
 
     async def on_unmount(self) -> None:
         """Очистка ресурсов при завершении приложения."""

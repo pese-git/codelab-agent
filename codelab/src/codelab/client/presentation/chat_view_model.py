@@ -459,6 +459,35 @@ class ChatViewModel(BaseViewModel):
                         entries_count=len(entries),
                     )
 
+            # Обработка config_option_update - обновление конфигурации сессии
+            elif session_update_type == "config_option_update":
+                config_options = update.get("configOptions", [])
+                self.logger.info(
+                    "config_option_update_received",
+                    session_id=target_session_id,
+                    config_options_count=len(config_options),
+                )
+
+                # Публикуем событие для обновления ModelSelectorViewModel
+                if target_session_id is not None and config_options:
+                    try:
+                        from datetime import datetime
+
+                        from codelab.client.domain.events import ConfigOptionUpdatedEvent
+
+                        self.publish_event(
+                            ConfigOptionUpdatedEvent(
+                                aggregate_id=target_session_id,
+                                occurred_at=datetime.now(),
+                                session_id=target_session_id,
+                                config_options=config_options,
+                            )
+                        )
+                    except ImportError:
+                        self.logger.debug(
+                            "ConfigOptionUpdatedEvent not available, skipping event publish"
+                        )
+
         except Exception as e:
             self.logger.error(
                 "Error handling session update",
@@ -755,10 +784,10 @@ class ChatViewModel(BaseViewModel):
             replay_updates_count=len(replay_updates),
         )
 
-        # Полная пересборка сообщений из server-side истории исключает
-        # зависимость от локального history-кэша клиента.
+        # Пересобираем сообщения из message chunks для быстрого восстановления UI.
+        # Это отдельный проход, чтобы сразу установить messages.value до обработки
+        # остальных обновлений через _handle_session_update.
         rebuilt_messages: list[dict[str, str]] = []
-        session_replay_updates: list[dict[str, Any]] = []
 
         for idx, update_data in enumerate(replay_updates):
             params = update_data.get("params", {})
@@ -770,8 +799,6 @@ class ChatViewModel(BaseViewModel):
                     actual_session=params.get("sessionId"),
                 )
                 continue
-
-            session_replay_updates.append(update_data)
 
             update = params.get("update", {})
             update_type = update.get("sessionUpdate")
@@ -785,6 +812,7 @@ class ChatViewModel(BaseViewModel):
                 content_type=type(content).__name__ if content is not None else None,
             )
 
+            # Обрабатываем только message chunks для пересборки истории
             if not isinstance(content, dict):
                 self.logger.debug(
                     "restore_skipping_no_content",
@@ -822,23 +850,33 @@ class ChatViewModel(BaseViewModel):
                 )
 
         # Записываем пересобранное состояние в кэш конкретной сессии.
+        # ВАЖНО: НЕ сохраняем replay_updates здесь - это сделает _handle_session_update
+        # при обработке каждого update, что исключит дублирование.
         state = self._get_or_create_session_state(session_id)
         state.messages = rebuilt_messages
         state.streaming_text = ""
         state.is_streaming = False
-        state.replay_updates = session_replay_updates
         self._session_states[session_id] = state
-        self._persist_messages_to_local_storage(
-            session_id,
-            rebuilt_messages,
-            replay_updates=session_replay_updates,
-        )
 
         # Если сессия активна в UI, синхронизируем observables сразу.
         if self._active_session_id == session_id:
             self.messages.value = list(rebuilt_messages)
             self.streaming_text.value = ""
             self.is_streaming.value = False
+
+        # ОБРАБАТЫВАЕМ ВСЕ replay updates через единый обработчик.
+        # Это восстановит config_options, tool_calls, plans и другие состояния,
+        # а также опубликует необходимые события (например, ConfigOptionUpdatedEvent).
+        # ВАЖНО: пропускаем message chunks, так как они уже обработаны выше
+        # при пересборке rebuilt_messages, и _handle_session_update добавит их повторно.
+        for update_data in replay_updates:
+            params = update_data.get("params", {})
+            if params.get("sessionId") == session_id:
+                update = params.get("update", {})
+                update_type = update.get("sessionUpdate")
+                # Пропускаем message chunks - они уже добавлены в rebuilt_messages
+                if update_type not in ("user_message_chunk", "agent_message_chunk"):
+                    self._handle_session_update(update_data)
 
         self.logger.info(
             "restore_session_from_replay_completed",

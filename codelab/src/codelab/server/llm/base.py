@@ -1,46 +1,68 @@
-"""Базовый интерфейс для провайдеров LLM."""
+"""Базовый интерфейс для провайдеров LLM.
+
+Определяет абстрактный класс LLMProvider и связанные типы данных
+для мульти-провайдер архитектуры. Все провайдеры должны наследоваться
+от LLMProvider и реализовать его абстрактные методы.
+"""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from codelab.server.llm.models import (
+    CompletionRequest,
+    CompletionResponse,
+    LLMMessage,
+    LLMToolCall,
+    ModelInfo,
+)
+
 
 @dataclass
-class LLMMessage:
-    """Сообщение для LLM.
-    
-    Поддерживает OpenAI формат с tool calls:
-    - role: "system", "user", "assistant", "tool"
-    - content: текстовое содержимое
-    - tool_calls: список вызовов инструментов (для assistant)
-    - tool_call_id: ID вызова инструмента (для tool)
-    - name: имя инструмента (для tool)
+class LLMCapabilities:
+    """Возможности LLM провайдера.
+
+    Атрибуты:
+        supports_tools: Поддерживает ли вызов инструментов
+        supports_streaming: Поддерживает ли streaming completion
+        supports_function_calling: Поддерживает ли function calling
+        supports_vision: Поддерживает ли изображения
+        supports_system_prompt: Поддерживает ли system prompt
+        max_context_window: Максимальный размер контекста (токены)
+        max_output_tokens: Максимальное количество выходных токенов
     """
 
-    role: str  # "system", "user", "assistant", "tool"
-    content: str | None = None
-    tool_calls: list["LLMToolCall"] | None = None  # Для assistant messages
-    tool_call_id: str | None = None  # Для tool messages
-    name: str | None = None  # Для tool messages
+    supports_tools: bool = True
+    supports_streaming: bool = True
+    supports_function_calling: bool = True
+    supports_vision: bool = False
+    supports_system_prompt: bool = True
+    max_context_window: int | None = None
+    max_output_tokens: int | None = None
 
 
 @dataclass
-class LLMToolCall:
-    """Вызов инструмента из LLM."""
+class LLMConfig:
+    """Конфигурация для инициализации LLM провайдера.
 
-    id: str
-    name: str
-    arguments: dict[str, Any]
+    Атрибуты:
+        api_key: API ключ провайдера
+        model: Идентификатор модели
+        base_url: Base URL API (опционально, для кастомных endpoint)
+        temperature: Температура генерации (0.0-2.0)
+        max_tokens: Максимальное количество токенов
+        extra: Дополнительные параметры провайдера
+    """
 
-
-@dataclass
-class LLMResponse:
-    """Ответ от LLM."""
-
-    text: str
-    tool_calls: list[LLMToolCall]
-    stop_reason: str  # "end_turn", "tool_use", "max_tokens", "error"
+    api_key: str | None = None
+    model: str = "gpt-4o"
+    base_url: str | None = None
+    temperature: float = 0.7
+    max_tokens: int = 8192
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 class LLMProvider(ABC):
@@ -48,29 +70,85 @@ class LLMProvider(ABC):
 
     Провайдер инкапсулирует всю специфику работы с конкретной LLM,
     включая форматирование сообщений, обработку tool calls, retry-логику.
+
+    Каждый провайдер должен реализовать:
+    - initialize() — инициализация с конфигурацией
+    - create_completion() — получение завершения
+    - stream_completion() — потоковое получение завершения
+    - name property — имя провайдера
+    - capabilities property — возможности провайдера
     """
 
+    @property
     @abstractmethod
-    async def initialize(self, config: dict[str, Any]) -> None:
-        """Инициализация провайдера с конфигурацией."""
-        pass
+    def name(self) -> str:
+        """Имя провайдера (например, 'openai', 'anthropic')."""
+        ...
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> LLMCapabilities:
+        """Возможности данного провайдера."""
+        ...
+
+    @abstractmethod
+    async def initialize(self, config: LLMConfig) -> None:
+        """Инициализация провайдера с конфигурацией.
+
+        Args:
+            config: Конфигурация провайдера
+        """
+        ...
 
     @abstractmethod
     async def create_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> LLMResponse:
-        """Получить завершение от LLM."""
-        pass
+        request: CompletionRequest,
+    ) -> CompletionResponse:
+        """Получить завершение от LLM.
+
+        Args:
+            request: Запрос к провайдеру
+
+        Returns:
+            CompletionResponse с ответом модели
+        """
+        ...
 
     @abstractmethod
     def stream_completion(
         self,
-        messages: list[LLMMessage],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[LLMResponse, None]:
-        """Потоковое получение ответа от LLM."""
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionResponse, None]:
+        """Потоковое получение ответа от LLM.
+
+        Args:
+            request: Запрос к провайдеру
+
+        Yields:
+            CompletionResponse с промежуточными результатами
+        """
         ...
+
+    async def get_available_models(self) -> list[ModelInfo]:
+        """Получить список доступных моделей.
+
+        По умолчанию возвращает пустой список.
+        Провайдеры могут переопределить для динамического discovery.
+
+        Returns:
+            Список доступных моделей
+        """
+        return []
+
+
+# Алиасы для обратной совместимости
+LLMResponse = CompletionResponse
+__all__ = [
+    "LLMCapabilities",
+    "LLMConfig",
+    "LLMMessage",
+    "LLMProvider",
+    "LLMResponse",
+    "LLMToolCall",
+]

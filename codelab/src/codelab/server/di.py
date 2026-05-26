@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import structlog
 from dishka import (
     AsyncContainer,
     Provider,
@@ -26,9 +27,13 @@ from dishka import (
 from .agent.orchestrator import AgentOrchestrator
 from .agent.state import OrchestratorConfig
 from .config import AppConfig
-from .llm import LLMProvider, MockLLMProvider, OpenAIProvider
+from .llm import LLMProvider, MockLLMProvider
+from .llm.base import LLMConfig
+from .llm.errors import ProviderNotFoundError
+from .llm.registry import LLMProviderRegistry
 from .protocol.core import ACPProtocol
 from .protocol.handlers.client_rpc_handler import ClientRPCHandler
+from .protocol.handlers.config_option_builder import ConfigOptionBuilder
 from .protocol.handlers.global_policy_manager import GlobalPolicyManager
 from .protocol.handlers.permission_manager import PermissionManager
 from .protocol.handlers.pipeline import PromptPipeline
@@ -132,24 +137,30 @@ class LLMProvider_(Provider):
     async def get_llm_provider(
         self,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
-    ) -> LLMProvider | None:
-        """Создаёт LLM провайдера на основе конфигурации."""
-        if config.llm.provider == "openai":
-            provider = OpenAIProvider()
-            config_dict = {
-                "api_key": config.llm.api_key,
-                "model": config.llm.model,
-                "temperature": config.llm.temperature,
-                "max_tokens": config.llm.max_tokens,
-            }
-            if config.llm.base_url:
-                config_dict["base_url"] = config.llm.base_url
-            await provider.initialize(config_dict)
+        registry: LLMProviderRegistry,
+    ) -> LLMProvider:
+        """Создаёт LLM провайдера через Registry."""
+        provider_id = config.llm.provider
+
+        llm_config = LLMConfig(
+            api_key=config.llm.api_key,
+            model=config.llm.model,
+            base_url=config.llm.base_url,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+        )
+
+        try:
+            return await registry.create_provider(provider_id, llm_config)
+        except ProviderNotFoundError:
+            # Fallback на mock если провайдер не зарегистрирован
+            provider = MockLLMProvider()
+            await provider.initialize(LLMConfig(
+                model=config.llm.model,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens,
+            ))
             return provider
-        elif config.llm.provider == "mock":
-            return MockLLMProvider()
-        else:
-            return MockLLMProvider()
 
 
 class ToolsProvider(Provider):
@@ -168,26 +179,35 @@ class AgentProvider(Provider):
     def get_agent_orchestrator(
         self,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
-        llm_provider: LLMProvider | None,
+        llm_provider: LLMProvider,
         tool_registry: ToolRegistryProtocol,
-    ) -> AgentOrchestrator | None:
-        """Создаёт AgentOrchestrator если есть LLM провайдер."""
-        if llm_provider is None:
-            return None
-
+        llm_registry: LLMProviderRegistry,
+    ) -> AgentOrchestrator:
+        """Создаёт AgentOrchestrator."""
         orchestrator_config = OrchestratorConfig(
             enabled=True,
             agent_class="naive",
             model=config.llm.model,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
-            llm_provider_class="openai" if config.llm.provider == "openai" else "mock",
+            llm_provider_class=config.llm.provider,
+        )
+
+        # Создать model resolver для multi-provider support
+        from codelab.server.llm.resolver import ModelResolver
+
+        model_resolver = ModelResolver(
+            registry=llm_registry,
+            default_provider=config.llm.provider,
+            provider_configs=config.llm.providers,
         )
 
         return AgentOrchestrator(
             config=orchestrator_config,
             llm_provider=llm_provider,
             tool_registry=tool_registry,
+            llm_registry=llm_registry,
+            model_resolver=model_resolver,
         )
 
 
@@ -287,6 +307,74 @@ class PromptOrchestratorProvider(Provider):
         )
 
 
+logger = structlog.get_logger()
+
+
+class RegistryProvider(Provider):
+    """Провайдер LLM Registry и ConfigOptionBuilder (APP scope)."""
+
+    @provide(scope=Scope.APP)
+    def get_llm_registry(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+    ) -> LLMProviderRegistry:
+        """Создаёт реестр провайдеров с ProviderInfo из AppConfig."""
+        registry = LLMProviderRegistry()
+
+        # Регистрируем провайдеры из AppConfig (загружено из TOML при load())
+        for provider_id, provider_cfg in config.llm.providers.items():
+            provider_info = provider_cfg.to_provider_info(provider_id)
+            factory = self._get_provider_factory(provider_id)
+            registry.register(provider_id, factory, info=provider_info)
+            logger.debug(
+                "provider registered from config",
+                provider_id=provider_id,
+                models_count=len(provider_cfg.models),
+            )
+
+        # Mock провайдер без TOML config
+        if "mock" not in registry.get_registered_providers():
+            registry.register("mock", lambda: MockLLMProvider())
+
+        logger.info(
+            "llm registry created",
+            providers_count=len(registry.get_registered_providers()),
+            models_count=len(registry.list_all_models()),
+        )
+
+        return registry
+
+    @staticmethod
+    def _get_provider_factory(provider_id: str):
+        """Возвращает factory-функцию для провайдера."""
+        from codelab.server.llm.providers.anthropic import AnthropicProvider
+        from codelab.server.llm.providers.go import GoProvider
+        from codelab.server.llm.providers.lmstudio import LMStudioProvider
+        from codelab.server.llm.providers.ollama import OllamaProvider
+        from codelab.server.llm.providers.openai import OpenAIProvider
+        from codelab.server.llm.providers.openrouter import OpenRouterProvider
+        from codelab.server.llm.providers.zen import ZenProvider
+
+        factories = {
+            "openai": OpenAIProvider,
+            "openrouter": OpenRouterProvider,
+            "anthropic": AnthropicProvider,
+            "zen": ZenProvider,
+            "go": GoProvider,
+            "ollama": OllamaProvider,
+            "lmstudio": LMStudioProvider,
+        }
+        return factories.get(provider_id, lambda: MockLLMProvider())
+
+    @provide(scope=Scope.APP)
+    def get_config_option_builder(
+        self,
+        registry: LLMProviderRegistry,
+    ) -> ConfigOptionBuilder:
+        """Создаёт билдер config options."""
+        return ConfigOptionBuilder(registry)
+
+
 class RequestProvider(Provider):
     """Провайдер REQUEST-scoped зависимостей (на WebSocket соединение)."""
 
@@ -296,10 +384,12 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         storage: SessionStorage,
-        agent_orchestrator: AgentOrchestrator | None,
+        agent_orchestrator: AgentOrchestrator,
         tool_registry: ToolRegistryProtocol,
         prompt_orchestrator: PromptOrchestrator,
         holder: ClientRPCServiceHolder,
+        registry: LLMProviderRegistry,
+        config_option_builder: ConfigOptionBuilder,
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
         # ClientRPCService создаётся вручную в handle_ws_request (требует runtime callback)
@@ -314,6 +404,8 @@ class RequestProvider(Provider):
             client_rpc_service=client_rpc_service,
             tool_registry=tool_registry,
             prompt_orchestrator=prompt_orchestrator,
+            llm_registry=registry,
+            config_option_builder=config_option_builder,
         )
 
 
@@ -339,6 +431,7 @@ def make_container(
         ManagersProvider(),
         SlashCommandsProvider(),
         StorageProvider(),
+        RegistryProvider(),
         LLMProvider_(),
         ToolsProvider(),
         AgentProvider(),

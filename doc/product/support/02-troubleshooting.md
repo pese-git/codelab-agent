@@ -55,13 +55,13 @@ chmod -R 755 ~/.codelab/
 **Симптом:** LLM запросы завершаются с ошибкой аутентификации.
 
 **Проверка:**
-1. Убедитесь, что ключ указан правильно в `.env`
+1. Убедитесь, что ключ указан в правильной переменной окружения (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, и т.д.)
 2. Проверьте, что ключ активен в личном кабинете провайдера
 3. Убедитесь, что выбран правильный провайдер
 
 ```bash
 # Проверить текущие настройки
-cat ~/.codelab/config/.env
+cat .env
 ```
 
 ### Ошибка "Rate limit exceeded"
@@ -70,23 +70,46 @@ cat ~/.codelab/config/.env
 
 **Решение:**
 1. Подождите несколько минут
-2. Уменьшите частоту запросов
+2. Настройте fallback цепочку для автоматического переключения на резервный провайдер
 3. Проверьте тарифный план API провайдера
+
+```toml
+# codelab.toml — fallback при rate limit
+[llm.fallback]
+enabled = true
+order = ["openai", "openrouter", "ollama"]
+retry_on = ["rate_limit", "timeout"]
+```
 
 ### Ошибка "Model not found"
 
 **Симптом:** Указанная модель не найдена.
 
 **Решение:**
-Проверьте название модели для вашего провайдера:
+Проверьте название модели в формате `"provider/model"`:
 
 ```env
-# OpenAI
-CODELAB_LLM_MODEL=gpt-4o
-
-# Anthropic  
-CODELAB_LLM_MODEL=claude-3-opus-20240229
+# Правильный формат
+CODELAB_LLM_MODEL=openai/gpt-4o
+CODELAB_LLM_MODEL=anthropic/claude-sonnet-4
+CODELAB_LLM_MODEL=ollama/llama3.1:70b
 ```
+
+### Ошибка "Provider not found"
+
+**Симптом:** Провайдер не найден в Registry.
+
+**Решение:**
+Проверьте ID провайдера. Доступные: `openai`, `anthropic`, `openrouter`, `zen`, `go`, `ollama`, `lmstudio`, `mock`.
+
+### Fallback не срабатывает
+
+**Симптом:** При ошибке основного провайдера fallback не переключается на резервный.
+
+**Решение:**
+1. Проверьте `CODELAB_FALLBACK_ENABLED=true`
+2. Убедитесь что резервные провайдеры зарегистрированы
+3. Проверьте `retry_on` — ошибка должна быть retryable (`rate_limit`, `timeout`, `internal_error`, `service_unavailable`)
 
 ### Нет ответа от LLM
 
@@ -96,6 +119,7 @@ CODELAB_LLM_MODEL=claude-3-opus-20240229
 1. Включите debug логи: `CODELAB_LOG_LEVEL=DEBUG`
 2. Проверьте сетевое подключение
 3. Убедитесь, что BASE_URL указан правильно (если используется)
+4. Проверьте что Ollama/LMStudio запущен (для локальных провайдеров)
 
 ## Проблемы с TUI
 

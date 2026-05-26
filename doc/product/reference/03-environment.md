@@ -10,8 +10,13 @@
 
 | Значение | Описание |
 |----------|----------|
-| `openai` | OpenAI API (GPT-4, GPT-4o) |
-| `anthropic` | Anthropic API (Claude) |
+| `openai` | OpenAI API (GPT-4, GPT-4o, o3, o4-mini) |
+| `anthropic` | Anthropic API (Claude Sonnet 4, Opus 4) |
+| `openrouter` | OpenRouter (множество моделей) |
+| `zen` | Zen API |
+| `go` | Go API |
+| `ollama` | Локальные модели через Ollama |
+| `lmstudio` | Локальные модели через LMStudio |
 | `mock` | Тестовый провайдер без реального LLM |
 
 **По умолчанию:** `mock`
@@ -20,56 +25,45 @@
 export CODELAB_LLM_PROVIDER=openai
 ```
 
-### CODELAB_LLM_API_KEY
+### API Keys
 
-API ключ для выбранного LLM провайдера.
+Каждый провайдер использует свою переменную окружения для API ключа:
 
-- Для OpenAI: ключ вида `sk-...`
-- Для Anthropic: ключ вида `sk-ant-...`
-
-**Обязателен** для `openai` и `anthropic` провайдеров.
-
-```bash
-export CODELAB_LLM_API_KEY=sk-your-key-here
-```
-
-### CODELAB_LLM_BASE_URL
-
-Кастомный базовый URL API. Используется для:
-- OpenRouter
-- Azure OpenAI
-- Локальных LLM серверов (vLLM, Ollama с OpenAI-совместимым API)
-
-**По умолчанию:** стандартный URL провайдера
+| Провайдер | Переменная |
+|-----------|------------|
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| Zen | `ZEN_API_KEY` |
+| Go | `GO_API_KEY` |
+| Ollama | Не требуется |
+| LMStudio | Не требуется |
 
 ```bash
-# OpenRouter
-export CODELAB_LLM_BASE_URL=https://openrouter.ai/api/v1
-
-# Azure OpenAI
-export CODELAB_LLM_BASE_URL=https://your-resource.openai.azure.com/
-
-# Локальный vLLM
-export CODELAB_LLM_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=sk-your-key-here
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
 ### CODELAB_LLM_MODEL
 
-Название модели LLM.
+Название модели LLM в формате `"provider/model"`.
 
-**По умолчанию:** `gpt-4o`
+**По умолчанию:** `mock/mock-model`
 
 ```bash
 # OpenAI модели
-export CODELAB_LLM_MODEL=gpt-4o
-export CODELAB_LLM_MODEL=gpt-4-turbo
+export CODELAB_LLM_MODEL=openai/gpt-4o
+export CODELAB_LLM_MODEL=openai/o3
 
 # Anthropic модели
-export CODELAB_LLM_MODEL=claude-3-opus-20240229
-export CODELAB_LLM_MODEL=claude-3-sonnet-20240229
+export CODELAB_LLM_MODEL=anthropic/claude-sonnet-4
+export CODELAB_LLM_MODEL=anthropic/claude-opus-4
 
-# OpenRouter (с префиксом провайдера)
-export CODELAB_LLM_MODEL=anthropic/claude-3-opus
+# OpenRouter
+export CODELAB_LLM_MODEL=openrouter/mistral-large
+
+# Ollama
+export CODELAB_LLM_MODEL=ollama/llama3.1:70b
 ```
 
 ### CODELAB_LLM_TEMPERATURE
