@@ -164,11 +164,11 @@ class QuickActionsBar(Static):
             return
         
         new_icon = self._get_theme_icon()
-        # Обновляем иконку кнопки темы
+        # Обновляем иконку кнопки темы через свойство icon
         try:
-            theme_button = self._action_bar.query_one("#quick-theme")
+            theme_button = self._action_bar.get_action("quick-theme")
             if theme_button:
-                theme_button.update(new_icon)
+                theme_button.icon = new_icon
         except Exception:
             pass
     
