@@ -392,6 +392,94 @@ cat ~/.codelab/logs/codelab.log | grep "permission"
 codelab permissions show | grep deny
 ```
 
+## MCP разрешения
+
+MCP инструменты проходят через ту же систему разрешений, что и встроенные инструменты.
+
+### Определение типа MCP инструмента
+
+Для применения политик разрешений CodeLab определяет тип (kind) MCP инструмента:
+
+| MCP Annotation | ACP Kind | Описание |
+|----------------|----------|----------|
+| `readOnlyHint: true` | `read` | Только чтение |
+| `destructiveHint: true` | `execute` | Разрушительное действие |
+| `idempotentHint: true` | `edit` | Изменяемое, но идемпотентное |
+| `openWorldHint: true` | `execute` | Внешний мир (API, веб) |
+
+### Эвристика по имени
+
+Если аннотации отсутствуют, используется анализ имени:
+
+| Префикс имени | ACP Kind |
+|---------------|----------|
+| `read_*`, `get_*`, `list_*`, `fetch_*` | `read` |
+| `write_*`, `create_*`, `delete_*`, `remove_*` | `execute` |
+| `update_*`, `modify_*`, `set_*` | `edit` |
+| Остальные | `other` |
+
+### Политики для MCP
+
+Глобальные политики поддерживают glob-паттерны для MCP инструментов:
+
+```json
+{
+  "rules": [
+    {
+      "operation": "read",
+      "pattern": "mcp:*:read_*",
+      "action": "allow",
+      "comment": "Разрешить все MCP read инструменты"
+    },
+    {
+      "operation": "execute",
+      "pattern": "mcp:github:*",
+      "action": "ask",
+      "comment": "Спрашивать для GitHub операций"
+    },
+    {
+      "operation": "*",
+      "pattern": "mcp:*:delete_*",
+      "action": "deny",
+      "comment": "Запретить удаление через MCP"
+    }
+  ]
+}
+```
+
+### Диалог разрешения для MCP
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  🔒 Запрос разрешения                                      │
+│                                                            │
+│  Операция: [MCP:filesystem] write_file                     │
+│  Путь: /project/src/main.py                                │
+│  Сервер: filesystem (stdio)                                │
+│                                                            │
+│  [Allow]  [Allow All]  [Always Allow]  [Deny]             │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Примеры MCP политик
+
+**Разрешить чтение всех MCP:**
+```json
+{"operation": "read", "pattern": "mcp:*:*", "action": "allow"}
+```
+
+**Спрашивать для конкретных серверов:**
+```json
+{"operation": "*", "pattern": "mcp:github:*", "action": "ask"}
+{"operation": "*", "pattern": "mcp:playwright:*", "action": "ask"}
+```
+
+**Разрешить безопасные команды:**
+```json
+{"operation": "read", "pattern": "mcp:filesystem:read_*", "action": "allow"}
+{"operation": "read", "pattern": "mcp:git:*", "action": "allow"}
+```
+
 ## См. также
 
 - [Инструменты](07-tools.md) — работа с файловой системой и терминалом

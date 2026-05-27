@@ -208,7 +208,7 @@ graph TB
 - **APP scope** — синглтоны на всё время жизни сервера
 - **REQUEST scope** — на одно WebSocket соединение
 
-**Провайдеры (9):**
+**Провайдеры (10):**
 
 | Провайдер | Скоуп | Создаёт |
 |-----------|-------|---------|
@@ -216,11 +216,12 @@ graph TB
 | `SlashCommandsProvider` | APP | CommandRegistry, SlashCommandRouter |
 | `StorageProvider` | APP | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
-| `ToolsProvider` | APP | SimpleToolRegistry |
+| `ToolsProvider` | APP | SimpleToolRegistry, MCPToolExecutor |
 | `AgentProvider` | APP | AgentOrchestrator |
 | `PipelineProvider` | APP | LLMLoopStage, PromptPipeline (7 стадий) |
 | `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, PromptOrchestrator |
-| `RequestProvider` | REQUEST | ACPProtocol |
+| `MCPProvider` | APP | MCPManager factory |
+| `RequestProvider` | REQUEST | ACPProtocol, SessionRuntimeRegistry |
 
 **Holder паттерн:** `ClientRPCServiceHolder` — мост между APP и REQUEST scope. `ClientRPCService` создаётся вручную в `handle_ws_request` и устанавливается в holder перед REQUEST scope.
 
@@ -304,20 +305,91 @@ graph TB
 | `terminal/kill` | execute | Нет |
 | `terminal/output` | read | Нет |
 | `update_plan` | think | Нет |
+| `mcp:*:*` | inferred | Да (зависит от kind) |
 
 **ToolMapping:** `acp_name_to_llm_name()` (/ → _) и `llm_name_to_acp_name()` (_ → /) для совместимости с LLM провайдерами.
 
+**MCP инструменты:** Динамически регистрируются из подключённых MCP серверов с namespaced именами `mcp:server_id:tool_name`. Kind определяется через MCPToolAdapter._infer_kind().
+
 ### MCP Integration (`server/mcp/`)
+
+Полная интеграция Model Context Protocol для расширения инструментов агента.
+
+```mermaid
+graph TB
+    subgraph "MCP Layer"
+        MM[MCPManager]
+        MC[MCPClient]
+        TA[MCPToolAdapter]
+        TE[MCPToolExecutor]
+    end
+    
+    subgraph "Transports"
+        STDIO[StdioTransport]
+        HTTP[HttpTransport]
+        SSE[SseTransport]
+    end
+    
+    subgraph "Runtime"
+        SRR[SessionRuntimeRegistry]
+        SRS[SessionRuntimeState]
+    end
+    
+    subgraph "Protocol"
+        LL[LLMLoopStage]
+        TR[ToolRegistry]
+    end
+    
+    LL -->|mcp_manager| MM
+    MM --> MC
+    MM --> TA
+    MM --> TE
+    MC --> STDIO & HTTP & SSE
+    SRR --> SRS
+    SRS --> MM
+    TE --> TR
+```
+
+**Компоненты:**
 
 | Файл | Класс | Описание |
 |------|-------|----------|
-| `models.py` | Pydantic модели | MCPRequest, MCPResponse, MCPTool, MCPServerConfig |
-| `transport.py` | `StdioTransport` | Stdio subprocess для MCP |
-| `client.py` | `MCPClient` | Клиент для одного MCP-сервера |
-| `manager.py` | `MCPManager` | Управление несколькими серверами на сессию |
-| `tool_adapter.py` | `MCPToolAdapter` | Адаптация MCP инструментов к ACP |
+| `models.py` | Pydantic модели | MCPRequest, MCPResponse, MCPTool, MCPServerConfig, MCPToolAnnotations |
+| `transport.py` | Transports | StdioTransport, HttpTransport, SseTransport |
+| `client.py` | `MCPClient` | Клиент для одного MCP-сервера (initialize, tools, resources, prompts) |
+| `manager.py` | `MCPManager` | Управление несколькими серверами, auto-reconnect, health check |
+| `tool_adapter.py` | `MCPToolAdapter` | Адаптация MCP инструментов к ACP ToolDefinition, kind inference |
+| `executors/mcp_executor.py` | `MCPToolExecutor` | Executor для MCP инструментов через ToolRegistry |
+| `protocol/session_runtime.py` | `SessionRuntimeRegistry` | REQUEST-scoped реестр runtime объектов (MCP manager) |
 
 **Именование:** `mcp:server_id:tool_name` (namespace для избежания конфликтов).
+
+**Транспорты:**
+- **StdioTransport** — subprocess с async stdin/stdout
+- **HttpTransport** — HTTP POST с JSON-RPC, notification queue
+- **SseTransport** — Server-Sent Events (deprecated в MCP spec)
+
+**Auto-reconnect:**
+- Exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s
+- Jitter 10% для предотвращения thundering herd
+- Health check каждые 60 секунд
+- Максимум 5 попыток (настраивается в MCPServerConfig)
+
+**Kind Inference** (приоритет):
+1. MCP ToolAnnotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`)
+2. Эвристика по имени (`read_*` → read, `create_*` → execute)
+3. Fallback → `other`
+
+**SessionRuntimeRegistry:**
+- Отделяет runtime объекты (MCP manager) от сериализуемого SessionState
+- REQUEST-scoped через Dishka
+- Автоматический cleanup MCP subprocesses при disconnect
+- Предотвращает потерю MCP при session/load
+
+**Интеграция в LLMLoopStage:**
+- MCP manager передаётся через `PromptContext.meta["mcp_manager"]`
+- MCPToolExecutor интегрирован в цикл выполнения инструментов
+- System message включает информацию о MCP серверах для LLM
 
 ### Storage Layer (`server/storage/`)
 
