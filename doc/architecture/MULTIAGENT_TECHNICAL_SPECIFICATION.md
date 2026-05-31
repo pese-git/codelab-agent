@@ -1781,7 +1781,167 @@ set_config_option(_routing_mode=multi_choreographed)
 
 ---
 
-## 12. ERROR HANDLING & RECOVERY
+## 12. MIGRATION PLAN (single → multi-agent)
+
+### 12.1. Стратегия миграции
+
+Миграция проводится **без обратной совместимости** — старый код удаляется сразу после замены новым. Ключевой принцип: **сначала refactoring single, затем multi-agent поверх**.
+
+**Преимущества:**
+- Нет «мёртвого кода» — старый удаляется сразу после замены
+- Нет сложности поддержки двух параллельных систем
+- Тесты гарантируют идентичное поведение
+- Если что-то сломалось — `git revert`, не feature flag
+
+### 12.2. Этапы миграции
+
+#### Этап 1: Refactor Single (Phase 0-1 из плана реализации)
+
+**Цель:** Заменить NaiveAgent + AgentOrchestrator на новую архитектуру, сохранив поведение single-agent идентичным.
+
+| Действие | Результат |
+|---|---|
+| Создать EventBus, LLMAdapter, ExecutionEngine, Tracer | Новая инфраструктура готова |
+| SingleStrategy через EventBus → LLMAdapter | Заменяет NaiveAgent |
+| ExecutionEngine заменяет AgentOrchestrator | Композиция из HistoryBuilder, ToolFilter, MessageSanitizer |
+| **Все ~1800 тестов проходят** | Поведение идентично |
+| Бенчмарк: latency ≤ baseline + 10ms bus overhead | Performance acceptable |
+| Удалить `naive.py`, `orchestrator.py`, `state.py`, `plan_extractor.py` | Old code gone |
+
+**Критерий перехода к этапу 2:**
+- ✅ Все существующие тесты проходят
+- ✅ Бенчмарк single mode ≤ baseline + 10%
+- ✅ `make check` проходит без ошибок
+- ✅ Старые файлы удалены
+
+#### Этап 2: Add Multi-Agent (Phase 2-3)
+
+**Цель:** Добавить мультиагентные стратегии поверх новой single-архитектуры.
+
+| Действие | Результат |
+|---|---|
+| AgentSystemLoader + agents.yaml hot reload | Динамическая конфигурация |
+| OrchestratedStrategy | RouteDecision, point-to-point, Token-Slicing |
+| ChoreographyStrategy | Broadcast, parallel, Conflict Resolution |
+| HierarchicalStrategy | Primary-Subagent, child sessions |
+| AgentCaller — единый интерфейс | Все стратегии через EventBus |
+| MetricsTracker | Cross-cutting observability |
+| Тесты для всех 4 стратегий | Unit + integration |
+
+**По умолчанию:** `_routing_mode = "single"` — мультиагентность доступна, но не включена.
+
+#### Этап 3: Integration (Phase 4-5)
+
+**Цель:** Интеграция в pipeline, TUI observability, end-to-end tests.
+
+| Действие | Результат |
+|---|---|
+| StrategySelectionStage в pipeline | Выбор стратегии по `_routing_mode` |
+| Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` | One-shot override |
+| `_routing_mode` config option | Persistent режим сессии |
+| TUI live view: mode indicator, metrics, timeline | Observability для пользователя |
+| Session navigation (parent ↔ child) | TUI-only feature |
+| Integration tests pipeline + strategies | End-to-end coverage |
+
+#### Этап 4: Cleanup (Phase 6-8)
+
+**Цель:** Debug mode, export, финальная проверка.
+
+| Действие | Результат |
+|---|---|
+| Debug mode: full payload logging, LLM dump | Для анализа проблем |
+| Export trace + timeline в JSON | Offline analysis |
+| Comparative report: Single vs Multi метрики | Бенчмарки |
+| Все тесты проходят | ~1800 + новые |
+| `make check` проходит | CI ready |
+
+### 12.3. Data Migration
+
+#### SessionState Schema v1 → v3
+
+Существующие session файлы **совместимы** — новые поля имеют defaults:
+
+```python
+@model_validator(mode="before")
+@classmethod
+def migrate_schema(cls, data: dict) -> dict:
+    version = data.get("schema_version", 0)
+    if version < 3:
+        data.setdefault("execution_mode", "single")
+        data.setdefault("active_agents", [])
+        data.setdefault("session_metrics", None)
+        data.setdefault("current_correlation_id", None)
+        data.setdefault("parent_session_id", None)
+        data.setdefault("child_session_ids", [])
+        data.setdefault("is_child_session", False)
+        data.setdefault("task_result", None)
+        data.setdefault("sliced_summary", None)
+        data["schema_version"] = 3
+    return data
+```
+
+#### Child Sessions
+- Создаются в OrchestratedStrategy, HierarchicalStrategy, опционально в ChoreographyStrategy
+- **Не создаются** в Single mode (один агент, один контекст)
+- Хранятся в `~/.codelab/sessions/{id}/children/`
+- Не влияют на существующие сессии
+
+#### Метрики
+- Старые benchmark файлы (если есть) игнорируются
+- Новые файлы: `storage/benchmarks/run_{id}.json`
+- Формат: `ExecutionMetrics` (Pydantic)
+
+### 12.4. Rollback Plan
+
+Если на любом этапе возникают проблемы:
+
+| Этап | Rollback |
+|---|---|
+| **Этап 1** (refactor single) | `git revert` коммита удаления NaiveAgent |
+| **Этап 2** (add multi-agent) | `_routing_mode = "single"` — мультиагентность не используется |
+| **Этап 3** (integration) | Убрать slash commands, config option — single mode работает |
+| **Этап 4** (cleanup) | Нечего откатывать — только observability |
+
+**Мгновенный rollback в production:**
+```bash
+# Через config:
+set_config_option(_routing_mode="single")
+
+# Через agents.yaml:
+global:
+  mode: "single"
+
+# Через TUI slash command:
+/single
+```
+
+### 12.5. Testing Strategy During Migration
+
+| Этап | Тесты | Критерий |
+|---|---|---|
+| **Этап 1** | Все ~1800 существующих тестов | 100% pass |
+| **Этап 2** | Unit-тесты для каждой стратегии + integration | Все новые тесты pass |
+| **Этап 3** | Integration: pipeline + slash commands + config | End-to-end pass |
+| **Этап 4** | Full suite: старые + новые | ~1800 + новые = 100% pass |
+
+**Бенчмарки на каждом этапе:**
+- Single mode latency (baseline)
+- EventBus dispatch overhead
+- Memory usage (tracer, timeline, child sessions)
+
+### 12.6. Deprecation Timeline
+
+| Фаза | Состояние |
+|---|---|
+| **Этап 1 завершён** | Single mode на новой архитектуре, old code удалён |
+| **Этап 2 завершён** | Multi-agent доступен, single = default |
+| **Этап 3 завершён** | Multi-agent fully integrated, TUI observability |
+| **MVP release** | Multi-agent available, single = default |
+| **Post-MVP** | Рассмотреть смену default на multi_orchestrated |
+
+---
+
+## 13. ERROR HANDLING & RECOVERY
 
 ### 12.1. Иерархия исключений
 
@@ -2193,7 +2353,7 @@ TimelineEvent:
 
 ---
 
-## 13. ГЛОССАРИЙ
+## 14. ГЛОССАРИЙ
 
 | Термин | Определение |
 |---|---|
