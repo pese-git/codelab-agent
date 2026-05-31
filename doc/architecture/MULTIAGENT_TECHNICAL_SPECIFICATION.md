@@ -647,23 +647,227 @@ class SlicedResult:
     child_session_id: str      # ссылка на child session с полным контекстом
     original_tokens: int       # количество токенов до сжатия
     sliced_tokens: int         # количество токенов после сжатия
+    compression_ratio: float   # sliced_tokens / original_tokens
+    was_skipped: bool          # True если slicing пропущен (маленький output)
+
 
 class TokenSlicer:
-    async def summarize(
+    """Суммаризация ответов субагентов для экономии контекста координатора.
+
+    Использует дешёвую LLM модель для создания компактных summaries.
+    Полный контекст сохраняется в child session для навигации и рефоллоуап.
+    """
+
+    # Prompt template для суммаризации
+    SUMMARIZE_PROMPT = """\
+Summarize the following agent output for context injection into a coordinator.
+Focus on: what was done, key results, important file paths, test names, error messages.
+Omit: intermediate reasoning, retry attempts, verbose explanations, tool call details.
+Preserve: exact file paths, function names, test names, error messages, numeric results.
+Maximum {max_tokens} tokens in the summary.
+"""
+
+    # Skip threshold: если output меньше этого, не сжимаем
+    SKIP_THRESHOLD_TOKENS = 300
+
+    def __init__(
+        self,
+        llm: LLMProvider,
+        model: str = "openai/gpt-4o-mini",  # дешёвая модель для slicing
+        max_tokens: int = 120,
+    ):
+        self._llm = llm
+        self._model = model
+        self._max_tokens = max_tokens
+
+    async def slice(
         self,
         full_output: str,
         child_session_id: str,
-        max_tokens: int = 120
+        parent_span: SpanContext | None = None,
     ) -> SlicedResult:
-        """Суммаризует ответ субагента, сохраняя ссылку на child session."""
-        summary = await self.llm.summarize(full_output, max_tokens)
+        """Суммаризует ответ субагента, сохраняя ссылку на child session.
+
+        Args:
+            full_output: Полный ответ субагента
+            child_session_id: ID child session с полным контекстом
+            parent_span: Span для tracing
+
+        Returns:
+            SlicedResult с summary и метриками
+        """
+        original_tokens = count_tokens(full_output)
+
+        # Skip threshold: маленькие ответы не сжимаем
+        if original_tokens < self.SKIP_THRESHOLD_TOKENS:
+            return SlicedResult(
+                summary=full_output,
+                child_session_id=child_session_id,
+                original_tokens=original_tokens,
+                sliced_tokens=original_tokens,
+                compression_ratio=1.0,
+                was_skipped=True,
+            )
+
+        # LLM summarization
+        prompt = self.SUMMARIZE_PROMPT.format(max_tokens=self._max_tokens)
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": full_output},
+        ]
+
+        try:
+            response = await self._llm.chat(
+                messages=messages,
+                model=self._model,
+                max_tokens=self._max_tokens,
+            )
+            summary = response.text
+        except (ProviderError, AllProvidersFailed) as e:
+            # Fallback: truncate + ellipsis
+            summary = self._truncate_fallback(full_output, self._max_tokens)
+
+        sliced_tokens = count_tokens(summary)
+
         return SlicedResult(
             summary=summary,
             child_session_id=child_session_id,
-            original_tokens=count_tokens(full_output),
-            sliced_tokens=count_tokens(summary)
+            original_tokens=original_tokens,
+            sliced_tokens=sliced_tokens,
+            compression_ratio=sliced_tokens / original_tokens if original_tokens > 0 else 1.0,
+            was_skipped=False,
         )
+
+    def _truncate_fallback(self, text: str, max_tokens: int) -> str:
+        """Fallback при ошибке LLM — truncate с сохранением начала и конца."""
+        # Берём первые 60% и последние 40% текста
+        head_len = int(max_tokens * 0.6)
+        tail_len = max_tokens - head_len
+        tokens = tokenize(text)
+        if len(tokens) <= max_tokens:
+            return text
+        head = detokenize(tokens[:head_len])
+        tail = detokenize(tokens[-tail_len:])
+        return f"{head}\n\n... [truncated, see child session for details] ...\n\n{tail}"
 ```
+
+**Конфигурация в agents.yaml:**
+```yaml
+global:
+  max_sliced_tokens: 120        # лимит токенов для summary
+  slicer_model: "openai/gpt-4o-mini"  # модель для суммаризации
+  slicer_skip_threshold: 300    # не сжимать если output < N tokens
+  context_window_limit: 8000    # триггер compaction (fallback)
+```
+
+**Интеграция со стратегиями:**
+
+| Стратегия | Когда вызывается | Обязательность |
+|---|---|---|
+| **OrchestratedStrategy** | После каждого sub-agent response | ✅ Обязательно |
+| **HierarchicalStrategy** | При возврате TaskResult из child session | ✅ Обязательно |
+| **ChoreographyStrategy** | После conflict resolution (winner output) | Опционально |
+| **SingleStrategy** | — | ❌ Не используется |
+
+**Метрики сжатия (observability):**
+```
+Span: token_slicing
+  attributes:
+    original_tokens: 4500
+    sliced_tokens: 120
+    compression_ratio: 0.027        # 97.3% сжатие
+    was_skipped: false
+    slicer_model: "openai/gpt-4o-mini"
+    slicer_latency_ms: 850
+```
+
+#### Compaction Fallback
+
+Token-Slicing контролирует рост контекста на каждом шаге, но при длинных сессиях
+контекст координатора всё равно может достичь лимита. В этом случае срабатывает
+**Compaction** — механизм сжатия всего conversation history (аналогично подходу OpenCode).
+
+```python
+class ContextCompactor:
+    """Сжатие всего conversation history при достижении лимита контекста.
+
+    Fallback механизм: срабатывает только когда Token-Slicing недостаточно.
+    Использует hidden compactor agent (аналогично OpenCode compaction agent).
+    """
+
+    def __init__(
+        self,
+        llm: LLMProvider,
+        model: str = "openai/gpt-4o-mini",
+        max_context_tokens: int = 8000,  # триггер
+    ):
+        self._llm = llm
+        self._model = model
+        self._max_context_tokens = max_context_tokens
+
+    async def compact_if_needed(
+        self,
+        history: list[Message],
+        parent_span: SpanContext | None = None,
+    ) -> tuple[list[Message], bool]:
+        """Сжимает history если превышает лимит.
+
+        Returns:
+            (новый history, был ли выполнен compact)
+        """
+        current_tokens = count_tokens(history)
+        if current_tokens < self._max_context_tokens:
+            return history, False
+
+        # Compaction — сжатие всего conversation
+        compacted = await self._compact_conversation(history)
+        return compacted, True
+
+    async def _compact_conversation(self, history: list[Message]) -> list[Message]:
+        """Сжимает conversation в компактную summary.
+
+        Стратегия:
+        1. Сохраняем первые 2 сообщения (system + initial user prompt)
+        2. Суммаризируем середину в один message
+        3. Сохраняем последние N сообщений (recent context)
+        """
+        system_msg = history[0]
+        initial_prompt = history[1]
+
+        # Суммаризация середины
+        middle = history[2:-3]  # всё кроме начала и последних 3
+        summary = await self._llm.summarize_conversation(middle)
+
+        # Последние сообщения сохраняем как есть (recent context)
+        recent = history[-3:]
+
+        return [
+            system_msg,
+            initial_prompt,
+            {"role": "assistant", "content": f"[Compacted: {len(middle)} messages summarized]\n{summary}"},
+            *recent,
+        ]
+```
+
+**Когда срабатывает Compaction:**
+```
+1. Token-Slicing суммаризирует каждый sub-agent response
+2. Контекст координатора растёт (summaries + route decisions + tool results)
+3. При достижении context_window_limit → Compaction fallback
+4. Compaction сжимает весь history в компактную форму
+5. Child sessions сохраняют полный контекст (не теряются)
+```
+
+**Сравнение подходов:**
+
+| Механизм | Когда | Что сжимает | LLM calls | Granularity |
+|---|---|---|---|---|
+| **Token-Slicing** | После каждого sub-agent response | Ответ одного субагента | N (частые) | Высокая |
+| **Compaction** | При достижении лимита контекста | Весь conversation history | 1 (редкий) | Низкая |
+
+**Вместе:** Token-Slicing — основной механизм контроля контекста. Compaction — fallback
+когда slicing недостаточно. Это даёт лучшее из обоих подходов: гранулярный контроль
++ гарантию что контекст не переполнится даже при длинных сессиях.
 
 #### SessionState для иерархии
 
