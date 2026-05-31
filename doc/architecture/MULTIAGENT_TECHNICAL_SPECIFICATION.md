@@ -1908,40 +1908,213 @@ if failed:
 
 ### 12.5. Cancellation Flow
 
-#### SingleStrategy
-```
-1. session/cancel → cancellation_event.set()
-2. NaiveAgent._cancel_active_tasks() → asyncio.Task.cancel()
-3. LLM call прерывается → CancelledError
-4. Turn завершается с stop_reason="cancelled"
+#### 12.5.1. Общий механизм cancellation
+
+Все стратегии используют единый механизм отмены через `asyncio.Event`:
+
+```python
+# ActiveTurnState (server/protocol/state.py)
+class ActiveTurnState(BaseModel):
+    cancel_requested: bool = False
+    # ...
+
+# Cancellation signal
+cancellation_event = asyncio.Event()
+
+# Проверка в каждой стратегии
+if cancellation_event.is_set():
+    return LLMLoopResult(stop_reason="cancelled")
 ```
 
-#### OrchestratedStrategy
+**Поток отмены:**
 ```
-1. session/cancel → cancellation_event.set()
-2. Текущий agent call отменяется
-3. Loop проверяет cancellation_event перед каждым шагом
-4. Если отмена → stop_reason="cancelled"
-5. Все pending sub-agent calls отменяются
-```
-
-#### ChoreographyStrategy
-```
-1. session/cancel → cancellation_event.set()
-2. Все параллельные agent calls отменяются
-3. Conflict Resolution пропускается
-4. stop_reason="cancelled"
+1. Клиент отправляет session/cancel
+2. ACPProtocol._handle_cancel() → cancellation_event.set()
+3. Текущая стратегия проверяет cancellation_event
+4. Все активные задачи отменяются через asyncio.Task.cancel()
+5. Cleanup ресурсов (child sessions, pending requests, spans)
+6. Response клиенту: {"stopReason": "cancelled"}
 ```
 
-#### HierarchicalStrategy
+#### 12.5.2. SingleStrategy
+
+```mermaid
+sequenceDiagram
+    participant Client as TUI Client
+    participant ACP as ACPProtocol
+    participant Strategy as SingleStrategy
+    participant Bus as AgentEventBus
+    participant Agent as LLMAdapter
+
+    Client->>ACP: session/cancel
+    ACP->>ACP: cancellation_event.set()
+    ACP-->>Client: response: stopReason="cancelled"
+    Note over Strategy,Agent: проверка на следующей итерации
+    Strategy->>Strategy: check cancellation_event
+    Strategy->>Agent: cancel active tasks
+    Agent->>Agent: asyncio.Task.cancel()
+    Agent-->>Strategy: CancelledError
+    Strategy->>Bus: cleanup pending requests
+    Strategy->>ACP: stop_reason="cancelled"
 ```
-1. session/cancel → cancellation_event.set()
-2. Primary agent call отменяется
-3. Все активные child sessions помечаются как cancelled
-4. Sub-agent calls в child sessions отменяются
-5. Cleanup: child sessions → status="cancelled"
-6. stop_reason="cancelled"
+
+**Детали:**
+- `NaiveAgent._cancel_active_tasks()` — отмена всех активных `asyncio.Task`
+- LLM provider request прерывается (если поддерживает cancellation)
+- Tool execution на клиенте **не отменяется** — результат игнорируется
+
+#### 12.5.3. OrchestratedStrategy
+
+```mermaid
+sequenceDiagram
+    participant Client as TUI Client
+    participant ACP as ACPProtocol
+    participant Orch as OrchestratedStrategy
+    participant Bus as AgentEventBus
+    participant SubAgent as Sub-Agent LLMAdapter
+
+    Client->>ACP: session/cancel
+    ACP->>ACP: cancellation_event.set()
+    ACP-->>Client: response: stopReason="cancelled"
+    Note over Orch: текущий шаг выполняется
+    SubAgent-->>Bus: response (или CancelledError)
+    Bus-->>Orch: response/error
+    Orch->>Orch: check cancellation_event → True
+    Orch->>Orch: break loop (не следующий шаг)
+    Orch->>Bus: cleanup pending sub-agent requests
+    Orch->>ACP: stop_reason="cancelled"
 ```
+
+**Детали:**
+- Текущий agent call **не прерывается** — ждём completion или timeout
+- Проверка `cancellation_event` **перед каждым шагом** loop
+- Частично выполненные шаги **сохраняются в history**
+- Все pending `send_request` в шине отменяются
+
+#### 12.5.4. ChoreographyStrategy
+
+```mermaid
+sequenceDiagram
+    participant Client as TUI Client
+    participant ACP as ACPProtocol
+    participant Choreo as ChoreographyStrategy
+    participant Bus as AgentEventBus
+    participant Agent1 as Agent A
+    participant Agent2 as Agent B
+    participant Agent3 as Agent C
+
+    Client->>ACP: session/cancel
+    ACP->>ACP: cancellation_event.set()
+    ACP-->>Client: response: stopReason="cancelled"
+    Choreo->>Bus: broadcast (уже в процессе)
+    Bus->>Agent1: handle broadcast
+    Bus->>Agent2: handle broadcast
+    Bus->>Agent3: handle broadcast
+    Note over Choreo: asyncio.gather(return_exceptions=True)
+    Agent1-->>Bus: answer (или CancelledError)
+    Agent2-->>Bus: CancelledError
+    Agent3-->>Bus: answer (или CancelledError)
+    Choreo->>Choreo: skip Conflict Resolution
+    Choreo->>ACP: stop_reason="cancelled"
+```
+
+**Детали:**
+- `asyncio.gather(*tasks, return_exceptions=True)` — все параллельные calls
+- Каждый agent task отменяется через `task.cancel()`
+- Conflict Resolution **полностью пропускается**
+- Частичные результаты **игнорируются** (даже если некоторые агенты успели ответить)
+
+#### 12.5.5. HierarchicalStrategy
+
+```mermaid
+sequenceDiagram
+    participant Client as TUI Client
+    participant ACP as ACPProtocol
+    participant Primary as Primary Agent
+    participant Bus as AgentEventBus
+    participant Child1 as Child Session 1
+    participant Child2 as Child Session 2
+    participant SubAgent as Sub-Agent
+
+    Client->>ACP: session/cancel
+    ACP->>ACP: cancellation_event.set()
+    ACP-->>Client: response: stopReason="cancelled"
+    ACP->>Primary: cancel active tasks
+    Primary->>Primary: asyncio.Task.cancel()
+    Note over ACP: cascade cancellation
+    ACP->>Child1: status="cancelled"
+    ACP->>Child2: status="cancelled"
+    Child1->>SubAgent: cancel (если активен)
+    SubAgent-->>Child1: CancelledError
+    Child1->>Bus: cleanup pending
+    Child2->>Bus: cleanup pending
+    Primary-->>ACP: stop_reason="cancelled"
+```
+
+**Детали:**
+- Cascade cancellation: primary → все child sessions → sub-agents
+- Child sessions помечаются `status="cancelled"` в storage
+- Token-Slicing прерывается (если в процессе)
+- Child session history **сохраняется** (для навигации в TUI)
+- Все pending `send_request` для sub-agents отменяются
+
+#### 12.5.6. Edge Cases
+
+| Сценарий | Поведение |
+|---|---|
+| **Cancel во время tool execution** | Tool продолжает выполняться на клиенте, результат игнорируется. ToolCallState → status="cancelled" |
+| **Cancel во время permission request** | Permission request закрывается, tool не выполняется. `session/request_permission` → отмена |
+| **Cancel во время broadcast** | Часть агентов уже ответила — результаты игнорируются. Все pending tasks отменяются |
+| **Cancel во время Token-Slicing** | Суммаризация прерывается, child session сохраняется с полным контекстом |
+| **Race: cancel + completion одновременно** | Completion wins если уже начал отправку response. Иначе cancel wins |
+| **Cancel во время LLM fallback** | Все pending fallback attempts отменяются. Circuit breaker не триггерится |
+| **Cancel во время MCP server call** | MCP call продолжает выполняться, результат игнорируется |
+| **Двойной cancel** | Второй cancel игнорируется (idempotent). `cancellation_event` уже set |
+
+#### 12.5.7. Cleanup при отмене
+
+При завершении turn с `stop_reason="cancelled"`:
+
+```python
+# 1. SessionState cleanup
+state.active_turn = None
+state.pending_prompt_response = None
+
+# 2. Child sessions (HierarchicalStrategy)
+for child_id in state.child_session_ids:
+    child_state = storage.get(child_id)
+    if child_state and not child_state.is_finalized:
+        child_state.status = "cancelled"
+        storage.save(child_state)
+
+# 3. Tracer — закрыть все активные spans
+for span_ctx in tracer._active_spans.values():
+    tracer.end_span(span_ctx, status="cancelled")
+
+# 4. Metrics — записать что успело
+metrics = metrics_tracker.get_partial_metrics()
+metrics.task_success = False
+metrics_repository.save(metrics)
+
+# 5. EventBus — удалить pending requests
+bus.clear_pending_requests(correlation_id)
+
+# 6. Timeline — записать событие cancellation
+timeline.record(TimelineEvent(
+    event_type="turn_cancelled",
+    session_id=session_id,
+    correlation_id=correlation_id,
+    publisher="ACPProtocol",
+    payload_summary={"reason": "user_cancelled"},
+))
+```
+
+**Гарантии:**
+- `active_turn` всегда очищается после отмены
+- Child sessions сохраняются для навигации в TUI
+- Spans закрываются (не leak в memory)
+- Metrics записываются частично (для observability)
+- EventBus очищает pending requests (не leak)
 
 ### 12.6. Recovery после краша процесса
 
