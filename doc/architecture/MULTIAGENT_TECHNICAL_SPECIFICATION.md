@@ -1781,7 +1781,246 @@ set_config_option(_routing_mode=multi_choreographed)
 
 ---
 
-## 12. ГЛОССАРИЙ
+## 12. ERROR HANDLING & RECOVERY
+
+### 12.1. Иерархия исключений
+
+Система использует многоуровневую иерархию исключений, разделённую по доменам:
+
+```
+ACPError (базовое — server/exceptions.py)
+├── ValidationError              — некорректные параметры, формат
+├── AuthenticationError          — неверные credentials
+├── AuthorizationError
+│   └── PermissionDeniedError    — отказ в tool call, file access
+├── StorageError
+│   ├── SessionNotFoundError     — сессия не найдена
+│   └── SessionAlreadyExistsError — дубликат session_id
+├── AgentProcessingError
+│   └── ToolExecutionError       — ошибка выполнения инструмента
+├── ProtocolError
+│   └── InvalidStateError        — операция невозможна в текущем состоянии
+└── UnknownStrategyError         — неизвестный routing_mode (НОВАЯ)
+
+ProviderError (LLM layer — server/llm/errors.py)
+├── ProviderNotFoundError
+├── ModelNotFoundError
+└── AllProvidersFailed
+
+ClientRPCError (client RPC layer — server/client_rpc/exceptions.py)
+├── ClientRPCTimeoutError
+├── ClientRPCCancelledError
+├── ClientCapabilityMissingError
+└── ClientRPCResponseError
+
+AgentBusError (EventBus layer — НОВАЯ)
+├── AgentNotFoundError           — target_agent не зарегистрирован
+├── AgentDispatchError           — ошибка dispatch (handler упал)
+└── BroadcastPartialFailure      — часть агентов в broadcast упала
+```
+
+### 12.2. Стратегия обработки ошибок по слоям
+
+| Слой | Тип ошибки | Действие | ACP response |
+|---|---|---|---|
+| **ACP Protocol** | ValidationError | Reject сразу | JSON-RPC error (-32602) |
+| **ACP Protocol** | SessionNotFoundError | Reject | JSON-RPC error (-32001) |
+| **LLM Provider** | ProviderError (retryable) | Fallback к следующему провайдеру | — |
+| **LLM Provider** | AllProvidersFailed | Завершить turn с ошибкой | agent_message_chunk с ошибкой |
+| **EventBus** | AgentNotFoundError | Завершить turn с ошибкой | agent_message_chunk с ошибкой |
+| **EventBus** | AgentDispatchError | Retry 1 раз → завершить turn | agent_message_chunk с ошибкой |
+| **Tool Execution** | ToolExecutionError | Продолжить loop, передать ошибку в LLM | tool_call_update с error |
+| **Client RPC** | ClientRPCTimeoutError | Retry с увеличенным timeout | — |
+| **Client RPC** | ClientRPCCancelledError | Завершить turn (cancelled) | prompt_completed (cancelled) |
+| **Strategy** | max_steps exceeded | Завершить turn | prompt_completed (max_steps) |
+
+### 12.3. LLM Provider Fallback
+
+Система поддерживает fallback-цепочку провайдеров (уже реализовано в `server/llm/fallback/`):
+
+```
+1. Запрос к primary провайдеру
+2. При ProviderError (retryable):
+   a. Circuit breaker check (не долбить упавший провайдер)
+   b. Retry с exponential backoff (max 2 попытки)
+   c. Если retry failed → fallback к следующему провайдеру
+3. При ProviderError (NOT retryable):
+   a. Сразу fallback к следующему провайдеру
+4. Если все провайдеры упали → AllProvidersFailed
+```
+
+**Circuit Breaker:**
+```
+State: CLOSED → OPEN → HALF_OPEN → CLOSED
+- CLOSED: нормальная работа
+- OPEN: провайдер заблокирован (failure_threshold превышен)
+- HALF_OPEN: пробный запрос после recovery_timeout
+- Threshold: 5 failures за 60s → OPEN на 120s
+```
+
+### 12.4. EventBus Error Handling
+
+#### AgentNotFoundError
+```python
+# Когда target_agent не зарегистрирован в шине
+try:
+    response = await bus.send_request(request, parent_span)
+except AgentNotFoundError as e:
+    tracer.end_span(ctx, status="error", error=str(e))
+    return LLMLoopResult(
+        stop_reason="error",
+        final_text=f"Agent '{e.agent_name}' is not available. Check agents.yaml configuration.",
+    )
+```
+
+#### AgentDispatchError (handler упал)
+```python
+# Retry policy: 1 retry с задержкой 500ms
+try:
+    response = await handler(request, parent_span)
+except Exception as e:
+    if retry_count == 0:
+        await asyncio.sleep(0.5)
+        response = await handler(request, parent_span)  # retry
+    else:
+        raise AgentDispatchError(agent_name, e) from e
+```
+
+#### Broadcast Partial Failure
+```python
+# В ChoreographyStrategy: часть агентов упала, часть ответила
+answers = await asyncio.gather(
+    *[agent.handle(broadcast) for agent in agents],
+    return_exceptions=True,
+)
+
+successful = [a for a in answers if not isinstance(a, Exception)]
+failed = [a for a in answers if isinstance(a, Exception)]
+
+if failed:
+    logger.warning(
+        f"Broadcast partial failure: {len(failed)}/{len(agents)} agents failed",
+        errors=[str(e) for e in failed],
+    )
+
+# Conflict Resolution работает только с успешными ответами
+```
+
+### 12.5. Cancellation Flow
+
+#### SingleStrategy
+```
+1. session/cancel → cancellation_event.set()
+2. NaiveAgent._cancel_active_tasks() → asyncio.Task.cancel()
+3. LLM call прерывается → CancelledError
+4. Turn завершается с stop_reason="cancelled"
+```
+
+#### OrchestratedStrategy
+```
+1. session/cancel → cancellation_event.set()
+2. Текущий agent call отменяется
+3. Loop проверяет cancellation_event перед каждым шагом
+4. Если отмена → stop_reason="cancelled"
+5. Все pending sub-agent calls отменяются
+```
+
+#### ChoreographyStrategy
+```
+1. session/cancel → cancellation_event.set()
+2. Все параллельные agent calls отменяются
+3. Conflict Resolution пропускается
+4. stop_reason="cancelled"
+```
+
+#### HierarchicalStrategy
+```
+1. session/cancel → cancellation_event.set()
+2. Primary agent call отменяется
+3. Все активные child sessions помечаются как cancelled
+4. Sub-agent calls в child sessions отменяются
+5. Cleanup: child sessions → status="cancelled"
+6. stop_reason="cancelled"
+```
+
+### 12.6. Recovery после краша процесса
+
+#### Session State Recovery
+```
+1. При старте сервера: загрузка всех session JSON из storage
+2. Миграция schema (model_validator) — новые поля с defaults
+3. Сессии с active_turn.phase="running" помечаются как "interrupted"
+4. Пользователь видит уведомление при reconnect
+```
+
+#### Metrics Recovery
+```
+1. Append-only write: метрики пишутся в конец файла
+2. Atomic rename: .tmp → .json только после полной записи
+3. При краше: .tmp файл может быть повреждён — игнорируется
+4. Завершённые .json файлы всегда консистентны
+```
+
+#### EventBus Recovery
+```
+1. EventBus — in-memory, не требует recovery
+2. При рестарте: все агенты перерегистрируются через AgentSystemLoader
+3. Pending requests теряются — acceptable (stateless bus)
+```
+
+### 12.7. Error Reporting в ACP
+
+При ошибке во время prompt turn сервер отправляет:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": {
+    "sessionId": "sess_123",
+    "update": {
+      "sessionUpdate": "agent_message_chunk",
+      "content": {
+        "type": "text",
+        "text": "Error: Agent 'coder' is not available. Check agents.yaml configuration."
+      }
+    }
+  }
+}
+```
+
+Затем завершающий response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req_456",
+  "result": {
+    "stopReason": "error"
+  }
+}
+```
+
+### 12.8. Observability ошибок
+
+Все ошибки записываются в tracing и timeline:
+
+```
+Span status: "error"
+Span error: "AgentNotFoundError: Agent 'coder' not registered"
+Span attributes:
+  error_type: "AgentNotFoundError"
+  retry_count: 1
+  fallback_attempted: true
+
+TimelineEvent:
+  event_type: "agent_dispatch_error"
+  error: "Agent 'coder' not registered"
+  publisher: "AgentEventBus"
+```
+
+---
+
+## 13. ГЛОССАРИЙ
 
 | Термин | Определение |
 |---|---|
