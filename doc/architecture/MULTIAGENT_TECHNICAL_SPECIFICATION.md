@@ -222,6 +222,103 @@ class AgentCaller:
 | **Choreography** | `broadcast()` | N параллельно | Веерная: `broadcast → N×llm_call → conflict_resolution` | ✅ | Hybrid (опционально) |
 | **Hierarchical** | `send_request()` | 1 + N×delegations | Дерево: `primary → task_invocation → child_session → llm_call` | ✅ | Hybrid (нативный) |
 
+### 3.1.2. AbstractEventBus (базовый интерфейс)
+
+**Назначение:** Абстрактный интерфейс шины событий, определяющий контракт для publish/subscribe
+и point-to-point коммуникации. `AgentEventBus` — конкретная in-memory реализация.
+
+```python
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass
+class Subscription:
+    """Подписка на события — возвращается при subscribe, используется для unsubscribe."""
+    event_type: type
+    handler: Callable
+    is_active: bool = True
+
+    def cancel(self) -> None:
+        """Отменить подписку."""
+        self.is_active = False
+
+
+class Handler(Protocol):
+    """Протокол обработчика событий."""
+    async def __call__(self, event: DomainEvent) -> None: ...
+
+
+class RequestHandler(Protocol):
+    """Протокол обработчика запросов (point-to-point)."""
+    async def __call__(self, request: AgentRequest, parent_span: SpanContext | None) -> AgentResponse: ...
+
+
+class AbstractEventBus(ABC):
+    """Базовый интерфейс шины событий для межагентской коммуникации.
+
+    Поддерживает три паттерна:
+    - publish/subscribe — fire-and-forget уведомления
+    - send_request — point-to-point request/response
+    - broadcast — рассылка всем зарегистрированным агентам
+    """
+
+    @abstractmethod
+    def subscribe(self, event_type: type, handler: Handler) -> Subscription:
+        """Подписаться на события указанного типа.
+
+        Args:
+            event_type: Класс события (DomainEvent subclass)
+            handler: Асинхронный обработчик
+
+        Returns:
+            Subscription объект для последующей отписки
+        """
+
+    @abstractmethod
+    def unsubscribe(self, subscription: Subscription) -> None:
+        """Отменить подписку.
+
+        Args:
+            subscription: Subscription объект, полученный при subscribe
+        """
+
+    @abstractmethod
+    def publish(self, event: DomainEvent) -> None:
+        """Опубликовать событие — fire-and-forget.
+
+        Все подписчики на event_type получат событие асинхронно.
+        Ошибки в обработчиках логируются, но не прерывают dispatch.
+
+        Args:
+            event: Событие для публикации
+        """
+
+    @abstractmethod
+    async def clear(self) -> None:
+        """Очистить все подписки и зарегистрированных агентов.
+
+        Используется для тестирования и graceful shutdown.
+        """
+```
+
+**Жизненный цикл подписки:**
+```
+1. subscriber.subscribe(EventType, handler) → Subscription
+2. EventBus.publish(EventType(...)) → handler вызывается для каждого подписчика
+3. subscriber.unsubscribe(subscription) или subscription.cancel()
+```
+
+**Гарантии:**
+- Подписчики вызываются параллельно (asyncio.gather с return_exceptions=True)
+- Ошибка одного подписчика не влияет на остальных
+- Порядок вызова подписчиков не гарантируется
+- `publish` не блокирует — события dispatch'атся в event loop
+
+---
+
 ### 3.2. Контракты сообщений
 
 ```python
@@ -242,6 +339,22 @@ class AgentResponse(DomainEvent):
     usage: TokenUsage          # ← СОХРАНЯЕТСЯ (было потеряно в NaiveAgent)
     stop_reason: str
     agent_name: str
+
+# Result (для Agent Protocol — return type Agent.call())
+@dataclass(frozen=True)
+class AgentResult:
+    """Результат вызова агента через Agent Protocol.
+
+    Отличается от AgentResponse: AgentResponse — DomainEvent для EventBus,
+    AgentResult — возвращаемое значение Agent.call().
+    LLMAdapter возвращает AgentResult, EventBus оборачивает в AgentResponse.
+    """
+    text: str
+    tool_calls: list[ToolCall]
+    usage: TokenUsage          # токены — сохраняется (было потеряно в NaiveAgent)
+    stop_reason: str           # "end_turn", "cancelled", "max_iterations", "tool_call"
+    agent_name: str
+    error: str | None = None
 
 # Broadcast (для хореографии)
 @dataclass(frozen=True)
@@ -866,6 +979,79 @@ class ObservabilityFactory:
 
 ---
 
+### 3.11. StrategyDispatcher
+
+**Назначение:** Диспетчер стратегий выполнения — выбирает и делегирует обработку
+prompt turn соответствующей стратегии на основе `_routing_mode`.
+
+```python
+class StrategyDispatcher:
+    """Выбор и выполнение стратегии на основе конфигурации."""
+
+    def __init__(
+        self,
+        strategies: dict[str, ExecutionStrategy],
+        default_strategy: str = "single",
+    ):
+        self._strategies = strategies
+        self._default = default_strategy
+
+    async def execute(
+        self,
+        context: TurnContext,
+        routing_mode: str | None = None,
+    ) -> LLMLoopResult:
+        """Выбрать стратегию и выполнить.
+
+        Priority:
+        1. routing_mode из параметра (slash command override)
+        2. config_values["_routing_mode"] из сессии
+        3. default_strategy
+
+        Args:
+            context: TurnContext с промптом, историей, correlation_id
+            routing_mode: Override режима (из slash command meta)
+
+        Returns:
+            LLMLoopResult с notifications и финальным текстом
+
+        Raises:
+            UnknownStrategyError: если routing_mode не найден в strategies
+        """
+        mode = routing_mode or context.config.get("_routing_mode", self._default)
+        strategy = self._strategies.get(mode)
+        if strategy is None:
+            raise UnknownStrategyError(f"Unknown routing mode: {mode}")
+        return await strategy.execute(context)
+
+    def register(self, mode: str, strategy: ExecutionStrategy) -> None:
+        """Зарегистрировать стратегию для режима."""
+
+    def available_modes(self) -> list[str]:
+        """Список доступных режимов."""
+```
+
+**Интеграция с Pipeline:**
+```
+PromptOrchestrator
+  → Pipeline (stages)
+    → StrategySelectionStage: определяет routing_mode
+    → LLMLoopStage: делегирует StrategyDispatcher.execute(context)
+      → StrategyDispatcher выбирает стратегию
+        → ExecutionStrategy.execute(context)
+          → ExecutionEngine / EventBus / LLMAdapter
+```
+
+**Доступные стратегии (MVP):**
+| Режим | Класс | Описание |
+|---|---|---|
+| `"single"` | `SingleStrategy` | Прямой вызов LLMAdapter через EventBus |
+| `"multi_orchestrated"` | `OrchestratedStrategy` | Оркестратор с RouteDecision |
+| `"multi_choreographed"` | `ChoreographyStrategy` | Broadcast всем агентам |
+| `"hierarchical"` | `HierarchicalStrategy` | Primary-Subagent с child sessions |
+
+---
+
 ## 4. OBSERVABILITY
 
 ### 4.1. Три слоя наблюдаемости
@@ -916,6 +1102,168 @@ trace_id: turn_sess123_5
 │        └─ llm_call [1600ms] gpt-4o-mini, 2100 in / 600 out
 └─ prompt_completed [0ms]
 ```
+
+### 4.3.1. InMemoryTracer
+
+**Назначение:** In-memory реализация distributed tracing для MVP. Хранит span'ы
+в памяти, поддерживает контекст через `SpanContext`, экспортирует в JSON при
+завершении turn (debug mode).
+
+```python
+@dataclass
+class SpanContext:
+    """Контекст для propagation tracing информации между компонентами."""
+    trace_id: str
+    span_id: str
+    parent_span_id: str | None = None
+    correlation_id: str | None = None
+
+    def child(self, operation: str) -> SpanContext:
+        """Создать дочерний контекст."""
+        return SpanContext(
+            trace_id=self.trace_id,
+            span_id=generate_span_id(),
+            parent_span_id=self.span_id,
+            correlation_id=self.correlation_id,
+        )
+
+
+class InMemoryTracer:
+    """In-memory tracer для MVP.
+
+    Хранит все span'ы в памяти, экспортирует по запросу.
+    Для production заменить на OTel-compatible tracer.
+    """
+
+    def __init__(self):
+        self._spans: dict[str, Span] = {}
+        self._active_spans: dict[str, SpanContext] = {}
+
+    def start_span(
+        self,
+        operation: str,
+        parent_context: SpanContext | None = None,
+        agent_name: str = "",
+        attributes: dict[str, Any] | None = None,
+    ) -> SpanContext:
+        """Начать новый span.
+
+        Args:
+            operation: Название операции ("llm_call", "bus_request", etc.)
+            parent_context: Родительский контекст (None для root)
+            agent_name: Имя агента
+            attributes: Дополнительные атрибуты
+
+        Returns:
+            SpanContext для propagation
+        """
+        parent_span_id = parent_context.span_id if parent_context else None
+        trace_id = parent_context.trace_id if parent_context else generate_trace_id()
+        span_id = generate_span_id()
+
+        span = Span(
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            operation=operation,
+            agent_name=agent_name,
+            start_time=time.monotonic(),
+            end_time=None,
+            status="ok",
+            attributes=attributes or {},
+            error=None,
+        )
+        self._spans[span_id] = span
+        ctx = SpanContext(
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+        )
+        self._active_spans[span_id] = ctx
+        return ctx
+
+    def end_span(
+        self,
+        context: SpanContext,
+        status: str = "ok",
+        error: str | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Завершить span.
+
+        Args:
+            context: SpanContext от start_span
+            status: "ok", "error", "cancelled"
+            error: Сообщение об ошибке (если status="error")
+            attributes: Дополнительные атрибуты (merge с существующими)
+        """
+        span = self._spans.get(context.span_id)
+        if span is None:
+            return
+        span.end_time = time.monotonic()
+        span.status = status
+        span.error = error
+        if attributes:
+            span.attributes.update(attributes)
+        self._active_spans.pop(context.span_id, None)
+
+    @contextmanager
+    def trace(
+        self,
+        operation: str,
+        parent_context: SpanContext | None = None,
+        agent_name: str = "",
+        attributes: dict[str, Any] | None = None,
+    ) -> Generator[SpanContext, None, None]:
+        """Context manager для автоматического start/end span.
+
+        Usage:
+            with tracer.trace("llm_call", parent_context, agent_name="coder") as ctx:
+                # ... выполнение ...
+                # span автоматически завершится при выходе из блока
+        """
+        ctx = self.start_span(operation, parent_context, agent_name, attributes)
+        try:
+            yield ctx
+        except Exception as e:
+            self.end_span(ctx, status="error", error=str(e))
+            raise
+        else:
+            self.end_span(ctx)
+
+    def get_spans(self, trace_id: str) -> list[Span]:
+        """Получить все span'ы для trace_id."""
+        return [s for s in self._spans.values() if s.trace_id == trace_id]
+
+    def export(self) -> list[dict[str, Any]]:
+        """Экспортировать все span'ы в serializable формат."""
+        return [asdict(s) for s in self._spans.values()]
+
+    def clear(self) -> None:
+        """Очистить все span'ы."""
+        self._spans.clear()
+        self._active_spans.clear()
+```
+
+**Генерация ID:**
+```python
+def generate_trace_id() -> str:
+    return f"trace_{uuid4().hex[:12]}"
+
+def generate_span_id() -> str:
+    return f"span_{uuid4().hex[:8]}"
+```
+
+**Связь с ObservabilityFactory:**
+```python
+class ObservabilityFactory:
+    def __init__(self, config: ObservabilityConfig):
+        self.tracer = InMemoryTracer()   # MVP — всегда in-memory
+        self.timeline = EventTimeline()
+        # ...
+```
+
+---
 
 ### 4.4. Event Timeline
 
