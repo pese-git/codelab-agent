@@ -721,7 +721,7 @@ MCP инструменты **НЕ** фильтруются по client capabilit
 MCP инструменты требуют разрешений (`requires_permission = True` в ToolDefinition).
 Permissions flow работает одинаково для нативных и MCP инструментов:
 - session policy → global policy → ask user
-- `agent_name` передаётся через `_meta` (см. раздел 7.1)
+- `agent_name` передаётся через `_meta` (см. раздел 7.2)
 
 #### MCP в ACP
 
@@ -763,7 +763,7 @@ MCP config сохраняется в `SessionState.mcp_servers` для session r
 
 MCP инструменты передаются в `AgentRequest.tools` вместе с нативными инструментами.
 
-### 4.7. External Observability Backends (Post-MVP)
+### 3.10. External Observability Backends (Post-MVP)
 
 Архитектура observability спроектирована для быстрого подключения внешних бэкендов
 без изменений core-кода. Интеграция **НЕ входит в MVP** — все exporters отключены
@@ -1215,7 +1215,7 @@ set_config_option(_routing_mode=multi_choreographed)
 
 Клиент (TUI) извлекает `agent_name` из `_meta` и отображает в модалке подтверждения. Это не нарушает ACP boundary — `_meta` игнорируется клиентами, которые его не понимают.
 
-### 7.2. Danger levels
+### 7.3. Danger levels
 
 | Level | Примеры | Поведение |
 |---|---|---|
