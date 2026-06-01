@@ -551,6 +551,9 @@ slicer_skip_threshold = 300
 # Лимит контекста (триггер compaction)
 context_window_limit = 8000
 
+# Буфер токенов для сжатия (как в OpenCode)
+compaction_reserved_tokens = 10000
+
 # Debug mode (полные payload логи, LLM dump)
 debug = false
 
@@ -625,6 +628,7 @@ class AgentsGlobalConfig(BaseModel):
     max_sliced_tokens: int = 120
     slicer_skip_threshold: int = 300
     context_window_limit: int = 8000
+    compaction_reserved_tokens: int = 10000  # буфер токенов для сжатия
     debug: bool = False
     definitions: dict[str, AgentTOMLConfig] = Field(default_factory=dict)
 ```
@@ -1099,6 +1103,9 @@ max_steps = 7
 # Модель для Token-Slicing
 slicer_model = "openai/gpt-4o-mini"
 
+# Буфер токенов для сжатия (как в OpenCode)
+compaction_reserved_tokens = 10000
+
 # Debug mode
 debug = false
 
@@ -1273,26 +1280,32 @@ class StrategyDispatcher:
 
 **Управление контекстом:**
 - Token-Slicing: ❌ не используется (нет субагентов)
-- Compaction: ✅ fallback при достижении лимита контекста
+- Prune: ✅ удаление старых tool outputs (FIFO, без LLM)
+- Compaction: ✅ LLM summarize если prune недостаточно
 
 В длинных сессиях контекст координатора растёт за счёт истории turn'ов.
-При достижении `context_window_limit` срабатывает `ContextCompactor`:
+При достижении `context_window_limit - compaction_reserved_tokens` срабатывает
+двухфазный `ContextCompactor` (аналогично подходу OpenCode):
 
 ```
-Session flow с Compaction:
+Session flow с двухфазным Compaction:
 1. Turn 1: user + assistant → history += 2 messages
 2. Turn 2: user + assistant → history += 2 messages
 3. ...
-4. Turn N: context_tokens > context_window_limit
-5. ContextCompactor.compact_if_needed() → сжатие history
-6. Сохраняем: system prompt + initial user prompt + compacted summary + recent messages
+4. Turn N: context_tokens > context_window_limit - reserved_tokens
+5. Фаза 1 — Prune: удалить старые tool outputs (FIFO, без LLM)
+6. Если prune недостаточно → Фаза 2 — LLM summarize:
+   a. Сохраняем первые 2 сообщения (system + initial user prompt)
+   b. Суммаризируем середину в один message
+   c. Сохраняем последние N сообщений (recent context)
 7. Продолжаем с компактным контекстом
 ```
 
-**Почему только Compaction (без Token-Slicing):**
-- Нет субагентов → нет ответов для сжатия
-- Сжимать ответ самого себя = потеря информации для следующего turn
-- Compaction срабатывает редко (только при переполнении) → минимальный overhead
+**Почему двухфазный подход (как в OpenCode):**
+- Prune дешевле — 0 LLM calls, просто удаление старых tool outputs
+- Reserved buffer — оставляет запас токенов чтобы compaction не вызвал переполнение
+- Incremental — prune постепенно, не одним большим сжатием
+- Compaction только если prune недостаточно — минимальный overhead
 
 #### OrchestratedStrategy
 
@@ -1642,10 +1655,11 @@ Maximum {max_tokens} tokens in the summary.
 **Конфигурация в codelab.toml:**
 ```toml
 [agents]
-max_sliced_tokens = 120        # лимит токенов для summary
-slicer_model = "openai/gpt-4o-mini"  # модель для суммаризации
-slicer_skip_threshold = 300    # не сжимать если output < N tokens
-context_window_limit = 8000    # триггер compaction (fallback)
+max_sliced_tokens = 120                     # лимит токенов для summary
+slicer_model = "openai/gpt-4o-mini"         # модель для суммаризации
+slicer_skip_threshold = 300                 # не сжимать если output < N tokens
+context_window_limit = 8000                 # лимит контекста
+compaction_reserved_tokens = 10000          # буфер токенов для сжатия (trigger = limit - reserved)
 ```
 
 **Интеграция со стратегиями:**
@@ -1669,50 +1683,99 @@ Span: token_slicing
     slicer_latency_ms: 850
 ```
 
-#### Compaction Fallback
+#### Compaction Fallback (двухфазный, как в OpenCode)
 
 Token-Slicing контролирует рост контекста на каждом шаге, но при длинных сессиях
 контекст координатора всё равно может достичь лимита. В этом случае срабатывает
-**Compaction** — механизм сжатия всего conversation history (аналогично подходу OpenCode).
+двухфазный **Compaction** — механизм сжатия conversation history (аналогично подходу OpenCode).
+
+**Две фазы:**
+
+1. **Prune** — удаление старых tool outputs (FIFO, без LLM). Дешёвая операция,
+   не требует LLM call. Удаляет самые старые tool result messages пока контекст
+   не уменьшится до безопасного уровня.
+
+2. **LLM Summarize** — если prune недостаточно, сжимает весь conversation через
+   LLM. Сохраняет system prompt + initial user prompt + summary + recent messages.
 
 ```python
 class ContextCompactor:
-    """Сжатие всего conversation history при достижении лимита контекста.
+    """Двухфазное сжатие conversation history при приближении к лимиту контекста.
 
-    Fallback механизм: срабатывает только когда Token-Slicing недостаточно.
-    Использует hidden compactor agent (аналогично OpenCode compaction agent).
+    Вдохновлён подходом OpenCode (compaction.auto + compaction.prune).
+    Фаза 1: Prune — удаление старых tool outputs (FIFO, без LLM).
+    Фаза 2: LLM Summarize — сжатие всего conversation если prune недостаточно.
     """
 
     def __init__(
         self,
         llm: LLMProvider,
         model: str = "openai/gpt-4o-mini",
-        max_context_tokens: int = 8000,  # триггер
+        max_context_tokens: int = 8000,       # лимит контекста
+        reserved_tokens: int = 10000,          # буфер для сжатия
     ):
         self._llm = llm
         self._model = model
         self._max_context_tokens = max_context_tokens
+        self._reserved_tokens = reserved_tokens
+        # Trigger: когда контекст достигает max_context_tokens - reserved_tokens
+        self._trigger_tokens = max_context_tokens - reserved_tokens
 
     async def compact_if_needed(
         self,
         history: list[Message],
         parent_span: SpanContext | None = None,
-    ) -> tuple[list[Message], bool]:
-        """Сжимает history если превышает лимит.
+    ) -> tuple[list[Message], bool, str]:
+        """Двухфазное сжатие history.
 
         Returns:
-            (новый history, был ли выполнен compact)
+            (новый history, было ли выполнено сжатие, метод: "prune" | "summarize")
         """
         current_tokens = count_tokens(history)
-        if current_tokens < self._max_context_tokens:
-            return history, False
+        if current_tokens < self._trigger_tokens:
+            return history, False, "none"
 
-        # Compaction — сжатие всего conversation
-        compacted = await self._compact_conversation(history)
-        return compacted, True
+        # Фаза 1: Prune — удалить старые tool outputs (FIFO)
+        pruned = self._prune_old_tool_outputs(history)
+        pruned_tokens = count_tokens(pruned)
 
-    async def _compact_conversation(self, history: list[Message]) -> list[Message]:
-        """Сжимает conversation в компактную summary.
+        if pruned_tokens < self._trigger_tokens:
+            return pruned, True, "prune"
+
+        # Фаза 2: LLM Summarize — если prune недостаточно
+        summarized = await self._summarize_conversation(pruned, parent_span)
+        return summarized, True, "summarize"
+
+    def _prune_old_tool_outputs(self, history: list[Message]) -> list[Message]:
+        """Удалить самые старые tool result messages (FIFO).
+
+        Стратегия:
+        - Идём по history от начала к концу
+        - Удаляем tool result messages пока контекст не уменьшится
+        - Сохраняем system prompt и initial user prompt
+        - Сохраняем последние N сообщений (recent context)
+        """
+        # Сохраняем первые 2 сообщения (system + initial prompt)
+        protected_head = history[:2]
+        # Сохраняем последние 3 сообщения (recent context)
+        protected_tail = history[-3:]
+        # Средина — кандидаты на prune
+        middle = history[2:-3]
+
+        # Удаляем tool result messages из middle (FIFO — самые старые первые)
+        pruned_middle = [
+            msg for msg in middle
+            if msg.get("role") != "tool"
+        ]
+
+        return [*protected_head, *pruned_middle, *protected_tail]
+
+    async def _summarize_conversation(
+        self,
+        history: list[Message],
+        parent_span: SpanContext | None = None,
+    ) -> list[Message]:
+        """Сжимает conversation в компактную summary через LLM.
 
         Стратегия:
         1. Сохраняем первые 2 сообщения (system + initial user prompt)
@@ -1741,33 +1804,37 @@ class ContextCompactor:
 ```
 1. Token-Slicing суммаризирует каждый sub-agent response
 2. Контекст координатора растёт (summaries + route decisions + tool results)
-3. При достижении context_window_limit → Compaction fallback
-4. Compaction сжимает весь history в компактную форму
+3. При достижении (context_window_limit - reserved_tokens) → Prune
+4. Если prune недостаточно → LLM Summarize
 5. Child sessions сохраняют полный контекст (не теряются)
 ```
 
 **Сравнение подходов:**
 
-| Механизм | Когда | Что сжимает | LLM calls | Granularity |
+| Механизм | Когда | Что делает | LLM calls | Granularity |
 |---|---|---|---|---|
-| **Token-Slicing** | После каждого sub-agent response | Ответ одного субагента | N (частые) | Высокая |
-| **Compaction** | При достижении лимита контекста | Весь conversation history | 1 (редкий) | Низкая |
+| **Token-Slicing** | После каждого sub-agent response | Суммаризация ответа одного субагента | N (частые) | Высокая |
+| **Prune** | При `context_tokens > limit - reserved` | Удаление старых tool outputs (FIFO) | 0 | Средняя |
+| **Compaction** | Если prune недостаточно | LLM summarize всего conversation | 1 (редкий) | Низкая |
 
-**Вместе:** Token-Slicing — основной механизм контроля контекста для мультиагентных стратегий. Compaction — fallback когда slicing недостаточно. Это даёт лучшее из обоих подходов: гранулярный контроль + гарантию что контекст не переполнится даже при длинных сессиях.
+**Вместе:** Token-Slicing — основной механизм контроля контекста для мультиагентных
+стратегий. Prune — первый fallback (дешёвый, без LLM). Compaction — второй fallback
+когда prune недостаточно. Это даёт лучшее из всех подходов: гранулярный контроль +
+дешёвый prune + гарантию что контекст не переполнится даже при длинных сессиях.
 
 **Применимость по стратегиям:**
 
-| Стратегия | Token-Slicing | Compaction Fallback |
-|---|---|---|
-| **Single** | ❌ | ✅ |
-| **Orchestrated** | ✅ | ✅ |
-| **Choreography** | ✅ (только winner) | ✅ |
-| **Hierarchical** | ✅ | ✅ |
+| Стратегия | Token-Slicing | Prune | Compaction Fallback |
+|---|---|---|---|
+| **Single** | ❌ | ✅ | ✅ |
+| **Orchestrated** | ✅ | ✅ | ✅ |
+| **Choreography** | ✅ (только winner) | ✅ | ✅ |
+| **Hierarchical** | ✅ | ✅ | ✅ |
 
 #### HybridContextManager
 
 **Назначение:** Координатор управления контекстом — объединяет `TokenSlicer`, `ContextCompactor`
-и управление иерархией сессий (parent/child) в единый интерфейс для стратегий.
+(из фазы 2a.16) и управление иерархией сессий (parent/child) в единый интерфейс для стратегий.
 
 ```python
 class HybridContextManager:
@@ -1776,7 +1843,7 @@ class HybridContextManager:
     Координирует три механизма:
     1. Token-Slicing — суммаризация ответов субагентов
     2. Child Sessions — создание и связывание дочерних сессий
-    3. Compaction — fallback при переполнении контекста
+    3. ContextCompactor (из 2a.16) — двухфазный: Prune + LLM Summarize
     """
 
     def __init__(
@@ -3186,7 +3253,7 @@ class PricingEngine:
 
 | # | Файл | Описание |
 |---|---|---|
-| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML, `AgentMode` enum (primary, subagent, orchestrator, all), `model_config(extra="allow")` для vendor-specific params |
+| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML, `AgentMode` enum (primary, subagent, orchestrator), `model_config(extra="allow")` для vendor-specific params |
 | 2a.2 | `server/agent/markdown_loader.py` | `AgentConfigLoader` — загрузка из TOML + Markdown, override логика, hot reload |
 | 2a.3 | `server/agent/config_resolver.py` | `AgentConfigResolver` — merge global + markdown → ResolvedAgent |
 | 2a.4 | `server/agent/registry.py` | `AgentRegistry` — dict[name] → ResolvedAgent, hot reload, EventBus publish |
@@ -3201,13 +3268,13 @@ class PricingEngine:
 | 2a.13 | `tests/server/agent/test_markdown_loader.py` | Unit-тесты парсинга Markdown frontmatter |
 | 2a.14 | `tests/server/agent/test_config_resolver.py` | Unit-тесты разрешения конфигов |
 | 2a.15 | `tests/server/agent/test_registry.py` | Unit-тесты AgentRegistry |
-| 2a.16 | `server/agent/core/compactor.py` | `ContextCompactor` — базовый compaction при переполнении контекста, без Token-Slicing и Child Sessions |
+| 2a.16 | `server/agent/core/compactor.py` | `ContextCompactor` — двухфазный compaction: Prune (FIFO, удаление старых tool outputs, без LLM) → LLM Summarize (если prune недостаточно), с reserved buffer (10000 токенов) |
 
 **Критерий завершения фазы 2a:**
 - ✅ Все ~1800 существующих тестов проходят
 - ✅ Бенчмарк: latency ≤ baseline + 10ms bus overhead
 - ✅ SingleStrategy работает через EventBus → LLMAdapter
-- ✅ ContextCompactor готов — compaction при переполнении контекста
+- ✅ ContextCompactor готов — двухфазный compaction (Prune + LLM Summarize) с reserved buffer
 - ✅ `_routing_mode = "single"` — дефолт, мультиагентность не активна
 
 ---
@@ -4017,6 +4084,7 @@ TimelineEvent:
 | **Choreography** | Децентрализованное взаимодействие агентов |
 | **Hierarchical** | Иерархическое делегирование Primary → Subagent с child sessions |
 | **Token-Slicing** | Суммаризация ответов субагентов для контекста координатора |
+| **Prune** | Удаление старых tool outputs (FIFO) для экономии контекста — без LLM calls |
 | **Child Session** | Изолированная сессия субагента с полным контекстом |
 | **Hybrid Context** | Token-Slicing для координатора + Child Sessions для деталей |
 | **AgentCaller** | Единый интерфейс вызова агентов через EventBus |
