@@ -533,6 +533,61 @@ class RouteDecision(BaseModel):
     task_payload: str | None    # атомарная задача для субагента
 ```
 
+**Prompt template для RouteDecision:**
+
+```python
+ROUTE_DECISION_PROMPT = """\
+You are an orchestrator. Analyze the user request and decide which agent should handle it.
+
+Available agents:
+{agent_descriptions}
+
+Instructions:
+- If the task is complete and no agent is needed, set target_agent to null.
+- If a specific agent is needed, set target_agent to the agent name and provide a clear task_payload.
+- The task_payload should be an atomic, self-contained task description.
+- Include relevant context in task_payload (file paths, requirements, constraints).
+
+User request:
+{user_request}
+
+Reasoning step by step, then output your decision.
+"""
+```
+
+**Как используется в OrchestratedStrategy:**
+
+```python
+# 1. Сформировать agent descriptions из agents.yaml
+agent_descriptions = "\n".join(
+    f"- {a['name']}: {a.get('description', a.get('system_prompt', '')[:100])}"
+    for a in active_agents
+)
+
+# 2. Вызвать LLM с Structured Outputs
+response = await llm.chat(
+    messages=[
+        {"role": "system", "content": ROUTE_DECISION_PROMPT.format(
+            agent_descriptions=agent_descriptions,
+            user_request=user_text,
+        )},
+    ],
+    response_format=RouteDecision,  # ← Structured Outputs
+)
+route: RouteDecision = response.parsed
+
+# 3. Принять решение
+if route.target_agent is None:
+    # Задача решена — ответить пользователю напрямую
+else:
+    # Делегировать субагенту через EventBus
+```
+
+**Почему Structured Outputs:**
+- Гарантирует валидный JSON → не нужно парсить/валидировать вручную
+- Pydantic автоматически проверяет схему → `target_agent` всегда валидный или `null`
+- LLM "понимает" ограничения через schema → меньше hallucinations
+
 #### ChoreographyStrategy
 ```
 1. Broadcast ContextBroadcast всем агентам параллельно
