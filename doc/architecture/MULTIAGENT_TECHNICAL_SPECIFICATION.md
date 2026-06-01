@@ -1177,6 +1177,8 @@ debug = false
 | **Choreography** | ≥2 subagents | `coder.md` + `reviewer.md` |
 | **Hierarchical** | 1 primary + 1 subagent | `coder` (TOML, primary) + `tester.md` |
 
+> **Примечание:** SingleStrategy не проверяет `mode` агента — подходит любой зарегистрированный агент (`primary`, `subagent` или `orchestrator`). В примере показан `subagent` как наиболее типичный случай, но все три режима работают идентично. Валидация для SingleStrategy всегда проходит (строка 1189).
+
 #### 3.6.12. Валидация совместимости mode + стратегия
 
 При запуске стратегии `AgentRegistry` проверяет наличие требуемых агентов.
