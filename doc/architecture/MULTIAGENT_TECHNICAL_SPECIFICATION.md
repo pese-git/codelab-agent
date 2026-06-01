@@ -2052,6 +2052,13 @@ class HybridContextManager:
 | **Choreography** | После conflict resolution (winner) | `process_subagent_response()` — только для winner |
 | **Hierarchical** | При возврате TaskResult из child session | `process_subagent_response()` + `ensure_context_fits()` |
 
+> **Примечание:** `HybridContextManager` предоставляет два независимых метода:
+> - `ensure_context_fits()` — только ContextCompactor (Prune + LLM Summarize), без Token-Slicer
+> - `process_subagent_response()` — Token-Slicer + Child Session creation
+>
+> SingleStrategy вызывает только `ensure_context_fits()`, поэтому Token-Slicing не используется,
+> а Prune и Compaction работают. Это согласуется с таблицей применимости (строка 1893–1909).
+
 #### SessionState для иерархии
 
 ```python
