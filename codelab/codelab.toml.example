@@ -129,6 +129,55 @@ max_attempts = 3
 retry_on = ["rate_limit", "timeout"]
 
 # ============================================================================
+# Конфигурация мультиагентной системы
+# ============================================================================
+# Агенты определяются в Markdown файлах с YAML frontmatter:
+#   Глобальные: ~/.codelab/agents/*.md
+#   Проектные:  .codelab/agents/*.md (override глобальных)
+#
+# Имя файла = имя агента (coder.md → "coder")
+# Frontmatter = конфигурация, тело файла = system prompt
+#
+# Пример агента (~/.codelab/agents/coder.md):
+# ---
+# description: Senior Python Developer
+# mode: subagent
+# model: anthropic/claude-3-5-sonnet
+# temperature: 0.1
+# tools:
+#   fs/read_text_file: true
+#   fs/write_text_file: true
+# permission:
+#   edit: ask
+# ---
+# Ты — Senior Python Developer. Пиши чистый, типизированный код.
+
+[agents]
+# Режим выполнения по умолчанию: single | multi_orchestrated | multi_choreographed | hierarchical
+mode = "single"
+
+# Модель по умолчанию (если агент не указал свою)
+default_model = "openai/gpt-4o"
+
+# Максимальное количество шагов мультиагентного выполнения
+max_steps = 7
+
+# Модель для Token-Slicing (дешёвая)
+slicer_model = "openai/gpt-4o-mini"
+
+# Лимит токенов для summary
+max_sliced_tokens = 120
+
+# Не сжимать если output < N токенов
+slicer_skip_threshold = 300
+
+# Лимит контекста (триггер compaction)
+context_window_limit = 8000
+
+# Debug mode (полные payload логи, LLM dump)
+debug = false
+
+# ============================================================================
 # Конфигурация TUI клиента
 # ============================================================================
 

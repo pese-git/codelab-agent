@@ -25,7 +25,7 @@ MVP (Minimum Viable Product). Все компоненты работают в о
 ### 1.4. Ключевые архитектурные принципы
 1. **ACP boundary** — клиент НЕ знает о мультиагентности. Для клиента сервер = один агент.
 2. **EventBus-first** — всё межагентское общение проходит через шину событий.
-3. **Dynamic agents** — состав агентов меняется на лету через `agents.yaml` hot reload.
+3. **Dynamic agents** — состав агентов меняется на лету через Markdown files hot reload.
 4. **Observability by design** — tracing, timeline, metrics встроены через DI, pluggable exporters для OpenTelemetry/Langfuse (post-MVP).
 5. **Strategy pattern** — четыре режима выполнения: single, multi_orchestrated, multi_choreographed, hierarchical.
 6. **Hybrid context** — Token-Slicing для координатора + Child Sessions для деталей.
@@ -61,8 +61,9 @@ MVP (Minimum Viable Product). Все компоненты работают в о
                                                     │  └── MetricsTracker            │
                                                     │                                │
                                                     │  Configuration:                │
-                                                    │  ├── AgentSystemLoader         │
-                                                    │  └── AgentFactory              │
+                                                    │  ├── AgentRegistry              │
+                                                    │  ├── AgentMarkdownLoader        │
+                                                    │  └── AgentConfigResolver        │
                                                     └──────────────────────────────┘
 ```
 
@@ -74,7 +75,7 @@ MVP (Minimum Viable Product). Все компоненты работают в о
 | **Agent Layer** | ExecutionEngine, AgentEventBus, LLMAdapter | Мультиагентность — НОВЫЙ |
 | **MCP Layer** | MCPManager, MCPClient, MCPToolAdapter, MCPToolExecutor | Внешние инструменты — УЖЕ РЕАЛИЗОВАНО |
 | **Observability** | Tracer, EventTimeline, MetricsTracker | Наблюдаемость — НОВЫЙ |
-| **Configuration** | AgentSystemLoader, AgentFactory, ConfigOptionBuilder | Динамическая конфигурация — НОВЫЙ |
+| **Configuration** | AgentRegistry, AgentMarkdownLoader, AgentConfigResolver, ConfigOptionBuilder | Динамическая конфигурация — НОВЫЙ |
 | **Storage** | SessionStorage, MetricsRepository, ObservabilityStorage | Персистентность — РАСШИРЯЕТСЯ |
 
 ### 2.3. Режимы выполнения (Strategy Pattern)
@@ -430,48 +431,405 @@ class Agent(Protocol):
 | `PlanExtractor` | `agent/plan_extractor.py` | Извлечение плана из LLM response |
 | `LLMAdapter` | `NaiveAgent` | Вызов LLM провайдера |
 
-### 3.6. AgentSystemLoader
+### 3.6. Система конфигурации агентов через Markdown + TOML
 
-**Назначение:** Парсинг `agents.yaml`, hot reload через watchdog, публикация событий.
+**Назначение:** Гибридная система конфигурации, где глобальные настройки хранятся
+в TOML (codelab.toml), а определения агентов — в Markdown файлах с YAML frontmatter
+(аналогично OpenCode).
 
-```yaml
-# storage/agents.yaml
-global:
-  mode: "multi_orchestrated"    # single | multi_orchestrated | multi_choreographed
-  default_model: "openai/gpt-4o"
-  max_steps: 7
-  safety_mode: true
-  debug: false
+#### 3.6.1. TOML: Глобальные настройки агентов
 
-orchestrator:
-  model: "openai/gpt-4o"
-  temperature: 0.1
+Глобальные параметры мультиагентной системы определяются в секции `[agents]`
+файла `codelab.toml` (цепочка: `~/.codelab/codelab.toml` → `codelab.toml` → `codelab.local.toml`):
 
-agents:
-  - name: "coder"
-    enabled: true
-    model: "anthropic/claude-3-5-sonnet"
-    system_prompt: "Ты — Senior Python Developer..."
-    tools: ["fs/read_text_file", "fs/write_text_file"]
-    priority: 1
+```toml
+# codelab.toml
+[agents]
+# Режим выполнения по умолчанию
+mode = "single"  # single | multi_orchestrated | multi_choreographed | hierarchical
 
-  - name: "tester"
-    enabled: true
-    model: "openai/gpt-4o-mini"
-    system_prompt: "Ты — QA Engineer..."
-    tools: ["terminal/create", "terminal/wait_for_exit"]
-    priority: 2
+# Модель по умолчанию (если агент не указал свою)
+default_model = "openai/gpt-4o"
+
+# Максимальное количество шагов мультиагентного выполнения
+max_steps = 7
+
+# Модель для Token-Slicing (дешёвая)
+slicer_model = "openai/gpt-4o-mini"
+
+# Лимит токенов для summary
+max_sliced_tokens = 120
+
+# Не сжимать если output < N токенов
+slicer_skip_threshold = 300
+
+# Лимит контекста (триггер compaction)
+context_window_limit = 8000
+
+# Debug mode (полные payload логи, LLM dump)
+debug = false
 ```
 
-**Hot reload flow:**
+**Pydantic модель:**
+
+```python
+class AgentsGlobalConfig(BaseModel):
+    """Глобальные настройки агентов из TOML [agents]."""
+    mode: str = "single"
+    default_model: str = "openai/gpt-4o"
+    max_steps: int = 7
+    slicer_model: str = "openai/gpt-4o-mini"
+    max_sliced_tokens: int = 120
+    slicer_skip_threshold: int = 300
+    context_window_limit: int = 8000
+    debug: bool = False
 ```
-1. watchdog detect change → agents.yaml modified
-2. AgentSystemLoader.reload() → parse new config
-3. Для отключенных агентов: agent.stop() → publish AgentUnregistered
-4. Для новых агентов: AgentFactory.create() → agent.start() → publish AgentRegistered
+
+#### 3.6.2. Markdown: Определение агентов
+
+Каждый агент определяется в отдельном Markdown файле с YAML frontmatter.
+Имя файла без `.md` становится именем агента.
+
+**Расположение (приоритет от высшего к низшему):**
+1. `.codelab/agents/` — проектные агенты (override/дополнение)
+2. `~/.codelab/agents/` — глобальные агенты пользователя
+
+**Формат файла `coder.md`:**
+
+```markdown
+---
+description: Senior Python Developer — writes clean, efficient code
+mode: subagent
+model: anthropic/claude-3-5-sonnet
+temperature: 0.1
+steps: 10
+tools:
+  fs/read_text_file: true
+  fs/write_text_file: true
+  terminal/create: false
+permission:
+  edit: ask
+  bash:
+    "git *": allow
+    "*": ask
+---
+Ты — Senior Python Developer. Твоя задача — писать чистый, эффективный код.
+
+Следуй best practices:
+- PEP 8 style
+- Type hints
+- Unit tests
+```
+
+**Парсинг:**
+- Frontmatter (между `---`) → `AgentMarkdownConfig` (Pydantic)
+- Тело после frontmatter → `system_prompt`
+- Имя файла без `.md` → `agent_name` (`coder.md` → `"coder"`)
+- Проектные агенты с тем же именем override глобальные
+
+**Параметры frontmatter:**
+
+| Параметр | Тип | Обязательный | Описание |
+|---|---|---|---|
+| `description` | string | ✅ | Что делает агент, когда использовать |
+| `mode` | string | | `primary`, `subagent`, `all` (default: `all`) |
+| `model` | string | | `provider/model-id` (fallback: `global.default_model`) |
+| `temperature` | float | | 0.0–1.0 (fallback: model default → 0.0) |
+| `top_p` | float | | 0.0–1.0 |
+| `steps` | int | | Лимит итераций (fallback: `global.max_steps` → None) |
+| `disable` | bool | | Отключить агента (default: false) |
+| `hidden` | bool | | Скрыть из autocomplete (только subagent) |
+| `color` | string | | HEX или theme color для TUI |
+| `tools` | dict | | Доступные инструменты `{tool_name: bool}` |
+| `permission` | dict | | Разрешения: `edit`, `bash`, `webfetch`, `task` |
+
+**Pydantic модели:**
+
+```python
+class AgentMode(str, Enum):
+    primary = "primary"
+    subagent = "subagent"
+    all = "all"
+
+class AgentPermission(BaseModel):
+    edit: str = "ask"
+    bash: dict[str, str] = {"*": "ask"}
+    webfetch: str = "ask"
+    task: dict[str, str] = {"*": "deny"}
+
+class AgentMarkdownConfig(BaseModel):
+    """Конфигурация агента из Markdown frontmatter."""
+    description: str
+    mode: AgentMode = AgentMode.all
+    model: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    steps: int | None = None
+    disable: bool = False
+    hidden: bool = False
+    color: str | None = None
+    tools: dict[str, bool] | None = None
+    permission: AgentPermission | None = None
+```
+
+#### 3.6.3. AgentMarkdownLoader
+
+**Назначение:** Загрузка и парсинг Markdown файлов агентов из обоих каталогов.
+
+```python
+class AgentMarkdownLoader:
+    """Загрузка агентов из Markdown файлов с YAML frontmatter."""
+
+    AGENTS_DIRS = [
+        Path.cwd() / ".codelab" / "agents",    # проектные (override, higher priority)
+        Path.home() / ".codelab" / "agents",   # глобальные
+    ]
+
+    def load_all(self) -> dict[str, AgentMarkdownConfig]:
+        """Загрузить все Markdown агенты.
+
+        Проектные агенты override глобальные с тем же именем.
+        """
+        agents: dict[str, AgentMarkdownConfig] = {}
+
+        for agents_dir in reversed(self.AGENTS_DIRS):  # global first
+            if not agents_dir.exists():
+                continue
+            for md_file in agents_dir.glob("*.md"):
+                config = self._parse_markdown(md_file)
+                agents[config.name] = config  # project overrides global
+
+        return agents
+
+    def _parse_markdown(self, path: Path) -> AgentMarkdownConfig:
+        """Парсить Markdown файл → AgentMarkdownConfig + system_prompt.
+
+        1. Найти frontmatter (между ---)
+        2. Распарсить YAML
+        3. Тело после frontmatter = system_prompt
+        """
+```
+
+#### 3.6.4. AgentConfigResolver
+
+**Назначение:** Merge TOML global settings + Markdown agent configs → `ResolvedAgent`.
+
+```python
+class ResolvedAgent(BaseModel):
+    """Полностью разрешённая конфигурация агента."""
+    name: str
+    description: str
+    mode: AgentMode
+    model: str                        # resolved: agent → default
+    system_prompt: str                # из тела Markdown
+    temperature: float                # resolved: agent → model default → 0.0
+    top_p: float | None = None
+    steps: int | None = None
+    disable: bool = False
+    hidden: bool = False
+    color: str | None = None
+    tools: dict[str, bool] | None = None
+    permission: AgentPermission
+    source: str                       # путь к файлу для отладки
+
+class AgentConfigResolver:
+    """Merge TOML global settings + Markdown agent configs → ResolvedAgent."""
+
+    def __init__(
+        self,
+        global_config: AgentsGlobalConfig,
+        markdown_agents: dict[str, AgentMarkdownConfig],
+    ): ...
+
+    def resolve_all(self) -> dict[str, ResolvedAgent]:
+        """Разрешить все агенты с defaults из глобального конфига."""
+        resolved = {}
+        for name, md_config in markdown_agents.items():
+            if md_config.disable:
+                continue
+            resolved[name] = self._resolve(name, md_config)
+        return resolved
+
+    def _resolve(self, name: str, md: AgentMarkdownConfig) -> ResolvedAgent:
+        """Разрешить одного агента.
+
+        Priority:
+        - model: agent.model → global.default_model
+        - temperature: agent.temperature → model default → 0.0
+        - steps: agent.steps → global.max_steps → None
+        - permission: agent.permission → defaults
+        """
+```
+
+#### 3.6.5. AgentRegistry
+
+**Назначение:** Единый реестр агентов — dict[name] → ResolvedAgent.
+Используется всеми стратегиями для получения конфигурации агентов.
+
+```python
+class AgentRegistry:
+    """Реестр агентов — загрузка, hot reload, доступ к конфигурации."""
+
+    def __init__(
+        self,
+        loader: AgentMarkdownLoader,
+        resolver: AgentConfigResolver,
+        event_bus: AgentEventBus,
+    ): ...
+
+    async def initialize(self) -> None:
+        """Загрузить агенты, зарегистрировать в EventBus, запустить watchdog."""
+
+    async def reload(self) -> None:
+        """Перезагрузить агенты из файлов (hot reload)."""
+        old_names = set(self._agents.keys())
+        self._agents = self._resolver.resolve_all()
+        new_names = set(self._agents.keys())
+
+        added = new_names - old_names
+        removed = old_names - new_names
+
+        for name in removed:
+            await self._event_bus.unregister_agent(name)
+            self._event_bus.publish(AgentUnregistered(agent_name=name))
+
+        for name in added:
+            await self._register_agent(name)
+            self._event_bus.publish(AgentRegistered(agent_name=name, ...))
+
+        if added or removed:
+            self._event_bus.publish(AgentListChanged(
+                added=list(added), removed=list(removed),
+            ))
+
+    def get(self, agent_name: str) -> ResolvedAgent | None:
+        """Получить конфигурацию агента."""
+
+    def get_all(self) -> dict[str, ResolvedAgent]:
+        """Получить все активные агенты."""
+
+    def get_primary_agents(self) -> dict[str, ResolvedAgent]:
+        """Получить агенты с mode=primary или mode=all."""
+
+    def get_subagents(self) -> dict[str, ResolvedAgent]:
+        """Получить агенты с mode=subagent или mode=all."""
+```
+
+#### 3.6.6. Hot reload flow
+
+```
+1. watchdog detect change → .codelab/agents/*.md modified
+2. AgentRegistry.reload() → load + resolve
+3. Для отключенных/удалённых агентов: unregister → publish AgentUnregistered
+4. Для новых агентов: register → publish AgentRegistered
 5. publish AgentListChanged(added, removed)
-6. Подписчики (Orchestrator, TUI, Metrics) реагируют автоматически
+6. Подписчики (StrategyDispatcher, TUI, Metrics) реагируют автоматически
 ```
+
+#### 3.6.7. Интеграция с AppConfig
+
+Расширяем `AppConfig` секцией `[agents]` из TOML:
+
+```python
+class AppConfig(BaseSettings):
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    agents_global: AgentsGlobalConfig = Field(default_factory=AgentsGlobalConfig)
+    websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+```
+
+При загрузке `AppConfig.load()` извлекает `[agents]` из merged TOML данных:
+
+```python
+@classmethod
+def _merge_agents_config(cls, toml_data: dict[str, Any]) -> AgentsGlobalConfig:
+    """Собрать глобальную конфигурацию агентов из TOML [agents]."""
+    agents_data = toml_data.get("agents", {})
+    return AgentsGlobalConfig(**agents_data)
+```
+
+#### 3.6.8. Примеры Markdown агентов
+
+**Глобальный агент `~/.codelab/agents/coder.md`:**
+
+```markdown
+---
+description: Senior Python Developer
+mode: subagent
+model: anthropic/claude-3-5-sonnet
+temperature: 0.1
+tools:
+  fs/read_text_file: true
+  fs/write_text_file: true
+permission:
+  edit: ask
+---
+Ты — Senior Python Developer. Пиши чистый, типизированный код.
+```
+
+**Проектный агент `.codelab/agents/reviewer.md`:**
+
+```markdown
+---
+description: Code reviewer for this project
+mode: subagent
+model: openai/gpt-4o
+tools:
+  fs/read_text_file: true
+  bash: true
+permission:
+  edit: deny
+  bash:
+    "ruff *": allow
+    "pytest *": allow
+    "*": ask
+---
+Review code for this project. Focus on:
+- ACP protocol compliance
+- Type safety
+- Test coverage
+```
+
+#### 3.6.9. Обновление codelab.toml.example
+
+```toml
+# ============================================================================
+# Конфигурация мультиагентной системы
+# ============================================================================
+
+[agents]
+# Режим выполнения по умолчанию
+mode = "single"
+
+# Модель по умолчанию
+default_model = "openai/gpt-4o"
+
+# Максимальное количество шагов
+max_steps = 7
+
+# Модель для Token-Slicing
+slicer_model = "openai/gpt-4o-mini"
+
+# Debug mode
+debug = false
+
+# Агенты определяются в Markdown файлах:
+#   Глобальные: ~/.codelab/agents/*.md
+#   Проектные:  .codelab/agents/*.md
+#
+# Имя файла = имя агента (coder.md → "coder")
+# Frontmatter = конфигурация, тело файла = system prompt
+```
+
+#### 3.6.10. Tradeoffs
+
+| Решение | Почему |
+|---|---|
+| TOML для global settings | Уже есть инфраструктура, deep merge, env vars |
+| Markdown для агентов | Совместимость с OpenCode, human-readable, system prompt inline |
+| Проектные override глобальные | Стандартный паттерн конфигурации |
+| Имя файла = имя агента | Просто, предсказуемо, как в OpenCode |
 
 ### 3.7. Execution Strategies
 
@@ -558,29 +916,11 @@ Reasoning step by step, then output your decision.
 **Как используется в OrchestratedStrategy:**
 
 ```python
-# 1. Сформировать agent descriptions из agents.yaml
+# 1. Сформировать agent descriptions из AgentRegistry
 agent_descriptions = "\n".join(
-    f"- {a['name']}: {a.get('description', a.get('system_prompt', '')[:100])}"
-    for a in active_agents
+    f"- {name}: {agent.description}"
+    for name, agent in registry.get_all().items()
 )
-
-# 2. Вызвать LLM с Structured Outputs
-response = await llm.chat(
-    messages=[
-        {"role": "system", "content": ROUTE_DECISION_PROMPT.format(
-            agent_descriptions=agent_descriptions,
-            user_request=user_text,
-        )},
-    ],
-    response_format=RouteDecision,  # ← Structured Outputs
-)
-route: RouteDecision = response.parsed
-
-# 3. Принять решение
-if route.target_agent is None:
-    # Задача решена — ответить пользователю напрямую
-else:
-    # Делегировать субагенту через EventBus
 ```
 
 **Почему Structured Outputs:**
@@ -592,7 +932,7 @@ else:
 ```
 1. Broadcast ContextBroadcast всем агентам параллельно
 2. Сбор ChoreographyAnswer от каждого агента
-3. Conflict Resolution: Priority Queue из agents.yaml
+3. Conflict Resolution: Priority Queue из agent configuration (mode, priority)
 4. coordination_overhead_tokens: токены холостых опросов
 5. max_steps предохранитель
 ```
@@ -650,34 +990,50 @@ class TaskResult(DomainEvent):
 >
 > Это не баг, а различие между **call-time propagation** (методы) и **event-borne context** (события). EventBus извлекает `parent_span` из `TaskInvocation` и использует его при dispatch к целевому агенту.
 
-**Конфигурация агента для HierarchicalStrategy:**
-```yaml
-agents:
-  - name: "coder"
-    mode: "primary"           # primary | subagent | hidden
-    model: "anthropic/claude-3-5-sonnet"
-    tools: ["fs/*", "terminal/*"]
-    permission:
-      task:                   # task permissions
-        "*": "deny"
-        "tester": "allow"
-        "reviewer": "ask"
-      edit: "ask"
-      bash:
-        "git *": "allow"
-        "*": "ask"
+**Конфигурация агента для HierarchicalStrategy (Markdown):**
 
-  - name: "tester"
-    mode: "subagent"
-    description: "Writes and runs tests"
-    model: "openai/gpt-4o-mini"
-    tools: ["terminal/*"]
-    hidden: false
+```markdown
+---
+name: coder
+mode: primary
+model: anthropic/claude-3-5-sonnet
+tools:
+  fs/*: true
+  terminal/*: true
+permission:
+  task:
+    "*": deny
+    tester: allow
+    reviewer: ask
+  edit: ask
+  bash:
+    "git *": allow
+    "*": ask
+---
+Primary agent — delegates to subagents.
+```
 
-  - name: "compact"
-    mode: "subagent"
-    hidden: true              # системный агент, не виден пользователю
-    model: "openai/gpt-4o-mini"
+```markdown
+---
+name: tester
+mode: subagent
+description: Writes and runs tests
+model: openai/gpt-4o-mini
+tools:
+  terminal/*: true
+hidden: false
+---
+Write and run tests.
+```
+
+```markdown
+---
+name: compact
+mode: subagent
+hidden: true
+model: openai/gpt-4o-mini
+---
+System agent for context compaction.
 ```
 
 **Когда использовать:**
@@ -838,13 +1194,13 @@ Maximum {max_tokens} tokens in the summary.
         return f"{head}\n\n... [truncated, see child session for details] ...\n\n{tail}"
 ```
 
-**Конфигурация в agents.yaml:**
-```yaml
-global:
-  max_sliced_tokens: 120        # лимит токенов для summary
-  slicer_model: "openai/gpt-4o-mini"  # модель для суммаризации
-  slicer_skip_threshold: 300    # не сжимать если output < N tokens
-  context_window_limit: 8000    # триггер compaction (fallback)
+**Конфигурация в codelab.toml:**
+```toml
+[agents]
+max_sliced_tokens = 120        # лимит токенов для summary
+slicer_model = "openai/gpt-4o-mini"  # модель для суммаризации
+slicer_skip_threshold = 300    # не сжимать если output < N tokens
+context_window_limit = 8000    # триггер compaction (fallback)
 ```
 
 **Интеграция со стратегиями:**
@@ -1076,7 +1432,7 @@ class HybridContextManager:
         - Уникальный session_id
         - parent_session_id = parent_session_id
         - is_child_session = True
-        - Свой system prompt (из agents.yaml)
+        - Свой system prompt (из Markdown файла)
         - Пустую историю
         """
         child_id = f"child_{uuid4().hex[:8]}"
@@ -1363,7 +1719,7 @@ class MetricsExporter(ABC):
 | **Jaeger** | Tracing UI | Визуализация distributed traces | Через OTel |
 | **Prometheus** | Metrics | Time-series metrics + alerting | `PrometheusExporter` |
 
-#### Конфигурация в agents.yaml
+#### Конфигурация в codelab.toml
 
 ```yaml
 observability:
@@ -1887,7 +2243,7 @@ class TimelineEvent:
 
 ### 4.5. Debug Mode
 
-При `debug: true` в `agents.yaml`:
+При `debug: true` в `[agents]` секции codelab.toml:
 - Full payload logging (не только summary)
 - LLM prompt/response dump (для анализа RouteDecision)
 - Broadcast audit (все ответы при хореографии, включая "молчащих" агентов)
@@ -1937,8 +2293,8 @@ TUI Navigation (Leader+Right/Left):
 | **Session metrics** | `storage/benchmarks/run_{id}.json` | ExecutionMetrics | По завершении turn |
 | **Event timeline** | `storage/debug/timeline_{id}.json` | list[TimelineEvent] | Только debug mode |
 | **Trace spans** | `storage/debug/trace_{id}.json` | list[Span] | Только debug mode |
-| **Agent config** | `storage/agents.yaml` | YAML | При старте + hot reload |
-| **Observability config** | `storage/agents.yaml` (секция `observability`) | YAML | При старте + hot reload |
+| **Agent config** | `~/.codelab/agents/*.md`, `.codelab/agents/*.md` | Markdown + frontmatter | При старте + hot reload |
+| **Observability config** | `codelab.toml` (секция `[agents]`) | TOML | При старте + hot reload |
 | **MCP server config** | `SessionState.mcp_servers` | JSON (в session state) | При session/new, сохраняется для reload |
 | **Global policies** | `~/.codelab/data/policies/global_permissions.json` | JSON | При изменении |
 | **Model pricing** | `storage/models_price.json` | JSON | Статический справочник |
@@ -2058,7 +2414,7 @@ Config option `_routing_mode` — кастомное расширение ACP д
 
 **Поток данных в ACP:**
 
-1. **`session/new`** — сервер возвращает `_routing_mode` в `configOptions` (дефолт из `agents.yaml`)
+1. **`session/new`** — сервер возвращает `_routing_mode` в `configOptions` (дефолт из `codelab.toml`)
 2. **`session/set_config_option`** — клиент меняет режим: `{"configId": "_routing_mode", "value": "multi_orchestrated"}`
 3. **`session/prompt`** — `StrategySelectionStage` читает `config_values["_routing_mode"]` и выбирает стратегию
 
@@ -2075,7 +2431,7 @@ Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` — **one-s
 
 **Пример использования:**
 ```
-# Сессия в режиме multi_orchestrated (дефолт из agents.yaml)
+# Сессия в режиме multi_orchestrated (дефолт из codelab.toml)
 Привет!                              → multi_orchestrated
 
 /single Объясни этот код             → single (one-shot, не меняет config)
@@ -2095,7 +2451,7 @@ set_config_option(_routing_mode=multi_choreographed)
 ### 6.3. Модели субагентов
 
 **НЕ управляются через ACP.** Только через:
-1. `agents.yaml` hot reload (persistent)
+1. Markdown files hot reload (persistent)
 2. TUI slash command: `/config agent coder model anthropic/claude-3-5-sonnet`
 
 **Обоснование:** Чистая ACP граница — клиент не должен знать о внутренней мультиагентной структуре.
@@ -2272,7 +2628,7 @@ class ToolDefinition:
 | 0b.2 | `shared/metrics/repository.py` | `IMetricsRepository` ABC + `JsonMetricsRepository` |
 | 0b.3 | `shared/metrics/pricing.py` | `PricingEngine` — `models_price.json`, расчёт cost |
 | 0b.4 | `storage/models_price.json` | Справочник цен |
-| 0b.5 | `storage/agents.yaml` | Sample конфигурация |
+| 0b.5 | `codelab.toml.example` | Sample `[agents]` конфигурация |
 
 ### Фаза 0c: Observability core
 
@@ -2346,10 +2702,10 @@ class PricingEngine:
 | 0c.5 | `server/observability/logging.py` | Расширение structlog — correlation_id во все логи |
 | 0c.6 | `server/storage/metrics.py` | `JsonMetricsRepository` — сохранение в `storage/benchmarks/` |
 | 0c.7 | `server/storage/observability.py` | `JsonObservabilityStorage` — export в `storage/debug/` |
-| 0c.8 | `server/storage/agent_config.py` | `YamlAgentConfigStorage` — загрузка agents.yaml с watchdog |
+| 0c.8 | `server/agent/markdown_loader.py` | `AgentMarkdownLoader` — парсинг Markdown файлов с frontmatter |
 | 0c.9 | `tests/server/observability/` | Unit-тесты Tracer, EventTimeline, CorrelationId |
 | 0c.10 | `server/observability/exporters/base.py` | `SpanExporter`, `MetricsExporter` ABC — pluggable interfaces (post-MVP ready) |
-| 0c.11 | `server/observability/config.py` | `ObservabilityConfig` — Pydantic для секции observability в agents.yaml |
+| 0c.11 | `server/observability/config.py` | `ObservabilityConfig` — Pydantic для секции observability в codelab.toml |
 
 ### Фаза 1: Новый agent layer (замена NaiveAgent + AgentOrchestrator)
 
@@ -2364,7 +2720,7 @@ class PricingEngine:
 | 1.7 | `server/agent/adapters/message_sanitizer.py` | `MessageSanitizer` — из AgentOrchestrator._sanitize_orphaned_tool_calls |
 | 1.8 | `server/agent/adapters/plan_extractor.py` | `PlanExtractor` — перенос из agent/plan_extractor.py |
 | 1.9 | `server/agent/engine.py` | `ExecutionEngine` — замена AgentOrchestrator, tracer span |
-| 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig (перенесено в 2a.6) |
+| 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из ResolvedAgent (перенесено в 2a.8) |
 | 1.11 | `server/agent/adapters/llm_adapter.py` | LLMAdapter создаёт tracer span для каждого LLM call (latency, tokens, cost, status) |
 | 1.12 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() (перенесено в 2a.8) |
 | 1.13 | `tests/server/agent/` | Unit-тесты нового agent layer |
@@ -2376,16 +2732,21 @@ class PricingEngine:
 
 | # | Файл | Описание |
 |---|---|---|
-| 2a.1 | `server/agent/config.py` | `AgentConfig`, `MultiAgentConfig` — Pydantic для agents.yaml |
-| 2a.2 | `server/agent/loader.py` | `AgentSystemLoader` — парсинг YAML, watchdog hot reload, публикация событий |
-| 2a.3 | `server/agent/strategies/base.py` | `ExecutionStrategy` ABC — parent_span propagation, hybrid context support |
-| 2a.4 | `server/agent/strategies/single.py` | `SingleStrategy` — прямой вызов LLMAdapter через EventBus |
-| 2a.5 | `server/agent/core/caller.py` | `AgentCaller` — единый интерфейс вызова через EventBus |
-| 2a.6 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig |
-| 2a.7 | `server/protocol/state.py` | **SessionState migration v1→v3**: execution_mode, active_agents, session_metrics, correlation_id, parent_session_id, child_session_ids, is_child_session, task_result, sliced_summary |
-| 2a.8 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
-| 2a.9 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentSystemLoader, ExecutionEngine, AgentCaller |
-| 2a.10 | `tests/server/agent/strategies/test_single.py` | Unit-тесты SingleStrategy — идентичное поведение текущему single-agent |
+| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML |
+| 2a.2 | `server/agent/markdown_loader.py` | `AgentMarkdownLoader` — парсинг Markdown файлов с frontmatter, hot reload |
+| 2a.3 | `server/agent/config_resolver.py` | `AgentConfigResolver` — merge global + markdown → ResolvedAgent |
+| 2a.4 | `server/agent/registry.py` | `AgentRegistry` — dict[name] → ResolvedAgent, hot reload, EventBus publish |
+| 2a.5 | `server/agent/strategies/base.py` | `ExecutionStrategy` ABC — parent_span propagation, hybrid context support |
+| 2a.6 | `server/agent/strategies/single.py` | `SingleStrategy` — прямой вызов LLMAdapter через EventBus |
+| 2a.7 | `server/agent/core/caller.py` | `AgentCaller` — единый интерфейс вызова через EventBus |
+| 2a.8 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из ResolvedAgent |
+| 2a.9 | `server/protocol/state.py` | **SessionState migration v1→v3**: execution_mode, active_agents, session_metrics, correlation_id, parent_session_id, child_session_ids, is_child_session, task_result, sliced_summary |
+| 2a.10 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
+| 2a.11 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentRegistry, ExecutionEngine, AgentCaller |
+| 2a.12 | `tests/server/agent/strategies/test_single.py` | Unit-тесты SingleStrategy — идентичное поведение текущему single-agent |
+| 2a.13 | `tests/server/agent/test_markdown_loader.py` | Unit-тесты парсинга Markdown frontmatter |
+| 2a.14 | `tests/server/agent/test_config_resolver.py` | Unit-тесты разрешения конфигов |
+| 2a.15 | `tests/server/agent/test_registry.py` | Unit-тесты AgentRegistry |
 
 **Критерий завершения фазы 2a:**
 - ✅ Все ~1800 существующих тестов проходят
@@ -2449,7 +2810,7 @@ class PricingEngine:
 | # | Файл | Описание |
 |---|---|---|
 | 2d.1 | `server/agent/strategies/models.py` | Добавить `ContextBroadcast`, `ChoreographyAnswer` — Pydantic |
-| 2d.2 | `server/agent/strategies/choreography.py` | `ChoreographyStrategy` — broadcast ContextBroadcast всем агентам параллельно, сбор ChoreographyAnswer, Conflict Resolution (Priority Queue из agents.yaml), max_steps |
+| 2d.2 | `server/agent/strategies/choreography.py` | `ChoreographyStrategy` — broadcast ContextBroadcast всем агентам параллельно, сбор ChoreographyAnswer, Conflict Resolution (Priority Queue из agent config), max_steps |
 | 2d.3 | `tests/server/agent/strategies/test_choreography.py` | Unit-тесты ChoreographyStrategy — broadcast, parallel, conflict resolution, max_steps |
 
 **Критерий завершения фазы 2d:**
@@ -2484,7 +2845,7 @@ class PricingEngine:
 |---|---|---|
 | 5.1 | `server/protocol/handlers/pipeline/stages/strategy_selection.py` | `StrategySelectionStage` — читает `_routing_mode` с приоритетом: slash override > config_values > default |
 | 5.2 | `server/protocol/handlers/pipeline/stages/llm_loop.py` | РЕФАКТОРИНГ: делегирует ExecutionEngine + StrategyDispatcher |
-| 5.3 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentSystemLoader, ExecutionEngine, ObservabilityFactory, AgentCaller |
+| 5.3 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentRegistry, ExecutionEngine, ObservabilityFactory, AgentCaller |
 | 5.4 | `server/protocol/handlers/config.py` | Обработка `_routing_mode`, расширенная обработка `model` |
 | 5.5 | `server/protocol/handlers/config_option_builder.py` | `build_routing_mode_config_option()` — spec для `_routing_mode` |
 | 5.6 | `server/protocol/handlers/slash_commands/routing.py` | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` (one-shot override) |
@@ -2532,7 +2893,7 @@ class PricingEngine:
 
 | # | Критерий | Проверка | Фаза |
 |---|---|---|---|
-| 1 | Приложение считывает `agents.yaml`, отключает/включает агентов без падения | Hot reload test | 2a |
+| 1 | Приложение считывает Markdown файлы агентов, отключает/включает агентов без падения | Hot reload test | 2a |
 | 2 | SingleStrategy работает идентично текущему single-agent | Benchmark + все тесты pass | 2a |
 | 3 | OrchestratedStrategy: RouteDecision → sub-agent → Token-Slicing → next step | Integration test | 2b |
 | 4 | HierarchicalStrategy: Primary → Task tool → child session → sub-agent → TaskResult | Integration test | 2c |
@@ -2556,7 +2917,7 @@ class PricingEngine:
 | 17 | Child sessions сохраняются и доступны для навигации | Integration test | 2b |
 | 18 | Token-Slicing корректно суммаризирует ответы | Unit test | 2b |
 | 19 | Abstract exporter interfaces готовы для post-MVP интеграции | Unit test | 0 |
-| 20 | ObservabilityConfig парсится из agents.yaml | Unit test | 0 |
+| 20 | ObservabilityConfig парсится из codelab.toml | Unit test | 0 |
 | 21 | Plan Tool работает во всех стратегиях | Integration test | 5 |
 | 22 | session/update: plan notification строго соответствует ACP 11-Agent Plan.md | Unit test | 5 |
 
@@ -2730,9 +3091,9 @@ def migrate_schema(cls, data: dict) -> dict:
 # Через config:
 set_config_option(_routing_mode="single")
 
-# Через agents.yaml:
-global:
-  mode: "single"
+# Через codelab.toml:
+[agents]
+  mode = "single"
 
 # Через TUI slash command:
 /single
@@ -2861,7 +3222,7 @@ except AgentNotFoundError as e:
     tracer.end_span(ctx, status="error", error=str(e))
     return LLMLoopResult(
         stop_reason="error",
-        final_text=f"Agent '{e.agent_name}' is not available. Check agents.yaml configuration.",
+        final_text=f"Agent '{e.agent_name}' is not available. Check agent configuration.",
     )
 ```
 
@@ -3129,7 +3490,7 @@ timeline.record(TimelineEvent(
 #### EventBus Recovery
 ```
 1. EventBus — in-memory, не требует recovery
-2. При рестарте: все агенты перерегистрируются через AgentSystemLoader
+2. При рестарте: все агенты перерегистрируются через AgentRegistry
 3. Pending requests теряются — acceptable (stateless bus)
 ```
 
@@ -3147,7 +3508,7 @@ timeline.record(TimelineEvent(
       "sessionUpdate": "agent_message_chunk",
       "content": {
         "type": "text",
-        "text": "Error: Agent 'coder' is not available. Check agents.yaml configuration."
+        "text": "Error: Agent 'coder' is not available. Check agent configuration."
       }
     }
   }
@@ -3210,7 +3571,7 @@ TimelineEvent:
 | **Task Permissions** | Контроль каких субагентов агент может вызывать |
 | **SpanExporter** | Абстрактный интерфейс для экспорта span'ов во внешние системы |
 | **MetricsExporter** | Абстрактный интерфейс для экспорта метрик во внешние системы |
-| **ObservabilityConfig** | Конфигурация observability бэкендов в agents.yaml |
+| **ObservabilityConfig** | Конфигурация observability бэкендов в codelab.toml |
 | **MCP** | Model Context Protocol — протокол для подключения внешних инструментов |
 | **MCPManager** | Per-session менеджер MCP серверов (уже реализовано) |
 | **MCPToolAdapter** | Конвертация MCPTool → ToolDefinition с namespace prefix |
