@@ -2319,18 +2319,20 @@ class MetricsExporter(ABC):
 
 #### Конфигурация в codelab.toml
 
-```yaml
-observability:
-  enabled: false                    # MVP: всегда false
-  otel:
-    enabled: false
-    endpoint: "http://localhost:4317"
-    protocol: "grpc"                # grpc | http
-  langfuse:
-    enabled: false
-    host: "https://cloud.langfuse.com"
-    public_key: "${LANGFUSE_PUBLIC_KEY}"
-    secret_key: "${LANGFUSE_SECRET_KEY}"
+```toml
+[observability]
+enabled = false                    # MVP: всегда false
+
+[observability.otel]
+enabled = false
+endpoint = "http://localhost:4317"
+protocol = "grpc"                  # grpc | http
+
+[observability.langfuse]
+enabled = false
+host = "https://cloud.langfuse.com"
+public_key = "${LANGFUSE_PUBLIC_KEY}"
+secret_key = "${LANGFUSE_SECRET_KEY}"
 ```
 
 #### ObservabilityFactory с DI
