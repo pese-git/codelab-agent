@@ -131,26 +131,37 @@ retry_on = ["rate_limit", "timeout"]
 # ============================================================================
 # Конфигурация мультиагентной системы
 # ============================================================================
-# Агенты определяются в Markdown файлах с YAML frontmatter:
-#   Глобальные: ~/.codelab/agents/*.md
-#   Проектные:  .codelab/agents/*.md (override глобальных)
+# Агенты можно определить двумя способами:
+#
+# 1. TOML (в этом файле) — аналогично opencode.json:
+#    [agents.definitions.coder]
+#    description = "Senior Python Developer"
+#    mode = "subagent"
+#    model = "anthropic/claude-3-5-sonnet"
+#    prompt = "Ты — Senior Python Developer..."
+#
+# 2. Markdown файлы (приоритет выше, override TOML):
+#    Глобальные: ~/.codelab/agents/*.md
+#    Проектные:  .codelab/agents/*.md
 #
 # Имя файла = имя агента (coder.md → "coder")
 # Frontmatter = конфигурация, тело файла = system prompt
+
+# Пример TOML-агента (раскомментируйте для использования):
+# [agents.definitions.coder]
+# description = "Senior Python Developer"
+# mode = "subagent"
+# priority = 1
+# model = "anthropic/claude-3-5-sonnet"
+# temperature = 0.1
+# prompt = "Ты — Senior Python Developer. Пиши чистый, типизированный код."
 #
-# Пример агента (~/.codelab/agents/coder.md):
-# ---
-# description: Senior Python Developer
-# mode: subagent
-# model: anthropic/claude-3-5-sonnet
-# temperature: 0.1
-# tools:
-#   fs/read_text_file: true
-#   fs/write_text_file: true
-# permission:
-#   edit: ask
-# ---
-# Ты — Senior Python Developer. Пиши чистый, типизированный код.
+# [agents.definitions.coder.tools]
+# "fs/read_text_file" = true
+# "fs/write_text_file" = true
+#
+# [agents.definitions.coder.permission]
+# edit = "ask"
 
 [agents]
 # Режим выполнения по умолчанию: single | multi_orchestrated | multi_choreographed | hierarchical

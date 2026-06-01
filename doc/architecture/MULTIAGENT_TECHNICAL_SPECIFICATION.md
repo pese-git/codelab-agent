@@ -437,10 +437,11 @@ class Agent(Protocol):
 в TOML (codelab.toml), а определения агентов — в Markdown файлах с YAML frontmatter
 (аналогично OpenCode).
 
-#### 3.6.1. TOML: Глобальные настройки агентов
+#### 3.6.1. TOML: Глобальные настройки + определение агентов
 
-Глобальные параметры мультиагентной системы определяются в секции `[agents]`
-файла `codelab.toml` (цепочка: `~/.codelab/codelab.toml` → `codelab.toml` → `codelab.local.toml`):
+Глобальные параметры мультиагентной системы и определения агентов задаются
+в секции `[agents]` файла `codelab.toml` (цепочка: `~/.codelab/codelab.toml`
+→ `codelab.toml` → `codelab.local.toml`):
 
 ```toml
 # codelab.toml
@@ -471,11 +472,68 @@ context_window_limit = 8000
 
 # Debug mode (полные payload логи, LLM dump)
 debug = false
+
+# ============================================================================
+# Определение агентов (аналогично JSON в OpenCode)
+# ============================================================================
+
+[agents.definitions.coder]
+description = "Senior Python Developer — writes clean, efficient code"
+mode = "subagent"
+priority = 1
+model = "anthropic/claude-3-5-sonnet"
+temperature = 0.1
+prompt = "Ты — Senior Python Developer. Пиши чистый, типизированный код."
+
+[agents.definitions.coder.tools]
+"fs/read_text_file" = true
+"fs/write_text_file" = true
+
+[agents.definitions.coder.permission]
+edit = "ask"
+bash = { "*" = "ask", "git *" = "allow" }
+
+[agents.definitions.tester]
+description = "QA Engineer — writes and runs tests"
+mode = "subagent"
+priority = 2
+model = "openai/gpt-4o-mini"
+prompt = """
+Ты — QA Engineer. Твоя задача — писать и запускать тесты.
+
+Следуй best practices:
+- Один тест на один кейс
+- Используй fixtures
+"""
+
+[agents.definitions.tester.tools]
+"terminal/*" = true
+
+[agents.definitions.tester.permission]
+edit = "deny"
 ```
 
-**Pydantic модель:**
+**Pydantic модели:**
 
 ```python
+class AgentTOMLConfig(BaseModel):
+    """Конфигурация агента из TOML [agents.definitions.<name>]."""
+    model_config = ConfigDict(extra="allow")
+
+    description: str
+    mode: AgentMode = AgentMode.all
+    priority: int = 99
+    model: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    steps: int | None = None
+    disable: bool = False
+    hidden: bool = False
+    color: str | None = None
+    tools: dict[str, bool] | None = None
+    permission: AgentPermission | None = None
+    prompt: str | None = None  # inline text или "{file:...}"
+
 class AgentsGlobalConfig(BaseModel):
     """Глобальные настройки агентов из TOML [agents]."""
     mode: str = "single"
@@ -487,6 +545,7 @@ class AgentsGlobalConfig(BaseModel):
     slicer_skip_threshold: int = 300
     context_window_limit: int = 8000
     debug: bool = False
+    definitions: dict[str, AgentTOMLConfig] = Field(default_factory=dict)
 ```
 
 #### 3.6.2. Markdown: Определение агентов
@@ -495,8 +554,15 @@ class AgentsGlobalConfig(BaseModel):
 Имя файла без `.md` становится именем агента.
 
 **Расположение (приоритет от высшего к низшему):**
-1. `.codelab/agents/` — проектные агенты (override/дополнение)
-2. `~/.codelab/agents/` — глобальные агенты пользователя
+1. `.codelab/agents/` — проектные Markdown агенты (override всех)
+2. `codelab.toml` → `[agents.definitions.*]` — проектные TOML агенты
+3. `~/.codelab/agents/` — глобальные Markdown агенты
+4. `~/.codelab/codelab.toml` → `[agents.definitions.*]` — глобальные TOML агенты
+
+**Override логика:** Если агент с одинаковым именем определён в нескольких
+источниках, побеждает высший приоритет (override, не merge). Markdown полностью
+заменяет TOML для агентов с одинаковым именем — аналогично OpenCode, где
+`.opencode/agents/*.md` override `opencode.json`.
 
 **Формат файла `coder.md`:**
 
@@ -587,42 +653,69 @@ class AgentMarkdownConfig(BaseModel):
     prompt: str | None = None  # "{file:./prompts/...}" или None (тело Markdown)
 ```
 
-#### 3.6.3. AgentMarkdownLoader
+#### 3.6.3. AgentConfigLoader
 
-**Назначение:** Загрузка и парсинг Markdown файлов агентов из обоих каталогов.
+**Назначение:** Загрузка конфигурации агентов из всех источников (TOML + Markdown)
+с правильным приоритетом override.
 
 ```python
-class AgentMarkdownLoader:
-    """Загрузка агентов из Markdown файлов с YAML frontmatter."""
+class AgentConfigLoader:
+    """Загрузка агентов из TOML и Markdown файлов.
 
-    AGENTS_DIRS = [
-        Path.cwd() / ".codelab" / "agents",    # проектные (override, higher priority)
-        Path.home() / ".codelab" / "agents",   # глобальные
-    ]
+    Приоритет (высший → низший):
+    1. .codelab/agents/*.md          — проектные Markdown
+    2. codelab.toml definitions      — проектные TOML
+    3. ~/.codelab/agents/*.md        — глобальные Markdown
+    4. ~/.codelab/codelab.toml defs  — глобальные TOML
 
-    def load_all(self) -> dict[str, AgentMarkdownConfig]:
-        """Загрузить все Markdown агенты.
+    Override: агент с одинаковым именем из высшего источника
+    полностью заменяет определение из низшего.
+    """
 
-        Проектные агенты override глобальные с тем же именем.
+    def load_all(
+        self,
+        global_toml: AgentsGlobalConfig,
+        project_toml: AgentsGlobalConfig,
+    ) -> dict[str, AgentMarkdownConfig]:
+        """Загрузить все агенты из всех источников.
+
+        Args:
+            global_toml: Глобальный конфиг (~/.codelab/codelab.toml)
+            project_toml: Проектный конфиг (codelab.toml)
+
+        Returns:
+            Dict[name] → AgentMarkdownConfig (из высшего источника)
         """
         agents: dict[str, AgentMarkdownConfig] = {}
 
-        for agents_dir in reversed(self.AGENTS_DIRS):  # global first
-            if not agents_dir.exists():
-                continue
-            for md_file in agents_dir.glob("*.md"):
-                config = self._parse_markdown(md_file)
-                agents[config.name] = config  # project overrides global
+        # 4. Глобальные TOML (низший приоритет)
+        for name, toml_cfg in global_toml.definitions.items():
+            agents[name] = self._toml_to_markdown(name, toml_cfg)
+
+        # 3. Глобальные Markdown (override глобальных TOML)
+        for md_file in (Path.home() / ".codelab" / "agents").glob("*.md"):
+            agents[md_file.stem] = self._parse_markdown(md_file)
+
+        # 2. Проектные TOML (override глобальных)
+        for name, toml_cfg in project_toml.definitions.items():
+            agents[name] = self._toml_to_markdown(name, toml_cfg)
+
+        # 1. Проектные Markdown (высший приоритет, override всего)
+        for md_file in (Path.cwd() / ".codelab" / "agents").glob("*.md"):
+            agents[md_file.stem] = self._parse_markdown(md_file)
 
         return agents
 
-    def _parse_markdown(self, path: Path) -> AgentMarkdownConfig:
-        """Парсить Markdown файл → AgentMarkdownConfig + system_prompt.
+    def _toml_to_markdown(
+        self, name: str, cfg: AgentTOMLConfig
+    ) -> AgentMarkdownConfig:
+        """Конвертировать TOML-конфиг агента в AgentMarkdownConfig.
 
-        1. Найти frontmatter (между ---)
-        2. Распарсить YAML
-        3. Тело после frontmatter = system_prompt
+        prompt: inline text или "{file:...}" → загружается при resolve.
         """
+
+    def _parse_markdown(self, path: Path) -> AgentMarkdownConfig:
+        """Парсить Markdown файл → AgentMarkdownConfig + system_prompt."""
 ```
 
 #### 3.6.4. AgentConfigResolver
@@ -696,7 +789,7 @@ class AgentRegistry:
 
     def __init__(
         self,
-        loader: AgentMarkdownLoader,
+        loader: AgentConfigLoader,
         resolver: AgentConfigResolver,
         event_bus: AgentEventBus,
     ): ...
@@ -737,18 +830,28 @@ class AgentRegistry:
 
     def get_subagents(self) -> dict[str, ResolvedAgent]:
         """Получить агенты с mode=subagent или mode=all."""
+
+    def get_orchestrator(self) -> ResolvedAgent | None:
+        """Получить агента с mode=orchestrator."""
 ```
 
 #### 3.6.6. Hot reload flow
 
 ```
 1. watchdog detect change → .codelab/agents/*.md modified
-2. AgentRegistry.reload() → load + resolve
+   ИЛИ: watchdog detect change → codelab.toml modified
+2. AgentRegistry.reload() → AgentConfigLoader.load_all() + resolve
 3. Для отключенных/удалённых агентов: unregister → publish AgentUnregistered
 4. Для новых агентов: register → publish AgentRegistered
 5. publish AgentListChanged(added, removed)
 6. Подписчики (StrategyDispatcher, TUI, Metrics) реагируют автоматически
 ```
+
+**Watchdog источники:**
+- `~/.codelab/agents/*.md` — глобальные Markdown
+- `.codelab/agents/*.md` — проектные Markdown
+- `~/.codelab/codelab.toml` — глобальный TOML
+- `codelab.toml`, `codelab.local.toml` — проектный TOML
 
 #### 3.6.7. Интеграция с AppConfig
 
@@ -773,24 +876,55 @@ def _merge_agents_config(cls, toml_data: dict[str, Any]) -> AgentsGlobalConfig:
     return AgentsGlobalConfig(**agents_data)
 ```
 
-#### 3.6.8. Примеры Markdown агентов
+#### 3.6.8. Примеры конфигурации агентов
 
-**Оркестратор `~/.codelab/agents/orchestrator.md`:**
+**TOML: агенты в `codelab.toml` (аналогично `opencode.json`):**
 
-```markdown
----
-description: Orchestrator — analyzes requests and routes to specialized agents
-mode: orchestrator
-priority: 0
-model: openai/gpt-4o
-temperature: 0.1
----
-You are an orchestrator. Analyze user requests and determine which specialized
-agent should handle them. Route tasks to the appropriate agent with a clear,
-atomic task description.
+```toml
+[agents.definitions.coder]
+description = "Senior Python Developer"
+mode = "subagent"
+priority = 1
+model = "anthropic/claude-3-5-sonnet"
+temperature = 0.1
+prompt = "Ты — Senior Python Developer. Пиши чистый, типизированный код."
+
+[agents.definitions.coder.tools]
+"fs/read_text_file" = true
+"fs/write_text_file" = true
+
+[agents.definitions.coder.permission]
+edit = "ask"
+
+[agents.definitions.orchestrator]
+description = "Orchestrator — routes tasks to specialized agents"
+mode = "orchestrator"
+priority = 0
+model = "openai/gpt-4o"
+temperature = 0.1
+prompt = "You are an orchestrator. Analyze requests and route to agents."
+
+[agents.definitions.tester]
+description = "QA Engineer — writes and runs tests"
+mode = "subagent"
+priority = 2
+model = "openai/gpt-4o-mini"
+prompt = """
+Ты — QA Engineer. Твоя задача — писать и запускать тесты.
+
+Следуй best practices:
+- Один тест на один кейс
+- Используй fixtures
+"""
+
+[agents.definitions.tester.tools]
+"terminal/*" = true
+
+[agents.definitions.tester.permission]
+edit = "deny"
 ```
 
-**Глобальный агент `~/.codelab/agents/coder.md`:**
+**Markdown: агент `~/.codelab/agents/coder.md` (override TOML):**
 
 ```markdown
 ---
@@ -806,15 +940,16 @@ permission:
   edit: ask
 ---
 Ты — Senior Python Developer. Пиши чистый, типизированный код.
+Следуй PEP 8, используй type hints.
 ```
 
-**Проектный агент `.codelab/agents/reviewer.md`:**
+**Markdown: проектный агент `.codelab/agents/reviewer.md`:**
 
 ```markdown
 ---
 description: Code reviewer for this project
-mode: subagent
-priority: 2
+mode = "subagent"
+priority = 3
 model: openai/gpt-4o
 tools:
   fs/read_text_file: true
@@ -832,13 +967,13 @@ Review code for this project. Focus on:
 - Test coverage
 ```
 
-**Агент с внешним промптом `.codelab/agents/security.md`:**
+**Markdown: агент с внешним промптом `.codelab/agents/security.md`:**
 
 ```markdown
 ---
 description: Security auditor
 mode: subagent
-priority: 3
+priority = 4
 model: anthropic/claude-3-5-sonnet
 prompt: "{file:./prompts/security-audit.txt}"
 tools:
@@ -848,7 +983,7 @@ permission:
 ---
 ```
 
-**Агент с vendor-specific параметрами `.codelab/agents/deep-thinker.md`:**
+**Markdown: агент с vendor-specific параметрами `.codelab/agents/deep-thinker.md`:**
 
 ```markdown
 ---
@@ -872,6 +1007,9 @@ You are a deep reasoning agent. Solve complex problems step by step.
 # Режим выполнения по умолчанию
 mode = "single"
 
+# Режим fallback если нет нужных агентов
+fallback_mode = "single"
+
 # Модель по умолчанию
 default_model = "openai/gpt-4o"
 
@@ -884,9 +1022,18 @@ slicer_model = "openai/gpt-4o-mini"
 # Debug mode
 debug = false
 
-# Агенты определяются в Markdown файлах:
-#   Глобальные: ~/.codelab/agents/*.md
-#   Проектные:  .codelab/agents/*.md
+# Агенты можно определить двумя способами:
+#
+# 1. TOML (в этом файле) — аналогично opencode.json:
+#    [agents.definitions.coder]
+#    description = "Senior Python Developer"
+#    mode = "subagent"
+#    model = "anthropic/claude-3-5-sonnet"
+#    prompt = "Ты — Senior Python Developer..."
+#
+# 2. Markdown файлы (приоритет выше, override TOML):
+#    Глобальные: ~/.codelab/agents/*.md
+#    Проектные:  .codelab/agents/*.md
 #
 # Имя файла = имя агента (coder.md → "coder")
 # Frontmatter = конфигурация, тело файла = system prompt
@@ -897,12 +1044,15 @@ debug = false
 | Решение | Почему |
 |---|---|
 | TOML для global settings | Уже есть инфраструктура, deep merge, env vars |
-| Markdown для агентов | Совместимость с OpenCode, human-readable, system prompt inline |
+| TOML для агентов (`[agents.definitions.*]`) | Аналогично `opencode.json` в OpenCode, всё в одном файле |
+| Markdown для агентов | Совместимость с OpenCode, human-readable для длинных промптов |
+| Override (не merge) | Предсказуемость — один источник правды для каждого агента |
 | Проектные override глобальные | Стандартный паттерн конфигурации |
 | Имя файла = имя агента | Просто, предсказуемо, как в OpenCode |
 | Числовой priority | Проще сортировка, вставка между значениями, default 99 |
 | `mode: orchestrator` | Ясно, проще валидация, TUI визуально выделяет |
 | `model_config(extra="allow")` | Vendor-specific параметры без изменения схемы |
+| Inline prompt в TOML | Поддержка однострочных и multi-line (triple-quote) промптов |
 
 #### 3.6.11. Матрица параметров по стратегиям
 
@@ -918,14 +1068,21 @@ debug = false
 | **prompt {file:...}** | ✅ | ✅ | ✅ | ✅ |
 | **additional_params** | ✅ | ✅ | ✅ | ✅ |
 
+**TOML vs Markdown — когда что использовать:**
+
+| Формат | Когда | Плюсы | Минусы |
+|---|---|---|---|
+| **TOML** | Быстрые агенты, короткие промпты, `{file:...}` | Всё в одном файле, проще программно | Multi-line строки менее читаемы |
+| **Markdown** | Сложные системные промпты, длинные инструкции | Inline промпт читаемо, как в OpenCode | Много файлов |
+
 **Минимальный набор агентов для каждой стратегии:**
 
 | Стратегия | Минимум | Пример |
 |---|---|---|
 | **Single** | 1 агент (любой mode) | `coder.md` (mode: subagent) |
-| **Orchestrated** | 1 orchestrator + 1 subagent | `orchestrator.md` + `coder.md` |
+| **Orchestrated** | 1 orchestrator + 1 subagent | `orchestrator` (TOML) + `coder.md` |
 | **Choreography** | ≥2 subagents | `coder.md` + `reviewer.md` |
-| **Hierarchical** | 1 primary + 1 subagent | `coder.md` (primary) + `tester.md` |
+| **Hierarchical** | 1 primary + 1 subagent | `coder` (TOML, primary) + `tester.md` |
 
 #### 3.6.12. Валидация совместимости mode + стратегия
 
@@ -2923,7 +3080,7 @@ class PricingEngine:
 | # | Файл | Описание |
 |---|---|---|
 | 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML, `AgentMode` enum (primary, subagent, orchestrator, all), `model_config(extra="allow")` для vendor-specific params |
-| 2a.2 | `server/agent/markdown_loader.py` | `AgentMarkdownLoader` — парсинг Markdown файлов с frontmatter, hot reload |
+| 2a.2 | `server/agent/markdown_loader.py` | `AgentConfigLoader` — загрузка из TOML + Markdown, override логика, hot reload |
 | 2a.3 | `server/agent/config_resolver.py` | `AgentConfigResolver` — merge global + markdown → ResolvedAgent |
 | 2a.4 | `server/agent/registry.py` | `AgentRegistry` — dict[name] → ResolvedAgent, hot reload, EventBus publish |
 | 2a.5 | `server/agent/strategies/base.py` | `ExecutionStrategy` ABC — parent_span propagation, hybrid context support |
@@ -3776,3 +3933,6 @@ TimelineEvent:
 | **fallback_mode** | Режим fallback если нет нужных агентов для выбранной стратегии |
 | **prompt {file:...}** | Синтаксис для внешнего файла промпта (относительно .md файла) |
 | **additional_params** | Vendor-specific параметры (reasoningEffort, textVerbosity) |
+| **AgentConfigLoader** | Загрузка агентов из TOML + Markdown с override логикой |
+| **AgentTOMLConfig** | Pydantic модель агента из TOML [agents.definitions.*] |
+| **[agents.definitions.*]** | TOML-секция для определения агентов (аналог opencode.json) |
