@@ -2623,7 +2623,7 @@ global:
 
 ## 13. ERROR HANDLING & RECOVERY
 
-### 12.1. Иерархия исключений
+### 13.1. Иерархия исключений
 
 Система использует многоуровневую иерархию исключений, разделённую по доменам:
 
@@ -2659,7 +2659,7 @@ AgentBusError (EventBus layer — НОВАЯ)
 └── BroadcastPartialFailure      — часть агентов в broadcast упала
 ```
 
-### 12.2. Стратегия обработки ошибок по слоям
+### 13.2. Стратегия обработки ошибок по слоям
 
 | Слой | Тип ошибки | Действие | ACP response |
 |---|---|---|---|
@@ -2674,7 +2674,7 @@ AgentBusError (EventBus layer — НОВАЯ)
 | **Client RPC** | ClientRPCCancelledError | Завершить turn (cancelled) | prompt_completed (cancelled) |
 | **Strategy** | max_steps exceeded | Завершить turn | prompt_completed (max_steps) |
 
-### 12.3. LLM Provider Fallback
+### 13.3. LLM Provider Fallback
 
 Система поддерживает fallback-цепочку провайдеров (уже реализовано в `server/llm/fallback/`):
 
@@ -2698,7 +2698,7 @@ State: CLOSED → OPEN → HALF_OPEN → CLOSED
 - Threshold: 5 failures за 60s → OPEN на 120s
 ```
 
-### 12.4. EventBus Error Handling
+### 13.4. EventBus Error Handling
 
 #### AgentNotFoundError
 ```python
@@ -2746,9 +2746,9 @@ if failed:
 # Conflict Resolution работает только с успешными ответами
 ```
 
-### 12.5. Cancellation Flow
+### 13.5. Cancellation Flow
 
-#### 12.5.1. Общий механизм cancellation
+#### 13.5.1. Общий механизм cancellation
 
 Все стратегии используют единый механизм отмены через `asyncio.Event`:
 
@@ -2776,7 +2776,7 @@ if cancellation_event.is_set():
 6. Response клиенту: {"stopReason": "cancelled"}
 ```
 
-#### 12.5.2. SingleStrategy
+#### 13.5.2. SingleStrategy
 
 ```mermaid
 sequenceDiagram
@@ -2803,7 +2803,7 @@ sequenceDiagram
 - LLM provider request прерывается (если поддерживает cancellation)
 - Tool execution на клиенте **не отменяется** — результат игнорируется
 
-#### 12.5.3. OrchestratedStrategy
+#### 13.5.3. OrchestratedStrategy
 
 ```mermaid
 sequenceDiagram
@@ -2831,7 +2831,7 @@ sequenceDiagram
 - Частично выполненные шаги **сохраняются в history**
 - Все pending `send_request` в шине отменяются
 
-#### 12.5.4. ChoreographyStrategy
+#### 13.5.4. ChoreographyStrategy
 
 ```mermaid
 sequenceDiagram
@@ -2864,7 +2864,7 @@ sequenceDiagram
 - Conflict Resolution **полностью пропускается**
 - Частичные результаты **игнорируются** (даже если некоторые агенты успели ответить)
 
-#### 12.5.5. HierarchicalStrategy
+#### 13.5.5. HierarchicalStrategy
 
 ```mermaid
 sequenceDiagram
@@ -2898,7 +2898,7 @@ sequenceDiagram
 - Child session history **сохраняется** (для навигации в TUI)
 - Все pending `send_request` для sub-agents отменяются
 
-#### 12.5.6. Edge Cases
+#### 13.5.6. Edge Cases
 
 | Сценарий | Поведение |
 |---|---|
@@ -2911,7 +2911,7 @@ sequenceDiagram
 | **Cancel во время MCP server call** | MCP call продолжает выполняться, результат игнорируется |
 | **Двойной cancel** | Второй cancel игнорируется (idempotent). `cancellation_event` уже set |
 
-#### 12.5.7. Cleanup при отмене
+#### 13.5.7. Cleanup при отмене
 
 При завершении turn с `stop_reason="cancelled"`:
 
@@ -2956,7 +2956,7 @@ timeline.record(TimelineEvent(
 - Metrics записываются частично (для observability)
 - EventBus очищает pending requests (не leak)
 
-### 12.6. Recovery после краша процесса
+### 13.6. Recovery после краша процесса
 
 #### Session State Recovery
 ```
@@ -2981,7 +2981,7 @@ timeline.record(TimelineEvent(
 3. Pending requests теряются — acceptable (stateless bus)
 ```
 
-### 12.7. Error Reporting в ACP
+### 13.7. Error Reporting в ACP
 
 При ошибке во время prompt turn сервер отправляет:
 
@@ -3013,7 +3013,7 @@ timeline.record(TimelineEvent(
 }
 ```
 
-### 12.8. Observability ошибок
+### 13.8. Observability ошибок
 
 Все ошибки записываются в tracing и timeline:
 
