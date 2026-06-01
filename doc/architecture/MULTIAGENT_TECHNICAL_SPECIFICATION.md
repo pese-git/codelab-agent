@@ -3363,12 +3363,13 @@ class PricingEngine:
 
 **По умолчанию:** `_routing_mode = "single"` — мультиагентность доступна, но не включена.
 
-#### Этап 3: Integration (Phase 4-5)
+#### Этап 3: Integration (Phase 3-5)
 
-**Цель:** Интеграция в pipeline, TUI observability, end-to-end tests.
+**Цель:** MetricsTracker, интеграция в pipeline, TUI observability, end-to-end tests.
 
 | Действие | Результат |
 |---|---|
+| MetricsTracker + MetricsSubscriber | Auto-log метрик через EventBus подписки |
 | StrategySelectionStage в pipeline | Выбор стратегии по `_routing_mode` |
 | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` | One-shot override |
 | `_routing_mode` config option | Persistent режим сессии |
@@ -3460,7 +3461,7 @@ set_config_option(_routing_mode="single")
 | **Этап 2b** | OrchestratedStrategy + TokenSlicer + HybridContextManager | Route decision, token slicing, child sessions pass |
 | **Этап 2c** | HierarchicalStrategy + Task Permissions | Task delegation, child sessions, permissions pass |
 | **Этап 2d** | ChoreographyStrategy | Broadcast, parallel, conflict resolution pass |
-| **Этап 3** | Integration: pipeline + slash commands + config | End-to-end pass |
+| **Этап 3** | MetricsTracker + pipeline + slash commands + config | End-to-end pass, metrics collected |
 | **Этап 4** | Full suite: старые + новые | ~1800 + новые = 100% pass |
 
 **Бенчмарки на каждом этапе:**
@@ -3470,6 +3471,7 @@ set_config_option(_routing_mode="single")
 - Hierarchical overhead vs Single — этап 2c
 - Choreography overhead vs Single — этап 2d
 - Memory usage (tracer, timeline, child sessions) — этапы 2b–2d
+- MetricsTracker overhead — этап 3
 
 ### 12.6. Deprecation Timeline
 
@@ -3480,7 +3482,7 @@ set_config_option(_routing_mode="single")
 | **Этап 2b завершён** | OrchestratedStrategy работает: RouteDecision + Token-Slicing + Child Sessions |
 | **Этап 2c завершён** | HierarchicalStrategy работает: Task tool + Task Permissions + Child Sessions |
 | **Этап 2d завершён** | ChoreographyStrategy работает: Broadcast + Conflict Resolution |
-| **Этап 3 завершён** | Multi-agent fully integrated, TUI observability |
+| **Этап 3 завершён** | MetricsTracker + Multi-agent fully integrated, TUI observability |
 | **MVP release** | All 4 strategies available, single = default |
 | **Post-MVP** | Рассмотреть смену default на multi_orchestrated |
 
