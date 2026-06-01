@@ -2263,6 +2263,70 @@ class ToolDefinition:
 | 0.6 | `shared/metrics/pricing.py` | `PricingEngine` — `models_price.json`, расчёт cost |
 | 0.7 | `storage/models_price.json` | Справочник цен |
 | 0.8 | `storage/agents.yaml` | Sample конфигурация |
+
+**Формат `storage/models_price.json`:**
+
+```json
+{
+  "models": {
+    "openai/gpt-4o": {
+      "input_price_per_1m_tokens": 2.50,
+      "output_price_per_1m_tokens": 10.00,
+      "provider": "openai"
+    },
+    "openai/gpt-4o-mini": {
+      "input_price_per_1m_tokens": 0.15,
+      "output_price_per_1m_tokens": 0.60,
+      "provider": "openai"
+    },
+    "anthropic/claude-3-5-sonnet": {
+      "input_price_per_1m_tokens": 3.00,
+      "output_price_per_1m_tokens": 15.00,
+      "provider": "anthropic"
+    },
+    "anthropic/claude-3-5-haiku": {
+      "input_price_per_1m_tokens": 0.25,
+      "output_price_per_1m_tokens": 1.25,
+      "provider": "anthropic"
+    }
+  }
+}
+```
+
+**PricingEngine интерфейс:**
+
+```python
+class PricingEngine:
+    """Расчёт стоимости вызова LLM моделей."""
+
+    def __init__(self, pricing_file: str = "storage/models_price.json"):
+        with open(pricing_file) as f:
+            self._models: dict[str, dict] = json.load(f)["models"]
+
+    def get_cost(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> float:
+        """Рассчитать стоимость вызова модели.
+
+        Args:
+            model: Идентификатор модели (например, "openai/gpt-4o")
+            input_tokens: Количество входных токенов
+            output_tokens: Количество выходных токенов
+
+        Returns:
+            Стоимость в USD
+        """
+        pricing = self._models.get(model)
+        if pricing is None:
+            return 0.0  # неизвестная модель — бесплатная (для тестов)
+        input_cost = (input_tokens / 1_000_000) * pricing["input_price_per_1m_tokens"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output_price_per_1m_tokens"]
+        return round(input_cost + output_cost, 6)
+```
+
 | 0.9 | `server/observability/tracer.py` | `Tracer` — distributed tracing: Span, SpanContext, context manager |
 | 0.10 | `server/observability/timeline.py` | `EventTimeline` — хронология всех событий сессии |
 | 0.11 | `server/observability/factory.py` | `ObservabilityFactory` — создаёт Tracer + Timeline + Metrics |
