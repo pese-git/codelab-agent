@@ -549,7 +549,7 @@ max_sliced_tokens = 120
 slicer_skip_threshold = 300
 
 # Лимит контекста (триггер compaction)
-context_window_limit = 8000
+context_window_limit = 128000
 
 # Буфер токенов для сжатия (как в OpenCode)
 compaction_reserved_tokens = 10000
@@ -627,7 +627,7 @@ class AgentsGlobalConfig(BaseModel):
     slicer_model: str = "openai/gpt-4o-mini"
     max_sliced_tokens: int = 120
     slicer_skip_threshold: int = 300
-    context_window_limit: int = 8000
+    context_window_limit: int = 128000
     compaction_reserved_tokens: int = 10000  # буфер токенов для сжатия
     debug: bool = False
     definitions: dict[str, AgentTOMLConfig] = Field(default_factory=dict)
@@ -1658,7 +1658,7 @@ Maximum {max_tokens} tokens in the summary.
 max_sliced_tokens = 120                     # лимит токенов для summary
 slicer_model = "openai/gpt-4o-mini"         # модель для суммаризации
 slicer_skip_threshold = 300                 # не сжимать если output < N tokens
-context_window_limit = 8000                 # лимит контекста
+context_window_limit = 128000                 # лимит контекста
 compaction_reserved_tokens = 10000          # буфер токенов для сжатия (trigger = limit - reserved)
 ```
 
@@ -1711,7 +1711,7 @@ class ContextCompactor:
         self,
         llm: LLMProvider,
         model: str = "openai/gpt-4o-mini",
-        max_context_tokens: int = 8000,       # лимит контекста
+        max_context_tokens: int = 128000,       # лимит контекста
         reserved_tokens: int = 10000,          # буфер для сжатия
     ):
         self._llm = llm

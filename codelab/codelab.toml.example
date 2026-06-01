@@ -186,7 +186,7 @@ max_sliced_tokens = 120
 slicer_skip_threshold = 300
 
 # Лимит контекста (триггер compaction)
-context_window_limit = 8000
+context_window_limit = 128000
 
 # Debug mode (полные payload логи, LLM dump)
 debug = false
