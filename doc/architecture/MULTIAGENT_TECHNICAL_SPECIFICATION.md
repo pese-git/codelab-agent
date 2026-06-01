@@ -2250,19 +2250,31 @@ class ToolDefinition:
 > **MCP Integration уже реализована** — модуль `server/mcp/` полностью работает.
 > В плане ниже MCP отмечен как существующий компонент. Новые задачи — интеграция
 > MCP с мультиагентными стратегиями.
+>
+> **Стратегии разбиты на отдельные фазы (2a, 2b, 2c, 2d)** — каждая стратегия
+> реализуется и тестируется изолированно. Это даёт меньшие коммиты, легче ревью,
+> и возможность задеплоить SingleStrategy первой как baseline.
 
-### Фаза 0: Foundation — контракты + observability core
+### Фаза 0a: EventBus foundation
 
 | # | Файл | Описание |
 |---|---|---|
-| 0.1 | `shared/events/base.py` | `AbstractEventBus` — subscribe, unsubscribe, publish, clear |
-| 0.2 | `shared/events/contracts.py` | `DomainEvent`, `AgentRegistered`, `AgentUnregistered`, `AgentListChanged` |
-| 0.3 | `shared/events/agent_bus.py` | `AgentEventBus(AbstractEventBus)` — register_agent, send_request, broadcast |
-| 0.4 | `shared/metrics/models.py` | `ExecutionMetrics`, `TokenUsage` (Pydantic) |
-| 0.5 | `shared/metrics/repository.py` | `IMetricsRepository` ABC + `JsonMetricsRepository` |
-| 0.6 | `shared/metrics/pricing.py` | `PricingEngine` — `models_price.json`, расчёт cost |
-| 0.7 | `storage/models_price.json` | Справочник цен |
-| 0.8 | `storage/agents.yaml` | Sample конфигурация |
+| 0a.1 | `shared/events/base.py` | `AbstractEventBus` — subscribe, unsubscribe, publish, clear |
+| 0a.2 | `shared/events/contracts.py` | `DomainEvent`, `AgentRegistered`, `AgentUnregistered`, `AgentListChanged` |
+| 0a.3 | `shared/events/agent_bus.py` | `AgentEventBus(AbstractEventBus)` — register_agent, send_request, broadcast |
+| 0a.4 | `tests/server/shared/events/` | Unit-тесты EventBus |
+
+### Фаза 0b: Metrics + Storage files
+
+| # | Файл | Описание |
+|---|---|---|
+| 0b.1 | `shared/metrics/models.py` | `ExecutionMetrics`, `TokenUsage` (Pydantic) |
+| 0b.2 | `shared/metrics/repository.py` | `IMetricsRepository` ABC + `JsonMetricsRepository` |
+| 0b.3 | `shared/metrics/pricing.py` | `PricingEngine` — `models_price.json`, расчёт cost |
+| 0b.4 | `storage/models_price.json` | Справочник цен |
+| 0b.5 | `storage/agents.yaml` | Sample конфигурация |
+
+### Фаза 0c: Observability core
 
 **Формат `storage/models_price.json`:**
 
@@ -2327,18 +2339,17 @@ class PricingEngine:
         return round(input_cost + output_cost, 6)
 ```
 
-| 0.9 | `server/observability/tracer.py` | `Tracer` — distributed tracing: Span, SpanContext, context manager |
-| 0.10 | `server/observability/timeline.py` | `EventTimeline` — хронология всех событий сессии |
-| 0.11 | `server/observability/factory.py` | `ObservabilityFactory` — создаёт Tracer + Timeline + Metrics |
-| 0.12 | `server/observability/correlation.py` | `CorrelationId` — генерация и propagation |
-| 0.13 | `server/observability/logging.py` | Расширение structlog — correlation_id во все логи |
-| 0.14 | `server/storage/metrics.py` | `JsonMetricsRepository` — сохранение в `storage/benchmarks/` |
-| 0.15 | `server/storage/observability.py` | `JsonObservabilityStorage` — export в `storage/debug/` |
-| 0.16 | `server/storage/agent_config.py` | `YamlAgentConfigStorage` — загрузка agents.yaml с watchdog |
-| 0.17 | `tests/server/shared/events/` | Unit-тесты EventBus |
-| 0.18 | `tests/server/observability/` | Unit-тесты Tracer, EventTimeline, CorrelationId |
-| 0.19 | `server/observability/exporters/base.py` | `SpanExporter`, `MetricsExporter` ABC — pluggable interfaces (post-MVP ready) |
-| 0.20 | `server/observability/config.py` | `ObservabilityConfig` — Pydantic для секции observability в agents.yaml |
+| 0c.1 | `server/observability/tracer.py` | `InMemoryTracer` — distributed tracing: Span, SpanContext, context manager |
+| 0c.2 | `server/observability/timeline.py` | `EventTimeline` — хронология всех событий сессии |
+| 0c.3 | `server/observability/factory.py` | `ObservabilityFactory` — создаёт Tracer + Timeline + Metrics |
+| 0c.4 | `server/observability/correlation.py` | `CorrelationId` — генерация и propagation |
+| 0c.5 | `server/observability/logging.py` | Расширение structlog — correlation_id во все логи |
+| 0c.6 | `server/storage/metrics.py` | `JsonMetricsRepository` — сохранение в `storage/benchmarks/` |
+| 0c.7 | `server/storage/observability.py` | `JsonObservabilityStorage` — export в `storage/debug/` |
+| 0c.8 | `server/storage/agent_config.py` | `YamlAgentConfigStorage` — загрузка agents.yaml с watchdog |
+| 0c.9 | `tests/server/observability/` | Unit-тесты Tracer, EventTimeline, CorrelationId |
+| 0c.10 | `server/observability/exporters/base.py` | `SpanExporter`, `MetricsExporter` ABC — pluggable interfaces (post-MVP ready) |
+| 0c.11 | `server/observability/config.py` | `ObservabilityConfig` — Pydantic для секции observability в agents.yaml |
 
 ### Фаза 1: Новый agent layer (замена NaiveAgent + AgentOrchestrator)
 
@@ -2353,31 +2364,97 @@ class PricingEngine:
 | 1.7 | `server/agent/adapters/message_sanitizer.py` | `MessageSanitizer` — из AgentOrchestrator._sanitize_orphaned_tool_calls |
 | 1.8 | `server/agent/adapters/plan_extractor.py` | `PlanExtractor` — перенос из agent/plan_extractor.py |
 | 1.9 | `server/agent/engine.py` | `ExecutionEngine` — замена AgentOrchestrator, tracer span |
-| 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig |
+| 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig (перенесено в 2a.6) |
 | 1.11 | `server/agent/adapters/llm_adapter.py` | LLMAdapter создаёт tracer span для каждого LLM call (latency, tokens, cost, status) |
-| 1.12 | `server/protocol/state.py` | Новые поля: execution_mode, active_agents, session_metrics, correlation_id |
-| 1.13 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
-| 1.14 | `tests/server/agent/` | Unit-тесты нового agent layer |
+| 1.12 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() (перенесено в 2a.8) |
+| 1.13 | `tests/server/agent/` | Unit-тесты нового agent layer |
 
-### Фаза 2: Мультиагентность + Dynamic Agents
+### Фаза 2a: SingleStrategy — замена single-agent (baseline)
+
+> **Цель:** Заменить текущий `AgentOrchestrator` + `NaiveAgent` на новую архитектуру
+> через SingleStrategy, сохранив поведение идентичным. Все ~1800 тестов должны пройти.
 
 | # | Файл | Описание |
 |---|---|---|
-| 2.1 | `server/agent/config.py` | `AgentConfig`, `MultiAgentConfig` — Pydantic для agents.yaml |
-| 2.2 | `server/agent/loader.py` | `AgentSystemLoader` — парсинг YAML, watchdog hot reload, публикация событий |
-| 2.3 | `server/agent/strategies/base.py` | `ExecutionStrategy` ABC — parent_span propagation, hybrid context support |
-| 2.4 | `server/agent/strategies/single.py` | `SingleStrategy` — прямой вызов LLMAdapter |
-| 2.5 | `server/agent/strategies/orchestrated.py` | `OrchestratedStrategy` — RouteDecision, point-to-point, Token-Slicing, max_steps |
-| 2.6 | `server/agent/strategies/choreography.py` | `ChoreographyStrategy` — broadcast, parallel, Conflict Resolution |
-| 2.7 | `server/agent/strategies/models.py` | `RouteDecision`, `ChoreographyAnswer`, `TaskInvocation`, `TaskResult` — Pydantic |
-| 2.8 | `server/agent/strategies/token_slicer.py` | `TokenSlicer` — суммаризация, tracer span с diff |
-| 2.9 | `server/agent/strategies/hierarchical.py` | `HierarchicalStrategy` — Primary-Subagent, Task tool, child sessions, task permissions |
-| 2.10 | `server/agent/core/caller.py` | `AgentCaller` — единый интерфейс вызова через EventBus |
-| 2.11 | `server/agent/core/context_manager.py` | `HybridContextManager` — Token-Slicing + Child Sessions, SessionState hierarchy |
-| 2.12 | `tests/server/agent/strategies/` | Unit-тесты всех 4 стратегий |
-| 2.13 | `server/mcp/` | **УЖЕ РЕАЛИЗОВАНО** — MCPManager, MCPClient, MCPToolAdapter, MCPToolExecutor |
-| 2.14 | `server/agent/strategies/mcp_integration.py` | Интеграция MCP tools в мультиагентные стратегии: MCP tools в AgentRequest.tools |
-| 2.15 | `server/agent/strategies/mcp_context.py` | MCP Manager propagation через EventBus в child sessions |
+| 2a.1 | `server/agent/config.py` | `AgentConfig`, `MultiAgentConfig` — Pydantic для agents.yaml |
+| 2a.2 | `server/agent/loader.py` | `AgentSystemLoader` — парсинг YAML, watchdog hot reload, публикация событий |
+| 2a.3 | `server/agent/strategies/base.py` | `ExecutionStrategy` ABC — parent_span propagation, hybrid context support |
+| 2a.4 | `server/agent/strategies/single.py` | `SingleStrategy` — прямой вызов LLMAdapter через EventBus |
+| 2a.5 | `server/agent/core/caller.py` | `AgentCaller` — единый интерфейс вызова через EventBus |
+| 2a.6 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig |
+| 2a.7 | `server/protocol/state.py` | **SessionState migration v1→v3**: execution_mode, active_agents, session_metrics, correlation_id, parent_session_id, child_session_ids, is_child_session, task_result, sliced_summary |
+| 2a.8 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
+| 2a.9 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentSystemLoader, ExecutionEngine, AgentCaller |
+| 2a.10 | `tests/server/agent/strategies/test_single.py` | Unit-тесты SingleStrategy — идентичное поведение текущему single-agent |
+
+**Критерий завершения фазы 2a:**
+- ✅ Все ~1800 существующих тестов проходят
+- ✅ Бенчмарк: latency ≤ baseline + 10ms bus overhead
+- ✅ SingleStrategy работает через EventBus → LLMAdapter
+- ✅ `_routing_mode = "single"` — дефолт, мультиагентность не активна
+
+---
+
+### Фаза 2b: OrchestratedStrategy — мультиагентность с центральным роутингом
+
+> **Цель:** Добавить OrchestratedStrategy с RouteDecision, Token-Slicing, Child Sessions, HybridContextManager.
+> Spec: Orchestrated использует Hybrid (sliced + child) контекст — строки 221, 852–857, 1103–1108.
+
+| # | Файл | Описание |
+|---|---|---|
+| 2b.1 | `server/agent/strategies/models.py` | `RouteDecision` — Pydantic для Structured Outputs |
+| 2b.2 | `server/agent/strategies/token_slicer.py` | `TokenSlicer` — суммаризация, tracer span с diff, SKIP_THRESHOLD_TOKENS |
+| 2b.3 | `server/agent/core/context_manager.py` | `HybridContextManager` — Token-Slicing + Child Sessions + Compaction, SessionState hierarchy |
+| 2b.4 | `server/agent/strategies/orchestrated.py` | `OrchestratedStrategy` — RouteDecision LLM, point-to-point через EventBus, Token-Slicing после каждого sub-agent response, HybridContextManager.process_subagent_response(), max_steps (7), race condition guard |
+| 2b.5 | `server/agent/strategies/mcp_integration.py` | Интеграция MCP tools в мультиагентные стратегии: MCP tools в AgentRequest.tools |
+| 2b.6 | `tests/server/agent/strategies/test_orchestrated.py` | Unit-тесты OrchestratedStrategy — route decision, token slicing, child sessions, max_steps |
+| 2b.7 | `tests/server/agent/strategies/test_token_slicer.py` | Unit-тесты TokenSlicer — summarization, skip threshold, fallback |
+| 2b.8 | `tests/server/agent/strategies/test_context_manager.py` | Unit-тесты HybridContextManager — process_subagent_response, ensure_context_fits |
+
+**Критерий завершения фазы 2b:**
+- ✅ OrchestratedStrategy работает: RouteDecision → sub-agent → Token-Slicing → next step
+- ✅ Child sessions создаются и связываются с parent
+- ✅ Token-Slicing суммаризирует ответы субагентов
+- ✅ MCP tools доступны субагентам
+
+---
+
+### Фаза 2c: HierarchicalStrategy — делегирование с child sessions и навигацией
+
+> **Цель:** Добавить HierarchicalStrategy (OpenCode-style) с Task tool, task permissions, child sessions.
+> Spec: Hierarchical использует TaskInvocation, TaskResult, task permissions — строки 600–688.
+
+| # | Файл | Описание |
+|---|---|---|
+| 2c.1 | `server/agent/strategies/models.py` | Добавить `TaskInvocation`, `TaskResult` — Pydantic |
+| 2c.2 | `server/agent/strategies/hierarchical.py` | `HierarchicalStrategy` — Primary LLM решает делегировать, Task tool, child sessions, task permissions, Token-Slicer при возврате TaskResult |
+| 2c.3 | `server/agent/strategies/task_permissions.py` | Task permissions resolver — проверка может ли caller вызывать target agent |
+| 2c.4 | `server/protocol/handlers/permissions.py` | Task permissions resolution для HierarchicalStrategy |
+| 2c.5 | `server/agent/strategies/mcp_context.py` | MCP Manager propagation через EventBus в child sessions |
+| 2c.6 | `tests/server/agent/strategies/test_hierarchical.py` | Unit-тесты HierarchicalStrategy — task delegation, child sessions, task permissions |
+| 2c.7 | `tests/server/agent/strategies/test_task_permissions.py` | Unit-тесты task permissions — allow, deny, ask |
+
+**Критерий завершения фазы 2c:**
+- ✅ HierarchicalStrategy работает: Primary → Task tool → child session → sub-agent → TaskResult
+- ✅ Task permissions работают: allow, deny, ask
+- ✅ Child sessions доступны для навигации в TUI
+
+---
+
+### Фаза 2d: ChoreographyStrategy — параллельный broadcast
+
+> **Цель:** Добавить ChoreographyStrategy с broadcast, parallel execution, Conflict Resolution.
+> Spec: Choreography использует broadcast, Priority Queue — строки 591–598.
+
+| # | Файл | Описание |
+|---|---|---|
+| 2d.1 | `server/agent/strategies/models.py` | Добавить `ContextBroadcast`, `ChoreographyAnswer` — Pydantic |
+| 2d.2 | `server/agent/strategies/choreography.py` | `ChoreographyStrategy` — broadcast ContextBroadcast всем агентам параллельно, сбор ChoreographyAnswer, Conflict Resolution (Priority Queue из agents.yaml), max_steps |
+| 2d.3 | `tests/server/agent/strategies/test_choreography.py` | Unit-тесты ChoreographyStrategy — broadcast, parallel, conflict resolution, max_steps |
+
+**Критерий завершения фазы 2d:**
+- ✅ ChoreographyStrategy работает: broadcast → parallel → conflict resolution
+- ✅ Все 4 стратегии готовы и протестированы
 
 ### Фаза 3: MetricsTracker (cross-cutting observability)
 
@@ -2453,43 +2530,45 @@ class PricingEngine:
 
 ### 9.1. Функциональные критерии
 
-| # | Критерий | Проверка |
-|---|---|---|
-| 1 | Приложение считывает `agents.yaml`, отключает/включает агентов без падения | Hot reload test |
-| 2 | Прогон задачи во всех 4 режимах завершается успешно | Integration test |
-| 3 | Генерируются валидные JSON-файлы метрик в `storage/benchmarks/` | File validation |
-| 4 | В режиме Orchestrator модель строго подчиняется списку активных агентов | Unit test |
-| 5 | Cancellation (`session/cancel`) работает во всех режимах | Integration test |
-| 6 | `session/set_config_option(model=...)` меняет модель оркестратора | Unit test |
-| 7 | `session/set_config_option(_routing_mode=...)` переключает режим | Unit test |
-| 8 | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` работают как one-shot override | Integration test |
-| 9 | ~1800 существующих тестов не сломаны | `make check` |
+| # | Критерий | Проверка | Фаза |
+|---|---|---|---|
+| 1 | Приложение считывает `agents.yaml`, отключает/включает агентов без падения | Hot reload test | 2a |
+| 2 | SingleStrategy работает идентично текущему single-agent | Benchmark + все тесты pass | 2a |
+| 3 | OrchestratedStrategy: RouteDecision → sub-agent → Token-Slicing → next step | Integration test | 2b |
+| 4 | HierarchicalStrategy: Primary → Task tool → child session → sub-agent → TaskResult | Integration test | 2c |
+| 5 | ChoreographyStrategy: broadcast → parallel → conflict resolution | Integration test | 2d |
+| 6 | В режиме Orchestrator модель строго подчиняется списку активных агентов | Unit test | 2b |
+| 7 | Cancellation (`session/cancel`) работает во всех режимах | Integration test | 2a–2d |
+| 8 | `session/set_config_option(model=...)` меняет модель оркестратора | Unit test | 2a |
+| 9 | `session/set_config_option(_routing_mode=...)` переключает режим | Unit test | 5 |
+| 10 | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` работают как one-shot override | Integration test | 5 |
+| 11 | ~1800 существующих тестов не сломаны | `make check` | 2a |
 
 ### 9.2. Observability критерии
 
-| # | Критерий | Проверка |
-|---|---|---|
-| 10 | Correlation ID присутствует во всех логах prompt turn | Log grep test |
-| 11 | Distributed trace содержит spans для всех операций | Trace validation |
-| 12 | Event Timeline записывает все события сессии | Timeline validation |
-| 13 | Debug mode экспортирует trace + timeline в JSON | File existence test |
-| 14 | TUI показывает live timeline и метрики | Manual / visual test |
-| 15 | Child sessions сохраняются и доступны для навигации | Integration test |
-| 16 | Token-Slicing корректно суммаризирует ответы | Unit test |
-| 17 | Abstract exporter interfaces готовы для post-MVP интеграции | Unit test |
-| 18 | ObservabilityConfig парсится из agents.yaml | Unit test |
-| 19 | Plan Tool работает во всех стратегиях | Integration test |
-| 20 | session/update: plan notification строго соответствует ACP 11-Agent Plan.md | Unit test |
+| # | Критерий | Проверка | Фаза |
+|---|---|---|---|
+| 12 | Correlation ID присутствует во всех логах prompt turn | Log grep test | 0 |
+| 13 | Distributed trace содержит spans для всех операций | Trace validation | 0 |
+| 14 | Event Timeline записывает все события сессии | Timeline validation | 0 |
+| 15 | Debug mode экспортирует trace + timeline в JSON | File existence test | 7 |
+| 16 | TUI показывает live timeline и метрики | Manual / visual test | 6 |
+| 17 | Child sessions сохраняются и доступны для навигации | Integration test | 2b |
+| 18 | Token-Slicing корректно суммаризирует ответы | Unit test | 2b |
+| 19 | Abstract exporter interfaces готовы для post-MVP интеграции | Unit test | 0 |
+| 20 | ObservabilityConfig парсится из agents.yaml | Unit test | 0 |
+| 21 | Plan Tool работает во всех стратегиях | Integration test | 5 |
+| 22 | session/update: plan notification строго соответствует ACP 11-Agent Plan.md | Unit test | 5 |
 
 ### 9.3. Performance критерии
 
-| # | Критерий | Ожидание |
-|---|---|---|
-| 15 | EventBus dispatch latency ≤ 10ms | Benchmark |
-| 16 | Single Agent latency ≤ baseline + bus overhead | Benchmark |
-| 17 | Orchestrated overhead ≤ 2x Single Agent | Benchmark |
-| 18 | Choreography overhead ≤ 3x Single Agent | Benchmark |
-| 19 | Hierarchical overhead ≤ 2x Single Agent | Benchmark |
+| # | Критерий | Ожидание | Фаза |
+|---|---|---|---|
+| 23 | EventBus dispatch latency ≤ 10ms | Benchmark | 2a |
+| 24 | Single Agent latency ≤ baseline + bus overhead | Benchmark | 2a |
+| 25 | Orchestrated overhead ≤ 2x Single Agent | Benchmark | 2b |
+| 26 | Choreography overhead ≤ 3x Single Agent | Benchmark | 2d |
+| 27 | Hierarchical overhead ≤ 2x Single Agent | Benchmark | 2c |
 
 ---
 
@@ -2502,7 +2581,7 @@ class PricingEngine:
 | `server/agent/state.py` | Замена на MultiAgentConfig | `server/agent/config.py` |
 | `server/agent/plan_extractor.py` | Перенос в adapters | `server/agent/adapters/plan_extractor.py` |
 | `server/agent/base.py` | Замена Agent Protocol | `server/agent/core/agent.py` |
-| `server/llm/telemetry/` | Замена на InMemoryTracer | `server/observability/tracer.py` — InMemoryTracer покрывает всё + tracing, correlation, exporters |
+| `server/llm/telemetry/` | Замена на InMemoryTracer | `server/observability/tracer.py` — InMemoryTracer покрывает всё + tracing, correlation, exporters. **TelemetrySink задепрекейтить** (не удалять сразу) — оставить как legacy-интерфейс пока InMemoryTracer не готов |
 
 ---
 
@@ -2558,19 +2637,16 @@ class PricingEngine:
 - ✅ `make check` проходит без ошибок
 - ✅ Старые файлы удалены
 
-#### Этап 2: Add Multi-Agent (Phase 2-3)
+#### Этап 2: Add Multi-Agent (Phase 2a–2d)
 
-**Цель:** Добавить мультиагентные стратегии поверх новой single-архитектуры.
+**Цель:** Добавить мультиагентные стратегии поверх новой single-архитектуры, по одной за фазу.
 
-| Действие | Результат |
-|---|---|
-| AgentSystemLoader + agents.yaml hot reload | Динамическая конфигурация |
-| OrchestratedStrategy | RouteDecision, point-to-point, Token-Slicing |
-| ChoreographyStrategy | Broadcast, parallel, Conflict Resolution |
-| HierarchicalStrategy | Primary-Subagent, child sessions |
-| AgentCaller — единый интерфейс | Все стратегии через EventBus |
-| MetricsTracker | Cross-cutting observability |
-| Тесты для всех 4 стратегий | Unit + integration |
+| Фаза | Стратегия | Зависимости | Результат |
+|---|---|---|---|
+| **2a** | `SingleStrategy` | EventBus, LLMAdapter, AgentFactory | Baseline — идентичное поведение текущему single-agent, все тесты проходят |
+| **2b** | `OrchestratedStrategy` | TokenSlicer, RouteDecision, **Child Sessions, HybridContextManager** | Мультиагентность с центральным роутингом, Token-Slicing после каждого sub-agent response |
+| **2c** | `HierarchicalStrategy` | Child Sessions, HybridContextManager, **Task Permissions** | Делегирование Primary→Subagent с child sessions и навигацией |
+| **2d** | `ChoreographyStrategy` | Broadcast, Conflict Resolution | Параллельный broadcast всем агентам |
 
 **По умолчанию:** `_routing_mode = "single"` — мультиагентность доступна, но не включена.
 
@@ -2642,7 +2718,10 @@ def migrate_schema(cls, data: dict) -> dict:
 | Этап | Rollback |
 |---|---|
 | **Этап 1** (refactor single) | `git revert` коммита удаления NaiveAgent |
-| **Этап 2** (add multi-agent) | `_routing_mode = "single"` — мультиагентность не используется |
+| **Этап 2a** (SingleStrategy) | `_routing_mode = "single"` — работает через EventBus, old code удалён, revert только если тесты сломаны |
+| **Этап 2b** (OrchestratedStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
+| **Этап 2c** (HierarchicalStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
+| **Этап 2d** (ChoreographyStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
 | **Этап 3** (integration) | Убрать slash commands, config option — single mode работает |
 | **Этап 4** (cleanup) | Нечего откатывать — только observability |
 
@@ -2664,23 +2743,32 @@ global:
 | Этап | Тесты | Критерий |
 |---|---|---|
 | **Этап 1** | Все ~1800 существующих тестов | 100% pass |
-| **Этап 2** | Unit-тесты для каждой стратегии + integration | Все новые тесты pass |
+| **Этап 2a** | SingleStrategy unit-тесты | Идентичное поведение, все старые тесты pass |
+| **Этап 2b** | OrchestratedStrategy + TokenSlicer + HybridContextManager | Route decision, token slicing, child sessions pass |
+| **Этап 2c** | HierarchicalStrategy + Task Permissions | Task delegation, child sessions, permissions pass |
+| **Этап 2d** | ChoreographyStrategy | Broadcast, parallel, conflict resolution pass |
 | **Этап 3** | Integration: pipeline + slash commands + config | End-to-end pass |
 | **Этап 4** | Full suite: старые + новые | ~1800 + новые = 100% pass |
 
 **Бенчмарки на каждом этапе:**
-- Single mode latency (baseline)
-- EventBus dispatch overhead
-- Memory usage (tracer, timeline, child sessions)
+- Single mode latency (baseline) — этап 1, 2a
+- EventBus dispatch overhead — этап 2a
+- Orchestrated overhead vs Single — этап 2b
+- Hierarchical overhead vs Single — этап 2c
+- Choreography overhead vs Single — этап 2d
+- Memory usage (tracer, timeline, child sessions) — этапы 2b–2d
 
 ### 12.6. Deprecation Timeline
 
 | Фаза | Состояние |
 |---|---|
 | **Этап 1 завершён** | Single mode на новой архитектуре, old code удалён |
-| **Этап 2 завершён** | Multi-agent доступен, single = default |
+| **Этап 2a завершён** | SingleStrategy работает, baseline установлен, old code удалён |
+| **Этап 2b завершён** | OrchestratedStrategy работает: RouteDecision + Token-Slicing + Child Sessions |
+| **Этап 2c завершён** | HierarchicalStrategy работает: Task tool + Task Permissions + Child Sessions |
+| **Этап 2d завершён** | ChoreographyStrategy работает: Broadcast + Conflict Resolution |
 | **Этап 3 завершён** | Multi-agent fully integrated, TUI observability |
-| **MVP release** | Multi-agent available, single = default |
+| **MVP release** | All 4 strategies available, single = default |
 | **Post-MVP** | Рассмотреть смену default на multi_orchestrated |
 
 ---
