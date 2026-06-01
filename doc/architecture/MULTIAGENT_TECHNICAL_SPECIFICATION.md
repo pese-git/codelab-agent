@@ -586,6 +586,15 @@ class TaskResult(DomainEvent):
     child_session_id: str     # ID изолированной child session
 ```
 
+> **Почему `parent_span` — поле в `TaskInvocation`, но параметр в методах:**
+>
+> | Контекст | Как передаётся | Почему |
+> |---|---|---|
+> | **Методы** (`send_request`, `Agent.call`, `TokenSlicer.slice`) | Отдельный параметр | Прямой вызов — tracing context propagates через стек вызовов |
+> | **DomainEvent** (`TaskInvocation`, `TaskResult`) | Поле dataclass | Событие сериализуется и проходит через EventBus — tracing context должен "путешествовать" вместе с payload |
+>
+> Это не баг, а различие между **call-time propagation** (методы) и **event-borne context** (события). EventBus извлекает `parent_span` из `TaskInvocation` и использует его при dispatch к целевому агенту.
+
 **Конфигурация агента для HierarchicalStrategy:**
 ```yaml
 agents:
@@ -1009,6 +1018,20 @@ class MCPServerConfig(BaseModel):
     max_delay: float = 30.0
     backoff_multiplier: float = 2.0
 ```
+
+> **Почему `env` и `headers` — `list[dict]` а не `dict[str, str]`:**
+> Формат `list[dict]` поддерживает два стиля записи в YAML:
+> ```yaml
+> # Стиль 1: явные name/value (удобно для MCP CLI, читаемо)
+> env:
+>   - name: "API_KEY"
+>     value: "secret"
+>
+> # Стиль 2: прямой key-value (компактно)
+> env:
+>   - API_KEY: "secret"
+> ```
+> Конвертация в `dict[str, str]` выполняется методом `get_env_dict()` (`models.py:521`), который используется при создании subprocess. Это осознанное решение для удобства ручной конфигурации — YAML-файлы читаются людьми, а `list[dict]` гибче для разных стилей записи.
 
 #### MCP Lifecycle
 
