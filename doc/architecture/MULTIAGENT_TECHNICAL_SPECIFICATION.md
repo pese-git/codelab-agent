@@ -2659,7 +2659,7 @@ class SessionState(BaseModel):
     execution_mode: str = "single"                    # single | multi_orchestrated | multi_choreographed | hierarchical
     active_agents: list[str] = Field(default_factory=list)
     session_metrics: SessionMetrics | None = None
-    current_correlation_id: str | None = None
+    correlation_id: str | None = None
     # Иерархия сессий (для HierarchicalStrategy и гибридного контекста)
     parent_session_id: str | None = None
     child_session_ids: list[str] = Field(default_factory=list)
@@ -3403,7 +3403,7 @@ def migrate_schema(cls, data: dict) -> dict:
         data.setdefault("execution_mode", "single")
         data.setdefault("active_agents", [])
         data.setdefault("session_metrics", None)
-        data.setdefault("current_correlation_id", None)
+        data.setdefault("correlation_id", None)
         data.setdefault("parent_session_id", None)
         data.setdefault("child_session_ids", [])
         data.setdefault("is_child_session", False)
