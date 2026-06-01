@@ -2110,16 +2110,25 @@ MCP config сохраняется в `SessionState.mcp_servers` для session r
 
 #### MCP и мультиагентность
 
-В мультиагентных стратегиях MCP инструменты доступны всем агентам:
+MCP имеет два аспекта, которые по-разному обрабатываются в мультиагентных стратегиях:
 
-| Стратегия | MCP инструменты |
-|---|---|
-| **Single** | Доступны единственному агенту |
-| **Orchestrated** | Доступны всем субагентам через EventBus |
-| **Choreography** | Доступны всем агентам параллельно |
-| **Hierarchical** | Доступны primary и subagent (через child session) |
+| Аспект | Что это | Как передаётся |
+|---|---|---|
+| **Tool Definitions** | Метаданные инструментов (имя, описание, параметры) | Через `AgentRequest.tools` — автоматически |
+| **MCP Connections** | Живые подключения к MCP серверам (subprocess/HTTP) | Через `MCPManager` — per-session объект |
+
+В мультиагентных стратегиях:
+
+| Стратегия | Tool Definitions | MCP Connections |
+|---|---|---|
+| **Single** | Доступны единственному агенту | MCPManager родительской сессии |
+| **Orchestrated** | Передаются субагентам через EventBus | MCPManager родительской сессии (shared) |
+| **Choreography** | Передаются всем агентам через broadcast | MCPManager родительской сессии (shared) |
+| **Hierarchical** | Передаются subagent через `AgentRequest.tools` | Требуется propagation MCPManager в child session (задача 2c.5) |
 
 MCP инструменты передаются в `AgentRequest.tools` вместе с нативными инструментами.
+Для HierarchicalStrategy живые подключения MCP к child session требуют отдельной
+пропации — задача 2c.5 (`server/agent/strategies/mcp_context.py`).
 
 ### 3.10. External Observability Backends (Post-MVP)
 
