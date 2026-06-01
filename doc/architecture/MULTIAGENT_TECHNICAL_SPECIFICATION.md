@@ -1508,6 +1508,154 @@ PromptOrchestrator
 
 ---
 
+### 3.12. Plan Tool (УЖЕ РЕАЛИЗОВАНО)
+
+**Назначение:** Инструмент `update_plan` позволяет LLM декларативно обновлять
+план выполнения задач. План передаётся клиенту через `session/update: plan`
+согласно [ACP spec 11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md)
+и отображается в TUI через `PlanPanel`.
+
+> **Статус:** Полностью реализовано в текущем коде. В мультиагентной архитектуре
+> сохраняется и расширяется — добавляется поддержка планов в child sessions.
+
+> **ACP compliance:** Формат `session/update: plan` строго соответствует
+> [11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md).
+> `update_plan` tool — internal implementation detail CodeLab, не часть ACP.
+
+#### Компоненты
+
+| Компонент | Файл | Назначение |
+|---|---|---|
+| **PlanToolDefinitions** | `server/tools/definitions/plan.py` | Определение `update_plan` tool (internal) |
+| **PlanToolExecutor** | `server/tools/executors/plan_executor.py` | Валидация entries, обновление плана |
+| **PlanBuilder** | `server/protocol/handlers/plan_builder.py` | Построение `session/update: plan` notification |
+| **PlanBuildingStage** | `server/protocol/handlers/pipeline/stages/plan_building.py` | Pipeline stage — извлечение и публикация |
+| **PlanExtractor** | `server/agent/plan_extractor.py` | Извлечение плана из LLM response |
+| **PlanPanel** | `client/tui/components/plan_panel.py` | TUI widget отображения плана |
+
+#### Формат плана (ACP-compliant)
+
+Согласно [11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md):
+
+```python
+plan_entry = {
+    "content": "Описание задачи",
+    "priority": "low" | "medium" | "high",
+    "status": "pending" | "in_progress" | "completed",
+}
+```
+
+> **CodeLab internal (не отправляются через ACP):**
+> - `status: "cancelled"` — internal tracking для отменённых задач
+> - `description` — дополнительное поле для деталей, не включается в `session/update: plan`
+
+#### Поток выполнения
+
+```
+1. LLM вызывает update_plan(entries=[...])
+   ↓
+2. PlanToolExecutor.execute() — валидация entries
+   ↓
+3. PlanBuildingStage — извлечение плана из response
+   ↓
+4. PlanBuilder.build_plan_notification() — формирование notification
+   ↓
+5. SessionState.latest_plan = validated_entries
+   ↓
+6. session/update: plan → клиенту (TUI)
+   ↓
+7. PlanPanel обновляет отображение
+```
+
+#### ACP Notification: session/update: plan
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": {
+    "sessionId": "sess_123",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {"content": "Analyze requirements", "priority": "high", "status": "completed"},
+        {"content": "Implement validator", "priority": "high", "status": "in_progress"},
+        {"content": "Write tests", "priority": "high", "status": "pending"}
+      ]
+    }
+  }
+}
+```
+
+ACP требует: **полная замена** — агент `MUST` отправлять полный список entries при каждом обновлении. Клиент `MUST` заменять план полностью.
+
+#### План в мультиагентных стратегиях
+
+| Стратегия | Кто вызывает update_plan | Где хранится план | Что видит пользователь |
+|---|---|---|---|
+| **Single** | Единственный агент | Parent session | План одного агента |
+| **Orchestrated** | Orchestrator | Parent session | План с шагами делегирования |
+| **Choreography** | Не используется | — | Нет плана (параллельное выполнение) |
+| **Hierarchical** | Primary + Sub-agent | Primary: общий, Child: детали | Merged план в parent, детали в child TUI |
+
+**Правила:**
+
+1. Sub-agent `update_plan` → обновляет plan своей child session
+2. Orchestrator `update_plan` → обновляет plan parent session
+3. TUI показывает план из parent session по умолчанию
+4. При навигации в child session — показывается plan child session
+5. Token-Slicer **НЕ** суммаризирует plan entries — это metadata, не контекст LLM
+6. Plan entries **не влияют** на контекст LLM — только для observability
+
+**Пример плана в OrchestratedStrategy:**
+
+```json
+{
+  "entries": [
+    {"content": "Analyze requirements", "priority": "high", "status": "completed"},
+    {"content": "Coder: implement validator.py", "priority": "high", "status": "in_progress"},
+    {"content": "Tester: write unit tests", "priority": "high", "status": "pending"},
+    {"content": "Integration review", "priority": "medium", "status": "pending"}
+  ]
+}
+```
+
+#### Slash command `/plan`
+
+Slash command `/plan` включает публикацию плана для текущей сессии:
+
+```python
+has_plan_directive = "/plan" in normalized_tokens
+session.publish_plan = has_plan_directive
+```
+
+При `publish_plan=True`:
+- `PlanBuildingStage` активен в pipeline
+- План извлекается из LLM response через `PlanExtractor`
+- Notification `session/update: plan` отправляется клиенту
+
+#### SessionState для плана
+
+```python
+class SessionState(BaseModel):
+    latest_plan: list[PlanStep | dict[str, Any]] = Field(default_factory=list)
+    publish_plan: bool = False
+    plan_entries: list[dict[str, str]] | None = None
+```
+
+#### Интеграция с новой архитектурой
+
+| Старый компонент | Новый компонент | Изменения |
+|---|---|---|
+| `PlanExtractor` | `server/agent/adapters/plan_extractor.py` | Перенос без изменений |
+| `PlanBuilder` | Сохраняется | Без изменений |
+| `PlanToolExecutor` | Сохраняется | Без изменений |
+| `PlanToolDefinitions` | Сохраняется | Без изменений |
+| `PlanBuildingStage` | Сохраняется в pipeline | Без изменений |
+| `PlanPanel` | Сохраняется | + поддержка навигации child sessions |
+
+---
+
 ## 4. OBSERVABILITY
 
 ### 4.1. Три слоя наблюдаемости
@@ -2131,6 +2279,8 @@ set_config_option(_routing_mode=multi_choreographed)
 | 5.7 | `server/protocol/handlers/slash_commands/agent_config.py` | `/config agent <name> model <ref>` |
 | 5.8 | `server/protocol/handlers/permissions.py` | Task permissions resolution для HierarchicalStrategy |
 | 5.9 | `tests/server/protocol/` | Integration tests pipeline + strategies + slash commands |
+| 5.10 | `server/protocol/handlers/plan_builder.py` | Поддержка multi-agent plan: merged plan из parent + child sessions |
+| 5.11 | `client/tui/components/plan_panel.py` | Отображение плана child session при навигации |
 
 ### Фаза 6: TUI — live observability view
 
@@ -2193,6 +2343,8 @@ set_config_option(_routing_mode=multi_choreographed)
 | 16 | Token-Slicing корректно суммаризирует ответы | Unit test |
 | 17 | Abstract exporter interfaces готовы для post-MVP интеграции | Unit test |
 | 18 | ObservabilityConfig парсится из agents.yaml | Unit test |
+| 19 | Plan Tool работает во всех стратегиях | Integration test |
+| 20 | session/update: plan notification строго соответствует ACP 11-Agent Plan.md | Unit test |
 
 ### 9.3. Performance критерии
 
