@@ -493,6 +493,29 @@ agents:
 - Testing — один паттерн моков
 - Extensibility — легко добавить агентов без изменений стратегии
 
+**Управление контекстом:**
+- Token-Slicing: ❌ не используется (нет субагентов)
+- Compaction: ✅ fallback при достижении лимита контекста
+
+В длинных сессиях контекст координатора растёт за счёт истории turn'ов.
+При достижении `context_window_limit` срабатывает `ContextCompactor`:
+
+```
+Session flow с Compaction:
+1. Turn 1: user + assistant → history += 2 messages
+2. Turn 2: user + assistant → history += 2 messages
+3. ...
+4. Turn N: context_tokens > context_window_limit
+5. ContextCompactor.compact_if_needed() → сжатие history
+6. Сохраняем: system prompt + initial user prompt + compacted summary + recent messages
+7. Продолжаем с компактным контекстом
+```
+
+**Почему только Compaction (без Token-Slicing):**
+- Нет субагентов → нет ответов для сжатия
+- Сжимать ответ самого себя = потеря информации для следующего turn
+- Compaction срабатывает редко (только при переполнении) → минимальный overhead
+
 #### OrchestratedStrategy
 ```
 1. RouteDecision через LLM (Structured Outputs → RouteDecision Pydantic)
@@ -767,7 +790,7 @@ global:
 | **OrchestratedStrategy** | После каждого sub-agent response | ✅ Обязательно |
 | **HierarchicalStrategy** | При возврате TaskResult из child session | ✅ Обязательно |
 | **ChoreographyStrategy** | После conflict resolution (winner output) | Опционально |
-| **SingleStrategy** | — | ❌ Не используется |
+| **SingleStrategy** | — | ❌ Не используется (только Compaction fallback) |
 
 **Метрики сжатия (observability):**
 ```
@@ -865,9 +888,16 @@ class ContextCompactor:
 | **Token-Slicing** | После каждого sub-agent response | Ответ одного субагента | N (частые) | Высокая |
 | **Compaction** | При достижении лимита контекста | Весь conversation history | 1 (редкий) | Низкая |
 
-**Вместе:** Token-Slicing — основной механизм контроля контекста. Compaction — fallback
-когда slicing недостаточно. Это даёт лучшее из обоих подходов: гранулярный контроль
-+ гарантию что контекст не переполнится даже при длинных сессиях.
+**Вместе:** Token-Slicing — основной механизм контроля контекста для мультиагентных стратегий. Compaction — fallback когда slicing недостаточно. Это даёт лучшее из обоих подходов: гранулярный контроль + гарантию что контекст не переполнится даже при длинных сессиях.
+
+**Применимость по стратегиям:**
+
+| Стратегия | Token-Slicing | Compaction Fallback |
+|---|---|---|
+| **Single** | ❌ | ✅ |
+| **Orchestrated** | ✅ | ✅ |
+| **Choreography** | ✅ (опционально) | ✅ |
+| **Hierarchical** | ✅ | ✅ |
 
 #### SessionState для иерархии
 
