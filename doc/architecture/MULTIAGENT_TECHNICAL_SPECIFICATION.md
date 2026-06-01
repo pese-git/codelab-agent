@@ -3155,7 +3155,7 @@ class PricingEngine:
 | 1.9 | `server/agent/engine.py` | `ExecutionEngine` — замена AgentOrchestrator, tracer span |
 | 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из ResolvedAgent (перенесено в 2a.8) |
 | 1.11 | `server/agent/adapters/llm_adapter.py` | LLMAdapter создаёт tracer span для каждого LLM call (latency, tokens, cost, status) |
-| 1.12 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() (перенесено в 2a.8) |
+| 1.12 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() (перенесено в 2a.10) |
 | 1.13 | `tests/server/agent/` | Unit-тесты нового agent layer |
 
 ### Фаза 2a: SingleStrategy — замена single-agent (baseline)
