@@ -448,6 +448,9 @@ class Agent(Protocol):
 # Режим выполнения по умолчанию
 mode = "single"  # single | multi_orchestrated | multi_choreographed | hierarchical
 
+# Режим fallback если нет нужных агентов для выбранной стратегии
+fallback_mode = "single"
+
 # Модель по умолчанию (если агент не указал свою)
 default_model = "openai/gpt-4o"
 
@@ -476,6 +479,7 @@ debug = false
 class AgentsGlobalConfig(BaseModel):
     """Глобальные настройки агентов из TOML [agents]."""
     mode: str = "single"
+    fallback_mode: str = "single"
     default_model: str = "openai/gpt-4o"
     max_steps: int = 7
     slicer_model: str = "openai/gpt-4o-mini"
@@ -532,7 +536,8 @@ permission:
 | Параметр | Тип | Обязательный | Описание |
 |---|---|---|---|
 | `description` | string | ✅ | Что делает агент, когда использовать |
-| `mode` | string | | `primary`, `subagent`, `all` (default: `all`) |
+| `mode` | string | | `primary`, `subagent`, `orchestrator`, `all` (default: `all`) |
+| `priority` | int | | Приоритет для Conflict Resolution (default: 99, меньше = важнее) |
 | `model` | string | | `provider/model-id` (fallback: `global.default_model`) |
 | `temperature` | float | | 0.0–1.0 (fallback: model default → 0.0) |
 | `top_p` | float | | 0.0–1.0 |
@@ -542,6 +547,7 @@ permission:
 | `color` | string | | HEX или theme color для TUI |
 | `tools` | dict | | Доступные инструменты `{tool_name: bool}` |
 | `permission` | dict | | Разрешения: `edit`, `bash`, `webfetch`, `task` |
+| `prompt` | string | | `{file:./prompts/...}` — внешний файл промпта (если не указано — тело Markdown) |
 
 **Pydantic модели:**
 
@@ -549,6 +555,7 @@ permission:
 class AgentMode(str, Enum):
     primary = "primary"
     subagent = "subagent"
+    orchestrator = "orchestrator"  # агент-маршрутизатор для OrchestratedStrategy
     all = "all"
 
 class AgentPermission(BaseModel):
@@ -558,9 +565,16 @@ class AgentPermission(BaseModel):
     task: dict[str, str] = {"*": "deny"}
 
 class AgentMarkdownConfig(BaseModel):
-    """Конфигурация агента из Markdown frontmatter."""
+    """Конфигурация агента из Markdown frontmatter.
+
+    Дополнительные параметры (vendor-specific) прокидываются через
+    model_config(extra="allow") — например, reasoningEffort для OpenAI.
+    """
+    model_config = ConfigDict(extra="allow")
+
     description: str
     mode: AgentMode = AgentMode.all
+    priority: int = 99
     model: str | None = None
     temperature: float | None = None
     top_p: float | None = None
@@ -570,6 +584,7 @@ class AgentMarkdownConfig(BaseModel):
     color: str | None = None
     tools: dict[str, bool] | None = None
     permission: AgentPermission | None = None
+    prompt: str | None = None  # "{file:./prompts/...}" или None (тело Markdown)
 ```
 
 #### 3.6.3. AgentMarkdownLoader
@@ -620,8 +635,10 @@ class ResolvedAgent(BaseModel):
     name: str
     description: str
     mode: AgentMode
+    priority: int = 99
     model: str                        # resolved: agent → default
-    system_prompt: str                # из тела Markdown
+    system_prompt: str                # из тела Markdown или {file:...}
+    prompt_source: str                # "inline" | "file:./prompts/..."
     temperature: float                # resolved: agent → model default → 0.0
     top_p: float | None = None
     steps: int | None = None
@@ -630,6 +647,7 @@ class ResolvedAgent(BaseModel):
     color: str | None = None
     tools: dict[str, bool] | None = None
     permission: AgentPermission
+    additional_params: dict[str, Any] # vendor-specific (reasoningEffort, etc.)
     source: str                       # путь к файлу для отладки
 
 class AgentConfigResolver:
@@ -658,7 +676,13 @@ class AgentConfigResolver:
         - temperature: agent.temperature → model default → 0.0
         - steps: agent.steps → global.max_steps → None
         - permission: agent.permission → defaults
+        - prompt: agent.prompt → тело Markdown файла
+        - top_p: agent.top_p → None
+        - priority: agent.priority → 99
+
+        Vendor-specific параметры извлекаются из model_config(extra="allow").
         """
+```
 ```
 
 #### 3.6.5. AgentRegistry
@@ -751,12 +775,28 @@ def _merge_agents_config(cls, toml_data: dict[str, Any]) -> AgentsGlobalConfig:
 
 #### 3.6.8. Примеры Markdown агентов
 
+**Оркестратор `~/.codelab/agents/orchestrator.md`:**
+
+```markdown
+---
+description: Orchestrator — analyzes requests and routes to specialized agents
+mode: orchestrator
+priority: 0
+model: openai/gpt-4o
+temperature: 0.1
+---
+You are an orchestrator. Analyze user requests and determine which specialized
+agent should handle them. Route tasks to the appropriate agent with a clear,
+atomic task description.
+```
+
 **Глобальный агент `~/.codelab/agents/coder.md`:**
 
 ```markdown
 ---
 description: Senior Python Developer
 mode: subagent
+priority: 1
 model: anthropic/claude-3-5-sonnet
 temperature: 0.1
 tools:
@@ -774,6 +814,7 @@ permission:
 ---
 description: Code reviewer for this project
 mode: subagent
+priority: 2
 model: openai/gpt-4o
 tools:
   fs/read_text_file: true
@@ -789,6 +830,35 @@ Review code for this project. Focus on:
 - ACP protocol compliance
 - Type safety
 - Test coverage
+```
+
+**Агент с внешним промптом `.codelab/agents/security.md`:**
+
+```markdown
+---
+description: Security auditor
+mode: subagent
+priority: 3
+model: anthropic/claude-3-5-sonnet
+prompt: "{file:./prompts/security-audit.txt}"
+tools:
+  fs/read_text_file: true
+permission:
+  edit: deny
+---
+```
+
+**Агент с vendor-specific параметрами `.codelab/agents/deep-thinker.md`:**
+
+```markdown
+---
+description: Deep reasoning agent for complex problems
+mode: subagent
+model: openai/gpt-5
+reasoningEffort: high
+textVerbosity: low
+---
+You are a deep reasoning agent. Solve complex problems step by step.
 ```
 
 #### 3.6.9. Обновление codelab.toml.example
@@ -830,6 +900,113 @@ debug = false
 | Markdown для агентов | Совместимость с OpenCode, human-readable, system prompt inline |
 | Проектные override глобальные | Стандартный паттерн конфигурации |
 | Имя файла = имя агента | Просто, предсказуемо, как в OpenCode |
+| Числовой priority | Проще сортировка, вставка между значениями, default 99 |
+| `mode: orchestrator` | Ясно, проще валидация, TUI визуально выделяет |
+| `model_config(extra="allow")` | Vendor-specific параметры без изменения схемы |
+
+#### 3.6.11. Матрица параметров по стратегиям
+
+Каждая стратегия требует определённого набора агентов с определёнными режимами.
+
+| Параметр | Single | Orchestrated | Choreography | Hierarchical |
+|---|---|---|---|---|
+| **Требуемые mode** | любой | `orchestrator` + `subagent` | `subagent` (≥2) | `primary` + `subagent` |
+| **priority** | ❌ не используется | ✅ порядок делегирования | ✅ Conflict Resolution | ✅ порядок fallback |
+| **task permission** | ❌ | ❌ | ❌ | ✅ обязательно для primary |
+| **hidden** | ❌ | ❌ | ❌ | ✅ для compact/slicer |
+| **steps** | ✅ лимит одного агента | ✅ orchestrator + каждый subagent | ✅ каждый агент | ✅ primary + каждый subagent |
+| **prompt {file:...}** | ✅ | ✅ | ✅ | ✅ |
+| **additional_params** | ✅ | ✅ | ✅ | ✅ |
+
+**Минимальный набор агентов для каждой стратегии:**
+
+| Стратегия | Минимум | Пример |
+|---|---|---|
+| **Single** | 1 агент (любой mode) | `coder.md` (mode: subagent) |
+| **Orchestrated** | 1 orchestrator + 1 subagent | `orchestrator.md` + `coder.md` |
+| **Choreography** | ≥2 subagents | `coder.md` + `reviewer.md` |
+| **Hierarchical** | 1 primary + 1 subagent | `coder.md` (primary) + `tester.md` |
+
+#### 3.6.12. Валидация совместимости mode + стратегия
+
+При запуске стратегии `AgentRegistry` проверяет наличие требуемых агентов.
+Если проверка не проходит — fallback на `global.fallback_mode` (default: `"single"`).
+
+**Правила валидации:**
+
+| Стратегия | Проверка | При fail → |
+|---|---|---|
+| **Single** | Всегда проходит | — |
+| **Orchestrated** | Есть ≥1 агент с `mode=orchestrator` И ≥1 с `mode=subagent/all` | `fallback_mode` |
+| **Choreography** | Есть ≥2 агента с `mode=subagent/all` | `fallback_mode` |
+| **Hierarchical** | Есть ≥1 агент с `mode=primary/all` И ≥1 с `mode=subagent/all` | `fallback_mode` |
+
+**Логика валидации (StrategyDispatcher):**
+
+```python
+class StrategyDispatcher:
+    def _validate_strategy(self, mode: str, registry: AgentRegistry) -> str:
+        """Проверить доступность стратегии. Вернуть фактический режим."""
+        agents = registry.get_all()
+
+        if mode == "single":
+            return "single"  # всегда доступно
+
+        if mode == "multi_orchestrated":
+            has_orchestrator = any(a.mode == AgentMode.orchestrator for a in agents.values())
+            has_subagent = any(
+                a.mode in (AgentMode.subagent, AgentMode.all) for a in agents.values()
+            )
+            if has_orchestrator and has_subagent:
+                return "multi_orchestrated"
+            logger.warning(
+                f"OrchestratedStrategy unavailable: "
+                f"need orchestrator + subagent, falling back to {self._fallback}"
+            )
+            return self._fallback
+
+        if mode == "multi_choreographed":
+            subagents = [
+                a for a in agents.values()
+                if a.mode in (AgentMode.subagent, AgentMode.all)
+            ]
+            if len(subagents) >= 2:
+                return "multi_choreographed"
+            logger.warning(
+                f"ChoreographyStrategy unavailable: need ≥2 subagents, "
+                f"falling back to {self._fallback}"
+            )
+            return self._fallback
+
+        if mode == "hierarchical":
+            has_primary = any(
+                a.mode in (AgentMode.primary, AgentMode.all) for a in agents.values()
+            )
+            has_subagent = any(
+                a.mode in (AgentMode.subagent, AgentMode.all) for a in agents.values()
+            )
+            if has_primary and has_subagent:
+                return "hierarchical"
+            logger.warning(
+                f"HierarchicalStrategy unavailable: need primary + subagent, "
+                f"falling back to {self._fallback}"
+            )
+            return self._fallback
+
+        return self._fallback  # unknown mode → fallback
+```
+
+**Уведомление пользователю при fallback:**
+
+```json
+{
+  "sessionUpdate": "agent_message_chunk",
+  "content": {
+    "type": "text",
+    "text": "[system] OrchestratedStrategy unavailable (no orchestrator agent). Falling back to single mode."
+  }
+}
+```
 
 ### 3.7. Execution Strategies
 
@@ -875,8 +1052,11 @@ Session flow с Compaction:
 - Compaction срабатывает редко (только при переполнении) → минимальный overhead
 
 #### OrchestratedStrategy
+
+**Требует:** ≥1 агент с `mode: orchestrator` + ≥1 агент с `mode: subagent` или `mode: all`.
+
 ```
-1. RouteDecision через LLM (Structured Outputs → RouteDecision Pydantic)
+1. Orchestrator LLM делает RouteDecision (Structured Outputs → Pydantic)
 2. Point-to-point через EventBus.send_request()
 3. Token-Slicing: суммаризация ответа субагента перед добавлением в контекст
 4. max_steps предохранитель (по умолчанию 7)
@@ -929,15 +1109,20 @@ agent_descriptions = "\n".join(
 - LLM "понимает" ограничения через schema → меньше hallucinations
 
 #### ChoreographyStrategy
+
+**Требует:** ≥2 агента с `mode: subagent` или `mode: all`.
+
 ```
 1. Broadcast ContextBroadcast всем агентам параллельно
 2. Сбор ChoreographyAnswer от каждого агента
-3. Conflict Resolution: Priority Queue из agent configuration (mode, priority)
+3. Conflict Resolution: Priority Queue (priority из agent config, меньше = важнее)
 4. coordination_overhead_tokens: токены холостых опросов
 5. max_steps предохранитель
 ```
 
 #### HierarchicalStrategy
+
+**Требует:** ≥1 агент с `mode: primary` или `mode: all` + ≥1 агент с `mode: subagent` или `mode: all`.
 
 Стратегия иерархического делегирования (OpenCode-style Primary + Subagent):
 
@@ -992,10 +1177,12 @@ class TaskResult(DomainEvent):
 
 **Конфигурация агента для HierarchicalStrategy (Markdown):**
 
+`.codelab/agents/coder.md`:
 ```markdown
 ---
-name: coder
+description: Primary agent — delegates to subagents
 mode: primary
+priority: 0
 model: anthropic/claude-3-5-sonnet
 tools:
   fs/*: true
@@ -1013,11 +1200,12 @@ permission:
 Primary agent — delegates to subagents.
 ```
 
+`.codelab/agents/tester.md`:
 ```markdown
 ---
-name: tester
-mode: subagent
 description: Writes and runs tests
+mode: subagent
+priority: 1
 model: openai/gpt-4o-mini
 tools:
   terminal/*: true
@@ -1026,14 +1214,16 @@ hidden: false
 Write and run tests.
 ```
 
+`.codelab/agents/compact.md`:
 ```markdown
 ---
-name: compact
+description: System agent for context compaction
 mode: subagent
+priority: 99
 hidden: true
 model: openai/gpt-4o-mini
 ---
-System agent for context compaction.
+Compact long conversations.
 ```
 
 **Когда использовать:**
@@ -2732,7 +2922,7 @@ class PricingEngine:
 
 | # | Файл | Описание |
 |---|---|---|
-| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML |
+| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent` — Pydantic для Markdown + TOML, `AgentMode` enum (primary, subagent, orchestrator, all), `model_config(extra="allow")` для vendor-specific params |
 | 2a.2 | `server/agent/markdown_loader.py` | `AgentMarkdownLoader` — парсинг Markdown файлов с frontmatter, hot reload |
 | 2a.3 | `server/agent/config_resolver.py` | `AgentConfigResolver` — merge global + markdown → ResolvedAgent |
 | 2a.4 | `server/agent/registry.py` | `AgentRegistry` — dict[name] → ResolvedAgent, hot reload, EventBus publish |
@@ -3577,3 +3767,12 @@ TimelineEvent:
 | **MCPToolAdapter** | Конвертация MCPTool → ToolDefinition с namespace prefix |
 | **MCPToolExecutor** | Исполнитель MCP инструментов через ToolExecutor интерфейс |
 | **MCPServerConfig** | Pydantic модель конфигурации MCP сервера |
+| **AgentMode** | Enum: `primary`, `subagent`, `orchestrator`, `all` — тип роли агента |
+| **AgentRegistry** | Единый реестр агентов — dict[name] → ResolvedAgent |
+| **AgentMarkdownLoader** | Загрузка и парсинг Markdown файлов с YAML frontmatter |
+| **AgentConfigResolver** | Merge TOML global + Markdown config → ResolvedAgent |
+| **ResolvedAgent** | Полностью разрешённая конфигурация агента (все defaults применены) |
+| **priority** | Числовой приоритет агента (default: 99, меньше = важнее) |
+| **fallback_mode** | Режим fallback если нет нужных агентов для выбранной стратегии |
+| **prompt {file:...}** | Синтаксис для внешнего файла промпта (относительно .md файла) |
+| **additional_params** | Vendor-specific параметры (reasoningEffort, textVerbosity) |
