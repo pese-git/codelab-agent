@@ -117,10 +117,13 @@ flowchart LR
 
     subgraph Hierarchical["Hierarchical (OpenCode-style)"]
         H1[User prompt] --> H2[Primary LLMAdapter]
-        H2 -->|TaskInvocation| H3[AgentEventBus<br/>point-to-point]
-        H3 -->|create child session| H4[Sub-Agent LLMAdapter]
-        H4 -->|TaskResult| H3
-        H3 -->|sliced summary| H2
+        H2 -->|TaskInvocation| H3[HierarchicalStrategy]
+        H3 -->|convert to AgentRequest| H4[AgentEventBus<br/>point-to-point]
+        H4 -->|create child session| H5[Sub-Agent LLMAdapter]
+        H5 -->|AgentResponse| H4
+        H4 -->|AgentResponse| H3
+        H3 -->|build TaskResult| H6[TokenSlicer]
+        H6 -->|sliced summary| H2
         H2 -->|continue or delegate| H3
     end
 ```
@@ -230,7 +233,7 @@ class AgentCaller:
 | **Single** | `send_request()` | 1 | Плоская: `bus_request → llm_call` | ❌ | Единый |
 | **Orchestrated** | `send_request()` | 1 + N×steps | Вложенная: `route_decision → bus_request → llm_call` (повторяется) | ✅ | Hybrid (sliced + child) |
 | **Choreography** | `broadcast()` | N параллельно | Веерная: `broadcast → N×llm_call → conflict_resolution → winner_child` | ✅ (winner) | Hybrid (winner only) |
-| **Hierarchical** | `send_request()` | 1 + N×delegations | Дерево: `primary → task_invocation → child_session → llm_call` | ✅ | Hybrid (нативный) |
+| **Hierarchical** | `send_request()` | 1 + N×delegations | Дерево: `primary → task_invocation → agent_request → bus_request → child_session → llm_call` | ✅ | Hybrid (нативный) |
 
 ### 3.1.2. Интерфейсы шины событий
 
@@ -1403,30 +1406,73 @@ agent_descriptions = "\n".join(
    a. CHECK task permissions (caller может вызывать target?)
    b. Если "ask" → session/request_permission пользователю
    c. Создать child session (изолированный контекст)
-   d. TaskInvocation через EventBus.send_request()
+   d. TaskInvocation → конвертация в AgentRequest
+   e. AgentRequest через EventBus.send_request()
 4. Subagent выполняет в child session:
    a. Свой system prompt
    b. Свой набор инструментов
    c. Свой permissions
    d. Своя история сообщений
-5. Subagent возвращает TaskResult
-6. Token-Slicer суммаризует результат для parent context
-7. Primary интегрирует summary, продолжает или завершает
+5. Subagent возвращает AgentResponse
+6. AgentResponse → TaskResult (доменное событие стратегии)
+7. Token-Slicer суммаризует результат для parent context
+8. Primary интегрирует summary, продолжает или завершает
+```
 
-**TaskInvocation (через EventBus):**
+**TaskInvocation и TaskResult — доменные события HierarchicalStrategy:**
+
+> **Архитектурное пояснение:** `TaskInvocation` и `TaskResult` — это доменные события
+> стратегии делегирования, а не контракты шины. Перед вызовом `EventBus.send_request()`
+> `TaskInvocation` конвертируется в `AgentRequest` (единый контракт шины). После получения
+> `AgentResponse` стратегия строит `TaskResult` для внутреннего использования.
+
+```
+Domain Layer (стратегия):        Transport Layer (шина):
+┌──────────────────────┐         ┌──────────────────────┐
+│ TaskInvocation       │ ──►     │ AgentRequest         │
+│  • prompt            │  conv   │  • messages          │
+│  • permission_override│  ert   │  • tools             │
+│  • target_agent      │  ──►    │  • target_agent      │
+└──────────────────────┘         └──────────────────────┘
+
+Transport Layer (шина):          Domain Layer (стратегия):
+┌──────────────────────┐         ┌──────────────────────┐
+│ AgentResponse        │ ──►     │ TaskResult           │
+│  • text              │  build  │  • output            │
+│  • tool_calls        │  ──►    │  • success           │
+│  • stop_reason       │         │  • child_session_id  │
+│  • usage             │         └──────────────────────┘
+└──────────────────────┘
+```
+
+**TaskInvocation (доменное событие стратегии):**
 ```python
 @dataclass(frozen=True)
 class TaskInvocation(DomainEvent):
+    """Доменное событие делегирования задачи субагенту.
+
+    Конвертируется в AgentRequest перед вызовом EventBus.send_request():
+    - prompt → оборачивается в messages: [SystemMessage(prompt)]
+    - permission_override → проверяется стратегией ДО вызова шины
+    - parent_span → извлекается и передаётся как параметр send_request()
+    """
     target_agent: str
     prompt: str
     tools: list[ToolDefinition]
     permission_override: dict | None = None
     correlation_id: str
     session_id: str           # parent session
-    parent_span: SpanContext | None
 
 @dataclass(frozen=True)
 class TaskResult(DomainEvent):
+    """Доменный результат делегирования задачи.
+
+    Строится из AgentResponse после получения ответа от шины:
+    - AgentResponse.text → TaskResult.output
+    - AgentResponse.stop_reason → TaskResult.success
+    - AgentResponse.usage → TaskResult.usage
+    - child_session_id добавляется стратегией при создании child session
+    """
     invocation_id: str
     success: bool
     output: str
@@ -1436,14 +1482,32 @@ class TaskResult(DomainEvent):
     child_session_id: str     # ID изолированной child session
 ```
 
-> **Почему `parent_span` — поле в `TaskInvocation`, но параметр в методах:**
->
-> | Контекст | Как передаётся | Почему |
-> |---|---|---|
-> | **Методы** (`send_request`, `Agent.call`, `TokenSlicer.slice`) | Отдельный параметр | Прямой вызов — tracing context propagates через стек вызовов |
-> | **DomainEvent** (`TaskInvocation`, `TaskResult`) | Поле dataclass | Событие сериализуется и проходит через EventBus — tracing context должен "путешествовать" вместе с payload |
->
-> Это не баг, а различие между **call-time propagation** (методы) и **event-borne context** (события). EventBus извлекает `parent_span` из `TaskInvocation` и использует его при dispatch к целевому агенту.
+**Конвертация TaskInvocation → AgentRequest:**
+```python
+def _invocation_to_request(
+    invocation: TaskInvocation,
+    child_session_id: str,
+) -> AgentRequest:
+    """Конвертировать доменное событие делегирования в запрос к шине."""
+    return AgentRequest(
+        target_agent=invocation.target_agent,
+        messages=[SystemMessage(content=invocation.prompt)],
+        tools=invocation.tools,
+        correlation_id=invocation.correlation_id,
+        session_id=child_session_id,  # child session, не parent
+    )
+```
+
+**Почему разделение доменных и транспортных типов:**
+
+| Аспект | TaskInvocation (Domain) | AgentRequest (Transport) |
+|---|---|---|
+| **Уровень** | Domain — HierarchicalStrategy | Transport — AgentEventBus |
+| **Назначение** | Выражает намерение делегирования | Команда маршрутизации |
+| **prompt vs messages** | `prompt: str` — задача для субагента | `messages: list[Message]` — формат LLM |
+| **permission_override** | Проверяется стратегией до вызова шины | Не нужен — шина не знает о permissions |
+| **parent_span** | Не нужен — tracing через параметр метода | Передаётся как `send_request(req, parent_span)` |
+| **session_id** | Parent session (откуда делегируют) | Child session (где выполняется) |
 
 **Конфигурация агента для HierarchicalStrategy (Markdown):**
 
@@ -3309,7 +3373,7 @@ class PricingEngine:
 ### Фаза 2c: HierarchicalStrategy — делегирование с child sessions и навигацией
 
 > **Цель:** Добавить HierarchicalStrategy (OpenCode-style) с Task tool, task permissions, child sessions.
-> Spec: Hierarchical использует TaskInvocation, TaskResult, task permissions — строки 600–688.
+> Spec: Hierarchical использует TaskInvocation → AgentRequest конвертацию, TaskResult, task permissions — строки 1393–1506.
 
 | # | Файл | Описание |
 |---|---|---|
@@ -4099,6 +4163,8 @@ TimelineEvent:
 | **`_routing_mode`** | Кастомная config option для выбора режима выполнения (ACP-compliant) |
 | **Slash Override** | One-shot override режима через `/single`, `/multi`, `/choreography`, `/hierarchical` |
 | **Task tool** | Инструмент делегирования Primary → Subagent в HierarchicalStrategy |
+| **TaskInvocation** | Доменное событие делегирования — конвертируется в AgentRequest перед вызовом шины |
+| **TaskResult** | Доменный результат делегирования — строится из AgentResponse после ответа шины |
 | **Task Permissions** | Контроль каких субагентов агент может вызывать |
 | **SpanExporter** | Абстрактный интерфейс для экспорта span'ов во внешние системы |
 | **MetricsExporter** | Абстрактный интерфейс для экспорта метрик во внешние системы |
