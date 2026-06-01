@@ -140,23 +140,32 @@ flowchart LR
 
 **Назначение:** In-Memory шина для межагентского общения внутри серверного процесса.
 
+Реализует два интерфейса: `AbstractEventBus` (pub/sub) и `AgentRoutingInterface` (agent routing).
+
 **Контракт:**
 ```python
-class AgentEventBus(AbstractEventBus):
+class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
+    # AbstractEventBus (pub/sub)
+    def subscribe(self, event_type: type, handler: Handler) -> Subscription
+    def unsubscribe(self, subscription: Subscription) -> None
+    def publish(self, event: DomainEvent) -> None
+    async def clear(self) -> None
+
+    # AgentRoutingInterface (agent routing)
     async def register_agent(self, agent_name: str, handler: RequestHandler) -> None
     async def unregister_agent(self, agent_name: str) -> None
     async def send_request(self, request: AgentRequest, parent_span: SpanContext | None) -> AgentResponse
     async def broadcast(self, broadcast: ContextBroadcast) -> list[ChoreographyAnswer]
-    def subscribe(self, event_type: type, handler: Handler) -> Subscription
 ```
 
-**Два паттерна на одной шине:**
+**Два интерфейса, одна шина:**
 
-| Паттерн | Метод | Использование |
-|---|---|---|
-| **Point-to-Point** | `send_request()` → `AgentResponse` | Оркестратор → субагент |
-| **Broadcast** | `broadcast()` → `list[ChoreographyAnswer]` | Хореография → все агенты |
-| **Fire-and-forget** | `publish()` → `None` | Уведомления, метрики, логирование |
+| Интерфейс | Паттерн | Метод | Кто зависит |
+|---|---|---|---|
+| **AbstractEventBus** | Fire-and-forget | `publish()` → `None` | MetricsTracker, EventTimeline, Observability |
+| **AgentRoutingInterface** | Point-to-Point | `send_request()` → `AgentResponse` | SingleStrategy, OrchestratedStrategy, HierarchicalStrategy |
+| **AgentRoutingInterface** | Broadcast | `broadcast()` → `list[ChoreographyAnswer]` | ChoreographyStrategy |
+| **AgentRoutingInterface** | Registration | `register_agent()`, `unregister_agent()` | AgentRegistry |
 
 ### 3.1.1. Коммуникация между агентами
 
@@ -223,10 +232,11 @@ class AgentCaller:
 | **Choreography** | `broadcast()` | N параллельно | Веерная: `broadcast → N×llm_call → conflict_resolution` | ✅ | Hybrid (опционально) |
 | **Hierarchical** | `send_request()` | 1 + N×delegations | Дерево: `primary → task_invocation → child_session → llm_call` | ✅ | Hybrid (нативный) |
 
-### 3.1.2. AbstractEventBus (базовый интерфейс)
+### 3.1.2. Интерфейсы шины событий
 
-**Назначение:** Абстрактный интерфейс шины событий, определяющий контракт для publish/subscribe
-и point-to-point коммуникации. `AgentEventBus` — конкретная in-memory реализация.
+Шина событий разделена на два интерфейса по принципу **Interface Segregation**:
+- `AbstractEventBus` — pub/sub для observability (метрики, timeline, уведомления)
+- `AgentRoutingInterface` — agent routing для стратегий выполнения
 
 ```python
 from abc import ABC, abstractmethod
@@ -258,12 +268,11 @@ class RequestHandler(Protocol):
 
 
 class AbstractEventBus(ABC):
-    """Базовый интерфейс шины событий для межагентской коммуникации.
+    """Базовый интерфейс pub/sub шины для observability.
 
-    Поддерживает три паттерна:
-    - publish/subscribe — fire-and-forget уведомления
-    - send_request — point-to-point request/response
-    - broadcast — рассылка всем зарегистрированным агентам
+    Используется компонентами наблюдаемости (MetricsTracker, EventTimeline)
+    для подписки на доменные события. Не включает agent routing — стратегии
+    зависят от AgentRoutingInterface.
     """
 
     @abstractmethod
@@ -303,7 +312,79 @@ class AbstractEventBus(ABC):
 
         Используется для тестирования и graceful shutdown.
         """
+
+
+class AgentRoutingInterface(Protocol):
+    """Интерфейс маршрутизации запросов между агентами.
+
+    Используется стратегиями выполнения (SingleStrategy, OrchestratedStrategy,
+    ChoreographyStrategy, HierarchicalStrategy) для point-to-point и broadcast
+    коммуникации. Отделён от AbstractEventBus по принципу Interface Segregation —
+    стратегии не зависят от pub/sub, observability не зависит от routing.
+    """
+
+    async def register_agent(self, agent_name: str, handler: RequestHandler) -> None:
+        """Зарегистрировать обработчик для агента.
+
+        Args:
+            agent_name: Имя агента (уникальный идентификатор)
+            handler: Асинхронный обработчик запросов
+        """
+
+    async def unregister_agent(self, agent_name: str) -> None:
+        """Удалить агента из шины.
+
+        Args:
+            agent_name: Имя агента для удаления
+        """
+
+    async def send_request(
+        self,
+        request: AgentRequest,
+        parent_span: SpanContext | None,
+    ) -> AgentResponse:
+        """Отправить point-to-point запрос целевому агенту.
+
+        Args:
+            request: Запрос с target_agent, messages, tools
+            parent_span: Контекст tracing для propagation
+
+        Returns:
+            AgentResponse от целевого агента
+
+        Raises:
+            AgentNotFoundError: если target_agent не зарегистрирован
+            AgentDispatchError: если handler упал после retry
+        """
+
+    async def broadcast(self, broadcast: ContextBroadcast) -> list[ChoreographyAnswer]:
+        """Отправить broadcast всем зарегистрированным агентам параллельно.
+
+        Args:
+            broadcast: Контекст для рассылки
+
+        Returns:
+            Список ответов от всех агентов (включая пустые)
+        """
 ```
+
+**Зависимости компонентов от интерфейсов:**
+
+| Компонент | Зависит от | Зачем |
+|---|---|---|
+| `MetricsTracker` | `AbstractEventBus` | Подписка на доменные события |
+| `EventTimeline` | `AbstractEventBus` | Подписка на события сессии |
+| `SingleStrategy` | `AgentRoutingInterface` | `send_request()` |
+| `OrchestratedStrategy` | `AgentRoutingInterface` | `send_request()` |
+| `ChoreographyStrategy` | `AgentRoutingInterface` | `broadcast()` |
+| `HierarchicalStrategy` | `AgentRoutingInterface` | `send_request()` |
+| `AgentRegistry` | `AgentRoutingInterface` | `register_agent()`, `unregister_agent()` |
+
+**Почему разделение:**
+- **Interface Segregation Principle** — каждый потребитель зависит только от нужных методов
+- **Тестируемость** — мок `AgentRoutingInterface` не тянет pub/sub логику, и наоборот
+- **Расширяемость** — можно добавить другую реализацию routing (например, HTTP-based) без pub/sub
+- **Ясность** — observability компоненты не могут случайно вызвать `send_request`
 
 **Жизненный цикл подписки:**
 ```
@@ -3906,6 +3987,8 @@ TimelineEvent:
 |---|---|
 | **ACP** | Agent Client Protocol — внешний контракт клиент-сервер |
 | **EventBus** | In-Memory шина для межагентского общения |
+| **AbstractEventBus** | Абстрактный интерфейс pub/sub — для observability (метрики, timeline) |
+| **AgentRoutingInterface** | Интерфейс agent routing — для стратегий выполнения (send_request, broadcast) |
 | **Orchestrator** | Агент-маршрутизатор (централизованное управление) |
 | **Choreography** | Децентрализованное взаимодействие агентов |
 | **Hierarchical** | Иерархическое делегирование Primary → Subagent с child sessions |
