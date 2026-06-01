@@ -521,7 +521,7 @@ class AgentTOMLConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     description: str
-    mode: AgentMode = AgentMode.all
+    mode: AgentMode = AgentMode.subagent
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -602,7 +602,7 @@ permission:
 | Параметр | Тип | Обязательный | Описание |
 |---|---|---|---|
 | `description` | string | ✅ | Что делает агент, когда использовать |
-| `mode` | string | | `primary`, `subagent`, `orchestrator`, `all` (default: `all`) |
+| `mode` | string | | `primary`, `subagent`, `orchestrator` (default: `subagent`) |
 | `priority` | int | | Приоритет для Conflict Resolution (default: 99, меньше = важнее) |
 | `model` | string | | `provider/model-id` (fallback: `global.default_model`) |
 | `temperature` | float | | 0.0–1.0 (fallback: model default → 0.0) |
@@ -622,7 +622,6 @@ class AgentMode(str, Enum):
     primary = "primary"
     subagent = "subagent"
     orchestrator = "orchestrator"  # агент-маршрутизатор для OrchestratedStrategy
-    all = "all"
 
 class AgentPermission(BaseModel):
     edit: str = "ask"
@@ -639,7 +638,7 @@ class AgentMarkdownConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     description: str
-    mode: AgentMode = AgentMode.all
+    mode: AgentMode = AgentMode.subagent
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -826,10 +825,10 @@ class AgentRegistry:
         """Получить все активные агенты."""
 
     def get_primary_agents(self) -> dict[str, ResolvedAgent]:
-        """Получить агенты с mode=primary или mode=all."""
+        """Получить агенты с mode=primary."""
 
     def get_subagents(self) -> dict[str, ResolvedAgent]:
-        """Получить агенты с mode=subagent или mode=all."""
+        """Получить агенты с mode=subagent."""
 
     def get_orchestrator(self) -> ResolvedAgent | None:
         """Получить агента с mode=orchestrator."""
@@ -1051,12 +1050,18 @@ debug = false
 | Имя файла = имя агента | Просто, предсказуемо, как в OpenCode |
 | Числовой priority | Проще сортировка, вставка между значениями, default 99 |
 | `mode: orchestrator` | Ясно, проще валидация, TUI визуально выделяет |
+| `mode=all` удалён | Явность ролей, проще валидация, разные роли = разные промпты |
 | `model_config(extra="allow")` | Vendor-specific параметры без изменения схемы |
 | Inline prompt в TOML | Поддержка однострочных и multi-line (triple-quote) промптов |
 
 #### 3.6.11. Матрица параметров по стратегиям
 
 Каждая стратегия требует определённого набора агентов с определёнными режимами.
+
+> **Примечание:** Режим `mode=all` удалён. Каждый агент должен явно указывать свою роль
+> (`primary`, `subagent` или `orchestrator`). Если агент нужен в нескольких ролях —
+> определите его дважды с разными конфигурациями. Это обеспечивает явность, упрощает
+> валидацию и позволяет разным ролям иметь разные system prompts и наборы инструментов.
 
 | Параметр | Single | Orchestrated | Choreography | Hierarchical |
 |---|---|---|---|---|
@@ -1094,9 +1099,9 @@ debug = false
 | Стратегия | Проверка | При fail → |
 |---|---|---|
 | **Single** | Всегда проходит | — |
-| **Orchestrated** | Есть ≥1 агент с `mode=orchestrator` И ≥1 с `mode=subagent/all` | `fallback_mode` |
-| **Choreography** | Есть ≥2 агента с `mode=subagent/all` | `fallback_mode` |
-| **Hierarchical** | Есть ≥1 агент с `mode=primary/all` И ≥1 с `mode=subagent/all` | `fallback_mode` |
+| **Orchestrated** | Есть ≥1 агент с `mode=orchestrator` И ≥1 с `mode=subagent` | `fallback_mode` |
+| **Choreography** | Есть ≥2 агента с `mode=subagent` | `fallback_mode` |
+| **Hierarchical** | Есть ≥1 агент с `mode=primary` И ≥1 с `mode=subagent` | `fallback_mode` |
 
 **Логика валидации (StrategyDispatcher):**
 
@@ -1112,7 +1117,7 @@ class StrategyDispatcher:
         if mode == "multi_orchestrated":
             has_orchestrator = any(a.mode == AgentMode.orchestrator for a in agents.values())
             has_subagent = any(
-                a.mode in (AgentMode.subagent, AgentMode.all) for a in agents.values()
+                a.mode == AgentMode.subagent for a in agents.values()
             )
             if has_orchestrator and has_subagent:
                 return "multi_orchestrated"
@@ -1125,7 +1130,7 @@ class StrategyDispatcher:
         if mode == "multi_choreographed":
             subagents = [
                 a for a in agents.values()
-                if a.mode in (AgentMode.subagent, AgentMode.all)
+                if a.mode == AgentMode.subagent
             ]
             if len(subagents) >= 2:
                 return "multi_choreographed"
@@ -1137,10 +1142,10 @@ class StrategyDispatcher:
 
         if mode == "hierarchical":
             has_primary = any(
-                a.mode in (AgentMode.primary, AgentMode.all) for a in agents.values()
+                a.mode == AgentMode.primary for a in agents.values()
             )
             has_subagent = any(
-                a.mode in (AgentMode.subagent, AgentMode.all) for a in agents.values()
+                a.mode == AgentMode.subagent for a in agents.values()
             )
             if has_primary and has_subagent:
                 return "hierarchical"
@@ -1210,7 +1215,7 @@ Session flow с Compaction:
 
 #### OrchestratedStrategy
 
-**Требует:** ≥1 агент с `mode: orchestrator` + ≥1 агент с `mode: subagent` или `mode: all`.
+**Требует:** ≥1 агент с `mode: orchestrator` + ≥1 агент с `mode: subagent`.
 
 ```
 1. Orchestrator LLM делает RouteDecision (Structured Outputs → Pydantic)
@@ -1267,7 +1272,7 @@ agent_descriptions = "\n".join(
 
 #### ChoreographyStrategy
 
-**Требует:** ≥2 агента с `mode: subagent` или `mode: all`.
+**Требует:** ≥2 агента с `mode: subagent`.
 
 ```
 1. Broadcast ContextBroadcast всем агентам параллельно
@@ -1279,7 +1284,7 @@ agent_descriptions = "\n".join(
 
 #### HierarchicalStrategy
 
-**Требует:** ≥1 агент с `mode: primary` или `mode: all` + ≥1 агент с `mode: subagent` или `mode: all`.
+**Требует:** ≥1 агент с `mode: primary` + ≥1 агент с `mode: subagent`.
 
 Стратегия иерархического делегирования (OpenCode-style Primary + Subagent):
 
@@ -3924,7 +3929,7 @@ TimelineEvent:
 | **MCPToolAdapter** | Конвертация MCPTool → ToolDefinition с namespace prefix |
 | **MCPToolExecutor** | Исполнитель MCP инструментов через ToolExecutor интерфейс |
 | **MCPServerConfig** | Pydantic модель конфигурации MCP сервера |
-| **AgentMode** | Enum: `primary`, `subagent`, `orchestrator`, `all` — тип роли агента |
+| **AgentMode** | Enum: `primary`, `subagent`, `orchestrator` — тип роли агента |
 | **AgentRegistry** | Единый реестр агентов — dict[name] → ResolvedAgent |
 | **AgentMarkdownLoader** | Загрузка и парсинг Markdown файлов с YAML frontmatter |
 | **AgentConfigResolver** | Merge TOML global + Markdown config → ResolvedAgent |
