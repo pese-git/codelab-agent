@@ -1852,7 +1852,7 @@ set_config_option(_routing_mode=multi_choreographed)
 | 1.8 | `server/agent/adapters/plan_extractor.py` | `PlanExtractor` — перенос из agent/plan_extractor.py |
 | 1.9 | `server/agent/engine.py` | `ExecutionEngine` — замена AgentOrchestrator, tracer span |
 | 1.10 | `server/agent/factory.py` | `AgentFactory` — создаёт LLMAdapter из AgentConfig |
-| 1.11 | `server/llm/providers/telemetry_hook.py` | Hook — TelemetrySink.record_request() после каждого LLM call |
+| 1.11 | `server/agent/adapters/llm_adapter.py` | LLMAdapter создаёт tracer span для каждого LLM call (latency, tokens, cost, status) |
 | 1.12 | `server/protocol/state.py` | Новые поля: execution_mode, active_agents, session_metrics, correlation_id |
 | 1.13 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
 | 1.14 | `tests/server/agent/` | Unit-тесты нового agent layer |
@@ -1881,7 +1881,7 @@ set_config_option(_routing_mode=multi_choreographed)
 
 | # | Файл | Описание |
 |---|---|---|
-| 3.1 | `server/metrics/tracker.py` | `MetricsTracker` — context manager, TelemetrySink, auto-log через tracer |
+| 3.1 | `server/metrics/tracker.py` | `MetricsTracker` — context manager, auto-log через Tracer span attributes |
 | 3.2 | `server/metrics/subscribers.py` | `MetricsSubscriber` — подписчик на EventBus события |
 | 3.3 | `tests/server/metrics/` | Unit-тесты MetricsTracker |
 
@@ -1993,6 +1993,7 @@ set_config_option(_routing_mode=multi_choreographed)
 | `server/agent/state.py` | Замена на MultiAgentConfig | `server/agent/config.py` |
 | `server/agent/plan_extractor.py` | Перенос в adapters | `server/agent/adapters/plan_extractor.py` |
 | `server/agent/base.py` | Замена Agent Protocol | `server/agent/core/agent.py` |
+| `server/llm/telemetry/` | Замена на InMemoryTracer | `server/observability/tracer.py` — InMemoryTracer покрывает всё + tracing, correlation, exporters |
 
 ---
 
