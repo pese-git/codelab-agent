@@ -3201,11 +3201,13 @@ class PricingEngine:
 | 2a.13 | `tests/server/agent/test_markdown_loader.py` | Unit-тесты парсинга Markdown frontmatter |
 | 2a.14 | `tests/server/agent/test_config_resolver.py` | Unit-тесты разрешения конфигов |
 | 2a.15 | `tests/server/agent/test_registry.py` | Unit-тесты AgentRegistry |
+| 2a.16 | `server/agent/core/compactor.py` | `ContextCompactor` — базовый compaction при переполнении контекста, без Token-Slicing и Child Sessions |
 
 **Критерий завершения фазы 2a:**
 - ✅ Все ~1800 существующих тестов проходят
 - ✅ Бенчмарк: latency ≤ baseline + 10ms bus overhead
 - ✅ SingleStrategy работает через EventBus → LLMAdapter
+- ✅ ContextCompactor готов — compaction при переполнении контекста
 - ✅ `_routing_mode = "single"` — дефолт, мультиагентность не активна
 
 ---
@@ -3214,12 +3216,13 @@ class PricingEngine:
 
 > **Цель:** Добавить OrchestratedStrategy с RouteDecision, Token-Slicing, Child Sessions, HybridContextManager.
 > Spec: Orchestrated использует Hybrid (sliced + child) контекст — строки 221, 852–857, 1103–1108.
+> `ContextCompactor` уже создан в фазе 2a (2a.16) — `HybridContextManager` дополняет его Token-Slicing и Child Sessions.
 
 | # | Файл | Описание |
 |---|---|---|
 | 2b.1 | `server/agent/strategies/models.py` | `RouteDecision` — Pydantic для Structured Outputs |
 | 2b.2 | `server/agent/strategies/token_slicer.py` | `TokenSlicer` — суммаризация, tracer span с diff, SKIP_THRESHOLD_TOKENS |
-| 2b.3 | `server/agent/core/context_manager.py` | `HybridContextManager` — Token-Slicing + Child Sessions + Compaction, SessionState hierarchy |
+| 2b.3 | `server/agent/core/context_manager.py` | `HybridContextManager` — координирует ContextCompactor (из 2a.16) + TokenSlicer (2b.2) + Child Sessions, SessionState hierarchy |
 | 2b.4 | `server/agent/strategies/orchestrated.py` | `OrchestratedStrategy` — RouteDecision LLM, point-to-point через EventBus, Token-Slicing после каждого sub-agent response, HybridContextManager.process_subagent_response(), max_steps (7), race condition guard |
 | 2b.5 | `server/agent/strategies/mcp_integration.py` | Интеграция MCP tools в мультиагентные стратегии: MCP tools в AgentRequest.tools |
 | 2b.6 | `tests/server/agent/strategies/test_orchestrated.py` | Unit-тесты OrchestratedStrategy — route decision, token slicing, child sessions, max_steps |
