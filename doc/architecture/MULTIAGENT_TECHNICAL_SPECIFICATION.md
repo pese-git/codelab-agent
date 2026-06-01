@@ -908,6 +908,150 @@ class ContextCompactor:
 | **Choreography** | ✅ (опционально) | ✅ |
 | **Hierarchical** | ✅ | ✅ |
 
+#### HybridContextManager
+
+**Назначение:** Координатор управления контекстом — объединяет `TokenSlicer`, `ContextCompactor`
+и управление иерархией сессий (parent/child) в единый интерфейс для стратегий.
+
+```python
+class HybridContextManager:
+    """Управление контекстом в мультиагентных стратегиях.
+
+    Координирует три механизма:
+    1. Token-Slicing — суммаризация ответов субагентов
+    2. Child Sessions — создание и связывание дочерних сессий
+    3. Compaction — fallback при переполнении контекста
+    """
+
+    def __init__(
+        self,
+        slicer: TokenSlicer,
+        compactor: ContextCompactor,
+        storage: SessionStorage,
+    ):
+        self._slicer = slicer
+        self._compactor = compactor
+        self._storage = storage
+
+    async def process_subagent_response(
+        self,
+        parent_session_id: str,
+        subagent_output: str,
+        agent_name: str,
+        parent_span: SpanContext | None = None,
+    ) -> SlicedResult:
+        """Обработать ответ субагента: создать child session + slice.
+
+        Flow:
+        1. Создать child session с полным контекстом субагента
+        2. Связать child ↔ parent (parent_session_id, child_session_ids)
+        3. Token-Slicer суммаризирует ответ
+        4. Обновить SessionState.parent_session_id у child
+        5. Обновить SessionState.child_session_ids у parent
+        6. Вернуть SlicedResult для инъекции в контекст координатора
+
+        Args:
+            parent_session_id: ID родительской сессии
+            subagent_output: Полный ответ субагента
+            agent_name: Имя субагента
+            parent_span: Span для tracing
+
+        Returns:
+            SlicedResult с summary и метриками
+        """
+        # 1. Создать child session
+        child_session = self._create_child_session(parent_session_id, agent_name)
+
+        # 2. Связать с parent
+        parent_session = self._storage.get(parent_session_id)
+        parent_session.child_session_ids.append(child_session.id)
+        child_session.parent_session_id = parent_session_id
+        child_session.is_child_session = True
+        self._storage.save(parent_session)
+        self._storage.save(child_session)
+
+        # 3. Token-Slicing
+        sliced = await self._slicer.slice(
+            full_output=subagent_output,
+            child_session_id=child_session.id,
+            parent_span=parent_span,
+        )
+
+        # 4. Сохранить ссылку на summary
+        child_session.sliced_summary = sliced.summary
+        self._storage.save(child_session)
+
+        return sliced
+
+    async def ensure_context_fits(
+        self,
+        session_id: str,
+        parent_span: SpanContext | None = None,
+    ) -> tuple[list[Message], bool]:
+        """Проверить лимит контекста, выполнить compaction если нужно.
+
+        Вызывается стратегией перед каждым LLM call.
+        Делегирует ContextCompactor.compact_if_needed().
+
+        Args:
+            session_id: ID сессии
+            parent_span: Span для tracing
+
+        Returns:
+            (history, was_compacted)
+        """
+        session = self._storage.get(session_id)
+        new_history, was_compacted = await self._compactor.compact_if_needed(
+            history=session.history,
+            parent_span=parent_span,
+        )
+        if was_compacted:
+            session.history = new_history
+            self._storage.save(session)
+        return new_history, was_compacted
+
+    def _create_child_session(
+        self,
+        parent_session_id: str,
+        agent_name: str,
+    ) -> SessionState:
+        """Создать новую child session.
+
+        Child session получает:
+        - Уникальный session_id
+        - parent_session_id = parent_session_id
+        - is_child_session = True
+        - Свой system prompt (из agents.yaml)
+        - Пустую историю
+        """
+        child_id = f"child_{uuid4().hex[:8]}"
+        return SessionState(
+            id=child_id,
+            parent_session_id=parent_session_id,
+            is_child_session=True,
+            child_session_ids=[],
+            history=[],
+        )
+```
+
+**Почему отдельный менеджер, а не вызов компонентов напрямую из стратегий:**
+
+| Без HybridContextManager | С HybridContextManager |
+|---|---|
+| Каждая стратегия дублирует логику создания child session | Единый путь: `process_subagent_response()` |
+| Связывание parent ↔ child в каждой стратегии | Инкапсулировано |
+| Тестирование: мокировать 3 компонента в каждой стратегии | Тестирование: один интерфейс |
+| Риск рассинхрона: одна стратегия забывает обновить `child_session_ids` | Гарантированная консистентность |
+
+**Когда стратегии вызывают `HybridContextManager`:**
+
+| Стратегия | Когда вызывает | Какой метод |
+|---|---|---|
+| **Single** | Перед LLM call | `ensure_context_fits()` — только compaction |
+| **Orchestrated** | После каждого sub-agent response | `process_subagent_response()` + `ensure_context_fits()` |
+| **Choreography** | После conflict resolution (опционально) | `process_subagent_response()` |
+| **Hierarchical** | При возврате TaskResult из child session | `process_subagent_response()` + `ensure_context_fits()` |
+
 #### SessionState для иерархии
 
 ```python
