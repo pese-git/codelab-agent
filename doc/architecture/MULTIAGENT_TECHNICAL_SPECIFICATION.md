@@ -1393,6 +1393,17 @@ agent_descriptions = "\n".join(
 Ответы "проигравших" агентов не сохраняются в child sessions, но записываются
 в EventTimeline для debug mode — можно посмотреть что предложил каждый агент.
 
+**Prune в ChoreographyStrategy:**
+
+Prune применяется к **parent session**, которая накапливает:
+- Winner summaries от каждого broadcast шага
+- Tool results от инструментов primary agent (если вызывались между шагами)
+- Route decisions и agent messages
+
+Child session winner-агента — отдельная сессия, к ней Prune применяется
+независимо (если child session достаточно длинная). Проигравшие агенты
+не получают child sessions, поэтому к их ответам Prune не применяется.
+
 #### HierarchicalStrategy
 
 **Требует:** ≥1 агент с `mode: primary` + ≥1 агент с `mode: subagent`.
@@ -1894,7 +1905,7 @@ class ContextCompactor:
 |---|---|---|---|
 | **Single** | ❌ | ✅ | ✅ |
 | **Orchestrated** | ✅ | ✅ | ✅ |
-| **Choreography** | ✅ (только winner) | ✅ | ✅ |
+| **Choreography** | ✅ (только winner) | ✅ (parent session) | ✅ (parent session) |
 | **Hierarchical** | ✅ | ✅ | ✅ |
 
 #### HybridContextManager
