@@ -229,7 +229,7 @@ class AgentCaller:
 |---|---|---|---|---|---|
 | **Single** | `send_request()` | 1 | Плоская: `bus_request → llm_call` | ❌ | Единый |
 | **Orchestrated** | `send_request()` | 1 + N×steps | Вложенная: `route_decision → bus_request → llm_call` (повторяется) | ✅ | Hybrid (sliced + child) |
-| **Choreography** | `broadcast()` | N параллельно | Веерная: `broadcast → N×llm_call → conflict_resolution` | ✅ | Hybrid (опционально) |
+| **Choreography** | `broadcast()` | N параллельно | Веерная: `broadcast → N×llm_call → conflict_resolution → winner_child` | ✅ (winner) | Hybrid (winner only) |
 | **Hierarchical** | `send_request()` | 1 + N×delegations | Дерево: `primary → task_invocation → child_session → llm_call` | ✅ | Hybrid (нативный) |
 
 ### 3.1.2. Интерфейсы шины событий
@@ -1359,9 +1359,21 @@ agent_descriptions = "\n".join(
 1. Broadcast ContextBroadcast всем агентам параллельно
 2. Сбор ChoreographyAnswer от каждого агента
 3. Conflict Resolution: Priority Queue (priority из agent config, меньше = важнее)
-4. coordination_overhead_tokens: токены холостых опросов
-5. max_steps предохранитель
+4. Создать child session для winner-агента (сохранить полный ответ)
+5. Token-Slicing: суммаризация winner output (опционально)
+6. coordination_overhead_tokens: токены холостых опросов
+7. max_steps предохранитель
 ```
+
+**Child Sessions в ChoreographyStrategy:**
+
+В отличие от OrchestratedStrategy и HierarchicalStrategy, где каждый субагент
+получает свою child session, в ChoreographyStrategy child session создаётся
+**только для winner-агента** после Conflict Resolution. Это минимизирует overhead
+(1 child session вместо N) и сохраняет навигацию к деталям выполненной работы.
+
+Ответы "проигравших" агентов не сохраняются в child sessions, но записываются
+в EventTimeline для debug mode — можно посмотреть что предложил каждый агент.
 
 #### HierarchicalStrategy
 
@@ -1511,7 +1523,7 @@ Compact long conversations.
 |---|---|---|---|---|
 | **Single** | ❌ | ❌ | ❌ | Не нужен |
 | **Orchestrated** | ✅ | ✅ | ✅ | **Высокая** |
-| **Choreography** | ✅ | ✅ | ✅ | Средняя |
+| **Choreography** | ✅ (опционально, winner) | ✅ (только winner) | ✅ (winner) | Средняя |
 | **Hierarchical** | ✅ | ✅ | ✅ | **Высокая** |
 
 #### TokenSlicer компонент
@@ -1749,7 +1761,7 @@ class ContextCompactor:
 |---|---|---|
 | **Single** | ❌ | ✅ |
 | **Orchestrated** | ✅ | ✅ |
-| **Choreography** | ✅ (опционально) | ✅ |
+| **Choreography** | ✅ (только winner) | ✅ |
 | **Hierarchical** | ✅ | ✅ |
 
 #### HybridContextManager
@@ -1893,7 +1905,7 @@ class HybridContextManager:
 |---|---|---|
 | **Single** | Перед LLM call | `ensure_context_fits()` — только compaction |
 | **Orchestrated** | После каждого sub-agent response | `process_subagent_response()` + `ensure_context_fits()` |
-| **Choreography** | После conflict resolution (опционально) | `process_subagent_response()` |
+| **Choreography** | После conflict resolution (winner) | `process_subagent_response()` — только для winner |
 | **Hierarchical** | При возврате TaskResult из child session | `process_subagent_response()` + `ensure_context_fits()` |
 
 #### SessionState для иерархии
