@@ -2144,6 +2144,61 @@ set_config_option(_routing_mode=multi_choreographed)
 | Global policies | По `tool_kind` | + по `tool_name` + danger level |
 | TUI ModalScreen | Generic Allow/Reject | + danger-aware styling, agent name из `_meta` |
 
+> **ACP compliance:** `danger_level` — internal concept сервера, не передаётся по wire.
+> `ToolDefinition` — internal dataclass, используется только для LLM tool registration.
+> ACP wire protocol не меняется.
+
+#### Взаимодействие `danger_level` и `requires_permission`
+
+`danger_level` **дополняет** `requires_permission`, не заменяет:
+
+```
+requires_permission=False  → danger_level игнорируется, auto-execute
+requires_permission=True   → danger_level определяет поведение:
+  SAFE       → auto-execute после policy check (session → global)
+  DANGEROUS  → policy validation (session → global → ask user)
+  CRITICAL   → mandatory user confirmation (нельзя auto-allow)
+```
+
+**Decision matrix:**
+
+| `requires_permission` | `danger_level` | Поведение |
+|---|---|---|
+| `False` | любой | Auto-execute (permission не требуется) |
+| `True` | `SAFE` | Policy check → auto-execute (если не `deny`) |
+| `True` | `DANGEROUS` | Policy check → ask user (если не `allow` в policy) |
+| `True` | `CRITICAL` | Mandatory user confirmation (policy не может override) |
+
+**Default value:** `"DANGEROUS"` — conservative подход. Если инструмент не размечен, лучше запросить разрешение.
+
+```python
+@dataclass
+class ToolDefinition:
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    kind: str
+    requires_permission: bool = True
+    danger_level: Literal["SAFE", "DANGEROUS", "CRITICAL"] = "DANGEROUS"  # default
+```
+
+#### Migration table для существующих инструментов
+
+| Инструмент | Текущий `requires_permission` | Новый `danger_level` | Обоснование |
+|---|---|---|---|
+| `fs/read_text_file` | `True` | `SAFE` | Только чтение, нет побочных эффектов |
+| `fs/write_text_file` | `True` | `DANGEROUS` | Модификация файлов |
+| `terminal/create` | `True` | `CRITICAL` | Выполнение произвольных команд |
+| `terminal/wait_for_exit` | `False` | `SAFE` | Ожидание, нет модификаций |
+| `terminal/list_terminals` | `False` | `SAFE` | Только чтение |
+| `update_plan` | `False` | `SAFE` | Internal metadata update |
+| MCP tools (все) | `True` | `DANGEROUS` | Внешние инструменты, conservative |
+
+**Почему `DANGEROUS` как default:**
+- Безопаснее запросить разрешение чем пропустить опасную операцию
+- Существующие инструменты с `requires_permission=True` получат `DANGEROUS` по умолчанию
+- Явная разметка на `SAFE`/`CRITICAL` делается вручную при рефакторинге
+
 **Передача `agent_name` через ACP `_meta`:**
 
 Согласно [15-Extensibility.md](../Agent%20Client%20Protocol/protocol/15-Extensibility.md), все типы в протоколе включают `_meta` field для кастомной информации. `agent_name` передаётся в `session/request_permission`:
@@ -2174,6 +2229,19 @@ set_config_option(_routing_mode=multi_choreographed)
 | **SAFE** | `fs/read_text_file`, git status | Auto-execute |
 | **DANGEROUS** | `fs/write_text_file`, package install | Policy validation |
 | **CRITICAL** | `terminal/create` (rm -rf, curl | sh) | Manual user confirmation |
+
+**Priority при конфликте:** `deny` > `ask` > `allow`
+
+```
+1. Если danger_level=CRITICAL → always ask user (policy не может override)
+2. Если danger_level=DANGEROUS → policy check:
+   - policy=deny   → reject
+   - policy=allow  → auto-execute
+   - policy=ask    → ask user
+3. Если danger_level=SAFE → policy check:
+   - policy=deny   → reject
+   - policy=allow/ask → auto-execute
+```
 
 ---
 
@@ -2259,12 +2327,15 @@ set_config_option(_routing_mode=multi_choreographed)
 
 | # | Файл | Описание |
 |---|---|---|
-| 4.1 | `server/tools/base.py` | Добавить `danger_level` в `ToolDefinition` |
-| 4.2 | `server/tools/guard.py` | `ToolsGuardInterceptor` — tracer span для verify_action |
-| 4.3 | `server/tools/definitions/*.py` | Разметить danger levels |
-| 4.4 | `server/protocol/handlers/permissions.py` | Добавить `agent_name` в `_meta` при `session/request_permission` |
-| 4.5 | `client/tui/components/permission_modal.py` | Извлечь agent_name из `_meta`, показать в UI |
-| 4.6 | `tests/server/tools/` | Unit-тесты guard + `_meta` propagation |
+| 4.1 | `server/tools/base.py` | Добавить `danger_level` в `ToolDefinition` с default=`"DANGEROUS"` |
+| 4.2 | `server/tools/guard.py` | `ToolsGuardInterceptor` — decision matrix: requires_permission + danger_level → action |
+| 4.3 | `server/tools/definitions/filesystem.py` | Разметить: `read_text_file=SAFE`, `write_text_file=DANGEROUS` |
+| 4.4 | `server/tools/definitions/terminal.py` | Разметить: `create=CRITICAL`, `wait_for_exit=SAFE`, `list_terminals=SAFE` |
+| 4.5 | `server/tools/definitions/plan.py` | Разметить: `update_plan=SAFE` (уже `requires_permission=False`) |
+| 4.6 | `server/mcp/tool_adapter.py` | Разметить MCP tools: `danger_level=DANGEROUS` (default) |
+| 4.7 | `server/protocol/handlers/permissions.py` | Добавить `agent_name` в `_meta` при `session/request_permission` |
+| 4.8 | `client/tui/components/permission_modal.py` | Извлечь agent_name из `_meta`, danger-aware styling |
+| 4.9 | `tests/server/tools/` | Unit-тесты guard + decision matrix + `_meta` propagation |
 
 ### Фаза 5: Интеграция в pipeline
 
