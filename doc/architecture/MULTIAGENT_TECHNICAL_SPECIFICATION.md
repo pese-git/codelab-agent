@@ -3978,7 +3978,7 @@ sequenceDiagram
 ```
 
 **Детали:**
-- `NaiveAgent._cancel_active_tasks()` — отмена всех активных `asyncio.Task`
+- `LLMAdapter._cancel_active_tasks()` — отмена всех активных `asyncio.Task` (сохранено от NaiveAgent)
 - LLM provider request прерывается (если поддерживает cancellation)
 - Tool execution на клиенте **не отменяется** — результат игнорируется
 
