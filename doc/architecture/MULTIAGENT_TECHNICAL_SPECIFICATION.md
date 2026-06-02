@@ -1160,7 +1160,7 @@ debug = false
 | Параметр | Single | Orchestrated | Choreography | Hierarchical |
 |---|---|---|---|---|
 | **Требуемые mode** | любой | `orchestrator` + `subagent` | `subagent` (≥2) | `primary` + `subagent` |
-| **priority** | ❌ не используется | ✅ порядок делегирования | ✅ Conflict Resolution | ✅ порядок fallback |
+| **priority** | ❌ не используется | ❌ не используется (LLM routing) | ✅ Conflict Resolution | ✅ порядок fallback |
 | **task permission** | ❌ | ❌ | ❌ | ✅ обязательно для primary |
 | **hidden** | ❌ | ❌ | ❌ | ✅ для compact/slicer |
 | **steps** | ✅ лимит одного агента | ✅ orchestrator + каждый subagent | ✅ каждый агент | ✅ primary + каждый subagent |
