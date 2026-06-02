@@ -358,8 +358,8 @@ class AgentRoutingInterface(Protocol):
             AgentResponse от целевого агента
 
         Raises:
-            AgentNotFoundError: если target_agent не зарегистрирован
-            AgentDispatchError: если handler упал после retry
+            AgentNotFoundError: если target_agent не зарегистрирован (наследуется от AgentBusError)
+            AgentDispatchError: если handler упал после retry (наследуется от AgentBusError)
         """
 
     async def broadcast(self, broadcast: ContextBroadcast) -> list[ChoreographyAnswer]:
