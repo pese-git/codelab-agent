@@ -151,7 +151,7 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
     # AbstractEventBus (pub/sub)
     def subscribe(self, event_type: type, handler: Handler) -> Subscription
     def unsubscribe(self, subscription: Subscription) -> None
-    def publish(self, event: DomainEvent) -> None
+    async def publish(self, event: DomainEvent) -> None
     async def clear(self) -> None
 
     # AgentRoutingInterface (agent routing)
@@ -165,7 +165,7 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
 
 | Интерфейс | Паттерн | Метод | Кто зависит |
 |---|---|---|---|
-| **AbstractEventBus** | Fire-and-forget | `publish()` → `None` | MetricsTracker, EventTimeline, Observability |
+| **AbstractEventBus** | Fire-and-forget | `await publish()` → `None` | MetricsTracker, EventTimeline, Observability |
 | **AgentRoutingInterface** | Point-to-Point | `send_request()` → `AgentResponse` | SingleStrategy, OrchestratedStrategy, HierarchicalStrategy |
 | **AgentRoutingInterface** | Broadcast | `broadcast()` → `list[ChoreographyAnswer]` | ChoreographyStrategy |
 | **AgentRoutingInterface** | Registration | `register_agent()`, `unregister_agent()` | AgentRegistry |
@@ -299,11 +299,13 @@ class AbstractEventBus(ABC):
         """
 
     @abstractmethod
-    def publish(self, event: DomainEvent) -> None:
+    async def publish(self, event: DomainEvent) -> None:
         """Опубликовать событие — fire-and-forget.
 
-        Все подписчики на event_type получат событие асинхронно.
-        Ошибки в обработчиках логируются, но не прерывают dispatch.
+        Все подписчики на event_type получат событие параллельно через
+        asyncio.gather(return_exceptions=True). Вызывающий должен использовать
+        ``await bus.publish(event)``. Ошибки в обработчиках логируются,
+        но не прерывают dispatch.
 
         Args:
             event: Событие для публикации
@@ -392,15 +394,16 @@ class AgentRoutingInterface(Protocol):
 **Жизненный цикл подписки:**
 ```
 1. subscriber.subscribe(EventType, handler) → Subscription
-2. EventBus.publish(EventType(...)) → handler вызывается для каждого подписчика
+2. await EventBus.publish(EventType(...)) → handler вызывается для каждого подписчика
 3. subscriber.unsubscribe(subscription) или subscription.cancel()
 ```
 
 **Гарантии:**
+- `publish()` — async метод; вызывающий должен использовать `await bus.publish(event)`
 - Подписчики вызываются параллельно (asyncio.gather с return_exceptions=True)
 - Ошибка одного подписчика не влияет на остальных
 - Порядок вызова подписчиков не гарантируется
-- `publish` не блокирует — события dispatch'атся в event loop
+- `await publish` завершается только после выполнения всех handlers — детерминировано для тестов
 
 ---
 
@@ -895,14 +898,14 @@ class AgentRegistry:
 
         for name in removed:
             await self._event_bus.unregister_agent(name)
-            self._event_bus.publish(AgentUnregistered(agent_name=name))
+            await self._event_bus.publish(AgentUnregistered(agent_name=name))
 
         for name in added:
             await self._register_agent(name)
-            self._event_bus.publish(AgentRegistered(agent_name=name, ...))
+            await self._event_bus.publish(AgentRegistered(agent_name=name, ...))
 
         if added or removed:
-            self._event_bus.publish(AgentListChanged(
+            await self._event_bus.publish(AgentListChanged(
                 added=list(added), removed=list(removed),
             ))
 
@@ -928,9 +931,9 @@ class AgentRegistry:
 1. watchdog detect change → .codelab/agents/*.md modified
    ИЛИ: watchdog detect change → codelab.toml modified
 2. AgentRegistry.reload() → AgentConfigLoader.load_all() + resolve
-3. Для отключенных/удалённых агентов: unregister → publish AgentUnregistered
-4. Для новых агентов: register → publish AgentRegistered
-5. publish AgentListChanged(added, removed)
+3. Для отключенных/удалённых агентов: unregister → await publish AgentUnregistered
+4. Для новых агентов: register → await publish AgentRegistered
+5. await publish AgentListChanged(added, removed)
 6. Подписчики (StrategyDispatcher, TUI, Metrics) реагируют автоматически
 ```
 
