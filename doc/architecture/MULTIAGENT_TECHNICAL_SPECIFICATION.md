@@ -2608,9 +2608,18 @@ session.publish_plan = has_plan_directive
 ```python
 class SessionState(BaseModel):
     latest_plan: list[PlanStep | dict[str, Any]] = Field(default_factory=list)
+
+class PromptDirectives(BaseModel):
     publish_plan: bool = False
     plan_entries: list[dict[str, str]] | None = None
 ```
+
+> **Разделение ролей:**
+> - `PromptDirectives.plan_entries` — **входные данные** из промпта (slash-команды, маркеры)
+> - `PromptDirectives.publish_plan` — **флаг** публикации плана (из `/plan`)
+> - `SessionState.latest_plan` — **валидированный план** в сессии (результат `PlanBuilder.validate_plan_entries()`)
+>
+> Поток: `PromptDirectives.plan_entries` → `PlanBuilder.validate_plan_entries()` → `SessionState.latest_plan`
 
 #### Интеграция с новой архитектурой
 
