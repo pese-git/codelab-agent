@@ -1322,9 +1322,10 @@ Session flow с двухфазным Compaction:
 ```
 1. Orchestrator LLM делает RouteDecision (Structured Outputs → Pydantic)
 2. Point-to-point через EventBus.send_request()
-3. Token-Slicing: суммаризация ответа субагента перед добавлением в контекст
-4. max_steps предохранитель (по умолчанию 7)
-5. Race condition guard: проверка available_agents перед каждым шагом
+3. Создать child session для субагента (полный контекст, навигация в TUI)
+4. Token-Slicing: суммаризация ответа субагента перед добавлением в контекст
+5. max_steps предохранитель (по умолчанию 7)
+6. Race condition guard: проверка available_agents перед каждым шагом
 ```
 
 **RouteDecision (Structured Outputs):**
@@ -1366,6 +1367,20 @@ agent_descriptions = "\n".join(
     for name, agent in registry.get_all().items()
 )
 ```
+
+**Child Sessions в OrchestratedStrategy:**
+
+Каждый sub-agent получает свою child session при вызове через
+`HybridContextManager.process_subagent_response()`. Child session создаётся
+**до** Token-Slicing — полный контекст субагента сохраняется для навигации
+в TUI, а в parent session инжектируется только суммаризированный ответ.
+
+В отличие от HierarchicalStrategy, где primary agent сам решает делегировать
+через Task tool, в OrchestratedStrategy child session создаётся автоматически
+на каждом шаге маршрутизации.
+
+Ответы всех субагентов записываются в EventTimeline для debug mode — можно
+посмотреть что выполнил каждый субагент, включая tool calls и результаты.
 
 **Почему Structured Outputs:**
 - Гарантирует валидный JSON → не нужно парсить/валидировать вручную
