@@ -2476,7 +2476,9 @@ class StrategyDispatcher:
             LLMLoopResult с notifications и финальным текстом
 
         Raises:
-            UnknownStrategyError: если routing_mode не найден в strategies
+            UnknownStrategyError: если routing_mode не зарегистрирован (invariant violation).
+                В нормальной работе не возникает — _validate_strategy() гарантирует
+                доступность стратегии до вызова execute().
         """
         mode = routing_mode or context.config.get("_routing_mode") or self._default
         strategy = self._strategies.get(mode)
@@ -2491,9 +2493,9 @@ class StrategyDispatcher:
         """Список доступных режимов."""
 ```
 
-> **Почему двойной `or`:** `dict.get(key, default)` возвращает `default` только когда ключ
-> отсутствует. Если `_routing_mode` явно установлен в `None`, `get()` вернёт `None`,
-> а не `self._default`. Двойной `or` гарантирует fallback в обоих случаях.
+> **Два слоя валидации:**
+> - `_validate_strategy()` — ранняя проверка при запуске сессии / hot reload. Проверяет наличие требуемых агентов. При недоступности → fallback на `global.fallback_mode`.
+> - `execute()` — финальная проверка во время выполнения. `UnknownStrategyError` — защита от программистских ошибок (некорректный `default_strategy`, незарегистрированная стратегия). В нормальной работе не возникает, т.к. `_validate_strategy()` вызывается до `execute()`.
 
 **Интеграция с Pipeline:**
 ```
