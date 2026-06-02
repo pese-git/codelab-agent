@@ -2443,7 +2443,7 @@ class StrategyDispatcher:
         Raises:
             UnknownStrategyError: если routing_mode не найден в strategies
         """
-        mode = routing_mode or context.config.get("_routing_mode", self._default)
+        mode = routing_mode or context.config.get("_routing_mode") or self._default
         strategy = self._strategies.get(mode)
         if strategy is None:
             raise UnknownStrategyError(f"Unknown routing mode: {mode}")
@@ -2455,6 +2455,10 @@ class StrategyDispatcher:
     def available_modes(self) -> list[str]:
         """Список доступных режимов."""
 ```
+
+> **Почему двойной `or`:** `dict.get(key, default)` возвращает `default` только когда ключ
+> отсутствует. Если `_routing_mode` явно установлен в `None`, `get()` вернёт `None`,
+> а не `self._default`. Двойной `or` гарантирует fallback в обоих случаях.
 
 **Интеграция с Pipeline:**
 ```
