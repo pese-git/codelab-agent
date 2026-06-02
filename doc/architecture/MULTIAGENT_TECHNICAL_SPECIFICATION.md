@@ -1834,12 +1834,19 @@ class ContextCompactor:
         - Удаляем tool result messages пока контекст не уменьшится
         - Сохраняем system prompt и initial user prompt
         - Сохраняем последние N сообщений (recent context)
+
+        Precondition: len(history) > 5, иначе head и tail перекрываются,
+        создавая дубликаты. При короткой истории prune не нужен.
         """
+        # Guard: если история короткая — нечего prune, head и tail пересекутся
+        if len(history) <= 5:
+            return history
+
         # Сохраняем первые 2 сообщения (system + initial prompt)
         protected_head = history[:2]
         # Сохраняем последние 3 сообщения (recent context)
         protected_tail = history[-3:]
-        # Средина — кандидаты на prune
+        # Средина — кандидаты на prune (непересекается с head и tail при len > 5)
         middle = history[2:-3]
 
         # Удаляем tool result messages из middle (FIFO — самые старые первые)
@@ -1861,12 +1868,22 @@ class ContextCompactor:
         1. Сохраняем первые 2 сообщения (system + initial user prompt)
         2. Суммаризируем середину в один message
         3. Сохраняем последние N сообщений (recent context)
+
+        Precondition: len(history) > 5, иначе head и tail перекрываются.
+        При короткой истории суммаризация не нужна — возвращаем как есть.
         """
+        # Guard: если история короткая — нечего суммаризировать
+        if len(history) <= 5:
+            return history
+
         system_msg = history[0]
         initial_prompt = history[1]
 
-        # Суммаризация середины
-        middle = history[2:-3]  # всё кроме начала и последних 3
+        # Суммаризация середины (непересекается с head и tail при len > 5)
+        middle = history[2:-3]
+        if not middle:
+            return history
+
         summary = await self._llm.summarize_conversation(middle)
 
         # Последние сообщения сохраняем как есть (recent context)
