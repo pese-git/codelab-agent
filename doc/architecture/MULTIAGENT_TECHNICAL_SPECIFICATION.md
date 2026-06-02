@@ -2099,6 +2099,12 @@ class HybridContextManager:
 ```python
 class SessionState(BaseModel):
     # ... существующие поля ...
+    # Мультиагентность
+    execution_mode: str = "single"                    # single | multi_orchestrated | multi_choreographed | hierarchical
+    active_agents: list[str] = Field(default_factory=list)
+    session_metrics: SessionMetrics | None = None
+    correlation_id: str | None = None
+    # Иерархия сессий (для HierarchicalStrategy и гибридного контекста)
     parent_session_id: str | None = None
     child_session_ids: list[str] = Field(default_factory=list)
     is_child_session: bool = False
