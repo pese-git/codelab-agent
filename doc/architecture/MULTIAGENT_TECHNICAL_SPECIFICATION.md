@@ -2615,7 +2615,7 @@ ACP требует: **полная замена** — агент `MUST` отпр
 | Стратегия | Кто вызывает update_plan | Где хранится план | Что видит пользователь |
 |---|---|---|---|
 | **Single** | Единственный агент | Parent session | План одного агента |
-| **Orchestrated** | Orchestrator | Parent session | План с шагами делегирования |
+| **Orchestrated** | Orchestrator + Sub-agent | Parent + Child sessions | Merged план (delegation steps), детали в child TUI |
 | **Choreography** | Не используется | — | Нет плана (параллельное выполнение) |
 | **Hierarchical** | Primary + Sub-agent | Primary: общий, Child: детали | Merged план в parent, детали в child TUI |
 
@@ -2627,6 +2627,7 @@ ACP требует: **полная замена** — агент `MUST` отпр
 4. При навигации в child session — показывается plan child session
 5. Token-Slicer **НЕ** суммаризирует plan entries — это metadata, не контекст LLM
 6. Plan entries **не влияют** на контекст LLM — только для observability
+7. OrchestratedStrategy: sub-agent update_plan → child session plan (аналогично HierarchicalStrategy). Parent session хранит delegation steps orchestrator'а.
 
 **Пример плана в OrchestratedStrategy:**
 
