@@ -1038,8 +1038,8 @@ permission:
 ```markdown
 ---
 description: Code reviewer for this project
-mode = "subagent"
-priority = 3
+mode: subagent
+priority: 3
 model: openai/gpt-4o
 tools:
   fs/read_text_file: true
@@ -1063,7 +1063,7 @@ Review code for this project. Focus on:
 ---
 description: Security auditor
 mode: subagent
-priority = 4
+priority: 4
 model: anthropic/claude-3-5-sonnet
 prompt: "{file:./prompts/security-audit.txt}"
 tools:
