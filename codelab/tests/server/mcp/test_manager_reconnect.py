@@ -1,14 +1,13 @@
 """Тесты для MCPManager auto-reconnect logic."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codelab.server.mcp.client import MCPClient, MCPClientState
 from codelab.server.mcp.manager import (
     MCPManager,
-    MCPManagerError,
     MCPManagerState,
 )
 from codelab.server.mcp.models import MCPServerConfig

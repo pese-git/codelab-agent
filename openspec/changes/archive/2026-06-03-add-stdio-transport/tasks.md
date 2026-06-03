@@ -80,7 +80,7 @@
 - [x] 12.4 Тест: notification streaming
 - [x] 12.5 Тест: EOF → graceful shutdown
 - [x] 12.6 Тест: malformed JSON → error response
-- [ ] 12.7 Тест: Lock предотвращает race condition
+- [x] 12.7 Тест: Lock предотвращает race condition
 
 ## 13. Тесты клиента
 

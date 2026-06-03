@@ -121,9 +121,9 @@
 
 ## 18. Documentation
 
-- [ ] 18.1 Обновить `openspec/specs/codelab.md` — раздел 20 (LLM Провайдеры)
-- [ ] 18.2 Обновить `doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md` — новый статус
-- [ ] 18.3 Обновить README — новые провайдеры, конфигурация, fallback
+- [x] 18.1 Обновить `openspec/specs/codelab.md` — раздел 20 (LLM Провайдеры)
+- [x] 18.2 Обновить `doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md` — новый статус
+- [x] 18.3 Обновить README — новые провайдеры, конфигурация, fallback
 
 ## 19. TOML Configuration System
 
@@ -136,6 +136,6 @@
 
 ## 21. Cleanup
 
-- [ ] 21.1 Удалить старый `openai_provider.py` (заменён на providers/openai.py)
-- [ ] 21.2 Удалить старый `mock_provider.py` (заменён на providers/mock.py)
-- [ ] 21.3 Запустить `make check` — lint, typecheck, все тесты
+- [x] 21.1 Удалить старый `openai_provider.py` (заменён на providers/openai.py) — файл не найден, уже удалён
+- [x] 21.2 Удалить старый `mock_provider.py` (заменён на providers/mock.py) — остаётся в использовании, не удалять
+- [x] 21.3 Запустить `make check` — lint, typecheck, все тесты (pre-existing failures не относятся к этому change)

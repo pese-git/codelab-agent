@@ -1,6 +1,6 @@
 """Тесты для MCPClient resources и prompts методов."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,9 +11,6 @@ from codelab.server.mcp.client import (
 )
 from codelab.server.mcp.models import (
     MCPServerConfig,
-    MCPResource,
-    MCPPrompt,
-    MCPPromptArgument,
 )
 
 

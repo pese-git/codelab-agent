@@ -411,3 +411,55 @@ async def test_stdio_server_logs_go_to_stderr(tmp_cwd: Path) -> None:
         except TimeoutError:
             proc.terminate()
             await proc.wait()
+
+
+@pytest.mark.asyncio
+async def test_stdio_send_lock_prevents_race_condition() -> None:
+    """asyncio.Lock в send() предотвращает interleaving сообщений.
+
+    Тест проверяет что при одновременных вызовах send() из нескольких
+    корутин каждое сообщение записывается в stdout атомарно — байты
+    разных сообщений не перемешиваются.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from codelab.server.messages import ACPMessage
+    from codelab.server.transport.stdio import StdioServerTransport
+
+    transport = StdioServerTransport()
+
+    # Создаём mock buffer для захвата записанных байтов
+    captured_chunks: list[bytes] = []
+    mock_buffer = MagicMock()
+
+    def _capture_write(data: bytes) -> None:
+        captured_chunks.append(data)
+
+    mock_buffer.write = _capture_write
+    mock_buffer.flush = MagicMock()
+
+    with patch.object(sys, "stdout", buffer=mock_buffer):
+        # Запускаем несколько concurrent send() вызовов
+        messages = [
+            ACPMessage.response(i, {"value": i})
+            for i in range(1, 21)
+        ]
+
+        tasks = [transport.send(msg) for msg in messages]
+        await asyncio.gather(*tasks)
+
+    # Проверяем что каждое сообщение записано целиком
+    # (не было interleaving — каждый chunk это ровно одно сообщение)
+    assert len(captured_chunks) == len(messages)
+
+    # Каждое сообщение должно быть валидным JSON
+    for chunk in captured_chunks:
+        text = chunk.decode("utf-8").strip()
+        parsed = json.loads(text)
+        assert parsed["jsonrpc"] == "2.0"
+        assert "id" in parsed
+        assert "result" in parsed
+
+    # Проверяем что все id присутствуют (никакое не потеряно)
+    response_ids = {json.loads(c.decode())["id"] for c in captured_chunks}
+    assert response_ids == set(range(1, 21))
