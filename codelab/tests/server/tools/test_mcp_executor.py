@@ -4,6 +4,7 @@
 - MCPToolExecutor.is_mcp_tool() — определение MCP инструментов
 - MCPToolExecutor.execute() — выполнение MCP инструментов
 - Обработка ошибок и отсутствующего MCPManager
+- MCP content conversion (text, image, resource)
 """
 
 from __future__ import annotations
@@ -26,22 +27,10 @@ def mock_mcp_manager() -> MagicMock:
 
 
 @pytest.fixture
-def session_with_mcp(mock_mcp_manager: MagicMock) -> SessionState:
-    """Создаёт сессию с MCPManager."""
-    session = SessionState(
-        session_id="test-session",
-        cwd="/tmp",
-        mcp_servers=[],
-    )
-    session.mcp_manager = mock_mcp_manager
-    return session
-
-
-@pytest.fixture
-def session_without_mcp() -> SessionState:
-    """Создаёт сессию без MCPManager."""
+def session() -> SessionState:
+    """Создаёт базовую сессию."""
     return SessionState(
-        session_id="test-session-no-mcp",
+        session_id="test-session",
         cwd="/tmp",
         mcp_servers=[],
     )
@@ -75,7 +64,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_success(
         self,
-        session_with_mcp: SessionState,
+        session: SessionState,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Успешное выполнение MCP инструмента."""
@@ -86,7 +75,7 @@ class TestExecute:
 
         executor = MCPToolExecutor(mock_mcp_manager)
         result = await executor.execute(
-            session_with_mcp,
+            session,
             {
                 "tool_name": "mcp:fs:read_file",
                 "path": "/tmp/test.txt",
@@ -103,7 +92,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_failure(
         self,
-        session_with_mcp: SessionState,
+        session: SessionState,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """MCP инструмент возвращает ошибку."""
@@ -114,7 +103,7 @@ class TestExecute:
 
         executor = MCPToolExecutor(mock_mcp_manager)
         result = await executor.execute(
-            session_with_mcp,
+            session,
             {
                 "tool_name": "mcp:fs:read_file",
                 "path": "/tmp/nonexistent.txt",
@@ -127,7 +116,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_exception(
         self,
-        session_with_mcp: SessionState,
+        session: SessionState,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Исключение при выполнении MCP инструмента."""
@@ -135,7 +124,7 @@ class TestExecute:
 
         executor = MCPToolExecutor(mock_mcp_manager)
         result = await executor.execute(
-            session_with_mcp,
+            session,
             {
                 "tool_name": "mcp:fs:read_file",
                 "path": "/tmp/test.txt",
@@ -148,12 +137,12 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_not_mcp_tool(
         self,
-        session_with_mcp: SessionState,
+        session: SessionState,
     ) -> None:
         """Попытка выполнить не-MCP инструмент через MCPExecutor."""
         executor = MCPToolExecutor(MagicMock())
         result = await executor.execute(
-            session_with_mcp,
+            session,
             {
                 "tool_name": "fs/read_text_file",
                 "path": "/tmp/test.txt",
@@ -166,12 +155,12 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_no_mcp_manager(
         self,
-        session_without_mcp: SessionState,
+        session: SessionState,
     ) -> None:
-        """Выполнение без MCPManager."""
-        executor = MCPToolExecutor(MagicMock())
+        """Выполнение без MCPManager (None в конструкторе)."""
+        executor = MCPToolExecutor(None)  # type: ignore[arg-type]
         result = await executor.execute(
-            session_without_mcp,
+            session,
             {
                 "tool_name": "mcp:fs:read_file",
                 "path": "/tmp/test.txt",
@@ -188,7 +177,7 @@ class TestExecuteTool:
     @pytest.mark.asyncio
     async def test_execute_tool_success(
         self,
-        session_with_mcp: SessionState,
+        session: SessionState,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Успешное выполнение через execute_tool()."""
@@ -202,7 +191,7 @@ class TestExecuteTool:
             "test-session",
             "mcp:fs:read_file",
             {"path": "/tmp/test.txt"},
-            session=session_with_mcp,
+            session=session,
         )
 
         assert result.success is True
@@ -220,3 +209,76 @@ class TestExecuteTool:
 
         assert result.success is False
         assert "Session required" in result.error
+
+
+class TestMcpContentConversion:
+    """Тесты конвертации MCP content в текст."""
+
+    def test_text_content(self) -> None:
+        """Текстовый контент конвертируется корректно."""
+        content = [
+            {"type": "text", "text": "Hello"},
+            {"type": "text", "text": "World"},
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert result == "Hello\nWorld"
+
+    def test_image_content(self) -> None:
+        """Изображение конвертируется в metadata строку."""
+        content = [
+            {"type": "image", "mimeType": "image/png", "data": "base64data"},
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert "[Image: image/png, 10 bytes base64 data]" in result
+
+    def test_embedded_resource_text(self) -> None:
+        """Embedded resource с текстом извлекается."""
+        content = [
+            {
+                "type": "resource",
+                "resource": {"text": "Resource content", "uri": "file:///test"},
+            },
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert "Resource content" in result
+
+    def test_embedded_resource_blob(self) -> None:
+        """Embedded resource с blob описывается."""
+        content = [
+            {
+                "type": "resource",
+                "resource": {"blob": "binarydata", "mimeType": "application/pdf"},
+            },
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert "[Embedded resource: application/pdf, blob data]" in result
+
+    def test_embedded_resource_uri_only(self) -> None:
+        """Embedded resource с только URI показывает ссылку."""
+        content = [
+            {"type": "resource", "resource": {"uri": "file:///test.txt"}},
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert "[Resource link: file:///test.txt]" in result
+
+    def test_mixed_content(self) -> None:
+        """Смешанный контент конвертируется."""
+        content = [
+            {"type": "text", "text": "Before"},
+            {"type": "image", "mimeType": "image/png", "data": "img"},
+            {"type": "text", "text": "After"},
+        ]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert "Before" in result
+        assert "[Image: image/png" in result
+        assert "After" in result
+
+    def test_empty_content(self) -> None:
+        """Пустой контент возвращает пустую строку."""
+        assert MCPToolExecutor._convert_mcp_content_to_text([]) == ""
+
+    def test_unknown_type_serialized(self) -> None:
+        """Unknown тип сериализуется как JSON."""
+        content = [{"type": "unknown", "data": "test"}]
+        result = MCPToolExecutor._convert_mcp_content_to_text(content)
+        assert '"type": "unknown"' in result

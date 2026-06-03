@@ -15,7 +15,12 @@ from typing import Any
 
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPClientError, MCPClientState
-from .models import MCPServerConfig, MCPTool
+from .models import (
+    MCPListPromptsResult,
+    MCPListResourcesResult,
+    MCPServerConfig,
+    MCPTool,
+)
 from .tool_adapter import MCPToolAdapter
 
 logger = logging.getLogger(__name__)
@@ -394,6 +399,138 @@ class MCPManager:
         except MCPClientError as e:
             raise MCPManagerError(
                 f"Failed to refresh tools from '{server_id}': {e}"
+            ) from e
+    
+    # ===== Resources =====
+    
+    async def get_all_resources(self) -> dict[str, MCPListResourcesResult]:
+        """Получить все ресурсы от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → MCPListResourcesResult.
+        """
+        all_resources: dict[str, MCPListResourcesResult] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.resources:
+                continue
+            
+            try:
+                resources = await client.list_resources()
+                all_resources[server_id] = resources
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list resources from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_resources
+    
+    async def read_resource(
+        self,
+        server_id: str,
+        uri: str,
+    ) -> Any:
+        """Прочитать ресурс с конкретного сервера.
+        
+        Args:
+            server_id: Идентификатор сервера.
+            uri: URI ресурса.
+        
+        Returns:
+            MCPReadResourceResult с содержимым ресурса.
+        
+        Raises:
+            MCPServerNotFoundError: Если сервер не найден.
+            MCPManagerError: Если не удалось прочитать ресурс.
+        """
+        if server_id not in self._clients:
+            raise MCPServerNotFoundError(
+                f"MCP server '{server_id}' not found in session {self.session_id}"
+            )
+        
+        client = self._clients[server_id]
+        
+        if client.state != MCPClientState.READY:
+            raise MCPManagerError(
+                f"MCP server '{server_id}' is not ready"
+            )
+        
+        try:
+            return await client.read_resource(uri)
+        except MCPClientError as e:
+            raise MCPManagerError(
+                f"Failed to read resource '{uri}' from '{server_id}': {e}"
+            ) from e
+    
+    # ===== Prompts =====
+    
+    async def get_all_prompts(self) -> dict[str, MCPListPromptsResult]:
+        """Получить все промпты от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → MCPListPromptsResult.
+        """
+        all_prompts: dict[str, MCPListPromptsResult] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.prompts:
+                continue
+            
+            try:
+                prompts = await client.list_prompts()
+                all_prompts[server_id] = prompts
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list prompts from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_prompts
+    
+    async def get_prompt(
+        self,
+        server_id: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> Any:
+        """Получить промпт с конкретного сервера.
+        
+        Args:
+            server_id: Идентификатор сервера.
+            name: Имя промпта.
+            arguments: Аргументы промпта.
+        
+        Returns:
+            MCPGetPromptResult с сообщениями промпта.
+        
+        Raises:
+            MCPServerNotFoundError: Если сервер не найден.
+            MCPManagerError: Если не удалось получить промпт.
+        """
+        if server_id not in self._clients:
+            raise MCPServerNotFoundError(
+                f"MCP server '{server_id}' not found in session {self.session_id}"
+            )
+        
+        client = self._clients[server_id]
+        
+        if client.state != MCPClientState.READY:
+            raise MCPManagerError(
+                f"MCP server '{server_id}' is not ready"
+            )
+        
+        try:
+            return await client.get_prompt(name, arguments or {})
+        except MCPClientError as e:
+            raise MCPManagerError(
+                f"Failed to get prompt '{name}' from '{server_id}': {e}"
             ) from e
     
     async def shutdown(self) -> None:

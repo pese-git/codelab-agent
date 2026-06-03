@@ -291,6 +291,75 @@ class MCPListResourcesResult(BaseModel):
     """Список доступных ресурсов."""
 
 
+class MCPResourceTemplate(BaseModel):
+    """Шаблон ресурса MCP сервера.
+    
+    Содержит URI template для динамических ресурсов.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    uri_template: str = Field(alias="uriTemplate")
+    """URI template (например, file:///{path})."""
+    
+    name: str
+    """Человекочитаемое имя шаблона."""
+    
+    description: str | None = None
+    """Описание шаблона."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип ресурсов этого шаблона."""
+
+
+class MCPListResourceTemplatesResult(BaseModel):
+    """Результат запроса resources/templates/list.
+    
+    Содержит список шаблонов ресурсов на MCP сервере.
+    """
+    
+    resource_templates: list[MCPResourceTemplate] = Field(
+        default_factory=list,
+        alias="resourceTemplates",
+    )
+    """Список шаблонов ресурсов."""
+
+
+class MCPResourceContent(BaseModel):
+    """Типизированный контент ресурса.
+    
+    Может быть текстовым или бинарным (blob).
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    uri: str
+    """URI ресурса."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип ресурса."""
+    
+    # Текстовый контент
+    text: str | None = None
+    """Текстовое содержимое (для text/* ресурсов)."""
+    
+    # Бинарный контент
+    blob: str | None = None
+    """Base64-закодированный бинарный контент."""
+    
+    def get_text_content(self) -> str:
+        """Извлечь текстовый контент.
+        
+        Returns:
+            Текст или base64 blob.
+        """
+        if self.text is not None:
+            return self.text
+        if self.blob is not None:
+            return self.blob
+        return ""
+
+
 class MCPReadResourceResult(BaseModel):
     """Результат запроса resources/read.
     
@@ -299,7 +368,9 @@ class MCPReadResourceResult(BaseModel):
     
     model_config = ConfigDict(populate_by_name=True)
     
-    contents: list[dict[str, Any]]
+    contents: list[dict[str, Any]] | list[MCPResourceContent] = Field(
+        default_factory=list,
+    )
     """Список элементов содержимого ресурса."""
     
     def get_text_content(self) -> str:
@@ -310,8 +381,17 @@ class MCPReadResourceResult(BaseModel):
         """
         texts: list[str] = []
         for item in self.contents:
-            if item.get("type") == "text":
-                texts.append(item.get("text", ""))
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    texts.append(item.get("text", ""))
+                elif item.get("type") == "resource":
+                    resource = item.get("resource", {})
+                    if resource.get("text"):
+                        texts.append(resource["text"])
+                    elif resource.get("blob"):
+                        texts.append(resource["blob"])
+            elif isinstance(item, MCPResourceContent):
+                texts.append(item.get_text_content())
         return "\n".join(texts)
 
 

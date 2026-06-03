@@ -3,23 +3,23 @@
 ## 1. Фаза 1 — MCP Tools в LLM Loop (P0)
 
 ### 1.1 MCPToolExecutor
-- [ ] 1.1.1 Создать `server/tools/executors/mcp_executor.py` — MCPToolExecutor класс
-- [ ] 1.1.2 Реализовать `execute(tool_name, arguments, session_state)` → ToolResult
+- [x] 1.1.1 Создать `server/tools/executors/mcp_executor.py` — MCPToolExecutor класс
+- [x] 1.1.2 Реализовать `execute(tool_name, arguments, session_state)` → ToolResult
 - [ ] 1.1.3 MCP content conversion: MCPTextContent → text, MCPImageContent → base64, MCPEmbeddedResource → embedded
-- [ ] 1.1.4 Timeout handling: configurable per-server timeout
-- [ ] 1.1.5 Error handling: MCP server crash, timeout, invalid response
-- [ ] 1.1.6 Тесты: execute success, execute timeout, execute error, content conversion
+- [x] 1.1.4 Timeout handling: configurable per-server timeout
+- [x] 1.1.5 Error handling: MCP server crash, timeout, invalid response
+- [x] 1.1.6 Тесты: execute success, execute timeout, execute error, content conversion
 
 ### 1.2 Интеграция в LLMLoopStage
-- [ ] 1.2.1 Добавить `mcp_manager` в `LLMLoopStage` constructor (через PromptOrchestrator)
-- [ ] 1.2.2 В `_process_tool_calls_for_llm_loop()` проверить: если `tool_name` начинается с `mcp:`, делегировать в MCPToolExecutor
-- [ ] 1.2.3 MCP tool calls создают `ToolCallState` с `kind="mcp"`
-- [ ] 1.2.4 Permission flow для MCP tools через `PermissionManager`
+- [x] 1.2.1 Добавить `mcp_manager` в `LLMLoopStage` constructor (через PromptOrchestrator)
+- [x] 1.2.2 В `_process_tool_calls_for_llm_loop()` проверить: если `tool_name` начинается с `mcp:`, делегировать в MCPToolExecutor
+- [x] 1.2.3 MCP tool calls создают `ToolCallState` с `kind="mcp"`
+- [x] 1.2.4 Permission flow для MCP tools через `PermissionManager`
 - [ ] 1.2.5 Тесты: MCP tool call recognized, delegated, lifecycle complete
 
 ### 1.3 MCP Tools в AgentContext
-- [ ] 1.3.1 В `AgentOrchestrator._create_agent_context()` добавить MCP tools из `session_state.mcp_manager.get_all_tools()` в `available_tools`
-- [ ] 1.3.2 MCP tools проходят через `ToolMapping.acp_name_to_llm_name()` для совместимости имён
+- [x] 1.3.1 В `AgentOrchestrator._create_agent_context()` добавить MCP tools из `session_state.mcp_manager.get_all_tools()` в `available_tools`
+- [x] 1.3.2 MCP tools проходят через `ToolMapping.acp_name_to_llm_name()` для совместимости имён
 - [ ] 1.3.3 Тесты: agent context содержит MCP tools, LLM получает их в tools list
 
 ### 1.4 Integration Tests — Фаза 1
@@ -30,18 +30,18 @@
 ## 2. Фаза 2 — MCP Resources (P1)
 
 ### 2.1 Модели
-- [ ] 2.1.1 Создать `MCPResource` — uri, name, description, mimeType
+- [x] 2.1.1 Создать `MCPResource` — uri, name, description, mimeType
 - [ ] 2.1.2 Создать `MCPResourceTemplate` — uriTemplate, name, description, mimeType
-- [ ] 2.1.3 Создать `MCPListResourcesResult`, `MCPListResourceTemplatesResult`
-- [ ] 2.1.4 Создать `MCPReadResourceParams`, `MCPReadResourceResult`, `MCPResourceContent`
+- [x] 2.1.3 Создать `MCPListResourcesResult`, [ ] `MCPListResourceTemplatesResult`
+- [x] 2.1.4 Создать `MCPReadResourceParams`, `MCPReadResourceResult`, [ ] `MCPResourceContent` (typed union)
 - [ ] 2.1.5 Тесты: serialization, deserialization, validation
 
 ### 2.2 MCPClient Resources API
-- [ ] 2.2.1 `list_resources()` → MCPListResourcesResult
+- [x] 2.2.1 `list_resources()` → MCPListResourcesResult
 - [ ] 2.2.2 `list_resource_templates()` → MCPListResourceTemplatesResult
-- [ ] 2.2.3 `read_resource(uri)` → MCPReadResourceResult
-- [ ] 2.2.4 Capability checking: server_capabilities.resources
-- [ ] 2.2.5 Тесты: list resources, read resource, capability check
+- [x] 2.2.3 `read_resource(uri)` → MCPReadResourceResult
+- [x] 2.2.4 Capability checking: server_capabilities.resources
+- [x] 2.2.5 Тесты: list resources, read resource, capability check
 
 ### 2.3 MCPManager Resources
 - [ ] 2.3.1 `get_all_resources()` → list всех resources от всех серверов
@@ -57,16 +57,16 @@
 ## 3. Фаза 3 — MCP Prompts (P1)
 
 ### 3.1 Модели
-- [ ] 3.1.1 Создать `MCPPrompt`, `MCPPromptArgument`
-- [ ] 3.1.2 Создать `MCPListPromptsResult`, `MCPGetPromptParams`, `MCPGetPromptResult`
-- [ ] 3.1.3 Создать `MCPPromptMessage` — role, content
-- [ ] 3.1.4 Тесты: serialization, deserialization, validation
+- [x] 3.1.1 Создать `MCPPrompt`, `MCPPromptArgument`
+- [x] 3.1.2 Создать `MCPListPromptsResult`, `MCPGetPromptParams`, `MCPGetPromptResult`
+- [x] 3.1.3 Создать `MCPPromptMessage` — role, content
+- [x] 3.1.4 Тесты: serialization, deserialization, validation
 
 ### 3.2 MCPClient Prompts API
-- [ ] 3.2.1 `list_prompts()` → MCPListPromptsResult
-- [ ] 3.2.2 `get_prompt(name, arguments)` → MCPGetPromptResult
-- [ ] 3.2.3 Capability checking: server_capabilities.prompts
-- [ ] 3.2.4 Тесты: list prompts, get prompt, capability check
+- [x] 3.2.1 `list_prompts()` → MCPListPromptsResult
+- [x] 3.2.2 `get_prompt(name, arguments)` → MCPGetPromptResult
+- [x] 3.2.3 Capability checking: server_capabilities.prompts
+- [x] 3.2.4 Тесты: list prompts, get prompt, capability check
 
 ### 3.3 MCPManager Prompts
 - [ ] 3.3.1 `get_all_prompts()` → list всех prompts от всех серверов
@@ -81,23 +81,23 @@
 ## 4. Фаза 4 — Notifications и Auto-reconnect (P1)
 
 ### 4.1 Tool list change notifications
-- [ ] 4.1.1 В `_handle_message()` распознавать `notifications/tools/list_changed`
-- [ ] 4.1.2 Callback mechanism: MCPClient → MCPManager при изменении tools
+- [x] 4.1.1 В `_handle_message()` распознавать `notifications/tools/list_changed`
+- [x] 4.1.2 Callback mechanism: MCPClient → MCPManager при изменении tools
 - [ ] 4.1.3 MCPManager → PromptOrchestrator → refresh available_tools
 - [ ] 4.1.4 Отправка `available_commands_update` notification клиенту
 - [ ] 4.1.5 Тесты: notification handling, tool refresh
 
 ### 4.2 Auto-reconnect
-- [ ] 4.2.1 MCPClient — health check (monitoring subprocess exit)
-- [ ] 4.2.2 MCPManager — reconnect policy: max_retries=5, exponential backoff
-- [ ] 4.2.3 При reconnect: re-initialize, re-list_tools, re-register
+- [x] 4.2.1 MCPClient — health check (monitoring subprocess exit)
+- [x] 4.2.2 MCPManager — reconnect policy: max_retries=5, exponential backoff
+- [x] 4.2.3 При reconnect: re-initialize, re-list_tools, re-register
 - [ ] 4.2.4 Notification клиенту о disconnect/reconnect
-- [ ] 4.2.5 Graceful degradation: если server не восстанавливается, удалить из active
-- [ ] 4.2.6 Тесты: reconnect scenarios, max retries, backoff, graceful degradation
+- [x] 4.2.5 Graceful degradation: если server не восстанавливается, удалить из active
+- [x] 4.2.6 Тесты: reconnect scenarios, max retries, backoff, graceful degradation
 
 ### 4.3 Resource/Prompt change notifications
-- [ ] 4.3.1 `notifications/resources/list_changed` handling
-- [ ] 4.3.2 `notifications/prompts/list_changed` handling
+- [x] 4.3.1 `notifications/resources/list_changed` handling
+- [x] 4.3.2 `notifications/prompts/list_changed` handling
 - [ ] 4.3.3 Тесты: resource/prompt notification handling
 
 ## 5. Фаза 5 — Advanced Features (P2)
@@ -137,15 +137,15 @@
 ## 6. Фаза 6 — HTTP Transport (P2)
 
 ### 6.1 MCPHttpTransport
-- [ ] 6.1.1 Создать `server/mcp/http_transport.py` — MCPHttpTransport
-- [ ] 6.1.2 POST для client→server messages
-- [ ] 6.1.3 SSE для server→client streaming (optional)
-- [ ] 6.1.4 Headers: Authorization, Content-Type
-- [ ] 6.1.5 Connection pooling, retry logic
-- [ ] 6.1.6 Тесты: HTTP connect, request, response
+- [x] 6.1.1 Создать `server/mcp/transport.py` — HttpTransport (уже существует)
+- [x] 6.1.2 POST для client→server messages
+- [x] 6.1.3 SSE для server→client streaming (SseTransport)
+- [x] 6.1.4 Headers: Authorization, Content-Type
+- [x] 6.1.5 Connection pooling, retry logic
+- [x] 6.1.6 Тесты: HTTP connect, request, response
 
 ### 6.2 MCPConfig HTTP support
-- [ ] 6.2.1 MCPServerConfig — добавить type: "http"|"sse"|"stdio", url, headers
+- [x] 6.2.1 MCPServerConfig — type: "http"|"sse"|"stdio", url, headers (уже в модели)
 - [ ] 6.2.2 TOML config: секция [mcp.servers] с http/sse support
 - [ ] 6.2.3 mcpCapabilities.http: true в initialize response
 - [ ] 6.2.4 Тесты: HTTP server config, connection
