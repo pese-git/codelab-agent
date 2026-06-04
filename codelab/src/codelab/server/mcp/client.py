@@ -21,12 +21,16 @@ from .models import (
     MCPInitializeParams,
     MCPInitializeResult,
     MCPListPromptsResult,
+    MCPListResourcesParams,
     MCPListResourcesResult,
+    MCPListResourceTemplatesParams,
+    MCPListResourceTemplatesResult,
     MCPListToolsResult,
     MCPPrompt,
     MCPReadResourceParams,
     MCPReadResourceResult,
     MCPResource,
+    MCPResourceTemplate,
     MCPServerConfig,
     MCPTool,
 )
@@ -121,6 +125,7 @@ class MCPClient:
         self._server_info: dict[str, str] | None = None
         self._tools: list[MCPTool] = []
         self._resources: list[MCPResource] = []
+        self._resource_templates: list[MCPResourceTemplate] = []
         self._prompts: list[MCPPrompt] = []
         self._resources_cache: dict[str, MCPReadResourceResult] = {}
         self._prompts_cache: dict[str, MCPGetPromptResult] = {}
@@ -318,7 +323,8 @@ class MCPClient:
     async def list_resources(self) -> list[MCPResource]:
         """Получить список доступных ресурсов от MCP сервера.
         
-        Вызывает resources/list и кэширует результат.
+        Вызывает resources/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
         
         Returns:
             Список определений ресурсов.
@@ -344,13 +350,28 @@ class MCPClient:
         logger.debug("Requesting resources list from: %s", self.config.name)
         
         try:
-            result_data = await self._transport.send_request(
-                method="resources/list",
-                timeout=30.0,
-            )
+            all_resources: list[MCPResource] = []
+            cursor: str | None = None
             
-            result = MCPListResourcesResult.model_validate(result_data)
-            self._resources = result.resources
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListResourcesParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="resources/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListResourcesResult.model_validate(result_data)
+                all_resources.extend(result.resources)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._resources = all_resources
             
             logger.info(
                 "MCP server %s provides %d resources",
@@ -362,6 +383,76 @@ class MCPClient:
             
         except StdioTransportError as e:
             raise MCPClientError(f"Failed to list resources: {e}") from e
+    
+    async def list_resource_templates(self) -> list[MCPResourceTemplate]:
+        """Получить список шаблонов ресурсов от MCP сервера.
+        
+        Вызывает resources/templates/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
+        
+        Returns:
+            Список определений шаблонов ресурсов.
+        
+        Raises:
+            MCPClientError: Если клиент не готов или запрос не удался.
+        """
+        if self._state != MCPClientState.READY:
+            raise MCPClientError(
+                f"Cannot list resource templates in state {self._state}"
+            )
+        
+        if not self._transport:
+            raise MCPClientError("Transport not available")
+        
+        # Проверяем, поддерживает ли сервер resources (templates — часть resources capability)
+        if self._capabilities and self._capabilities.resources is None:
+            logger.debug(
+                "MCP server %s does not support resources/templates",
+                self.config.name
+            )
+            return []
+        
+        logger.debug(
+            "Requesting resource templates list from: %s",
+            self.config.name
+        )
+        
+        try:
+            all_templates: list[MCPResourceTemplate] = []
+            cursor: str | None = None
+            
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListResourceTemplatesParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="resources/templates/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListResourceTemplatesResult.model_validate(result_data)
+                all_templates.extend(result.resource_templates)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._resource_templates = all_templates
+            
+            logger.info(
+                "MCP server %s provides %d resource templates",
+                self.config.name,
+                len(self._resource_templates)
+            )
+            
+            return self._resource_templates
+            
+        except StdioTransportError as e:
+            raise MCPClientError(
+                f"Failed to list resource templates: {e}"
+            ) from e
     
     async def read_resource(self, uri: str) -> MCPReadResourceResult:
         """Прочитать содержимое ресурса по URI.

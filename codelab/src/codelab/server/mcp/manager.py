@@ -16,8 +16,9 @@ from typing import Any, Callable, Coroutine
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPClientError, MCPClientState
 from .models import (
-    MCPListPromptsResult,
-    MCPListResourcesResult,
+    MCPPrompt,
+    MCPResource,
+    MCPResourceTemplate,
     MCPServerConfig,
     MCPTool,
 )
@@ -545,13 +546,13 @@ class MCPManager:
     
     # ===== Resources =====
     
-    async def get_all_resources(self) -> dict[str, MCPListResourcesResult]:
+    async def get_all_resources(self) -> dict[str, list[MCPResource]]:
         """Получить все ресурсы от всех MCP серверов.
         
         Returns:
-            Словарь server_id → MCPListResourcesResult.
+            Словарь server_id → list[MCPResource].
         """
-        all_resources: dict[str, MCPListResourcesResult] = {}
+        all_resources: dict[str, list[MCPResource]] = {}
         
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:
@@ -570,6 +571,34 @@ class MCPManager:
                 )
         
         return all_resources
+    
+    async def get_all_resource_templates(
+        self,
+    ) -> dict[str, list[MCPResourceTemplate]]:
+        """Получить все шаблоны ресурсов от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → list[MCPResourceTemplate].
+        """
+        all_templates: dict[str, list[MCPResourceTemplate]] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.resources:
+                continue
+            
+            try:
+                templates = await client.list_resource_templates()
+                all_templates[server_id] = templates
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list resource templates from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_templates
     
     async def read_resource(
         self,
@@ -610,13 +639,13 @@ class MCPManager:
     
     # ===== Prompts =====
     
-    async def get_all_prompts(self) -> dict[str, MCPListPromptsResult]:
+    async def get_all_prompts(self) -> dict[str, list[MCPPrompt]]:
         """Получить все промпты от всех MCP серверов.
         
         Returns:
-            Словарь server_id → MCPListPromptsResult.
+            Словарь server_id → list[MCPPrompt].
         """
-        all_prompts: dict[str, MCPListPromptsResult] = {}
+        all_prompts: dict[str, list[MCPPrompt]] = {}
         
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:

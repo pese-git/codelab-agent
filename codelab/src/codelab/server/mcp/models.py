@@ -260,6 +260,42 @@ class MCPListToolsResult(BaseModel):
 # ===== MCP Resource Models =====
 
 
+class MCPAnnotations(BaseModel):
+    """Аннотации для ресурсов и шаблонов (MCP spec 2025-06-18+).
+    
+    Содержат метаданные для отображения и приоритизации.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    audience: list[str] | None = None
+    """Целевая аудитория: 'user' и/или 'assistant'."""
+    
+    priority: float | None = None
+    """Приоритет от 0.0 до 1.0 (1.0 = наиболее важно)."""
+    
+    last_modified: str | None = Field(default=None, alias="lastModified")
+    """ISO 8601 timestamp последнего изменения."""
+
+
+class MCPResourceIcon(BaseModel):
+    """Иконка для ресурса или шаблона (MCP spec 2025-11-25+).
+    
+    Содержит URI иконки и метаданные.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    src: str
+    """URI иконки."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип иконки (например, image/png)."""
+    
+    sizes: list[str] | None = None
+    """Размеры иконки (например, ['48x48', '96x96'])."""
+
+
 class MCPResource(BaseModel):
     """Определение ресурса MCP сервера.
     
@@ -269,16 +305,38 @@ class MCPResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
     uri: str
-    """Уникальный URI ресурса."""
+    """Уникальный URI ресурса (RFC 3986)."""
     
     name: str
     """Человекочитаемое имя ресурса."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя."""
     
     description: str | None = None
     """Описание ресурса."""
     
     mime_type: str | None = Field(default=None, alias="mimeType")
     """MIME-тип ресурса (например, text/plain, image/png)."""
+    
+    size: int | None = None
+    """Размер ресурса в байтах."""
+    
+    icons: list[MCPResourceIcon] | None = None
+    """Массив иконок ресурса."""
+    
+    annotations: MCPAnnotations | None = None
+    """Аннотации для отображения и приоритизации."""
+
+
+class MCPListResourcesParams(BaseModel):
+    """Параметры запроса resources/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
 
 
 class MCPListResourcesResult(BaseModel):
@@ -287,8 +345,13 @@ class MCPListResourcesResult(BaseModel):
     Содержит список доступных ресурсов на MCP сервере.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     resources: list[MCPResource]
     """Список доступных ресурсов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
 
 
 class MCPResourceTemplate(BaseModel):
@@ -300,16 +363,35 @@ class MCPResourceTemplate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
     uri_template: str = Field(alias="uriTemplate")
-    """URI template (например, file:///{path})."""
+    """URI template (RFC 6570, например, file:///{path})."""
     
     name: str
     """Человекочитаемое имя шаблона."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя."""
     
     description: str | None = None
     """Описание шаблона."""
     
     mime_type: str | None = Field(default=None, alias="mimeType")
     """MIME-тип ресурсов этого шаблона."""
+    
+    icons: list[MCPResourceIcon] | None = None
+    """Массив иконок шаблона."""
+    
+    annotations: MCPAnnotations | None = None
+    """Аннотации для отображения и приоритизации."""
+
+
+class MCPListResourceTemplatesParams(BaseModel):
+    """Параметры запроса resources/templates/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
 
 
 class MCPListResourceTemplatesResult(BaseModel):
@@ -318,11 +400,16 @@ class MCPListResourceTemplatesResult(BaseModel):
     Содержит список шаблонов ресурсов на MCP сервере.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     resource_templates: list[MCPResourceTemplate] = Field(
         default_factory=list,
         alias="resourceTemplates",
     )
     """Список шаблонов ресурсов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
 
 
 class MCPReadResourceParams(BaseModel):

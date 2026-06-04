@@ -4,14 +4,98 @@ import pytest
 from pydantic import ValidationError
 
 from codelab.server.mcp.models import (
+    MCPAnnotations,
+    MCPListResourcesParams,
     MCPListResourcesResult,
+    MCPListResourceTemplatesParams,
     MCPListResourceTemplatesResult,
     MCPReadResourceParams,
     MCPReadResourceResult,
     MCPResource,
     MCPResourceContent,
+    MCPResourceIcon,
     MCPResourceTemplate,
 )
+
+
+class TestMCPAnnotations:
+    """Тесты модели MCPAnnotations."""
+
+    def test_create_empty(self):
+        """Создание без полей."""
+        ann = MCPAnnotations()
+        assert ann.audience is None
+        assert ann.priority is None
+        assert ann.last_modified is None
+
+    def test_create_full(self):
+        """Создание со всеми полями."""
+        ann = MCPAnnotations(
+            audience=["user", "assistant"],
+            priority=0.8,
+            last_modified="2025-01-12T15:00:58Z",
+        )
+        assert ann.audience == ["user", "assistant"]
+        assert ann.priority == 0.8
+        assert ann.last_modified == "2025-01-12T15:00:58Z"
+
+    def test_deserialization_camel_case(self):
+        """Десериализация из camelCase."""
+        data = {
+            "audience": ["user"],
+            "priority": 0.5,
+            "lastModified": "2025-06-01T10:00:00Z",
+        }
+        ann = MCPAnnotations.model_validate(data)
+        assert ann.last_modified == "2025-06-01T10:00:00Z"
+
+    def test_serialization_alias(self):
+        """Сериализация с alias."""
+        ann = MCPAnnotations(last_modified="2025-01-01T00:00:00Z")
+        data = ann.model_dump(by_alias=True)
+        assert "lastModified" in data
+        assert "last_modified" not in data
+
+
+class TestMCPResourceIcon:
+    """Тесты модели MCPResourceIcon."""
+
+    def test_create_minimal(self):
+        """Создание с минимальными полями."""
+        icon = MCPResourceIcon(src="https://example.com/icon.png")
+        assert icon.src == "https://example.com/icon.png"
+        assert icon.mime_type is None
+        assert icon.sizes is None
+
+    def test_create_full(self):
+        """Создание со всеми полями."""
+        icon = MCPResourceIcon(
+            src="https://example.com/icon.png",
+            mime_type="image/png",
+            sizes=["48x48", "96x96"],
+        )
+        assert icon.mime_type == "image/png"
+        assert icon.sizes == ["48x48", "96x96"]
+
+    def test_deserialization_camel_case(self):
+        """Десериализация из camelCase."""
+        data = {
+            "src": "https://example.com/icon.png",
+            "mimeType": "image/png",
+            "sizes": ["48x48"],
+        }
+        icon = MCPResourceIcon.model_validate(data)
+        assert icon.mime_type == "image/png"
+
+    def test_serialization_alias(self):
+        """Сериализация с alias."""
+        icon = MCPResourceIcon(
+            src="https://example.com/icon.png",
+            mime_type="image/png",
+        )
+        data = icon.model_dump(by_alias=True)
+        assert "mimeType" in data
+        assert "mime_type" not in data
 
 
 class TestMCPResource:
@@ -22,19 +106,31 @@ class TestMCPResource:
         resource = MCPResource(uri="file:///tmp/test.txt", name="test.txt")
         assert resource.uri == "file:///tmp/test.txt"
         assert resource.name == "test.txt"
+        assert resource.title is None
         assert resource.description is None
         assert resource.mime_type is None
+        assert resource.size is None
+        assert resource.icons is None
+        assert resource.annotations is None
 
     def test_create_full(self):
         """Создание со всеми полями."""
         resource = MCPResource(
             uri="file:///tmp/test.txt",
             name="test.txt",
+            title="Test File",
             description="A test file",
             mime_type="text/plain",
+            size=1024,
+            icons=[MCPResourceIcon(src="https://example.com/icon.png")],
+            annotations=MCPAnnotations(priority=0.8),
         )
+        assert resource.title == "Test File"
         assert resource.description == "A test file"
         assert resource.mime_type == "text/plain"
+        assert resource.size == 1024
+        assert len(resource.icons) == 1
+        assert resource.annotations.priority == 0.8
 
     def test_serialization_with_alias(self):
         """Сериализация с alias для mimeType."""
@@ -52,11 +148,18 @@ class TestMCPResource:
         data = {
             "uri": "file:///tmp/test.txt",
             "name": "test.txt",
+            "title": "Test",
             "description": "A test file",
             "mimeType": "text/plain",
+            "size": 512,
+            "annotations": {"priority": 0.5, "lastModified": "2025-01-01T00:00:00Z"},
         }
         resource = MCPResource.model_validate(data)
+        assert resource.title == "Test"
         assert resource.mime_type == "text/plain"
+        assert resource.size == 512
+        assert resource.annotations.priority == 0.5
+        assert resource.annotations.last_modified == "2025-01-01T00:00:00Z"
 
     def test_deserialization_from_snake_case(self):
         """Десериализация из snake_case формата (populate_by_name)."""
@@ -80,19 +183,28 @@ class TestMCPResourceTemplate:
         )
         assert template.uri_template == "file:///{path}"
         assert template.name == "File template"
+        assert template.title is None
         assert template.description is None
         assert template.mime_type is None
+        assert template.icons is None
+        assert template.annotations is None
 
     def test_create_full(self):
         """Создание со всеми полями."""
         template = MCPResourceTemplate(
             uri_template="file:///{path}",
             name="File template",
+            title="Files",
             description="Template for files",
             mime_type="application/octet-stream",
+            icons=[MCPResourceIcon(src="https://example.com/folder.png")],
+            annotations=MCPAnnotations(audience=["user"]),
         )
+        assert template.title == "Files"
         assert template.description == "Template for files"
         assert template.mime_type == "application/octet-stream"
+        assert len(template.icons) == 1
+        assert template.annotations.audience == ["user"]
 
     def test_serialization_with_alias(self):
         """Сериализация с alias для uriTemplate и mimeType."""
@@ -112,11 +224,41 @@ class TestMCPResourceTemplate:
         data = {
             "uriTemplate": "file:///{path}",
             "name": "File template",
+            "title": "Files",
             "mimeType": "text/plain",
+            "annotations": {"priority": 0.9},
         }
         template = MCPResourceTemplate.model_validate(data)
         assert template.uri_template == "file:///{path}"
+        assert template.title == "Files"
         assert template.mime_type == "text/plain"
+        assert template.annotations.priority == 0.9
+
+
+class TestMCPListResourcesParams:
+    """Тесты модели MCPListResourcesParams."""
+
+    def test_create_empty(self):
+        """Создание без cursor."""
+        params = MCPListResourcesParams()
+        assert params.cursor is None
+
+    def test_create_with_cursor(self):
+        """Создание с cursor."""
+        params = MCPListResourcesParams(cursor="abc123")
+        assert params.cursor == "abc123"
+
+    def test_serialization_exclude_none(self):
+        """Сериализация exclude_none убирает cursor."""
+        params = MCPListResourcesParams()
+        data = params.model_dump(exclude_none=True)
+        assert data == {}
+
+    def test_serialization_with_cursor(self):
+        """Сериализация с cursor."""
+        params = MCPListResourcesParams(cursor="page2")
+        data = params.model_dump(exclude_none=True)
+        assert data == {"cursor": "page2"}
 
 
 class TestMCPListResourcesResult:
@@ -126,6 +268,7 @@ class TestMCPListResourcesResult:
         """Пустой список ресурсов."""
         result = MCPListResourcesResult(resources=[])
         assert result.resources == []
+        assert result.next_cursor is None
 
     def test_with_resources(self):
         """Список с ресурсами."""
@@ -138,16 +281,54 @@ class TestMCPListResourcesResult:
         assert len(result.resources) == 2
         assert result.resources[0].uri == "file:///a.txt"
 
+    def test_with_next_cursor(self):
+        """Результат с nextCursor для пагинации."""
+        result = MCPListResourcesResult(
+            resources=[MCPResource(uri="file:///a.txt", name="a.txt")],
+            next_cursor="page2cursor",
+        )
+        assert result.next_cursor == "page2cursor"
+
     def test_deserialization(self):
         """Десериализация из dict."""
         data = {
             "resources": [
                 {"uri": "file:///a.txt", "name": "a.txt", "mimeType": "text/plain"},
-            ]
+            ],
+            "nextCursor": "next123",
         }
         result = MCPListResourcesResult.model_validate(data)
         assert len(result.resources) == 1
         assert result.resources[0].mime_type == "text/plain"
+        assert result.next_cursor == "next123"
+
+    def test_deserialization_no_cursor(self):
+        """Десериализация без nextCursor (конец результатов)."""
+        data = {
+            "resources": [{"uri": "file:///a.txt", "name": "a.txt"}],
+        }
+        result = MCPListResourcesResult.model_validate(data)
+        assert result.next_cursor is None
+
+
+class TestMCPListResourceTemplatesParams:
+    """Тесты модели MCPListResourceTemplatesParams."""
+
+    def test_create_empty(self):
+        """Создание без cursor."""
+        params = MCPListResourceTemplatesParams()
+        assert params.cursor is None
+
+    def test_create_with_cursor(self):
+        """Создание с cursor."""
+        params = MCPListResourceTemplatesParams(cursor="tpl_cursor_1")
+        assert params.cursor == "tpl_cursor_1"
+
+    def test_serialization_exclude_none(self):
+        """Сериализация exclude_none убирает cursor."""
+        params = MCPListResourceTemplatesParams()
+        data = params.model_dump(exclude_none=True)
+        assert data == {}
 
 
 class TestMCPListResourceTemplatesResult:
@@ -157,6 +338,7 @@ class TestMCPListResourceTemplatesResult:
         """Пустой список шаблонов."""
         result = MCPListResourceTemplatesResult()
         assert result.resource_templates == []
+        assert result.next_cursor is None
 
     def test_with_templates(self):
         """Список с шаблонами."""
@@ -167,16 +349,28 @@ class TestMCPListResourceTemplatesResult:
         )
         assert len(result.resource_templates) == 1
 
+    def test_with_next_cursor(self):
+        """Результат с nextCursor для пагинации."""
+        result = MCPListResourceTemplatesResult(
+            resourceTemplates=[
+                MCPResourceTemplate(uri_template="file:///{path}", name="File"),
+            ],
+            next_cursor="tpl_next_cursor",
+        )
+        assert result.next_cursor == "tpl_next_cursor"
+
     def test_deserialization_from_camel_case(self):
         """Десериализация из camelCase формата."""
         data = {
             "resourceTemplates": [
                 {"uriTemplate": "file:///{path}", "name": "File"},
-            ]
+            ],
+            "nextCursor": "cursor_abc",
         }
         result = MCPListResourceTemplatesResult.model_validate(data)
         assert len(result.resource_templates) == 1
         assert result.resource_templates[0].uri_template == "file:///{path}"
+        assert result.next_cursor == "cursor_abc"
 
 
 class TestMCPReadResourceParams:

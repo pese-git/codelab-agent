@@ -36,6 +36,7 @@ from .manager import (
     MCPServerNotFoundError,
 )
 from .models import (
+    MCPAnnotations,
     MCPCallToolParams,
     MCPCallToolResult,
     MCPCapabilities,
@@ -46,7 +47,9 @@ from .models import (
     MCPImageContent,
     MCPInitializeParams,
     MCPInitializeResult,
+    MCPListResourcesParams,
     MCPListResourcesResult,
+    MCPListResourceTemplatesParams,
     MCPListResourceTemplatesResult,
     MCPListToolsResult,
     MCPNotification,
@@ -55,6 +58,7 @@ from .models import (
     MCPRequest,
     MCPResource,
     MCPResourceContent,
+    MCPResourceIcon,
     MCPResourceTemplate,
     MCPResponse,
     MCPServerConfig,
@@ -62,6 +66,10 @@ from .models import (
     MCPTextContent,
     MCPTool,
     MCPToolInputSchema,
+)
+from .resource_mapper import (
+    mcp_resource_to_resource_link,
+    mcp_resources_to_resource_links,
 )
 from .tool_adapter import MCPToolAdapter
 from .transport import (
@@ -91,6 +99,9 @@ __all__ = [
     "MCPServerNotFoundError",
     # Tool Adapter
     "MCPToolAdapter",
+    # Resource Mapper
+    "mcp_resource_to_resource_link",
+    "mcp_resources_to_resource_links",
     # Transport
     "StdioTransport",
     "StdioTransportError",
@@ -126,9 +137,13 @@ __all__ = [
     "MCPImageContent",
     "MCPEmbeddedResource",
     # Models - Resources
+    "MCPAnnotations",
+    "MCPResourceIcon",
     "MCPResource",
     "MCPResourceTemplate",
+    "MCPListResourcesParams",
     "MCPListResourcesResult",
+    "MCPListResourceTemplatesParams",
     "MCPListResourceTemplatesResult",
     "MCPReadResourceParams",
     "MCPReadResourceResult",
