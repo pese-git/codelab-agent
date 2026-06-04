@@ -371,6 +371,47 @@ class TestMCPClientListPrompts:
 
         mock_transport.send_request.assert_called_once_with(
             method="prompts/list",
+            params=None,
+            timeout=30.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_prompts_with_pagination(self):
+        """Пагинация при получении списка промптов."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        # Первый вызов возвращает nextCursor, второй — без
+        mock_transport.send_request = AsyncMock(side_effect=[
+            {
+                "prompts": [
+                    {"name": "prompt1", "description": "First prompt"},
+                ],
+                "nextCursor": "page2",
+            },
+            {
+                "prompts": [
+                    {"name": "prompt2", "description": "Second prompt"},
+                ],
+            },
+        ])
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(prompts={})
+
+        prompts = await client.list_prompts()
+
+        assert len(prompts) == 2
+        assert prompts[0].name == "prompt1"
+        assert prompts[1].name == "prompt2"
+        assert mock_transport.send_request.call_count == 2
+        # Второй вызов должен передать cursor
+        mock_transport.send_request.assert_called_with(
+            method="prompts/list",
+            params={"cursor": "page2"},
             timeout=30.0,
         )
 

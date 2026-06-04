@@ -510,7 +510,8 @@ class MCPClient:
     async def list_prompts(self) -> list[MCPPrompt]:
         """Получить список доступных промптов от MCP сервера.
         
-        Вызывает prompts/list и кэширует результат.
+        Вызывает prompts/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
         
         Returns:
             Список определений промптов.
@@ -536,13 +537,28 @@ class MCPClient:
         logger.debug("Requesting prompts list from: %s", self.config.name)
         
         try:
-            result_data = await self._transport.send_request(
-                method="prompts/list",
-                timeout=30.0,
-            )
+            all_prompts: list[MCPPrompt] = []
+            cursor: str | None = None
             
-            result = MCPListPromptsResult.model_validate(result_data)
-            self._prompts = result.prompts
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListPromptsParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="prompts/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListPromptsResult.model_validate(result_data)
+                all_prompts.extend(result.prompts)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._prompts = all_prompts
             
             logger.info(
                 "MCP server %s provides %d prompts",
