@@ -281,7 +281,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер tools
-        if self._capabilities and not self._capabilities.tools:
+        # По MCP спецификации: tools=null — не поддерживает, tools={} — поддерживает
+        if self._capabilities and self._capabilities.tools is None:
             logger.debug(
                 "MCP server %s does not support tools",
                 self.config.name
@@ -331,7 +332,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер resources
-        if self._capabilities and not self._capabilities.resources:
+        # По MCP спецификации: resources=null — не поддерживает, resources={} — поддерживает
+        if self._capabilities and self._capabilities.resources is None:
             logger.debug(
                 "MCP server %s does not support resources",
                 self.config.name
@@ -428,7 +430,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер prompts
-        if self._capabilities and not self._capabilities.prompts:
+        # По MCP спецификации: prompts=null — не поддерживает, prompts={} — поддерживает
+        if self._capabilities and self._capabilities.prompts is None:
             logger.debug(
                 "MCP server %s does not support prompts",
                 self.config.name
