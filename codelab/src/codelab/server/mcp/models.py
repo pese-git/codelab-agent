@@ -325,6 +325,16 @@ class MCPListResourceTemplatesResult(BaseModel):
     """Список шаблонов ресурсов."""
 
 
+class MCPReadResourceParams(BaseModel):
+    """Параметры запроса resources/read.
+
+    Содержит URI ресурса, который нужно прочитать.
+    """
+
+    uri: str
+    """URI ресурса для чтения."""
+
+
 class MCPResourceContent(BaseModel):
     """Типизированный контент ресурса.
     

@@ -24,6 +24,7 @@ from .models import (
     MCPListResourcesResult,
     MCPListToolsResult,
     MCPPrompt,
+    MCPReadResourceParams,
     MCPReadResourceResult,
     MCPResource,
     MCPServerConfig,
@@ -391,9 +392,10 @@ class MCPClient:
         )
         
         try:
+            params = MCPReadResourceParams(uri=uri)
             result_data = await self._transport.send_request(
                 method="resources/read",
-                params={"uri": uri},
+                params=params.model_dump(),
                 timeout=30.0,
             )
             
