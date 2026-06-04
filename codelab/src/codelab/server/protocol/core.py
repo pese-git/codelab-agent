@@ -1304,6 +1304,85 @@ class ACPProtocol:
             session_state.session_id, mcp_manager
         )
         
+        # Регистрируем callback для отправки available_commands_update при изменении инструментов
+        async def _on_mcp_tools_changed() -> None:
+            """Отправляет available_commands_update клиенту при изменении MCP инструментов."""
+            try:
+                mcp_tools = mcp_manager.get_all_tools()
+                native_tools = self._tool_registry.get_available_tools("")
+                
+                # Объединяем MCP и native инструменты
+                all_tools = native_tools + mcp_tools
+                
+                # Формируем availableCommands
+                available_commands = [
+                    {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                    }
+                    for tool in all_tools
+                ]
+                
+                # Отправляем notification
+                notification = ACPMessage.notification(
+                    "session/update",
+                    {
+                        "sessionId": session_state.session_id,
+                        "update": {
+                            "sessionUpdate": "available_commands_update",
+                            "availableCommands": available_commands,
+                        },
+                    },
+                )
+                await self._send_message(notification)
+                
+                logger.info(
+                    "sent available_commands_update after MCP tool change",
+                    session_id=session_state.session_id,
+                    tools_count=len(all_tools),
+                )
+            except Exception as e:
+                logger.error(
+                    "failed to send available_commands_update",
+                    session_id=session_state.session_id,
+                    error=str(e),
+                )
+        
+        mcp_manager.register_tool_change_callback(_on_mcp_tools_changed)
+        
+        # Регистрируем callback для уведомлений о статусе серверов
+        async def _on_mcp_server_status_changed() -> None:
+            """Отправляет notification о disconnect/reconnect MCP сервера."""
+            try:
+                servers_info = mcp_manager.get_servers_info()
+                for server_info in servers_info:
+                    status_text = (
+                        f"MCP server '{server_info['name']}' "
+                        f"status: {server_info['state']}"
+                    )
+                    notification = ACPMessage.notification(
+                        "session/update",
+                        {
+                            "sessionId": session_state.session_id,
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {
+                                    "type": "text",
+                                    "text": f"[system] {status_text}",
+                                },
+                            },
+                        },
+                    )
+                    await self._send_message(notification)
+            except Exception as e:
+                logger.error(
+                    "failed to send MCP server status notification",
+                    session_id=session_state.session_id,
+                    error=str(e),
+                )
+        
+        mcp_manager.register_server_status_callback(_on_mcp_server_status_changed)
+        
         for server_config_dict in mcp_servers:
             # Пропускаем невалидные конфигурации
             if not isinstance(server_config_dict, dict):
@@ -1346,6 +1425,11 @@ class ACPProtocol:
                     tools_count=len(tool_definitions),
                     tool_names=[td.name for td in tool_definitions],
                 )
+                
+                # Отправляем initial available_commands_update клиенту
+                # Callback вызывается только при notifications/tools/list_changed
+                # от MCP сервера, но не при первоначальном подключении
+                await _on_mcp_tools_changed()
                 
             except MCPManagerError as e:
                 # Graceful degradation: логируем ошибку, но продолжаем

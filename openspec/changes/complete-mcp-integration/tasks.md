@@ -83,22 +83,22 @@
 ### 4.1 Tool list change notifications
 - [x] 4.1.1 В `_handle_message()` распознавать `notifications/tools/list_changed`
 - [x] 4.1.2 Callback mechanism: MCPClient → MCPManager при изменении tools
-- [ ] 4.1.3 MCPManager → PromptOrchestrator → refresh available_tools
-- [ ] 4.1.4 Отправка `available_commands_update` notification клиенту
-- [ ] 4.1.5 Тесты: notification handling, tool refresh
+- [x] 4.1.3 MCPManager → PromptOrchestrator → refresh available_tools
+- [x] 4.1.4 Отправка `available_commands_update` notification клиенту
+- [x] 4.1.5 Тесты: notification handling, tool refresh
 
 ### 4.2 Auto-reconnect
 - [x] 4.2.1 MCPClient — health check (monitoring subprocess exit)
 - [x] 4.2.2 MCPManager — reconnect policy: max_retries=5, exponential backoff
 - [x] 4.2.3 При reconnect: re-initialize, re-list_tools, re-register
-- [ ] 4.2.4 Notification клиенту о disconnect/reconnect
+- [x] 4.2.4 Notification клиенту о disconnect/reconnect
 - [x] 4.2.5 Graceful degradation: если server не восстанавливается, удалить из active
 - [x] 4.2.6 Тесты: reconnect scenarios, max retries, backoff, graceful degradation
 
 ### 4.3 Resource/Prompt change notifications
 - [x] 4.3.1 `notifications/resources/list_changed` handling
 - [x] 4.3.2 `notifications/prompts/list_changed` handling
-- [ ] 4.3.3 Тесты: resource/prompt notification handling
+- [x] 4.3.3 Тесты: resource/prompt notification handling
 
 ## 5. Фаза 5 — Advanced Features (P2)
 
