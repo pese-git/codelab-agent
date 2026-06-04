@@ -17,9 +17,11 @@ from .models import (
     MCPCallToolResult,
     MCPCapabilities,
     MCPClientInfo,
+    MCPGetPromptParams,
     MCPGetPromptResult,
     MCPInitializeParams,
     MCPInitializeResult,
+    MCPListPromptsParams,
     MCPListPromptsResult,
     MCPListResourcesParams,
     MCPListResourcesResult,
@@ -590,13 +592,15 @@ class MCPClient:
         )
         
         try:
-            params: dict[str, Any] = {"name": name}
-            if arguments:
-                params["arguments"] = arguments
+            params = MCPGetPromptParams(
+                name=name,
+                arguments=arguments if arguments else None,
+            )
+            params_dict = params.model_dump(exclude_none=True)
             
             result_data = await self._transport.send_request(
                 method="prompts/get",
-                params=params,
+                params=params_dict,
                 timeout=30.0,
             )
             

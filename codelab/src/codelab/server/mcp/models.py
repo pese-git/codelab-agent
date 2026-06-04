@@ -496,12 +496,18 @@ class MCPReadResourceResult(BaseModel):
 
 
 class MCPPromptArgument(BaseModel):
-    """Определение аргумента промпта MCP сервера."""
+    """Определение аргумента промпта MCP сервера.
+    
+    Описывает один аргумент, который принимает промпт.
+    """
     
     model_config = ConfigDict(populate_by_name=True)
     
     name: str
     """Имя аргумента."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя аргумента."""
     
     description: str | None = None
     """Описание аргумента."""
@@ -514,12 +520,17 @@ class MCPPrompt(BaseModel):
     """Определение промпта MCP сервера.
     
     Содержит имя, описание и аргументы промпта.
+    Промпты — это переиспользуемые шаблоны для структурирования
+    взаимодействий с языковой моделью.
     """
     
     model_config = ConfigDict(populate_by_name=True)
     
     name: str
     """Уникальное имя промпта."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя промпта."""
     
     description: str | None = None
     """Описание промпта."""
@@ -528,14 +539,57 @@ class MCPPrompt(BaseModel):
     """Список аргументов промпта."""
 
 
+class MCPListPromptsParams(BaseModel):
+    """Параметры запроса prompts/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
+
+
 class MCPListPromptsResult(BaseModel):
     """Результат запроса prompts/list.
     
     Содержит список доступных промптов на MCP сервере.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     prompts: list[MCPPrompt]
     """Список доступных промптов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
+
+
+class MCPGetPromptParams(BaseModel):
+    """Параметры запроса prompts/get.
+    
+    Содержит имя промпта и аргументы для заполнения placeholder'ов.
+    """
+    
+    name: str
+    """Имя промпта для получения."""
+    
+    arguments: dict[str, str] | None = None
+    """Аргументы для заполнения placeholder'ов промпта."""
+
+
+class MCPPromptMessage(BaseModel):
+    """Сообщение в результате prompts/get.
+    
+    Содержит роль отправителя и контент сообщения.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    role: str
+    """Роль отправителя: 'user' или 'assistant'."""
+    
+    content: dict[str, Any]
+    """Контент сообщения (MCPContent: text, image, resource)."""
 
 
 class MCPGetPromptResult(BaseModel):
@@ -549,7 +603,9 @@ class MCPGetPromptResult(BaseModel):
     description: str | None = None
     """Описание промпта."""
     
-    messages: list[dict[str, Any]]
+    messages: list[dict[str, Any]] | list[MCPPromptMessage] = Field(
+        default_factory=list,
+    )
     """Список сообщений промпта."""
 
 
