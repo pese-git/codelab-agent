@@ -74,6 +74,10 @@ from .models import (
     MCPTool,
     MCPToolInputSchema,
 )
+from .prompt_mapper import (
+    mcp_prompt_to_available_command,
+    mcp_prompts_to_available_commands,
+)
 from .resource_mapper import (
     mcp_resource_to_resource_link,
     mcp_resources_to_resource_links,
@@ -109,6 +113,9 @@ __all__ = [
     # Resource Mapper
     "mcp_resource_to_resource_link",
     "mcp_resources_to_resource_links",
+    # Prompt Mapper
+    "mcp_prompt_to_available_command",
+    "mcp_prompts_to_available_commands",
     # Transport
     "StdioTransport",
     "StdioTransportError",
