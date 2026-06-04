@@ -184,7 +184,7 @@ class CodeBlock(Static):
     def __init__(
         self,
         code: str,
-        language: str = "python",
+        language: str = "text",
         *,
         name: str | None = None,
         id: str | None = None,
