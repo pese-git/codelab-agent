@@ -743,14 +743,16 @@ class TestSessionMCPIntegration:
         
         session_id = outcome.response.result["sessionId"]
         
-        # Проверяем, что сессия создана и MCPManager инициализирован
+        # Проверяем, что сессия создана и MCPManager инициализирован в runtime registry
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is not None
-        assert isinstance(session_state.mcp_manager, MCPManager)
+        runtime = await protocol._runtime_registry.get(session_id)
+        assert runtime is not None
+        assert runtime.mcp_manager is not None
+        assert isinstance(runtime.mcp_manager, MCPManager)
         
         # Проверяем, что MCPManager привязан к правильной сессии
-        assert session_state.mcp_manager.session_id == session_id
+        assert runtime.mcp_manager.session_id == session_id
 
     @pytest.mark.asyncio
     async def test_session_new_without_mcp_servers_no_manager(
@@ -790,7 +792,9 @@ class TestSessionMCPIntegration:
         # Проверяем, что MCPManager НЕ создан (нет mcpServers)
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is None
+        runtime = await protocol._runtime_registry.get(session_id)
+        # Runtime может не существовать или mcp_manager может быть None
+        assert runtime is None or runtime.mcp_manager is None
 
     @pytest.mark.asyncio
     async def test_session_new_with_empty_mcp_servers_no_manager(
@@ -827,7 +831,9 @@ class TestSessionMCPIntegration:
         # Пустой список - MCPManager не создаётся
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is None
+        runtime = await protocol._runtime_registry.get(session_id)
+        # Runtime может не существовать или mcp_manager может быть None
+        assert runtime is None or runtime.mcp_manager is None
 
     @pytest.mark.asyncio
     async def test_session_new_with_invalid_mcp_config_graceful(
@@ -876,5 +882,7 @@ class TestSessionMCPIntegration:
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
         # MCPManager создаётся, но без успешных подключений
-        assert session_state.mcp_manager is not None
-        assert session_state.mcp_manager.server_count == 0
+        runtime = await protocol._runtime_registry.get(session_id)
+        assert runtime is not None
+        assert runtime.mcp_manager is not None
+        assert runtime.mcp_manager.server_count == 0
