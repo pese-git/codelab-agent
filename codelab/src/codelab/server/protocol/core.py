@@ -912,11 +912,8 @@ class ACPProtocol:
         # и блокирует новые запросы. Новый turn создаст свой active_turn.
         session.active_turn = None
 
-        # Получить MCP manager из registry
-        mcp_manager = None
-        runtime = await self._runtime_registry.get(session.session_id)
-        if runtime:
-            mcp_manager = runtime.mcp_manager
+        # Получить MCP manager из registry с defensive re-initialization
+        mcp_manager = await self._ensure_mcp_initialized(session)
 
         outcome = await orchestrator.handle_prompt(
             request_id=message.id,
@@ -1050,6 +1047,47 @@ class ACPProtocol:
     # -----------------------------------------------------------------------
     # Вспомогательные методы
     # -----------------------------------------------------------------------
+
+    async def _ensure_mcp_initialized(
+        self,
+        session: SessionState,
+    ) -> MCPManager | None:
+        """Убеждается что MCP серверы инициализированы для сессии.
+
+        Defensive check: если сессия имеет mcp_servers в state, но mcp_manager
+        отсутствует в runtime registry (например, после WebSocket reconnect),
+        автоматически переинициализирует MCP серверы.
+
+        Согласно ACP протоколу, клиент ДОЛЖЕН вызывать session/load после
+        reconnect для восстановления MCP соединений. Этот метод обеспечивает
+        graceful degradation если клиент нарушает протокол.
+
+        Args:
+            session: Состояние сессии с mcp_servers.
+
+        Returns:
+            MCPManager если инициализирован, иначе None.
+        """
+        runtime = await self._runtime_registry.get(session.session_id)
+        if runtime and runtime.mcp_manager is not None:
+            return runtime.mcp_manager
+
+        # MCP manager отсутствует, но есть конфигурация — переинициализировать
+        if session.mcp_servers:
+            logger.warning(
+                "mcp_servers_configured_but_not_initialized",
+                session_id=session.session_id,
+                mcp_server_count=len(session.mcp_servers),
+                hint="Client should call session/load after WebSocket reconnect",
+            )
+            await self._initialize_mcp_servers(session, session.mcp_servers)
+
+            # Получить обновлённый mcp_manager
+            runtime = await self._runtime_registry.get(session.session_id)
+            if runtime:
+                return runtime.mcp_manager
+
+        return None
 
     async def _setup_mcp_if_needed(
         self,
@@ -1230,11 +1268,8 @@ class ACPProtocol:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-        # Получить MCP manager из runtime registry
-        mcp_manager = None
-        runtime = await self._runtime_registry.get(session_id)
-        if runtime:
-            mcp_manager = runtime.mcp_manager
+        # Получить MCP manager из runtime registry с defensive re-initialization
+        mcp_manager = await self._ensure_mcp_initialized(session)
 
         # Получить или создать PromptOrchestrator (переиспользуется)
         orchestrator = await self._get_prompt_orchestrator()
