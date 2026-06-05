@@ -290,7 +290,7 @@ class TestHelpCommandHandler:
     def test_list_includes_mcp_prompts(
         self, registry: CommandRegistry, session: SessionState
     ) -> None:
-        """/help показывает MCP prompts из session.mcp_prompt_handlers."""
+        """/help показывает MCP prompts из runtime registry."""
         from unittest.mock import MagicMock
 
         from codelab.server.models import AvailableCommand, AvailableCommandInput
@@ -299,16 +299,17 @@ class TestHelpCommandHandler:
         help_handler = HelpCommandHandler(registry)
         registry.register(help_handler)
 
-        # Добавляем mock MCP prompt handler в session
+        # Создаём mock MCP prompt handler (из runtime registry)
         mock_handler = MagicMock()
         mock_handler.get_definition.return_value = AvailableCommand(
             name="code_review",
             description="Review code for best practices",
             input=AvailableCommandInput(hint="<language>"),
         )
-        session.mcp_prompt_handlers["code_review"] = mock_handler
+        mcp_prompt_handlers = {"code_review": mock_handler}
 
-        result = help_handler.execute([], session)
+        # Передаём handlers через execute_with_handlers
+        result = help_handler.execute_with_handlers([], session, mcp_prompt_handlers)
 
         text = result.content[0]["text"]
         assert "/status" in text
@@ -325,16 +326,17 @@ class TestHelpCommandHandler:
 
         help_handler = HelpCommandHandler(registry)
 
-        # Добавляем mock MCP prompt handler в session
+        # Создаём mock MCP prompt handler (из runtime registry)
         mock_handler = MagicMock()
         mock_handler.get_definition.return_value = AvailableCommand(
             name="plan_task",
             description="Plan a development task",
             input=AvailableCommandInput(hint="<task_name> [priority]"),
         )
-        session.mcp_prompt_handlers["plan_task"] = mock_handler
+        mcp_prompt_handlers = {"plan_task": mock_handler}
 
-        result = help_handler.execute(["plan_task"], session)
+        # Передаём handlers через execute_with_handlers
+        result = help_handler.execute_with_handlers(["plan_task"], session, mcp_prompt_handlers)
 
         text = result.content[0]["text"]
         assert "plan_task" in text

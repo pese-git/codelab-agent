@@ -6,7 +6,7 @@ SlashCommandRouter направляет slash-команды к соответс
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -26,7 +26,7 @@ class SlashCommandRouter:
     """Маршрутизатор slash-команд к обработчикам.
 
     Принимает распарсенную slash-команду и направляет её к соответствующему
-    handler'у из CommandRegistry или к MCP prompt handler'у из session.
+    handler'у из CommandRegistry или к MCP prompt handler'у.
     Если handler не найден, возвращает None для fallback обработки
     (например, отправки в LLM).
 
@@ -54,16 +54,18 @@ class SlashCommandRouter:
         command: str,
         args: list[str],
         session: SessionState,
+        mcp_prompt_handlers: dict[str, Any] | None = None,
     ) -> ProtocolOutcome | None:
         """Маршрутизирует команду к handler'у.
 
         Сначала ищет handler в CommandRegistry (встроенные команды).
-        Если не найден, проверяет mcp_prompt_handlers в session (MCP prompts).
+        Если не найден, проверяет mcp_prompt_handlers (MCP prompts).
 
         Args:
             command: Имя команды (без слеша)
             args: Аргументы команды
             session: Текущее состояние сессии
+            mcp_prompt_handlers: Обработчики MCP prompts из runtime registry
 
         Returns:
             ProtocolOutcome с результатом или None для fallback
@@ -80,7 +82,11 @@ class SlashCommandRouter:
             )
 
             try:
-                result = handler.execute(args, session)
+                # Для help команды передаём mcp_prompt_handlers
+                if command == "help" and hasattr(handler, "execute_with_handlers"):
+                    result = handler.execute_with_handlers(args, session, mcp_prompt_handlers or {})
+                else:
+                    result = handler.execute(args, session)
                 return self._build_outcome(result, session)
             except Exception as e:
                 logger.exception(
@@ -90,8 +96,9 @@ class SlashCommandRouter:
                 )
                 return self._build_error_outcome(command, str(e), session)
 
-        # Проверяем MCP prompt handlers в session
-        mcp_handler = session.mcp_prompt_handlers.get(command)
+        # Проверяем MCP prompt handlers из runtime registry
+        handlers = mcp_prompt_handlers or {}
+        mcp_handler = handlers.get(command)
         if mcp_handler is not None:
             logger.info(
                 "Routing MCP prompt slash command",

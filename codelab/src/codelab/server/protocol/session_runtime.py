@@ -1,13 +1,15 @@
 """Реестр runtime-состояний сессий.
 
-Хранит in-memory объекты (MCP manager, кэши) отдельно от
+Хранит in-memory объекты (MCP manager, кэши, handlers) отдельно от
 сериализуемого SessionState. REQUEST-scoped, живет в рамках
 одного WebSocket соединения. Dishka cleanup при disconnect.
 """
 
+from __future__ import annotations
+
 import asyncio
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..mcp.manager import MCPManager
@@ -15,9 +17,18 @@ if TYPE_CHECKING:
 
 @dataclass
 class SessionRuntimeState:
-    """Runtime-состояние одной сессии (не сериализуется)."""
+    """Runtime-состояние одной сессии (не сериализуется).
 
-    mcp_manager: "MCPManager | None" = None
+    Хранит объекты, которые не могут быть сериализованы в storage,
+    но необходимы для работы сессии: MCP manager, обработчики команд.
+    """
+
+    mcp_manager: MCPManager | None = None
+    # Обработчики MCP prompts для slash-команд (per-session).
+    # Мапа: имя команды -> MCPPromptCommandHandler.
+    # Хранится в runtime registry, т.к. handlers содержат ссылки на MCPManager
+    # и не могут быть сериализованы.
+    mcp_prompt_handlers: dict[str, Any] = field(default_factory=dict)
 
 
 class SessionRuntimeRegistry:
@@ -59,7 +70,7 @@ class SessionRuntimeRegistry:
             return self._states[session_id]
 
     async def set_mcp_manager(
-        self, session_id: str, mcp_manager: "MCPManager"
+        self, session_id: str, mcp_manager: MCPManager
     ) -> None:
         """Установить MCP manager для сессии.
 
