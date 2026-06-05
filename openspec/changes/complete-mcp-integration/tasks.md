@@ -5,7 +5,7 @@
 ### 1.1 MCPToolExecutor
 - [x] 1.1.1 Создать `server/tools/executors/mcp_executor.py` — MCPToolExecutor класс
 - [x] 1.1.2 Реализовать `execute(tool_name, arguments, session_state)` → ToolResult
-- [ ] 1.1.3 MCP content conversion: MCPTextContent → text, MCPImageContent → base64, MCPEmbeddedResource → embedded
+- [x] 1.1.3 MCP content conversion: MCPTextContent → text, MCPImageContent → base64, MCPEmbeddedResource → embedded
 - [x] 1.1.4 Timeout handling: configurable per-server timeout
 - [x] 1.1.5 Error handling: MCP server crash, timeout, invalid response
 - [x] 1.1.6 Тесты: execute success, execute timeout, execute error, content conversion
@@ -31,28 +31,28 @@
 
 ### 2.1 Модели
 - [x] 2.1.1 Создать `MCPResource` — uri, name, description, mimeType
-- [ ] 2.1.2 Создать `MCPResourceTemplate` — uriTemplate, name, description, mimeType
-- [x] 2.1.3 Создать `MCPListResourcesResult`, [ ] `MCPListResourceTemplatesResult`
-- [x] 2.1.4 Создать `MCPReadResourceParams`, `MCPReadResourceResult`, [ ] `MCPResourceContent` (typed union)
-- [ ] 2.1.5 Тесты: serialization, deserialization, validation
+- [x] 2.1.2 Создать `MCPResourceTemplate` — uriTemplate, name, description, mimeType
+- [x] 2.1.3 Создать `MCPListResourcesResult`, [x] `MCPListResourceTemplatesResult`
+- [x] 2.1.4 Создать `MCPReadResourceParams`, `MCPReadResourceResult`, [x] `MCPResourceContent` (typed union)
+- [x] 2.1.5 Тесты: serialization, deserialization, validation
 
 ### 2.2 MCPClient Resources API
 - [x] 2.2.1 `list_resources()` → MCPListResourcesResult
-- [ ] 2.2.2 `list_resource_templates()` → MCPListResourceTemplatesResult
+- [x] 2.2.2 `list_resource_templates()` → MCPListResourceTemplatesResult
 - [x] 2.2.3 `read_resource(uri)` → MCPReadResourceResult
 - [x] 2.2.4 Capability checking: server_capabilities.resources
 - [x] 2.2.5 Тесты: list resources, read resource, capability check
 
 ### 2.3 MCPManager Resources
-- [ ] 2.3.1 `get_all_resources()` → list всех resources от всех серверов
-- [ ] 2.3.2 `read_resource(server_id, uri)` → читать resource с конкретного сервера
-- [ ] 2.3.3 Resource URI routing: по uri определить какой сервер обслуживает
-- [ ] 2.3.4 Тесты: get all resources, read resource, URI routing
+- [x] 2.3.1 `get_all_resources()` → list всех resources от всех серверов
+- [x] 2.3.2 `read_resource(server_id, uri)` → читать resource с конкретного сервера
+- [x] 2.3.3 Resource URI routing: по uri определить какой сервер обслуживает
+- [x] 2.3.4 Тесты: get all resources, read resource, URI routing
 
 ### 2.4 ACP Integration
-- [ ] 2.4.1 MCP Resources → ACP ResourceLinkContent маппинг
-- [ ] 2.4.2 При session/load: MCP resources могут быть включены в replay
-- [ ] 2.4.3 Тесты: content conversion, replay integration
+- [x] 2.4.1 MCP Resources → ACP ResourceLinkContent маппинг
+- [x] 2.4.2 При session/load: MCP resources могут быть включены в replay
+- [x] 2.4.3 Тесты: content conversion, replay integration
 
 ## 3. Фаза 3 — MCP Prompts (P1)
 
@@ -69,14 +69,14 @@
 - [x] 3.2.4 Тесты: list prompts, get prompt, capability check
 
 ### 3.3 MCPManager Prompts
-- [ ] 3.3.1 `get_all_prompts()` → list всех prompts от всех серверов
-- [ ] 3.3.2 `get_prompt(server_id, name, arguments)` → получить prompt с аргументами
-- [ ] 3.3.3 Тесты: get all prompts, get prompt with arguments
+- [x] 3.3.1 `get_all_prompts()` → list всех prompts от всех серверов
+- [x] 3.3.2 `get_prompt(server_id, name, arguments)` → получить prompt с аргументами
+- [x] 3.3.3 Тесты: get all prompts, get prompt with arguments
 
 ### 3.4 ACP Integration
-- [ ] 3.4.1 MCP Prompts → ACP slash commands маппинг
-- [ ] 3.4.2 При вызове slash-команды: resolve MCP prompt → messages → inject в conversation
-- [ ] 3.4.3 Тесты: slash command integration, prompt resolution
+- [x] 3.4.1 MCP Prompts → ACP slash commands маппинг
+- [x] 3.4.2 При вызове slash-команды: resolve MCP prompt → messages → inject в conversation
+- [x] 3.4.3 Тесты: slash command integration, prompt resolution
 
 ## 4. Фаза 4 — Notifications и Auto-reconnect (P1)
 
