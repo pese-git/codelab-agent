@@ -89,7 +89,7 @@ class MCPPromptCommandHandler(CommandHandler):
                 # Если уже в async контексте, создаём task
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = loop.run_in_executor(
+                    loop.run_in_executor(
                         pool,
                         self._execute_sync,
                         args,
