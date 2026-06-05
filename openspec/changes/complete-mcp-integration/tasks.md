@@ -146,9 +146,9 @@
 
 ### 6.2 MCPConfig HTTP support
 - [x] 6.2.1 MCPServerConfig — type: "http"|"sse"|"stdio", url, headers (уже в модели)
-- [ ] 6.2.2 TOML config: секция [mcp.servers] с http/sse support
-- [ ] 6.2.3 mcpCapabilities.http: true в initialize response
-- [ ] 6.2.4 Тесты: HTTP server config, connection
+- [x] 6.2.2 Подключить HTTP/SSE transport в MCPClient.connect()
+- [x] 6.2.3 mcpCapabilities через конфигурацию ACPProtocol (mcp_http_enabled, mcp_sse_enabled)
+- [x] 6.2.4 Тесты: HTTP server config, connection
 
 ## 7. Documentation
 

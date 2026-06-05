@@ -17,6 +17,8 @@ def initialize(
     supported_protocol_versions: tuple[int, ...],
     require_auth: bool,
     auth_methods: list[dict[str, Any]],
+    mcp_http_enabled: bool = True,
+    mcp_sse_enabled: bool = True,
 ) -> ACPMessage:
     """Формирует ответ на `initialize` с перечнем возможностей агента.
 
@@ -66,7 +68,7 @@ def initialize(
         "protocolVersion": negotiated_version,
         "agentCapabilities": {
             "loadSession": True,
-            "mcpCapabilities": {"http": False, "sse": False},
+            "mcpCapabilities": {"http": mcp_http_enabled, "sse": mcp_sse_enabled},
             "promptCapabilities": {
                 "image": False,
                 "audio": False,

@@ -19,7 +19,7 @@ from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopSta
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import SessionState
+from codelab.server.protocol.state import SessionState, ToolCallState
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 from codelab.server.tools.registry import SimpleToolRegistry
 
@@ -505,3 +505,70 @@ class TestMcpToolPermission:
             # Результат с ошибкой
             assert result.tool_results[0].success is False
             assert "rejected" in result.tool_results[0].error.lower()
+
+
+class TestExecutePendingToolMcpManager:
+    """Тесты передачи mcp_manager в execute_pending_tool()."""
+
+    @pytest.mark.asyncio
+    async def test_execute_pending_tool_passes_mcp_manager_to_run_llm_loop(
+        self,
+        llm_loop_stage: LLMLoopStage,
+        session: SessionState,
+        mock_mcp_manager: MagicMock,
+    ) -> None:
+        """execute_pending_tool() передаёт mcp_manager в _run_llm_loop().
+
+        Регрессионный тест: ранее mcp_manager терялся после выполнения
+        инструмента, из-за чего LLM терял контекст MCP инструментов
+        при продолжении диалога.
+        """
+        # Создаём pending tool call в сессии
+        tool_call_id = "call_pending_1"
+        session.tool_calls[tool_call_id] = ToolCallState(
+            tool_call_id=tool_call_id,
+            title="mcp:fs:read_file",
+            kind="read",
+            tool_name="mcp:fs:read_file",
+            tool_arguments={"path": "/tmp/test.txt"},
+            status="pending",
+        )
+
+        # Патчим _run_llm_loop чтобы проверить вызов
+        with patch.object(
+            llm_loop_stage,
+            "_run_llm_loop",
+            new_callable=AsyncMock,
+        ) as mock_run_llm_loop:
+            # Настраиваем mock чтобы вернуть пустой результат
+            from codelab.server.protocol.state import LLMLoopResult
+            mock_run_llm_loop.return_value = LLMLoopResult(
+                notifications=[],
+                stop_reason="end_turn",
+            )
+
+            # Патчим tool_registry.execute_tool для успешного выполнения
+            with patch.object(
+                llm_loop_stage._tool_registry,
+                "execute_tool",
+                new_callable=AsyncMock,
+                return_value=ToolExecutionResult(
+                    success=True,
+                    output="File content",
+                ),
+            ):
+                await llm_loop_stage.execute_pending_tool(
+                    session=session,
+                    session_id="test-session",
+                    tool_call_id=tool_call_id,
+                    agent_orchestrator=MagicMock(),
+                    mcp_manager=mock_mcp_manager,
+                )
+
+            # Проверяем что _run_llm_loop был вызван с mcp_manager
+            mock_run_llm_loop.assert_called_once()
+            call_kwargs = mock_run_llm_loop.call_args[1]
+            assert call_kwargs.get("mcp_manager") is mock_mcp_manager, (
+                "mcp_manager должен быть передан в _run_llm_loop() "
+                "для сохранения контекста MCP инструментов"
+            )

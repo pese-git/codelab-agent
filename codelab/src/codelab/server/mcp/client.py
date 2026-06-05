@@ -36,7 +36,14 @@ from .models import (
     MCPServerConfig,
     MCPTool,
 )
-from .transport import StdioTransport, StdioTransportError
+from .transport import (
+    HttpTransport,
+    HttpTransportError,
+    SseTransport,
+    SseTransportError,
+    StdioTransport,
+    StdioTransportError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -165,11 +172,12 @@ class MCPClient:
     async def connect(self) -> None:
         """Запустить MCP сервер и установить соединение.
         
-        Запускает процесс MCP сервера, но не выполняет initialize.
+        Запускает процесс MCP сервера (для stdio) или устанавливает HTTP/SSE соединение.
+        Выбор транспорта определяется config.type.
         
         Raises:
             MCPClientError: Если клиент уже подключен.
-            MCPClientError: Если не удалось запустить процесс.
+            MCPClientError: Если не удалось установить соединение.
         """
         if self._state not in (MCPClientState.CREATED, MCPClientState.CLOSED):
             raise MCPClientError(f"Cannot connect in state {self._state}")
@@ -177,25 +185,46 @@ class MCPClient:
         self._state = MCPClientState.CONNECTING
         
         logger.info(
-            "Connecting to MCP server: %s (command=%s)",
+            "Connecting to MCP server: %s (type=%s)",
             self.config.name,
-            self.config.command
+            self.config.type,
         )
         
         try:
-            self._transport = StdioTransport()
-            assert self.config.command is not None, "Command must be set for stdio transport"
-            await self._transport.start(
-                command=self.config.command,
-                args=self.config.args,
-                env=self.config.get_env_dict(),
-            )
+            if self.config.type == "stdio":
+                self._transport = StdioTransport()
+                assert self.config.command is not None, "Command must be set for stdio transport"
+                await self._transport.start(
+                    command=self.config.command,
+                    args=self.config.args,
+                    env=self.config.get_env_dict(),
+                )
+                logger.debug("MCP server process started: %s", self.config.name)
             
-            logger.debug("MCP server process started: %s", self.config.name)
+            elif self.config.type == "http":
+                assert self.config.url is not None, "URL must be set for http transport"
+                self._transport = HttpTransport(
+                    url=self.config.url,
+                    headers=self.config.headers,
+                )
+                await self._transport.connect()
+                logger.debug("MCP HTTP connection established: %s", self.config.name)
             
-        except StdioTransportError as e:
+            elif self.config.type == "sse":
+                assert self.config.url is not None, "URL must be set for sse transport"
+                self._transport = SseTransport(
+                    url=self.config.url,
+                    headers=self.config.headers,
+                )
+                await self._transport.connect()
+                logger.debug("MCP SSE connection established: %s", self.config.name)
+            
+            else:
+                raise MCPClientError(f"Unsupported transport type: {self.config.type}")
+            
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
             self._state = MCPClientState.FAILED
-            raise MCPClientError(f"Failed to start MCP server: {e}") from e
+            raise MCPClientError(f"Failed to connect to MCP server: {e}") from e
     
     async def initialize(self) -> MCPCapabilities:
         """Выполнить MCP initialize handshake.
@@ -260,7 +289,7 @@ class MCPClient:
             
             return self._capabilities
             
-        except StdioTransportError as e:
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
             self._state = MCPClientState.FAILED
             raise MCPInitializeError(
                 f"Initialize failed for {self.config.name}: {e}"
@@ -698,7 +727,7 @@ class MCPClient:
             
             return result
             
-        except StdioTransportError as e:
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
             raise MCPToolCallError(
                 f"Tool call {name} failed: {e}"
             ) from e
@@ -714,7 +743,12 @@ class MCPClient:
         logger.info("Disconnecting from MCP server: %s", self.config.name)
         
         if self._transport:
-            await self._transport.close()
+            # StdioTransport использует close(), HTTP/SSE — disconnect()
+            transport_type = self._transport.__class__.__name__
+            if transport_type in ("HttpTransport", "SseTransport"):
+                await self._transport.disconnect()
+            else:
+                await self._transport.close()
             self._transport = None
         
         self._state = MCPClientState.CLOSED

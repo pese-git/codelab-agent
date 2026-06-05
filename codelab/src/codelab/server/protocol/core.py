@@ -107,6 +107,8 @@ class ACPProtocol:
         llm_registry: LLMProviderRegistry | None = None,
         config_option_builder: ConfigOptionBuilder | None = None,
         runtime_registry: SessionRuntimeRegistry | None = None,
+        mcp_http_enabled: bool = True,
+        mcp_sse_enabled: bool = True,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -124,6 +126,8 @@ class ACPProtocol:
             llm_registry: Реестр LLM провайдеров для dynamic config options (опционально).
             config_option_builder: Билдер config options из Registry (опционально).
             runtime_registry: Реестр runtime-состояний сессий (опционально).
+            mcp_http_enabled: Поддерживается ли MCP HTTP transport (опционально, по умолчанию True).
+            mcp_sse_enabled: Поддерживается ли MCP SSE transport (опционально, по умолчанию True).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -206,6 +210,10 @@ class ACPProtocol:
 
         # Реестр runtime-состояний сессий (REQUEST-scoped)
         self._runtime_registry = runtime_registry or SessionRuntimeRegistry()
+
+        # MCP transport capabilities — объявляются клиенту при initialize
+        self._mcp_http_enabled = mcp_http_enabled
+        self._mcp_sse_enabled = mcp_sse_enabled
 
         # Config specs — строятся динамически из Registry если доступен
         self._config_specs: dict[str, dict[str, Any]] = self._build_config_specs()
@@ -788,6 +796,8 @@ class ACPProtocol:
             self._supported_protocol_versions,
             self._require_auth,
             self._auth_methods,
+            mcp_http_enabled=self._mcp_http_enabled,
+            mcp_sse_enabled=self._mcp_sse_enabled,
         )
         # Сохраняем согласованные runtime-возможности клиента для feature-gate.
         client_capabilities = params.get("clientCapabilities")

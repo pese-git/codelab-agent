@@ -274,6 +274,7 @@ class LLMLoopStage(PromptStage):
                 agent_orchestrator=agent_orchestrator,
                 initial_prompt_text="",
                 tool_results=[tool_result],
+                mcp_manager=mcp_manager,
             )
             return LLMLoopResult(
                 notifications=notifications + llm_loop_result.notifications,
