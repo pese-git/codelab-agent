@@ -256,7 +256,7 @@ class TestHttpTransportDisconnect:
         mock_session.close = AsyncMock()
         transport._session = mock_session
 
-        await transport.disconnect()
+        await transport.close()
 
         assert transport._closed is True
         assert transport._session is None
@@ -268,7 +268,7 @@ class TestHttpTransportDisconnect:
         transport = HttpTransport(url="http://localhost:8080")
         transport._closed = True
 
-        await transport.disconnect()
+        await transport.close()
         # Не должно вызвать ошибок
 
 
@@ -420,7 +420,7 @@ class TestSseTransportDisconnect:
         mock_sse_response.release = AsyncMock()
         transport._sse_response = mock_sse_response
 
-        await transport.disconnect()
+        await transport.close()
 
         assert transport._closed is True
         assert transport._session is None
@@ -432,7 +432,7 @@ class TestSseTransportDisconnect:
         transport = SseTransport(url="http://localhost:8080/sse")
         transport._closed = True
 
-        await transport.disconnect()
+        await transport.close()
         # Не должно вызвать ошибок
 
 

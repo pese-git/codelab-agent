@@ -1,17 +1,14 @@
 """Тесты HTTP/SSE transport wiring в MCPClient.
 
 Покрывают:
-- MCPClient.connect() выбирает транспорт по config.type
-- HTTP transport подключение
-- SSE transport подключение
-- Fallback на stdio при отсутствии url
-- Ошибки при невалидном type
+- MCPClient.connect() использует TransportFactory
+- Единый интерфейс close() для всех транспортов
 - mcpCapabilities через конфигурацию ACPProtocol
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -22,12 +19,12 @@ from codelab.server.protocol.handlers import auth
 from codelab.shared.messages import ACPMessage
 
 
-class TestMCPClientTransportSelection:
-    """Тесты выбора транспорта в MCPClient.connect()."""
+class TestMCPClientTransportFactory:
+    """Тесты использования TransportFactory в MCPClient.connect()."""
 
     @pytest.mark.asyncio
-    async def test_stdio_transport_selected_for_stdio_type(self) -> None:
-        """Stdio transport выбирается для type='stdio'."""
+    async def test_connect_uses_transport_factory(self) -> None:
+        """MCPClient.connect() использует TransportFactory для создания транспорта."""
         config = MCPServerConfig(
             name="test-server",
             type="stdio",
@@ -36,19 +33,19 @@ class TestMCPClientTransportSelection:
         )
         client = MCPClient(config)
 
-        with patch("codelab.server.mcp.client.StdioTransport") as mock_stdio:
+        with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
             mock_transport = AsyncMock()
-            mock_stdio.return_value = mock_transport
+            mock_factory.create.return_value = mock_transport
 
             await client.connect()
 
-            mock_stdio.assert_called_once()
-            mock_transport.start.assert_called_once()
+            mock_factory.create.assert_called_once_with(config)
+            mock_transport.connect.assert_called_once()
             assert client._state == MCPClientState.CONNECTING
 
     @pytest.mark.asyncio
-    async def test_http_transport_selected_for_http_type(self) -> None:
-        """HTTP transport выбирается для type='http'."""
+    async def test_connect_http_transport(self) -> None:
+        """HTTP транспорт создаётся через factory."""
         config = MCPServerConfig(
             name="test-server",
             type="http",
@@ -56,22 +53,18 @@ class TestMCPClientTransportSelection:
         )
         client = MCPClient(config)
 
-        with patch("codelab.server.mcp.client.HttpTransport") as mock_http:
+        with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
             mock_transport = AsyncMock()
-            mock_http.return_value = mock_transport
+            mock_factory.create.return_value = mock_transport
 
             await client.connect()
 
-            mock_http.assert_called_once_with(
-                url="http://localhost:8080",
-                headers=[],
-            )
+            mock_factory.create.assert_called_once_with(config)
             mock_transport.connect.assert_called_once()
-            assert client._state == MCPClientState.CONNECTING
 
     @pytest.mark.asyncio
-    async def test_sse_transport_selected_for_sse_type(self) -> None:
-        """SSE transport выбирается для type='sse'."""
+    async def test_connect_sse_transport(self) -> None:
+        """SSE транспорт создаётся через factory."""
         config = MCPServerConfig(
             name="test-server",
             type="sse",
@@ -79,22 +72,18 @@ class TestMCPClientTransportSelection:
         )
         client = MCPClient(config)
 
-        with patch("codelab.server.mcp.client.SseTransport") as mock_sse:
+        with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
             mock_transport = AsyncMock()
-            mock_sse.return_value = mock_transport
+            mock_factory.create.return_value = mock_transport
 
             await client.connect()
 
-            mock_sse.assert_called_once_with(
-                url="http://localhost:8080/sse",
-                headers=[],
-            )
+            mock_factory.create.assert_called_once_with(config)
             mock_transport.connect.assert_called_once()
-            assert client._state == MCPClientState.CONNECTING
 
     @pytest.mark.asyncio
-    async def test_error_for_unsupported_type(self) -> None:
-        """Ошибка для неподдерживаемого типа транспорта."""
+    async def test_connect_factory_error_propagated(self) -> None:
+        """Ошибки от factory пробрасываются как MCPClientError."""
         config = MCPServerConfig(
             name="test-server",
             type="http",
@@ -108,37 +97,13 @@ class TestMCPClientTransportSelection:
         with pytest.raises(MCPClientError, match="Unsupported transport type"):
             await client.connect()
 
-    @pytest.mark.asyncio
-    async def test_http_transport_with_headers(self) -> None:
-        """HTTP transport передаёт headers."""
-        config = MCPServerConfig(
-            name="test-server",
-            type="http",
-            url="http://localhost:8080",
-            headers=[{"name": "Authorization", "value": "Bearer token"}],
-        )
-        client = MCPClient(config)
-
-        with patch("codelab.server.mcp.client.HttpTransport") as mock_http:
-            mock_transport = AsyncMock()
-            mock_http.return_value = mock_transport
-
-            await client.connect()
-
-            mock_http.assert_called_once()
-            call_kwargs = mock_http.call_args[1]
-            assert call_kwargs["headers"] == [{"name": "Authorization", "value": "Bearer token"}]
-
 
 class TestMCPClientDisconnect:
-    """Тесты disconnect для разных транспортов."""
+    """Тесты disconnect для всех транспортов."""
 
     @pytest.mark.asyncio
-    async def test_stdio_disconnect_calls_close(self) -> None:
-        """Stdio transport вызывает close() при disconnect."""
-        from codelab.server.mcp.client import MCPClient, MCPClientState
-        from codelab.server.mcp.models import MCPServerConfig
-
+    async def test_disconnect_calls_close_on_transport(self) -> None:
+        """disconnect() вызывает close() на транспорте."""
         config = MCPServerConfig(
             name="test-server",
             type="stdio",
@@ -147,11 +112,9 @@ class TestMCPClientDisconnect:
         )
         client = MCPClient(config)
 
-        # Создаём mock без метода disconnect (как у StdioTransport)
-        mock_transport = MagicMock()
+        # Создаём mock с единым интерфейсом close()
+        mock_transport = AsyncMock()
         mock_transport.close = AsyncMock()
-        # Удаляем disconnect, чтобы hasattr вернул False
-        del mock_transport.disconnect
         client._transport = mock_transport
         client._state = MCPClientState.READY
 
@@ -161,10 +124,8 @@ class TestMCPClientDisconnect:
         assert client._state == MCPClientState.CLOSED
 
     @pytest.mark.asyncio
-    async def test_http_disconnect_calls_disconnect(self) -> None:
-        """HTTP transport вызывает disconnect() при disconnect."""
-        from codelab.server.mcp.transport import HttpTransport
-
+    async def test_disconnect_http_transport_calls_close(self) -> None:
+        """HTTP transport вызывает close() при disconnect."""
         config = MCPServerConfig(
             name="test-server",
             type="http",
@@ -172,22 +133,19 @@ class TestMCPClientDisconnect:
         )
         client = MCPClient(config)
 
-        with patch("codelab.server.mcp.client.HttpTransport") as mock_http:
+        with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
             mock_transport = AsyncMock()
-            mock_transport.__class__ = HttpTransport
-            mock_http.return_value = mock_transport
+            mock_factory.create.return_value = mock_transport
 
             await client.connect()
             await client.disconnect()
 
-            mock_transport.disconnect.assert_called_once()
+            mock_transport.close.assert_called_once()
             assert client._state == MCPClientState.CLOSED
 
     @pytest.mark.asyncio
-    async def test_sse_disconnect_calls_disconnect(self) -> None:
-        """SSE transport вызывает disconnect() при disconnect."""
-        from codelab.server.mcp.transport import SseTransport
-
+    async def test_disconnect_sse_transport_calls_close(self) -> None:
+        """SSE transport вызывает close() при disconnect."""
         config = MCPServerConfig(
             name="test-server",
             type="sse",
@@ -195,16 +153,31 @@ class TestMCPClientDisconnect:
         )
         client = MCPClient(config)
 
-        with patch("codelab.server.mcp.client.SseTransport") as mock_sse:
+        with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
             mock_transport = AsyncMock()
-            mock_transport.__class__ = SseTransport
-            mock_sse.return_value = mock_transport
+            mock_factory.create.return_value = mock_transport
 
             await client.connect()
             await client.disconnect()
 
-            mock_transport.disconnect.assert_called_once()
+            mock_transport.close.assert_called_once()
             assert client._state == MCPClientState.CLOSED
+
+    @pytest.mark.asyncio
+    async def test_disconnect_already_closed(self) -> None:
+        """disconnect() не делает ничего если уже закрыт."""
+        config = MCPServerConfig(
+            name="test-server",
+            type="stdio",
+            command="python",
+        )
+        client = MCPClient(config)
+        client._state = MCPClientState.CLOSED
+
+        # Не должно вызвать ошибок
+        await client.disconnect()
+
+        assert client._state == MCPClientState.CLOSED
 
 
 class TestMCPCapabilitiesConfig:

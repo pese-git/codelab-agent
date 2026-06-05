@@ -88,8 +88,8 @@ def sample_mcp_tools() -> list[MCPTool]:
 def mock_transport() -> MagicMock:
     """Создаёт mock транспорта для MCP клиента."""
     transport = MagicMock()
-    transport.is_running = True
-    transport.start = AsyncMock()
+    transport.is_connected = True
+    transport.connect = AsyncMock()
     transport.close = AsyncMock()
     transport.send_request = AsyncMock()
     transport.send_notification = AsyncMock()
@@ -311,15 +311,15 @@ class TestMCPClient:
         """Проверяет, что connect запускает транспорт."""
         client = MCPClient(mcp_server_config)
 
-        # Подменяем создание транспорта
+        # Подменяем создание транспорта через factory
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
 
         # Проверяем, что транспорт запущен
-        mock_transport.start.assert_called_once()
+        mock_transport.connect.assert_called_once()
         assert client.state == MCPClientState.CONNECTING
 
     @pytest.mark.asyncio
@@ -333,9 +333,9 @@ class TestMCPClient:
         
         # Первый connect
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
         
         # Повторный connect должен вызвать ошибку
@@ -359,9 +359,9 @@ class TestMCPClient:
         }
 
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
             capabilities = await client.initialize()
 
@@ -392,9 +392,9 @@ class TestMCPClient:
         }
 
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
             await client.initialize()
             await client.disconnect()

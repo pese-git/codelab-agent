@@ -50,16 +50,34 @@ class StdioTransport:
         command: Команда для запуска MCP сервера.
         args: Аргументы командной строки.
         env: Переменные окружения для процесса.
+        cwd: Рабочая директория для процесса.
     
     Example:
-        >>> transport = StdioTransport()
-        >>> await transport.start("mcp-server", ["--stdio"])
+        >>> transport = StdioTransport(command="mcp-server", args=["--stdio"])
+        >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
         >>> await transport.close()
     """
     
-    def __init__(self) -> None:
-        """Инициализация транспорта."""
+    def __init__(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> None:
+        """Инициализация транспорта.
+        
+        Args:
+            command: Команда для запуска (путь к исполняемому файлу).
+            args: Аргументы командной строки.
+            env: Дополнительные переменные окружения.
+            cwd: Рабочая директория для процесса.
+        """
+        self._command = command
+        self._args = args or []
+        self._env = env
+        self._cwd = cwd
         self._process: asyncio.subprocess.Process | None = None
         self._request_id: int = 0
         self._pending_requests: dict[int | str, asyncio.Future[MCPResponse]] = {}
@@ -69,7 +87,7 @@ class StdioTransport:
         self._lock: asyncio.Lock = asyncio.Lock()
     
     @property
-    def is_running(self) -> bool:
+    def is_connected(self) -> bool:
         """Проверить, запущен ли процесс MCP сервера."""
         return (
             self._process is not None 
@@ -77,52 +95,38 @@ class StdioTransport:
             and not self._closed
         )
     
-    async def start(
-        self,
-        command: str,
-        args: list[str] | None = None,
-        env: dict[str, str] | None = None,
-        cwd: str | None = None,
-    ) -> None:
+    async def connect(self) -> None:
         """Запустить MCP сервер как subprocess.
-        
-        Args:
-            command: Команда для запуска (путь к исполняемому файлу).
-            args: Аргументы командной строки.
-            env: Дополнительные переменные окружения.
-            cwd: Рабочая директория для процесса.
         
         Raises:
             StdioTransportError: Если не удалось запустить процесс.
         """
         if self._process is not None:
-            raise StdioTransportError("Transport already started")
-        
-        args = args or []
+            raise StdioTransportError("Transport already connected")
         
         # Формируем окружение: берём текущее и добавляем пользовательское
         import os
         process_env = os.environ.copy()
-        if env:
-            process_env.update(env)
+        if self._env:
+            process_env.update(self._env)
         
         logger.debug(
             "Starting MCP server: %s %s (cwd=%s)",
-            command, " ".join(args), cwd
+            self._command, " ".join(self._args), self._cwd
         )
         
         try:
             self._process = await asyncio.create_subprocess_exec(
-                command,
-                *args,
+                self._command,
+                *self._args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=process_env,
-                cwd=cwd,
+                cwd=self._cwd,
             )
         except FileNotFoundError as e:
-            raise StdioTransportError(f"MCP server not found: {command}") from e
+            raise StdioTransportError(f"MCP server not found: {self._command}") from e
         except OSError as e:
             raise StdioTransportError(f"Failed to start MCP server: {e}") from e
         
@@ -160,7 +164,7 @@ class StdioTransport:
             asyncio.TimeoutError: Если истёк таймаут.
             StdioTransportError: При ошибке в ответе.
         """
-        if not self.is_running:
+        if not self.is_connected:
             raise ProcessNotStartedError("MCP server process not running")
         
         # Генерируем уникальный ID запроса
@@ -215,7 +219,7 @@ class StdioTransport:
         Raises:
             ProcessNotStartedError: Если процесс не запущен.
         """
-        if not self.is_running:
+        if not self.is_connected:
             raise ProcessNotStartedError("MCP server process not running")
         
         notification = MCPNotification(method=method, params=params)
@@ -444,7 +448,7 @@ class HttpTransport:
         >>> transport = HttpTransport(config)
         >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
-        >>> await transport.disconnect()
+        >>> await transport.close()
     """
     
     def __init__(
@@ -677,7 +681,7 @@ class HttpTransport:
                 f"Failed to send notification: {e}"
             ) from e
     
-    async def disconnect(self) -> None:
+    async def close(self) -> None:
         """Закрыть HTTP соединение.
         
         Отменяет все ожидающие запросы и закрывает aiohttp session.
@@ -779,7 +783,7 @@ class SseTransport:
         >>> transport = SseTransport(config)
         >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
-        >>> await transport.disconnect()
+        >>> await transport.close()
     """
     
     def __init__(
@@ -987,7 +991,7 @@ class SseTransport:
                 f"Failed to send notification: {e}"
             ) from e
     
-    async def disconnect(self) -> None:
+    async def close(self) -> None:
         """Закрыть SSE соединение.
         
         Отменяет все ожидающие запросы и закрывает SSE connection.

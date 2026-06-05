@@ -95,6 +95,7 @@ from .transport import (
     StdioTransport,
     StdioTransportError,
 )
+from .transport_factory import MCPTransport, TransportFactory
 
 __all__ = [
     # Client
@@ -117,6 +118,8 @@ __all__ = [
     "mcp_prompt_to_available_command",
     "mcp_prompts_to_available_commands",
     # Transport
+    "MCPTransport",
+    "TransportFactory",
     "StdioTransport",
     "StdioTransportError",
     "ProcessNotStartedError",
