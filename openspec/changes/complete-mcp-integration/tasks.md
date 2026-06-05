@@ -15,17 +15,17 @@
 - [x] 1.2.2 В `_process_tool_calls_for_llm_loop()` проверить: если `tool_name` начинается с `mcp:`, делегировать в MCPToolExecutor
 - [x] 1.2.3 MCP tool calls создают `ToolCallState` с `kind="mcp"`
 - [x] 1.2.4 Permission flow для MCP tools через `PermissionManager`
-- [ ] 1.2.5 Тесты: MCP tool call recognized, delegated, lifecycle complete
+- [x] 1.2.5 Тесты: MCP tool call recognized, delegated, lifecycle complete
 
 ### 1.3 MCP Tools в AgentContext
 - [x] 1.3.1 В `AgentOrchestrator._create_agent_context()` добавить MCP tools из `session_state.mcp_manager.get_all_tools()` в `available_tools`
 - [x] 1.3.2 MCP tools проходят через `ToolMapping.acp_name_to_llm_name()` для совместимости имён
-- [ ] 1.3.3 Тесты: agent context содержит MCP tools, LLM получает их в tools list
+- [x] 1.3.3 Тесты: agent context содержит MCP tools, LLM получает их в tools list
 
 ### 1.4 Integration Tests — Фаза 1
-- [ ] 1.4.1 E2E тест: session/new → MCP connect → prompt → MCP tool call → response
-- [ ] 1.4.2 Integration тест: mock MCP server → tool call → LLM loop → result
-- [ ] 1.4.3 Integration тест: MCP tool permission flow (ask → allow → execute)
+- [x] 1.4.1 E2E тест: session/new → MCP connect → prompt → MCP tool call → response
+- [x] 1.4.2 Integration тест: mock MCP server → tool call → LLM loop → result
+- [x] 1.4.3 Integration тест: MCP tool permission flow (ask → allow → execute)
 
 ## 2. Фаза 2 — MCP Resources (P1)
 
