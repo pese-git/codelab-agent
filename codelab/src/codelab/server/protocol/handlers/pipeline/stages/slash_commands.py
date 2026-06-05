@@ -27,8 +27,8 @@ class SlashCommandStage(PromptStage):
         command_name = parts[0].lower()
         args = parts[1].split() if len(parts) > 1 else []
 
-        # Пробуем обработать через router
-        outcome = self._router.route(command_name, args, context.session)
+        # Пробуем обработать через router (async для поддержки MCP prompts)
+        outcome = await self._router.route(command_name, args, context.session)
         if outcome is not None:
             context.notifications.extend(outcome.notifications)
             context.should_stop = True  # slash-команда обработана, LLM не нужен

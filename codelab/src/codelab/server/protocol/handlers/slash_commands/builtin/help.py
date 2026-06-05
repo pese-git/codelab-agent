@@ -56,14 +56,32 @@ class HelpCommandHandler(CommandHandler):
         # Если указана конкретная команда
         if args:
             command_name = args[0].lstrip("/")
-            return self._help_for_command(command_name)
+            return self._help_for_command(command_name, session)
 
         # Общий список команд
-        return self._help_all()
+        return self._help_all(session)
 
-    def _help_all(self) -> CommandResult:
+    def _get_all_commands(self, session: SessionState) -> list[AvailableCommand]:
+        """Возвращает все команды: встроенные + MCP prompts.
+
+        Args:
+            session: Состояние сессии для получения MCP prompt handlers
+
+        Returns:
+            Список всех доступных команд
+        """
+        # Встроенные команды из registry
+        commands = list(self._registry.get_commands())
+
+        # MCP prompts из session
+        for handler in session.mcp_prompt_handlers.values():
+            commands.append(handler.get_definition())
+
+        return commands
+
+    def _help_all(self, session: SessionState) -> CommandResult:
         """Формирует справку по всем командам."""
-        commands = self._registry.get_commands()
+        commands = self._get_all_commands(session)
 
         if not commands:
             return CommandResult(
@@ -92,9 +110,9 @@ class HelpCommandHandler(CommandHandler):
             content=[{"type": "text", "text": "\n".join(lines)}]
         )
 
-    def _help_for_command(self, command_name: str) -> CommandResult:
+    def _help_for_command(self, command_name: str, session: SessionState) -> CommandResult:
         """Формирует справку по конкретной команде."""
-        commands = self._registry.get_commands()
+        commands = self._get_all_commands(session)
         cmd = next((c for c in commands if c.name == command_name), None)
 
         if cmd is None:

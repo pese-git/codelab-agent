@@ -131,12 +131,13 @@ class TestCommandRegistry:
 class TestSlashCommandRouter:
     """Тесты для SlashCommandRouter."""
 
-    def test_route_to_handler(self, registry: CommandRegistry, session: SessionState) -> None:
+    @pytest.mark.asyncio
+    async def test_route_to_handler(self, registry: CommandRegistry, session: SessionState) -> None:
         """Маршрутизация команды к handler'у."""
         registry.register(DummyHandler("test"))
         router = SlashCommandRouter(registry)
 
-        outcome = router.route("test", ["arg1"], session)
+        outcome = await router.route("test", ["arg1"], session)
 
         assert outcome is not None
         assert len(outcome.notifications) == 1
@@ -147,13 +148,14 @@ class TestSlashCommandRouter:
         assert update["sessionUpdate"] == "agent_message_chunk"
         assert "Dummy executed" in update["content"]["text"]
 
-    def test_route_unknown_command_returns_none(
+    @pytest.mark.asyncio
+    async def test_route_unknown_command_returns_none(
         self, registry: CommandRegistry, session: SessionState
     ) -> None:
         """Неизвестная команда возвращает None для fallback."""
         router = SlashCommandRouter(registry)
 
-        outcome = router.route("unknown", [], session)
+        outcome = await router.route("unknown", [], session)
 
         assert outcome is None
 
@@ -284,3 +286,57 @@ class TestHelpCommandHandler:
 
         assert definition.name == "help"
         assert definition.input is not None
+
+    def test_list_includes_mcp_prompts(
+        self, registry: CommandRegistry, session: SessionState
+    ) -> None:
+        """/help показывает MCP prompts из session.mcp_prompt_handlers."""
+        from unittest.mock import MagicMock
+
+        from codelab.server.models import AvailableCommand, AvailableCommandInput
+
+        registry.register(StatusCommandHandler())
+        help_handler = HelpCommandHandler(registry)
+        registry.register(help_handler)
+
+        # Добавляем mock MCP prompt handler в session
+        mock_handler = MagicMock()
+        mock_handler.get_definition.return_value = AvailableCommand(
+            name="code_review",
+            description="Review code for best practices",
+            input=AvailableCommandInput(hint="<language>"),
+        )
+        session.mcp_prompt_handlers["code_review"] = mock_handler
+
+        result = help_handler.execute([], session)
+
+        text = result.content[0]["text"]
+        assert "/status" in text
+        assert "/code_review" in text
+        assert "Review code" in text
+
+    def test_help_for_mcp_prompt_command(
+        self, registry: CommandRegistry, session: SessionState
+    ) -> None:
+        """/help <command> работает для MCP prompt команд."""
+        from unittest.mock import MagicMock
+
+        from codelab.server.models import AvailableCommand, AvailableCommandInput
+
+        help_handler = HelpCommandHandler(registry)
+
+        # Добавляем mock MCP prompt handler в session
+        mock_handler = MagicMock()
+        mock_handler.get_definition.return_value = AvailableCommand(
+            name="plan_task",
+            description="Plan a development task",
+            input=AvailableCommandInput(hint="<task_name> [priority]"),
+        )
+        session.mcp_prompt_handlers["plan_task"] = mock_handler
+
+        result = help_handler.execute(["plan_task"], session)
+
+        text = result.content[0]["text"]
+        assert "plan_task" in text
+        assert "Plan a development task" in text
+        assert "Описание" in text

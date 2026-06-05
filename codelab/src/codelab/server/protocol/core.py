@@ -14,6 +14,7 @@ import structlog
 
 from ..mcp import MCPManager, MCPManagerError
 from ..mcp.models import MCPServerConfig
+from ..mcp.prompt_mapper import mcp_prompts_to_available_commands
 from ..messages import ACPMessage, JsonRpcId
 from ..storage import SessionStorage
 from .handlers import (
@@ -23,6 +24,7 @@ from .handlers import (
     prompt,
     session,
 )
+from .handlers.slash_commands.builtin.mcp_prompt import MCPPromptCommandHandler
 from .pending_registry import PendingRequestRegistry
 from .session_factory import SessionFactory
 from .session_runtime import SessionRuntimeRegistry
@@ -62,6 +64,20 @@ class MiddlewareFn(Protocol):
 
 
 logger = structlog.get_logger()
+
+
+def _get_command_name(cmd: Any) -> str:
+    """Извлекает имя команды из dict или AvailableCommand.
+
+    Args:
+        cmd: Команда (dict или объект с атрибутом name).
+
+    Returns:
+        Имя команды или пустая строка.
+    """
+    if isinstance(cmd, dict):
+        return cmd.get("name", "")
+    return getattr(cmd, "name", "")
 
 
 class ACPProtocol:
@@ -1058,6 +1074,9 @@ class ACPProtocol:
         отсутствует в runtime registry (например, после WebSocket reconnect),
         автоматически переинициализирует MCP серверы.
 
+        Также восстанавливает mcp_prompt_handlers если они потеряны после
+        load_session (handlers не сериализуются, т.к. exclude=True).
+
         Согласно ACP протоколу, клиент ДОЛЖЕН вызывать session/load после
         reconnect для восстановления MCP соединений. Этот метод обеспечивает
         graceful degradation если клиент нарушает протокол.
@@ -1070,6 +1089,9 @@ class ACPProtocol:
         """
         runtime = await self._runtime_registry.get(session.session_id)
         if runtime and runtime.mcp_manager is not None:
+            # Восстанавливаем mcp_prompt_handlers если они потеряны после load_session
+            if not session.mcp_prompt_handlers and session.mcp_servers:
+                await self._restore_mcp_prompts(session, runtime.mcp_manager)
             return runtime.mcp_manager
 
         # MCP manager отсутствует, но есть конфигурация — переинициализировать
@@ -1088,6 +1110,65 @@ class ACPProtocol:
                 return runtime.mcp_manager
 
         return None
+
+    async def _restore_mcp_prompts(
+        self,
+        session: SessionState,
+        mcp_manager: MCPManager,
+    ) -> None:
+        """Восстанавливает mcp_prompt_handlers после load_session.
+
+        Вызывается когда mcp_manager уже есть в runtime registry,
+        но session.mcp_prompt_handlers пуст (не сериализовался).
+
+        Оптимизация: вызывает get_all_prompts() один раз для всех серверов,
+        а не для каждого отдельно.
+
+        Args:
+            session: Состояние сессии для восстановления handlers.
+            mcp_manager: Существующий MCPManager из runtime registry.
+        """
+        # Очищаем старые MCP prompts из available_commands (оставляем built-in)
+        builtin_names = {"status", "mode", "help"}
+        session.available_commands = [
+            cmd for cmd in session.available_commands
+            if _get_command_name(cmd) in builtin_names
+        ]
+        session.mcp_prompt_handlers.clear()
+
+        # Получаем prompts от всех серверов ОДИН раз
+        try:
+            all_prompts = await mcp_manager.get_all_prompts()
+        except Exception as e:
+            logger.warning(
+                "failed to get prompts during restore",
+                session_id=session.session_id,
+                error=str(e),
+            )
+            return
+
+        # Регистрируем prompts для каждого сервера
+        for server_config in session.mcp_servers:
+            if not isinstance(server_config, dict):
+                continue
+            server_name = server_config.get("name")
+            if not server_name:
+                continue
+
+            server_prompts = all_prompts.get(server_name, [])
+            if not server_prompts:
+                continue
+
+            # Регистрируем prompts из списка (без повторного вызова get_all_prompts)
+            self._register_mcp_prompts_from_list(
+                session, mcp_manager, server_name, server_prompts
+            )
+
+        logger.info(
+            "restored mcp prompt handlers after load_session",
+            session_id=session.session_id,
+            handlers_count=len(session.mcp_prompt_handlers),
+        )
 
     async def _setup_mcp_if_needed(
         self,
@@ -1320,7 +1401,7 @@ class ACPProtocol:
         """Инициализирует MCP серверы для сессии.
         
         Создаёт MCPManager, подключается к каждому MCP серверу,
-        получает инструменты и регистрирует их в ToolRegistry.
+        получает инструменты и промпты, регистрирует их для сессии.
         
         Args:
             session_state: Состояние сессии для сохранения MCPManager.
@@ -1349,14 +1430,23 @@ class ACPProtocol:
                 # Объединяем MCP и native инструменты
                 all_tools = native_tools + mcp_tools
                 
-                # Формируем availableCommands
-                available_commands = [
+                # Формируем availableCommands: инструменты + slash-команды из session
+                available_commands: list[dict[str, Any]] = [
                     {
                         "name": tool.name,
                         "description": tool.description or "",
                     }
                     for tool in all_tools
                 ]
+                
+                # Добавляем slash-команды из session_state (включая MCP prompts)
+                for cmd in session_state.available_commands:
+                    if isinstance(cmd, dict):
+                        available_commands.append(cmd)
+                    elif hasattr(cmd, "model_dump"):
+                        available_commands.append(cmd.model_dump(exclude_none=True))
+                    else:
+                        available_commands.append(cmd)
                 
                 # Отправляем notification
                 notification = ACPMessage.notification(
@@ -1375,6 +1465,7 @@ class ACPProtocol:
                     "sent available_commands_update after MCP tool change",
                     session_id=session_state.session_id,
                     tools_count=len(all_tools),
+                    slash_commands_count=len(session_state.available_commands),
                 )
             except Exception as e:
                 logger.error(
@@ -1461,6 +1552,11 @@ class ACPProtocol:
                     tool_names=[td.name for td in tool_definitions],
                 )
                 
+                # Получаем prompts от MCP сервера и регистрируем как slash-команды
+                await self._register_mcp_prompts_as_slash_commands(
+                    session_state, mcp_manager, name
+                )
+                
                 # Отправляем initial available_commands_update клиенту
                 # Callback вызывается только при notifications/tools/list_changed
                 # от MCP сервера, но не при первоначальном подключении
@@ -1482,3 +1578,100 @@ class ACPProtocol:
                     server=name,
                     error=str(e),
                 )
+    
+    async def _register_mcp_prompts_as_slash_commands(
+        self,
+        session_state: SessionState,
+        mcp_manager: MCPManager,
+        server_name: str,
+    ) -> None:
+        """Регистрирует MCP prompts как slash-команды для сессии.
+        
+        Получает prompts от указанного MCP сервера, создаёт обработчики
+        и добавляет их в session_state для использования при маршрутизации.
+        
+        Args:
+            session_state: Состояние сессии для сохранения handlers.
+            mcp_manager: Менеджер MCP серверов.
+            server_name: Имя сервера для получения prompts.
+        """
+        try:
+            all_prompts = await mcp_manager.get_all_prompts()
+            server_prompts = all_prompts.get(server_name, [])
+            
+            if not server_prompts:
+                logger.debug(
+                    "no prompts from mcp server",
+                    session_id=session_state.session_id,
+                    server=server_name,
+                )
+                return
+            
+            self._register_mcp_prompts_from_list(
+                session_state, mcp_manager, server_name, server_prompts
+            )
+        except Exception as e:
+            # Graceful degradation: логируем ошибку, но продолжаем
+            logger.warning(
+                "failed to register mcp prompts as slash commands",
+                session_id=session_state.session_id,
+                server=server_name,
+                error=str(e),
+            )
+    
+    def _register_mcp_prompts_from_list(
+        self,
+        session_state: SessionState,
+        mcp_manager: MCPManager,
+        server_name: str,
+        server_prompts: list,
+    ) -> None:
+        """Регистрирует prompts из списка без повторного вызова get_all_prompts().
+        
+        Args:
+            session_state: Состояние сессии для сохранения handlers.
+            mcp_manager: Менеджер MCP серверов.
+            server_name: Имя сервера.
+            server_prompts: Список prompts для регистрации.
+        """
+        for prompt_def in server_prompts:
+            # Формируем arguments_hint из аргументов prompt
+            arguments_hint = None
+            if prompt_def.arguments:
+                arg_parts = []
+                for arg in prompt_def.arguments:
+                    if arg.required:
+                        arg_parts.append(f"<{arg.name}>")
+                    else:
+                        arg_parts.append(f"[{arg.name}]")
+                arguments_hint = " ".join(arg_parts)
+            
+            # Создаём handler для этого prompt
+            handler = MCPPromptCommandHandler(
+                server_id=server_name,
+                prompt_name=prompt_def.name,
+                mcp_manager=mcp_manager,
+                description=prompt_def.title or prompt_def.description or prompt_def.name,
+                arguments_hint=arguments_hint,
+            )
+            
+            # Сохраняем handler в session_state (per-session)
+            session_state.mcp_prompt_handlers[prompt_def.name] = handler
+            
+            # Добавляем определение команды в available_commands
+            prompt_commands = mcp_prompts_to_available_commands([prompt_def])
+            session_state.available_commands.extend(prompt_commands)
+            
+            logger.debug(
+                "registered mcp prompt as slash command",
+                session_id=session_state.session_id,
+                server=server_name,
+                prompt=prompt_def.name,
+            )
+        
+        logger.info(
+            "registered mcp prompts as slash commands",
+            session_id=session_state.session_id,
+            server=server_name,
+            prompts_count=len(server_prompts),
+        )
