@@ -4,6 +4,7 @@
 - Единственный вызов receive() на WebSocket (в background loop)
 - Распределение сообщений по очередям на основе маршрутизации
 - Обработка lifecycle (start, stop, error handling)
+- Auto-restart при сбоях с экспоненциальным backoff
 """
 
 from __future__ import annotations
@@ -30,12 +31,20 @@ class BackgroundReceiveLoop:
        - notification → для асинхронных уведомлений
        - permission → для запросов разрешения
     4. Обрабатывает ошибки и graceful shutdown
+    5. Автоматически перезапускается при сбоях с экспоненциальным backoff
 
     Ключевое преимущество:
     - Все конкурентные запросы (request_with_callbacks) получают из очередей
     - Не вызывают receive() напрямую, избегая RuntimeError
     - Истинная конкурентность вместо блокировок
+    - Auto-restart обеспечивает устойчивость к временным сбоям
     """
+
+    # Константы для auto-restart
+    MAX_CONSECUTIVE_RETRIES = 5
+    INITIAL_BACKOFF_SECONDS = 1.0
+    MAX_BACKOFF_SECONDS = 30.0
+    BACKOFF_MULTIPLIER = 2.0
 
     def __init__(
         self,
@@ -65,6 +74,8 @@ class BackgroundReceiveLoop:
         self._messages_received = 0
         self._messages_routed = 0
         self._errors_count = 0
+        self._restarts_count = 0
+        self._consecutive_errors = 0
 
     async def start(self) -> None:
         """Запускает фоновый loop приёма сообщений.
@@ -80,7 +91,7 @@ class BackgroundReceiveLoop:
             return
 
         self._should_stop = False
-        self._task = asyncio.create_task(self._receive_loop())
+        self._task = asyncio.create_task(self._receive_loop_with_restart())
         self._logger.info(
             "background_receive_loop_started",
             task_id=id(self._task),
@@ -117,6 +128,7 @@ class BackgroundReceiveLoop:
                 "background_receive_loop_stopped_gracefully",
                 messages_received=self._messages_received,
                 messages_routed=self._messages_routed,
+                restarts_count=self._restarts_count,
             )
         except TimeoutError:
             # Если не завершилась, отменяем
@@ -128,6 +140,75 @@ class BackgroundReceiveLoop:
                 await self._task
             except asyncio.CancelledError:
                 self._logger.info("background_receive_loop_task_cancelled")
+
+    async def _receive_loop_with_restart(self) -> None:
+        """Основной цикл с auto-restart при сбоях.
+
+        Оборачивает _receive_loop и перезапускает его при ошибках
+        с экспоненциальным backoff до достижения лимита попыток.
+        """
+        self._logger.info("receive_loop_with_restart_starting")
+
+        while not self._should_stop:
+            try:
+                # Запускаем основной цикл
+                await self._receive_loop()
+
+                # Если _receive_loop завершился без ошибки - выходим
+                break
+
+            except asyncio.CancelledError:
+                self._logger.info("receive_loop_cancelled")
+                break
+
+            except Exception as e:
+                # Произошла ошибка - пытаемся перезапуститься
+                self._consecutive_errors += 1
+                self._restarts_count += 1
+
+                if self._consecutive_errors > self.MAX_CONSECUTIVE_RETRIES:
+                    self._logger.error(
+                        "receive_loop_max_retries_exceeded",
+                        consecutive_errors=self._consecutive_errors,
+                        max_retries=self.MAX_CONSECUTIVE_RETRIES,
+                    )
+                    break
+
+                # Вычисляем backoff с экспоненциальным ростом
+                backoff = min(
+                    self.INITIAL_BACKOFF_SECONDS
+                    * (self.BACKOFF_MULTIPLIER ** (self._consecutive_errors - 1)),
+                    self.MAX_BACKOFF_SECONDS,
+                )
+
+                self._logger.warning(
+                    "receive_loop_restarting",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    retry_attempt=self._consecutive_errors,
+                    max_retries=self.MAX_CONSECUTIVE_RETRIES,
+                    backoff_seconds=backoff,
+                )
+
+                # Уведомляем очереди о временной недоступности
+                await self._queues.broadcast_connection_error(
+                    ConnectionError(f"Receive loop error: {e}")
+                )
+
+                # Ждём backoff перед перезапуском
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:
+                    self._logger.info("receive_loop_cancelled_during_backoff")
+                    break
+
+        self._logger.info(
+            "receive_loop_with_restart_stopped",
+            messages_received=self._messages_received,
+            messages_routed=self._messages_routed,
+            restarts_count=self._restarts_count,
+            consecutive_errors=self._consecutive_errors,
+        )
 
     async def _receive_loop(self) -> None:
         """Основной цикл приёма сообщений.
@@ -141,6 +222,9 @@ class BackgroundReceiveLoop:
         4.   routing_key = self._router.route(message)
         5.   Положить сообщение в нужную очередь
         6. Обработка ошибок и graceful shutdown
+
+        Raises:
+            Exception: При критической ошибке (для перезапуска в _receive_loop_with_restart)
         """
         self._logger.info("receive_loop_starting")
 
@@ -152,6 +236,14 @@ class BackgroundReceiveLoop:
                     json_message = await self._transport.receive_text()
                     message = json.loads(json_message)
                     self._messages_received += 1
+
+                    # Успешное получение - сбрасываем счётчик ошибок
+                    if self._consecutive_errors > 0:
+                        self._logger.info(
+                            "receive_loop_recovered",
+                            previous_errors=self._consecutive_errors,
+                        )
+                        self._consecutive_errors = 0
 
                     self._logger.debug(
                         "message_received",
@@ -194,23 +286,20 @@ class BackgroundReceiveLoop:
 
                 except asyncio.CancelledError:
                     self._logger.info("receive_loop_cancelled")
-                    break
+                    raise
 
                 except ConnectionError as e:
-                    # Соединение потеряно
+                    # Соединение потеряно - пробрасываем для перезапуска
                     self._errors_count += 1
                     self._logger.warning(
                         "connection_lost_in_receive_loop",
                         error=str(e),
                         errors_count=self._errors_count,
                     )
-
-                    # Уведомляем все pending очереди об ошибке
-                    await self._queues.broadcast_connection_error(e)
-                    break
+                    raise
 
                 except Exception as e:
-                    # Другая ошибка
+                    # Другая ошибка - пробрасываем для перезапуска
                     self._errors_count += 1
                     self._logger.error(
                         "receive_loop_error",
@@ -218,9 +307,7 @@ class BackgroundReceiveLoop:
                         error_type=type(e).__name__,
                         errors_count=self._errors_count,
                     )
-
-                    # При критической ошибке выходим из loop
-                    break
+                    raise
 
         finally:
             # Graceful cleanup
@@ -243,11 +330,13 @@ class BackgroundReceiveLoop:
         """Получить статистику работы loop'а.
 
         Returns:
-            Словарь со статистикой (сообщения, ошибки и т.д.)
+            Словарь со статистикой (сообщения, ошибки, рестарты и т.д.)
         """
         return {
             "running": self.is_running(),
             "messages_received": self._messages_received,
             "messages_routed": self._messages_routed,
             "errors_count": self._errors_count,
+            "restarts_count": self._restarts_count,
+            "consecutive_errors": self._consecutive_errors,
         }

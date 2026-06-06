@@ -34,7 +34,7 @@ def create_client_container(
     stdio_command: str | None = None,
     stdio_args: list[str] | None = None,
     mcp_servers: list[dict[str, Any]] | None = None,
-    receive_timeout: float = 60.0,
+    receive_timeout: float = 300.0,
 ) -> Container:
     """Создаёт и конфигурирует DI-контейнер для клиента.
 

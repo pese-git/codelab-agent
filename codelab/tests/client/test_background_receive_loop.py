@@ -185,7 +185,7 @@ class TestBackgroundReceiveLoop:
 
     @pytest.mark.asyncio
     async def test_loop_handles_connection_error(self) -> None:
-        """Loop обрабатывает ConnectionError и broadcast'ит ошибку."""
+        """Loop обрабатывает ConnectionError и пытается перезапуститься."""
         # Создаем mock транспорт
         transport = AsyncMock(spec=WebSocketTransport)
 
@@ -196,43 +196,65 @@ class TestBackgroundReceiveLoop:
         queues = RoutingQueues()
         loop = BackgroundReceiveLoop(transport, router, queues)
 
+        # Уменьшаем backoff для быстрого теста
+        loop.INITIAL_BACKOFF_SECONDS = 0.01
+        loop.MAX_BACKOFF_SECONDS = 0.02
+        loop.MAX_CONSECUTIVE_RETRIES = 2
+
         # Создаем pending запрос
         queue = await queues.get_or_create_response_queue(999)
 
         # Запускаем loop
         await loop.start()
 
-        # Ждем ошибку в очереди
+        # Ждем ошибку в очереди (broadcast_connection_error)
         error_msg = await asyncio.wait_for(queue.get(), timeout=2.0)
 
         # Проверяем, что это error сообщение
         assert "error" in error_msg
         assert error_msg["id"] == 999
 
-        # Loop должна быть остановлена после ошибки
-        await asyncio.sleep(0.1)
+        # Loop должна попытаться перезапуститься, но после MAX_RETRIES остановиться
+        await asyncio.sleep(0.3)
+        
+        # Проверяем, что были попытки рестарта
+        stats = loop.get_stats()
+        assert stats["restarts_count"] >= 1
+        assert stats["consecutive_errors"] >= loop.MAX_CONSECUTIVE_RETRIES
+        
+        # После превышения лимита loop должна остановиться
         assert not loop.is_running()
 
     @pytest.mark.asyncio
     async def test_loop_handles_generic_error(self) -> None:
-        """Loop обрабатывает общие ошибки."""
+        """Loop обрабатывает общие ошибки и пытается перезапуститься."""
         # Создаем mock транспорт
         transport = AsyncMock(spec=WebSocketTransport)
 
         error = RuntimeError("Some error")
-        transport.receive = AsyncMock(side_effect=error)
+        transport.receive_text = AsyncMock(side_effect=error)
 
         router = MessageRouter()
         queues = RoutingQueues()
         loop = BackgroundReceiveLoop(transport, router, queues)
 
+        # Уменьшаем backoff и лимит для быстрого теста
+        loop.INITIAL_BACKOFF_SECONDS = 0.01
+        loop.MAX_BACKOFF_SECONDS = 0.02
+        loop.MAX_CONSECUTIVE_RETRIES = 2
+
         # Запускаем loop
         await loop.start()
 
-        # Даем время на обработку ошибки
-        await asyncio.sleep(0.2)
+        # Даем время на обработку ошибки и попытки рестарта
+        await asyncio.sleep(0.3)
 
-        # Loop должна быть остановлена после ошибки
+        # Loop должна попытаться перезапуститься, но после MAX_RETRIES остановиться
+        stats = loop.get_stats()
+        assert stats["restarts_count"] >= 1
+        assert stats["consecutive_errors"] >= loop.MAX_CONSECUTIVE_RETRIES
+        
+        # После превышения лимита loop должна остановиться
         assert not loop.is_running()
 
     @pytest.mark.asyncio

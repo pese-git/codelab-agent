@@ -160,6 +160,26 @@ class ConnectionRestoredEvent(DomainEvent):
     session_id: str  # ID сессии
 
 
+@dataclass(frozen=True)
+class ReceiveLoopDegradedEvent(DomainEvent):
+    """Событие: receive loop работает с деградацией (были рестарты)."""
+
+    session_id: str  # ID сессии
+    restarts_count: int  # Количество рестартов
+    consecutive_errors: int  # Количество последовательных ошибок
+    last_error: str | None = None  # Последняя ошибка
+
+
+@dataclass(frozen=True)
+class ReceiveLoopFailedEvent(DomainEvent):
+    """Событие: receive loop полностью остановился (превышен лимит рестартов)."""
+
+    session_id: str  # ID сессии
+    restarts_count: int  # Общее количество рестартов
+    final_error: str  # Финальная ошибка
+    suggestion: str = "Перезапустите подключение или проверьте соединение"  # Рекомендация
+
+
 # ============================================================================
 # Tool Call Events
 # ============================================================================
