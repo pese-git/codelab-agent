@@ -4,6 +4,7 @@
 и фабрику для их создания на основе конфигурации.
 """
 
+from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 from .models import MCPServerConfig
@@ -60,6 +61,17 @@ class MCPTransport(Protocol):
     
     async def close(self) -> None:
         """Закрыть соединение с MCP сервером."""
+        ...
+    
+    def register_notification_handler(
+        self, method: str, handler: Callable
+    ) -> None:
+        """Зарегистрировать обработчик notification.
+        
+        Args:
+            method: Имя метода notification (или "*" для всех).
+            handler: Функция-обработчик (async или sync).
+        """
         ...
 
 

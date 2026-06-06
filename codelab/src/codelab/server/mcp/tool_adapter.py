@@ -11,6 +11,7 @@ from typing import Any
 
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPToolCallError
+from .content_mapper import extract_text_from_acp_content, mcp_content_to_acp_list
 from .models import MCPTool
 
 logger = logging.getLogger(__name__)
@@ -239,20 +240,21 @@ class MCPToolAdapter:
                 
                 result = await self.client.call_tool(original_tool_name, kwargs)
                 
-                # Преобразуем MCP результат в ToolExecutionResult
+                # Конвертируем MCP content → ACP content
+                acp_content = mcp_content_to_acp_list(result.content)
+                text_output = extract_text_from_acp_content(acp_content)
+                
                 if result.is_error:
                     return ToolExecutionResult(
                         success=False,
-                        error=result.get_text_content() or "MCP tool returned error",
+                        error=text_output or "MCP tool returned error",
+                        content=acp_content,
                     )
-                
-                # Извлекаем текстовый контент
-                text_output = result.get_text_content()
                 
                 return ToolExecutionResult(
                     success=True,
                     output=text_output,
-                    content=result.content,  # Сохраняем оригинальный content
+                    content=acp_content,
                 )
                 
             except MCPToolCallError as e:

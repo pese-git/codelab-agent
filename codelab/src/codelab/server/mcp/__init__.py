@@ -29,6 +29,15 @@ from .client import (
     MCPInitializeError,
     MCPToolCallError,
 )
+from .content_mapper import (
+    ContentMapperError,
+    extract_text_from_acp_content,
+    mcp_content_item_to_acp,
+    mcp_content_to_acp_list,
+    mcp_embedded_to_acp,
+    mcp_image_to_acp,
+    mcp_text_to_acp,
+)
 from .manager import (
     MCPManager,
     MCPManagerError,
@@ -57,6 +66,7 @@ from .models import (
     MCPListResourceTemplatesResult,
     MCPListToolsResult,
     MCPNotification,
+    MCPProgressNotification,
     MCPPrompt,
     MCPPromptArgument,
     MCPPromptMessage,
@@ -111,6 +121,14 @@ __all__ = [
     "MCPServerNotFoundError",
     # Tool Adapter
     "MCPToolAdapter",
+    # Content Mapper
+    "ContentMapperError",
+    "mcp_text_to_acp",
+    "mcp_image_to_acp",
+    "mcp_embedded_to_acp",
+    "mcp_content_item_to_acp",
+    "mcp_content_to_acp_list",
+    "extract_text_from_acp_content",
     # Resource Mapper
     "mcp_resource_to_resource_link",
     "mcp_resources_to_resource_links",
@@ -173,4 +191,6 @@ __all__ = [
     "MCPListPromptsResult",
     "MCPGetPromptParams",
     "MCPGetPromptResult",
+    # Models - Progress
+    "MCPProgressNotification",
 ]

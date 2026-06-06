@@ -103,10 +103,10 @@
 ## 5. Фаза 5 — Advanced Features (P2)
 
 ### 5.1 Image/Resource content в tool results
-- [ ] 5.1.1 MCPImageContent → ACP ImageContent conversion
-- [ ] 5.1.2 MCPEmbeddedResource → ACP EmbeddedContent conversion
-- [ ] 5.1.3 Content pipeline: MCP content → ExtractedContent → LLM format
-- [ ] 5.1.4 Тесты: image content, embedded resource content
+- [x] 5.1.1 MCPImageContent → ACP ImageContent conversion
+- [x] 5.1.2 MCPEmbeddedResource → ACP EmbeddedContent conversion
+- [x] 5.1.3 Content pipeline: MCP content → ExtractedContent → LLM format
+- [x] 5.1.4 Тесты: image content, embedded resource content
 
 ### 5.2 MCP Roots
 - [ ] 5.2.1 Создать `MCPRoot` — uri, name
@@ -129,10 +129,16 @@
 - [ ] 5.4.4 Тесты: elicitation flow
 
 ### 5.5 Progress notifications
-- [ ] 5.5.1 Progress token в request _meta.progressToken
-- [ ] 5.5.2 notifications/progress handling
-- [ ] 5.5.3 Progress → ACP notification (tool_call_update с progress)
-- [ ] 5.5.4 Тесты: progress tracking
+- [x] 5.5.1 Progress token в request _meta.progressToken
+- [x] 5.5.2 notifications/progress handling
+- [x] 5.5.3 Progress → ACP notification (tool_call_update с progress)
+- [x] 5.5.4 Тесты: progress tracking
+
+### 5.6 Notification Infrastructure (Sprint 1 bugfix)
+- [x] 5.6.1 Исправлен StdioTransport для поддержки notifications
+- [x] 5.6.2 Исправлен HttpTransport для method-based notification dispatch
+- [x] 5.6.3 Добавлен register_notification_handler в протокол MCPTransport
+- [x] 5.6.4 MCPClient подключается к transport notifications при connect()
 
 ## 6. Фаза 6 — HTTP Transport (P2)
 

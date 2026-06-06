@@ -618,11 +618,16 @@ class MCPCallToolParams(BaseModel):
     Содержит имя инструмента и аргументы для вызова.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     name: str
     """Имя вызываемого инструмента."""
     
     arguments: dict[str, Any] = Field(default_factory=dict)
     """Аргументы для инструмента."""
+    
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """Опциональные метаданные (например, progressToken для progress notifications)."""
 
 
 class MCPTextContent(BaseModel):
@@ -801,3 +806,44 @@ class MCPServerConfig(BaseModel):
             "max_delay": self.max_delay,
             "backoff_multiplier": self.backoff_multiplier,
         }
+
+
+# ===== MCP Progress Notification Models =====
+
+
+class MCPProgressNotification(BaseModel):
+    """Progress notification от MCP сервера.
+
+    Отправляется сервером для уведомления о прогрессе длительной операции.
+    Соответствует MCP спецификации notifications/progress.
+
+    Reference:
+        MCP Specification — notifications/progress
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    progress_token: str = Field(alias="progressToken")
+    """Токен прогресса, связанный с запросом (из _meta.progressToken)."""
+
+    progress: float
+    """Текущий прогресс (0.0 до total, или 0.0 до 1.0 если total не указан)."""
+
+    total: float | None = None
+    """Общее количество единиц работы (если известно)."""
+
+    message: str | None = None
+    """Опциональное сообщение о текущем состоянии."""
+
+    @property
+    def percentage(self) -> float | None:
+        """Вычислить процент выполнения (0-100) если возможно.
+
+        Returns:
+            Процент выполнения или None если нельзя вычислить.
+        """
+        if self.total and self.total > 0:
+            return min(100.0, (self.progress / self.total) * 100.0)
+        if self.progress >= 0 and self.progress <= 1.0:
+            return self.progress * 100.0
+        return None

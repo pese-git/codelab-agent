@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
@@ -28,6 +29,7 @@ from .models import (
     MCPListResourceTemplatesParams,
     MCPListResourceTemplatesResult,
     MCPListToolsResult,
+    MCPProgressNotification,
     MCPPrompt,
     MCPReadResourceParams,
     MCPReadResourceResult,
@@ -141,6 +143,9 @@ class MCPClient:
         self._notification_queue: asyncio.Queue = asyncio.Queue()
         self._notification_handlers: dict[str, list] = {}
         self._notification_task: asyncio.Task | None = None
+        
+        # Progress notification callbacks
+        self._progress_callbacks: list[Callable] = []
     
     @property
     def state(self) -> MCPClientState:
@@ -192,6 +197,15 @@ class MCPClient:
             # Используем фабрику для создания транспорта
             self._transport = TransportFactory.create(self.config)
             await self._transport.connect()
+            
+            # Регистрируем обработчик notifications в транспорте
+            # Transport будет вызывать этот метод при получении любой notification
+            if hasattr(self._transport, 'register_notification_handler'):
+                self._transport.register_notification_handler(
+                    "*",  # Регистрируем для всех notifications
+                    self._on_transport_notification
+                )
+            
             logger.debug("MCP %s connection established: %s", self.config.type, self.config.name)
             
         except ValueError as e:
@@ -644,6 +658,7 @@ class MCPClient:
         name: str,
         arguments: dict[str, Any] | None = None,
         timeout: float = 60.0,
+        _meta: dict[str, Any] | None = None,
     ) -> MCPCallToolResult:
         """Вызвать инструмент MCP сервера.
         
@@ -651,6 +666,7 @@ class MCPClient:
             name: Имя инструмента для вызова.
             arguments: Аргументы для инструмента.
             timeout: Таймаут выполнения в секундах.
+            _meta: Опциональные метаданные (например, progressToken для progress notifications).
         
         Returns:
             Результат вызова инструмента.
@@ -676,11 +692,12 @@ class MCPClient:
             params = MCPCallToolParams(
                 name=name,
                 arguments=arguments or {},
+                meta=_meta,
             )
             
             result_data = await self._transport.send_request(
                 method="tools/call",
-                params=params.model_dump(by_alias=True),
+                params=params.model_dump(by_alias=True, exclude_none=True),
                 timeout=timeout,
             )
             
@@ -760,6 +777,21 @@ class MCPClient:
             method
         )
     
+    def register_progress_callback(self, callback: Callable) -> None:
+        """Зарегистрировать callback для progress notifications.
+
+        Callback вызывается при получении notifications/progress от сервера.
+        Получает MCPProgressNotification как аргумент.
+
+        Args:
+            callback: Async или sync функция, принимающая MCPProgressNotification.
+        """
+        self._progress_callbacks.append(callback)
+        logger.debug(
+            "Registered progress callback for: %s",
+            self.config.name
+        )
+    
     async def start_notification_processing(self) -> None:
         """Запустить фоновую задачу обработки notifications."""
         if self._notification_task is not None:
@@ -806,6 +838,12 @@ class MCPClient:
                             method, e
                         )
                 
+                # Специальная обработка progress notifications
+                if method == "notifications/progress":
+                    await self._handle_progress_notification(
+                        notification.get("params", {})
+                    )
+                
                 self._notification_queue.task_done()
                 
             except TimeoutError:
@@ -835,6 +873,57 @@ class MCPClient:
         
         # Помещаем в очередь
         await self._notification_queue.put(notification_data)
+    
+    async def _on_transport_notification(self, notification_data: dict[str, Any]) -> None:
+        """Обработчик notifications от транспорта.
+        
+        Вызывается transport'ом при получении любой notification от сервера.
+        Делегирует обработку в handle_notification.
+        
+        Args:
+            notification_data: Полный JSON-RPC объект notification.
+        """
+        await self.handle_notification(notification_data)
+    
+    async def _handle_progress_notification(
+        self, params: dict[str, Any]
+    ) -> None:
+        """Обработать progress notification и вызвать callbacks.
+
+        Парсит params в MCPProgressNotification и вызывает все
+        зарегистрированные progress callbacks.
+
+        Args:
+            params: Параметры notification из JSON-RPC.
+        """
+        try:
+            progress = MCPProgressNotification.model_validate(params)
+        except Exception as e:
+            logger.warning(
+                "Failed to parse progress notification from %s: %s",
+                self.config.name, e
+            )
+            return
+        
+        logger.debug(
+            "Progress notification from %s: token=%s progress=%s/%s",
+            self.config.name,
+            progress.progress_token,
+            progress.progress,
+            progress.total,
+        )
+        
+        for callback in self._progress_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(progress)
+                else:
+                    callback(progress)
+            except Exception as e:
+                logger.error(
+                    "Error in progress callback for %s: %s",
+                    self.config.name, e
+                )
     
     async def stop_notification_processing(self) -> None:
         """Остановить фоновую задачу обработки notifications."""

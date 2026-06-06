@@ -85,6 +85,11 @@ class StdioTransport:
         self._stderr_task: asyncio.Task[None] | None = None
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
+        
+        # Очередь для notifications от сервера
+        self._notification_queue: asyncio.Queue = asyncio.Queue()
+        # Обработчики notifications
+        self._notification_handlers: dict[str, list] = {}
     
     @property
     def is_connected(self) -> bool:
@@ -411,7 +416,42 @@ class StdioTransport:
                 "Received MCP notification: method=%s",
                 method
             )
-            # Нотификации пока игнорируем, но можно добавить обработку
+            # Помещаем в очередь notifications
+            await self._notification_queue.put(data)
+            
+            # Вызываем зарегистрированные handlers (передаём весь объект)
+            handlers = self._notification_handlers.get(method, [])
+            # Также вызываем wildcard handlers (для всех notifications)
+            handlers += self._notification_handlers.get("*", [])
+            
+            for handler in handlers:
+                try:
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler(data)
+                    else:
+                        handler(data)
+                except Exception as e:
+                    logger.error(
+                        "Error in notification handler for %s: %s",
+                        method, e
+                    )
+    
+    def register_notification_handler(self, method: str, handler) -> None:
+        """Зарегистрировать обработчик notification.
+        
+        Args:
+            method: Имя метода notification.
+            handler: Функция-обработчик (async или sync).
+        """
+        if method not in self._notification_handlers:
+            self._notification_handlers[method] = []
+        self._notification_handlers[method].append(handler)
+        logger.debug("Registered notification handler for: %s", method)
+    
+    @property
+    def notification_queue(self) -> asyncio.Queue:
+        """Получить очередь notifications."""
+        return self._notification_queue
 
 
 # ===== HTTP Transport =====
@@ -472,7 +512,8 @@ class HttpTransport:
         self._pending_requests: dict[int | str, asyncio.Future[MCPResponse]] = {}
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
-        self._notification_handlers: list[Callable] = []
+        # Обработчики notifications: dict[method] -> list[handler]
+        self._notification_handlers: dict[str, list[Callable]] = {}
     
     @staticmethod
     def _build_headers(headers: list[dict[str, str]] | None) -> dict[str, str]:
@@ -740,22 +781,36 @@ class HttpTransport:
                 "Received MCP notification: method=%s",
                 method
             )
-            # Вызываем обработчики notifications
-            for handler in self._notification_handlers:
+            # Вызываем обработчики для конкретного метода
+            handlers = self._notification_handlers.get(method, [])
+            # Также вызываем wildcard handlers (для всех notifications)
+            handlers += self._notification_handlers.get("*", [])
+            
+            for handler in handlers:
                 try:
-                    handler(data)
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler(data)
+                    else:
+                        handler(data)
                 except Exception as e:
                     logger.error(
-                        "Error in notification handler: %s", e
+                        "Error in notification handler for %s: %s",
+                        method, e
                     )
     
-    def register_notification_handler(self, handler: Callable) -> None:
-        """Зарегистрировать обработчик notifications.
+    def register_notification_handler(
+        self, method: str, handler: Callable
+    ) -> None:
+        """Зарегистрировать обработчик notification.
         
         Args:
-            handler: Функция для обработки notification.
+            method: Имя метода notification (или "*" для всех).
+            handler: Функция-обработчик (async или sync).
         """
-        self._notification_handlers.append(handler)
+        if method not in self._notification_handlers:
+            self._notification_handlers[method] = []
+        self._notification_handlers[method].append(handler)
+        logger.debug("Registered notification handler for: %s", method)
 
 
 # ===== SSE Transport =====

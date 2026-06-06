@@ -10,12 +10,14 @@ import asyncio
 import contextlib
 import logging
 import random
+from collections.abc import Callable, Coroutine
 from enum import Enum
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPClientError, MCPClientState
 from .models import (
+    MCPProgressNotification,
     MCPPrompt,
     MCPResource,
     MCPResourceTemplate,
@@ -28,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 # Type alias for async callbacks
 type NotificationCallback = Callable[[], Coroutine[Any, Any, None]]
+
+# Type alias for progress callbacks
+# Принимает server_id и MCPProgressNotification
+type ProgressCallback = Callable[
+    [str, MCPProgressNotification], Coroutine[Any, Any, None]
+]
 
 
 class MCPManagerState(Enum):
@@ -99,6 +107,9 @@ class MCPManager:
         self._resource_change_callbacks: list[NotificationCallback] = []
         self._prompt_change_callbacks: list[NotificationCallback] = []
         self._server_status_callbacks: list[NotificationCallback] = []
+        
+        # Progress callbacks (принимают server_id и MCPProgressNotification)
+        self._progress_callbacks: list[ProgressCallback] = []
     
     @property
     def server_ids(self) -> list[str]:
@@ -442,6 +453,11 @@ class MCPManager:
             "notifications/prompts/list_changed",
             lambda params: self._on_prompts_changed(server_id),
         )
+        
+        # Progress notifications — проксируем через manager
+        client.register_progress_callback(
+            lambda progress: self._on_progress(server_id, progress)
+        )
     
     async def _on_tools_changed(self, server_id: str) -> None:
         """Обработчик изменения списка инструментов.
@@ -494,6 +510,32 @@ class MCPManager:
             except Exception as e:
                 logger.error("Error in prompt change callback: %s", e)
     
+    async def _on_progress(
+        self, server_id: str, progress: MCPProgressNotification
+    ) -> None:
+        """Обработчик progress notification от MCP сервера.
+
+        Проксирует progress notification всем зарегистрированным callback'ам,
+        добавляя server_id для идентификации источника.
+
+        Args:
+            server_id: Идентификатор сервера, отправившего progress.
+            progress: Progress notification от MCP сервера.
+        """
+        logger.debug(
+            "Progress from server '%s': token=%s progress=%s/%s",
+            server_id,
+            progress.progress_token,
+            progress.progress,
+            progress.total,
+        )
+        
+        for callback in self._progress_callbacks:
+            try:
+                await callback(server_id, progress)
+            except Exception as e:
+                logger.error("Error in progress callback: %s", e)
+    
     # ===== Callback Registration =====
     
     def register_tool_change_callback(self, callback: NotificationCallback) -> None:
@@ -543,6 +585,19 @@ class MCPManager:
                 await callback()
             except Exception as e:
                 logger.error("Error in server status callback: %s", e)
+    
+    def register_progress_callback(self, callback: ProgressCallback) -> None:
+        """Зарегистрировать callback для progress notifications.
+
+        Callback вызывается при получении notifications/progress
+        от любого подключённого MCP сервера. Получает server_id
+        и MCPProgressNotification как аргументы.
+
+        Args:
+            callback: Async функция (server_id, progress) -> None.
+        """
+        self._progress_callbacks.append(callback)
+        logger.debug("Registered progress callback")
     
     # ===== Resources =====
     

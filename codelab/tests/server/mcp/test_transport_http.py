@@ -279,9 +279,10 @@ class TestHttpTransportNotificationHandler:
         """Регистрация обработчика notifications."""
         transport = HttpTransport(url="http://localhost:8080")
         handler = MagicMock()
-        transport.register_notification_handler(handler)
+        transport.register_notification_handler("notifications/test", handler)
 
-        assert handler in transport._notification_handlers
+        assert "notifications/test" in transport._notification_handlers
+        assert handler in transport._notification_handlers["notifications/test"]
 
     @pytest.mark.asyncio
     async def test_handle_response_notification(self):
@@ -292,7 +293,9 @@ class TestHttpTransportNotificationHandler:
         def handler(data):
             handler_calls.append(data)
 
-        transport.register_notification_handler(handler)
+        transport.register_notification_handler(
+            "notifications/tools/list_changed", handler
+        )
 
         notification_data = {
             "method": "notifications/tools/list_changed",
