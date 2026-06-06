@@ -17,9 +17,8 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.widgets import Markdown as TextualMarkdown
 from textual.widgets import Static
-
-from codelab.client.tui.components.markdown import InlineMarkdown
 
 
 class MessageRole(Enum):
@@ -177,14 +176,38 @@ class MessageHeader(Horizontal):
             yield Static(time_str, classes="timestamp")
 
 
-class MessageContent(Static):
-    """Контент сообщения с поддержкой Markdown."""
+class MessageContent(TextualMarkdown):
+    """Контент сообщения с поддержкой Markdown.
+    
+    Использует textual.widgets.Markdown для корректного парсинга Markdown
+    без смешения уровней абстракции.
+    """
     
     DEFAULT_CSS = """
     MessageContent {
         width: 100%;
         height: auto;
         padding: 0;
+    }
+    
+    MessageContent MarkdownBlock {
+        padding: 0;
+        margin: 0;
+    }
+    
+    MessageContent MarkdownH1,
+    MessageContent MarkdownH2,
+    MessageContent MarkdownH3,
+    MessageContent MarkdownH4,
+    MessageContent MarkdownH5,
+    MessageContent MarkdownH6 {
+        padding: 0;
+        margin: 0;
+    }
+    
+    MessageContent MarkdownParagraph {
+        padding: 0;
+        margin: 0;
     }
     """
     
@@ -209,9 +232,7 @@ class MessageContent(Static):
         self._raw_content = content
         self._use_markdown = use_markdown
         
-        rendered = InlineMarkdown(content)._convert_to_rich(content) if use_markdown else content
-        
-        super().__init__(rendered, name=name, id=id, classes=classes, markup=True)
+        super().__init__(content, name=name, id=id, classes=classes)
     
     @property
     def raw_content(self) -> str:
@@ -225,11 +246,7 @@ class MessageContent(Static):
             content: Новый текст
         """
         self._raw_content = content
-        if self._use_markdown:
-            rendered = InlineMarkdown(content)._convert_to_rich(content)
-        else:
-            rendered = content
-        self.update(rendered)
+        self.update(content)
 
 
 class MessageBubble(Vertical):
