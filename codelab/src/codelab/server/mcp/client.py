@@ -35,6 +35,7 @@ from .models import (
     MCPReadResourceResult,
     MCPResource,
     MCPResourceTemplate,
+    MCPRoot,
     MCPServerConfig,
     MCPTool,
 )
@@ -146,6 +147,9 @@ class MCPClient:
         
         # Progress notification callbacks
         self._progress_callbacks: list[Callable] = []
+        
+        # Roots support (MCP specification)
+        self._roots: list[MCPRoot] = []
     
     @property
     def state(self) -> MCPClientState:
@@ -171,6 +175,50 @@ class MCPClient:
     def is_ready(self) -> bool:
         """Проверить, готов ли клиент к работе."""
         return self._state == MCPClientState.READY
+    
+    @property
+    def roots(self) -> list[MCPRoot]:
+        """Текущие roots клиента."""
+        return self._roots.copy()
+    
+    async def set_roots(self, roots: list[MCPRoot]) -> None:
+        """Установить roots и уведомить сервер об изменении.
+        
+        Отправляет notifications/roots/list_changed если клиент уже
+        инициализирован и сервер поддерживает roots.
+        
+        Args:
+            roots: Новый список roots.
+        """
+        old_roots = self._roots.copy()
+        self._roots = roots.copy()
+        
+        # Если уже инициализированы, отправляем notification
+        if self._state == MCPClientState.READY and self._transport:
+            # Проверяем, изменились ли roots
+            old_uris = {r.uri for r in old_roots}
+            new_uris = {r.uri for r in roots}
+            
+            if old_uris != new_uris:
+                logger.debug(
+                    "Sending roots/list_changed to MCP server: %s (roots=%d)",
+                    self.config.name,
+                    len(roots),
+                )
+                await self._transport.send_notification(
+                    method="notifications/roots/list_changed"
+                )
+    
+    def _handle_roots_list(self) -> list[dict[str, Any]]:
+        """Обработать запрос roots/list от сервера.
+        
+        Returns:
+            Список roots в формате для JSON-RPC ответа.
+        """
+        return [
+            {"uri": root.uri, "name": root.name}
+            for root in self._roots
+        ]
     
     async def connect(self) -> None:
         """Запустить MCP сервер и установить соединение.
@@ -239,10 +287,17 @@ class MCPClient:
         logger.debug("Sending initialize to MCP server: %s", self.config.name)
         
         try:
+            # Формируем capabilities клиента
+            client_capabilities: dict[str, Any] = {}
+            
+            # Добавляем roots support если есть roots
+            if self._roots:
+                client_capabilities["roots"] = {"listChanged": True}
+            
             # Формируем параметры инициализации
             params = MCPInitializeParams(
                 protocolVersion=MCP_PROTOCOL_VERSION,
-                capabilities={},
+                capabilities=client_capabilities,
                 clientInfo=ACP_CLIENT_INFO,
             )
             

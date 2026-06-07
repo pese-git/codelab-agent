@@ -109,12 +109,12 @@
 - [x] 5.1.4 Тесты: image content, embedded resource content
 
 ### 5.2 MCP Roots
-- [ ] 5.2.1 Создать `MCPRoot` — uri, name
-- [ ] 5.2.2 `roots/list` handler в MCPClient
-- [ ] 5.2.3 При initialize: отправить capabilities.roots
-- [ ] 5.2.4 Roots из session.cwd → file://{cwd}
-- [ ] 5.2.5 notifications/roots/list_changed при смене cwd
-- [ ] 5.2.6 Тесты: roots listing, notification
+- [x] 5.2.1 Создать `MCPRoot` — uri, name
+- [x] 5.2.2 `roots/list` handler в MCPClient
+- [x] 5.2.3 При initialize: отправить capabilities.roots
+- [x] 5.2.4 Roots из session.cwd → file://{cwd}
+- [x] 5.2.5 notifications/roots/list_changed при смене cwd
+- [x] 5.2.6 Тесты: roots listing, notification
 
 ### 5.3 MCP Sampling
 - [ ] 5.3.1 Создать MCPSamplingMessage, sampling/createMessage handler

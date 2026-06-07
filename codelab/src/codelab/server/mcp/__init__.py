@@ -49,6 +49,7 @@ from .models import (
     MCPCallToolParams,
     MCPCallToolResult,
     MCPCapabilities,
+    MCPClientCapabilities,
     MCPClientInfo,
     MCPContent,
     MCPEmbeddedResource,
@@ -78,6 +79,7 @@ from .models import (
     MCPResourceIcon,
     MCPResourceTemplate,
     MCPResponse,
+    MCPRoot,
     MCPServerConfig,
     MCPServerInfo,
     MCPTextContent,
@@ -193,4 +195,7 @@ __all__ = [
     "MCPGetPromptResult",
     # Models - Progress
     "MCPProgressNotification",
+    # Models - Roots
+    "MCPRoot",
+    "MCPClientCapabilities",
 ]

@@ -578,6 +578,7 @@ class AgentOrchestrator:
             Список messages с добавленными заглушками для осиротевших tool_calls.
         """
         result: list[LLMMessage] = []
+        orphaned_count = 0
         i = 0
         while i < len(messages):
             msg = messages[i]
@@ -593,7 +594,7 @@ class AgentOrchestrator:
                 result.append(msg)
                 result.extend(tool_msgs)
                 for oid in orphaned_ids:
-                    logger.warning("orphaned_tool_call_in_history", tool_call_id=oid)
+                    orphaned_count += 1
                     result.append(LLMMessage(
                         role="tool",
                         content="Error: Tool execution did not complete",
@@ -603,4 +604,13 @@ class AgentOrchestrator:
             else:
                 result.append(msg)
                 i += 1
+        
+        # Логируем summary один раз вместо warning для каждого tool call
+        if orphaned_count > 0:
+            logger.debug(
+                "sanitized_orphaned_tool_calls",
+                count=orphaned_count,
+                action="added_synthetic_error_responses",
+            )
+        
         return result

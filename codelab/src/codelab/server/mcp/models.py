@@ -847,3 +847,49 @@ class MCPProgressNotification(BaseModel):
         if self.progress >= 0 and self.progress <= 1.0:
             return self.progress * 100.0
         return None
+
+
+# ===== MCP Roots Models =====
+
+
+class MCPRoot(BaseModel):
+    """Root для MCP протокола.
+
+    Roots определяют файловые границы, в которых работает MCP сервер.
+    Клиент отправляет roots серверу при инициализации и может обновлять
+    их через notifications/roots/list_changed.
+
+    Reference:
+        MCP Specification — Roots
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    uri: str
+    """URI корневой директории (file:// URI scheme)."""
+
+    name: str | None = None
+    """Опциональное человекочитаемое имя root."""
+
+
+class MCPClientCapabilities(BaseModel):
+    """Capabilities клиента для MCP протокола.
+
+    Отправляются клиентом серверу при инициализации для объявления
+    поддерживаемых возможностей.
+
+    Reference:
+        MCP Specification — Client Capabilities
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    roots: dict[str, Any] | None = None
+    """Поддержка roots. {"listChanged": true} если клиент поддерживает
+    notifications/roots/list_changed."""
+
+    sampling: dict[str, Any] | None = None
+    """Поддержка sampling (для будущего использования)."""
+
+    elicitation: dict[str, Any] | None = None
+    """Поддержка elicitation (для будущего использования)."""

@@ -21,6 +21,7 @@ from .models import (
     MCPPrompt,
     MCPResource,
     MCPResourceTemplate,
+    MCPRoot,
     MCPServerConfig,
     MCPTool,
 )
@@ -758,6 +759,41 @@ class MCPManager:
             raise MCPManagerError(
                 f"Failed to get prompt '{name}' from '{server_id}': {e}"
             ) from e
+    
+    # ===== Roots =====
+    
+    async def set_roots(self, roots: list[MCPRoot]) -> None:
+        """Установить roots для всех подключённых MCP серверов.
+        
+        Отправляет notifications/roots/list_changed всем серверам,
+        которые поддерживают roots capability.
+        
+        Args:
+            roots: Список roots (файловых границ) для MCP серверов.
+        """
+        logger.info(
+            "Setting roots для %d MCP серверов в сессии %s (roots=%d)",
+            len(self._clients),
+            self.session_id,
+            len(roots),
+        )
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            try:
+                await client.set_roots(roots)
+                logger.debug(
+                    "Roots updated for server '%s'",
+                    server_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to set roots for server '%s': %s",
+                    server_id,
+                    e,
+                )
     
     async def shutdown(self) -> None:
         """Отключить все MCP серверы.
