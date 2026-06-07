@@ -140,6 +140,18 @@
 - [x] 5.6.3 Добавлен register_notification_handler в протокол MCPTransport
 - [x] 5.6.4 MCPClient подключается к transport notifications при connect()
 
+### 5.7 Incoming Request Handling (MCP spec compliance)
+- [x] 5.7.1 Исправлена классификация JSON-RPC 2.0 сообщений (Request vs Response vs Notification)
+- [x] 5.7.2 Добавлена поддержка входящих запросов от сервера в StdioTransport
+- [x] 5.7.3 Добавлена поддержка входящих запросов от сервера в HttpTransport
+- [x] 5.7.4 Добавлена поддержка входящих запросов от сервера в SseTransport
+- [x] 5.7.5 MCPClient регистрирует обработчик roots/list при connect()
+- [x] 5.7.6 Добавлены методы send_response и send_error во все транспорты
+- [x] 5.7.7 Обновлён протокол MCPTransport с новыми методами
+- [x] 5.7.8 Тесты: классификация сообщений, обработка запросов, отправка ответов
+- [x] 5.6.3 Добавлен register_notification_handler в протокол MCPTransport
+- [x] 5.6.4 MCPClient подключается к transport notifications при connect()
+
 ## 6. Фаза 6 — HTTP Transport (P2)
 
 ### 6.1 MCPHttpTransport

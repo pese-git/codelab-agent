@@ -220,6 +220,28 @@ class MCPClient:
             for root in self._roots
         ]
     
+    async def _handle_roots_list_request(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Обработать входящий запрос roots/list от сервера.
+        
+        Согласно MCP спецификации, сервер может запросить список roots
+        через JSON-RPC запрос. Клиент должен ответить списком roots.
+        
+        Args:
+            params: Параметры запроса (обычно пустые).
+        
+        Returns:
+            Словарь с ключом "roots" и списком roots.
+        """
+        logger.debug(
+            "Handling roots/list request from MCP server: %s",
+            self.config.name
+        )
+        
+        roots_data = self._handle_roots_list()
+        return {"roots": roots_data}
+    
     async def connect(self) -> None:
         """Запустить MCP сервер и установить соединение.
         
@@ -252,6 +274,19 @@ class MCPClient:
                 self._transport.register_notification_handler(
                     "*",  # Регистрируем для всех notifications
                     self._on_transport_notification
+                )
+            
+            # Регистрируем обработчик для входящих запросов от сервера
+            # Согласно MCP спецификации, сервер может отправлять запросы клиенту
+            # (например, roots/list)
+            if hasattr(self._transport, 'register_request_handler'):
+                self._transport.register_request_handler(
+                    "roots/list",
+                    self._handle_roots_list_request
+                )
+                logger.debug(
+                    "Registered roots/list request handler for server: %s",
+                    self.config.name
                 )
             
             logger.debug("MCP %s connection established: %s", self.config.type, self.config.name)

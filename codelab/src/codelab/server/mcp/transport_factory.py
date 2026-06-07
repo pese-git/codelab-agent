@@ -73,6 +73,49 @@ class MCPTransport(Protocol):
             handler: Функция-обработчик (async или sync).
         """
         ...
+    
+    def register_request_handler(
+        self, method: str, handler: Callable
+    ) -> None:
+        """Зарегистрировать обработчик входящего запроса от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Этот метод позволяет зарегистрировать обработчик
+        для таких запросов.
+        
+        Args:
+            method: Имя метода запроса (например, "roots/list").
+            handler: Async функция-обработчик, принимающая params и возвращающая result.
+        """
+        ...
+    
+    async def send_response(
+        self, request_id: int | str, result: Any
+    ) -> None:
+        """Отправить ответ на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ответ.
+            result: Результат выполнения запроса.
+        """
+        ...
+    
+    async def send_error(
+        self,
+        request_id: int | str,
+        code: int,
+        message: str,
+        data: Any = None
+    ) -> None:
+        """Отправить ошибку на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ошибку.
+            code: Код ошибки согласно JSON-RPC 2.0.
+            message: Сообщение об ошибке.
+            data: Дополнительные данные об ошибке (опционально).
+        """
+        ...
 
 
 class TransportFactory:
