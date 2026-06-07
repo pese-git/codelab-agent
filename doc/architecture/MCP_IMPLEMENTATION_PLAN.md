@@ -3,6 +3,9 @@
 **Дата:** 2026-05-26  
 **Основано на:** MCP spec (`doc/Model Context Protocol/`), ACP spec (`doc/Agent Client Protocol/`), текущая реализация (`codelab/src/codelab/server/mcp/`)
 
+**Архитектурные решения:**
+- [ADR-001: MCP Roots не интегрируются с агентом](./ADR-001-mcp-roots-architecture.md)
+
 ---
 
 ## Текущее состояние
@@ -222,13 +225,23 @@
 
 **Файлы:** `server/mcp/client.py`, `server/mcp/models.py`
 
-**Подзадачи:**
-- [ ] 5.2.1 `MCPRoot` — uri: str, name?: str
-- [ ] 5.2.2 `roots/list` handler в MCPClient (server→client request)
-- [ ] 5.2.3 При initialize: отправить `capabilities.roots` если поддерживается
-- [ ] 5.2.4 Roots из session.cwd → `file://{cwd}`
-- [ ] 5.2.5 `notifications/roots/list_changed` при смене cwd
-- [ ] 5.2.6 Тесты: roots listing, notification
+**Архитектурное решение:** [ADR-001](./ADR-001-mcp-roots-architecture.md) — MCP Roots не интегрируются с агентом автоматически, так как агент уже имеет доступ к файлам через ACP от IDE (`fs/read_text_file`, `fs/write_text_file`). MCP Roots поддерживаются как часть MCP спецификации для совместимости с MCP серверами, которые их используют, но автоматическая интеграция с агентом не реализована и не будет реализована из-за избыточности с ACP.
+
+**Реализовано:**
+- [x] 5.2.1 `MCPRoot` — uri: str, name?: str
+- [x] 5.2.2 `roots/list` handler в MCPClient (server→client request)
+- [x] 5.2.3 При initialize: отправить `capabilities.roots` если поддерживается
+- [x] 5.2.5 `notifications/roots/list_changed` при смене roots
+- [x] 5.2.6 Тесты: roots listing, notification, incoming request handling
+
+**Отклонено (не будет реализовано):**
+- [x] ~~5.2.4 Roots из session.cwd → `file://{cwd}`~~ — см. ADR-001
+- [x] ~~Автоматическое обновление roots при смене cwd~~ — см. ADR-001
+- [x] ~~Интеграция roots с tool execution~~ — см. ADR-001
+- [x] ~~Валидация путей в tools~~ — см. ADR-001
+
+**Когда использовать MCP Roots:**
+Пользователь может явно настроить roots в конфигурации MCP серверов, если MCP сервер поддерживает roots и использует их для работы (например, git server, database schema server). Для MCP filesystem server roots избыточны, так как агент уже имеет доступ к файлам через ACP.
 
 ### 5.3 MCP Sampling
 
