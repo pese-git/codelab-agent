@@ -116,17 +116,19 @@
 - [x] 5.2.5 notifications/roots/list_changed при смене cwd
 - [x] 5.2.6 Тесты: roots listing, notification
 
-### 5.3 MCP Sampling
-- [ ] 5.3.1 Создать MCPSamplingMessage, sampling/createMessage handler
-- [ ] 5.3.2 Делегирование в LLM провайдер → возврат completion
-- [ ] 5.3.3 Model preferences mapping → LLM resolver
-- [ ] 5.3.4 Тесты: sampling request → LLM → response
+### 5.3 MCP Sampling — N/A
+> **Not Applicable.** Агент (Server) сам управляет LLM-вызовами через AgentOrchestrator и LLM-провайдеров. MCP-серверы в экосистеме — инструменты (filesystem, DB, API), не AI-агенты. Делегирование LLM-вызовов от MCP-сервера к агенту не требуется. Ни один mainstream MCP-клиент кроме Claude Code не реализует sampling.
+- [N/A] 5.3.1 Создать MCPSamplingMessage, sampling/createMessage handler
+- [N/A] 5.3.2 Делегирование в LLM провайдер → возврат completion
+- [N/A] 5.3.3 Model preferences mapping → LLM resolver
+- [N/A] 5.3.4 Тесты: sampling request → LLM → response
 
-### 5.4 MCP Elicitation
-- [ ] 5.4.1 Создать MCPElicitationRequest, elicitation/create handler
-- [ ] 5.4.2 Делегирование в client → UI elicitation modal
-- [ ] 5.4.3 Response validation against schema
-- [ ] 5.4.4 Тесты: elicitation flow
+### 5.4 MCP Elicitation — N/A
+> **Not Applicable.** ACP уже имеет `session/request_permission` для запроса разрешений у пользователя. Агент может запрашивать информацию через conversational flow (LLM генерирует вопрос → клиент показывает → пользователь отвечает). Ни один MCP-клиент кроме Claude Code не реализует elicitation.
+- [N/A] 5.4.1 Создать MCPElicitationRequest, elicitation/create handler
+- [N/A] 5.4.2 Делегирование в client → UI elicitation modal
+- [N/A] 5.4.3 Response validation against schema
+- [N/A] 5.4.4 Тесты: elicitation flow
 
 ### 5.5 Progress notifications
 - [x] 5.5.1 Progress token в request _meta.progressToken
@@ -173,3 +175,4 @@
 - [ ] 7.1 Обновить `openspec/specs/codelab.md` — раздел 19 (MCP интеграция)
 - [ ] 7.2 Обновить `doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md` — новый статус
 - [ ] 7.3 Обновить `doc/architecture/MCP_IMPLEMENTATION_PLAN.md` — отметить выполненные задачи
+- [ ] 7.4 Документировать исключение Sampling/Elicitation из scope (см. 5.3, 5.4)
