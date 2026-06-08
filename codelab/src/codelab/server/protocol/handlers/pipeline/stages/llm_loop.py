@@ -435,8 +435,9 @@ class LLMLoopStage(PromptStage):
             acp_tool_name = llm_name_to_acp_name(tool_name)
 
             # Определяем тип инструмента
-            # MCP инструменты теперь имеют inferred kind (read, edit, execute и т.д.)
-            # вместо отдельного kind="mcp"
+            # MCP инструменты получают inferred kind через MCPToolAdapter._infer_kind()
+            # (read, edit, execute, other и т.д. — согласно ACP ToolKind spec)
+            # kind="mcp" не используется — не является валидным ACP ToolKind
             tool_kind = "other"
             is_mcp = MCPToolExecutor.is_mcp_tool(acp_tool_name)
 

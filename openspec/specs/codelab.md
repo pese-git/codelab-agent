@@ -934,7 +934,7 @@ flowchart TD
 - Пересоздаётся при session/load
 - Graceful degradation при ошибке подключения
 - Инструменты привязаны к сессии (не регистрируются в глобальном ToolRegistry)
-- MCP tool calls создают `ToolCallState` с `kind="mcp"`
+- MCP tool calls создают `ToolCallState` с inferred kind (read, edit, execute, other — через `MCPToolAdapter._infer_kind()`)
 - Permission flow для MCP tools через `PermissionManager`
 
 ### 19.3 MCP Resources

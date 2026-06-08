@@ -14,7 +14,7 @@
 ### Tool Execution
 
 - При tool call с именем начинающимся с `mcp:`, система **MUST** делегировать выполнение в `MCPManager.call_tool()`
-- MCP tool calls **MUST** создавать `ToolCallState` с `kind="mcp"`
+- MCP tool calls **MUST** создавать `ToolCallState` с inferred kind (read, edit, delete, move, search, execute, think, fetch, switch_mode, other) через `MCPToolAdapter._infer_kind()`
 - MCP tool calls **MUST** проходить полный lifecycle: pending → in_progress → completed/failed
 - MCP tool calls **MUST** проходить через `PermissionManager` (allow/deny/ask chain)
 - Timeout для MCP tool calls **MUST** быть настраиваемым per-server

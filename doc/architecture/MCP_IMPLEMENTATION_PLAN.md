@@ -79,7 +79,7 @@
 **Задача:** MCP tool calls должны проходить полный lifecycle: pending → in_progress → completed/failed, с notifications.
 
 **Подзадачи:**
-- [ ] 1.3.1 MCP tool calls создают `ToolCallState` с `kind="mcp"`
+- [x] 1.3.1 MCP tool calls создают `ToolCallState` с inferred kind (через `MCPToolAdapter._infer_kind()`)
 - [ ] 1.3.2 Permission flow для MCP tools (через `PermissionManager`)
 - [ ] 1.3.3 Timeout handling для MCP tool calls (настраиваемый per-server)
 - [ ] 1.3.4 Error handling: MCP server crash, timeout, invalid response

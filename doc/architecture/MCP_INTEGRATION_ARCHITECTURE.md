@@ -257,7 +257,7 @@ graph LR
         A_name[name: mcp:filesystem:read_file]
         A_desc[description: Reads a file]
         A_params[parameters: ...]
-        A_kind[kind: mcp]
+        A_kind[kind: inferred (read/edit/execute/other)]
     end
 ```
 

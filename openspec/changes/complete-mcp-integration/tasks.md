@@ -13,7 +13,7 @@
 ### 1.2 Интеграция в LLMLoopStage
 - [x] 1.2.1 Добавить `mcp_manager` в `LLMLoopStage` constructor (через PromptOrchestrator)
 - [x] 1.2.2 В `_process_tool_calls_for_llm_loop()` проверить: если `tool_name` начинается с `mcp:`, делегировать в MCPToolExecutor
-- [x] 1.2.3 MCP tool calls создают `ToolCallState` с `kind="mcp"`
+- [x] 1.2.3 MCP tool calls создают `ToolCallState` с inferred kind (read, edit, execute, other — через MCPToolAdapter._infer_kind())
 - [x] 1.2.4 Permission flow для MCP tools через `PermissionManager`
 - [x] 1.2.5 Тесты: MCP tool call recognized, delegated, lifecycle complete
 
