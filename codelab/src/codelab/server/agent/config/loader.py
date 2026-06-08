@@ -16,8 +16,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import tomllib
-
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
     AgentMode,

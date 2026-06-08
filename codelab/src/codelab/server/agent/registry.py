@@ -192,7 +192,7 @@ class AgentRegistry:
         """Получить агента с mode=orchestrator."""
         from codelab.server.agent.config.models import AgentMode
 
-        for name, agent in self._agents.items():
+        for _name, agent in self._agents.items():
             if agent.mode == AgentMode.ORCHESTRATOR:
                 return agent
         return None

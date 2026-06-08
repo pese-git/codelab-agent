@@ -1,6 +1,5 @@
 """Тесты для AgentConfigResolver."""
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,7 +7,6 @@ import pytest
 from codelab.server.agent.config.loader import AgentConfigLoader
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
-    AgentMode,
     AgentsGlobalConfig,
 )
 from codelab.server.agent.config.resolver import AgentConfigResolver

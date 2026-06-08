@@ -12,13 +12,13 @@ Pydantic модели для:
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AgentMode(str, Enum):
+class AgentMode(StrEnum):
     """Режим агента в мультиагентной системе."""
 
     PRIMARY = "primary"

@@ -1,6 +1,7 @@
 """Тесты для Pydantic моделей конфигурации агентов."""
 
 import pytest
+from pydantic import ValidationError
 
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
@@ -43,7 +44,7 @@ class TestAgentPermission:
 
     def test_frozen(self):
         p = AgentPermission()
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             p.edit = True
 
 

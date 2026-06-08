@@ -16,7 +16,6 @@ from typing import Any
 from codelab.server.agent.config.loader import AgentConfigLoader
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
-    AgentMode,
     AgentPermission,
     AgentsGlobalConfig,
     ResolvedAgent,
