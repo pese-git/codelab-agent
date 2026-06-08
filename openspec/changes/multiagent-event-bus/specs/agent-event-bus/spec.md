@@ -20,6 +20,8 @@
 - `async send_request(request: AgentRequest, parent_span: SpanContext | None) -> AgentResponse`
 - `async broadcast(broadcast: ContextBroadcast) -> list[ChoreographyAnswer]`
 
+> **Примечание:** `send_request()` возвращает `AgentResponse` (DomainEvent с `request_id`, `text`, `tool_calls`, `usage: TokenUsage`, `stop_reason`, `agent_name`).
+
 ### Требование: Реализация AgentEventBus
 
 Система ДОЛЖНА реализовывать оба интерфейса `AbstractEventBus` и `AgentRoutingInterface` в едином классе `AgentEventBus`.
@@ -37,12 +39,13 @@
 Метод `send_request()` ДОЛЖЕН:
 - Вызывать `AgentNotFoundError` если target_agent не зарегистрирован
 - Повторять отправку до 3 раз с экспоненциальной задержкой
-- Вызывать `AgentDispatchError` если все повторные попытки
+- Вызывать `AgentDispatchError` если все повторные попытки исчерпаны
 - Распространять контекст parent_span для tracing
+- Возвращать `AgentResponse` (DomainEvent) обёрнутый из `AgentResult`
 
 ### Требование: Гарантии broadcast
 
 Метод `broadcast()` ДОЛЖЕН:
 - Отправлять всем зарегистрированным агентам параллельно
-- Возвращать список ответов, включая пустые
+- Возвращать список `ChoreographyAnswer`, включая ответы с ошибками
 - Не падать при ошибке обработчиков отдельных агентов (собирать ошибки, логировать, продолжать)

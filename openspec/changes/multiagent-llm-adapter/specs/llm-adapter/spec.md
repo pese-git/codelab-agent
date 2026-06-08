@@ -2,25 +2,27 @@
 
 ## ДОБАВЛЕННЫЕ Требования
 
-### Требование: Реализация Agent Protocol
+### Требование: Реализация LLMAgent Protocol
 
-Система ДОЛЖНА предоставлять `LLMAdapter`, реализующий протокол `Agent`:
+Система ДОЛЖНА предоставлять `LLMAdapter`, реализующий протокол `LLMAgent`:
 
 ```python
 async def call(
-    messages: list[Message],
+    messages: list[LLMMessage],
     tools: list[ToolDefinition] | None = None,
-    config: AgentConfig | None = None,
+    config: dict | None = None,
     parent_span: SpanContext | None = None,
 ) -> AgentResult:
 ```
+
+> **Примечание:** Использовать `LLMMessage` из `server/llm/models.py`, `ToolDefinition` из `server/tools/base.py`.
 
 ### Требование: Цикл LLM вызовов
 
 LLMAdapter ДОЛЖЕН:
 - Вызывать LLM провайдер с messages и tools
 - Выполнять tool calls если присутствуют (максимум 5 итераций)
-- Возвращать AgentResult с text, tool_calls, usage, stop_reason
+- Возвращать `AgentResult` с text, tool_calls, usage, stop_reason, agent_name, plan
 - Поддерживать отмену через asyncio.Task
 
 ### Требование: Регистрация в EventBus
@@ -28,17 +30,12 @@ LLMAdapter ДОЛЖЕН:
 LLMAdapter ДОЛЖЕН регистрировать себя как `RequestHandler` в AgentEventBus:
 
 ```python
-async def _handle_request(request: AgentRequest, parent_span: SpanContext | None) -> AgentResponse:
+async def _handle_request(request: AgentRequest, parent_span: SpanContext | None) -> AgentResult:
     result = await self.call(request.messages, request.tools, parent_span=parent_span)
-    return AgentResponse(
-        request_id=request.correlation_id,
-        text=result.text,
-        tool_calls=result.tool_calls,
-        usage=result.usage,
-        stop_reason=result.stop_reason,
-        agent_name=result.agent_name,
-    )
+    return result
 ```
+
+> **Примечание:** Возвращает `AgentResult` напрямую. Шина оборачивает в `AgentBusResponse` с `request_id` и `latency_ms`.
 
 ### Требование: Поддержка отмены
 
@@ -47,18 +44,26 @@ LLMAdapter ДОЛЖЕН поддерживать отмену через `asynci
 - Возвращать `AgentResult(stop_reason="cancelled")` при отмене
 - Очищать ссылку на задачу при завершении
 
+### Требование: Переиспользование существующих компонентов
+
+LLMAdapter ДОЛЖЕН переиспользовать:
+- `acp_name_to_llm_name()` из `server/tools/mapping.py` для конвертации имён инструментов
+- `PlanExtractor` из `server/agent/plan_extractor.py` для извлечения плана из ответа
+
 # Spec: agent-result-usage
 
 ## ДОБАВЛЕННЫЕ Требования
 
-### Требование: Сохранение TokenUsage
+### Требование: Сохранение Usage
 
-`AgentResult` ДОЛЖЕН включать поле `usage: TokenUsage` с:
+`AgentResult` ДОЛЖЕН включать поле `usage: dict | None` с информацией о токенах из ответа LLM провайдера:
 - `input_tokens: int`
 - `output_tokens: int`
 - `total_tokens: int`
 
 Эта информация ДОЛЖНА сохраняться из ответа LLM провайдера и не теряться при обработке.
+
+> **Примечание:** `usage` может быть `None` если провайдер не вернул информацию о токенах (например, Mock провайдер).
 
 # Spec: llm-tracing
 

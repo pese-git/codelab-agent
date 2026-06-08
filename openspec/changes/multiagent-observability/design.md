@@ -17,6 +17,13 @@ strategy_execution (root)
         └── tool_execution (если есть)
 ```
 
+### Интеграция с существующим кодом
+
+- `structlog` уже используется для логирования — Tracer дополняет, не заменяет
+- EventTimeline подписывается на `AbstractEventBus` (новый интерфейс)
+- MetricsTracker — полностью новый компонент
+- SpanContext передаётся через `parent_span` параметр в `send_request()`
+
 ### Ключевые решения
 
 | Решение | Обоснование |
@@ -31,7 +38,7 @@ strategy_execution (root)
 | Метрика | Источник | Когда |
 |---|---|---|
 | bus_dispatch_latency_ms | EventBus.publish | Каждый dispatch |
-| llm_call_latency_ms | LLMAdapter | Каждый LLM call |
-| input_tokens / output_tokens | AgentResponse.usage | Каждый response |
-| compression_ratio | TokenSlicer | После slicing |
-| strategy_execution_time | Strategy | За turn |
+| llm_call_latency_ms | LLMAdapter.call() | Каждый LLM call |
+| input_tokens / output_tokens | AgentResult.usage | Каждый response |
+| compression_ratio | ContextCompactor | После compaction |
+| strategy_execution_time | Strategy.execute() | За turn |

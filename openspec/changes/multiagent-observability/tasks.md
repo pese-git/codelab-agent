@@ -17,7 +17,7 @@
 - [ ] 2.2 Реализовать `record_event(event_type, session_id, details)` — запись события
 - [ ] 2.3 Реализовать `get_events(session_id) → list[TimelineEvent]` — получение событий
 - [ ] 2.4 Реализовать подписку на AbstractEventBus для автоматической записи
-- [ ] 2.5 Подписаться на: AgentRegistered, AgentUnregistered, AgentListChanged, AgentResponse
+- [ ] 2.5 Подписаться на: AgentRegistered, AgentUnregistered, AgentListChanged, AgentResult
 - [ ] 2.6 Написать тесты: запись + получение событий
 - [ ] 2.7 Написать тесты: автозапись из событий EventBus
 

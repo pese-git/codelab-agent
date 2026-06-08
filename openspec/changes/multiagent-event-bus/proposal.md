@@ -7,7 +7,10 @@
 - Введение `AgentEventBus` — in-memory шины с двумя интерфейсами:
   - `AbstractEventBus` (pub/sub) — для observability компонентов
   - `AgentRoutingInterface` (agent routing) — для стратегий выполнения
-- Контракты сообщений: `AgentRequest`, `AgentResponse`, `AgentResult`, `ContextBroadcast`, `ChoreographyAnswer`
+- Контракты сообщений: `AgentRequest`, `AgentResult`, `AgentBusResponse`, `ContextBroadcast`, `ChoreographyAnswer`
+  - **Примечание:** `AgentResponse` из `server/agent/base.py` НЕ заменяется — используется текущей архитектурой
+  - `AgentResult` — расширенный результат для шины (включает `agent_name`, `usage`, `plan` для observability)
+  - `AgentBusResponse` — обёртка ответа шины с метаданными dispatch
 - Lifecycle events: `AgentRegistered`, `AgentUnregistered`, `AgentListChanged`
 - Point-to-point routing (`send_request`) и broadcast (`broadcast`)
 - Подписка/отписка на события с гарантией параллельного вызова обработчиков
@@ -25,8 +28,8 @@
 ## Impact
 
 **Новые файлы:**
+- `codelab/src/codelab/server/agent/contracts/` — AgentRequest, AgentResult, AgentBusResponse, DomainEvent, lifecycle events
 - `codelab/src/codelab/server/agent/event_bus/` — AgentEventBus, AbstractEventBus, AgentRoutingInterface
-- `codelab/src/codelab/server/agent/contracts/` — AgentRequest, AgentResponse, AgentResult и др.
 - `codelab/tests/server/agent/test_event_bus.py` — тесты шины
 - `codelab/tests/server/agent/test_contracts.py` — тесты контрактов
 
@@ -47,8 +50,8 @@ sequenceDiagram
 
     Strategy->>Bus: send_request(AgentRequest, parent_span)
     Bus->>Handler: forward request
-    Handler-->>Bus: AgentResponse
-    Bus-->>Strategy: AgentResponse
+    Handler-->>Bus: AgentResult
+    Bus-->>Strategy: AgentBusResponse
 
     Strategy->>Bus: broadcast(ContextBroadcast)
     Bus->>Handler: forward to all agents

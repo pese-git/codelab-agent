@@ -31,6 +31,13 @@
 6. Подписчики (StrategyDispatcher, TUI, Metrics) реагируют автоматически
 ```
 
+### Интеграция с существующим кодом
+
+- `AppConfig` из `server/config.py` расширяется полем `agents_global: AgentsGlobalConfig`
+- TOML загрузчик переиспользует существующую инфраструктуру конфигурации (`tomllib`, merge logic)
+- Watchdog для hot reload — новый компонент (watchdog library)
+- Pydantic модели используют существующий стиль валидации проекта
+
 ### Ключевые решения
 
 | Решение | Обоснование |

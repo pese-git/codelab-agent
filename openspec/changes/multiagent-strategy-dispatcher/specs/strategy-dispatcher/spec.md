@@ -54,8 +54,11 @@ def _validate_strategy(mode: str, registry: AgentRegistry) -> str:
 
 Система ДОЛЖНА поддерживать опцию конфигурации `_routing_mode` для постоянного выбора стратегии:
 - Устанавливается через `session/set_config_option` с configId="_routing_mode"
+- Сохраняется в `session.config_values["_routing_mode"]` (существующее поле `dict[str, str]`)
 - Сохраняется между turn'ами в пределах сессии
 - Имеет приоритет над default, ниже чем slash command
+
+> **Примечание:** `SessionState.config_values` уже поддерживает произвольные ключи. Не требуется изменение модели состояния.
 
 ### Требование: Override Slash Command
 

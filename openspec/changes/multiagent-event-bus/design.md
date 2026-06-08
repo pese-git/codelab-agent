@@ -34,9 +34,9 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
 1. Strategy → send_request(AgentRequest, parent_span)
 2. Bus.lookup(agent_name) → RequestHandler
 3. Bus.dispatch_with_retry(handler, request, parent_span)
-4. Handler → AgentResponse
+4. Handler → AgentResult
 5. Bus.publish(AgentDispatched) → observability
-6. Return AgentResponse
+6. Return AgentBusResponse
 ```
 
 ### Flow broadcast

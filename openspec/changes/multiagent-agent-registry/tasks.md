@@ -6,7 +6,7 @@
 - [ ] 1.2 Создать enum `AgentMode`: primary, subagent, orchestrator
 - [ ] 1.3 Создать Pydantic модель `AgentPermission`: edit, bash, webfetch, task
 - [ ] 1.4 Создать Pydantic модель `AgentTOMLConfig` с model_config(extra="allow")
-- [ ] 1.5 Создать Pydantic модель `AgentsGlobalConfig` с полями: mode, fallback_mode, default_model, max_steps, slicer_model, max_sliced_tokens, slicer_skip_threshold, context_window_limit, compaction_reserved_tokens, debug, definitions
+- [ ] 1.5 Создать Pydantic модель `AgentsGlobalConfig` с полями: mode, fallback_mode, default_model, max_steps, context_window_limit, compaction_reserved_tokens, debug, definitions
 - [ ] 1.6 Создать Pydantic модель `AgentMarkdownConfig` с model_config(extra="allow")
 - [ ] 1.7 Создать Pydantic модель `ResolvedAgent`
 - [ ] 1.8 Написать тесты для всех моделей (валидация, значения по умолчанию, extra поля)

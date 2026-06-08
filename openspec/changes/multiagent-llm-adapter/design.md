@@ -46,7 +46,7 @@ async def call(...):
     try:
         return await task
     except asyncio.CancelledError:
-        return AgentResult(text="", tool_calls=[], usage=TokenUsage(), stop_reason="cancelled", agent_name=self._name)
+        return AgentResult(text="", tool_calls=[], usage=None, stop_reason="cancelled", agent_name=self._name)
     finally:
         self._active_tasks.pop(id(task), None)
 ```

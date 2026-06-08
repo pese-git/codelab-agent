@@ -5,15 +5,13 @@
 ## What Changes
 
 - `SingleStrategy` — вызов агента через `EventBus.send_request()`, uniformity со всеми стратегиями
-- `ExecutionEngine` — замена `AgentOrchestrator`, композиция компонентов:
-  - `HistoryBuilder` — конвертация session.history → LLMMessage
-  - `ToolFilter` — фильтрация по client capabilities
-  - `MessageSanitizer` — восстановление orphaned tool calls
-  - `PlanExtractor` — извлечение плана из LLM response
+- `ExecutionEngine` — **замена** `AgentOrchestrator`, композиция компонентов:
+  - `HistoryBuilder` — рефакторинг из `AgentOrchestrator._convert_to_llm_messages()`
+  - `ToolFilter` — рефакторинг из `AgentOrchestrator._filter_tools_by_capabilities()` + поддержка MCP
+  - `MessageSanitizer` — рефакторинг из `AgentOrchestrator._sanitize_orphaned_tool_calls()`
+  - `PlanExtractor` — переиспользование существующего `server/agent/plan_extractor.py`
+  - `ContextCompactor` — новый компонент (двухфазное сжатие: Prune + LLM Summarize)
 - Интеграция с существующим `PromptOrchestrator` / Pipeline
-- Compaction fallback для длинных сессий:
-  - Prune — удаление старых tool outputs (FIFO, без LLM)
-  - LLM Summarize — сжатие conversation если prune недостаточно
 - Управление контекстом: `context_window_limit`, `compaction_reserved_tokens`
 
 ## Capabilities
@@ -23,10 +21,10 @@
 - `execution-engine`: Композиционный движок выполнения (замена AgentOrchestrator)
 - `context-compaction`: Двухфазное сжатие контекста (Prune + LLM Summarize)
 - `history-builder`: Конвертация SessionState history → LLMMessage
-- `tool-filter`: Фильтрация инструментов по client capabilities
+- `tool-filter`: Фильтрация инструментов по client capabilities + MCP
 
 ### Modified Capabilities
-- `codelab`: Интеграция ExecutionEngine в PromptOrchestrator pipeline
+- `codelab`: Замена AgentOrchestrator на ExecutionEngine в PromptOrchestrator pipeline
 
 ## Impact
 
@@ -41,8 +39,16 @@
 - `codelab/tests/server/agent/test_execution_engine.py`
 - `codelab/tests/server/agent/test_context_compactor.py`
 
+**Переиспользуемые файлы (без изменений):**
+- `codelab/src/codelab/server/agent/plan_extractor.py` — PlanExtractor
+- `codelab/src/codelab/server/tools/mapping.py` — acp_name_to_llm_name()
+
+**Удаляемые файлы (после миграции):**
+- `codelab/src/codelab/server/agent/orchestrator.py` — AgentOrchestrator (заменяется ExecutionEngine)
+
 **Изменяемые файлы:**
-- `codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py` — интеграция ExecutionEngine
+- `codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py` — интеграция ExecutionEngine + SingleStrategy
+- `codelab/src/codelab/server/protocol/handlers/pipeline/stages/llm_loop.py` — замена AgentOrchestrator на ExecutionEngine
 
 **Зависимости:** Зависит от `multiagent-event-bus`, `multiagent-llm-adapter`, `multiagent-agent-registry`.
 
@@ -56,14 +62,14 @@ sequenceDiagram
     participant LLM as LLMAdapter
 
     Client->>Pipeline: session/prompt
-    Pipeline->>Engine: build context (history + prompt)
-    Engine->>Engine: HistoryBuilder + ToolFilter
-    Engine->>Strategy: execute(strategy="single")
-    Strategy->>EventBus: send_request(AgentRequest)
+    Pipeline->>Engine: build_context(session, prompt, mcp_manager)
+    Engine->>Engine: HistoryBuilder + ToolFilter + MessageSanitizer
+    Engine->>Strategy: execute(context)
+    Strategy->>EventBus: send_request(AgentRequest, parent_span)
     EventBus->>LLM: forward to registered agent
-    LLM-->>EventBus: AgentResponse
-    EventBus-->>Strategy: AgentResponse
-    Strategy->>Engine: check context (compaction if needed)
+    LLM-->>EventBus: AgentResult
+    EventBus-->>Strategy: AgentBusResponse
+    Strategy->>Engine: ensure_context_fits (compaction if needed)
     Engine-->>Pipeline: result
     Pipeline-->>Client: session/update + response
 ```
