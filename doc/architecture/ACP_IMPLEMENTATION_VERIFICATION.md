@@ -2,6 +2,7 @@
 
 **Дата:** 2026-05-21
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
+**Обновлено:** 2026-06-08 — MCP Integration завершена (Tools в LLM Loop, Resources, Prompts, Notifications, Auto-reconnect, HTTP/SSE, Roots, Progress). Sampling/Elicitation исключены из scope (N/A).
 **Обновлено:** 2026-05-27 — MCP HTTP/SSE Transport ✅, MCP Auto-reconnect ✅, MCP Resources/Prompts Models ✅, тесты 2,954 (+289), файлы 174 (+9)
 **Обновлено:** 2026-05-26 — TOML Configuration System (26 тестов), Cached Storage, ToolMapping тесты, Auth тесты расширены
 **Обновлено:** 2026-05-22 — Multi-Provider LLM: 7 провайдеров, Registry, Resolver, Fallback, Model Discovery, Telemetry, ProviderEventBus, Integration Tests (8 тестов)
@@ -25,6 +26,13 @@
 | stdio transport | ✅ Полностью (сервер + клиент + E2E тесты) |
 | MCP HTTP/SSE transport | ✅ Полностью (aiohttp) |
 | MCP auto-reconnect | ✅ С backoff и health checks |
+| MCP Tools в LLM Loop | ✅ MCPToolExecutor, permission flow, content conversion |
+| MCP Resources | ✅ Models, API, ACP integration (ResourceLinkContent) |
+| MCP Prompts | ✅ Models, API, ACP integration (slash commands) |
+| MCP Notifications | ✅ tools/resources/prompts list_changed, progress |
+| MCP Roots | ✅ capabilities.roots, roots/list, notifications |
+| MCP Sampling | ❌ N/A — агент сам управляет LLM |
+| MCP Elicitation | ❌ N/A — covered by ACP permission flow |
 | Тестовых файлов | **174** |
 | Тестовых методов | **2,954** |
 | Критичных проблем | ✅ 0 |
@@ -396,21 +404,33 @@ LLM: terminal/release → cleanup
 
 **Результат:** MCP auto-reconnect полностью реализован.
 
-#### ~~8. MCP resources/prompts не поддерживаются~~ ⚠️ Частично решено (2026-05-27)
+#### ~~8. MCP resources/prompts не поддерживаются~~ ✅ Решено (2026-06-08)
 
-**Файлы:** `server/mcp/models.py`, `server/mcp/client.py`
+**Файлы:** `server/mcp/models.py`, `server/mcp/client.py`, `server/mcp/manager.py`, `server/mcp/content_mapper.py`, `server/mcp/prompt_mapper.py`, `server/mcp/resource_mapper.py`, `server/tools/executors/mcp_executor.py`
 
 **Реализовано:**
 - ✅ Модели: `MCPResource`, `MCPPrompt`, `ListResourcesResult`, `ReadResourceResult`, `ListPromptsResult`, `GetPromptResult`
 - ✅ Client methods: `list_resources()`, `read_resource()`, `list_prompts()`, `get_prompt()`
 - ✅ Capability checking (`capabilities.resources`, `capabilities.prompts`)
 - ✅ Resource/prompt caching в MCPClient
+- ✅ Server-side integration: MCP Resources → ACP ResourceLinkContent через ResourceMapper
+- ✅ MCP Prompts → ACP slash commands через PromptMapper
+- ✅ MCP Tools в LLM Loop через MCPToolExecutor
+- ✅ Tool list change notifications → refresh available_tools
+- ✅ Resource/Prompt change notifications
+- ✅ Progress notifications → ACP tool_call_update
+- ✅ MCP Roots (capabilities.roots, roots/list, notifications/roots/list_changed)
+- ✅ Incoming request handling (roots/list handler)
 
-**Не реализовано:**
-- ❌ Server-side handlers для интеграции MCP resources/prompts в ACP pipeline
-- ❌ Инструменты или директивы для доступа к MCP resources/prompts из LLM
+**Не реализовано (N/A):**
+- ❌ MCP Sampling (`sampling/createMessage`) — агент сам управляет LLM-вызовами, делегирование не требуется
+- ❌ MCP Elicitation (`elicitation/create`) — покрыто ACP `session/request_permission` + conversational flow
 
-**Результат:** Модели и client methods готовы, требуется server-side integration.
+**Результат:** MCP интеграция полностью завершена.
+
+#### ~~21. MCP resources/prompts server-side integration~~ ✅ Решено (2026-06-08)
+
+Полная интеграция MCP Resources и Prompts в ACP pipeline завершена. См. гэп #8 выше.
 
 #### ~~11. Terminal output flow не тестирован~~ ✅ Решено (2026-05-22)
 
@@ -677,7 +697,10 @@ sequenceDiagram
 | MCP Module | 1 | 27 | ✅ Полное (stdio) |
 | MCP HTTP/SSE Transport | 1 | TBD | ⚠️ Реализовано, нет тестов |
 | MCP Auto-reconnect | 1 | TBD | ⚠️ Реализовано, нет тестов |
-| MCP Resources/Prompts | 1 | TBD | ⚠️ Модели готовы, нет тестов |
+| MCP Tools в LLM Loop | 1 | TBD | ⚠️ Реализовано, нет тестов |
+| MCP Resources/Prompts | 3 | TBD | ⚠️ Реализовано, нет тестов |
+| MCP Notification Infra | 2 | TBD | ⚠️ Реализовано, нет тестов |
+| MCP Incoming Requests | 1 | TBD | ⚠️ Реализовано, нет тестов |
 | Content | 3 | 68 | ✅ Полное |
 | Pipeline | 2 | 63 | ✅ Полное |
 | Global Policy | 2 | 69 | ✅ Полное |
@@ -712,7 +735,10 @@ sequenceDiagram
 
 - MCP HTTP/SSE transports (реализованы, тесты TBD)
 - MCP auto-reconnect logic (реализована, тесты TBD)
-- MCP resources/prompts server-side handling (модели готовы, интеграция TBD)
+- MCP Tools в LLM Loop (реализовано, тесты TBD)
+- MCP resources/prompts server-side handling (реализовано, тесты TBD)
+- MCP notification infrastructure (реализовано, тесты TBD)
+- MCP incoming request handling (реализовано, тесты TBD)
 - Rate limiting для tool execution
 - SQLite storage (не реализован)
 - Streaming tool_calls в OpenAI (только текст обрабатывается)
@@ -802,6 +828,7 @@ sequenceDiagram
 ~~10. **Реализовать MCP HTTP/SSE transport**~~ ✅ Решено (2026-05-27) — HttpTransport, SseTransport
 ~~11. **Добавить MCP auto-reconnect**~~ ✅ Решено (2026-05-27) — backoff, health checks
 ~~12. **Реализовать MCP resources/prompts models**~~ ✅ Решено (2026-05-27) — модели и client methods готовы
+~~13. **Завершить MCP интеграцию**~~ ✅ Решено (2026-06-08) — Tools в LLM Loop, Resources, Prompts, Notifications, Auto-reconnect, HTTP/SSE, Roots, Progress
 
 ### P2 — Желательные
 
@@ -810,11 +837,15 @@ sequenceDiagram
 ~~3. **Реализовать MCP HTTP/SSE transport**~~ ✅ Решено (2026-05-27)
 ~~4. **Добавить MCP auto-reconnect**~~ ✅ Решено (2026-05-27)
 ~~5. **Реализовать MCP resources/prompts models**~~ ✅ Решено (2026-05-27) — модели и client methods
-6. **Добавить Google Gemini провайдер** — отдельный провайдер или через OpenAI-compatible
-7. **Добавить локальные модели** — llama.cpp, MLX integration
-8. **Реализовать MCP resources/prompts server-side integration** — модели готовы, нужна логика
+~~6. **Завершить MCP интеграцию**~~ ✅ Решено (2026-06-08) — полный MCP stack
+7. **Добавить Google Gemini провайдер** — отдельный провайдер или через OpenAI-compatible
+8. **Добавить локальные модели** — llama.cpp, MLX integration
 9. **Добавить тесты MCP HTTP/SSE transport** — реализовано, тесты TBD
 10. **Добавить тесты MCP auto-reconnect** — реализовано, тесты TBD
-11. **Добавить rate limiting для tool execution**
-12. **Реализовать SQLite storage** — для production persistence
-13. **Обработать streaming tool_calls в OpenAI** — сейчас только текст
+11. **Добавить тесты MCP Tools в LLM Loop** — реализовано, тесты TBD
+12. **Добавить тесты MCP Resources/Prompts** — реализовано, тесты TBD
+13. **Добавить тесты MCP Notification Infrastructure** — реализовано, тесты TBD
+14. **Добавить тесты MCP Incoming Request Handling** — реализовано, тесты TBD
+15. **Добавить rate limiting для tool execution**
+16. **Реализовать SQLite storage** — для production persistence
+17. **Обработать streaming tool_calls в OpenAI** — сейчас только текст

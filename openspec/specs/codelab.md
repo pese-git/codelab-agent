@@ -897,11 +897,17 @@ flowchart TD
 
 | Компонент | Файл | Назначение |
 |-----------|------|------------|
-| `MCPManager` | `mcp/manager.py` | Управление подключениями к MCP серверам |
-| `MCPClient` | `mcp/client.py` | Клиент для stdio MCP сервера |
-| `MCPServerConfig` | `mcp/models.py` | Конфигурация MCP сервера (name, command, args, env) |
-| `ToolAdapter` | `mcp/tool_adapter.py` | Адаптация MCP инструментов в ToolDefinition |
-| `StdioTransport` | `mcp/transport.py` | stdio транспорт для MCP |
+| `MCPManager` | `mcp/manager.py` | Управление подключениями к MCP серверам, multi-server lifecycle, auto-reconnect |
+| `MCPClient` | `mcp/client.py` | Клиент для MCP сервера (stdio, HTTP, SSE), state machine |
+| `MCPToolExecutor` | `tools/executors/mcp_executor.py` | Выполнение MCP инструментов в LLM loop |
+| `MCPServerConfig` | `mcp/models.py` | Конфигурация MCP сервера (name, command, args, env, type, url, headers) |
+| `ToolAdapter` | `mcp/tool_adapter.py` | Адаптация MCP инструментов в ToolDefinition (namespace `mcp:server:tool`) |
+| `StdioTransport` | `mcp/transport.py` | stdio транспорт для MCP (subprocess) |
+| `HttpTransport` | `mcp/transport.py` | HTTP транспорт для MCP (aiohttp POST) |
+| `SseTransport` | `mcp/transport.py` | SSE транспорт для MCP (server→client streaming) |
+| `ContentMapper` | `mcp/content_mapper.py` | Конвертация MCP content ↔ ACP content |
+| `PromptMapper` | `mcp/prompt_mapper.py` | Маппинг MCP Prompts → ACP slash commands |
+| `ResourceMapper` | `mcp/resource_mapper.py` | Маппинг MCP Resources → ACP ResourceLinkContent |
 
 ### 19.2 Жизненный цикл
 
@@ -912,13 +918,15 @@ flowchart TD
     C["ACPProtocol._initialize_mcp_servers()"]
     D["MCPManager(session_id)"]
     E["MCPManager.add_server(config)"]
-    F["MCPClient запускает subprocess"]
+    F["MCPClient запускает subprocess / HTTP connect"]
     G["Инициализация через JSON-RPC"]
     H["Получение списка инструментов"]
     I["Адаптация в ToolDefinition"]
     J["Инструменты доступны через session_state.mcp_manager"]
+    K["LLMLoopStage: MCP tool call → MCPToolExecutor"]
+    L["Результат → ACP content → LLM"]
 
-    A --> B --> C --> D --> E --> F --> G --> H --> I --> J
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L
 ```
 
 **Особенности:**
@@ -926,6 +934,73 @@ flowchart TD
 - Пересоздаётся при session/load
 - Graceful degradation при ошибке подключения
 - Инструменты привязаны к сессии (не регистрируются в глобальном ToolRegistry)
+- MCP tool calls создают `ToolCallState` с `kind="mcp"`
+- Permission flow для MCP tools через `PermissionManager`
+
+### 19.3 MCP Resources
+
+MCP Resources — пассивные data sources от MCP серверов.
+
+**Модели:** `MCPResource`, `MCPResourceTemplate`, `MCPListResourcesResult`, `MCPReadResourceResult`, `MCPResourceContent`
+
+**API:**
+- `MCPClient.list_resources()` → список ресурсов сервера
+- `MCPClient.list_resource_templates()` → templates с uriTemplate
+- `MCPClient.read_resource(uri)` → содержимое ресурса
+- `MCPManager.get_all_resources()` → aggregated от всех серверов
+- `MCPManager.read_resource(server_id, uri)` → конкретный сервер
+
+**Интеграция:** MCP Resources → ACP `ResourceLinkContent` через `ResourceMapper`. При session/load ресурсы могут быть включены в replay.
+
+### 19.4 MCP Prompts
+
+MCP Prompts — параметризованные prompt templates от MCP серверов.
+
+**Модели:** `MCPPrompt`, `MCPPromptArgument`, `MCPListPromptsResult`, `MCPGetPromptResult`, `MCPPromptMessage`
+
+**API:**
+- `MCPClient.list_prompts()` → список промптов сервера
+- `MCPClient.get_prompt(name, arguments)` → промпт с аргументами
+- `MCPManager.get_all_prompts()` → aggregated от всех серверов
+
+**Интеграция:** MCP Prompts → ACP slash commands через `PromptMapper`. Каждый prompt становится slash-командой `/mcp__servername__promptname`.
+
+### 19.5 Notifications и Auto-reconnect
+
+**Notifications:**
+- `notifications/tools/list_changed` → refresh available_tools → `available_commands_update` клиенту
+- `notifications/resources/list_changed` → refresh cached resources
+- `notifications/prompts/list_changed` → refresh cached prompts
+- `notifications/progress` → ACP notification (tool_call_update с progress)
+
+**Auto-reconnect:**
+- `ServerState.RECONNECTING` state в MCPManager
+- `reconnect_with_backoff()` с exponential backoff и max_retries=5
+- При reconnect: re-initialize, re-list_tools, re-register
+- Notification клиенту о disconnect/reconnect
+- Graceful degradation: если server не восстанавливается → удалить из active
+
+### 19.6 MCP Roots
+
+MCP Roots поддерживаются для совместимости с MCP серверами, но **не интегрируются с агентом** (см. ADR-001). Агент уже имеет доступ к файлам через ACP от IDE (`fs/read_text_file`, `fs/write_text_file`).
+
+**Реализовано:** `MCPRoot`, `roots/list` handler, `capabilities.roots` в initialize, `notifications/roots/list_changed`.
+
+### 19.7 MCP Sampling и Elicitation — N/A
+
+**MCP Sampling** (`sampling/createMessage`) — **не реализовано, не планируется**. Агент (Server) сам управляет LLM-вызовами через `AgentOrchestrator` и LLM-провайдеров. MCP-серверы в экосистеме — инструменты (filesystem, DB, API), не AI-агенты. Делегирование LLM-вызовов от MCP-сервера к агенту не требуется.
+
+**MCP Elicitation** (`elicitation/create`) — **не реализовано, не планируется**. ACP уже имеет `session/request_permission` для запроса разрешений у пользователя. Агент может запрашивать информацию через conversational flow. Ни один MCP-клиент кроме Claude Code не реализует elicitation.
+
+### 19.8 Транспорт
+
+| Транспорт | Статус | Описание |
+|-----------|--------|----------|
+| StdioTransport | ✅ | subprocess, stdin/stdout JSON-RPC |
+| HttpTransport | ✅ | aiohttp POST, JSON-RPC over HTTP |
+| SseTransport | ✅ | SSE events + HTTP POST (deprecated в MCP spec) |
+
+**Входящие запросы:** Все транспорты поддерживают входящие запросы от сервера (roots/list, sampling, elicitation) с методами `send_response()` и `send_error()`.
 
 ## 20. LLM Провайдеры
 

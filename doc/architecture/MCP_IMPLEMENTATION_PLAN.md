@@ -3,6 +3,8 @@
 **Дата:** 2026-05-26  
 **Основано на:** MCP spec (`doc/Model Context Protocol/`), ACP spec (`doc/Agent Client Protocol/`), текущая реализация (`codelab/src/codelab/server/mcp/`)
 
+**Обновлено:** 2026-06-08 — Все фазы завершены. Sampling/Elicitation исключены из scope (N/A).
+
 **Архитектурные решения:**
 - [ADR-001: MCP Roots не интегрируются с агентом](./ADR-001-mcp-roots-architecture.md)
 
@@ -13,32 +15,32 @@
 ### ✅ Реализовано
 
 | Компонент | Файл | Статус |
-|---|---|---|
-| StdioTransport | `mcp/transport.py` | Полностью — subprocess, send_request, send_notification, close |
-| MCPClient | `mcp/client.py` | Полностью — connect, initialize, list_tools, call_tool, state machine |
-| MCPManager | `mcp/manager.py` | Полностью — multi-server lifecycle, add/remove, get_tools, call_tool |
-| MCPToolAdapter | `mcp/tool_adapter.py` | Полностью — namespace `mcp:server:tool`, конвертация MCP→ACP |
-| JSON-RPC модели | `mcp/models.py` | Полностью — MCPRequest, MCPResponse, MCPError, MCPTool, MCPCallToolResult |
-| Content модели | `mcp/models.py` | Полностью — MCPTextContent, MCPImageContent, MCPEmbeddedResource |
-| Интеграция в ACP | `protocol/core.py` | Полностью — `_setup_mcp_if_needed()`, MCPManager в SessionState |
-| Session lifecycle | `handlers/session.py` | Полностью — MCP серверы подключаются при session/new и session/load |
+|-----------|------|--------|
+| StdioTransport | `mcp/transport.py` | ✅ Полностью — subprocess, send_request, send_notification, close, incoming requests |
+| HttpTransport | `mcp/transport.py` | ✅ Полностью — aiohttp POST, JSON-RPC over HTTP |
+| SseTransport | `mcp/transport.py` | ✅ Полностью — SSE events + HTTP POST |
+| MCPClient | `mcp/client.py` | ✅ Полностью — connect, initialize, list_tools, call_tool, list_resources, read_resource, list_prompts, get_prompt, state machine |
+| MCPManager | `mcp/manager.py` | ✅ Полностью — multi-server lifecycle, add/remove, get_tools, call_tool, auto-reconnect, notifications |
+| MCPToolExecutor | `tools/executors/mcp_executor.py` | ✅ Полностью — execute, content conversion, timeout, error handling |
+| MCPToolAdapter | `mcp/tool_adapter.py` | ✅ Полностью — namespace `mcp:server:tool`, конвертация MCP→ACP |
+| ContentMapper | `mcp/content_mapper.py` | ✅ MCP content ↔ ACP content conversion |
+| PromptMapper | `mcp/prompt_mapper.py` | ✅ MCP Prompts → ACP slash commands |
+| ResourceMapper | `mcp/resource_mapper.py` | ✅ MCP Resources → ACP ResourceLinkContent |
+| JSON-RPC модели | `mcp/models.py` | ✅ MCPRequest, MCPResponse, MCPError, MCPTool, MCPCallToolResult, Resources, Prompts, Roots |
+| Content модели | `mcp/models.py` | ✅ MCPTextContent, MCPImageContent, MCPEmbeddedResource, MCPResourceContent |
+| Интеграция в ACP | `protocol/core.py` | ✅ `_setup_mcp_if_needed()`, MCPManager в SessionState |
+| MCP Tools в LLM Loop | `protocol/handlers/pipeline/stages/llm_loop.py` | ✅ MCPToolExecutor delegation, permission flow |
+| Session lifecycle | `handlers/session.py` | ✅ MCP серверы подключаются при session/new и session/load |
+| Notification infrastructure | `mcp/transport.py`, `mcp/client.py` | ✅ register_notification_handler, transport notifications |
+| Incoming request handling | `mcp/transport.py` | ✅ send_response, send_error, roots/list handler |
 | Тесты | `tests/server/test_mcp_module.py` | 27 тестов — transport, client, manager, adapter, models |
 
-### ❌ Не реализовано (приоритизировано)
+### ❌ Не реализовано (исключено из scope)
 
-| # | Задача | Приоритет | Описание |
-|---|---|---|---|
-| 1 | **MCP Tools в LLM Loop** | 🔴 P0 | MCP инструменты не подключены к `LLMLoopStage` — критичный гэп |
-| 2 | **MCP Resources** | 🟡 P1 | `resources/list`, `resources/templates/list`, `resources/read` |
-| 3 | **MCP Prompts** | 🟡 P1 | `prompts/list`, `prompts/get` |
-| 4 | **Tool list change notifications** | 🟡 P1 | `notifications/tools/list_changed` не обрабатывается |
-| 5 | **Auto-reconnect** | 🟡 P1 | Нет переподключения при падении MCP сервера |
-| 6 | **Image/Resource content в результатах** | 🟢 P2 | Только text извлекается из tool results |
-| 7 | **MCP Roots** | 🟢 P2 | `roots/list` capability — client→server |
-| 8 | **MCP Sampling** | 🟢 P2 | `sampling/createMessage` — server→client LLM request |
-| 9 | **MCP Elicitation** | 🟢 P2 | `elicitation/create` — server→client user input |
-| 10 | **Progress notifications** | 🟢 P2 | Progress tokens / progress notifications |
-| 11 | **HTTP Transport** | 🟢 P2 | MCP over HTTP (Streamable HTTP) |
+| # | Задача | Статус | Причина |
+|---|--------|--------|---------|
+| 8 | **MCP Sampling** | ❌ N/A | Агент сам управляет LLM-вызовами, делегирование не требуется |
+| 9 | **MCP Elicitation** | ❌ N/A | Покрыто ACP `session/request_permission` + conversational flow |
 
 ---
 
@@ -243,28 +245,13 @@
 **Когда использовать MCP Roots:**
 Пользователь может явно настроить roots в конфигурации MCP серверов, если MCP сервер поддерживает roots и использует их для работы (например, git server, database schema server). Для MCP filesystem server roots избыточны, так как агент уже имеет доступ к файлам через ACP.
 
-### 5.3 MCP Sampling
+### 5.3 MCP Sampling — N/A
 
-**Файлы:** `server/mcp/client.py`, `server/mcp/models.py`, `server/llm/`
+**Исключено из scope (2026-06-08).** Агент (Server) сам управляет LLM-вызовами через `AgentOrchestrator` и LLM-провайдеров. MCP-серверы в экосистеме — инструменты (filesystem, DB, API), не AI-агенты. Делегирование LLM-вызовов от MCP-сервера к агенту не требуется. Ни один mainstream MCP-клиент кроме Claude Code не реализует sampling.
 
-**Подзадачи:**
-- [ ] 5.3.1 `MCPSamplingMessage` — role, content
-- [ ] 5.3.2 `sampling/createMessage` handler (server→client request)
-- [ ] 5.3.3 Делегирование в LLM провайдер → возврат completion
-- [ ] 5.3.4 Model preferences mapping → LLM resolver
-- [ ] 5.3.5 Human-in-the-loop: approval через client (если требуется)
-- [ ] 5.3.6 Тесты: sampling request → LLM → response
+### 5.4 MCP Elicitation — N/A
 
-### 5.4 MCP Elicitation
-
-**Файлы:** `server/mcp/client.py`, `server/mcp/models.py`
-
-**Подзадачи:**
-- [ ] 5.4.1 `MCPElicitationRequest` — message, schema
-- [ ] 5.4.2 `elicitation/create` handler (server→client request)
-- [ ] 5.4.3 Делегирование в client → UI elicitation modal
-- [ ] 5.4.4 Response validation against schema
-- [ ] 5.4.5 Тесты: elicitation flow
+**Исключено из scope (2026-06-08).** ACP уже имеет `session/request_permission` для запроса разрешений у пользователя. Агент может запрашивать информацию через conversational flow (LLM генерирует вопрос → клиент показывает → пользователь отвечает). Ни один MCP-клиент кроме Claude Code не реализует elicitation.
 
 ### 5.5 Progress notifications
 
