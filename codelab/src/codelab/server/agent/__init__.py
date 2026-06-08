@@ -9,6 +9,17 @@ from codelab.server.agent.base import (
     AgentResponse,
     LLMAgent,
 )
+from codelab.server.agent.config import (
+    AgentConfigLoader,
+    AgentConfigResolver,
+    AgentMarkdownConfig,
+    AgentMode,
+    AgentPermission,
+    AgentsGlobalConfig,
+    AgentTOMLConfig,
+    ResolvedAgent,
+    SessionMetrics,
+)
 from codelab.server.agent.contracts.base import (
     AgentBusError,
     AgentDispatchError,
@@ -38,6 +49,7 @@ from codelab.server.agent.event_bus.routing import (
 )
 from codelab.server.agent.naive import NaiveAgent
 from codelab.server.agent.orchestrator import AgentOrchestrator
+from codelab.server.agent.registry import AgentRegistry
 from codelab.server.agent.state import OrchestratorConfig
 
 __all__ = [
@@ -48,6 +60,16 @@ __all__ = [
     "OrchestratorConfig",
     "NaiveAgent",
     "AgentOrchestrator",
+    # Config models
+    "AgentMode",
+    "AgentPermission",
+    "AgentTOMLConfig",
+    "AgentsGlobalConfig",
+    "AgentMarkdownConfig",
+    "ResolvedAgent",
+    "SessionMetrics",
+    "AgentConfigLoader",
+    "AgentConfigResolver",
     # Event Bus contracts
     "DomainEvent",
     "TokenUsage",
@@ -73,4 +95,6 @@ __all__ = [
     "RequestHandler",
     "AgentEventBus",
     "RetryConfig",
+    # Registry
+    "AgentRegistry",
 ]
