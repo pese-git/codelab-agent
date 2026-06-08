@@ -52,6 +52,57 @@ class TestTerminalExecutorCreate:
         with pytest.raises(RuntimeError, match="Failed to create terminal"):
             await executor.create_terminal("nonexistent_command_xyz", ["arg"])
 
+    async def test_create_terminal_auto_splits_command_with_spaces(
+        self, executor: TerminalExecutor
+    ) -> None:
+        """Тест авто-разбиения команды содержащей пробелы.
+
+        LLM иногда передаёт "ls -ahl ." целиком в command вместо
+        command="ls", args=["-ahl", "."]. Executor должен разбить.
+        """
+        terminal_id = await executor.create_terminal("ls -ahl")
+
+        session = executor._terminals[terminal_id]
+        assert session.command == "ls"
+        assert session.args == ["-ahl"]
+
+    async def test_create_terminal_auto_splits_with_quotes(
+        self, executor: TerminalExecutor
+    ) -> None:
+        """Тест авто-разбиения команды с кавычками.
+
+        shlex.split корректно обрабатывает кавычки.
+        """
+        terminal_id = await executor.create_terminal('echo "hello world"')
+
+        session = executor._terminals[terminal_id]
+        assert session.command == "echo"
+        assert session.args == ["hello world"]
+
+    async def test_create_terminal_no_split_when_args_provided(
+        self, executor: TerminalExecutor
+    ) -> None:
+        """Тест что команда НЕ разбивается если args уже переданы.
+
+        Даже если command содержит пробелы, при наличии args разбиение
+        не происходит — caller сам разделил команду.
+        """
+        terminal_id = await executor.create_terminal("echo", ["hello world"])
+
+        session = executor._terminals[terminal_id]
+        assert session.command == "echo"
+        assert session.args == ["hello world"]
+
+    async def test_create_terminal_no_split_when_no_spaces(
+        self, executor: TerminalExecutor
+    ) -> None:
+        """Тест что команда НЕ разбивается если нет пробелов."""
+        terminal_id = await executor.create_terminal("echo")
+
+        session = executor._terminals[terminal_id]
+        assert session.command == "echo"
+        assert session.args == []
+
 
 class TestTerminalExecutorOutput:
     """Тесты для получения output."""

@@ -201,7 +201,7 @@ class TestResolveTUIConnection:
         assert host == "192.168.1.1"
         assert port == 9000
         assert theme == "dark"
-        assert timeout == 60.0  # default
+        assert timeout == 300.0  # default
 
     def test_resolve_with_env_theme(self, tmp_path: Path) -> None:
         """Env theme используется когда CLI theme нет."""
@@ -216,7 +216,7 @@ class TestResolveTUIConnection:
             host, port, theme, timeout = resolve_tui_connection(host=None, port=None)
 
         assert theme == "dark"
-        assert timeout == 60.0  # default
+        assert timeout == 300.0  # default
 
     def test_resolve_fallback_to_json_config(self, tmp_path: Path) -> None:
         """Fallback на JSON конфиг когда нет CLI/env."""
@@ -230,7 +230,7 @@ class TestResolveTUIConnection:
         assert host == "10.0.0.1"
         assert port == 8080
         assert theme == "dark"
-        assert timeout == 60.0  # default
+        assert timeout == 300.0  # default
 
     def test_resolve_with_cli_timeout(self, tmp_path: Path) -> None:
         """CLI timeout имеет приоритет."""

@@ -10,6 +10,7 @@ from codelab.server.toml_config.pydantic_config import (
     FallbackConfig,
     ModelConfig,
     ProviderConfig,
+    TimeoutConfig,
     _expand_env_vars,
     _humanize_name,
 )
@@ -153,3 +154,42 @@ class TestFallbackConfig:
         assert config.order == []
         assert config.max_attempts == 3
         assert config.retry_on == ["rate_limit", "timeout"]
+
+
+class TestTimeoutConfig:
+    """Tests for TimeoutConfig model."""
+
+    def test_default_values(self) -> None:
+        config = TimeoutConfig()
+        assert config.connect == 30.0
+        assert config.read == 300.0
+        assert config.write == 30.0
+        assert config.pool == 30.0
+
+    def test_custom_values(self) -> None:
+        config = TimeoutConfig(connect=10.0, read=120.0, write=5.0, pool=15.0)
+        assert config.connect == 10.0
+        assert config.read == 120.0
+        assert config.write == 5.0
+        assert config.pool == 15.0
+
+    def test_partial_override(self) -> None:
+        config = TimeoutConfig(read=60.0)
+        assert config.connect == 30.0
+        assert config.read == 60.0
+        assert config.write == 30.0
+        assert config.pool == 30.0
+
+    def test_provider_config_has_timeout(self) -> None:
+        """ProviderConfig должен иметь поле timeout."""
+        config = ProviderConfig()
+        assert isinstance(config.timeout, TimeoutConfig)
+        assert config.timeout.read == 300.0
+
+    def test_provider_config_custom_timeout(self) -> None:
+        """ProviderConfig должен принимать кастомный timeout."""
+        config = ProviderConfig(
+            timeout=TimeoutConfig(connect=5.0, read=60.0),
+        )
+        assert config.timeout.connect == 5.0
+        assert config.timeout.read == 60.0

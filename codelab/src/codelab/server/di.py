@@ -29,7 +29,7 @@ from .agent.orchestrator import AgentOrchestrator
 from .agent.state import OrchestratorConfig
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider
-from .llm.base import LLMConfig
+from .llm.base import LLMConfig, LLMTimeoutConfig
 from .llm.errors import ProviderNotFoundError
 from .llm.registry import LLMProviderRegistry
 from .protocol.core import ACPProtocol
@@ -150,6 +150,12 @@ class LLMProvider_(Provider):
             base_url=config.llm.base_url,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
+            timeout=LLMTimeoutConfig(
+                connect=config.llm.timeout.connect,
+                read=config.llm.timeout.read,
+                write=config.llm.timeout.write,
+                pool=config.llm.timeout.pool,
+            ),
         )
 
         try:
@@ -161,6 +167,12 @@ class LLMProvider_(Provider):
                 model=config.llm.model,
                 temperature=config.llm.temperature,
                 max_tokens=config.llm.max_tokens,
+                timeout=LLMTimeoutConfig(
+                    connect=config.llm.timeout.connect,
+                    read=config.llm.timeout.read,
+                    write=config.llm.timeout.write,
+                    pool=config.llm.timeout.pool,
+                ),
             ))
             return provider
 

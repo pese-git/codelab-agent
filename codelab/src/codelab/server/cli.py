@@ -209,14 +209,41 @@ def run_server() -> None:
         default=False,
         help="Включить детальное логирование всех JSON-RPC сообщений (DEBUG level)",
     )
+    # LLM timeout configuration
+    parser.add_argument(
+        "--llm-timeout-connect",
+        type=float,
+        default=None,
+        help="Таймаут подключения к LLM API (секунды). По умолчанию 30.0",
+    )
+    parser.add_argument(
+        "--llm-timeout-read",
+        type=float,
+        default=None,
+        help="Таймаут ожидания ответа от LLM API (секунды). По умолчанию 300.0",
+    )
+    parser.add_argument(
+        "--llm-timeout-write",
+        type=float,
+        default=None,
+        help="Таймаут отправки запроса к LLM API (секунды). По умолчанию 30.0",
+    )
+    parser.add_argument(
+        "--llm-timeout-pool",
+        type=float,
+        default=None,
+        help="Таймаут ожидания соединения из пула (секунды). По умолчанию 30.0",
+    )
     args = parser.parse_args()
     logger.debug("command line arguments parsed")
 
     # Инициализируем логирование перед запуском сервера с поддержкой сохранения в файл
+    # В stdio режиме логи направляются ТОЛЬКО в stderr, чтобы не ломать JSON-RPC поток в stdout
     logger = setup_logging(
         level=args.log_level,
         json_format=args.log_json,
         log_file=args.log_file or None,
+        stderr_only=args.stdio,
     )
     logger.info(
         "logging configured",
@@ -260,6 +287,39 @@ def run_server() -> None:
 
     if cli_overrides:
         logger.debug("configuration overridden", overrides=", ".join(cli_overrides))
+
+    # Таймауты LLM из CLI
+    timeout_cli_values = [
+        args.llm_timeout_connect,
+        args.llm_timeout_read,
+        args.llm_timeout_write,
+        args.llm_timeout_pool,
+    ]
+    if any(timeout_cli_values):
+        from codelab.server.toml_config.pydantic_config import TimeoutConfig
+
+        current = config.llm.timeout
+        config.llm.timeout = TimeoutConfig(
+            connect=args.llm_timeout_connect
+            if args.llm_timeout_connect is not None
+            else current.connect,
+            read=args.llm_timeout_read
+            if args.llm_timeout_read is not None
+            else current.read,
+            write=args.llm_timeout_write
+            if args.llm_timeout_write is not None
+            else current.write,
+            pool=args.llm_timeout_pool
+            if args.llm_timeout_pool is not None
+            else current.pool,
+        )
+        logger.debug(
+            "llm timeouts overridden via CLI",
+            connect=config.llm.timeout.connect,
+            read=config.llm.timeout.read,
+            write=config.llm.timeout.write,
+            pool=config.llm.timeout.pool,
+        )
 
     # Fallback конфигурация из CLI
     if args.fallback_enabled is not None:

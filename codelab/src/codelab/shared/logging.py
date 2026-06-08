@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -81,12 +82,16 @@ def setup_logging(
     log_file: str | None = None,
     log_dir: Path | None = None,
     console_output: bool = False,
+    stderr_only: bool = False,
 ) -> structlog.BoundLogger:
     """Настраивает структурированное логирование для CodeLab.
 
     По умолчанию логи выводятся только в файл (если указан), вывод в stdout/stderr
     отключен, чтобы не мешать работе TUI. Для серверного режима (serve) можно
     включить console_output для вывода логов в терминал.
+
+    В режиме stderr_only логи направляются явно в stderr — это критично для
+    stdio транспорта, где stdout используется исключительно для JSON-RPC сообщений.
 
     Функция идемпотентна — повторные вызовы безопасны и не создают
     дублирующих handlers. При повторном вызове возвращается уже
@@ -101,8 +106,11 @@ def setup_logging(
                   - абсолютный или относительный путь
         log_dir: Кастомная директория для логов (опционально).
                  Используется вместо ~/.codelab/logs/ если указана.
-        console_output: Выводить логи в консоль (stdout). По умолчанию False.
+        console_output: Выводить логи в консоль (stderr). По умолчанию False.
                         Включите для режима serve, где TUI не используется.
+        stderr_only: Направлять логи ТОЛЬКО в stderr. По умолчанию False.
+                     Используйте для stdio транспорта, чтобы логи не попадали
+                     в stdout и не ломали JSON-RPC поток.
 
     Returns:
         Настроенный структурированный logger.
@@ -119,12 +127,8 @@ def setup_logging(
             log_file="default"
         )
 
-        # Серверный режим с выводом в консоль и файл
-        logger = setup_logging(
-            level="INFO",
-            log_file="default",
-            console_output=True
-        )
+        # Stdio режим — логи только в stderr
+        logger = setup_logging(level="INFO", stderr_only=True)
     """
     # Проверка идемпотентности — предотвращает дублирование handlers
     # при повторных вызовах (defensive programming)
@@ -150,8 +154,13 @@ def setup_logging(
     # Настройка обработчиков логирования
     handlers: list[logging.Handler] = []
 
-    # Добавляем консольный обработчик для режима serve (где нет TUI)
-    if console_output:
+    # Режим stderr_only — логи ТОЛЬКО в stderr (для stdio транспорта)
+    if stderr_only:
+        stderr_handler = logging.StreamHandler(stream=sys.stderr)
+        handlers.append(stderr_handler)
+    elif console_output:
+        # Добавляем консольный обработчик для режима serve (где нет TUI)
+        # StreamHandler() по умолчанию пишет в stderr
         stream_handler = logging.StreamHandler()
         handlers.append(stream_handler)
 

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from codelab.server.toml_config.pydantic_config import (
     FallbackConfig,
     ProviderConfig,
+    TimeoutConfig,
     _expand_env_vars,
 )
 
@@ -78,6 +80,7 @@ class LLMConfig(BaseModel):
         model: Модель LLM для использования
         temperature: Temperature для генерации (0.0-1.0)
         max_tokens: Максимальное количество токенов в ответе
+        timeout: Таймауты HTTP-вызовов (connect, read, write, pool)
         providers: Конфигурация провайдеров из TOML (для Registry)
         fallback: Конфигурация fallback системы из TOML
     """
@@ -89,6 +92,7 @@ class LLMConfig(BaseModel):
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 8192
+    timeout: TimeoutConfig = Field(default_factory=TimeoutConfig)
 
     # Registry metadata (загружаются только из TOML)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -308,6 +312,7 @@ class AppConfig(BaseSettings):
             "max_tokens": 8192,
             "api_key": None,
             "base_url": None,
+            "timeout": TimeoutConfig(),
         }
 
         # Применяем TOML (нижний приоритет)
@@ -322,6 +327,17 @@ class AppConfig(BaseSettings):
                 llm_data["providers"] = toml_llm["providers"]
             if "fallback" in toml_llm:
                 llm_data["fallback"] = toml_llm["fallback"]
+
+            # Timeout из TOML — [llm.timeout] секция
+            if "timeout" in toml_llm:
+                toml_timeout = toml_llm["timeout"]
+                if isinstance(toml_timeout, dict):
+                    timeout_kwargs: dict[str, float] = {}
+                    for key in ("connect", "read", "write", "pool"):
+                        if key in toml_timeout and isinstance(toml_timeout[key], (int, float)):
+                            timeout_kwargs[key] = float(toml_timeout[key])
+                    if timeout_kwargs:
+                        llm_data["timeout"] = TimeoutConfig(**timeout_kwargs)
 
         # Применяем env vars (высший приоритет над TOML)
         env_provider = os.getenv("CODELAB_LLM_PROVIDER")
@@ -347,6 +363,24 @@ class AppConfig(BaseSettings):
         env_base_url = os.getenv("CODELAB_LLM_BASE_URL")
         if env_base_url is not None:
             llm_data["base_url"] = env_base_url
+
+        # Таймауты из env vars (высший приоритет над TOML)
+        existing_timeout: TimeoutConfig = llm_data["timeout"]
+        timeout_kwargs: dict[str, float] = {
+            "connect": existing_timeout.connect,
+            "read": existing_timeout.read,
+            "write": existing_timeout.write,
+            "pool": existing_timeout.pool,
+        }
+        env_timeout_read = os.getenv("CODELAB_LLM_TIMEOUT_READ")
+        if env_timeout_read is not None:
+            with suppress(ValueError):
+                timeout_kwargs["read"] = float(env_timeout_read)
+        env_timeout_connect = os.getenv("CODELAB_LLM_TIMEOUT_CONNECT")
+        if env_timeout_connect is not None:
+            with suppress(ValueError):
+                timeout_kwargs["connect"] = float(env_timeout_connect)
+        llm_data["timeout"] = TimeoutConfig(**timeout_kwargs)
 
         # Если api_key/base_url не заданы напрямую, берём из конфига
         # активного провайдера ([llm.providers.<provider>])

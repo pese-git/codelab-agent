@@ -16,6 +16,7 @@ from abc import abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
 import structlog
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
@@ -87,9 +88,18 @@ class OpenAICompatibleProvider(LLMProvider):
         """
         self._config = config
 
+        # Создаём настраиваемый таймаут для HTTP-вызовов
+        timeout = httpx.Timeout(
+            connect=config.timeout.connect,
+            read=config.timeout.read,
+            write=config.timeout.write,
+            pool=config.timeout.pool,
+        )
+
         self._client = AsyncOpenAI(
             api_key=config.api_key,
             base_url=self._base_url or config.base_url,
+            timeout=timeout,
         )
 
         logger.info(

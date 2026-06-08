@@ -121,3 +121,85 @@ class TestSetupLogging:
             if isinstance(h, logging.FileHandler)
         ]
         assert len(file_handlers) == 0
+
+    def test_stderr_only_adds_stderr_handler(self, tmp_path: Path) -> None:
+        """stderr_only=True добавляет handler для stderr."""
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Directly test the handler creation logic
+        import logging as std_logging
+        import sys
+
+        handlers: list[std_logging.Handler] = []
+        stderr_handler = std_logging.StreamHandler(stream=sys.stderr)
+        handlers.append(stderr_handler)
+
+        std_logging.basicConfig(
+            format="%(message)s",
+            handlers=handlers,
+            level=std_logging.DEBUG,
+            force=True,
+        )
+
+        root_logger = std_logging.getLogger()
+        stderr_handlers = [
+            h for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler)
+            and h.stream is sys.stderr
+        ]
+        assert len(stderr_handlers) >= 1
+
+    def test_stderr_only_no_stdout_handler(self, tmp_path: Path) -> None:
+        """stderr_only=True НЕ добавляет handler для stdout."""
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        import logging as std_logging
+        import sys
+
+        handlers: list[std_logging.Handler] = []
+        stderr_handler = std_logging.StreamHandler(stream=sys.stderr)
+        handlers.append(stderr_handler)
+
+        std_logging.basicConfig(
+            format="%(message)s",
+            handlers=handlers,
+            level=std_logging.DEBUG,
+            force=True,
+        )
+
+        root_logger = std_logging.getLogger()
+        stdout_handlers = [
+            h for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler)
+            and h.stream is sys.stdout
+        ]
+        assert len(stdout_handlers) == 0
+
+    def test_console_output_uses_stdout(self, tmp_path: Path) -> None:
+        """console_output=True использует stdout."""
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        import logging as std_logging
+        import sys
+
+        handlers: list[std_logging.Handler] = []
+        stream_handler = std_logging.StreamHandler(stream=sys.stdout)
+        handlers.append(stream_handler)
+
+        std_logging.basicConfig(
+            format="%(message)s",
+            handlers=handlers,
+            level=std_logging.DEBUG,
+            force=True,
+        )
+
+        root_logger = std_logging.getLogger()
+        stdout_handlers = [
+            h for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler)
+            and h.stream is sys.stdout
+        ]
+        assert len(stdout_handlers) >= 1

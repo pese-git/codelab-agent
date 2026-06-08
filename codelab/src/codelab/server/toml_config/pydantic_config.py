@@ -111,6 +111,22 @@ def _expand_env_vars(value: str) -> str:
     return result
 
 
+class TimeoutConfig(BaseModel):
+    """Конфигурация таймаутов для HTTP-вызовов LLM провайдера.
+
+    Атрибуты:
+        connect: Таймаут подключения к серверу (секунды)
+        read: Таймаут ожидания ответа от LLM (секунды)
+        write: Таймаут отправки запроса (секунды)
+        pool: Таймаут ожидания соединения из пула (секунды)
+    """
+
+    connect: float = 30.0
+    read: float = 300.0
+    write: float = 30.0
+    pool: float = 30.0
+
+
 class ModelConfig(BaseModel):
     """Конфигурация конкретной модели.
 
@@ -155,12 +171,14 @@ class ProviderConfig(BaseModel):
         base_url: Base URL API
         default_model: Модель по умолчанию
         models: Per-model конфигурация
+        timeout: Таймауты HTTP-вызовов
     """
 
     api_key: str | None = None
     base_url: str | None = None
     default_model: str | None = None
     models: dict[str, ModelConfig] = Field(default_factory=dict)
+    timeout: TimeoutConfig = Field(default_factory=TimeoutConfig)
 
     @field_validator("api_key", mode="before")
     @classmethod
