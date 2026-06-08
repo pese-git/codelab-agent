@@ -2,6 +2,7 @@
 
 **Дата:** 2026-05-21
 **Метод:** Ручная верификация кода vs спецификация `doc/Agent Client Protocol/`
+**Обновлено:** 2026-06-08 — MCP Integration полностью завершена + MCP Client TOML Config завершён. Тесты 3,302 (+348), файлы 196 (+22).
 **Обновлено:** 2026-06-08 — MCP Integration завершена (Tools в LLM Loop, Resources, Prompts, Notifications, Auto-reconnect, HTTP/SSE, Roots, Progress). Sampling/Elicitation исключены из scope (N/A).
 **Обновлено:** 2026-05-27 — MCP HTTP/SSE Transport ✅, MCP Auto-reconnect ✅, MCP Resources/Prompts Models ✅, тесты 2,954 (+289), файлы 174 (+9)
 **Обновлено:** 2026-05-26 — TOML Configuration System (26 тестов), Cached Storage, ToolMapping тесты, Auth тесты расширены
@@ -33,8 +34,9 @@
 | MCP Roots | ✅ capabilities.roots, roots/list, notifications |
 | MCP Sampling | ❌ N/A — агент сам управляет LLM |
 | MCP Elicitation | ❌ N/A — covered by ACP permission flow |
-| Тестовых файлов | **174** |
-| Тестовых методов | **2,954** |
+| MCP Client TOML Config | ✅ Загрузка из TOML, env expansion, TUI integration |
+| Тестовых файлов | **196** |
+| Тестовых методов | **3,302** |
 | Критичных проблем | ✅ 0 |
 | Известных гэпов | **3** (P2 — желательные) |
 
@@ -525,7 +527,8 @@ LLM: terminal/release → cleanup
 | 18 | `authenticate` — расширенное покрытие | ✅ Покрыто в protocol test suite |
 | 19 | ~~MCP HTTP/SSE transport~~ | ✅ Решено (2026-05-27) |
 | 20 | ~~MCP auto-reconnect~~ | ✅ Решено (2026-05-27) |
-| 21 | MCP resources/prompts server-side integration | ⚠️ Частично — модели и client methods готовы |
+| 21 | ~~MCP resources/prompts server-side integration~~ | ✅ Решено (2026-06-08) |
+| 22 | ~~MCP Client TOML Config~~ | ✅ Решено (2026-06-08) — MCPConfigLoader, env expansion, TUI integration, 9 тестов |
 
 ---
 
@@ -710,15 +713,17 @@ sequenceDiagram
 | TOML Configuration | 2 | 26 | ✅ Полное (новый) |
 | Интеграционные | 10+ | ~106 | ✅ Полное |
 
-### Клиент (~1,030 тестов, 69 файлов)
+### Клиент (~1,350 тестов, 91 файл)
 
 | Область | Файлов | Тестов | Покрытие |
 |---|---|---|---|
 | Domain Entities | 1 | 10 | ✅ |
-| Application | 3 | 21 | ✅ |
-| Infrastructure | 12 | ~174 | ✅ (+4 async callbacks) |
+| Application | 4 | 30 | ✅ (+9 MCP servers tests) |
+| Infrastructure | 13 | ~215 | ✅ (+41 MCP config loader tests) |
 | Presentation | 5 | 77 | ✅ (+4 async fs/terminal) |
 | TUI Components | 32 | ~700 | ✅ (Content API) |
+| MCP Config Loader | 1 | 41 | ✅ (новый) |
+| MCP Servers Passing | 1 | 9 | ✅ (новый) |
 
 ### Shared Content (~112 тестов, 6 файлов)
 
@@ -739,6 +744,7 @@ sequenceDiagram
 - MCP resources/prompts server-side handling (реализовано, тесты TBD)
 - MCP notification infrastructure (реализовано, тесты TBD)
 - MCP incoming request handling (реализовано, тесты TBD)
+- MCP Client TOML Config — интеграционные тесты с реальным TOML (unit тесты ✅)
 - Rate limiting для tool execution
 - SQLite storage (не реализован)
 - Streaming tool_calls в OpenAI (только текст обрабатывается)
@@ -808,6 +814,45 @@ sequenceDiagram
 
 ---
 
+## MCP Client TOML Configuration (2026-06-08)
+
+### Реализованные компоненты
+
+| Компонент | Файл | Статус |
+|-----------|------|--------|
+| MCPConfigLoader | `client/infrastructure/mcp_config_loader.py` | ✅ Загрузка из TOML, env expansion, validation, merge |
+| ClientConfig | `client/infrastructure/client_config.py` | ✅ Поле `mcp_servers` |
+| DI Container | `client/infrastructure/container_factory.py` | ✅ Параметр `mcp_servers` |
+| CreateSessionRequest | `client/application/dto.py` | ✅ Поле `mcp_servers` |
+| LoadSessionRequest | `client/application/dto.py` | ✅ Поле `mcp_servers` |
+| CreateSessionUseCase | `client/application/use_cases.py` | ✅ Передаёт `mcpServers` в `session/new` |
+| LoadSessionUseCase | `client/application/use_cases.py` | ✅ Передаёт `mcpServers` в `session/load` |
+| SessionCoordinator | `client/application/session_coordinator.py` | ✅ `create_session/load_session` с `mcp_servers` |
+| TUI App | `client/tui/app.py` | ✅ Загрузка в `on_mount()`, передача в сессии |
+| TOML Example | `codelab.toml.example` | ✅ 3 примера `[[mcp.servers]]` |
+
+### Тесты
+
+| Тест | Описание | Статус |
+|------|----------|--------|
+| `test_mcp_config_loader.py` | 41 тест — все функции MCPConfigLoader | ✅ |
+| `test_application_mcp_servers.py` | 9 тестов — mcpServers passing через UseCases и Coordinator | ✅ |
+
+### TOML Chain
+
+Приоритет загрузки (override по name):
+1. `~/.codelab/codelab.toml` — глобальная конфигурация
+2. `<cwd>/codelab.toml` — проект
+3. `<cwd>/codelab.local.toml` — локальные override
+
+### Env Var Expansion
+
+Поддержка `${VAR_NAME}` паттерна во всех строковых полях:
+- `command`, `args`, `env`, `url`, `headers`
+- Отсутствующие переменные → пустая строка
+
+---
+
 ## Рекомендации по приоритетам
 
 ### P0 — Критичные
@@ -838,14 +883,15 @@ sequenceDiagram
 ~~4. **Добавить MCP auto-reconnect**~~ ✅ Решено (2026-05-27)
 ~~5. **Реализовать MCP resources/prompts models**~~ ✅ Решено (2026-05-27) — модели и client methods
 ~~6. **Завершить MCP интеграцию**~~ ✅ Решено (2026-06-08) — полный MCP stack
-7. **Добавить Google Gemini провайдер** — отдельный провайдер или через OpenAI-compatible
-8. **Добавить локальные модели** — llama.cpp, MLX integration
-9. **Добавить тесты MCP HTTP/SSE transport** — реализовано, тесты TBD
-10. **Добавить тесты MCP auto-reconnect** — реализовано, тесты TBD
-11. **Добавить тесты MCP Tools в LLM Loop** — реализовано, тесты TBD
-12. **Добавить тесты MCP Resources/Prompts** — реализовано, тесты TBD
-13. **Добавить тесты MCP Notification Infrastructure** — реализовано, тесты TBD
-14. **Добавить тесты MCP Incoming Request Handling** — реализовано, тесты TBD
-15. **Добавить rate limiting для tool execution**
-16. **Реализовать SQLite storage** — для production persistence
-17. **Обработать streaming tool_calls в OpenAI** — сейчас только текст
+~~7. **MCP Client TOML Config**~~ ✅ Решено (2026-06-08) — MCPConfigLoader, env expansion, TUI integration, 9 тестов
+8. **Добавить Google Gemini провайдер** — отдельный провайдер или через OpenAI-compatible
+9. **Добавить локальные модели** — llama.cpp, MLX integration
+10. **Добавить тесты MCP HTTP/SSE transport** — реализовано, тесты TBD
+11. **Добавить тесты MCP auto-reconnect** — реализовано, тесты TBD
+12. **Добавить тесты MCP Tools в LLM Loop** — реализовано, тесты TBD
+13. **Добавить тесты MCP Resources/Prompts** — реализовано, тесты TBD
+14. **Добавить тесты MCP Notification Infrastructure** — реализовано, тесты TBD
+15. **Добавить тесты MCP Incoming Request Handling** — реализовано, тесты TBD
+16. **Добавить rate limiting для tool execution**
+17. **Реализовать SQLite storage** — для production persistence
+18. **Обработать streaming tool_calls в OpenAI** — сейчас только текст
