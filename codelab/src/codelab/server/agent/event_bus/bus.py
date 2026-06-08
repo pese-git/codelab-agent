@@ -168,6 +168,8 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
                     agent_name=result.agent_name,
                     session_id=request.session_id,
                 )
+                # Публикуем для observability
+                await self.publish(response)
                 return response
             except Exception as exc:
                 last_error = exc
