@@ -9,15 +9,68 @@ from codelab.server.agent.base import (
     AgentResponse,
     LLMAgent,
 )
+from codelab.server.agent.contracts.base import (
+    AgentBusError,
+    AgentDispatchError,
+    AgentListChanged,
+    AgentNotFoundError,
+    AgentRegistered,
+    AgentRequest,
+    AgentResponse as ContractAgentResponse,
+    AgentResult,
+    AgentUnregistered,
+    BroadcastPartialFailure,
+    ChoreographyAnswer,
+    ContextBroadcast,
+    DomainEvent,
+    TokenUsage,
+    ToolCall,
+)
+from codelab.server.agent.event_bus.bus import AgentEventBus, RetryConfig
+from codelab.server.agent.event_bus.abstract import (
+    AbstractEventBus,
+    Handler,
+    Subscription,
+)
+from codelab.server.agent.event_bus.routing import (
+    AgentRoutingInterface,
+    RequestHandler,
+)
 from codelab.server.agent.naive import NaiveAgent
 from codelab.server.agent.orchestrator import AgentOrchestrator
 from codelab.server.agent.state import OrchestratorConfig
 
 __all__ = [
+    # Original agent classes
     "LLMAgent",
     "AgentContext",
     "AgentResponse",
     "OrchestratorConfig",
     "NaiveAgent",
     "AgentOrchestrator",
+    # Event Bus contracts
+    "DomainEvent",
+    "TokenUsage",
+    "ToolCall",
+    "AgentRequest",
+    "ContractAgentResponse",
+    "AgentResult",
+    "ContextBroadcast",
+    "ChoreographyAnswer",
+    "AgentRegistered",
+    "AgentUnregistered",
+    "AgentListChanged",
+    # Event Bus exceptions
+    "AgentBusError",
+    "AgentNotFoundError",
+    "AgentDispatchError",
+    "BroadcastPartialFailure",
+    # Event Bus implementation
+    "AbstractEventBus",
+    "Subscription",
+    "Handler",
+    "AgentRoutingInterface",
+    "RequestHandler",
+    "AgentEventBus",
+    "RetryConfig",
 ]
