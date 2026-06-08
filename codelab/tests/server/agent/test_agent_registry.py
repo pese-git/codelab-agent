@@ -1,13 +1,10 @@
 """Тесты для AgentRegistry."""
 
-import asyncio
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from codelab.server.agent.config.models import (
-    AgentMarkdownConfig,
     AgentMode,
     AgentsGlobalConfig,
     ResolvedAgent,
