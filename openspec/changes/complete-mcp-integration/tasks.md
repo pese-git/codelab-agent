@@ -172,7 +172,7 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Обновить `openspec/specs/codelab.md` — раздел 19 (MCP интеграция)
-- [ ] 7.2 Обновить `doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md` — новый статус
-- [ ] 7.3 Обновить `doc/architecture/MCP_IMPLEMENTATION_PLAN.md` — отметить выполненные задачи
-- [ ] 7.4 Документировать исключение Sampling/Elicitation из scope (см. 5.3, 5.4)
+- [x] 7.1 Обновить `openspec/specs/codelab.md` — раздел 19 (MCP интеграция)
+- [x] 7.2 Обновить `doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md` — новый статус
+- [x] 7.3 Обновить `doc/architecture/MCP_IMPLEMENTATION_PLAN.md` — отметить выполненные задачи
+- [x] 7.4 Документировать исключение Sampling/Elicitation из scope (см. 5.3, 5.4)
