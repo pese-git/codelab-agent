@@ -36,7 +36,7 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
 3. Bus.dispatch_with_retry(handler, request, parent_span)
 4. Handler → AgentResult
 5. Bus.publish(AgentDispatched) → observability
-6. Return AgentBusResponse
+6. Return AgentResponse
 ```
 
 ### Flow broadcast

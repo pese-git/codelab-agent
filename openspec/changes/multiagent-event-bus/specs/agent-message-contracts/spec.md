@@ -26,18 +26,18 @@
 - `name: str` — имя инструмента
 - `arguments: dict` — аргументы вызова
 
-> **Примечание:** Это контракт шины событий, отличается от `LLMToolCall` из `server/llm/models.py`. Используется в `AgentResponse`, `AgentResult`, `ChoreographyAnswer`.
+> **Примечание:** Это контракт шины событий, отличается от `LLMToolCall` из `server/llm/models.py`. Используется в `AgentResponse`, `AgentResult`, `ChoreographyAnswer`, `TaskResult`.
 
 ### Требование: Контракт AgentRequest
 
 Система ДОЛЖНА определять `AgentRequest` как frozen dataclass (DomainEvent) с полями:
 - `target_agent: str` — имя целевого агента
-- `messages: list[Message]` — история сообщений для LLM
+- `messages: list[LLMMessage]` — история сообщений для LLM
 - `tools: list[ToolDefinition]` — доступные инструменты
 - `correlation_id: str` — ID для tracing
 - `session_id: str` — ID сессии
 
-> **Примечание:** Использовать `Message` из `server/llm/models.py` и `ToolDefinition` из `server/tools/base.py`.
+> **Примечание:** Использовать `LLMMessage` из `server/llm/models.py` и `ToolDefinition` из `server/tools/base.py`.
 
 ### Требование: Контракт AgentResponse (DomainEvent для EventBus)
 
@@ -66,7 +66,7 @@
 ### Требование: Контракт ContextBroadcast
 
 Система ДОЛЖНА определять `ContextBroadcast` как frozen dataclass (DomainEvent) с полями:
-- `context: list[Message]` — контекст для всех агентов
+- `context: list[LLMMessage]` — контекст для всех агентов
 - `available_agents: list[str]` — список доступных агентов
 - `step: int` — шаг выполнения
 - `correlation_id: str` — ID для tracing

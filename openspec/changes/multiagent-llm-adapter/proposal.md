@@ -36,6 +36,9 @@
 - `codelab/src/codelab/server/llm/models.py` — LLMMessage, LLMToolCall, CompletionRequest, CompletionResponse
 - `codelab/src/codelab/server/llm/base.py` — LLMProvider ABC
 - `codelab/src/codelab/server/tools/base.py` — ToolDefinition, ToolRegistry
+- `codelab/src/codelab/server/llm/registry.py` — LLMProviderRegistry
+- `codelab/src/codelab/server/llm/resolver.py` — ModelResolver
+- `codelab/src/codelab/server/llm/fallback/` — FallbackOrchestrator, SequentialFallback
 
 **Удаляемые файлы (после миграции):**
 - `codelab/src/codelab/server/agent/naive.py` — NaiveAgent (заменяется LLMAdapter)
@@ -59,7 +62,7 @@ sequenceDiagram
         Adapter->>Tools: execute tool_calls (если есть)
         Tools-->>Adapter: tool results
     end
-    Adapter->>Adapter: build AgentResult(text, tool_calls, usage, stop_reason, plan)
+    Adapter->>Adapter: build AgentResult(text, tool_calls, usage: TokenUsage, stop_reason, plan)
     Adapter->>Tracer: end_span(usage, latency)
     Adapter-->>EventBus: AgentResult
     deactivate Adapter

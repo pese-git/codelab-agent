@@ -80,13 +80,13 @@
 - [ ] 6.1 Создать пакет `codelab/src/codelab/server/protocol/handlers/strategies/` с `__init__.py`
 - [ ] 6.2 Создать `codelab/src/codelab/server/protocol/handlers/strategies/single_strategy.py`
 - [ ] 6.3 Создать класс `SingleStrategy` с полями: `event_bus`, `execution_engine`, `tracer`
-- [ ] 6.4 Реализовать `execute(context) → AgentBusResponse`:
+- [ ] 6.4 Реализовать `execute(context) → AgentResponse`:
   - Построить `AgentRequest` из context
   - Вызвать `event_bus.send_request(request, parent_span)`
-  - Вернуть `AgentBusResponse`
+  - Вернуть `AgentResponse` (DomainEvent от шины)
 - [ ] 6.5 Интегрировать Tracer: `start_span("single_strategy")` → `end_span`
 - [ ] 6.6 Интегрировать ContextCompactor: `ensure_context_fits` перед LLM call
-- [ ] 6.7 Написать unit тесты: execute → send_request → response
+- [ ] 6.7 Написать unit тесты: execute → send_request → AgentResponse
 - [ ] 6.8 Написать unit тесты: интеграция compaction контекста
 - [ ] 6.9 Написать integration тесты: полный цикл через EventBus + LLMAdapter
 

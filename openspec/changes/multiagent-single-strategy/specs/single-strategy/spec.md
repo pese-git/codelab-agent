@@ -6,15 +6,15 @@
 
 Система ДОЛЖНА предоставлять `SingleStrategy`, которая:
 - Вызывает единственного зарегистрированного агента через `EventBus.send_request()`
-- Возвращает `AgentBusResponse` вызывающему
+- Возвращает `AgentResponse` (DomainEvent) вызывающему
 - Использует тот же паттерн вызова, что и все остальные стратегии (uniformity)
 
 ### Требование: Поток SingleStrategy
 
 SingleStrategy ДОЛЖНА:
-1. Построить `AgentRequest` из контекста (messages, tools, correlation_id, session_id, model)
+1. Построить `AgentRequest` из контекста (messages, tools, correlation_id, session_id)
 2. Вызвать `event_bus.send_request(request, parent_span)`
-3. Вернуть `AgentBusResponse` вызывающему
+3. Вернуть `AgentResponse` вызывающему
 
 ### Требование: Без валидации mode
 

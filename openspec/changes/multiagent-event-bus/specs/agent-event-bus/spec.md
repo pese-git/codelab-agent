@@ -20,7 +20,7 @@
 - `async send_request(request: AgentRequest, parent_span: SpanContext | None) -> AgentResponse`
 - `async broadcast(broadcast: ContextBroadcast) -> list[ChoreographyAnswer]`
 
-> **Примечание:** `send_request()` возвращает `AgentResponse` (DomainEvent с `request_id`, `text`, `tool_calls`, `usage: TokenUsage`, `stop_reason`, `agent_name`).
+> **Примечание:** `send_request()` возвращает `AgentResponse` (DomainEvent с `request_id`, `text`, `tool_calls: list[ToolCall]`, `usage: TokenUsage`, `stop_reason`, `agent_name`).
 
 ### Требование: Реализация AgentEventBus
 
@@ -49,3 +49,4 @@
 - Отправлять всем зарегистрированным агентам параллельно
 - Возвращать список `ChoreographyAnswer`, включая ответы с ошибками
 - Не падать при ошибке обработчиков отдельных агентов (собирать ошибки, логировать, продолжать)
+- При частичном падении вызывать `BroadcastPartialFailure` с информацией об упавших агентах

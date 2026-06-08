@@ -9,9 +9,14 @@
 - `fallback_mode: str` — fallback при недоступности стратегии (по умолчанию: "single")
 - `default_model: str` — модель LLM по умолчанию (по умолчанию: "openai/gpt-4o")
 - `max_steps: int` — макс. шагов мультиагентного выполнения (по умолчанию: 7)
+- `slicer_model: str` — модель для Token-Slicing (по умолчанию: "openai/gpt-4o-mini")
+- `max_sliced_tokens: int` — лимит токенов для summary (по умолчанию: 120)
+- `slicer_skip_threshold: int` — пропуск slicing если output < N токенов (по умолчанию: 300)
 - `context_window_limit: int` — лимит окна контекста (по умолчанию: 128000)
 - `compaction_reserved_tokens: int` — буфер для compaction (по умолчанию: 10000)
 - `debug: bool` — режим отладки (по умолчанию: false)
+
+> **Примечание:** `slicer_model`, `max_sliced_tokens`, `slicer_skip_threshold` нужны для TokenSlicer в OrchestratedStrategy и HierarchicalStrategy — суммаризация ответов субагентов перед добавлением в контекст координатора.
 
 ### Требование: Определения агентов в TOML
 
@@ -137,3 +142,33 @@ AgentConfigLoader ДОЛЖЕН загружать агентов в следую
 ### Требование: Конвертация TOML в Markdown
 
 AgentConfigLoader ДОЛЖЕН конвертировать TOML конфиги в AgentMarkdownConfig для единообразной обработки.
+
+# Spec: session-state-migration
+
+## ДОБАВЛЕННЫЕ Требования
+
+### Требование: SessionState migration v1 → v3
+
+Система ДОЛЖНА поддерживать миграцию существующих session файлов через `model_validator`:
+
+Новые поля в `SessionState` (все с defaults, совместимы с существующими файлами):
+- `execution_mode: str = "single"` — single | multi_orchestrated | multi_choreographed | hierarchical
+- `active_agents: list[str]` — список активных агентов
+- `session_metrics: SessionMetrics | None` — метрики сессии
+- `correlation_id: str | None` — сквозной ID для observability prompt turn
+- `parent_session_id: str | None` — ID родительской сессии (для child sessions)
+- `child_session_ids: list[str]` — ID дочерних сессий
+- `is_child_session: bool = False` — флаг child session
+- `task_result: str | None` — результат делегирования (HierarchicalStrategy)
+- `sliced_summary: str | None` — суммаризированный ответ субагента
+
+### Требование: SessionMetrics
+
+Система ДОЛЖНА определять `SessionMetrics` с полями:
+- `total_time_sec: float`
+- `total_llm_calls: int`
+- `input_tokens: int`
+- `output_tokens: int`
+- `estimated_cost_usd: float`
+- `task_success: bool | None`
+- `agent_breakdown: dict[str, dict]` — метрики по каждому агенту

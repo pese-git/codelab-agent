@@ -36,6 +36,30 @@ class ExecutionEngine:
 - `AgentOrchestrator.continue_with_tool_results()` → `ExecutionEngine.ensure_context_fits()` + `SingleStrategy.execute()`
 - После миграции `AgentOrchestrator` удаляется из кодовой базы
 
+### HybridContextManager (для мультиагентных стратегий)
+
+`HybridContextManager` координирует три механизма управления контекстом:
+
+```python
+class HybridContextManager:
+    _slicer: TokenSlicer              # суммаризация ответов субагентов
+    _compactor: ContextCompactor      # двухфазный compaction: Prune + LLM Summarize
+    _storage: SessionStorage          # создание и связывание child sessions
+```
+
+**Два независимых метода:**
+- `ensure_context_fits()` — только ContextCompactor (Prune + LLM Summarize), без TokenSlicer
+- `process_subagent_response()` — TokenSlicer + Child Session creation
+
+**Когда стратегии вызывают:**
+
+| Стратегия | Когда вызывает | Какой метод |
+|-----------|---------------|-------------|
+| **Single** | Перед LLM call | `ensure_context_fits()` — только compaction |
+| **Orchestrated** | После каждого sub-agent response | `process_subagent_response()` + `ensure_context_fits()` |
+| **Choreography** | После conflict resolution (winner) | `process_subagent_response()` — только для winner |
+| **Hierarchical** | При возврате TaskResult из child session | `process_subagent_response()` + `ensure_context_fits()` |
+
 ### Ключевые решения
 
 | Решение | Обоснование |
@@ -43,7 +67,7 @@ class ExecutionEngine:
 | Через EventBus | Uniformity, observability, testing |
 | Композиция вместо монолита | Тестируемость, расширяемость |
 | Compaction fallback | Двухфазный: Prune → LLM Summarize |
-| Без Token-Slicing | Нет субагентов — не нужно сжимать |
+| Без Token-Slicing в Single | Нет субагентов — не нужно сжимать |
 | MCP tools всегда доступны | Выполняются на сервере, не зависят от client capabilities |
 
 ### Compaction Flow

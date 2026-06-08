@@ -35,7 +35,7 @@ async def _handle_request(request: AgentRequest, parent_span: SpanContext | None
     return result
 ```
 
-> **Примечание:** Возвращает `AgentResult` напрямую. Шина оборачивает в `AgentBusResponse` с `request_id` и `latency_ms`.
+> **Примечание:** Возвращает `AgentResult` напрямую. Шина оборачивает в `AgentResponse` (DomainEvent) с добавлением `request_id`.
 
 ### Требование: Поддержка отмены
 

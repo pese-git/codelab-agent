@@ -9,7 +9,7 @@
 - `MetricsTracker` — автолог метрик (token usage, latency, compression ratio, strategy execution time)
 - Подписка на события EventBus (`AbstractEventBus`) для автоматического сбора метрик
 - Debug mode — полные payload логи, LLM dump
-- Span attributes: original_tokens, compacted_tokens, compression_ratio, compaction_latency_ms
+- Span attributes: original_tokens, sliced_tokens, compression_ratio, slicer_latency_ms
 - Структура трейсов: `strategy_execution → bus_request → llm_call` (единая для всех стратегий)
 
 ## Capabilities
@@ -50,7 +50,7 @@ sequenceDiagram
     
     Note over Tracer: llm_call span nested in bus_request
     
-    EventBus-->>Strategy: AgentBusResponse
+    EventBus-->>Strategy: AgentResponse
     Strategy->>Metrics: record agent_response (usage, stop_reason)
     Strategy->>Timeline: record event (agent_response)
     Strategy->>Tracer: end_span

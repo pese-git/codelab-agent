@@ -42,6 +42,12 @@
 **Переиспользуемые файлы (без изменений):**
 - `codelab/src/codelab/server/agent/plan_extractor.py` — PlanExtractor
 - `codelab/src/codelab/server/tools/mapping.py` — acp_name_to_llm_name()
+- `codelab/src/codelab/server/transport/stdio.py` — StdioServerTransport
+- `codelab/src/codelab/server/transport/websocket.py` — WebSocketTransport
+- `codelab/src/codelab/server/client_rpc/service.py` — ClientRPCService
+- `codelab/src/codelab/server/protocol/handlers/pipeline/` — Pipeline Pattern
+- `codelab/src/codelab/server/protocol/handlers/directive_resolver.py` — DirectiveResolver
+- `codelab/src/codelab/server/protocol/handlers/replay_manager.py` — ReplayManager
 
 **Удаляемые файлы (после миграции):**
 - `codelab/src/codelab/server/agent/orchestrator.py` — AgentOrchestrator (заменяется ExecutionEngine)
@@ -68,7 +74,7 @@ sequenceDiagram
     Strategy->>EventBus: send_request(AgentRequest, parent_span)
     EventBus->>LLM: forward to registered agent
     LLM-->>EventBus: AgentResult
-    EventBus-->>Strategy: AgentBusResponse
+    EventBus-->>Strategy: AgentResponse
     Strategy->>Engine: ensure_context_fits (compaction if needed)
     Engine-->>Pipeline: result
     Pipeline-->>Client: session/update + response

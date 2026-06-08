@@ -6,10 +6,12 @@
 - [ ] 1.2 Создать enum `AgentMode`: primary, subagent, orchestrator
 - [ ] 1.3 Создать Pydantic модель `AgentPermission`: edit, bash, webfetch, task
 - [ ] 1.4 Создать Pydantic модель `AgentTOMLConfig` с model_config(extra="allow")
-- [ ] 1.5 Создать Pydantic модель `AgentsGlobalConfig` с полями: mode, fallback_mode, default_model, max_steps, context_window_limit, compaction_reserved_tokens, debug, definitions
+- [ ] 1.5 Создать Pydantic модель `AgentsGlobalConfig` с полями: mode, fallback_mode, default_model, max_steps, slicer_model, max_sliced_tokens, slicer_skip_threshold, context_window_limit, compaction_reserved_tokens, debug, definitions
+  - `slicer_model`, `max_sliced_tokens`, `slicer_skip_threshold` — для TokenSlicer в OrchestratedStrategy и HierarchicalStrategy
 - [ ] 1.6 Создать Pydantic модель `AgentMarkdownConfig` с model_config(extra="allow")
 - [ ] 1.7 Создать Pydantic модель `ResolvedAgent`
-- [ ] 1.8 Написать тесты для всех моделей (валидация, значения по умолчанию, extra поля)
+- [ ] 1.8 Создать Pydantic модель `SessionMetrics`: total_time_sec, total_llm_calls, input_tokens, output_tokens, estimated_cost_usd, task_success, agent_breakdown
+- [ ] 1.9 Написать тесты для всех моделей (валидация, значения по умолчанию, extra поля)
 
 ### 2. AgentConfigLoader
 
@@ -56,6 +58,14 @@
 - [ ] 5.2 Реализовать `_merge_agents_config()` — извлечение [agents] из TOML
 - [ ] 5.3 Написать тесты: AppConfig загружает agents_global из TOML
 
-### 6. codelab.toml.example
+### 6. SessionState migration v1 → v3
 
-- [ ] 6.1 Обновить `codelab/codelab.toml.example` с секцией [agents] и примерами определений
+- [ ] 6.1 Добавить новые поля в `SessionState`: execution_mode, active_agents, session_metrics, correlation_id, parent_session_id, child_session_ids, is_child_session, task_result, sliced_summary
+- [ ] 6.2 Все новые поля должны иметь defaults для совместимости с существующими session файлами
+- [ ] 6.3 Обновить `model_validator` для миграции schema_version < 3
+- [ ] 6.4 Написать тесты: загрузка старого session файла → новые поля с defaults
+- [ ] 6.5 Написать тесты: schema_version обновляется до 3
+
+### 7. codelab.toml.example
+
+- [ ] 7.1 Обновить `codelab/codelab.toml.example` с секцией [agents] и примерами определений
