@@ -14,6 +14,7 @@ from codelab.server.agent.base import AgentResponse as BaseAgentResponse
 from codelab.server.agent.contracts.base import (
     AgentRequest,
 )
+from codelab.server.llm.models import LLMToolCall
 
 if TYPE_CHECKING:
     from codelab.server.agent.event_bus.bus import AgentEventBus
@@ -22,6 +23,49 @@ if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_tool_calls(
+    contract_tool_calls: list,
+) -> list[LLMToolCall]:
+    """Конвертировать ToolCall из контрактов шины → LLMToolCall.
+
+    EventBus возвращает ToolCall (contracts.base), а LLMLoopStage
+    ожидает LLMToolCall (llm.models). Структура идентична:
+    id, name, arguments.
+
+    Args:
+        contract_tool_calls: Список ToolCall из AgentResponse шины.
+
+    Returns:
+        Список LLMToolCall для LLMLoopStage.
+    """
+    return [
+        LLMToolCall(
+            id=tc.id,
+            name=tc.name,
+            arguments=tc.arguments,
+        )
+        for tc in contract_tool_calls
+    ]
+
+
+def _convert_usage_to_dict(usage) -> dict[str, int] | None:
+    """Конвертировать TokenUsage в dict для AgentResponse.usage.
+
+    Args:
+        usage: TokenUsage из AgentResponse шины.
+
+    Returns:
+        Dict с input_tokens, output_tokens, total_tokens или None.
+    """
+    if usage is None:
+        return None
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "total_tokens": usage.total_tokens,
+    }
 
 
 class SingleStrategy:
@@ -114,10 +158,13 @@ class SingleStrategy:
             )
 
         # Конвертируем AgentResponse (DomainEvent) → BaseAgentResponse
+        # КРИТИЧНО: tool_calls НЕ должны быть пустыми — LLMLoopStage
+        # проверяет их для продолжения цикла tool-calling.
         return BaseAgentResponse(
             text=response.text,
-            tool_calls=[],  # ToolCall → LLMToolCall конвертация если нужна
+            tool_calls=_convert_tool_calls(response.tool_calls),
             stop_reason=response.stop_reason,
+            usage=_convert_usage_to_dict(response.usage),
         )
 
     async def continue_execution(
@@ -176,6 +223,7 @@ class SingleStrategy:
 
         return BaseAgentResponse(
             text=response.text,
-            tool_calls=[],
+            tool_calls=_convert_tool_calls(response.tool_calls),
             stop_reason=response.stop_reason,
+            usage=_convert_usage_to_dict(response.usage),
         )

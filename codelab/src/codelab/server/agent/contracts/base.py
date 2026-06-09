@@ -144,6 +144,16 @@ class ChoreographyAnswer(DomainEvent):
 
     Содержит решение агента: принял ли действие, reasoning,
     статус выполнения.
+
+    Attributes:
+        agent_name: Имя агента, ответившего на broadcast
+        action_taken: Флаг — агент принял действие
+        reasoning: Объяснение решения агента
+        output: Текстовый вывод агента
+        status_signal: Сигнал статуса (continue/completed)
+        usage: Информация об использовании токенов
+        tool_calls: Вызовы инструментов, запрошенные агентом
+            (для future conflict resolution и анализа)
     """
 
     agent_name: str = ""
@@ -152,6 +162,7 @@ class ChoreographyAnswer(DomainEvent):
     output: str | None = None
     status_signal: Literal["continue", "completed"] = "continue"
     usage: TokenUsage = field(default_factory=lambda: TokenUsage(0, 0, 0))
+    tool_calls: list[ToolCall] = field(default_factory=list)
 
 
 # ─────────────────────────────────────────────

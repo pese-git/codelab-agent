@@ -4,10 +4,15 @@
 - call() → AgentResult с сохранением usage (токены)
 - Регистрацию в AgentEventBus как RequestHandler
 - Tracer span для каждого LLM вызова
-- Цикл LLM вызовов с выполнением инструментов (макс. 5 итераций)
+- ОДИН вызов LLM (single call pattern) — цикл tool-calling в LLMLoopStage
 - Отмену через asyncio.Task tracking
 - Tool name mapping (acp_name_to_llm_name)
 - Plan extraction из ответа LLM
+
+Архитектурное решение:
+LLMAdapter делает ровно один вызов LLM провайдера и возвращает результат.
+Цикл tool-calling (permissions, MCP, notifications) выполняется в LLMLoopStage.
+Это соответствует спецификации §3.4: "Single LLM call pattern".
 """
 
 from __future__ import annotations
@@ -42,15 +47,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Максимальное количество итераций LLM цикла
-_MAX_ITERATIONS = 5
-
 
 class LLMAdapter:
     """Адаптер LLM для мультиагентной шины событий.
 
     Реализует RequestHandler Protocol — регистрируется в AgentEventBus
     и обрабатывает AgentRequest → AgentResult.
+
+    Делает ровно ОДИН вызов LLM провайдера. Цикл tool-calling,
+    permissions, MCP и notifications — ответственность LLMLoopStage.
 
     Attributes:
         _llm_provider: LLM провайдер для вызовов
@@ -85,7 +90,10 @@ class LLMAdapter:
         config: dict[str, Any] | None = None,
         parent_span: SpanContext | None = None,
     ) -> AgentResult:
-        """Выполнить LLM вызов с циклом tool-calling.
+        """Выполнить ОДИН вызов LLM провайдера.
+
+        Не выполняет tool-calling — это ответственность LLMLoopStage.
+        Возвращает AgentResult с текстом, tool_calls, usage, stop_reason.
 
         Args:
             messages: История сообщений для LLM
@@ -111,7 +119,7 @@ class LLMAdapter:
 
         # Создаём задачу для отслеживания отмены
         task = asyncio.create_task(
-            self._execute(messages, tools, config, model)
+            self._single_call(messages, tools, config, model)
         )
         task_id = id(task)
         self._active_tasks[task_id] = task
@@ -148,133 +156,72 @@ class LLMAdapter:
 
         return result
 
-    async def _execute(
+    async def _single_call(
         self,
         messages: list[LLMMessage],
         tools: list[ToolDefinition],
         config: dict[str, Any],
         model: str,
     ) -> AgentResult:
-        """Внутренний цикл LLM вызовов.
+        """Один вызов LLM провайдера.
 
-        Выполняет до _MAX_ITERATIONS итераций:
-        1. Вызов LLM
-        2. Если есть tool_calls → выполнить инструменты
-        3. Добавить результаты в messages
-        4. Повторить или вернуть результат
+        Делает ровно один create_completion(), извлекает usage,
+        plan, конвертирует tool_calls в контракт шины.
+
+        Args:
+            messages: История сообщений
+            tools: Доступные инструменты
+            config: Конфигурация
+            model: Идентификатор модели
+
+        Returns:
+            AgentResult с результатом одного LLM вызова
         """
         temperature = config.get("temperature", 0.7)
         max_tokens = config.get("max_tokens", 8192)
 
         # Конвертируем имена инструментов для LLM
         llm_tools = self._tool_registry.to_llm_tools(tools)
-        # Маппим имена инструментов
         for tool in llm_tools:
             if "function" in tool and "name" in tool["function"]:
                 tool["function"]["name"] = acp_name_to_llm_name(
                     tool["function"]["name"]
                 )
 
-        total_usage = TokenUsage(0, 0, 0)
-        all_tool_calls: list[ToolCall] = []
-        final_text = ""
-        final_stop_reason = "end_turn"
+        request = CompletionRequest(
+            model=model,
+            messages=list(messages),
+            tools=llm_tools if tools else None,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
-        for iteration in range(_MAX_ITERATIONS):
-            logger.debug(
-                "LLMAdapter iteration %d/%d (agent=%s)",
-                iteration + 1,
-                _MAX_ITERATIONS,
-                self._name,
+        response = await self._llm_provider.create_completion(request)
+
+        # Собираем usage
+        usage = self._extract_usage(response)
+
+        # Извлекаем план если есть (для будущих стратегий)
+        if response.text:
+            self._plan_extractor.extract_from_text(response.text)
+        if response.tool_calls:
+            self._plan_extractor.extract_from_tool_call(response.tool_calls)
+
+        # Конвертируем tool_calls в контракт шины
+        tool_calls = [
+            ToolCall(
+                id=tc.id,
+                name=tc.name,
+                arguments=tc.arguments,
             )
-
-            request = CompletionRequest(
-                model=model,
-                messages=list(messages),  # копия
-                tools=llm_tools if tools else None,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-            response = await self._llm_provider.create_completion(request)
-
-            # Собираем usage
-            usage = self._extract_usage(response)
-            total_usage = TokenUsage(
-                input_tokens=total_usage.input_tokens + usage.input_tokens,
-                output_tokens=total_usage.output_tokens + usage.output_tokens,
-                total_tokens=total_usage.total_tokens + usage.total_tokens,
-            )
-
-            # Извлекаем план если есть (для будущих стратегий)
-            if response.text:
-                self._plan_extractor.extract_from_text(
-                    response.text
-                )
-
-            # Проверяем tool_calls
-            if response.tool_calls:
-                # Извлекаем план из tool_calls (для будущих стратегий)
-                self._plan_extractor.extract_from_tool_call(
-                    response.tool_calls
-                )
-
-                # Конвертируем tool_calls в контракт шины
-                for tc in response.tool_calls:
-                    all_tool_calls.append(
-                        ToolCall(
-                            id=tc.id,
-                            name=tc.name,
-                            arguments=tc.arguments,
-                        )
-                    )
-
-                # Добавляем assistant message с tool_calls
-                messages.append(
-                    LLMMessage(
-                        role="assistant",
-                        content=response.text or None,
-                        tool_calls=response.tool_calls,
-                    )
-                )
-
-                # Выполняем инструменты
-                for tc in response.tool_calls:
-                    # Восстанавливаем ACP имя инструмента
-                    acp_name = self._resolve_tool_name(tc.name, tools)
-                    result = await self._tool_registry.execute_tool(
-                        session_id="",  # session_id передаётся из контекста
-                        tool_name=acp_name,
-                        arguments=tc.arguments,
-                    )
-
-                    # Добавляем tool result в messages
-                    messages.append(
-                        LLMMessage(
-                            role="tool",
-                            content=result.output or result.error or "",
-                            tool_call_id=tc.id,
-                            name=acp_name,
-                        )
-                    )
-
-                final_text = response.text
-                final_stop_reason = "tool_use"
-                # Продолжаем цикл
-            else:
-                # Нет tool_calls — завершаем
-                final_text = response.text
-                final_stop_reason = self._map_stop_reason(response.stop_reason)
-                break
-        else:
-            # Достигнут лимит итераций
-            final_stop_reason = "max_iterations"
+            for tc in response.tool_calls
+        ] if response.tool_calls else []
 
         return AgentResult(
-            text=final_text,
-            tool_calls=all_tool_calls,
-            usage=total_usage,
-            stop_reason=final_stop_reason,
+            text=response.text or "",
+            tool_calls=tool_calls,
+            usage=usage,
+            stop_reason=self._map_stop_reason(response.stop_reason),
             agent_name=self._name,
         )
 
@@ -303,19 +250,6 @@ class LLMAdapter:
             StopReason.REFUSAL: "refusal",
         }
         return mapping.get(stop_reason, "end_turn")
-
-    def _resolve_tool_name(
-        self, llm_name: str, tools: list[ToolDefinition]
-    ) -> str:
-        """Восстановить ACP имя инструмента из LLM имени."""
-        # Сначала пробуем прямой маппинг
-        acp_name = llm_name.replace("_", "/", 1)
-        # Проверяем есть ли такой инструмент
-        for tool in tools:
-            if acp_name_to_llm_name(tool.name) == llm_name:
-                return tool.name
-        # Fallback: пробуем восстановить
-        return acp_name
 
     async def cancel(self) -> None:
         """Отменить все активные задачи."""

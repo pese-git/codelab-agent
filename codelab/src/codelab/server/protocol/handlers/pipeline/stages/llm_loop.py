@@ -33,7 +33,16 @@ logger = structlog.get_logger()
 
 
 class LLMLoopStage(PromptStage):
-    """Основной цикл взаимодействия с LLM и выполнения tool calls."""
+    """Основной цикл взаимодействия с LLM и выполнения tool calls.
+
+    Поддерживает два пути выполнения:
+    - Legacy: через AgentOrchestrator → NaiveAgent (по умолчанию)
+    - EventBus: через StrategyDispatcher → SingleStrategy → LLMAdapter
+      (включается через config flag `use_event_bus = true`)
+
+    Feature flag обеспечивает безопасную миграцию без нарушения
+    существующих 3558+ тестов.
+    """
 
     def __init__(
         self,
@@ -43,6 +52,7 @@ class LLMLoopStage(PromptStage):
         state_manager: StateManager,
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
+        strategy_dispatcher: Any | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
@@ -50,6 +60,7 @@ class LLMLoopStage(PromptStage):
         self._state_manager = state_manager
         self._plan_builder = plan_builder
         self._global_policy_manager = global_policy_manager
+        self._strategy_dispatcher = strategy_dispatcher
 
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()
@@ -57,6 +68,13 @@ class LLMLoopStage(PromptStage):
         self._replay_manager = ReplayManager()
 
     async def process(self, context: PromptContext) -> PromptContext:
+        # Проверяем feature flag для нового пути через EventBus
+        use_event_bus = self._should_use_event_bus(context.session)
+
+        if use_event_bus and self._strategy_dispatcher is not None:
+            return await self._process_via_event_bus(context)
+
+        # Legacy путь: через AgentOrchestrator
         agent_orchestrator: AgentOrchestrator | None = context.meta.get("agent_orchestrator")
         if agent_orchestrator is None:
             # Demo mode: no LLM configured, return simple ack
@@ -99,6 +117,92 @@ class LLMLoopStage(PromptStage):
 
         if result.pending_permission:
             context.should_stop = True  # pipeline приостанавливается, turn остаётся открытым
+
+        return context
+
+    def _should_use_event_bus(self, session: SessionState) -> bool:
+        """Проверить, включён ли режим EventBus для данной сессии.
+
+        Feature flag для безопасной миграции с legacy пути.
+
+        Args:
+            session: Состояние сессии
+
+        Returns:
+            True если следует использовать EventBus путь
+        """
+        config_values = getattr(session, "config_values", {}) or {}
+        return config_values.get("use_event_bus", False) is True
+
+    async def _process_via_event_bus(self, context: PromptContext) -> PromptContext:
+        """Обработка промпта через EventBus → StrategyDispatcher.
+
+        Новый путь: LLMLoopStage управляет циклом итераций,
+        но вызывает LLM через StrategyDispatcher → SingleStrategy → EventBus.
+
+        Args:
+            context: Контекст pipeline
+
+        Returns:
+            Обновлённый контекст с результатами
+        """
+        notifications: list[ACPMessage] = []
+        mcp_manager = self._get_mcp_manager(context)
+        session = context.session
+        session_id = context.session_id
+
+        # Первый вызов через StrategyDispatcher
+        agent_response = await self._strategy_dispatcher.execute(
+            session=session,
+            prompt=context.raw_text,
+            mcp_manager=mcp_manager,
+        )
+
+        # Обрабатываем ответ
+        agent_response_text = agent_response.text if agent_response else ""
+        has_tool_calls = agent_response and agent_response.tool_calls
+
+        if agent_response_text:
+            self._state_manager.add_assistant_message(session, agent_response_text)
+            self._state_manager.add_event(
+                session,
+                {
+                    "type": "session_update",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": agent_response_text},
+                    },
+                },
+            )
+            notifications.append(_build_agent_response_notification(session_id, agent_response_text))
+
+        if not has_tool_calls:
+            logger.debug("event_bus path completed - no tool calls", session_id=session_id)
+            context.notifications.extend(notifications)
+            context.stop_reason = "end_turn"
+            return context
+
+        # Есть tool_calls — обрабатываем через ToolCallHandler с permissions
+        tool_calls_for_history = [
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+            for tc in agent_response.tool_calls
+        ]
+        session.history.append({
+            "role": "assistant",
+            "text": agent_response_text or "",
+            "tool_calls": tool_calls_for_history,
+        })
+
+        loop_result = await self._process_tool_calls_for_llm_loop(
+            session, session_id, agent_response.tool_calls, notifications, mcp_manager
+        )
+
+        context.notifications.extend(loop_result.notifications)
+        context.stop_reason = loop_result.stop_reason or "end_turn"
+        context.pending_permission = loop_result.pending_permission
+
+        if loop_result.pending_permission:
+            context.should_stop = True
 
         return context
 

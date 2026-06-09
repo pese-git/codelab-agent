@@ -3,6 +3,7 @@
 AgentRegistry:
 - Загружает конфигурации через AgentConfigLoader
 - Разрешает defaults через AgentConfigResolver
+- Создаёт LLMAdapter через AgentFactory
 - Регистрирует агентов в AgentEventBus
 - Публикует lifecycle events при изменениях
 - Поддерживает hot reload через watchdog (опционально)
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codelab.server.agent.config import (
     AgentConfigLoader,
@@ -21,6 +22,9 @@ from codelab.server.agent.config import (
     ResolvedAgent,
 )
 from codelab.server.agent.event_bus.bus import AgentEventBus
+
+if TYPE_CHECKING:
+    from codelab.server.agent.factory import AgentFactory
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +36,7 @@ class AgentRegistry:
         _loader: Загрузчик конфигураций
         _resolver: Разрешатель конфигураций
         _event_bus: Шина событий для регистрации агентов
+        _agent_factory: Фабрика создания LLMAdapter
         _agents: Текущие разрешённые агенты
         _initialized: Флаг инициализации
     """
@@ -39,11 +44,13 @@ class AgentRegistry:
     def __init__(
         self,
         event_bus: AgentEventBus,
+        agent_factory: AgentFactory,
         global_config: AgentsGlobalConfig | None = None,
         global_config_dir: Path | None = None,
         project_config_dir: Path | None = None,
     ) -> None:
         self._event_bus = event_bus
+        self._agent_factory = agent_factory
         self._global_config = global_config or AgentsGlobalConfig()
         self._loader = AgentConfigLoader(
             global_config_dir=global_config_dir,
@@ -121,37 +128,22 @@ class AgentRegistry:
         return {"added": list(added), "removed": list(removed)}
 
     async def _register_agent(self, name: str, agent: ResolvedAgent) -> None:
-        """Зарегистрировать агента в EventBus.
+        """Зарегистрировать агента в EventBus через AgentFactory.
+
+        Создаёт LLMAdapter через фабрику и регистрирует его handler
+        в EventBus. Каждый агент получает свой адаптер с правильной моделью.
 
         Args:
             name: Имя агента
             agent: Разрешённая конфигурация
         """
-        # Создаём handler-заглушку — будет заменён LLMAdapter
-        async def handler(request, parent_span=None):
-            from codelab.server.agent.contracts.base import (
-                AgentResponse,
-                AgentResult,
-                TokenUsage,
-            )
+        # Создаём LLMAdapter через фабрику (с правильной моделью)
+        adapter = await self._agent_factory.create_adapter(agent)
 
-            result = AgentResult(
-                text=f"[{name}] not yet implemented",
-                agent_name=name,
-                usage=TokenUsage(0, 0, 0),
-                stop_reason="end_turn",
-            )
-            return AgentResponse(
-                request_id=request.correlation_id,
-                text=result.text,
-                tool_calls=result.tool_calls,
-                usage=result.usage,
-                stop_reason=result.stop_reason,
-                agent_name=result.agent_name,
-                session_id=request.session_id,
-            )
+        # Регистрируем handler адаптера в EventBus
+        await adapter.register_with_bus(self._event_bus, name)
 
-        await self._event_bus.register_agent(name, handler)
+        logger.debug("agent registered in EventBus: %s (model=%s)", name, agent.model)
 
     def get(self, agent_name: str) -> ResolvedAgent | None:
         """Получить конфигурацию агента.

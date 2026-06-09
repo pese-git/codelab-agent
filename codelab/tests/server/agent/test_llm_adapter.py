@@ -1,4 +1,8 @@
-"""Тесты для LLMAdapter."""
+"""Тесты для LLMAdapter.
+
+LLMAdapter делает ровно ОДИН вызов LLM провайдера (single call pattern).
+Цикл tool-calling выполняется в LLMLoopStage, не внутри адаптера.
+"""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
@@ -96,31 +100,30 @@ class TestLLMCallNoTools:
 
 
 class TestLLMCallWithTools:
-    """6.2 — LLM вызов с tools → цикл выполнения инструментов."""
+    """6.2 — LLM вызов с tools → возвращает tool_calls (без выполнения).
+
+    LLMAdapter делает ОДИН вызов LLM и возвращает tool_calls наружу.
+    Выполнение инструментов — ответственность LLMLoopStage.
+    """
 
     @pytest.mark.asyncio
-    async def test_tool_execution(self, adapter, mock_llm_provider, mock_tool_registry):
-        # Первый вызов — tool_calls
-        # Второй вызов — текстовый ответ
+    async def test_returns_tool_calls_without_executing(
+        self, adapter, mock_llm_provider, mock_tool_registry
+    ):
+        """LLMAdapter возвращает tool_calls, но НЕ выполняет инструменты."""
         mock_llm_provider.create_completion = AsyncMock(
-            side_effect=[
-                CompletionResponse(
-                    text="",
-                    tool_calls=[
-                        LLMToolCall(
-                            id="tc1",
-                            name="fs_read_file",
-                            arguments={"path": "test.py"},
-                        )
-                    ],
-                    usage={"input_tokens": 10, "output_tokens": 5},
-                ),
-                CompletionResponse(
-                    text="File content retrieved.",
-                    stop_reason=StopReason.END_TURN,
-                    usage={"input_tokens": 20, "output_tokens": 10},
-                ),
-            ]
+            return_value=CompletionResponse(
+                text="",
+                tool_calls=[
+                    LLMToolCall(
+                        id="tc1",
+                        name="fs_read_file",
+                        arguments={"path": "test.py"},
+                    )
+                ],
+                stop_reason=StopReason.TOOL_USE,
+                usage={"input_tokens": 10, "output_tokens": 5},
+            )
         )
 
         mock_tool_registry.to_llm_tools.return_value = [
@@ -133,9 +136,6 @@ class TestLLMCallWithTools:
                 },
             }
         ]
-        mock_tool_registry.execute_tool = AsyncMock(
-            return_value=MagicMock(output="file content", error=None)
-        )
 
         tools = [
             ToolDefinition(
@@ -151,70 +151,38 @@ class TestLLMCallWithTools:
             tools=tools,
         )
 
-        assert mock_tool_registry.execute_tool.call_count == 1
-        assert result.text == "File content retrieved."
+        # Инструменты НЕ выполнялись внутри адаптера
+        mock_tool_registry.execute_tool.assert_not_called()
+
+        # Но tool_calls возвращены для LLMLoopStage
+        assert result.text == ""
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].name == "fs_read_file"
+        assert result.tool_calls[0].arguments == {"path": "test.py"}
+        assert result.stop_reason == "tool_use"
 
 
-class TestUsageAccumulation:
+class TestUsage:
     """6.3 — сохранение usage из ответа LLM."""
 
     @pytest.mark.asyncio
-    async def test_usage_accumulates_across_iterations(self, adapter, mock_llm_provider):
-        mock_llm_provider.create_completion = AsyncMock(
-            side_effect=[
-                CompletionResponse(
-                    text="",
-                    tool_calls=[LLMToolCall(id="tc1", name="tool")],
-                    usage={"input_tokens": 10, "output_tokens": 5},
-                ),
-                CompletionResponse(
-                    text="done",
-                    usage={"input_tokens": 20, "output_tokens": 15},
-                ),
-            ]
-        )
-        mock_tool_registry = adapter._tool_registry
-        mock_tool_registry.execute_tool = AsyncMock(
-            return_value=MagicMock(output="ok", error=None)
-        )
-
-        result = await adapter.call(
-            messages=[LLMMessage(role="user", content="test")],
-            tools=[ToolDefinition(name="tool", description="", parameters={}, kind="other")],
-        )
-
-        # Usage суммируется: 10+20=30 input, 5+15=20 output
-        assert result.usage.input_tokens == 30
-        assert result.usage.output_tokens == 20
-        assert result.usage.total_tokens == 50
-
-
-class TestMaxIterations:
-    """6.4 — достигнут лимит итераций → stop_reason="max_iterations"."""
-
-    @pytest.mark.asyncio
-    async def test_max_iterations_reached(self, adapter, mock_llm_provider):
-        # Всегда возвращает tool_calls — цикл не завершится
+    async def test_usage_from_single_call(self, adapter, mock_llm_provider):
+        """Usage из одного вызова LLM сохраняется корректно."""
         mock_llm_provider.create_completion = AsyncMock(
             return_value=CompletionResponse(
-                text="",
-                tool_calls=[LLMToolCall(id="tc1", name="tool")],
+                text="done",
                 usage={"input_tokens": 10, "output_tokens": 5},
             )
         )
-        mock_tool_registry = adapter._tool_registry
-        mock_tool_registry.execute_tool = AsyncMock(
-            return_value=MagicMock(output="ok", error=None)
-        )
 
         result = await adapter.call(
             messages=[LLMMessage(role="user", content="test")],
-            tools=[ToolDefinition(name="tool", description="", parameters={}, kind="other")],
+            tools=[],
         )
 
-        assert result.stop_reason == "max_iterations"
+        assert result.usage.input_tokens == 10
+        assert result.usage.output_tokens == 5
+        assert result.usage.total_tokens == 15
 
 
 class TestCancellation:
@@ -384,7 +352,6 @@ class TestPlanExtraction:
             tools=[],
         )
 
-        # План извлечён (через plan extractor внутри _execute)
         assert result.text == response_text
 
 
@@ -470,7 +437,6 @@ class TestEventBusIntegration:
         assert response.text == "Response from coder"
         assert response.usage.input_tokens == 100
 
-        # Проверяем observability
         events = timeline.get_events("s1")
         assert any(e.event_type == "AgentResponse" for e in events)
 
