@@ -348,20 +348,27 @@ class MultiAgentProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
-    def get_agent_registry(
+    async def get_agent_registry(
         self,
         event_bus: AgentEventBus,
         agent_factory: AgentFactory,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
     ) -> AgentRegistry:
-        """Создаёт AgentRegistry."""
+        """Создаёт и инициализирует AgentRegistry.
+        
+        Инициализация загружает конфигурации агентов из:
+        - ~/.codelab/agents/*.md (глобальные)
+        - .codelab/agents/*.md (проектные)
+        """
         from codelab.server.agent.config.models import AgentsGlobalConfig
 
         global_config = AgentsGlobalConfig(
             default_model=config.agents.default_model,
             max_steps=config.agents.max_steps,
         )
-        return AgentRegistry(event_bus, agent_factory, global_config)
+        registry = AgentRegistry(event_bus, agent_factory, global_config)
+        await registry.initialize()
+        return registry
 
 
 class ManagersProvider(Provider):
