@@ -74,6 +74,7 @@ class LLMAdapter:
         tracer: Tracer | None = None,
         event_bus: AgentEventBus | None = None,
         name: str = "llm_adapter",
+        model: str | None = None,
     ) -> None:
         self._llm_provider = llm_provider
         self._tool_registry = tool_registry
@@ -81,6 +82,7 @@ class LLMAdapter:
         self._event_bus = event_bus
         self._active_tasks: dict[int, asyncio.Task] = {}
         self._name = name
+        self._model = model
         self._plan_extractor = PlanExtractor()
 
     async def call(
@@ -105,7 +107,7 @@ class LLMAdapter:
             AgentResult с текстом, tool_calls, usage, stop_reason
         """
         config = config or {}
-        model = config.get("model", self._llm_provider.name)
+        model = config.get("model") or self._model or self._llm_provider.name
 
         # Tracing: создаём span
         span = None

@@ -88,6 +88,7 @@ class AgentFactory:
             tool_registry=self._tool_registry,
             tracer=self._tracer,
             name=agent.name,
+            model=agent.model,
         )
 
         self._adapters[agent.name] = adapter
