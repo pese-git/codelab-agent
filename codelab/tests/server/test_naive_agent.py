@@ -3,6 +3,9 @@
 Тестируем два явных контракта:
   - start_turn: добавляет user message, возвращает AgentResponse
   - continue_turn: НЕ добавляет user message, использует историю как есть
+
+NOTE: NaiveAgent is deprecated. Use LLMAdapter instead.
+These tests are kept for backward compatibility verification.
 """
 
 import asyncio
@@ -13,6 +16,9 @@ from codelab.server.agent.base import AgentContext, ContinuationContext
 from codelab.server.agent.naive import NaiveAgent, _format_prompt, _to_openai_tools_format
 from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition

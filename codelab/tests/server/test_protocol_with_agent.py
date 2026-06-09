@@ -1,6 +1,9 @@
 """Тесты интеграции ACPProtocol с AgentOrchestrator.
 
 Проверяют работу session/prompt с LLM-агентом при передаче agent_orchestrator.
+
+NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
+These tests are kept for backward compatibility verification.
 """
 
 import pytest
@@ -11,6 +14,9 @@ from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.tools.registry import SimpleToolRegistry
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 @pytest.mark.asyncio

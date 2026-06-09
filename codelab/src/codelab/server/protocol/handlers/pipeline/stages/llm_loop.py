@@ -7,6 +7,7 @@ import contextlib
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
+from typing_extensions import deprecated
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
@@ -393,6 +394,7 @@ class LLMLoopStage(PromptStage):
 
     # ── internal methods ──────────────────────────────────────────────────
 
+    @deprecated("Use _process_via_event_bus instead. This legacy path uses AgentOrchestrator which is deprecated.")
     async def _run_llm_loop(
         self,
         session: SessionState,
@@ -402,6 +404,23 @@ class LLMLoopStage(PromptStage):
         tool_results: list[ToolResult] | None = None,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
+        """Запустить legacy LLM loop через AgentOrchestrator.
+
+        DEPRECATED: Use _process_via_event_bus instead. The legacy path uses
+        AgentOrchestrator which is deprecated in favor of ExecutionEngine +
+        StrategyDispatcher.
+
+        Args:
+            session: Состояние сессии
+            session_id: ID сессии
+            agent_orchestrator: Legacy оркестратор (deprecated)
+            initial_prompt_text: Текст начального промпта
+            tool_results: Результаты выполнения инструментов
+            mcp_manager: MCP manager
+
+        Returns:
+            LLMLoopResult с результатами выполнения
+        """
         notifications: list[ACPMessage] = []
         max_iterations = 10
         iteration = 0

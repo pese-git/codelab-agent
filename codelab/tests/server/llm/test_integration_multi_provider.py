@@ -5,6 +5,9 @@
 - Fallback chain при ошибках
 - Model switching mid-session
 - E2E flow: initialize → session/new → configOptions → set_config_option(model) → prompt
+
+NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
+These tests are kept for backward compatibility verification.
 """
 
 from __future__ import annotations
@@ -35,6 +38,9 @@ from codelab.server.protocol.handlers.config_option_builder import ConfigOptionB
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage.memory import InMemoryStorage
 from codelab.server.tools.registry import SimpleToolRegistry
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 class FailingProvider(LLMProvider):

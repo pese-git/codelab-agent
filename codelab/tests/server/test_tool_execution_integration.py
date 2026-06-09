@@ -1,4 +1,8 @@
-"""Интеграционные тесты: NaiveAgent + SessionState через start_turn/continue_turn."""
+"""Интеграционные тесты: NaiveAgent + SessionState через start_turn/continue_turn.
+
+NOTE: NaiveAgent is deprecated. Use LLMAdapter instead.
+These tests are kept for backward compatibility verification.
+"""
 
 import pytest
 
@@ -9,6 +13,9 @@ from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 def echo_tool(text: str) -> str:

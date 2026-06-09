@@ -8,6 +8,9 @@ from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import JsonFileStorage
 
 
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
+
 async def _initialize_with_tool_runtime(protocol: ACPProtocol) -> None:
     """Инициализирует протокол с включенным tool-runtime capability profile."""
 
