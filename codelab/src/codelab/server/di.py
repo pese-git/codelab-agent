@@ -25,8 +25,13 @@ from dishka import (
     provide,
 )
 
+from .agent.event_bus.bus import AgentEventBus, RetryConfig
+from .agent.execution_engine import ExecutionEngine
+from .agent.factory import AgentFactory
 from .agent.orchestrator import AgentOrchestrator
+from .agent.registry import AgentRegistry
 from .agent.state import OrchestratorConfig
+from .agent.strategies.dispatcher import StrategyDispatcher
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider
 from .llm.base import LLMConfig, LLMTimeoutConfig
@@ -90,6 +95,64 @@ class ObservabilityProvider(Provider):
     def get_metrics_tracker(self, debug: Annotated[ObservabilityDebug, from_context(provides=ObservabilityDebug)]) -> MetricsTracker:
         """Создаёт MetricsTracker для сбора метрик."""
         return MetricsTracker(debug=debug.enabled)
+
+
+class EventBusProvider(Provider):
+    """Провайдер шины событий (APP scope).
+
+    Создаёт AgentEventBus и подключает observability компоненты
+    для автоматического сбора метрик и записи событий.
+    """
+
+    @provide(scope=Scope.APP)
+    def get_event_bus(
+        self,
+        timeline: EventTimeline,
+        metrics: MetricsTracker,
+    ) -> AgentEventBus:
+        """Создаёт AgentEventBus с подключёнными observability."""
+        bus = AgentEventBus(retry_config=RetryConfig(max_attempts=3, base_delay=0.1))
+        timeline.subscribe_to_bus(bus)
+        metrics.subscribe_to_bus(bus)
+        return bus
+
+
+class MultiAgentProvider(Provider):
+    """Провайдер мультиагентных компонентов (APP scope).
+
+    Создаёт:
+    - ExecutionEngine — композиционный движок выполнения
+    - AgentFactory — фабрика создания LLMAdapter
+    - StrategyDispatcher — маршрутизация по стратегиям
+    """
+
+    @provide(scope=Scope.APP)
+    def get_execution_engine(
+        self,
+        tool_registry: ToolRegistryProtocol,
+    ) -> ExecutionEngine:
+        """Создаёт ExecutionEngine."""
+        return ExecutionEngine(tool_registry=tool_registry)
+
+    @provide(scope=Scope.APP)
+    def get_agent_factory(
+        self,
+        llm_registry: LLMProviderRegistry,
+        tool_registry: ToolRegistryProtocol,
+        tracer: Tracer,
+    ) -> AgentFactory:
+        """Создаёт AgentFactory."""
+        return AgentFactory(llm_registry, tool_registry, tracer)
+
+    @provide(scope=Scope.APP)
+    def get_strategy_dispatcher(
+        self,
+        event_bus: AgentEventBus,
+        execution_engine: ExecutionEngine,
+        tracer: Tracer,
+    ) -> StrategyDispatcher:
+        """Создаёт StrategyDispatcher."""
+        return StrategyDispatcher(event_bus, execution_engine, tracer)
 
 
 class ManagersProvider(Provider):
@@ -287,6 +350,7 @@ class PipelineProvider(Provider):
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager,
         tracer: Tracer,
+        strategy_dispatcher: StrategyDispatcher,
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -298,6 +362,7 @@ class PipelineProvider(Provider):
             plan_builder=plan_builder,
             global_policy_manager=global_policy_manager,
             tracer=tracer,
+            strategy_dispatcher=strategy_dispatcher,
         )
 
     @provide(scope=Scope.APP)
@@ -511,6 +576,8 @@ def make_container(
     """
     container = make_async_container(
         ObservabilityProvider(),
+        EventBusProvider(),
+        MultiAgentProvider(),
         ManagersProvider(),
         SlashCommandsProvider(),
         StorageProvider(),
