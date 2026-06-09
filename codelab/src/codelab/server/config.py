@@ -133,16 +133,14 @@ class AgentsConfig(BaseModel):
     """Конфигурация мультиагентной системы.
 
     Атрибуты:
-        mode: Режим выполнения (single, multi_orchestrated, multi_choreographed, hierarchical)
-        fallback_mode: Режим fallback если нет нужных агентов
-        use_event_bus: Использовать EventBus-based архитектуру (вместо legacy AgentOrchestrator)
+        strategy: Стратегия выполнения (single, multi_orchestrated, hierarchical)
+        fallback_strategy: Стратегия fallback если нет нужных агентов
         default_model: Модель по умолчанию для агентов
         max_steps: Максимальное количество шагов мультиагентного выполнения
     """
 
-    mode: str = "single"
-    fallback_mode: str = "single"
-    use_event_bus: bool = False
+    strategy: str = "single"
+    fallback_strategy: str = "single"
     default_model: str = "openai/gpt-4o"
     max_steps: int = 7
 

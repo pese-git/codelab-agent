@@ -56,7 +56,7 @@ class LLMLoopStage(PromptStage):
         global_policy_manager: GlobalPolicyManager | None = None,
         strategy_dispatcher: Any | None = None,
         tracer: Tracer | None = None,
-        use_event_bus: bool = False,
+        strategy: str = "single",
     ) -> None:
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
@@ -66,25 +66,22 @@ class LLMLoopStage(PromptStage):
         self._global_policy_manager = global_policy_manager
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
-        self._use_event_bus = use_event_bus
+        self._strategy = strategy
 
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()
         self._content_formatter = ContentFormatter()
         self._replay_manager = ReplayManager()
 
-        mode = "event_bus" if use_event_bus and strategy_dispatcher else "legacy"
         logger.info(
             "LLMLoopStage initialized",
-            mode=mode,
+            strategy=strategy,
             tracer_enabled=tracer is not None,
         )
 
     async def process(self, context: PromptContext) -> PromptContext:
-        # Проверяем feature flag для нового пути через EventBus
-        use_event_bus = self._should_use_event_bus(context.session)
-
-        if use_event_bus and self._strategy_dispatcher is not None:
+        # Если strategy_dispatcher настроен — используем его
+        if self._strategy_dispatcher is not None:
             return await self._process_via_event_bus(context)
 
         # Legacy путь: через AgentOrchestrator
@@ -132,19 +129,6 @@ class LLMLoopStage(PromptStage):
             context.should_stop = True  # pipeline приостанавливается, turn остаётся открытым
 
         return context
-
-    def _should_use_event_bus(self, session: SessionState) -> bool:
-        """Проверить, включён ли режим EventBus для данной сессии.
-
-        Значение берётся из AppConfig.agents.use_event_bus (передаётся в __init__).
-
-        Args:
-            session: Состояние сессии
-
-        Returns:
-            True если следует использовать EventBus путь
-        """
-        return self._use_event_bus
 
     async def _process_via_event_bus(self, context: PromptContext) -> PromptContext:
         """Обработка промпта через EventBus → StrategyDispatcher.

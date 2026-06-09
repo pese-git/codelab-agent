@@ -332,12 +332,20 @@ class MultiAgentProvider(Provider):
     @provide(scope=Scope.APP)
     def get_strategy_dispatcher(
         self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
         event_bus: AgentEventBus,
         execution_engine: ExecutionEngine,
+        agent_registry: AgentRegistry,
         tracer: Tracer,
     ) -> StrategyDispatcher:
         """Создаёт StrategyDispatcher."""
-        return StrategyDispatcher(event_bus, execution_engine, tracer)
+        return StrategyDispatcher(
+            event_bus=event_bus,
+            execution_engine=execution_engine,
+            agent_registry=agent_registry,
+            tracer=tracer,
+            strategy=config.agents.strategy,
+        )
 
     @provide(scope=Scope.APP)
     def get_agent_registry(
@@ -394,11 +402,19 @@ class SlashCommandsProvider(Provider):
     """Провайдер slash commands (APP scope)."""
 
     @provide(scope=Scope.APP)
-    def get_command_registry(self) -> CommandRegistry:
+    def get_command_registry(
+        self,
+        strategy_dispatcher: StrategyDispatcher,
+    ) -> CommandRegistry:
         """Реестр команд."""
+        from codelab.server.protocol.handlers.slash_commands.builtin.strategy import (
+            StrategyCommandHandler,
+        )
+
         registry = CommandRegistry()
         registry.register(StatusCommandHandler())
         registry.register(ModeCommandHandler())
+        registry.register(StrategyCommandHandler(strategy_dispatcher))
         registry.register(HelpCommandHandler(registry))
         return registry
 
@@ -565,7 +581,7 @@ class PipelineProvider(Provider):
             global_policy_manager=global_policy_manager,
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,
-            use_event_bus=config.agents.use_event_bus,
+            strategy=config.agents.strategy,
         )
 
     @provide(scope=Scope.APP)
@@ -721,6 +737,7 @@ class RequestProvider(Provider):
         registry: LLMProviderRegistry,
         config_option_builder: ConfigOptionBuilder,
         runtime_registry: SessionRuntimeRegistry,
+        agent_registry: AgentRegistry,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -749,6 +766,7 @@ class RequestProvider(Provider):
             config_option_builder=config_option_builder,
             middleware=middleware if middleware else None,
             runtime_registry=runtime_registry,
+            agent_registry=agent_registry,
         )
 
 

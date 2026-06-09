@@ -2,6 +2,9 @@
 
 Вызывает единственного агента через EventBus.send_request().
 Принцип uniformity — тот же паттерн вызова, что и все остальные стратегии.
+
+Агент для вызова определяется через параметр agent_name в execute(),
+который передаётся из StrategyDispatcher на основе session.config_values["_agent"].
 """
 
 from __future__ import annotations
@@ -75,7 +78,7 @@ class SingleStrategy:
         event_bus: Шина событий для вызова агента
         execution_engine: Движок выполнения для сборки контекста
         tracer: Tracer для observability
-        agent_name: Имя агента для вызова
+        default_agent_name: Имя агента по умолчанию (fallback)
     """
 
     def __init__(
@@ -88,7 +91,7 @@ class SingleStrategy:
         self.event_bus = event_bus
         self.execution_engine = execution_engine
         self.tracer = tracer
-        self.agent_name = agent_name
+        self.default_agent_name = agent_name
 
     async def execute(
         self,
@@ -97,6 +100,7 @@ class SingleStrategy:
         system_prompt: str | None = None,
         mcp_manager: Any | None = None,
         parent_span: SpanContext | None = None,
+        agent_name: str | None = None,
     ) -> BaseAgentResponse:
         """Выполнить стратегию — вызвать агента через EventBus.
 
@@ -106,10 +110,13 @@ class SingleStrategy:
             system_prompt: Системный промпт.
             mcp_manager: MCP manager.
             parent_span: Родительский span для tracing.
+            agent_name: Имя агента для вызова (из session.config_values["_agent"]).
+                Если None, используется default_agent_name.
 
         Returns:
             AgentResponse с результатом вызова агента.
         """
+        target_agent = agent_name or self.default_agent_name
         start_time = time.time()
 
         # Tracing: создаём span
@@ -130,7 +137,7 @@ class SingleStrategy:
 
         # Формируем запрос
         request = AgentRequest(
-            target_agent=self.agent_name,
+            target_agent=target_agent,
             messages=context.conversation_history,
             tools=context.available_tools,
             correlation_id=f"single_{session.session_id}_{int(start_time)}",
@@ -149,7 +156,7 @@ class SingleStrategy:
             self.tracer.end_span(
                 span,
                 attributes={
-                    "agent_name": self.agent_name,
+                    "agent_name": target_agent,
                     "total_time_ms": total_time_ms,
                     "stop_reason": response.stop_reason,
                     "input_tokens": response.usage.input_tokens,
@@ -172,6 +179,7 @@ class SingleStrategy:
         session: SessionState,
         mcp_manager: Any | None = None,
         parent_span: SpanContext | None = None,
+        agent_name: str | None = None,
     ) -> BaseAgentResponse:
         """Продолжить выполнение после tool_results.
 
@@ -179,10 +187,13 @@ class SingleStrategy:
             session: Состояние сессии (история уже содержит tool_results).
             mcp_manager: MCP manager.
             parent_span: Родительский span.
+            agent_name: Имя агента для вызова (из session.config_values["_agent"]).
+                Если None, используется default_agent_name.
 
         Returns:
             AgentResponse с результатом.
         """
+        target_agent = agent_name or self.default_agent_name
         start_time = time.time()
 
         span = None
@@ -198,7 +209,7 @@ class SingleStrategy:
         )
 
         request = AgentRequest(
-            target_agent=self.agent_name,
+            target_agent=target_agent,
             messages=context.history,
             tools=context.available_tools,
             correlation_id=f"single_cont_{session.session_id}",
@@ -215,7 +226,7 @@ class SingleStrategy:
             self.tracer.end_span(
                 span,
                 attributes={
-                    "agent_name": self.agent_name,
+                    "agent_name": target_agent,
                     "total_time_ms": total_time_ms,
                     "stop_reason": response.stop_reason,
                 },

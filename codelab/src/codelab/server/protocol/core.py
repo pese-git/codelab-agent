@@ -109,6 +109,7 @@ class ACPProtocol:
         runtime_registry: SessionRuntimeRegistry | None = None,
         mcp_http_enabled: bool = True,
         mcp_sse_enabled: bool = True,
+        agent_registry: Any | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -128,6 +129,7 @@ class ACPProtocol:
             runtime_registry: Реестр runtime-состояний сессий (опционально).
             mcp_http_enabled: Поддерживается ли MCP HTTP transport (опционально, по умолчанию True).
             mcp_sse_enabled: Поддерживается ли MCP SSE transport (опционально, по умолчанию True).
+            agent_registry: Реестр агентов для dynamic _agent config option (опционально).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -210,6 +212,9 @@ class ACPProtocol:
 
         # Реестр runtime-состояний сессий (REQUEST-scoped)
         self._runtime_registry = runtime_registry or SessionRuntimeRegistry()
+
+        # Agent Registry для dynamic _agent config option
+        self._agent_registry = agent_registry
 
         # MCP transport capabilities — объявляются клиенту при initialize
         self._mcp_http_enabled = mcp_http_enabled
@@ -299,19 +304,129 @@ class ACPProtocol:
     def _build_config_specs(self) -> dict[str, dict[str, Any]]:
         """Построить config specs из Registry или использовать defaults.
 
+        Включает:
+        - mode: ACP standard (permission behavior: ask/code)
+        - _agent: custom category (agent selection from Registry)
+        - model: из config_option_builder
+
         Returns:
             Dict config_id -> spec
         """
         if self._config_option_builder:
             additional_specs = {
                 "mode": self._default_config_specs["mode"],
+                "_agent": self._build_agent_config_spec(),
             }
             default_model = self._get_default_model()
             return self._config_option_builder.build_config_specs(
                 default_model=default_model,
                 additional_specs=additional_specs,
             )
-        return dict(self._default_config_specs)
+        # Fallback без config_option_builder
+        specs = dict(self._default_config_specs)
+        specs["_agent"] = self._build_agent_config_spec()
+        return specs
+
+    def _build_agent_config_spec(self) -> dict[str, Any]:
+        """Построить config spec для _agent из AgentRegistry.
+
+        Формирует список primary agents из Registry как options
+        для IDE dropdown. Агенты сортируются по priority.
+
+        Returns:
+            Config spec для _agent option
+        """
+        # Fallback если Registry не инициализирован
+        if not self._agent_registry:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Проверяем инициализацию Registry
+        is_initialized = getattr(self._agent_registry, "is_initialized", False)
+        if not is_initialized:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Получаем primary agents из Registry
+        get_primary = getattr(self._agent_registry, "get_primary_agents", None)
+        if get_primary is None:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        primary_agents = get_primary()
+        if not primary_agents:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Сортируем по priority (меньше = выше приоритет)
+        sorted_agents = sorted(primary_agents.values(), key=lambda a: a.priority)
+
+        options = []
+        for agent in sorted_agents:
+            options.append({
+                "value": agent.name,
+                "name": agent.name.capitalize(),
+                "description": f"{agent.model} (priority: {agent.priority})",
+            })
+
+        default_agent = sorted_agents[0].name
+
+        return {
+            "id": "_agent",
+            "name": "Agent",
+            "category": "_agent",
+            "type": "select",
+            "default": default_agent,
+            "options": options,
+        }
 
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:
         """Маршрутизирует входящее сообщение по методу через реестр обработчиков.

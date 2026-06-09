@@ -3,7 +3,7 @@
 Проверяют что:
 - AgentsConfig создаётся с правильными значениями по умолчанию
 - AgentRegistry создаётся через DI с правильными зависимостями
-- agents.use_event_bus и agents.mode доступны через AppConfig
+- agents.strategy доступен через AppConfig
 """
 
 from __future__ import annotations
@@ -36,23 +36,20 @@ class TestAgentsConfig:
     def test_default_values(self):
         """AgentsConfig должен иметь правильные значения по умолчанию."""
         agents = AgentsConfig()
-        assert agents.mode == "single"
-        assert agents.fallback_mode == "single"
-        assert agents.use_event_bus is False
+        assert agents.strategy == "single"
+        assert agents.fallback_strategy == "single"
         assert agents.default_model == "openai/gpt-4o"
         assert agents.max_steps == 7
 
     def test_custom_values(self):
         """AgentsConfig должен принимать кастомные значения."""
         agents = AgentsConfig(
-            mode="multi_orchestrated",
-            fallback_mode="single",
-            use_event_bus=True,
+            strategy="multi_orchestrated",
+            fallback_strategy="single",
             default_model="anthropic/claude-sonnet-4-20250514",
             max_steps=10,
         )
-        assert agents.mode == "multi_orchestrated"
-        assert agents.use_event_bus is True
+        assert agents.strategy == "multi_orchestrated"
         assert agents.default_model == "anthropic/claude-sonnet-4-20250514"
         assert agents.max_steps == 10
 
@@ -64,14 +61,12 @@ class TestAppConfigWithAgents:
         """AppConfig должен содержать agents конфигурацию."""
         config = AppConfig()
         assert isinstance(config.agents, AgentsConfig)
-        assert config.agents.mode == "single"
-        assert config.agents.use_event_bus is False
+        assert config.agents.strategy == "single"
 
     def test_agents_config_custom(self):
         """AppConfig должен принимать кастомную agents конфигурацию."""
-        config = AppConfig(agents=AgentsConfig(mode="hierarchical", use_event_bus=True))
-        assert config.agents.mode == "hierarchical"
-        assert config.agents.use_event_bus is True
+        config = AppConfig(agents=AgentsConfig(strategy="hierarchical"))
+        assert config.agents.strategy == "hierarchical"
 
 
 class TestAgentRegistryInDI:
