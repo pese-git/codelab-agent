@@ -175,6 +175,22 @@ class WebSocketConfig(BaseModel):
     )
 
 
+class ObservabilityConfig(BaseModel):
+    """Конфигурация observability file persistence.
+
+    Атрибуты:
+        enabled: Включить экспорт observability данных в файлы.
+        export_dir: Базовая директория для экспорта.
+        flush_interval: Интервал flush в секундах.
+        max_file_size: Максимальный размер файла перед ротацией (байты).
+    """
+
+    enabled: bool = True
+    export_dir: str = "~/.codelab/data/observability"
+    flush_interval: int = 60
+    max_file_size: int = 10485760  # 10MB
+
+
 class AppConfig(BaseSettings):
     """Глобальная конфигурация ACP сервера.
 
@@ -198,6 +214,7 @@ class AppConfig(BaseSettings):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     model_config = SettingsConfigDict(
         env_prefix="CODELAB_",
@@ -469,6 +486,20 @@ class AppConfig(BaseSettings):
                 providers=providers,
                 fallback=fallback,
             )
+
+            # Загружаем observability конфигурацию из TOML
+            observability_data = toml_data.get("observability", {})
+            if isinstance(observability_data, dict):
+                observability_config = ObservabilityConfig(**observability_data)
+            else:
+                observability_config = ObservabilityConfig()
+
+            # Загружаем agents конфигурацию из TOML
+            agents_data = toml_data.get("agents", {})
+            if isinstance(agents_data, dict):
+                agents_config = AgentsConfig(**agents_data)
+            else:
+                agents_config = AgentsConfig()
         else:
             # Без TOML — только env vars + defaults
             llm_data = cls._merge_llm_config({})
@@ -491,9 +522,13 @@ class AppConfig(BaseSettings):
                 providers=providers,
                 fallback=fallback,
             )
+            observability_config = ObservabilityConfig()
+            agents_config = AgentsConfig()
 
         return cls(
             llm=llm_config,
+            agents=agents_config,
+            observability=observability_config,
         )
 
     @classmethod
