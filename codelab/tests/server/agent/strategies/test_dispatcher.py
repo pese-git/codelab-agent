@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.event_bus.bus import AgentEventBus, RetryConfig
+from codelab.server.agent.event_bus.bus import AgentEventBus
 from codelab.server.agent.execution_engine import ExecutionEngine
+from codelab.server.agent.registry import AgentRegistry
 from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
 from codelab.server.llm.models import LLMMessage
 from codelab.server.observability.tracer import Tracer
@@ -41,12 +42,22 @@ def mock_tracer():
 
 
 @pytest.fixture
-def dispatcher(mock_event_bus, mock_execution_engine, mock_tracer):
+def mock_agent_registry():
+    registry = MagicMock(spec=AgentRegistry)
+    registry.get_all.return_value = {}
+    registry.get_primary_agents.return_value = {}
+    registry.get.return_value = None
+    return registry
+
+
+@pytest.fixture
+def dispatcher(mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry):
     return StrategyDispatcher(
         event_bus=mock_event_bus,
         execution_engine=mock_execution_engine,
+        agent_registry=mock_agent_registry,
         tracer=mock_tracer,
-        default_mode="single",
+        strategy="single",
     )
 
 
@@ -54,22 +65,30 @@ def dispatcher(mock_event_bus, mock_execution_engine, mock_tracer):
 def mock_session():
     session = MagicMock(spec=SessionState)
     session.session_id = "s1"
-    session.config_values = {"mode": "single"}
+    session.config_values = {"_agent": "primary"}
     return session
 
 
 class TestExecute:
-    """Тесты execute — маршрутизация по mode."""
+    """Тесты execute — маршрутизация по strategy."""
 
     @pytest.mark.asyncio
     async def test_execute_dispatches_to_single_strategy(
-        self, dispatcher, mock_session
+        self, dispatcher, mock_session, mock_agent_registry
     ):
-        """mode='single' → SingleStrategy."""
+        """strategy='single' → SingleStrategy."""
         # SingleStrategy.execute будет вызван через event_bus
         from codelab.server.agent.contracts.base import (
             AgentResponse,
             TokenUsage,
+        )
+        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+
+        # Настроим registry чтобы возвращал агента
+        mock_agent_registry.get.return_value = ResolvedAgent(
+            name="primary",
+            mode=AgentMode.PRIMARY,
+            model="openai/gpt-4o",
         )
 
         dispatcher._event_bus.send_request = AsyncMock(
@@ -78,89 +97,114 @@ class TestExecute:
                 text="Response",
                 usage=TokenUsage(10, 5, 15),
                 stop_reason="end_turn",
-                agent_name="primary",
-                session_id="s1",
             )
         )
 
-        result = await dispatcher.execute(
-            session=mock_session,
-            prompt="Hello",
-        )
+        result = await dispatcher.execute(mock_session, "Hello")
 
         assert result.text == "Response"
-        assert result.stop_reason == "end_turn"
+        assert dispatcher._event_bus.send_request.called
 
     @pytest.mark.asyncio
-    async def test_execute_resolves_mode_from_session_config(
-        self, dispatcher, mock_session
+    async def test_execute_resolves_agent_from_session_config(
+        self, dispatcher, mock_session, mock_agent_registry
     ):
-        """Режим берётся из session.config_values['mode']."""
-        mock_session.config_values = {"mode": "single"}
-
+        """agent_name из session.config_values['_agent']."""
         from codelab.server.agent.contracts.base import (
             AgentResponse,
             TokenUsage,
+        )
+        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+
+        mock_session.config_values = {"_agent": "coder"}
+        mock_agent_registry.get.return_value = ResolvedAgent(
+            name="coder",
+            mode=AgentMode.PRIMARY,
+            model="openai/gpt-4o",
         )
 
         dispatcher._event_bus.send_request = AsyncMock(
             return_value=AgentResponse(
                 request_id="r1",
-                text="OK",
-                usage=TokenUsage(0, 0, 0),
+                text="Response",
+                usage=TokenUsage(10, 5, 15),
                 stop_reason="end_turn",
             )
         )
 
-        await dispatcher.execute(session=mock_session, prompt="test")
+        await dispatcher.execute(mock_session, "Hello")
 
-        # SingleStrategy была вызвана (event_bus.send_request был вызван)
-        dispatcher._event_bus.send_request.assert_called_once()
+        # Проверяем что запрос был отправлен к правильному агенту
+        call_args = dispatcher._event_bus.send_request.call_args
+        request = call_args.kwargs["request"]
+        assert request.target_agent == "coder"
 
     @pytest.mark.asyncio
-    async def test_execute_uses_default_mode_if_not_in_config(
-        self, dispatcher, mock_session
+    async def test_execute_uses_default_agent_if_not_in_config(
+        self, dispatcher, mock_session, mock_agent_registry
     ):
-        """Если mode нет в config — используется default_mode."""
-        mock_session.config_values = {}  # нет mode
-
+        """Если _agent не указан, используется default agent из registry."""
         from codelab.server.agent.contracts.base import (
             AgentResponse,
             TokenUsage,
+        )
+        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+
+        mock_session.config_values = {}  # нет _agent
+        mock_agent_registry.get_primary_agents.return_value = {
+            "coder": ResolvedAgent(
+                name="coder",
+                mode=AgentMode.PRIMARY,
+                model="openai/gpt-4o",
+                priority=1,
+            )
+        }
+        mock_agent_registry.get.return_value = ResolvedAgent(
+            name="coder",
+            mode=AgentMode.PRIMARY,
+            model="openai/gpt-4o",
         )
 
         dispatcher._event_bus.send_request = AsyncMock(
             return_value=AgentResponse(
                 request_id="r1",
-                text="OK",
-                usage=TokenUsage(0, 0, 0),
+                text="Response",
+                usage=TokenUsage(10, 5, 15),
                 stop_reason="end_turn",
             )
         )
 
-        await dispatcher.execute(session=mock_session, prompt="test")
+        await dispatcher.execute(mock_session, "Hello")
 
-        dispatcher._event_bus.send_request.assert_called_once()
+        call_args = dispatcher._event_bus.send_request.call_args
+        request = call_args.kwargs["request"]
+        assert request.target_agent == "coder"
 
     @pytest.mark.asyncio
-    async def test_execute_raises_for_unimplemented_mode(
-        self, dispatcher, mock_session
-    ):
-        """Не реализованные режимы → NotImplementedError."""
-        mock_session.config_values = {"mode": "multi_orchestrated"}
+    async def test_execute_raises_for_unimplemented_strategy(self, dispatcher, mock_session):
+        """strategy='multi_orchestrated' → NotImplementedError."""
+        dispatcher._strategy_name = "multi_orchestrated"
 
         with pytest.raises(NotImplementedError, match="not yet implemented"):
-            await dispatcher.execute(session=mock_session, prompt="test")
+            await dispatcher.execute(mock_session, "Hello")
 
     @pytest.mark.asyncio
-    async def test_execute_raises_for_unknown_mode(
-        self, dispatcher, mock_session
-    ):
-        """Неизвестный режим → ValueError."""
-        mock_session.config_values = {"mode": "unknown_mode"}
+    async def test_execute_raises_for_unknown_strategy(self, dispatcher, mock_session):
+        """strategy='unknown' → ValueError."""
+        dispatcher._strategy_name = "unknown"
 
-        with pytest.raises(ValueError, match="Unknown execution mode"):
-            await dispatcher.execute(session=mock_session, prompt="test")
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            await dispatcher.execute(mock_session, "Hello")
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_for_agent_not_found(
+        self, dispatcher, mock_session, mock_agent_registry
+    ):
+        """Агент не найден в registry → ValueError."""
+        mock_agent_registry.get.return_value = None  # агент не найден
+
+        with pytest.raises(ValueError, match="not found in registry"):
+            await dispatcher.execute(mock_session, "Hello")
 
 
 class TestContinueExecution:
@@ -168,12 +212,19 @@ class TestContinueExecution:
 
     @pytest.mark.asyncio
     async def test_continue_dispatches_to_strategy(
-        self, dispatcher, mock_session
+        self, dispatcher, mock_session, mock_agent_registry
     ):
-        """continue_execution делегирует стратегии."""
+        """continue_execution вызывает strategy.continue_execution."""
         from codelab.server.agent.contracts.base import (
             AgentResponse,
             TokenUsage,
+        )
+        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+
+        mock_agent_registry.get.return_value = ResolvedAgent(
+            name="primary",
+            mode=AgentMode.PRIMARY,
+            model="openai/gpt-4o",
         )
 
         dispatcher._event_bus.send_request = AsyncMock(
@@ -185,46 +236,71 @@ class TestContinueExecution:
             )
         )
 
-        result = await dispatcher.continue_execution(session=mock_session)
+        result = await dispatcher.continue_execution(mock_session)
 
         assert result.text == "Continued"
 
 
-class TestModeSupport:
-    """Тесты проверки поддержки режимов."""
+class TestStrategySupport:
+    """Тесты поддержки стратегий."""
 
-    def test_get_registered_modes(self, dispatcher):
-        """Возвращает список зарегистрированных режимов."""
-        modes = dispatcher.get_registered_modes()
-        assert "single" in modes
+    def test_get_registered_strategies(self, dispatcher):
+        """get_registered_strategies() возвращает список стратегий."""
+        strategies = dispatcher.get_registered_strategies()
+        assert "single" in strategies
 
-    def test_is_mode_supported_single(self, dispatcher):
-        """mode='single' поддерживается."""
-        assert dispatcher.is_mode_supported("single") is True
+    def test_is_strategy_supported_single(self, dispatcher):
+        """is_strategy_supported('single') → True."""
+        assert dispatcher.is_strategy_supported("single") is True
 
-    def test_is_mode_supported_unimplemented(self, dispatcher):
-        """Не реализованные режимы не поддерживаются."""
-        assert dispatcher.is_mode_supported("multi_orchestrated") is False
-        assert dispatcher.is_mode_supported("multi_choreographed") is False
-        assert dispatcher.is_mode_supported("hierarchical") is False
+    def test_is_strategy_supported_unimplemented(self, dispatcher):
+        """is_strategy_supported('multi_orchestrated') → False."""
+        assert dispatcher.is_strategy_supported("multi_orchestrated") is False
+
+
+class TestSetStrategy:
+    """Тесты set_strategy — runtime override."""
+
+    def test_set_strategy_single(self, dispatcher):
+        """set_strategy('single') меняет текущую стратегию."""
+        dispatcher.set_strategy("single")
+        assert dispatcher.get_strategy() == "single"
+
+    def test_set_strategy_unknown_raises(self, dispatcher):
+        """set_strategy('unknown') → ValueError."""
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            dispatcher.set_strategy("unknown")
+
+    def test_set_strategy_unimplemented_raises(self, dispatcher):
+        """set_strategy('multi_orchestrated') → ValueError (не зарегистрирована)."""
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            dispatcher.set_strategy("multi_orchestrated")
 
 
 class TestInitialization:
     """Тесты инициализации."""
 
-    def test_default_mode_is_single(self, mock_event_bus, mock_execution_engine):
-        """По умолчанию режим — single."""
+    def test_default_strategy_is_single(
+        self, mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry
+    ):
+        """По умолчанию strategy='single'."""
         dispatcher = StrategyDispatcher(
             event_bus=mock_event_bus,
             execution_engine=mock_execution_engine,
+            agent_registry=mock_agent_registry,
+            tracer=mock_tracer,
         )
-        assert dispatcher._default_mode == "single"
+        assert dispatcher.get_strategy() == "single"
 
-    def test_custom_default_mode(self, mock_event_bus, mock_execution_engine):
-        """Можно задать кастомный default_mode."""
+    def test_custom_strategy(
+        self, mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry
+    ):
+        """Можно установить custom strategy."""
         dispatcher = StrategyDispatcher(
             event_bus=mock_event_bus,
             execution_engine=mock_execution_engine,
-            default_mode="single",
+            agent_registry=mock_agent_registry,
+            tracer=mock_tracer,
+            strategy="single",
         )
-        assert dispatcher._default_mode == "single"
+        assert dispatcher.get_strategy() == "single"

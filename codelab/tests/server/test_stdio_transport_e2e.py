@@ -85,17 +85,16 @@ def _server_env(tmp_cwd: Path) -> dict[str, str]:
 
 
 async def _start_server(tmp_cwd: Path) -> asyncio.subprocess.Process:
-    """Запустить stdio сервер."""
-    # Используем Python из venv для запуска сервера
-    python_exe = sys.executable
+    """Запустить stdio сервер через uv run."""
     env = _server_env(tmp_cwd)
     # Добавляем PYTHONPATH чтобы сервер мог импортировать модули
     project_root = Path(__file__).parent.parent.parent.parent
     env["PYTHONPATH"] = str(project_root / "src")
 
     return await asyncio.create_subprocess_exec(
-        python_exe,
-        CLI_PATH,
+        "uv",
+        "run",
+        "codelab",
         "serve",
         "--stdio",
         stdin=asyncio.subprocess.PIPE,

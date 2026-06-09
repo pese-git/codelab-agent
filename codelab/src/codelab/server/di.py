@@ -462,25 +462,15 @@ class LLMProvider_(Provider):
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
         registry: LLMProviderRegistry,
     ) -> LLMProvider:
-        """Создаёт LLM провайдера через Registry."""
+        """Создаёт LLM провайдера через Registry.
+        
+        Registry автоматически инициализирует провайдер через default_config,
+        установленный в RegistryProvider.get_llm_registry().
+        """
         provider_id = config.llm.provider
 
-        llm_config = LLMConfig(
-            api_key=config.llm.api_key,
-            model=config.llm.model,
-            base_url=config.llm.base_url,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-            timeout=LLMTimeoutConfig(
-                connect=config.llm.timeout.connect,
-                read=config.llm.timeout.read,
-                write=config.llm.timeout.write,
-                pool=config.llm.timeout.pool,
-            ),
-        )
-
         try:
-            return await registry.create_provider(provider_id, llm_config)
+            return await registry.get_provider(provider_id)
         except ProviderNotFoundError:
             # Fallback на mock если провайдер не зарегистрирован
             provider = MockLLMProvider()
@@ -673,6 +663,24 @@ class RegistryProvider(Provider):
     ) -> LLMProviderRegistry:
         """Создаёт реестр провайдеров с ProviderInfo из AppConfig."""
         registry = LLMProviderRegistry()
+
+        # Устанавливаем default config для автоинициализации провайдеров
+        # Все провайдеры, получаемые через get_provider(), будут автоматически
+        # инициализированы этой конфигурацией
+        default_llm_config = LLMConfig(
+            api_key=config.llm.api_key,
+            model=config.llm.model,
+            base_url=config.llm.base_url,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+            timeout=LLMTimeoutConfig(
+                connect=config.llm.timeout.connect,
+                read=config.llm.timeout.read,
+                write=config.llm.timeout.write,
+                pool=config.llm.timeout.pool,
+            ),
+        )
+        registry.set_default_config(default_llm_config)
 
         # Регистрируем провайдеры из AppConfig (загружено из TOML при load())
         for provider_id, provider_cfg in config.llm.providers.items():
