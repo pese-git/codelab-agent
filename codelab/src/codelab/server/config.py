@@ -129,6 +129,24 @@ class AgentConfig(BaseModel):
     )
 
 
+class AgentsConfig(BaseModel):
+    """Конфигурация мультиагентной системы.
+
+    Атрибуты:
+        mode: Режим выполнения (single, multi_orchestrated, multi_choreographed, hierarchical)
+        fallback_mode: Режим fallback если нет нужных агентов
+        use_event_bus: Использовать EventBus-based архитектуру (вместо legacy AgentOrchestrator)
+        default_model: Модель по умолчанию для агентов
+        max_steps: Максимальное количество шагов мультиагентного выполнения
+    """
+
+    mode: str = "single"
+    fallback_mode: str = "single"
+    use_event_bus: bool = False
+    default_model: str = "openai/gpt-4o"
+    max_steps: int = 7
+
+
 class StorageConfig(BaseModel):
     """Конфигурация хранилища сессий.
 
@@ -177,6 +195,7 @@ class AppConfig(BaseSettings):
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
 

@@ -124,6 +124,7 @@ class MultiAgentProvider(Provider):
     - ExecutionEngine — композиционный движок выполнения
     - AgentFactory — фабрика создания LLMAdapter
     - StrategyDispatcher — маршрутизация по стратегиям
+    - AgentRegistry — реестр агентов с hot reload
     """
 
     @provide(scope=Scope.APP)
@@ -153,6 +154,22 @@ class MultiAgentProvider(Provider):
     ) -> StrategyDispatcher:
         """Создаёт StrategyDispatcher."""
         return StrategyDispatcher(event_bus, execution_engine, tracer)
+
+    @provide(scope=Scope.APP)
+    def get_agent_registry(
+        self,
+        event_bus: AgentEventBus,
+        agent_factory: AgentFactory,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+    ) -> AgentRegistry:
+        """Создаёт AgentRegistry."""
+        from codelab.server.agent.config.models import AgentsGlobalConfig
+
+        global_config = AgentsGlobalConfig(
+            default_model=config.agents.default_model,
+            max_steps=config.agents.max_steps,
+        )
+        return AgentRegistry(event_bus, agent_factory, global_config)
 
 
 class ManagersProvider(Provider):
