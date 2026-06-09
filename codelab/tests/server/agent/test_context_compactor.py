@@ -28,20 +28,18 @@ def make_messages(count, role="user"):
 class TestCompactionGuards:
     """4.13 — короткая история (<= 5) → без compaction."""
 
-    def test_short_history_no_compaction(self, compactor):
+    @pytest.mark.asyncio
+    async def test_short_history_no_compaction(self, compactor):
         history = make_messages(3)
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is False
         assert reason == "history_too_short"
         assert len(result) == 3
 
-    def test_exact_min_history(self, compactor):
+    @pytest.mark.asyncio
+    async def test_exact_min_history(self, compactor):
         history = make_messages(5)
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is False
         assert reason == "history_too_short"
 
@@ -49,7 +47,8 @@ class TestCompactionGuards:
 class TestPrunePhase:
     """4.10 — prune с достаточным уменьшением."""
 
-    def test_prune_removes_tool_outputs(self, compactor):
+    @pytest.mark.asyncio
+    async def test_prune_removes_tool_outputs(self, compactor):
         history = [
             LLMMessage(role="system", content="System"),
             LLMMessage(role="user", content="Initial " * 100),
@@ -60,15 +59,14 @@ class TestPrunePhase:
             LLMMessage(role="assistant", content="Recent response " * 50),
             LLMMessage(role="user", content="Latest " * 50),
         ]
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is True
         # Tool messages из middle должны быть удалены
         tool_count = sum(1 for m in result if m.role == "tool")
         assert tool_count == 0  # Все tool messages из middle удалены
 
-    def test_prune_preserves_start_and_end(self, compactor):
+    @pytest.mark.asyncio
+    async def test_prune_preserves_start_and_end(self, compactor):
         history = [
             LLMMessage(role="system", content="System"),
             LLMMessage(role="user", content="First"),
@@ -78,9 +76,7 @@ class TestPrunePhase:
             LLMMessage(role="assistant", content="Response"),
             LLMMessage(role="user", content="Latest"),
         ]
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         # Первые 2 сохранены
         assert result[0].content == "System"
         assert result[1].content == "First"
@@ -130,27 +126,25 @@ class TestSummarizePhase:
 class TestCompactionTrigger:
     """4.12 — условие срабатывания (limit - reserved)."""
 
-    def test_within_limit_no_compaction(self, compactor):
+    @pytest.mark.asyncio
+    async def test_within_limit_no_compaction(self, compactor):
         history = make_messages(6, role="user")
         # Маленький контент — не превышает лимит
         for msg in history:
             msg.content = "short"
 
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is False
         assert reason == "within_limit"
 
-    def test_exceeds_limit_triggers_compaction(self, compactor):
+    @pytest.mark.asyncio
+    async def test_exceeds_limit_triggers_compaction(self, compactor):
         history = make_messages(10, role="user")
         # Большой контент — превышает лимит
         for msg in history:
             msg.content = "X " * 200
 
-        result, changed, reason = asyncio.get_event_loop().run_until_complete(
-            compactor.compact_if_needed(history)
-        )
+        result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is True
 
     @pytest.mark.asyncio
