@@ -10,6 +10,7 @@ import structlog
 from typing_extensions import deprecated
 
 from codelab.server.messages import ACPMessage
+from codelab.server.observability.tracer import Tracer
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
@@ -54,6 +55,7 @@ class LLMLoopStage(PromptStage):
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         strategy_dispatcher: Any | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
@@ -62,6 +64,7 @@ class LLMLoopStage(PromptStage):
         self._plan_builder = plan_builder
         self._global_policy_manager = global_policy_manager
         self._strategy_dispatcher = strategy_dispatcher
+        self._tracer = tracer
 
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()

@@ -57,6 +57,40 @@ from .storage.global_policy_storage import GlobalPolicyStorage
 from .tools.base import ToolRegistry as ToolRegistryProtocol
 from .tools.registry import SimpleToolRegistry
 
+from .observability import EventTimeline, MetricsTracker, Tracer
+
+
+# Тип для observability debug mode (чтобы отличить от require_auth)
+class ObservabilityDebug:
+    """Marker type for observability debug mode."""
+    def __init__(self, enabled: bool = False):
+        self.enabled = enabled
+
+
+class ObservabilityProvider(Provider):
+    """Провайдер observability компонентов (APP scope).
+
+    Создаёт и настраивает:
+    - Tracer — span hierarchy для tracing LLM вызовов
+    - EventTimeline — хронология событий сессии
+    - MetricsTracker — автоматический сбор метрик
+    """
+
+    @provide(scope=Scope.APP)
+    def get_tracer(self, debug: Annotated[ObservabilityDebug, from_context(provides=ObservabilityDebug)]) -> Tracer:
+        """Создаёт Tracer для observability."""
+        return Tracer(debug=debug.enabled)
+
+    @provide(scope=Scope.APP)
+    def get_event_timeline(self, debug: Annotated[ObservabilityDebug, from_context(provides=ObservabilityDebug)]) -> EventTimeline:
+        """Создаёт EventTimeline для записи событий сессии."""
+        return EventTimeline(debug=debug.enabled)
+
+    @provide(scope=Scope.APP)
+    def get_metrics_tracker(self, debug: Annotated[ObservabilityDebug, from_context(provides=ObservabilityDebug)]) -> MetricsTracker:
+        """Создаёт MetricsTracker для сбора метрик."""
+        return MetricsTracker(debug=debug.enabled)
+
 
 class ManagersProvider(Provider):
     """Провайдер stateless менеджеров (APP scope)."""
@@ -252,6 +286,7 @@ class PipelineProvider(Provider):
         state_manager: StateManager,
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager,
+        tracer: Tracer,
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -262,6 +297,7 @@ class PipelineProvider(Provider):
             state_manager=state_manager,
             plan_builder=plan_builder,
             global_policy_manager=global_policy_manager,
+            tracer=tracer,
         )
 
     @provide(scope=Scope.APP)
@@ -458,6 +494,7 @@ def make_container(
     require_auth: bool = False,
     auth_api_key: str | None = None,
     trace_messages: bool = False,
+    observability_debug: bool = False,
 ) -> AsyncContainer:
     """Создаёт DI контейнер со всеми провайдерами.
 
@@ -467,11 +504,13 @@ def make_container(
         require_auth: Требовать аутентификацию.
         auth_api_key: API ключ для аутентификации.
         trace_messages: Включить детальное логирование всех JSON-RPC сообщений.
+        observability_debug: Включить debug mode для observability (полные payload'ы).
 
     Returns:
         AsyncContainer для получения зависимостей.
     """
     container = make_async_container(
+        ObservabilityProvider(),
         ManagersProvider(),
         SlashCommandsProvider(),
         StorageProvider(),
@@ -489,6 +528,7 @@ def make_container(
             bool: require_auth,
             str | None: auth_api_key,
             "trace_messages": trace_messages,
+            ObservabilityDebug: ObservabilityDebug(observability_debug),
         },
     )
     return container
