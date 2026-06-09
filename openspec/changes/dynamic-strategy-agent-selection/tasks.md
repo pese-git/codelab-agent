@@ -99,3 +99,10 @@
 - [x] 11.2 Добавить описание `/strategy` slash command
 - [x] 11.3 Добавить описание config options `mode` и `_agent`
 - [x] 11.4 Обновить `codelab.toml.example` — `strategy` вместо `mode`
+
+### 12. Добавить конфигурации агентов
+
+- [x] 12.1 Создать `~/.codelab/agents/coder.md` — агент-программист (priority: 1)
+- [x] 12.2 Создать `~/.codelab/agents/architect.md` — агент-архитектор (priority: 2)
+- [x] 12.3 Создать `~/.codelab/agents/debug.md` — агент-отладчик (priority: 3)
+- [x] 12.4 Создать `~/.codelab/agents/ask.md` — агент-консультант (priority: 4)
