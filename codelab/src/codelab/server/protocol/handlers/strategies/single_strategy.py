@@ -96,9 +96,10 @@ class SingleStrategy:
     async def execute(
         self,
         session: SessionState,
-        prompt: str,
-        system_prompt: str | None = None,
+        prompt: str | None,
         mcp_manager: Any | None = None,
+        *,
+        system_prompt: str | None = None,
         parent_span: SpanContext | None = None,
         agent_name: str | None = None,
     ) -> BaseAgentResponse:
@@ -106,10 +107,10 @@ class SingleStrategy:
 
         Args:
             session: Состояние сессии.
-            prompt: Текст промпта пользователя.
-            system_prompt: Системный промпт.
+            prompt: Текст промпта пользователя (None для продолжения).
             mcp_manager: MCP manager.
-            parent_span: Родительский span для tracing.
+            system_prompt: Системный промпт (keyword-only, опционально).
+            parent_span: Родительский span для tracing (keyword-only, опционально).
             agent_name: Имя агента для вызова (из session.config_values["_agent"]).
                 Если None, используется default_agent_name.
 
@@ -178,6 +179,7 @@ class SingleStrategy:
         self,
         session: SessionState,
         mcp_manager: Any | None = None,
+        *,
         parent_span: SpanContext | None = None,
         agent_name: str | None = None,
     ) -> BaseAgentResponse:
@@ -186,8 +188,8 @@ class SingleStrategy:
         Args:
             session: Состояние сессии (история уже содержит tool_results).
             mcp_manager: MCP manager.
-            parent_span: Родительский span.
-            agent_name: Имя агента для вызова (из session.config_values["_agent"]).
+            parent_span: Родительский span (keyword-only, опционально).
+            agent_name: Имя агента для вызова (keyword-only, опционально).
                 Если None, используется default_agent_name.
 
         Returns:

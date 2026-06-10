@@ -1,49 +1,69 @@
-"""Стадия основного цикла LLM и выполнения tool calls."""
+"""LLMLoopStage — тонкий адаптер pipeline → AgentLoop.
+
+Responsibilities:
+- Создание AgentLoop с нужной стратегией (лениво)
+- Интеграция с pipeline (PromptContext → AgentLoopResult → PromptContext)
+
+НЕ отвечает за:
+- Цикл итераций (делает AgentLoop)
+- Вызов LLM (делает LLMCallStrategy)
+- Обработку tool_calls (делает AgentLoop)
+
+Архитектурное решение:
+- Strategy Pattern — выбор стратегии через LLMCallStrategy
+- Single Responsibility — LLMLoopStage только адаптер
+- Open/Closed — добавление стратегии не требует изменения LLMLoopStage
+"""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
-from typing_extensions import deprecated
 
-from codelab.server.messages import ACPMessage
-from codelab.server.observability.tracer import Tracer
+from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
-from codelab.server.protocol.handlers.permission_manager import PermissionManager
-from codelab.server.protocol.handlers.plan_builder import PlanBuilder
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
-from codelab.server.protocol.handlers.state_manager import StateManager
-from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import LLMLoopResult, SessionState, ToolResult
-from codelab.server.tools.base import ToolRegistry
-from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
-from codelab.server.tools.mapping import llm_name_to_acp_name
+from codelab.server.protocol.stop_reasons import StopReason
 
 from ..base import PromptStage
 from ..context import PromptContext
 
 if TYPE_CHECKING:
     from codelab.server.agent.orchestrator import AgentOrchestrator
+    from codelab.server.agent.strategies.base import LLMCallStrategy
+    from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.observability.tracer import Tracer
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
+    from codelab.server.protocol.handlers.permission_manager import PermissionManager
+    from codelab.server.protocol.handlers.plan_builder import PlanBuilder
+    from codelab.server.protocol.handlers.state_manager import StateManager
+    from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+    from codelab.server.protocol.state import LLMLoopResult, SessionState
+    from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger()
 
 
 class LLMLoopStage(PromptStage):
-    """Основной цикл взаимодействия с LLM и выполнения tool calls.
+    """Тонкий адаптер pipeline → AgentLoop.
 
-    Поддерживает два пути выполнения:
-    - Legacy: через AgentOrchestrator → NaiveAgent (по умолчанию)
+    Поддерживает два пути выполнения через LLMCallStrategy:
+    - Legacy: через LegacyCallStrategy → AgentOrchestrator → NaiveAgent
     - EventBus: через StrategyDispatcher → SingleStrategy → LLMAdapter
-      (включается через config flag `use_event_bus = true`)
 
-    Feature flag обеспечивает безопасную миграцию без нарушения
-    существующих 3558+ тестов.
+    Стратегия выбирается лениво при первом вызове process().
+
+    Example:
+        stage = LLMLoopStage(
+            tool_registry=tool_registry,
+            strategy_dispatcher=strategy_dispatcher,  # EventBus путь
+            ...
+        )
+        result = await stage.process(context)
     """
 
     def __init__(
@@ -54,10 +74,22 @@ class LLMLoopStage(PromptStage):
         state_manager: StateManager,
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
-        strategy_dispatcher: Any | None = None,
+        strategy_dispatcher: StrategyDispatcher | None = None,
         tracer: Tracer | None = None,
-        strategy: str = "single",
     ) -> None:
+        """Инициализация LLMLoopStage.
+
+        Args:
+            tool_registry: Реестр инструментов для выполнения.
+            tool_call_handler: Обработчик tool calls для управления состоянием.
+            permission_manager: Менеджер разрешений для permission requests.
+            state_manager: Менеджер состояния сессии.
+            plan_builder: Построитель планов выполнения.
+            global_policy_manager: Менеджер глобальных политик (опционально).
+            strategy_dispatcher: StrategyDispatcher для EventBus пути (опционально).
+                Если None, используется LegacyCallStrategy.
+            tracer: Tracer для observability (опционально).
+        """
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
         self._permission_manager = permission_manager
@@ -66,31 +98,78 @@ class LLMLoopStage(PromptStage):
         self._global_policy_manager = global_policy_manager
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
-        self._strategy = strategy
 
+        # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()
         self._content_formatter = ContentFormatter()
         self._replay_manager = ReplayManager()
 
+        # Лениво создаваемый AgentLoop
+        self._agent_loop: AgentLoop | None = None
+
+        strategy_name = "event_bus" if strategy_dispatcher else "legacy"
         logger.info(
             "LLMLoopStage initialized",
-            strategy=strategy,
+            strategy=strategy_name,
             tracer_enabled=tracer is not None,
         )
 
-    async def process(self, context: PromptContext) -> PromptContext:
-        # Если strategy_dispatcher настроен — используем его
-        if self._strategy_dispatcher is not None:
-            return await self._process_via_event_bus(context)
+    def _get_or_create_agent_loop(self, context: PromptContext) -> AgentLoop:
+        """Лениво создать AgentLoop с нужной стратегией.
 
-        # Legacy путь: через AgentOrchestrator
+        Args:
+            context: Контекст pipeline для получения agent_orchestrator.
+
+        Returns:
+            AgentLoop с нужной стратегией.
+
+        Raises:
+            ValueError: Если стратегия не доступна.
+        """
+        if self._agent_loop is not None:
+            return self._agent_loop
+
+        # Определить стратегию
+        strategy: LLMCallStrategy
+        if self._strategy_dispatcher is not None:
+            strategy = self._strategy_dispatcher
+        else:
+            agent_orchestrator = context.meta.get("agent_orchestrator")
+            if agent_orchestrator is None:
+                raise ValueError("No LLM strategy available: neither strategy_dispatcher nor agent_orchestrator")
+            strategy = LegacyCallStrategy(agent_orchestrator)
+
+        self._agent_loop = AgentLoop(
+            strategy=strategy,
+            tool_registry=self._tool_registry,
+            tool_call_handler=self._tool_call_handler,
+            permission_manager=self._permission_manager,
+            state_manager=self._state_manager,
+            content_extractor=self._content_extractor,
+            content_formatter=self._content_formatter,
+            replay_manager=self._replay_manager,
+            plan_builder=self._plan_builder,
+            global_policy_manager=self._global_policy_manager,
+        )
+        return self._agent_loop
+
+    async def process(self, context: PromptContext) -> PromptContext:
+        """Обработать prompt через AgentLoop.
+
+        Args:
+            context: Контекст pipeline.
+
+        Returns:
+            Обновлённый контекст с результатами.
+        """
+        # Demo mode: нет LLM
         agent_orchestrator: AgentOrchestrator | None = context.meta.get("agent_orchestrator")
-        if agent_orchestrator is None:
-            # Demo mode: no LLM configured, return simple ack
+        if agent_orchestrator is None and self._strategy_dispatcher is None:
             if context.raw_text:
                 ack_text = f"ACK: {context.raw_text[:80]}"
                 ack_content = {"type": "text", "text": ack_text}
+                from codelab.server.messages import ACPMessage
                 context.notifications.append(
                     ACPMessage.notification(
                         "session/update",
@@ -103,127 +182,28 @@ class LLMLoopStage(PromptStage):
                         },
                     )
                 )
-                # Сохраняем ACK в events_history для replay
                 self._replay_manager.save_agent_message_chunk(context.session, ack_content)
-                # Сохраняем ACK в history для conversation replay
                 self._state_manager.add_assistant_message(context.session, ack_text)
-            # Не переопределяем forced_stop_reason установленный ранее (например, DirectivesStage)
-            # context.stop_reason остаётся тем, что было установлено ранее (по умолчанию "end_turn")
             return context
 
+        agent_loop = self._get_or_create_agent_loop(context)
         mcp_manager = self._get_mcp_manager(context)
 
-        result = await self.run_loop(
+        result = await agent_loop.run(
             session=context.session,
             session_id=context.session_id,
-            agent_orchestrator=agent_orchestrator,
-            initial_prompt_text=context.raw_text,
+            initial_prompt=context.raw_text,
             mcp_manager=mcp_manager,
         )
 
         context.notifications.extend(result.notifications)
-        context.stop_reason = result.stop_reason or "end_turn"
+        context.stop_reason = result.stop_reason or StopReason.END_TURN
         context.pending_permission = result.pending_permission
 
         if result.pending_permission:
-            context.should_stop = True  # pipeline приостанавливается, turn остаётся открытым
-
-        return context
-
-    async def _process_via_event_bus(self, context: PromptContext) -> PromptContext:
-        """Обработка промпта через EventBus → StrategyDispatcher.
-
-        Новый путь: LLMLoopStage управляет циклом итераций,
-        но вызывает LLM через StrategyDispatcher → SingleStrategy → EventBus.
-
-        Args:
-            context: Контекст pipeline
-
-        Returns:
-            Обновлённый контекст с результатами
-        """
-        notifications: list[ACPMessage] = []
-        mcp_manager = self._get_mcp_manager(context)
-        session = context.session
-        session_id = context.session_id
-
-        # Первый вызов через StrategyDispatcher
-        agent_response = await self._strategy_dispatcher.execute(
-            session=session,
-            prompt=context.raw_text,
-            mcp_manager=mcp_manager,
-        )
-
-        # Обрабатываем ответ
-        agent_response_text = agent_response.text if agent_response else ""
-        has_tool_calls = agent_response and agent_response.tool_calls
-
-        if agent_response_text:
-            self._state_manager.add_assistant_message(session, agent_response_text)
-            self._state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {
-                        "sessionUpdate": "agent_message_chunk",
-                        "content": {"type": "text", "text": agent_response_text},
-                    },
-                },
-            )
-            notifications.append(_build_agent_response_notification(session_id, agent_response_text))
-
-        if not has_tool_calls:
-            logger.debug("event_bus path completed - no tool calls", session_id=session_id)
-            context.notifications.extend(notifications)
-            context.stop_reason = "end_turn"
-            return context
-
-        # Есть tool_calls — обрабатываем через ToolCallHandler с permissions
-        tool_calls_for_history = [
-            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-            for tc in agent_response.tool_calls
-        ]
-        session.history.append({
-            "role": "assistant",
-            "text": agent_response_text or "",
-            "tool_calls": tool_calls_for_history,
-        })
-
-        loop_result = await self._process_tool_calls_for_llm_loop(
-            session, session_id, agent_response.tool_calls, notifications, mcp_manager
-        )
-
-        context.notifications.extend(loop_result.notifications)
-        context.stop_reason = loop_result.stop_reason or "end_turn"
-        context.pending_permission = loop_result.pending_permission
-
-        if loop_result.pending_permission:
             context.should_stop = True
 
         return context
-
-    def _get_mcp_manager(self, context: PromptContext):
-        """Получить MCP manager из PromptContext.meta."""
-        return context.meta.get("mcp_manager")
-
-    async def run_loop(
-        self,
-        session: SessionState,
-        session_id: str,
-        agent_orchestrator: AgentOrchestrator,
-        initial_prompt_text: str | None = None,
-        tool_results: list[ToolResult] | None = None,
-        mcp_manager: Any | None = None,
-    ) -> LLMLoopResult:
-        """Запустить LLM loop. Используется как из process(), так и из execute_pending_tool."""
-        return await self._run_llm_loop(
-            session=session,
-            session_id=session_id,
-            agent_orchestrator=agent_orchestrator,
-            initial_prompt_text=initial_prompt_text,
-            tool_results=tool_results,
-            mcp_manager=mcp_manager,
-        )
 
     async def execute_pending_tool(
         self,
@@ -233,581 +213,171 @@ class LLMLoopStage(PromptStage):
         agent_orchestrator: AgentOrchestrator,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
-        """Выполняет pending tool после permission approval и продолжает LLM loop."""
-        notifications: list[ACPMessage] = []
-        tool_result: ToolResult | None = None
+        """Выполнить pending tool после permission approval.
 
-        tool_call_state = session.tool_calls.get(tool_call_id)
-        if tool_call_state is None:
-            logger.error(
-                "tool_call_state not found for pending execution",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-            )
-            return LLMLoopResult(notifications=notifications, stop_reason="end_turn")
-
-        tool_name = tool_call_state.tool_name
-        tool_arguments = tool_call_state.tool_arguments
-        tool_call_id_from_llm = tool_call_state.tool_call_id_from_llm
-
-        if tool_name is None:
-            logger.error(
-                "tool_name not found in tool_call_state",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-            )
-            return LLMLoopResult(notifications=notifications, stop_reason="end_turn")
-
-        logger.info(
-            "executing pending tool after permission approval",
-            session_id=session_id,
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-        )
-
-        try:
-            # MCP инструменты выполняются через MCPExecutor
-            if MCPToolExecutor.is_mcp_tool(tool_name):
-                if mcp_manager is None:
-                    raise RuntimeError("MCP manager not available for session")
-                mcp_executor = MCPToolExecutor(mcp_manager)
-                result = await mcp_executor.execute_tool(
-                    session_id, tool_name, tool_arguments, session=session
-                )
-            else:
-                result = await self._tool_registry.execute_tool(
-                    session_id, tool_name, tool_arguments, session=session
-                )
-
-            extracted_content = await self._content_extractor.extract_from_result(
-                tool_call_id, result
-            )
-            tool_call_state.result_content = extracted_content.content_items
-
-            provider_raw = session.config_values.get("llm_provider", "openai")
-            provider = cast(Literal["openai", "anthropic"], provider_raw)
-            self._content_formatter.format_for_llm(extracted_content, provider=provider)
-
-            if result.success:
-                completed_content = [
-                    {"type": "content", "content": {"type": "text", "text": result.output or "Tool executed successfully"}}
-                ]
-                self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "completed", content=completed_content
-                )
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status="completed",
-                        content=completed_content,
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status="completed", content=completed_content
-                )
-                tool_result = ToolResult(
-                    tool_call_id=tool_call_id_from_llm or tool_call_id,
-                    tool_name=tool_name,
-                    success=True,
-                    output=result.output,
-                )
-            else:
-                error_content = [
-                    {"type": "content", "content": {"type": "text", "text": result.error or "Tool execution failed"}}
-                ]
-                self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "failed", content=error_content
-                )
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status="failed",
-                        content=error_content,
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status="failed", content=error_content
-                )
-                tool_result = ToolResult(
-                    tool_call_id=tool_call_id_from_llm or tool_call_id,
-                    tool_name=tool_name,
-                    success=False,
-                    error=result.error,
-                )
-
-        except Exception as exc:
-            logger.error(
-                "tool execution failed with exception",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                tool_name=tool_name,
-                error=str(exc),
-                exc_info=True,
-            )
-            error_content = [
-                {"type": "content", "content": {"type": "text", "text": f"Tool execution error: {exc}"}}
-            ]
-            self._tool_call_handler.update_tool_call_status(
-                session, tool_call_id, "failed", content=error_content
-            )
-            notifications.append(
-                self._tool_call_handler.build_tool_update_notification(
-                    session_id=session_id, tool_call_id=tool_call_id, status="failed", content=error_content
-                )
-            )
-            self._replay_manager.save_tool_call_update(
-                session=session, tool_call_id=tool_call_id, status="failed", content=error_content
-            )
-            tool_result = ToolResult(
-                tool_call_id=tool_call_id_from_llm or tool_call_id,
-                tool_name=tool_name,
-                success=False,
-                error=str(exc),
-            )
-
-        if tool_result is not None:
-            llm_loop_result = await self._run_llm_loop(
-                session=session,
-                session_id=session_id,
-                agent_orchestrator=agent_orchestrator,
-                initial_prompt_text="",
-                tool_results=[tool_result],
-                mcp_manager=mcp_manager,
-            )
-            return LLMLoopResult(
-                notifications=notifications + llm_loop_result.notifications,
-                stop_reason=llm_loop_result.stop_reason,
-                final_text=llm_loop_result.final_text,
-                pending_permission=llm_loop_result.pending_permission,
-                pending_tool_calls=llm_loop_result.pending_tool_calls,
-                tool_results=llm_loop_result.tool_results,
-            )
-
-        return LLMLoopResult(notifications=notifications, stop_reason="end_turn")
-
-    # ── internal methods ──────────────────────────────────────────────────
-
-    @deprecated("Use _process_via_event_bus instead. This legacy path uses AgentOrchestrator which is deprecated.")
-    async def _run_llm_loop(
-        self,
-        session: SessionState,
-        session_id: str,
-        agent_orchestrator: AgentOrchestrator,
-        initial_prompt_text: str | None = None,
-        tool_results: list[ToolResult] | None = None,
-        mcp_manager: Any | None = None,
-    ) -> LLMLoopResult:
-        """Запустить legacy LLM loop через AgentOrchestrator.
-
-        DEPRECATED: Use _process_via_event_bus instead. The legacy path uses
-        AgentOrchestrator which is deprecated in favor of ExecutionEngine +
-        StrategyDispatcher.
+        Делегирует AgentLoop.resume_after_permission().
 
         Args:
-            session: Состояние сессии
-            session_id: ID сессии
-            agent_orchestrator: Legacy оркестратор (deprecated)
-            initial_prompt_text: Текст начального промпта
-            tool_results: Результаты выполнения инструментов
-            mcp_manager: MCP manager
+            session: Состояние сессии.
+            session_id: ID сессии.
+            tool_call_id: ID tool call для выполнения.
+            agent_orchestrator: Legacy оркестратор (для создания стратегии).
+            mcp_manager: MCP manager.
 
         Returns:
-            LLMLoopResult с результатами выполнения
+            LLMLoopResult с результатом выполнения.
         """
-        notifications: list[ACPMessage] = []
-        max_iterations = 10
-        iteration = 0
-        final_text: str | None = None
+        # Создать временный контекст для получения стратегии
+        from ..context import PromptContext
+        context = PromptContext(
+            session=session,
+            session_id=session_id,
+            raw_text=None,
+            meta={"agent_orchestrator": agent_orchestrator},
+        )
 
-        while iteration < max_iterations:
-            iteration += 1
+        agent_loop = self._get_or_create_agent_loop(context)
 
-            if self._is_cancel_requested(session):
-                logger.debug("llm_loop cancelled before LLM call", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(notifications=notifications, stop_reason="cancelled")
+        result = await agent_loop.resume_after_permission(
+            session=session,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            mcp_manager=mcp_manager,
+        )
 
-            try:
-                # Запускаем agent call как задачу для возможности отмены
-                if iteration == 1 and initial_prompt_text:
-                    agent_task = asyncio.create_task(
-                        agent_orchestrator.process_prompt(session, initial_prompt_text, mcp_manager)
-                    )
-                else:
-                    agent_task = asyncio.create_task(
-                        agent_orchestrator.continue_with_tool_results(session, tool_results or [], mcp_manager)
-                    )
+        # Конвертировать AgentLoopResult → LLMLoopResult
+        from codelab.server.protocol.state import LLMLoopResult
+        return LLMLoopResult(
+            notifications=result.notifications,
+            stop_reason=result.stop_reason.value if isinstance(result.stop_reason, StopReason) else result.stop_reason,
+            pending_permission=result.pending_permission,
+            pending_tool_calls=result.pending_tool_calls,
+            tool_results=result.tool_results,
+        )
 
-                # Мониторим флаг отмены параллельно с выполнением задачи
-                agent_response = await self._run_with_cancellation_check(
-                    agent_task, session, agent_orchestrator, session_id
-                )
-            except asyncio.CancelledError:
-                logger.debug("llm_loop agent task cancelled", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(notifications=notifications, stop_reason="cancelled")
-            except Exception as e:
-                error_message = f"Agent error: {str(e)}"
-                notifications.append(_build_error_notification(session_id, error_message))
-                logger.error("llm_loop agent processing failed", session_id=session_id, iteration=iteration, error=str(e))
-                return LLMLoopResult(notifications=notifications, stop_reason="end_turn")
+    def _get_mcp_manager(self, context: PromptContext):
+        """Получить MCP manager из PromptContext.meta."""
+        return context.meta.get("mcp_manager")
 
-            if self._is_cancel_requested(session):
-                logger.debug("llm_loop cancelled after LLM call", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(notifications=notifications, stop_reason="cancelled")
-
-            agent_response_text = agent_response.text if agent_response else ""
-            has_tool_calls = agent_response and agent_response.tool_calls
-
-            if agent_response_text:
-                final_text = agent_response_text
-
-                if not has_tool_calls:
-                    self._state_manager.add_assistant_message(session, agent_response_text)
-
-                self._state_manager.add_event(
-                    session,
-                    {
-                        "type": "session_update",
-                        "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": agent_response_text}},
-                    },
-                )
-                notifications.append(_build_agent_response_notification(session_id, agent_response_text))
-
-            agent_plan = getattr(agent_response, "plan", None) if agent_response else None
-            if agent_plan:
-                validated_plan = self._plan_builder.validate_plan_entries(agent_plan)
-                if validated_plan:
-                    session.latest_plan = list(validated_plan)
-                    notifications.append(self._plan_builder.build_plan_notification(session_id, validated_plan))
-                    self._replay_manager.save_plan(session, validated_plan)
-                    logger.debug("plan processed and published", session_id=session_id, num_entries=len(validated_plan))
-
-            if not has_tool_calls:
-                logger.debug("llm_loop completed - no tool calls", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(notifications=notifications, stop_reason="end_turn", final_text=final_text)
-
-            logger.info(
-                "llm_loop processing tool calls",
-                session_id=session_id,
-                iteration=iteration,
-                num_tool_calls=len(agent_response.tool_calls),
-            )
-
-            tool_calls_for_history = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                for tc in agent_response.tool_calls
-            ]
-            session.history.append({
-                "role": "assistant",
-                "text": agent_response_text or "",
-                "tool_calls": tool_calls_for_history,
-            })
-
-            loop_result = await self._process_tool_calls_for_llm_loop(
-                session, session_id, agent_response.tool_calls, notifications, mcp_manager
-            )
-
-            if loop_result.pending_permission:
-                logger.debug("llm_loop deferred for permission", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(
-                    notifications=notifications,
-                    stop_reason=None,
-                    pending_permission=True,
-                    tool_results=loop_result.tool_results,
-                )
-
-            if self._is_cancel_requested(session):
-                logger.debug("llm_loop cancelled during tool processing", session_id=session_id, iteration=iteration)
-                return LLMLoopResult(notifications=notifications, stop_reason="cancelled")
-
-            tool_results = loop_result.tool_results
-
-        logger.warning("llm_loop max iterations reached", session_id=session_id, max_iterations=max_iterations)
-        return LLMLoopResult(notifications=notifications, stop_reason="max_iterations", final_text=final_text)
+    # =========================================================================
+    # Legacy methods for backward compatibility with tests
+    # Эти методы делегируют в AgentLoop для обратной совместимости с тестами
+    # =========================================================================
 
     async def _process_tool_calls_for_llm_loop(
         self,
         session: SessionState,
         session_id: str,
-        tool_calls: list[Any],
-        notifications: list[ACPMessage],
+        tool_calls: list,
+        notifications: list,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
-        tool_results: list[ToolResult] = []
+        """Обработать tool calls (legacy interface для тестов).
 
-        for tool_call in tool_calls:
-            if self._is_cancel_requested(session):
-                logger.debug("tool processing cancelled", session_id=session_id)
-                return LLMLoopResult(tool_results=tool_results, stop_reason="cancelled")
+        Делегирует в AgentLoop._process_tool_calls().
+        """
+        agent_loop = self._get_agent_loop_for_legacy()
+        result = await agent_loop._process_tool_calls(
+            session, session_id, tool_calls, notifications, mcp_manager
+        )
+        from codelab.server.protocol.state import LLMLoopResult
+        return LLMLoopResult(
+            notifications=notifications,
+            tool_results=result.tool_results,
+            pending_permission=result.pending_permission,
+        )
 
-            tool_name = getattr(tool_call, "name", None)
-            tool_arguments = getattr(tool_call, "arguments", {})
-            tool_call_id_from_llm = getattr(tool_call, "id", None)
+    async def run_loop(
+        self,
+        session: SessionState,
+        session_id: str,
+        agent_orchestrator: Any,
+        initial_prompt_text: str | None = None,
+        tool_results: list | None = None,
+        mcp_manager: Any | None = None,
+    ) -> LLMLoopResult:
+        """Запустить LLM loop (legacy interface для тестов).
 
-            if not tool_name:
-                logger.warning("tool_call has no name", session_id=session_id)
-                continue
+        Делегирует в AgentLoop.run().
+        """
+        from ..context import PromptContext
+        context = PromptContext(
+            session=session,
+            session_id=session_id,
+            raw_text=initial_prompt_text,
+            meta={"agent_orchestrator": agent_orchestrator},
+        )
+        agent_loop = self._get_or_create_agent_loop(context)
 
-            # Конвертируем LLM имя обратно в ACP формат
-            acp_tool_name = llm_name_to_acp_name(tool_name)
+        result = await agent_loop.run(
+            session=session,
+            session_id=session_id,
+            initial_prompt=initial_prompt_text,
+            mcp_manager=mcp_manager,
+        )
 
-            # Определяем тип инструмента
-            # MCP инструменты получают inferred kind через MCPToolAdapter._infer_kind()
-            # (read, edit, execute, other и т.д. — согласно ACP ToolKind spec)
-            # kind="mcp" не используется — не является валидным ACP ToolKind
-            tool_kind = "other"
-            is_mcp = MCPToolExecutor.is_mcp_tool(acp_tool_name)
+        from codelab.server.protocol.state import LLMLoopResult
+        return LLMLoopResult(
+            notifications=result.notifications,
+            stop_reason=result.stop_reason.value if isinstance(result.stop_reason, StopReason) else result.stop_reason,
+            final_text=result.text,
+            pending_permission=result.pending_permission,
+            tool_results=result.tool_results,
+        )
 
-            tool_definition = self._tool_registry.get(acp_tool_name)
-            if tool_definition is not None:
-                tool_kind = tool_definition.kind
+    async def _run_llm_loop(
+        self,
+        session: SessionState,
+        session_id: str,
+        agent_orchestrator: Any,
+        initial_prompt_text: str | None = None,
+        tool_results: list | None = None,
+        mcp_manager: Any | None = None,
+    ) -> LLMLoopResult:
+        """Legacy LLM loop (legacy interface для тестов).
 
-            tool_call_id = self._tool_call_handler.create_tool_call(
-                session=session,
-                title=acp_tool_name,
-                kind=tool_kind,
-                tool_name=acp_tool_name,
-                tool_arguments=tool_arguments,
-                tool_call_id_from_llm=tool_call_id_from_llm,
-            )
+        Делегирует в run_loop().
+        """
+        return await self.run_loop(
+            session=session,
+            session_id=session_id,
+            agent_orchestrator=agent_orchestrator,
+            initial_prompt_text=initial_prompt_text,
+            tool_results=tool_results,
+            mcp_manager=mcp_manager,
+        )
 
-            notifications.append(
-                self._tool_call_handler.build_tool_call_notification(
-                    session_id=session_id, tool_call_id=tool_call_id, title=acp_tool_name, kind=tool_kind
-                )
-            )
+    def _get_agent_loop_for_legacy(self) -> AgentLoop:
+        """Получить AgentLoop для legacy методов (без context).
 
-            self._replay_manager.save_tool_call(
-                session=session, tool_call_id=tool_call_id, title=acp_tool_name, kind=tool_kind, status="pending"
-            )
+        Создаёт AgentLoop с LegacyCallStrategy используя mock orchestrator.
+        """
+        if self._agent_loop is not None:
+            return self._agent_loop
 
-            # MCP инструменты всегда требуют разрешения (по умолчанию)
-            if is_mcp:
-                decision = await self._decide_tool_execution(session, tool_kind)
-            elif tool_definition is not None and not tool_definition.requires_permission:
-                decision = "allow"
-            else:
-                decision = await self._decide_tool_execution(session, tool_kind)
-
-            if decision == "ask":
-                tool_call_state = session.tool_calls.get(tool_call_id)
-                if tool_call_state is not None:
-                    permission_msg = self._permission_manager.build_permission_request(
-                        session, session_id, tool_call_state.tool_call_id, tool_call_state.title, tool_kind
-                    )
-                    notifications.append(permission_msg)
-
-                    if session.active_turn:
-                        session.active_turn.phase = "awaiting_permission"
-                        session.active_turn.permission_tool_call_id = tool_call_id
-                        logger.debug(
-                            "permission request built and active_turn updated",
-                            session_id=session_id,
-                            tool_call_id=tool_call_id,
-                            permission_request_id=session.active_turn.permission_request_id,
-                            permission_msg_id=permission_msg.id,
-                            active_turn_phase=session.active_turn.phase,
-                        )
-
-                logger.debug("permission request sent, pausing llm loop", session_id=session_id, tool_call_id=tool_call_id)
-                return LLMLoopResult(tool_results=tool_results, pending_permission=True)
-
-            if decision == "reject":
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                rejection_msg = f"Tool execution rejected by policy for {tool_kind}"
-                rejection_content = [{"type": "content", "content": {"type": "text", "text": rejection_msg}}]
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id, tool_call_id=tool_call_id, status="failed", content=rejection_content
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status="failed", content=rejection_content
-                )
-                tool_results.append(ToolResult(
-                    tool_call_id=tool_call_id_from_llm or tool_call_id,
-                    tool_name=acp_tool_name,
-                    success=False,
-                    error=rejection_msg,
-                ))
-                continue
-
-            # decision == "allow"
-            try:
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id, tool_call_id=tool_call_id, status="in_progress"
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status="in_progress"
-                )
-
-                # MCP инструменты выполняются через MCPExecutor
-                if is_mcp:
-                    if mcp_manager is None:
-                        raise RuntimeError("MCP manager not available for session")
-                    mcp_executor = MCPToolExecutor(mcp_manager)
-                    result = await mcp_executor.execute_tool(
-                        session_id, acp_tool_name, tool_arguments, session=session
-                    )
-                else:
-                    result = await self._tool_registry.execute_tool(
-                        session_id, acp_tool_name, tool_arguments, session=session
-                    )
-
-                extracted_content = await self._content_extractor.extract_from_result(tool_call_id, result)
-
-                is_valid, errors = self._content_validator.validate_content_list(extracted_content.content_items)
-                if not is_valid:
-                    logger.warning("tool_result_content_validation_failed", tool_call_id=tool_call_id, errors=errors)
-
-                tool_call_state = session.tool_calls.get(tool_call_id)
-                if tool_call_state:
-                    tool_call_state.result_content = extracted_content.content_items
-
-                provider_raw = session.config_values.get("llm_provider", "openai")
-                provider = cast(Literal["openai", "anthropic"], provider_raw)
-                self._content_formatter.format_for_llm(extracted_content, provider=provider)
-
-                if result.success:
-                    success_text = result.output or "Success"
-                    success_content = [{"type": "content", "content": {"type": "text", "text": success_text}}]
-                    self._tool_call_handler.update_tool_call_status(
-                        session, tool_call_id, "completed", content=success_content
-                    )
-                    status = "completed"
-                else:
-                    success_content = None
-                    self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                    status = "failed"
-
-                notification_content = None
-                if result.success and result.output:
-                    notification_content = [{"type": "content", "content": {"type": "text", "text": result.output}}]
-
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id, tool_call_id=tool_call_id, status=status, content=notification_content
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status=status, content=notification_content
-                )
-
-                tool_results.append(ToolResult(
-                    tool_call_id=tool_call_id_from_llm or tool_call_id,
-                    tool_name=acp_tool_name,
-                    success=result.success,
-                    output=result.output,
-                    content=extracted_content.content_items,
-                    error=result.error,
-                ))
-
-            except Exception as e:
-                logger.error("tool execution failed", session_id=session_id, tool_name=tool_name, error=str(e))
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id, tool_call_id=tool_call_id, status="failed"
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session, tool_call_id=tool_call_id, status="failed"
-                )
-                tool_results.append(ToolResult(
-                    tool_call_id=tool_call_id_from_llm or tool_call_id,
-                    tool_name=tool_name,
-                    success=False,
-                    error=str(e),
-                ))
-
-        return LLMLoopResult(tool_results=tool_results)
-
-    async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
-        session_policy = session.permission_policy.get(tool_kind)
-        if session_policy == "allow_always":
-            return "allow"
-        if session_policy == "reject_always":
-            return "reject"
-
-        if self._global_policy_manager is not None:
-            global_policy = await self._global_policy_manager.get_global_policy(tool_kind)
-            if global_policy == "allow_always":
-                return "allow"
-            if global_policy == "reject_always":
-                return "reject"
-
-        return "ask"
+        # Для legacy методов создаём AgentLoop с mock стратегией
+        # Это нужно только для тестов которые вызывают внутренние методы напрямую
+        from unittest.mock import MagicMock
+        mock_strategy = MagicMock()
+        self._agent_loop = AgentLoop(
+            strategy=mock_strategy,
+            tool_registry=self._tool_registry,
+            tool_call_handler=self._tool_call_handler,
+            permission_manager=self._permission_manager,
+            state_manager=self._state_manager,
+            content_extractor=self._content_extractor,
+            content_formatter=self._content_formatter,
+            replay_manager=self._replay_manager,
+            plan_builder=self._plan_builder,
+            global_policy_manager=self._global_policy_manager,
+        )
+        return self._agent_loop
 
     def _is_cancel_requested(self, session: SessionState) -> bool:
+        """Проверить флаг отмены (legacy interface для тестов)."""
         return session.active_turn is not None and session.active_turn.cancel_requested
 
-    async def _run_with_cancellation_check(
-        self,
-        task: asyncio.Task,
-        session: SessionState,
-        agent_orchestrator: AgentOrchestrator,
-        session_id: str,
-    ) -> Any:
-        """Запускает задачу и мониторит флаг отмены.
-
-        Если флаг cancel_requested установлен во время выполнения задачи,
-        вызывает agent.cancel_prompt() для прерывания LLM-запроса.
-
-        Args:
-            task: asyncio.Task с вызовом агента
-            session: Состояние сессии для проверки флага отмены
-            agent_orchestrator: Оркестратор для вызова cancel_prompt
-            session_id: ID сессии для логирования
-
-        Returns:
-            Результат выполнения задачи
-
-        Raises:
-            asyncio.CancelledError: Если задача была отменена
-        """
-        # Периодически проверяем флаг отмены параллельно с выполнением задачи
-        while not task.done():
-            if self._is_cancel_requested(session):
-                logger.info(
-                    "cancellation detected during LLM call, aborting",
-                    session_id=session_id,
-                )
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-                raise asyncio.CancelledError()
-            # Ждём завершения задачи или проверяем флаг через короткий интервал
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
-                return task.result()
-            except TimeoutError:
-                continue
-            except asyncio.CancelledError:
-                raise
-
-        # Задача уже завершена
-        return task.result()
-
-
-def _build_error_notification(session_id: str, error_message: str) -> ACPMessage:
-    return ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": error_message}},
-        },
-    )
-
-
-def _build_agent_response_notification(session_id: str, text: str) -> ACPMessage:
-    return ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}},
-        },
-    )
+    async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
+        """Определить решение о выполнении tool (legacy interface для тестов)."""
+        agent_loop = self._get_agent_loop_for_legacy()
+        return await agent_loop._decide_tool_execution(session, tool_kind)

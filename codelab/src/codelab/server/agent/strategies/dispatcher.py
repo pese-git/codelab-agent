@@ -93,9 +93,10 @@ class StrategyDispatcher:
     async def execute(
         self,
         session: SessionState,
-        prompt: str,
-        system_prompt: str | None = None,
+        prompt: str | None,
         mcp_manager: Any | None = None,
+        *,
+        system_prompt: str | None = None,
         parent_span: SpanContext | None = None,
     ) -> AgentResponse:
         """Выполнить стратегию.
@@ -104,10 +105,10 @@ class StrategyDispatcher:
 
         Args:
             session: Состояние сессии (содержит config_values["_agent"])
-            prompt: Текст промпта пользователя
-            system_prompt: Системный промпт
+            prompt: Текст промпта пользователя (None для продолжения)
             mcp_manager: MCP manager
-            parent_span: Родительский span для tracing
+            system_prompt: Системный промпт (keyword-only, опционально)
+            parent_span: Родительский span для tracing (keyword-only, опционально)
 
         Returns:
             AgentResponse с результатом выполнения стратегии
@@ -148,8 +149,8 @@ class StrategyDispatcher:
         return await strategy.execute(
             session=session,
             prompt=prompt,
-            system_prompt=system_prompt,
             mcp_manager=mcp_manager,
+            system_prompt=system_prompt,
             parent_span=parent_span,
             agent_name=agent_name,
         )
@@ -158,6 +159,7 @@ class StrategyDispatcher:
         self,
         session: SessionState,
         mcp_manager: Any | None = None,
+        *,
         parent_span: SpanContext | None = None,
     ) -> AgentResponse:
         """Продолжить выполнение после tool_results.
@@ -165,7 +167,7 @@ class StrategyDispatcher:
         Args:
             session: Состояние сессии
             mcp_manager: MCP manager
-            parent_span: Родительский span
+            parent_span: Родительский span (keyword-only, опционально)
 
         Returns:
             AgentResponse с результатом
