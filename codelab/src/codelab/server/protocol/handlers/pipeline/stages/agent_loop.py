@@ -648,6 +648,15 @@ class AgentLoop:
                     )
                 )
 
+                # Добавляем tool result в историю для LLM
+                self._add_tool_result_to_history(
+                    session,
+                    tool_call_id_from_llm or tool_call_id,
+                    result.success,
+                    result.output,
+                    result.error,
+                )
+
             except Exception as e:
                 logger.error(
                     "tool execution failed",
@@ -675,6 +684,15 @@ class AgentLoop:
                         success=False,
                         error=str(e),
                     )
+                )
+
+                # Добавляем tool result в историю для LLM
+                self._add_tool_result_to_history(
+                    session,
+                    tool_call_id_from_llm or tool_call_id,
+                    False,
+                    None,
+                    str(e),
                 )
 
         return ToolProcessingResult(tool_results=tool_results)
@@ -760,6 +778,10 @@ class AgentLoop:
                 self._tool_call_handler.update_tool_call_status(
                     session, tool_call_id, "completed", content=completed_content
                 )
+                # Добавляем tool result в историю для LLM
+                self._add_tool_result_to_history(
+                    session, tool_call_id_from_llm or tool_call_id, True, result.output, None
+                )
                 return ToolResult(
                     tool_call_id=tool_call_id_from_llm or tool_call_id,
                     tool_name=tool_name,
@@ -775,6 +797,10 @@ class AgentLoop:
                 ]
                 self._tool_call_handler.update_tool_call_status(
                     session, tool_call_id, "failed", content=error_content
+                )
+                # Добавляем tool result в историю для LLM
+                self._add_tool_result_to_history(
+                    session, tool_call_id_from_llm or tool_call_id, False, None, result.error
                 )
                 return ToolResult(
                     tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -798,12 +824,51 @@ class AgentLoop:
             self._tool_call_handler.update_tool_call_status(
                 session, tool_call_id, "failed", content=error_content
             )
+            # Добавляем tool result в историю для LLM
+            self._add_tool_result_to_history(
+                session, tool_call_id_from_llm or tool_call_id, False, None, str(exc)
+            )
             return ToolResult(
                 tool_call_id=tool_call_id_from_llm or tool_call_id,
                 tool_name=tool_name,
                 success=False,
                 error=str(exc),
             )
+
+    def _add_tool_result_to_history(
+        self,
+        session: SessionState,
+        tool_call_id: str,
+        success: bool,
+        output: str | None,
+        error: str | None,
+    ) -> None:
+        """Добавить результат выполнения tool в историю сессии.
+
+        Формат соответствует OpenAI API для tool response messages:
+          {"role": "tool", "tool_call_id": "...", "content": "..."}
+
+        Args:
+            session: Состояние сессии (мутируется).
+            tool_call_id: ID tool call.
+            success: Успешно ли выполнен tool.
+            output: Выход tool (если успешен).
+            error: Ошибка (если не успешен).
+        """
+        content = output if success else (error or "Tool execution failed")
+
+        session.history.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": content or "",
+        })
+
+        logger.debug(
+            "tool_result_added_to_history",
+            session_id=session.session_id,
+            tool_call_id=tool_call_id,
+            success=success,
+        )
 
     async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
         """Определить решение о выполнении tool.
