@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from codelab.server.agent.base import LLMAgent
     from codelab.server.agent.registry import AgentRegistry
+    from codelab.server.agent.strategies.base import LLMCallStrategy
     
     from .descriptor import StrategyDependencies, StrategyDescriptor
 
@@ -123,7 +123,7 @@ class StrategyRegistry:
         self,
         name: str,
         deps: StrategyDependencies,
-    ) -> LLMAgent | None:
+    ) -> LLMCallStrategy | None:
         """Создать экземпляр стратегии.
         
         Args:
@@ -131,7 +131,7 @@ class StrategyRegistry:
             deps: Зависимости для создания стратегии
         
         Returns:
-            Экземпляр стратегии (LLMAgent) или None если стратегия не найдена
+            Экземпляр стратегии (LLMCallStrategy) или None если стратегия не найдена
         """
         descriptor = self.get(name)
         if descriptor is None:

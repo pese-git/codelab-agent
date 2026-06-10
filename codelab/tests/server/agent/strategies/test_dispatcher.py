@@ -1,306 +1,404 @@
-"""Тесты для StrategyDispatcher."""
+"""Тесты для StrategyDispatcher с StrategyRegistry."""
 
-from unittest.mock import AsyncMock, MagicMock
+from __future__ import annotations
+
+from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.agent.event_bus.bus import AgentEventBus
-from codelab.server.agent.execution_engine import ExecutionEngine
-from codelab.server.agent.registry import AgentRegistry
+from codelab.server.agent.strategies.descriptor import (
+    StrategyDependencies,
+    StrategyDescriptor,
+)
 from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-from codelab.server.llm.models import LLMMessage
-from codelab.server.observability.tracer import Tracer
-from codelab.server.protocol.state import SessionState
+from codelab.server.agent.strategies.registry import StrategyRegistry
 
 
-@pytest.fixture
-def mock_event_bus():
-    bus = MagicMock(spec=AgentEventBus)
-    bus.send_request = AsyncMock()
-    return bus
+class TestStrategyDispatcherSelectStrategy:
+    """Тесты для select_strategy."""
 
+    def _create_dispatcher(
+        self,
+        available_strategies: list[str] | None = None,
+    ) -> StrategyDispatcher:
+        """Создать dispatcher с mocked registry."""
+        # Создаём mock registry
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
 
-@pytest.fixture
-def mock_execution_engine():
-    engine = MagicMock(spec=ExecutionEngine)
-    engine.build_context.return_value = MagicMock(
-        session_id="s1",
-        conversation_history=[LLMMessage(role="user", content="Hello")],
-        available_tools=[],
-    )
-    engine.build_continuation_context.return_value = MagicMock(
-        session_id="s1",
-        history=[LLMMessage(role="user", content="Hello")],
-        available_tools=[],
-    )
-    return engine
+        # Создаём descriptors для доступных стратегий
+        if available_strategies is None:
+            available_strategies = ["single"]
 
+        descriptors = []
+        for name in available_strategies:
+            descriptor = MagicMock(spec=StrategyDescriptor)
+            descriptor.name = name
+            descriptors.append(descriptor)
 
-@pytest.fixture
-def mock_tracer():
-    return Tracer(debug=True)
+        strategy_registry.get_available.return_value = descriptors
 
+        # Создаём dependencies
+        deps = MagicMock(spec=StrategyDependencies)
 
-@pytest.fixture
-def mock_agent_registry():
-    registry = MagicMock(spec=AgentRegistry)
-    registry.get_all.return_value = {}
-    registry.get_primary_agents.return_value = {}
-    registry.get.return_value = None
-    return registry
-
-
-@pytest.fixture
-def dispatcher(mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry):
-    return StrategyDispatcher(
-        event_bus=mock_event_bus,
-        execution_engine=mock_execution_engine,
-        agent_registry=mock_agent_registry,
-        tracer=mock_tracer,
-        strategy="single",
-    )
-
-
-@pytest.fixture
-def mock_session():
-    session = MagicMock(spec=SessionState)
-    session.session_id = "s1"
-    session.config_values = {"_agent": "primary"}
-    return session
-
-
-class TestExecute:
-    """Тесты execute — маршрутизация по strategy."""
-
-    @pytest.mark.asyncio
-    async def test_execute_dispatches_to_single_strategy(
-        self, dispatcher, mock_session, mock_agent_registry
-    ):
-        """strategy='single' → SingleStrategy."""
-        # SingleStrategy.execute будет вызван через event_bus
-        from codelab.server.agent.contracts.base import (
-            AgentResponse,
-            TokenUsage,
-        )
-        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
-
-        # Настроим registry чтобы возвращал агента
-        mock_agent_registry.get.return_value = ResolvedAgent(
-            name="primary",
-            mode=AgentMode.PRIMARY,
-            model="openai/gpt-4o",
+        return StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
         )
 
-        dispatcher._event_bus.send_request = AsyncMock(
-            return_value=AgentResponse(
-                request_id="r1",
-                text="Response",
-                usage=TokenUsage(10, 5, 15),
-                stop_reason="end_turn",
-            )
-        )
+    def test_select_strategy_priority_slash_command(self) -> None:
+        """Slash command имеет высший приоритет."""
+        dispatcher = self._create_dispatcher(["single", "hierarchical"])
 
-        result = await dispatcher.execute(mock_session, "Hello")
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {"_active_strategy": "hierarchical"}
 
-        assert result.text == "Response"
-        assert dispatcher._event_bus.send_request.called
+        context_meta = {"active_strategy": "single"}
 
-    @pytest.mark.asyncio
-    async def test_execute_resolves_agent_from_session_config(
-        self, dispatcher, mock_session, mock_agent_registry
-    ):
-        """agent_name из session.config_values['_agent']."""
-        from codelab.server.agent.contracts.base import (
-            AgentResponse,
-            TokenUsage,
-        )
-        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta)
 
-        mock_session.config_values = {"_agent": "coder"}
-        mock_agent_registry.get.return_value = ResolvedAgent(
-            name="coder",
-            mode=AgentMode.PRIMARY,
-            model="openai/gpt-4o",
-        )
+        assert strategy_name == "single"
+        assert fallback_from is None
 
-        dispatcher._event_bus.send_request = AsyncMock(
-            return_value=AgentResponse(
-                request_id="r1",
-                text="Response",
-                usage=TokenUsage(10, 5, 15),
-                stop_reason="end_turn",
-            )
-        )
+    def test_select_strategy_priority_config_values(self) -> None:
+        """config_values имеет второй приоритет."""
+        dispatcher = self._create_dispatcher(["single", "hierarchical"])
 
-        await dispatcher.execute(mock_session, "Hello")
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {"_active_strategy": "hierarchical"}
 
-        # Проверяем что запрос был отправлен к правильному агенту
-        call_args = dispatcher._event_bus.send_request.call_args
-        request = call_args.kwargs["request"]
-        assert request.target_agent == "coder"
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
-    @pytest.mark.asyncio
-    async def test_execute_uses_default_agent_if_not_in_config(
-        self, dispatcher, mock_session, mock_agent_registry
-    ):
-        """Если _agent не указан, используется default agent из registry."""
-        from codelab.server.agent.contracts.base import (
-            AgentResponse,
-            TokenUsage,
-        )
-        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+        assert strategy_name == "hierarchical"
+        assert fallback_from is None
 
-        mock_session.config_values = {}  # нет _agent
-        mock_agent_registry.get_primary_agents.return_value = {
-            "coder": ResolvedAgent(
-                name="coder",
-                mode=AgentMode.PRIMARY,
-                model="openai/gpt-4o",
-                priority=1,
-            )
-        }
-        mock_agent_registry.get.return_value = ResolvedAgent(
-            name="coder",
-            mode=AgentMode.PRIMARY,
-            model="openai/gpt-4o",
-        )
+    def test_select_strategy_priority_default(self) -> None:
+        """Default strategy используется когда нет override."""
+        dispatcher = self._create_dispatcher(["single"])
 
-        dispatcher._event_bus.send_request = AsyncMock(
-            return_value=AgentResponse(
-                request_id="r1",
-                text="Response",
-                usage=TokenUsage(10, 5, 15),
-                stop_reason="end_turn",
-            )
-        )
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
 
-        await dispatcher.execute(mock_session, "Hello")
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
-        call_args = dispatcher._event_bus.send_request.call_args
-        request = call_args.kwargs["request"]
-        assert request.target_agent == "coder"
+        assert strategy_name == "single"
+        assert fallback_from is None
 
-    @pytest.mark.asyncio
-    async def test_execute_raises_for_unimplemented_strategy(self, dispatcher, mock_session):
-        """strategy='multi_orchestrated' → NotImplementedError."""
-        dispatcher._strategy_name = "multi_orchestrated"
+    def test_select_strategy_fallback_when_unavailable(self) -> None:
+        """Fallback когда запрошенная стратегия недоступна."""
+        dispatcher = self._create_dispatcher(["single"])
 
-        with pytest.raises(NotImplementedError, match="not yet implemented"):
-            await dispatcher.execute(mock_session, "Hello")
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {"_active_strategy": "hierarchical"}
 
-    @pytest.mark.asyncio
-    async def test_execute_raises_for_unknown_strategy(self, dispatcher, mock_session):
-        """strategy='unknown' → ValueError."""
-        dispatcher._strategy_name = "unknown"
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
-        with pytest.raises(ValueError, match="Unknown strategy"):
-            await dispatcher.execute(mock_session, "Hello")
+        assert strategy_name == "single"
+        assert fallback_from == "hierarchical"
 
-    @pytest.mark.asyncio
-    async def test_execute_raises_for_agent_not_found(
-        self, dispatcher, mock_session, mock_agent_registry
-    ):
-        """Агент не найден в registry → ValueError."""
-        mock_agent_registry.get.return_value = None  # агент не найден
+    def test_select_strategy_fallback_chain(self) -> None:
+        """Fallback chain когда fallback тоже недоступен."""
+        # Только "single" доступна
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
 
-        with pytest.raises(ValueError, match="not found in registry"):
-            await dispatcher.execute(mock_session, "Hello")
+        single_descriptor = MagicMock(spec=StrategyDescriptor)
+        single_descriptor.name = "single"
+        strategy_registry.get_available.return_value = [single_descriptor]
 
+        deps = MagicMock(spec=StrategyDependencies)
 
-class TestContinueExecution:
-    """Тесты continue_execution."""
-
-    @pytest.mark.asyncio
-    async def test_continue_dispatches_to_strategy(
-        self, dispatcher, mock_session, mock_agent_registry
-    ):
-        """continue_execution вызывает strategy.continue_execution."""
-        from codelab.server.agent.contracts.base import (
-            AgentResponse,
-            TokenUsage,
-        )
-        from codelab.server.agent.config.models import AgentMode, ResolvedAgent
-
-        mock_agent_registry.get.return_value = ResolvedAgent(
-            name="primary",
-            mode=AgentMode.PRIMARY,
-            model="openai/gpt-4o",
-        )
-
-        dispatcher._event_bus.send_request = AsyncMock(
-            return_value=AgentResponse(
-                request_id="r1",
-                text="Continued",
-                usage=TokenUsage(5, 3, 8),
-                stop_reason="end_turn",
-            )
-        )
-
-        result = await dispatcher.continue_execution(mock_session)
-
-        assert result.text == "Continued"
-
-
-class TestStrategySupport:
-    """Тесты поддержки стратегий."""
-
-    def test_get_registered_strategies(self, dispatcher):
-        """get_registered_strategies() возвращает список стратегий."""
-        strategies = dispatcher.get_registered_strategies()
-        assert "single" in strategies
-
-    def test_is_strategy_supported_single(self, dispatcher):
-        """is_strategy_supported('single') → True."""
-        assert dispatcher.is_strategy_supported("single") is True
-
-    def test_is_strategy_supported_unimplemented(self, dispatcher):
-        """is_strategy_supported('multi_orchestrated') → False."""
-        assert dispatcher.is_strategy_supported("multi_orchestrated") is False
-
-
-class TestSetStrategy:
-    """Тесты set_strategy — runtime override."""
-
-    def test_set_strategy_single(self, dispatcher):
-        """set_strategy('single') меняет текущую стратегию."""
-        dispatcher.set_strategy("single")
-        assert dispatcher.get_strategy() == "single"
-
-    def test_set_strategy_unknown_raises(self, dispatcher):
-        """set_strategy('unknown') → ValueError."""
-        with pytest.raises(ValueError, match="Unknown strategy"):
-            dispatcher.set_strategy("unknown")
-
-    def test_set_strategy_unimplemented_raises(self, dispatcher):
-        """set_strategy('multi_orchestrated') → ValueError (не зарегистрирована)."""
-        with pytest.raises(ValueError, match="Unknown strategy"):
-            dispatcher.set_strategy("multi_orchestrated")
-
-
-class TestInitialization:
-    """Тесты инициализации."""
-
-    def test_default_strategy_is_single(
-        self, mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry
-    ):
-        """По умолчанию strategy='single'."""
         dispatcher = StrategyDispatcher(
-            event_bus=mock_event_bus,
-            execution_engine=mock_execution_engine,
-            agent_registry=mock_agent_registry,
-            tracer=mock_tracer,
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="hierarchical",  # недоступна
+            fallback_strategy="multi_orchestrated",  # тоже недоступна
         )
+
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
+
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
+
+        # Должна выбрать первую доступную
+        assert strategy_name == "single"
+        assert fallback_from == "hierarchical"
+
+    def test_select_strategy_empty_available_uses_hardcoded_fallback(self) -> None:
+        """Когда нет доступных стратегий, используется hardcoded fallback."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+        strategy_registry.get_available.return_value = []
+
+        deps = MagicMock(spec=StrategyDependencies)
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
+
+        strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
+
+        # Когда нет доступных стратегий, requested == fallback, поэтому fallback_from == requested
+        assert strategy_name == "single"
+        assert fallback_from == "single"  # requested was "single", but it wasn't available
+
+
+class TestStrategyDispatcherCurrentStrategy:
+    """Тесты для get/set current strategy."""
+
+    def test_get_current_strategy(self) -> None:
+        """get_current_strategy создаёт экземпляр через registry."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+        strategy_registry.get_available.return_value = []
+
+        mock_strategy = MagicMock()
+        strategy_registry.create_instance.return_value = mock_strategy
+
+        deps = MagicMock(spec=StrategyDependencies)
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        strategy = dispatcher.get_current_strategy()
+
+        assert strategy is mock_strategy
+        strategy_registry.create_instance.assert_called_once_with("single", deps)
+
+    def test_set_current_strategy_success(self) -> None:
+        """set_current_strategy устанавливает стратегию."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        descriptor = MagicMock(spec=StrategyDescriptor)
+        descriptor.name = "hierarchical"
+        strategy_registry.get.return_value = descriptor
+
+        deps = MagicMock(spec=StrategyDependencies)
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        result = dispatcher.set_current_strategy("hierarchical")
+
+        assert result is True
+        assert dispatcher.get_strategy() == "hierarchical"
+
+    def test_set_current_strategy_not_found(self) -> None:
+        """set_current_strategy возвращает False если стратегия не найдена."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+        strategy_registry.get.return_value = None
+
+        deps = MagicMock(spec=StrategyDependencies)
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        result = dispatcher.set_current_strategy("nonexistent")
+
+        assert result is False
         assert dispatcher.get_strategy() == "single"
 
-    def test_custom_strategy(
-        self, mock_event_bus, mock_execution_engine, mock_tracer, mock_agent_registry
-    ):
-        """Можно установить custom strategy."""
+
+class TestStrategyDispatcherAvailableStrategies:
+    """Тесты для get_available_strategies."""
+
+    def test_get_available_strategies(self) -> None:
+        """get_available_strategies возвращает список доступных."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        descriptor1 = MagicMock(spec=StrategyDescriptor)
+        descriptor1.name = "single"
+        descriptor2 = MagicMock(spec=StrategyDescriptor)
+        descriptor2.name = "hierarchical"
+
+        strategy_registry.get_available.return_value = [descriptor1, descriptor2]
+
+        deps = MagicMock(spec=StrategyDependencies)
+
         dispatcher = StrategyDispatcher(
-            event_bus=mock_event_bus,
-            execution_engine=mock_execution_engine,
-            agent_registry=mock_agent_registry,
-            tracer=mock_tracer,
-            strategy="single",
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
         )
-        assert dispatcher.get_strategy() == "single"
+
+        available = dispatcher.get_available_strategies()
+
+        assert available == ["single", "hierarchical"]
+
+    def test_is_strategy_available(self) -> None:
+        """is_strategy_available проверяет доступность."""
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        descriptor = MagicMock(spec=StrategyDescriptor)
+        descriptor.name = "single"
+        strategy_registry.get_available.return_value = [descriptor]
+
+        deps = MagicMock(spec=StrategyDependencies)
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        assert dispatcher.is_strategy_available("single") is True
+        assert dispatcher.is_strategy_available("hierarchical") is False
+
+
+class TestStrategyDispatcherFallbackNotification:
+    """Тесты для build_fallback_notification."""
+
+    def test_build_fallback_notification_format(self) -> None:
+        """build_fallback_notification создаёт правильное сообщение."""
+        notification = StrategyDispatcher.build_fallback_notification(
+            session_id="test-session",
+            requested="multi_orchestrated",
+            actual="single",
+            reason="no orchestrator",
+        )
+
+        assert notification.method == "session/update"
+        assert notification.params is not None
+        assert notification.params["sessionId"] == "test-session"
+        assert notification.params["update"]["sessionUpdate"] == "agent_message_chunk"
+
+        content = notification.params["update"]["content"]
+        assert content["type"] == "text"
+        assert "multi_orchestrated" in content["text"]
+        assert "single" in content["text"]
+        assert "no orchestrator" in content["text"]
+
+
+class TestStrategyDispatcherLLMCallStrategy:
+    """Тесты для LLMCallStrategy Protocol."""
+
+    @pytest.mark.asyncio
+    async def test_execute_delegates_to_strategy(self) -> None:
+        """execute делегирует выполнение стратегии."""
+        from unittest.mock import AsyncMock
+        
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        # Настраиваем доступные стратегии
+        descriptor = MagicMock(spec=StrategyDescriptor)
+        descriptor.name = "single"
+        strategy_registry.get_available.return_value = [descriptor]
+
+        # Настраиваем mock стратегию с AsyncMock для async методов
+        mock_strategy = MagicMock()
+        mock_response = MagicMock()
+        mock_strategy.execute = AsyncMock(return_value=mock_response)
+        strategy_registry.create_instance.return_value = mock_strategy
+
+        # Настраиваем agent_registry
+        primary_agent = MagicMock()
+        primary_agent.name = "primary"
+        agent_registry.get_primary_agents.return_value = {"primary": primary_agent}
+
+        # Используем обычный MagicMock без spec чтобы можно было обращаться к атрибутам
+        deps = MagicMock()
+        deps.event_bus = MagicMock()
+        deps.execution_engine = MagicMock()
+        deps.tracer = None
+        deps.agent_name = "primary"
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
+
+        result = await dispatcher.execute(session, "test prompt")
+
+        assert result is mock_response
+        mock_strategy.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_continue_execution_delegates_to_strategy(self) -> None:
+        """continue_execution делегирует выполнение стратегии."""
+        from unittest.mock import AsyncMock
+        
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        # Настраиваем mock стратегию с AsyncMock для async методов
+        mock_strategy = MagicMock()
+        mock_response = MagicMock()
+        mock_strategy.continue_execution = AsyncMock(return_value=mock_response)
+        strategy_registry.create_instance.return_value = mock_strategy
+
+        # Настраиваем agent_registry
+        primary_agent = MagicMock()
+        primary_agent.name = "primary"
+        agent_registry.get_primary_agents.return_value = {"primary": primary_agent}
+
+        # Используем обычный MagicMock без spec чтобы можно было обращаться к атрибутам
+        deps = MagicMock()
+        deps.event_bus = MagicMock()
+        deps.execution_engine = MagicMock()
+        deps.tracer = None
+        deps.agent_name = "primary"
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
+
+        result = await dispatcher.continue_execution(session)
+
+        assert result is mock_response
+        mock_strategy.continue_execution.assert_called_once()

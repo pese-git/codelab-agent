@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from codelab.server.agent.base import LLMAgent
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.agent.execution_engine import ExecutionEngine
     from codelab.server.agent.registry import AgentRegistry
+    from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.observability.tracer import Tracer
 
 
@@ -51,7 +51,7 @@ class StrategyDescriptor:
         name: Уникальный идентификатор ("single", "hierarchical", etc.)
         display_name: Отображаемое имя для UI ("Single", "Hierarchical", etc.)
         description: Описание стратегии для UI
-        factory: Callable[[StrategyDependencies], LLMAgent] — создает экземпляр
+        factory: Callable[[StrategyDependencies], LLMCallStrategy] — создает экземпляр
         validator: Callable[[AgentRegistry], bool] — проверяет доступность
     
     Example:
@@ -67,7 +67,7 @@ class StrategyDescriptor:
     name: str
     display_name: str
     description: str
-    factory: Callable[[StrategyDependencies], LLMAgent]
+    factory: Callable[[StrategyDependencies], LLMCallStrategy]
     validator: Callable[[AgentRegistry], bool]
     
     def is_available(self, registry: AgentRegistry) -> bool:
@@ -81,13 +81,13 @@ class StrategyDescriptor:
         """
         return self.validator(registry)
     
-    def create_instance(self, deps: StrategyDependencies) -> LLMAgent:
+    def create_instance(self, deps: StrategyDependencies) -> LLMCallStrategy:
         """Создать экземпляр стратегии.
         
         Args:
             deps: Зависимости для создания стратегии
         
         Returns:
-            Экземпляр стратегии (LLMAgent)
+            Экземпляр стратегии (LLMCallStrategy)
         """
         return self.factory(deps)
