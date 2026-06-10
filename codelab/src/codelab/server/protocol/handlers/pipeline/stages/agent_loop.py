@@ -23,14 +23,13 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
-from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.protocol.state import SessionState, ToolResult
+from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolRegistry
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
@@ -204,9 +203,7 @@ class AgentLoop:
 
             # Вызов LLM
             try:
-                response = await self._call_llm(
-                    session, initial_prompt, mcp_manager, iteration
-                )
+                response = await self._call_llm(session, initial_prompt, mcp_manager, iteration)
             except Exception as e:
                 logger.error(
                     "LLM call failed",
@@ -280,11 +277,13 @@ class AgentLoop:
                 {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
                 for tc in response.tool_calls
             ]
-            session.history.append({
-                "role": "assistant",
-                "text": agent_text or "",
-                "tool_calls": tool_calls_for_history,
-            })
+            session.history.append(
+                {
+                    "role": "assistant",
+                    "text": agent_text or "",
+                    "tool_calls": tool_calls_for_history,
+                }
+            )
 
             # Обрабатываем tool_calls
             tool_result = await self._process_tool_calls(
@@ -553,7 +552,9 @@ class AgentLoop:
 
             # decision == "allow"
             try:
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
+                self._tool_call_handler.update_tool_call_status(
+                    session, tool_call_id, "in_progress"
+                )
                 notifications.append(
                     self._tool_call_handler.build_tool_update_notification(
                         session_id=session_id,
@@ -772,7 +773,10 @@ class AgentLoop:
                 completed_content = [
                     {
                         "type": "content",
-                        "content": {"type": "text", "text": result.output or "Tool executed successfully"},
+                        "content": {
+                            "type": "text",
+                            "text": result.output or "Tool executed successfully",
+                        },
                     }
                 ]
                 self._tool_call_handler.update_tool_call_status(
@@ -792,7 +796,10 @@ class AgentLoop:
                 error_content = [
                     {
                         "type": "content",
-                        "content": {"type": "text", "text": result.error or "Tool execution failed"},
+                        "content": {
+                            "type": "text",
+                            "text": result.error or "Tool execution failed",
+                        },
                     }
                 ]
                 self._tool_call_handler.update_tool_call_status(
@@ -819,7 +826,10 @@ class AgentLoop:
                 exc_info=True,
             )
             error_content = [
-                {"type": "content", "content": {"type": "text", "text": f"Tool execution error: {exc}"}}
+                {
+                    "type": "content",
+                    "content": {"type": "text", "text": f"Tool execution error: {exc}"},
+                }
             ]
             self._tool_call_handler.update_tool_call_status(
                 session, tool_call_id, "failed", content=error_content
@@ -857,11 +867,13 @@ class AgentLoop:
         """
         content = output if success else (error or "Tool execution failed")
 
-        session.history.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": content or "",
-        })
+        session.history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": content or "",
+            }
+        )
 
         logger.debug(
             "tool_result_added_to_history",
@@ -912,9 +924,7 @@ class AgentLoop:
             },
         )
 
-    def _build_agent_response_notification(
-        self, session_id: str, text: str
-    ) -> ACPMessage:
+    def _build_agent_response_notification(self, session_id: str, text: str) -> ACPMessage:
         """Построить notification с ответом агента."""
         return ACPMessage.notification(
             "session/update",

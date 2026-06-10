@@ -279,7 +279,7 @@ class LLMLoopResult(BaseModel):
     """
 
     notifications: list[Any] = Field(default_factory=list)
-    # Причина завершения: "end_turn", "cancelled", "max_iterations", None (deferred)
+    # Причина завершения: "end_turn", "cancelled", "max_turn_requests", None (deferred)
     stop_reason: str | None = None
     # Финальный текстовый ответ от LLM
     final_text: str | None = None
