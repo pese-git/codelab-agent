@@ -84,6 +84,7 @@ class Tracer:
         self.debug = debug
         self._active_spans: list[SpanContext] = []
         self._completed_spans: list[SpanContext] = []
+        self._exported_count: int = 0
 
     def start_span(
         self,
@@ -155,3 +156,25 @@ class Tracer:
         """Очистить все span'ы."""
         self._active_spans.clear()
         self._completed_spans.clear()
+        self._exported_count = 0
+
+    def mark_exported(self, count: int) -> None:
+        """Отметить количество экспортированных span'ов.
+
+        Вызывается экспортером после успешного экспорта.
+        Отмечает первые N завершённых span'ов как экспортированные.
+
+        Args:
+            count: Количество экспортированных span'ов.
+        """
+        self._exported_count = min(count, len(self._completed_spans))
+
+    def clear_exported(self) -> None:
+        """Удалить экспортированные span'ы.
+
+        Удаляет только завершённые span'ы, которые были экспортированы.
+        Активные span'ы не затрагиваются.
+        """
+        if self._exported_count > 0:
+            self._completed_spans = self._completed_spans[self._exported_count:]
+            self._exported_count = 0

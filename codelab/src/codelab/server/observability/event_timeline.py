@@ -74,6 +74,7 @@ class EventTimeline:
         self.debug = debug
         self._events: list[TimelineEvent] = []
         self._subscriptions: list[Any] = []  # Subscription objects
+        self._exported_count: int = 0
 
     def record_event(
         self,
@@ -163,6 +164,30 @@ class EventTimeline:
             return {"session_id": event.session_id}
 
     def clear(self) -> None:
-        """Очистить все события и отписаться от шины."""
+        """Очистить все события.
+
+        НЕ отписывается от шины (подписки сохраняются).
+        """
         self._events.clear()
-        self._subscriptions.clear()
+        self._exported_count = 0
+
+    def mark_exported(self, count: int) -> None:
+        """Отметить количество экспортированных событий.
+
+        Вызывается экспортером после успешного экспорта.
+        Отмечает первые N событий как экспортированные.
+
+        Args:
+            count: Количество экспортированных событий.
+        """
+        self._exported_count = min(count, len(self._events))
+
+    def clear_exported(self) -> None:
+        """Удалить экспортированные события.
+
+        Удаляет только события, которые были экспортированы.
+        Подписки на EventBus не затрагиваются.
+        """
+        if self._exported_count > 0:
+            self._events = self._events[self._exported_count:]
+            self._exported_count = 0

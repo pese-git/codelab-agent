@@ -11,11 +11,9 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.config import AppConfig
-from codelab.server.di import ObservabilityDebug, ObservabilityProvider, make_container
-from codelab.server.llm import MockLLMProvider
+from codelab.server.di import make_container
 from codelab.server.observability import EventTimeline, MetricsTracker, Tracer
 from codelab.server.storage.memory import InMemoryStorage
-from codelab.server.tools.registry import SimpleToolRegistry
 
 
 @pytest.fixture
@@ -64,7 +62,8 @@ class TestObservabilityProvider:
             metrics = await request_container.get(MetricsTracker)
             assert tracer.debug is True
             assert timeline.debug is True
-            assert metrics.debug is True  # Все observability компоненты используют observability_debug
+            # Все observability компоненты используют observability_debug
+            assert metrics.debug is True
 
     @pytest.mark.asyncio
     async def test_tracer_is_singleton(self, config, storage):

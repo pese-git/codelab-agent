@@ -150,13 +150,23 @@ class TestObservabilityFilePersistenceIntegration:
         span_files = list(tmp_path.glob("spans/*.json"))
         assert len(span_files) == 2
 
-    def test_export_dir_created_automatically(self, tmp_path: Path) -> None:
-        """Директория экспорта создаётся автоматически."""
+    def test_export_dir_created_on_first_export(self, tmp_path: Path) -> None:
+        """Директория экспорта создаётся лениво при первом экспорте."""
         export_dir = tmp_path / "nested" / "dir" / "observability"
-        FileSpanExporter(export_dir=str(export_dir))
+        exporter = FileSpanExporter(export_dir=str(export_dir))
 
-        assert export_dir.exists()
-        assert export_dir.is_dir()
+        # Директория ещё не создана
+        assert not (export_dir / "spans").exists()
+
+        # Создаём span и экспортируем
+        tracer = Tracer()
+        span = tracer.start_span("test_span")
+        tracer.end_span(span)
+        exporter.flush(tracer)
+
+        # Теперь директория создана
+        assert (export_dir / "spans").exists()
+        assert (export_dir / "spans").is_dir()
 
     def test_session_completion_flush(self, tmp_path: Path) -> None:
         """Flush при завершении сессии экспортирует все данные."""
