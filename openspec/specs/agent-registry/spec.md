@@ -152,7 +152,7 @@ AgentConfigLoader ДОЛЖЕН конвертировать TOML конфиги 
 Система ДОЛЖНА поддерживать миграцию существующих session файлов через `model_validator`:
 
 Новые поля в `SessionState` (все с defaults, совместимы с существующими файлами):
-- `execution_mode: str = "single"` — single | multi_orchestrated | multi_choreographed | hierarchical
+- `active_strategy: str = "single"` — single | multi_orchestrated | multi_choreographed | hierarchical
 - `active_agents: list[str]` — список активных агентов
 - `session_metrics: SessionMetrics | None` — метрики сессии
 - `correlation_id: str | None` — сквозной ID для observability prompt turn
