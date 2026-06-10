@@ -7,9 +7,9 @@ StrategyDispatcher выбирает стратегию выполнения по
 ### Priority Chain
 
 ```
-1. context.meta["routing_mode"]     — slash command override
-2. config_values["_routing_mode"]   — persistent config option
-3. "single"                         — default fallback
+1. context.meta["active_strategy"]     — slash command override
+2. config_values["_active_strategy"]   — persistent config option
+3. "single"                            — default fallback
 ```
 
 ### Validation Matrix

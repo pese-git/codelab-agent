@@ -5,8 +5,8 @@
 ## What Changes
 
 - `StrategyDispatcher` — выбор стратегии по приоритету:
-  1. Slash command override (`context.meta["routing_mode"]`)
-  2. Config value (`config_values["_routing_mode"]`) — persistent режим сессии
+  1. Slash command override (`context.meta["active_strategy"]`)
+  2. Config value (`config_values["_active_strategy"]`) — persistent режим сессии
   3. Default (`"single"`) — fallback
 - Валидация совместимости mode + стратегия через `AgentRegistry`:
   - Single — всегда доступно
@@ -15,18 +15,18 @@
   - Hierarchical — требует primary + subagent
 - Fallback на `global.fallback_mode` при недоступности стратегии
 - Уведомление пользователю при fallback через `session/update` (agent_message_chunk)
-- Config option `_routing_mode` для persistent режима сессии
+- Config option `_active_strategy` для persistent режима сессии
 
 ## Capabilities
 
 ### New Capabilities
 - `strategy-dispatcher`: Маршрутизация между стратегиями выполнения
 - `strategy-validation`: Валидация совместимости mode + доступных агентов
-- `routing-mode-config`: Конфигурация режима выполнения (slash command + config option)
+- `active-strategy-config`: Конфигурация активной стратегии (slash command + config option)
 - `strategy-fallback`: Fallback на single при недоступности стратегии с уведомлением
 
 ### Modified Capabilities
-- `codelab`: Добавление config option `_routing_mode`, интеграция в prompt pipeline
+- `codelab`: Добавление config option `_active_strategy`, интеграция в prompt pipeline
 
 ## Impact
 
@@ -36,7 +36,7 @@
 
 **Изменяемые файлы:**
 - `codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py` — интеграция StrategyDispatcher
-- `codelab/src/codelab/server/protocol/state.py` — config option `_routing_mode`
+- `codelab/src/codelab/server/protocol/state.py` — config option `_active_strategy`
 
 **Зависимости:** Зависит от всех предыдущих changes (event-bus, llm-adapter, agent-registry, single-strategy, observability).
 

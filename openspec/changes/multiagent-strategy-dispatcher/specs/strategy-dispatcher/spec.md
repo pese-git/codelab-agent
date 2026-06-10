@@ -5,8 +5,8 @@
 ### Требование: Выбор StrategyDispatcher
 
 Система ДОЛЖНА предоставлять `StrategyDispatcher`, который выбирает стратегию выполнения по приоритету:
-1. `context.meta["routing_mode"]` — override slash командой (высший приоритет)
-2. `config_values["_routing_mode"]` — постоянная конфигурация сессии
+1. `context.meta["active_strategy"]` — override slash командой (высший приоритет)
+2. `config_values["_active_strategy"]` — постоянная конфигурация сессии
 3. `"single"` — fallback по умолчанию (низший приоритет)
 
 ### Требование: Валидация стратегии
@@ -46,15 +46,15 @@ def _validate_strategy(mode: str, registry: AgentRegistry) -> str:
 - Hierarchical: has_primary И has_subagent
 - Unknown mode: fallback на fallback_mode
 
-# Spec: routing-mode-config
+# Spec: active-strategy-config
 
 ## ДОБАВЛЕННЫЕ Требования
 
-### Требование: Config Option _routing_mode
+### Требование: Config Option _active_strategy
 
-Система ДОЛЖНА поддерживать опцию конфигурации `_routing_mode` для постоянного выбора стратегии:
-- Устанавливается через `session/set_config_option` с configId="_routing_mode"
-- Сохраняется в `session.config_values["_routing_mode"]` (существующее поле `dict[str, str]`)
+Система ДОЛЖНА поддерживать опцию конфигурации `_active_strategy` для постоянного выбора стратегии:
+- Устанавливается через `session/set_config_option` с configId="_active_strategy"
+- Сохраняется в `session.config_values["_active_strategy"]` (существующее поле `dict[str, str]`)
 - Сохраняется между turn'ами в пределах сессии
 - Имеет приоритет над default, ниже чем slash command
 
@@ -62,8 +62,8 @@ def _validate_strategy(mode: str, registry: AgentRegistry) -> str:
 
 ### Требование: Override Slash Command
 
-Система ДОЛЖНА поддерживать override режима маршрутизации через slash command:
-- Установить `context.meta["routing_mode"]` в обработчике slash command
+Система ДОЛЖНА поддерживать override активной стратегии через slash command:
+- Установить `context.meta["active_strategy"]` в обработчике slash command
 - Имеет высший приоритет в цепочке выбора
 - Применяется только к текущему turn (не постоянно)
 
