@@ -23,6 +23,7 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
+from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
@@ -120,6 +121,7 @@ class AgentLoop:
         permission_manager: PermissionManager,
         state_manager: StateManager,
         content_extractor: ContentExtractor,
+        content_validator: ContentValidator,
         content_formatter: ContentFormatter,
         replay_manager: ReplayManager,
         plan_builder: PlanBuilder,
@@ -135,6 +137,7 @@ class AgentLoop:
             permission_manager: Менеджер разрешений для permission requests.
             state_manager: Менеджер состояния сессии.
             content_extractor: Извлекатель контента из результатов tools.
+            content_validator: Валидатор контента.
             content_formatter: Форматировщик контента для LLM.
             replay_manager: Менеджер replay для сохранения событий.
             plan_builder: Построитель планов выполнения.
@@ -147,6 +150,7 @@ class AgentLoop:
         self._permission_manager = permission_manager
         self._state_manager = state_manager
         self._content_extractor = content_extractor
+        self._content_validator = content_validator
         self._content_formatter = content_formatter
         self._replay_manager = replay_manager
         self._plan_builder = plan_builder

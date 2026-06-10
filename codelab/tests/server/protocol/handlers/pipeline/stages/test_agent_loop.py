@@ -44,6 +44,7 @@ def mock_dependencies():
         "permission_manager": MagicMock(),
         "state_manager": MagicMock(),
         "content_extractor": AsyncMock(),
+        "content_validator": MagicMock(),
         "content_formatter": MagicMock(),
         "replay_manager": MagicMock(),
         "plan_builder": MagicMock(),

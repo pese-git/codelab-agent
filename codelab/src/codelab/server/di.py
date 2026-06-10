@@ -557,7 +557,6 @@ class PipelineProvider(Provider):
     @provide(scope=Scope.APP)
     def get_llm_loop_stage(
         self,
-        config: Annotated[AppConfig, from_context(provides=AppConfig)],
         tool_registry: ToolRegistryProtocol,
         tool_call_handler: ToolCallHandler,
         permission_manager: PermissionManager,
@@ -578,7 +577,6 @@ class PipelineProvider(Provider):
             global_policy_manager=global_policy_manager,
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,
-            strategy=config.agents.strategy,
         )
 
     @provide(scope=Scope.APP)
