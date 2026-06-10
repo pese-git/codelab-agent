@@ -33,7 +33,9 @@ from .agent.factory import AgentFactory
 from .agent.orchestrator import AgentOrchestrator
 from .agent.registry import AgentRegistry
 from .agent.state import OrchestratorConfig
+from .agent.strategies.descriptor import StrategyDependencies
 from .agent.strategies.dispatcher import StrategyDispatcher
+from .agent.strategies.registry import StrategyRegistry
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider
 from .llm.base import LLMConfig, LLMTimeoutConfig
@@ -307,7 +309,9 @@ class MultiAgentProvider(Provider):
     Создаёт:
     - ExecutionEngine — композиционный движок выполнения
     - AgentFactory — фабрика создания LLMAdapter
-    - StrategyDispatcher — маршрутизация по стратегиям
+    - StrategyRegistry — реестр стратегий (Registry Pattern)
+    - StrategyDependencies — контейнер зависимостей для стратегий
+    - StrategyDispatcher — маршрутизация по стратегиям (только routing)
     - AgentRegistry — реестр агентов с hot reload
     """
 
@@ -330,21 +334,61 @@ class MultiAgentProvider(Provider):
         return AgentFactory(llm_registry, tool_registry, tracer)
 
     @provide(scope=Scope.APP)
+    def get_strategy_registry(self) -> StrategyRegistry:
+        """Создаёт и заполняет StrategyRegistry.
+        
+        Регистрирует все доступные стратегии:
+        - SingleStrategy (всегда доступна)
+        - Будущие стратегии: OrchestratedStrategy, HierarchicalStrategy
+        """
+        from codelab.server.protocol.handlers.strategies.single_strategy import (
+            SINGLE_STRATEGY_DESCRIPTOR,
+        )
+
+        registry = StrategyRegistry()
+        registry.register(SINGLE_STRATEGY_DESCRIPTOR)
+        
+        logger.info(
+            "StrategyRegistry created",
+            registered_strategies=len(registry.list_all()),
+        )
+        
+        return registry
+
+    @provide(scope=Scope.APP)
+    def get_strategy_dependencies(
+        self,
+        event_bus: AgentEventBus,
+        execution_engine: ExecutionEngine,
+        tracer: Tracer,
+    ) -> StrategyDependencies:
+        """Создаёт StrategyDependencies — контейнер зависимостей для стратегий."""
+        return StrategyDependencies(
+            event_bus=event_bus,
+            execution_engine=execution_engine,
+            tracer=tracer,
+            agent_name="primary",
+        )
+
+    @provide(scope=Scope.APP)
     def get_strategy_dispatcher(
         self,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
-        event_bus: AgentEventBus,
-        execution_engine: ExecutionEngine,
+        strategy_registry: StrategyRegistry,
         agent_registry: AgentRegistry,
-        tracer: Tracer,
+        strategy_dependencies: StrategyDependencies,
     ) -> StrategyDispatcher:
-        """Создаёт StrategyDispatcher."""
+        """Создаёт StrategyDispatcher.
+        
+        StrategyDispatcher теперь ТОЛЬКО маршрутизация (priority chain + fallback).
+        Использует StrategyRegistry для получения списка доступных стратегий.
+        """
         return StrategyDispatcher(
-            event_bus=event_bus,
-            execution_engine=execution_engine,
+            strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-            tracer=tracer,
-            strategy=config.agents.strategy,
+            strategy_dependencies=strategy_dependencies,
+            default_strategy=config.agents.strategy,
+            fallback_strategy=config.agents.fallback_strategy,
         )
 
     @provide(scope=Scope.APP)
@@ -751,6 +795,7 @@ class RequestProvider(Provider):
         config_option_builder: ConfigOptionBuilder,
         runtime_registry: SessionRuntimeRegistry,
         agent_registry: AgentRegistry,
+        strategy_registry: StrategyRegistry,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -780,6 +825,7 @@ class RequestProvider(Provider):
             middleware=middleware if middleware else None,
             runtime_registry=runtime_registry,
             agent_registry=agent_registry,
+            strategy_registry=strategy_registry,
         )
 
 
