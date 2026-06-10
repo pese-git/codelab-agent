@@ -110,6 +110,7 @@ class ACPProtocol:
         mcp_http_enabled: bool = True,
         mcp_sse_enabled: bool = True,
         agent_registry: Any | None = None,
+        strategy_registry: Any | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -130,6 +131,8 @@ class ACPProtocol:
             mcp_http_enabled: Поддерживается ли MCP HTTP transport (опционально, по умолчанию True).
             mcp_sse_enabled: Поддерживается ли MCP SSE transport (опционально, по умолчанию True).
             agent_registry: Реестр агентов для dynamic _agent config option (опционально).
+            strategy_registry: Реестр стратегий для dynamic _active_strategy
+                config option (опционально).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -215,6 +218,9 @@ class ACPProtocol:
 
         # Agent Registry для dynamic _agent config option
         self._agent_registry = agent_registry
+
+        # Strategy Registry для dynamic _active_strategy config option
+        self._strategy_registry = strategy_registry
 
         # MCP transport capabilities — объявляются клиенту при initialize
         self._mcp_http_enabled = mcp_http_enabled
@@ -307,6 +313,7 @@ class ACPProtocol:
         Включает:
         - mode: ACP standard (permission behavior: ask/code)
         - _agent: custom category (agent selection from Registry)
+        - _active_strategy: custom category (strategy selection from StrategyRegistry)
         - model: из config_option_builder
 
         Returns:
@@ -316,6 +323,7 @@ class ACPProtocol:
             additional_specs = {
                 "mode": self._default_config_specs["mode"],
                 "_agent": self._build_agent_config_spec(),
+                "_active_strategy": self._build_active_strategy_config_spec(),
             }
             default_model = self._get_default_model()
             return self._config_option_builder.build_config_specs(
@@ -325,7 +333,100 @@ class ACPProtocol:
         # Fallback без config_option_builder
         specs = dict(self._default_config_specs)
         specs["_agent"] = self._build_agent_config_spec()
+        specs["_active_strategy"] = self._build_active_strategy_config_spec()
         return specs
+
+    def _build_active_strategy_config_spec(self) -> dict[str, Any]:
+        """Построить config spec для _active_strategy из StrategyRegistry.
+
+        Формирует список доступных стратегий из StrategyRegistry.get_available().
+        Включает ТОЛЬКО стратегии, доступные для выполнения (validator возвращает True).
+
+        Returns:
+            Config spec для _active_strategy option
+        """
+        # Metadata для стратегий (display_name, description)
+        strategy_metadata = {
+            "single": {
+                "name": "Single",
+                "description": "Single agent execution",
+            },
+            "multi_orchestrated": {
+                "name": "Multi-Orchestrated",
+                "description": "Orchestrator + subagents collaboration",
+            },
+            "multi_choreographed": {
+                "name": "Multi-Choreographed",
+                "description": "Multiple subagents peer collaboration",
+            },
+            "hierarchical": {
+                "name": "Hierarchical",
+                "description": "Primary delegates to subagents",
+            },
+        }
+
+        # Fallback если StrategyRegistry не доступен
+        if not self._strategy_registry or not self._agent_registry:
+            return {
+                "id": "_active_strategy",
+                "name": "Strategy",
+                "category": "strategy",
+                "type": "select",
+                "default": "single",
+                "options": [
+                    {
+                        "value": "single",
+                        "name": "Single",
+                        "description": "Single agent execution",
+                    }
+                ],
+            }
+
+        # Получить доступные стратегии из Registry
+        try:
+            available = self._strategy_registry.get_available(self._agent_registry)
+        except Exception:
+            # Fallback при ошибке
+            available = []
+
+        # Если нет доступных стратегий, вернуть только "single"
+        if not available:
+            return {
+                "id": "_active_strategy",
+                "name": "Strategy",
+                "category": "strategy",
+                "type": "select",
+                "default": "single",
+                "options": [
+                    {
+                        "value": "single",
+                        "name": "Single",
+                        "description": "Single agent execution",
+                    }
+                ],
+            }
+
+        # Формировать options из descriptors
+        options = []
+        for descriptor in available:
+            meta = strategy_metadata.get(descriptor.name, {})
+            options.append({
+                "value": descriptor.name,
+                "name": meta.get("name", descriptor.display_name),
+                "description": meta.get("description", descriptor.description),
+            })
+
+        # Текущая стратегия по умолчанию — первая доступная
+        default_strategy = available[0].name if available else "single"
+
+        return {
+            "id": "_active_strategy",
+            "name": "Strategy",
+            "category": "strategy",
+            "type": "select",
+            "default": default_strategy,
+            "options": options,
+        }
 
     def _build_agent_config_spec(self) -> dict[str, Any]:
         """Построить config spec для _agent из AgentRegistry.
