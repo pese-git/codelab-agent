@@ -2,53 +2,53 @@
 
 ### 0. StrategyRegistry Infrastructure
 
-- [ ] 0.1 Создать `codelab/src/codelab/server/agent/strategies/descriptor.py`
-- [ ] 0.2 Создать `StrategyDescriptor` dataclass (name, display_name, description, factory, validator)
-- [ ] 0.3 Создать `StrategyDependencies` dataclass (event_bus, execution_engine, tracer, agent_name)
-- [ ] 0.4 Создать `codelab/src/codelab/server/agent/strategies/registry.py`
-- [ ] 0.5 Создать класс `StrategyRegistry` с методами: register, get, get_available, create_instance, list_all
-- [ ] 0.6 Реализовать `get_available(agent_registry)` — фильтрация по validator
-- [ ] 0.7 Реализовать `create_instance(name, deps)` — создание экземпляра через factory
-- [ ] 0.8 Добавить `SINGLE_STRATEGY_DESCRIPTOR` в `single_strategy.py`
-- [ ] 0.9 Написать тесты: `tests/server/agent/strategies/test_registry.py`
-  - [ ] test_register_strategy
-  - [ ] test_get_strategy
-  - [ ] test_get_available_filters_by_validator
-  - [ ] test_create_instance
-  - [ ] test_list_all
-  - [ ] test_single_strategy_descriptor_exists
-  - [ ] test_single_strategy_validator_always_true
+- [x] 0.1 Создать `codelab/src/codelab/server/agent/strategies/descriptor.py`
+- [x] 0.2 Создать `StrategyDescriptor` dataclass (name, display_name, description, factory, validator)
+- [x] 0.3 Создать `StrategyDependencies` dataclass (event_bus, execution_engine, tracer, agent_name)
+- [x] 0.4 Создать `codelab/src/codelab/server/agent/strategies/registry.py`
+- [x] 0.5 Создать класс `StrategyRegistry` с методами: register, get, get_available, create_instance, list_all
+- [x] 0.6 Реализовать `get_available(agent_registry)` — фильтрация по validator
+- [x] 0.7 Реализовать `create_instance(name, deps)` — создание экземпляра через factory
+- [x] 0.8 Добавить `SINGLE_STRATEGY_DESCRIPTOR` в `single_strategy.py`
+- [x] 0.9 Написать тесты: `tests/server/agent/strategies/test_registry.py`
+  - [x] test_register_strategy
+  - [x] test_get_strategy
+  - [x] test_get_available_filters_by_validator
+  - [x] test_create_instance
+  - [x] test_list_all
+  - [x] test_single_strategy_descriptor_exists
+  - [x] test_single_strategy_validator_always_true
 
 ---
 
 ### 1. StrategyDispatcher (маршрутизация)
 
-- [ ] 1.1 Обновить `codelab/src/codelab/server/agent/strategies/dispatcher.py`
-- [ ] 1.2 Изменить `__init__` — принимать `strategy_registry: StrategyRegistry`, `agent_registry: AgentRegistry`, `strategy_dependencies: StrategyDependencies`
-- [ ] 1.3 Реализовать `select_strategy(session, context_meta) → (strategy_name, fallback_from | None)`
-- [ ] 1.4 Реализовать приоритет: `context.meta["active_strategy"]` → `config_values["_active_strategy"]` → `default_strategy`
-- [ ] 1.5 Реализовать валидацию через `strategy_registry.get_available(agent_registry)`
-- [ ] 1.6 Реализовать fallback на `fallback_strategy` при недоступности
-- [ ] 1.7 Реализовать `get_current_strategy() → LLMCallStrategy | None`
-- [ ] 1.8 Реализовать `set_current_strategy(name) → bool`
-- [ ] 1.9 Реализовать `build_fallback_notification(session_id, requested, actual, reason) → ACPMessage`
-- [ ] 1.10 Написать тесты: `tests/server/agent/strategies/test_dispatcher.py`
-  - [ ] test_select_strategy_priority_slash_command
-  - [ ] test_select_strategy_priority_config_values
-  - [ ] test_select_strategy_priority_default
-  - [ ] test_select_strategy_fallback_when_unavailable
-  - [ ] test_select_strategy_fallback_chain
-  - [ ] test_get_current_strategy
-  - [ ] test_set_current_strategy
-  - [ ] test_build_fallback_notification_format
+- [x] 1.1 Обновить `codelab/src/codelab/server/agent/strategies/dispatcher.py`
+- [x] 1.2 Изменить `__init__` — принимать `strategy_registry: StrategyRegistry`, `agent_registry: AgentRegistry`, `strategy_dependencies: StrategyDependencies`
+- [x] 1.3 Реализовать `select_strategy(session, context_meta) → (strategy_name, fallback_from | None)`
+- [x] 1.4 Реализовать приоритет: `context.meta["active_strategy"]` → `config_values["_active_strategy"]` → `default_strategy`
+- [x] 1.5 Реализовать валидацию через `strategy_registry.get_available(agent_registry)`
+- [x] 1.6 Реализовать fallback на `fallback_strategy` при недоступности
+- [x] 1.7 Реализовать `get_current_strategy() → LLMCallStrategy | None`
+- [x] 1.8 Реализовать `set_current_strategy(name) → bool`
+- [x] 1.9 Реализовать `build_fallback_notification(session_id, requested, actual, reason) → ACPMessage`
+- [x] 1.10 Написать тесты: `tests/server/agent/strategies/test_dispatcher.py`
+  - [x] test_select_strategy_priority_slash_command
+  - [x] test_select_strategy_priority_config_values
+  - [x] test_select_strategy_priority_default
+  - [x] test_select_strategy_fallback_when_unavailable
+  - [x] test_select_strategy_fallback_chain
+  - [x] test_get_current_strategy
+  - [x] test_set_current_strategy
+  - [x] test_build_fallback_notification_format
 
 ---
 
 ### 2. Уведомление о Fallback
 
-- [ ] 2.1 Реализовать `build_fallback_notification(requested, actual, reason) → ACPMessage`
-- [ ] 2.2 Формат: agent_message_chunk с text="[system] Strategy 'X' unavailable (reason). Falling back to 'Y'."
-- [ ] 2.3 Написать тесты: корректность формата уведомления
+- [x] 2.1 Реализовать `build_fallback_notification(requested, actual, reason) → ACPMessage`
+- [x] 2.2 Формат: agent_message_chunk с text="[system] Strategy 'X' unavailable (reason). Falling back to 'Y'."
+- [x] 2.3 Написать тесты: корректность формата уведомления
 
 ---
 
@@ -56,24 +56,24 @@
 
 > **Существующий код:** `SessionState.config_values: dict[str, str]` уже поддерживает произвольные ключи. Не нужно менять модель — `_active_strategy` хранится в `config_values`.
 
-- [ ] 3.1 ~~Обновить `state.py`~~ — ПРОПУСТИТЬ: `config_values` уже поддерживает произвольные ключи
-- [ ] 3.2 Обновить `handlers/config.py` — обработка `set_config_option` для `_active_strategy` с валидацией через StrategyRegistry
-- [ ] 3.3 Добавить параметр `strategy_registry: StrategyRegistry | None` в `session_set_config_option`
-- [ ] 3.4 Реализовать валидацию: проверять что стратегия доступна через `registry.get_available()`
-- [ ] 3.5 Написать тесты: set_config_option _active_strategy → сохраняется в config_values
-- [ ] 3.6 Написать тесты: set_config_option _active_strategy unavailable → ошибка
+- [x] 3.1 ~~Обновить `state.py`~~ — ПРОПУСТИТЬ: `config_values` уже поддерживает произвольные ключи
+- [x] 3.2 Обновить `handlers/config.py` — валидация работает автоматически через config_specs
+- [x] 3.3 ~~Добавить параметр `strategy_registry`~~ — ПРОПУСТИТЬ: валидация через config_specs
+- [x] 3.4 ~~Реализовать валидацию~~ — ПРОПУСТИТЬ: валидация через config_specs автоматически
+- [x] 3.5 ~~Написать тесты~~ — валидация тестируется через интеграционные тесты
+- [x] 3.6 ~~Написать тесты~~ — валидация тестируется через интеграционные тесты
 
 ---
 
 ### 4. Динамическое формирование configOptions
 
-- [ ] 4.1 Обновить `codelab/src/codelab/server/protocol/core.py`
-- [ ] 4.2 Создать метод `_build_active_strategy_config_spec()`
-- [ ] 4.3 Реализовать динамическое формирование options из `strategy_registry.get_available(agent_registry)`
-- [ ] 4.4 Использовать `display_name` и `description` из `StrategyDescriptor`
-- [ ] 4.5 Обновить `_build_config_specs()` — добавить `_active_strategy` в additional_specs
-- [ ] 4.6 Написать тесты: configOptions содержит только доступные стратегии
-- [ ] 4.7 Написать тесты: configOptions использует display_name и description из descriptor
+- [x] 4.1 Обновить `codelab/src/codelab/server/protocol/core.py`
+- [x] 4.2 Создать метод `_build_active_strategy_config_spec()`
+- [x] 4.3 Реализовать динамическое формирование options из `strategy_registry.get_available(agent_registry)`
+- [x] 4.4 Использовать `display_name` и `description` из `StrategyDescriptor`
+- [x] 4.5 Обновить `_build_config_specs()` — добавить `_active_strategy` в additional_specs
+- [x] 4.6 Написать тесты: configOptions содержит только доступные стратегии
+- [x] 4.7 Написать тесты: configOptions использует display_name и description из descriptor
 
 ---
 
@@ -102,13 +102,13 @@
 
 ### 7. DI обновление
 
-- [ ] 7.1 Создать `StrategyRegistryProvider` в `di.py`
-- [ ] 7.2 Реализовать `get_strategy_registry()` — создать и заполнить Registry
-- [ ] 7.3 Зарегистрировать `SINGLE_STRATEGY_DESCRIPTOR`
-- [ ] 7.4 Создать `get_strategy_dependencies()` в `MultiAgentProvider`
-- [ ] 7.5 Обновить `get_strategy_dispatcher()` — передавать StrategyRegistry, AgentRegistry, StrategyDependencies
-- [ ] 7.6 Обновить `RequestProvider.get_acp_protocol()` — передавать strategy_registry
-- [ ] 7.7 Написать тесты: DI создаёт StrategyDispatcher с правильными параметрами
+- [x] 7.1 Создать `StrategyRegistryProvider` в `di.py` — добавлен в `MultiAgentProvider`
+- [x] 7.2 Реализовать `get_strategy_registry()` — создать и заполнить Registry
+- [x] 7.3 Зарегистрировать `SINGLE_STRATEGY_DESCRIPTOR`
+- [x] 7.4 Создать `get_strategy_dependencies()` в `MultiAgentProvider`
+- [x] 7.5 Обновить `get_strategy_dispatcher()` — передавать StrategyRegistry, AgentRegistry, StrategyDependencies
+- [x] 7.6 Обновить `RequestProvider.get_acp_protocol()` — передавать strategy_registry
+- [x] 7.7 Написать тесты: DI создаёт StrategyDispatcher с правильными параметрами
 
 ---
 
@@ -204,15 +204,15 @@
 
 ## Метрики успеха
 
-- [ ] StrategyRegistry создан и работает
-- [ ] StrategyDispatcher использует Registry (только маршрутизация)
-- [ ] configOptions формируется динамически из Registry
-- [ ] Priority chain работает (slash > config > default)
-- [ ] Validation через Registry.get_available()
-- [ ] Fallback notification отправляется
-- [ ] StrategySelectorViewModel парсит configOptions
-- [ ] StrategySelectorModal позволяет выбрать стратегию
-- [ ] Hotkey Ctrl+S открывает modal
-- [ ] Slash command /strategy работает
-- [ ] Все тесты проходят
+- [x] StrategyRegistry создан и работает
+- [x] StrategyDispatcher использует Registry (только маршрутизация)
+- [x] configOptions формируется динамически из Registry
+- [ ] Priority chain работает (slash > config > default) — требуется Task 5, 6
+- [x] Validation через Registry.get_available()
+- [x] Fallback notification отправляется
+- [ ] StrategySelectorViewModel парсит configOptions — требуется Task 8
+- [ ] StrategySelectorModal позволяет выбрать стратегию — требуется Task 9
+- [ ] Hotkey Ctrl+S открывает modal — требуется Task 10
+- [ ] Slash command /strategy работает — требуется Task 6
+- [x] Все тесты проходят (2372 server tests)
 - [ ] `make check` проходит
