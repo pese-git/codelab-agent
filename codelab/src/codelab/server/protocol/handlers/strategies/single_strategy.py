@@ -240,3 +240,36 @@ class SingleStrategy:
             stop_reason=response.stop_reason,
             usage=_convert_usage_to_dict(response.usage),
         )
+
+
+# ============================================================================
+# StrategyDescriptor для SingleStrategy
+# ============================================================================
+
+def _create_single_strategy(deps) -> SingleStrategy:
+    """Factory для создания SingleStrategy из StrategyDependencies."""
+    return SingleStrategy(
+        event_bus=deps.event_bus,
+        execution_engine=deps.execution_engine,
+        tracer=deps.tracer,
+        agent_name=deps.agent_name,
+    )
+
+
+def _validate_single_strategy(registry) -> bool:
+    """Validator для SingleStrategy — всегда доступна."""
+    return True
+
+
+# Импортируем здесь чтобы избежать циклических зависимостей
+from codelab.server.agent.strategies.descriptor import (  # noqa: E402
+    StrategyDescriptor,
+)
+
+SINGLE_STRATEGY_DESCRIPTOR = StrategyDescriptor(
+    name="single",
+    display_name="Single",
+    description="Single agent execution via EventBus",
+    factory=_create_single_strategy,
+    validator=_validate_single_strategy,
+)
