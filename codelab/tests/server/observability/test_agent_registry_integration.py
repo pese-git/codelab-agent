@@ -142,5 +142,8 @@ class TestFullIntegration:
             # Проверяем связи
             assert registry._event_bus is bus
             assert registry._agent_factory is factory
-            assert dispatcher._event_bus is bus
-            assert dispatcher._execution_engine is engine
+            # StrategyDispatcher теперь использует StrategyRegistry и StrategyDependencies
+            assert dispatcher._strategy_registry is not None
+            assert dispatcher._agent_registry is registry
+            assert dispatcher._deps.event_bus is bus
+            assert dispatcher._deps.execution_engine is engine

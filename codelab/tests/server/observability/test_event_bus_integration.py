@@ -89,21 +89,23 @@ class TestMultiAgentProvider:
 
     @pytest.mark.asyncio
     async def test_strategy_dispatcher_has_event_bus(self, config, storage):
-        """StrategyDispatcher должен иметь EventBus."""
+        """StrategyDispatcher должен иметь EventBus через StrategyDependencies."""
         container = make_container(config, storage)
         async with container() as request_container:
             dispatcher = await request_container.get(StrategyDispatcher)
             bus = await request_container.get(AgentEventBus)
-            assert dispatcher._event_bus is bus
+            # StrategyDispatcher теперь использует StrategyDependencies
+            assert dispatcher._deps.event_bus is bus
 
     @pytest.mark.asyncio
     async def test_strategy_dispatcher_has_tracer(self, config, storage):
-        """StrategyDispatcher должен иметь Tracer."""
+        """StrategyDispatcher должен иметь Tracer через StrategyDependencies."""
         container = make_container(config, storage)
         async with container() as request_container:
             dispatcher = await request_container.get(StrategyDispatcher)
             tracer = await request_container.get(Tracer)
-            assert dispatcher._tracer is tracer
+            # StrategyDispatcher теперь использует StrategyDependencies
+            assert dispatcher._deps.tracer is tracer
 
     @pytest.mark.asyncio
     async def test_execution_engine_is_singleton(self, config, storage):
@@ -160,6 +162,7 @@ class TestFullIntegration:
             assert dispatcher is not None
 
             # Проверяем связи
-            assert dispatcher._event_bus is bus
-            assert dispatcher._tracer is tracer
-            assert dispatcher._execution_engine is engine
+            # StrategyDispatcher теперь использует StrategyDependencies
+            assert dispatcher._deps.event_bus is bus
+            assert dispatcher._deps.tracer is tracer
+            assert dispatcher._deps.execution_engine is engine
