@@ -137,7 +137,10 @@ class LLMLoopStage(PromptStage):
         else:
             agent_orchestrator = context.meta.get("agent_orchestrator")
             if agent_orchestrator is None:
-                raise ValueError("No LLM strategy available: neither strategy_dispatcher nor agent_orchestrator")
+                raise ValueError(
+                    "No LLM strategy available: "
+                    "neither strategy_dispatcher nor agent_orchestrator"
+                )
             strategy = LegacyCallStrategy(agent_orchestrator)
 
         self._agent_loop = AgentLoop(
@@ -211,35 +214,57 @@ class LLMLoopStage(PromptStage):
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        agent_orchestrator: AgentOrchestrator,
+        agent_orchestrator: AgentOrchestrator | None = None,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
-        Использует AgentLoop.resume_after_permission для правильной обработки
-        tool results и продолжения LLM loop.
-        """
-        # Создать AgentLoop с LegacyCallStrategy
-        from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
-        from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+        Переиспользует существующий AgentLoop (с той же стратегией, что и при process()).
+        Если AgentLoop ещё не создан, создаёт его с правильной стратегией.
 
-        strategy = LegacyCallStrategy(agent_orchestrator)
-        agent_loop = AgentLoop(
-            strategy=strategy,
-            tool_registry=self._tool_registry,
-            tool_call_handler=self._tool_call_handler,
-            permission_manager=self._permission_manager,
-            state_manager=self._state_manager,
-            content_extractor=self._content_extractor,
-            content_validator=self._content_validator,
-            content_formatter=self._content_formatter,
-            replay_manager=self._replay_manager,
-            plan_builder=self._plan_builder,
-            global_policy_manager=self._global_policy_manager,
-        )
+        Args:
+            session: Состояние сессии.
+            session_id: ID сессии.
+            tool_call_id: ID tool call для выполнения.
+            agent_orchestrator: Legacy оркестратор
+                (используется только если нет StrategyDispatcher).
+            mcp_manager: MCP manager для tool execution.
+
+        Returns:
+            LLMLoopResult с результатами выполнения.
+        """
+        # Переиспользовать существующий AgentLoop или создать новый с правильной стратегией
+        if self._agent_loop is None:
+            # Fallback: создать AgentLoop с правильной стратегией
+            strategy: LLMCallStrategy
+            if self._strategy_dispatcher is not None:
+                strategy = self._strategy_dispatcher
+            elif agent_orchestrator is not None:
+                strategy = LegacyCallStrategy(agent_orchestrator)
+            else:
+                logger.error(
+                    "No LLM strategy available for execute_pending_tool",
+                    session_id=session_id,
+                )
+                from codelab.server.protocol.state import LLMLoopResult
+                return LLMLoopResult(notifications=[], stop_reason="end_turn")
+
+            self._agent_loop = AgentLoop(
+                strategy=strategy,
+                tool_registry=self._tool_registry,
+                tool_call_handler=self._tool_call_handler,
+                permission_manager=self._permission_manager,
+                state_manager=self._state_manager,
+                content_extractor=self._content_extractor,
+                content_validator=self._content_validator,
+                content_formatter=self._content_formatter,
+                replay_manager=self._replay_manager,
+                plan_builder=self._plan_builder,
+                global_policy_manager=self._global_policy_manager,
+            )
 
         # Использовать AgentLoop.resume_after_permission
-        result = await agent_loop.resume_after_permission(
+        result = await self._agent_loop.resume_after_permission(
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
@@ -248,9 +273,14 @@ class LLMLoopStage(PromptStage):
 
         # Конвертировать AgentLoopResult → LLMLoopResult
         from codelab.server.protocol.state import LLMLoopResult
+        stop_reason = (
+            result.stop_reason.value
+            if isinstance(result.stop_reason, StopReason)
+            else result.stop_reason
+        )
         return LLMLoopResult(
             notifications=result.notifications,
-            stop_reason=result.stop_reason.value if isinstance(result.stop_reason, StopReason) else result.stop_reason,
+            stop_reason=stop_reason,
             pending_permission=result.pending_permission,
             pending_tool_calls=result.pending_tool_calls,
             tool_results=result.tool_results,

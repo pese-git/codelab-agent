@@ -579,3 +579,72 @@ class TestAgentLoopErrorHandling:
             h.get("role") == "tool" and "Tool crashed" in str(h.get("content", ""))
             for h in mock_session.history
         )
+
+
+class TestLLMLoopStageStrategyReuse:
+    """Тесты что LLMLoopStage переиспользует стратегию при resume."""
+
+    @pytest.mark.asyncio
+    async def test_execute_pending_tool_reuses_strategy_dispatcher(self, mock_session):
+        """execute_pending_tool переиспользует StrategyDispatcher из process()."""
+        from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
+
+        # Arrange: создать LLMLoopStage с StrategyDispatcher
+        mock_dispatcher = AsyncMock(spec=LLMCallStrategy)
+        mock_dispatcher.execute = AsyncMock()
+        mock_dispatcher.continue_execution = AsyncMock()
+
+        stage = LLMLoopStage(
+            tool_registry=MagicMock(),
+            tool_call_handler=MagicMock(),
+            permission_manager=MagicMock(),
+            state_manager=MagicMock(),
+            plan_builder=MagicMock(),
+            strategy_dispatcher=mock_dispatcher,
+        )
+
+        # Act: вызвать execute_pending_tool без agent_orchestrator
+        mock_session.tool_calls = {}
+        await stage.execute_pending_tool(
+            session=mock_session,
+            session_id="test_session",
+            tool_call_id="nonexistent_tc",
+            agent_orchestrator=None,
+            mcp_manager=None,
+        )
+
+        # Assert: AgentLoop создан с StrategyDispatcher, не LegacyCallStrategy
+        assert stage._agent_loop is not None
+        assert stage._agent_loop._strategy is mock_dispatcher
+
+    @pytest.mark.asyncio
+    async def test_execute_pending_tool_fallback_to_legacy(self, mock_session):
+        """execute_pending_tool fallback на LegacyCallStrategy если нет StrategyDispatcher."""
+        from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
+        from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
+
+        # Arrange: LLMLoopStage без StrategyDispatcher
+        stage = LLMLoopStage(
+            tool_registry=MagicMock(),
+            tool_call_handler=MagicMock(),
+            permission_manager=MagicMock(),
+            state_manager=MagicMock(),
+            plan_builder=MagicMock(),
+            strategy_dispatcher=None,  # Нет EventBus пути
+        )
+
+        mock_orchestrator = AsyncMock()
+
+        # Act: вызвать execute_pending_tool с agent_orchestrator
+        mock_session.tool_calls = {}
+        await stage.execute_pending_tool(
+            session=mock_session,
+            session_id="test_session",
+            tool_call_id="nonexistent_tc",
+            agent_orchestrator=mock_orchestrator,
+            mcp_manager=None,
+        )
+
+        # Assert: AgentLoop создан с LegacyCallStrategy
+        assert stage._agent_loop is not None
+        assert isinstance(stage._agent_loop._strategy, LegacyCallStrategy)
