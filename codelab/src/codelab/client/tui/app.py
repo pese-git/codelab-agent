@@ -25,6 +25,12 @@ from codelab.client.infrastructure.mcp_config_loader import MCPConfigLoader
 from codelab.client.infrastructure.services.acp_transport_service import ACPTransportService
 from codelab.client.messages import PermissionOption, PermissionToolCall
 from codelab.client.presentation.chat_view_model import ChatViewModel
+from codelab.client.presentation.config_option_selector_view_model import (
+    AgentSelectorViewModel,
+    ConfigOptionSelectorViewModel,
+    ModeSelectorViewModel,
+    StrategySelectorViewModel,
+)
 from codelab.client.presentation.file_viewer_view_model import FileViewerViewModel
 from codelab.client.presentation.filesystem_view_model import FileSystemViewModel
 from codelab.client.presentation.model_selector_view_model import ModelSelectorViewModel
@@ -39,6 +45,7 @@ from codelab.client.tui.navigation import NavigationManager
 from .components import (
     ChatView,
     CommandPalette,
+    ConfigOptionSelectorModal,
     FileChangePreviewModal,
     FileTree,
     FooterBar,
@@ -86,10 +93,14 @@ class ACPClientApp(App[None]):
         ("ctrl+`", "open_terminal_output", "Терминал"),
         ("tab", "cycle_focus", "Переключить фокус"),
         ("ctrl+c", "cancel_prompt", "Отменить"),
-        # Новые горячие клавиши Фазы 5
+        # Config option selectors
+        ("ctrl+m", "select_model", "Выбрать модель"),
+        ("ctrl+shift+m", "select_mode", "Выбрать режим"),
+        ("ctrl+a", "select_agent", "Выбрать агента"),
+        ("ctrl+shift+a", "select_strategy", "Выбрать стратегию"),
+        # Другие горячие клавиши
         ("ctrl+p", "command_palette", "Палитра команд"),
         ("ctrl+t", "toggle_theme", "Переключить тему"),
-        ("ctrl+m", "select_model", "Выбрать модель"),
         ("escape", "close_modal", "Закрыть"),
     ]
 
@@ -207,6 +218,11 @@ class ACPClientApp(App[None]):
             self._permission_vm = self._container.get(PermissionViewModel)
             self._terminal_vm = self._container.get(TerminalViewModel)
             self._model_selector_vm = self._container.get(ModelSelectorViewModel)
+            
+            # Специализированные ConfigOptionSelectorViewModel
+            self._mode_selector_vm = self._container.get(ModeSelectorViewModel)
+            self._agent_selector_vm = self._container.get(AgentSelectorViewModel)
+            self._strategy_selector_vm = self._container.get(StrategySelectorViewModel)
 
             self._coordinator = self._container.get(SessionCoordinator)
             self._transport = self._container.get(TransportService)
@@ -625,6 +641,70 @@ class ACPClientApp(App[None]):
             callback=on_model_selected,
         )
 
+    def _open_config_option_selector(
+        self,
+        view_model: ConfigOptionSelectorViewModel,
+        config_name: str,
+    ) -> None:
+        """Универсальный метод для открытия модального окна выбора config option.
+
+        Args:
+            view_model: ViewModel для управления состоянием
+            config_name: Название config option для логирования
+        """
+        session_id = self._session_vm.selected_session_id.value
+        if not session_id:
+            self._app_logger.warning(f"select_{config_name}_no_active_session")
+            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
+            return
+
+        self._app_logger.debug(
+            f"opening_{config_name}_selector",
+            session_id=session_id,
+        )
+
+        def on_option_selected(option_value: str | None) -> None:
+            """Обработка выбранной опции."""
+            if option_value:
+                self._app_logger.info(
+                    f"{config_name}_selected",
+                    session_id=session_id,
+                    value=option_value,
+                )
+                self.run_worker(
+                    view_model.select_option_cmd.execute(
+                        session_id=session_id,
+                        value=option_value,
+                    ),
+                    exclusive=False,
+                )
+                self.show_toast(
+                    f"{view_model.title} изменён на {option_value}",
+                    level="success",
+                )
+            else:
+                self._app_logger.debug(f"{config_name}_selection_cancelled")
+
+        self.push_screen(
+            ConfigOptionSelectorModal(
+                view_model=view_model,
+                session_id=session_id,
+            ),
+            callback=on_option_selected,
+        )
+
+    def action_select_mode(self) -> None:
+        """Открывает модальное окно выбора режима сессии."""
+        self._open_config_option_selector(self._mode_selector_vm, "mode")
+
+    def action_select_agent(self) -> None:
+        """Открывает модальное окно выбора агента."""
+        self._open_config_option_selector(self._agent_selector_vm, "agent")
+
+    def action_select_strategy(self) -> None:
+        """Открывает модальное окно выбора стратегии выполнения."""
+        self._open_config_option_selector(self._strategy_selector_vm, "strategy")
+
     def action_close_modal(self) -> None:
         """Закрывает текущее модальное окно."""
         # Textual автоматически обрабатывает escape для модальных окон,
@@ -945,7 +1025,11 @@ class ACPClientApp(App[None]):
     def _on_config_option_updated(self, event: Any) -> None:
         """Обработать обновление конфигурационных опций сессии.
 
-        Обновляет ModelSelectorViewModel новыми данными из configOptions.
+        Обновляет все selector ViewModel новыми данными из configOptions:
+        - ModelSelectorViewModel (model)
+        - ModeSelectorViewModel (mode)
+        - AgentSelectorViewModel (_agent)
+        - StrategySelectorViewModel (_active_strategy)
 
         Args:
             event: ConfigOptionUpdatedEvent
@@ -959,7 +1043,21 @@ class ACPClientApp(App[None]):
                 session_id=session_id,
                 config_options_count=len(config_options),
             )
+            # Обновляем ModelSelectorViewModel (model)
             self._model_selector_vm.update_models_from_config(
+                config_options=config_options,
+                session_id=session_id,
+            )
+            # Обновляем универсальные ConfigOptionSelectorViewModel
+            self._mode_selector_vm.update_from_config(
+                config_options=config_options,
+                session_id=session_id,
+            )
+            self._agent_selector_vm.update_from_config(
+                config_options=config_options,
+                session_id=session_id,
+            )
+            self._strategy_selector_vm.update_from_config(
                 config_options=config_options,
                 session_id=session_id,
             )
