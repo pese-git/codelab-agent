@@ -4,6 +4,9 @@
 - AgentContext содержит MCP tools из mcp_manager.get_all_tools()
 - LLM получает MCP tools в tools list
 - MCP tools проходят через ToolMapping для совместимости имён
+
+NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
+These tests are kept for backward compatibility verification.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 @pytest.fixture

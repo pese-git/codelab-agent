@@ -312,9 +312,6 @@ class ChatViewModel(BaseViewModel):
                 if text:
                     # Добавляем текст в состояние той сессии, откуда пришёл update.
                     if target_session_id is not None:
-                        if self._is_system_ack_chunk(text):
-                            self.add_message("system", text, session_id=target_session_id)
-                            return
                         self._append_streaming_text_to_session(target_session_id, text)
 
                     self.logger.debug("agent_message_chunk_processed", text_length=len(text))
@@ -788,6 +785,8 @@ class ChatViewModel(BaseViewModel):
         # Это отдельный проход, чтобы сразу установить messages.value до обработки
         # остальных обновлений через _handle_session_update.
         rebuilt_messages: list[dict[str, str]] = []
+        last_role: str | None = None
+        current_text_parts: list[str] = []
 
         for idx, update_data in enumerate(replay_updates):
             params = update_data.get("params", {})
@@ -831,23 +830,44 @@ class ChatViewModel(BaseViewModel):
                 )
                 continue
 
+            # Определяем роль для текущего chunk
             if update_type == "user_message_chunk":
-                rebuilt_messages.append({"role": "user", "content": text})
-                self.logger.debug(
-                    "restore_added_user_message",
-                    idx=idx,
-                    text_length=len(text),
-                )
+                current_role = "user"
+            elif update_type == "agent_message_chunk":
+                current_role = "assistant"
+            else:
                 continue
-            if update_type == "agent_message_chunk":
-                role = "system" if self._is_system_ack_chunk(text) else "assistant"
-                rebuilt_messages.append({"role": role, "content": text})
-                self.logger.debug(
-                    "restore_added_agent_message",
-                    idx=idx,
-                    role=role,
-                    text_length=len(text),
-                )
+
+            # Агрегируем последовательные chunks одного типа в одно сообщение
+            if current_role != last_role and last_role is not None:
+                # Роль изменилась — сохраняем предыдущее сообщение
+                rebuilt_messages.append({
+                    "role": last_role,
+                    "content": "".join(current_text_parts),
+                })
+                current_text_parts = []
+
+            last_role = current_role
+            current_text_parts.append(text)
+
+            self.logger.debug(
+                "restore_aggregating_chunk",
+                idx=idx,
+                role=current_role,
+                text_length=len(text),
+            )
+
+        # Сохраняем последнее сообщение (если есть)
+        if last_role is not None and current_text_parts:
+            rebuilt_messages.append({
+                "role": last_role,
+                "content": "".join(current_text_parts),
+            })
+            self.logger.info(
+                "restore_added_final_message",
+                role=last_role,
+                text_length=len("".join(current_text_parts)),
+            )
 
         # Записываем пересобранное состояние в кэш конкретной сессии.
         # ВАЖНО: НЕ сохраняем replay_updates здесь - это сделает _handle_session_update
@@ -1060,8 +1080,7 @@ class ChatViewModel(BaseViewModel):
             if update_type == "user_message_chunk":
                 rebuilt_messages.append({"role": "user", "content": text})
             elif update_type == "agent_message_chunk":
-                role = "system" if self._is_system_ack_chunk(text) else "assistant"
-                rebuilt_messages.append({"role": role, "content": text})
+                rebuilt_messages.append({"role": "assistant", "content": text})
 
         return rebuilt_messages
 
@@ -1112,13 +1131,6 @@ class ChatViewModel(BaseViewModel):
 
         if self._active_session_id == session_id:
             self.last_stop_reason.value = stop_reason
-
-    @staticmethod
-    def _is_system_ack_chunk(text: str) -> bool:
-        """Определяет служебный ACK chunk от сервера."""
-
-        normalized = text.strip()
-        return normalized.startswith("Processing with agent:")
 
     # Event handlers
     def _handle_prompt_started(self, event: Any) -> None:

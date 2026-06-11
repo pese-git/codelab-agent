@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
 
 from codelab.server.llm.base import LLMProvider

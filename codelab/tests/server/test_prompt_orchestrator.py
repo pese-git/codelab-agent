@@ -2,6 +2,9 @@
 
 Проверяет интеграцию всех компонентов Этапа 2 и Этапа 3
 при обработке prompt-turn.
+
+NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
+These tests are kept for backward compatibility verification.
 """
 
 from types import SimpleNamespace
@@ -35,6 +38,8 @@ from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.registry import SimpleToolRegistry
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 @pytest.fixture

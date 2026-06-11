@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 import structlog
 
@@ -17,7 +17,7 @@ from codelab.server.llm.errors import ProviderError
 logger = structlog.get_logger()
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """Состояние circuit breaker."""
 
     CLOSED = "closed"  # Нормальная работа, запросы проходят
@@ -117,15 +117,14 @@ class CircuitBreaker:
         info.failure_count += 1
         info.last_failure_time = time.time()
 
-        if info.failure_count >= self._failure_threshold:
-            if info.state != CircuitState.OPEN:
-                info.state = CircuitState.OPEN
-                info.opened_at = time.time()
-                logger.warning(
-                    "circuit opened",
-                    provider_id=provider_id,
-                    failure_count=info.failure_count,
-                )
+        if info.failure_count >= self._failure_threshold and info.state != CircuitState.OPEN:
+            info.state = CircuitState.OPEN
+            info.opened_at = time.time()
+            logger.warning(
+                "circuit opened",
+                provider_id=provider_id,
+                failure_count=info.failure_count,
+            )
 
     def get_state(self, provider_id: str) -> CircuitState:
         """Получить текущее состояние circuit.

@@ -102,41 +102,6 @@ def test_session_update_chunk_written_to_original_session(chat_view_model: ChatV
     assert chat_view_model.streaming_text.value == "answer s1"
 
 
-def test_system_ack_chunk_separated_from_assistant_text(chat_view_model: ChatViewModel) -> None:
-    """Служебный ACK отображается как system, а не смешивается с ответом."""
-
-    chat_view_model.set_active_session("sess_ack")
-    chat_view_model._handle_session_update(
-        {
-            "params": {
-                "sessionId": "sess_ack",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"text": "Processing with agent: hello"},
-                },
-            }
-        }
-    )
-
-    assert len(chat_view_model.messages.value) == 1
-    assert chat_view_model.messages.value[0]["role"] == "system"
-    assert chat_view_model.streaming_text.value == ""
-
-    chat_view_model._handle_session_update(
-        {
-            "params": {
-                "sessionId": "sess_ack",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"text": "Hello from LLM"},
-                },
-            }
-        }
-    )
-
-    assert chat_view_model.streaming_text.value == "Hello from LLM"
-
-
 def test_restore_session_from_replay_rebuilds_messages(chat_view_model: ChatViewModel) -> None:
     """Replay updates из `session/load` восстанавливают историю сообщений."""
 

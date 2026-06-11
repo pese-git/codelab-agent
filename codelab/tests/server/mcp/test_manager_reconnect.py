@@ -1,6 +1,7 @@
 """Тесты для MCPManager auto-reconnect logic."""
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -286,7 +287,5 @@ class TestMCPManagerHandleServerFailure:
         
         # Задача должна завершиться
         if "test_server" in manager._reconnect_tasks:
-            try:
+            with contextlib.suppress(Exception):
                 await manager._reconnect_tasks["test_server"]
-            except Exception:
-                pass

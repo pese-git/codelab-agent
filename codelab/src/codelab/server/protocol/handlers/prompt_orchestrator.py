@@ -113,9 +113,16 @@ class PromptOrchestrator:
 
             bridge = ClientRPCBridge(self.client_rpc_service)
             checker = PermissionChecker(self.permission_manager)
-            FileSystemToolDefinitions.register_all(self.tool_registry, FileSystemToolExecutor(bridge, checker))
-            TerminalToolDefinitions.register_all(self.tool_registry, TerminalToolExecutor(bridge, checker))
-            logger.debug("PromptOrchestrator registered tool executors", tools_registered=len(self.tool_registry.get_available_tools("")))
+            FileSystemToolDefinitions.register_all(
+                self.tool_registry, FileSystemToolExecutor(bridge, checker)
+            )
+            TerminalToolDefinitions.register_all(
+                self.tool_registry, TerminalToolExecutor(bridge, checker)
+            )
+            logger.debug(
+                "PromptOrchestrator registered tool executors",
+                tools_registered=len(self.tool_registry.get_available_tools("")),
+            )
 
         self._tools_registered = True
 
@@ -169,7 +176,10 @@ class PromptOrchestrator:
         for block in prompt:
             self.state_manager.add_event(
                 session,
-                {"type": "session_update", "update": {"sessionUpdate": "user_message_chunk", "content": block}},
+                {
+                    "type": "session_update",
+                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
+                },
             )
         self.state_manager.update_session_timestamp(session)
 
@@ -183,7 +193,6 @@ class PromptOrchestrator:
         context.meta["agent_orchestrator"] = agent_orchestrator
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
-        context.notifications.append(_build_ack_notification(session_id, text_preview))
 
         result = await self._pipeline.run(context)
 
@@ -208,7 +217,9 @@ class PromptOrchestrator:
                     "sessionId": session_id,
                     "update": {
                         "sessionUpdate": "available_commands_update",
-                        "availableCommands": _serialize_available_commands(session.available_commands),
+                        "availableCommands": _serialize_available_commands(
+                            session.available_commands
+                        ),
                     },
                 },
             )
@@ -217,7 +228,11 @@ class PromptOrchestrator:
             session,
             {
                 "type": "session_update",
-                "update": {"sessionUpdate": "session_info_update", "title": summary.get("title"), "updatedAt": summary.get("updated_at")},
+                "update": {
+                    "sessionUpdate": "session_info_update",
+                    "title": summary.get("title"),
+                    "updatedAt": summary.get("updated_at"),
+                },
             },
         )
 
@@ -226,7 +241,9 @@ class PromptOrchestrator:
             logger.debug(
                 "turn deferred, awaiting permission response",
                 session_id=session_id,
-                permission_request_id=(session.active_turn.permission_request_id if session.active_turn else None),
+                permission_request_id=(
+                    session.active_turn.permission_request_id if session.active_turn else None
+                ),
             )
             return ProtocolOutcome(notifications=result.notifications)
 
@@ -286,12 +303,20 @@ class PromptOrchestrator:
             session.cancelled_permission_requests.add(session.active_turn.permission_request_id)
 
         if session.active_turn.pending_client_request is not None:
-            session.cancelled_client_rpc_requests.add(session.active_turn.pending_client_request.request_id)
+            session.cancelled_client_rpc_requests.add(
+                session.active_turn.pending_client_request.request_id
+            )
 
         if self.client_rpc_service is not None:
-            cancelled_rpc_count = self.client_rpc_service.cancel_all_pending_requests(reason="session/cancel requested")
+            cancelled_rpc_count = self.client_rpc_service.cancel_all_pending_requests(
+                reason="session/cancel requested"
+            )
             if cancelled_rpc_count > 0:
-                logger.debug("cancelled pending RPC requests", session_id=session_id, cancelled_count=cancelled_rpc_count)
+                logger.debug(
+                    "cancelled pending RPC requests",
+                    session_id=session_id,
+                    cancelled_count=cancelled_rpc_count,
+                )
 
         self.turn_lifecycle_manager.finalize_turn(session, "cancelled")
 
@@ -304,7 +329,9 @@ class PromptOrchestrator:
 
         self.turn_lifecycle_manager.clear_active_turn(session)
 
-        logger.debug("cancel request handled", session_id=session_id, notifications_count=len(notifications))
+        logger.debug(
+            "cancel request handled", session_id=session_id, notifications_count=len(notifications)
+        )
         return ProtocolOutcome(response=None, notifications=notifications)
 
     def handle_pending_client_rpc_response(
@@ -317,9 +344,16 @@ class PromptOrchestrator:
     ) -> ProtocolOutcome:
         """Обрабатывает response на pending client RPC request."""
         notifications: list[ACPMessage] = []
-        updates = self.client_rpc_handler.handle_pending_response(session, session_id, kind, result, error)
+        updates = self.client_rpc_handler.handle_pending_response(
+            session, session_id, kind, result, error
+        )
         notifications.extend(updates)
-        logger.debug("client RPC response handled", session_id=session_id, kind=kind, has_error=error is not None)
+        logger.debug(
+            "client RPC response handled",
+            session_id=session_id,
+            kind=kind,
+            has_error=error is not None,
+        )
         return ProtocolOutcome(response=None, notifications=notifications)
 
     def handle_permission_response(
@@ -333,7 +367,11 @@ class PromptOrchestrator:
         notifications: list[ACPMessage] = []
 
         if permission_request_id in session.cancelled_permission_requests:
-            logger.debug("ignoring response to cancelled permission request", session_id=session_id, request_id=permission_request_id)
+            logger.debug(
+                "ignoring response to cancelled permission request",
+                session_id=session_id,
+                request_id=permission_request_id,
+            )
             return ProtocolOutcome(response=None, notifications=[])
 
         outcome = self.permission_manager.extract_permission_outcome(result)
@@ -376,11 +414,16 @@ class PromptOrchestrator:
 
 # ── module-level helpers ──────────────────────────────────────────────────────
 
+
 def _extract_text_preview(prompt: list[dict[str, Any]]) -> str:
     if not isinstance(prompt, list):
         return "Prompt received"
     for block in prompt:
-        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ):
             text = block["text"]
             return text if text else "Prompt received"
     return "Prompt received"
@@ -392,20 +435,9 @@ def _extract_full_text(prompt: list[dict[str, Any]]) -> str:
     return "\n".join(
         block["text"]
         for block in prompt
-        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
-    )
-
-
-def _build_ack_notification(session_id: str, text_preview: str) -> ACPMessage:
-    return ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": f"Processing prompt: {text_preview[:80]}"},
-            },
-        },
+        if isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
     )
 
 

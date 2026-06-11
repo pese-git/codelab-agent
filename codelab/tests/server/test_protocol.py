@@ -7,6 +7,8 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import JsonFileStorage
 
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 
 async def _initialize_with_tool_runtime(protocol: ACPProtocol) -> None:
     """Инициализирует протокол с включенным tool-runtime capability profile."""
@@ -3027,7 +3029,12 @@ async def test_middleware_is_called_for_registered_method():
         return result
 
     protocol = ACPProtocol(middleware=[logging_middleware])
-    outcome = await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     assert outcome.response is not None
     assert outcome.response.error is None
@@ -3082,7 +3089,12 @@ async def test_multiple_middleware_applied_in_order():
         return result
 
     protocol = ACPProtocol(middleware=[mw_outer, mw_inner])
-    await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     # Onion pattern: outer -> inner -> handler -> inner -> outer
     assert call_log == [
@@ -3107,7 +3119,12 @@ async def test_middleware_can_modify_response():
         return result
 
     protocol = ACPProtocol(middleware=[error_middleware])
-    outcome = await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     assert outcome.response is not None
     assert len(outcome.notifications) == 1
@@ -3223,7 +3240,9 @@ async def test_orchestrator_recreated_with_different_policy_manager():
 
 @pytest.mark.asyncio
 async def test_get_prompt_orchestrator_creates_default_registry_without_tool_registry():
-    """_get_prompt_orchestrator создаёт SimpleToolRegistry по умолчанию, если tool_registry не настроен."""
+    """Orchestrator создаёт SimpleToolRegistry по умолчанию,
+    если tool_registry не настроен.
+    """
     from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 
     protocol = ACPProtocol()

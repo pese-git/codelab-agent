@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from codelab.server.config import AppConfig
-from codelab.server.di import make_container
+from codelab.server.di import ObservabilityFlushManager, make_container
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.core import ACPProtocol
 from codelab.server.rpc_holder import ClientRPCServiceHolder
@@ -75,6 +75,9 @@ async def run_stdio_server(
         auth_api_key=auth_api_key,
         trace_messages=trace_messages,
     )
+
+    # Запуск background services (observability flush)
+    await container.get(ObservabilityFlushManager)
 
     # Создаём stdio транспорт
     transport = StdioServerTransport()

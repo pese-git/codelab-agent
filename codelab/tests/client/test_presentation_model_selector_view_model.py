@@ -115,7 +115,10 @@ def test_get_current_model_label_fallback(model_selector_vm: ModelSelectorViewMo
 
 
 @pytest.mark.asyncio
-async def test_select_model_success(model_selector_vm: ModelSelectorViewModel, mock_coordinator: Mock) -> None:
+async def test_select_model_success(
+    model_selector_vm: ModelSelectorViewModel,
+    mock_coordinator: Mock,
+) -> None:
     """Проверяет успешный выбор модели."""
     config_options = [
         {
@@ -162,7 +165,10 @@ async def test_select_model_success(model_selector_vm: ModelSelectorViewModel, m
 
 
 @pytest.mark.asyncio
-async def test_select_model_no_session(model_selector_vm: ModelSelectorViewModel, mock_coordinator: Mock) -> None:
+async def test_select_model_no_session(
+    model_selector_vm: ModelSelectorViewModel,
+    mock_coordinator: Mock,
+) -> None:
     """Проверяет выбор модели без активной сессии."""
     await model_selector_vm.select_model_cmd.execute(
         session_id="",

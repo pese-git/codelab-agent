@@ -187,11 +187,11 @@ retry_on = ["rate_limit", "timeout"]
 # edit = "ask"
 
 [agents]
-# Режим выполнения по умолчанию: single | multi_orchestrated | multi_choreographed | hierarchical
-mode = "single"
+# Стратегия выполнения по умолчанию: single | multi_orchestrated | multi_choreographed | hierarchical
+strategy = "single"
 
-# Режим fallback если нет нужных агентов для выбранной стратегии
-fallback_mode = "single"
+# Стратегия fallback если нет нужных агентов для выбранной стратегии
+fallback_strategy = "single"
 
 # Модель по умолчанию (если агент не указал свою)
 default_model = "openai/gpt-4o"

@@ -28,13 +28,13 @@ import structlog
 from aiohttp import web
 from dishka import AsyncContainer
 
+if TYPE_CHECKING:
+    from .protocol.core import ACPProtocol
+
 from .config import AppConfig
-from .di import make_container
+from .di import ObservabilityFlushManager, make_container
 from .storage import SessionStorage
 from .transport.websocket import WebSocketTransport
-
-if TYPE_CHECKING:
-    pass
 
 # Получаем структурированный logger
 logger = structlog.get_logger()
@@ -221,6 +221,9 @@ class ACPHttpServer:
             auth_api_key=self.auth_api_key,
             trace_messages=self.trace_messages,
         )
+
+        # Запуск background services (observability flush)
+        await self._app_container.get(ObservabilityFlushManager)
 
         app = web.Application()
         app.router.add_get("/acp/ws", self.handle_ws_request)

@@ -6,12 +6,16 @@
 Два явных метода:
   - start_turn: добавляет user message, вызывает LLM
   - continue_turn: НЕ добавляет user message (история содержит tool_results), вызывает LLM
+
+DEPRECATED: Use LLMAdapter instead. LLMAdapter provides better
+integration with the EventBus-based multi-agent architecture.
 """
 
 import asyncio
 from typing import Any
 
 import structlog
+from typing_extensions import deprecated
 
 from codelab.server.agent.base import (
     AgentContext,
@@ -28,6 +32,7 @@ from codelab.server.tools.mapping import acp_name_to_llm_name
 logger = structlog.get_logger()
 
 
+@deprecated("Use LLMAdapter instead. Will be removed in a future version.")
 class NaiveAgent(LLMAgent):
     """Агент с одним вызовом LLM.
 
@@ -40,6 +45,13 @@ class NaiveAgent(LLMAgent):
       - Цикл tool-calling (LLMLoopStage).
       - Хранение истории сессии (SessionState).
       - Выполнение инструментов (ToolRegistry).
+
+    DEPRECATED: Use LLMAdapter instead. LLMAdapter provides:
+      - EventBus integration for multi-agent support
+      - Tracer spans for observability
+      - Token usage tracking
+      - Tool name mapping
+      - Plan extraction
     """
 
     def __init__(
@@ -250,7 +262,11 @@ class NaiveAgent(LLMAgent):
         return AgentResponse(
             text=response.text,
             tool_calls=response.tool_calls if response.tool_calls else [],
-            stop_reason=response.stop_reason.value if isinstance(response.stop_reason, StopReason) else response.stop_reason,
+            stop_reason=(
+                response.stop_reason.value
+                if isinstance(response.stop_reason, StopReason)
+                else response.stop_reason
+            ),
             metadata={},
             plan=plan,
         )

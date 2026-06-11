@@ -5,11 +5,16 @@
   - Фильтровать инструменты по capabilities клиента.
   - Добавлять tool_results в историю сессии.
   - Вызывать agent.start_turn() или agent.continue_turn() в зависимости от ситуации.
+
+DEPRECATED: Use ExecutionEngine for context building and StrategyDispatcher
+for strategy routing. The EventBus-based approach provides better separation
+of concerns and multi-agent support.
 """
 
 from typing import Any
 
 import structlog
+from typing_extensions import deprecated
 
 from codelab.server.agent.base import (
     AgentContext,
@@ -33,6 +38,10 @@ logger = structlog.get_logger()
 _SERVER_SIDE_TOOL_KINDS: frozenset[str] = frozenset({"think", "plan"})
 
 
+@deprecated(
+    "Use ExecutionEngine + StrategyDispatcher instead. "
+    "Will be removed in a future version.",
+)
 class AgentOrchestrator:
     """Оркестратор для управления LLM-агентом в контексте ACP протокола.
 
@@ -42,6 +51,13 @@ class AgentOrchestrator:
 
     Также отвечает за _filter_tools_by_capabilities — фильтрацию инструментов
     согласно ACP-спецификации (capabilities omitted in initialize = UNSUPPORTED).
+
+    DEPRECATED: Use ExecutionEngine for context building and StrategyDispatcher
+    for strategy routing. The EventBus-based approach provides:
+      - Multi-agent support via AgentEventBus
+      - Strategy pattern (single, orchestrated, choreographed, hierarchical)
+      - Better separation of concerns
+      - Observability integration
     """
 
     def __init__(

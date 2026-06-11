@@ -373,6 +373,37 @@ graph TD
 3. При каждом WebSocket-подключении создаётся `ClientRPCService`, устанавливается в `ClientRPCServiceHolder`, и REQUEST scope получает `ACPProtocol` с уже настроенным holder.
 4. `ClientRPCServiceHolder` — мост между APP и REQUEST scope: сервис обновляется per-request, а `PromptOrchestrator` и `ACPProtocol` используют holder без пересоздания.
 
+### AgentLoop — унифицированный цикл итераций LLM
+
+`AgentLoop` отвечает за цикл итераций LLM tool-calling в соответствии с ACP спецификацией:
+
+```mermaid
+graph TD
+    A[LLMLoopStage] -->|использует| B[AgentLoop]
+    B -->|использует| C[LLMCallStrategy Protocol]
+    C -->|реализация| D[LegacyCallStrategy]
+    C -->|реализация| E[StrategyDispatcher]
+    D -->|адаптирует| F[AgentOrchestrator]
+    E -->|использует| G[SingleStrategy]
+    G -->|вызывает| H[EventBus]
+```
+
+**Компоненты:**
+
+- **`StopReason`** enum (`protocol/stop_reasons.py`) — ACP-compliant stop reasons: `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`.
+- **`LLMCallStrategy`** Protocol (`agent/strategies/base.py`) — интерфейс для стратегий вызова LLM с методами `execute()` и `continue_execution()`.
+- **`LegacyCallStrategy`** (`agent/strategies/legacy_adapter.py`) — адаптер AgentOrchestrator под LLMCallStrategy (legacy путь).
+- **`StrategyDispatcher`** (`agent/strategies/dispatcher.py`) — диспетчер стратегий через EventBus (EventBus путь).
+- **`AgentLoop`** (`pipeline/stages/agent_loop.py`) — универсальный цикл итераций с обработкой tool_calls, permission pause/resume, cancellation.
+- **`LLMLoopStage`** (`pipeline/stages/llm_loop.py`) — тонкий адаптер pipeline → AgentLoop.
+
+**Принципы работы:**
+
+1. `LLMLoopStage` создаёт `AgentLoop` с нужной стратегией (StrategyDispatcher или LegacyCallStrategy).
+2. `AgentLoop.run()` выполняет цикл итераций: вызов LLM → обработка tool_calls → продолжение.
+3. Цикл завершается при: отсутствии tool_calls (`end_turn`), достижении `max_turn_requests`, отмене (`cancelled`).
+4. При запросе permission цикл приостанавливается и возобновляется через `resume_after_permission()`.
+
 ## Архитектура клиента
 
 Клиент использует DI-контейнер **Dishka** (`make_container`) со скоупом `APP` — все зависимости создаются один раз и живут до завершения процесса. Провайдеры разделены на два класса:

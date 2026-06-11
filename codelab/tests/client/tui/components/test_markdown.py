@@ -84,15 +84,15 @@ class TestMarkdownViewer:
 
     def test_empty_content(self) -> None:
         """Пустой контент не вызывает ошибок."""
-        widget = MarkdownViewer("")
+        MarkdownViewer("")
 
     def test_markdown_content(self) -> None:
         """Markdown контент принимается."""
-        widget = MarkdownViewer("# Hello\n**Bold** text")
+        MarkdownViewer("# Hello\n**Bold** text")
 
     def test_literal_rich_tags(self) -> None:
         """Литеральные Rich-теги не ломают парсер."""
-        widget = MarkdownViewer("text with [/bold] and [italic] tags")
+        MarkdownViewer("text with [/bold] and [italic] tags")
 
 
 class TestMarkupErrorResistance:

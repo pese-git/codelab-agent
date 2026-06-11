@@ -109,8 +109,8 @@ def ensure_home_directory() -> None:
     global_toml = CODELAB_HOME / "codelab.toml"
     if not global_env.exists() and not global_toml.exists():
         global_env.write_text(DEFAULT_ENV_TEMPLATE, encoding="utf-8")
-        print(f"✅ Создан файл конфигурации: {global_env}")
-        print("💡 Отредактируйте его и добавьте CODELAB_LLM_API_KEY для работы с LLM.")
+        logger.info("config_file_created", path=str(global_env))
+        logger.info("config_file_hint", action="Добавьте CODELAB_LLM_API_KEY для работы с LLM")
 
 
 def _configure_logging(verbose: bool = False, console_output: bool = False) -> None:
@@ -275,11 +275,27 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Для stdio режима: настраиваем логирование в stderr ДО ensure_home_directory(),
+    # чтобы логи не попадали в stdout (который используется для JSON-RPC)
+    is_stdio_mode = (
+        args.command == "serve" and getattr(args, "stdio", False)
+    )
+    if is_stdio_mode:
+        from codelab.shared.logging import setup_logging
+
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            log_file="default",
+            stderr_only=True,  # Логи ТОЛЬКО в stderr для stdio транспорта
+        )
+
     # Создаём домашнюю директорию ~/.codelab/ с поддиректориями
     ensure_home_directory()
 
     # Настраиваем логирование
     # Для режима serve логирование настраивается в run_serve() (с поддержкой trace_file)
+    # Для stdio режима логирование уже настроено выше
     is_serve_mode = args.command == "serve"
     if not is_serve_mode:
         _configure_logging(
