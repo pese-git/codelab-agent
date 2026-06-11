@@ -7,7 +7,6 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import JsonFileStorage
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
@@ -3226,7 +3225,9 @@ async def test_orchestrator_recreated_with_different_policy_manager():
 
 @pytest.mark.asyncio
 async def test_get_prompt_orchestrator_creates_default_registry_without_tool_registry():
-    """_get_prompt_orchestrator создаёт SimpleToolRegistry по умолчанию, если tool_registry не настроен."""
+    """Orchestrator создаёт SimpleToolRegistry по умолчанию,
+    если tool_registry не настроен.
+    """
     from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 
     protocol = ACPProtocol()

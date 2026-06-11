@@ -93,7 +93,9 @@ uv run python -m pytest
   - `state.py` — состояние агента
   - `strategies/` — стратегии вызова LLM (Strategy Pattern):
     - `base.py` — LLMCallStrategy Protocol (интерфейс для стратегий)
-    - `dispatcher.py` — StrategyDispatcher (EventBus путь)
+    - `descriptor.py` — StrategyDescriptor (self-describing стратегия) и StrategyDependencies (DI контейнер)
+    - `registry.py` — StrategyRegistry (реестр стратегий, аналог AgentRegistry/ToolRegistry)
+    - `dispatcher.py` — StrategyDispatcher (маршрутизация: priority chain + fallback)
     - `legacy_adapter.py` — LegacyCallStrategy (адаптер AgentOrchestrator)
 - `tools/` — инструменты агента:
   - `registry.py` — ToolRegistry (регистрация и управление инструментами)

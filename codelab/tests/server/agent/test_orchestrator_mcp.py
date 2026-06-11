@@ -22,7 +22,6 @@ from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionStat
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 

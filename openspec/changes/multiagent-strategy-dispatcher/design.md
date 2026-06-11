@@ -48,6 +48,92 @@ StrategyDispatcher выбирает стратегию выполнения по
 └─────────────────────┘    └─────────────────────────────────────┘
 ```
 
+### Sequence Diagram: Strategy Selection
+
+```mermaid
+sequenceDiagram
+    participant User as Пользователь
+    participant TUI as TUI App
+    participant Dispatcher as StrategyDispatcher
+    participant Registry as StrategyRegistry
+    participant AgentReg as AgentRegistry
+    participant Strategy as LLMCallStrategy
+
+    User->>TUI: Ввод промпта / Slash command /strategy
+    TUI->>Dispatcher: select_strategy(session, context_meta)
+    
+    Note over Dispatcher: Priority Chain:<br/>1. context_meta["active_strategy"]<br/>2. config_values["_active_strategy"]<br/>3. default_strategy
+    
+    Dispatcher->>Registry: get_available(agent_registry)
+    Registry->>AgentReg: Проверка validator для каждой стратегии
+    AgentReg-->>Registry: Результаты проверки
+    Registry-->>Dispatcher: list[StrategyDescriptor]
+    
+    alt Стратегия доступна
+        Dispatcher->>Dispatcher: Установить _current_strategy_name
+        Dispatcher-->>TUI: (strategy_name, None)
+        TUI->>Dispatcher: get_current_strategy()
+        Dispatcher->>Registry: create_instance(name, deps)
+        Registry-->>Dispatcher: LLMCallStrategy
+        Dispatcher-->>TUI: Strategy instance
+        TUI->>Strategy: execute(session, prompt)
+    else Стратегия недоступна
+        Dispatcher->>Dispatcher: Fallback на fallback_strategy
+        Dispatcher-->>TUI: (fallback_name, requested_name)
+        Note over TUI: Отправить fallback notification
+        TUI->>User: [system] Strategy 'X' unavailable...
+    end
+```
+
+### Sequence Diagram: Dynamic configOptions
+
+```mermaid
+sequenceDiagram
+    participant Client as Client (TUI)
+    participant Protocol as ACPProtocol
+    participant Registry as StrategyRegistry
+    participant AgentReg as AgentRegistry
+
+    Client->>Protocol: session/new
+    Protocol->>Registry: get_available(agent_registry)
+    Registry->>AgentReg: Проверка validator
+    AgentReg-->>Registry: Доступные стратегии
+    Registry-->>Protocol: list[StrategyDescriptor]
+    
+    Protocol->>Protocol: _build_active_strategy_config_spec()
+    Note over Protocol: Формирование options из descriptors:<br/>- value: desc.name<br/>- name: desc.display_name<br/>- description: desc.description
+    
+    Protocol-->>Client: configOptions с _active_strategy
+    
+    Client->>Client: ConfigOptionSelectorViewModel<br/>парсит configOptions
+    Client->>Client: StrategySelectorModal<br/>отображает список стратегий
+```
+
+### Sequence Diagram: Fallback Flow
+
+```mermaid
+sequenceDiagram
+    participant User as Пользователь
+    participant Dispatcher as StrategyDispatcher
+    participant Registry as StrategyRegistry
+    participant TUI as TUI App
+
+    User->>Dispatcher: /strategy multi_orchestrated
+    
+    Dispatcher->>Registry: get_available(agent_registry)
+    Registry-->>Dispatcher: ["single"] (multi_orchestrated недоступна)
+    
+    Note over Dispatcher: requested="multi_orchestrated"<br/>not in available_names
+    
+    Dispatcher->>Dispatcher: Fallback на fallback_strategy="single"
+    Dispatcher-->>TUI: ("single", "multi_orchestrated")
+    
+    TUI->>TUI: build_fallback_notification()
+    TUI-->>User: [system] Strategy 'multi_orchestrated'<br/>unavailable (no orchestrator).<br/>Falling back to 'single'.
+    
+    Note over Dispatcher: Warning logged:<br/>requested=multi_orchestrated,<br/>available=["single"],<br/>fallback=single
+```
+
 ### Priority Chain
 
 ```

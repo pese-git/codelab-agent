@@ -27,7 +27,6 @@ from codelab.server.agent.contracts.base import (
     AgentNotFoundError,
     AgentRegistered,
     AgentRequest,
-    AgentResponse as ContractAgentResponse,
     AgentResult,
     AgentUnregistered,
     BroadcastPartialFailure,
@@ -37,12 +36,15 @@ from codelab.server.agent.contracts.base import (
     TokenUsage,
     ToolCall,
 )
-from codelab.server.agent.event_bus.bus import AgentEventBus, RetryConfig
+from codelab.server.agent.contracts.base import (
+    AgentResponse as ContractAgentResponse,
+)
 from codelab.server.agent.event_bus.abstract import (
     AbstractEventBus,
     Handler,
     Subscription,
 )
+from codelab.server.agent.event_bus.bus import AgentEventBus, RetryConfig
 from codelab.server.agent.event_bus.routing import (
     AgentRoutingInterface,
     RequestHandler,

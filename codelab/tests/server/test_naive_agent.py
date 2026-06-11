@@ -17,7 +17,6 @@ from codelab.server.agent.naive import NaiveAgent, _format_prompt, _to_openai_to
 from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.protocol.state import SessionState

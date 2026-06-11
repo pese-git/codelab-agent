@@ -15,7 +15,6 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.tools.registry import SimpleToolRegistry
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 

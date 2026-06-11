@@ -39,7 +39,6 @@ from codelab.server.protocol.state import SessionState
 from codelab.server.storage.memory import InMemoryStorage
 from codelab.server.tools.registry import SimpleToolRegistry
 
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 

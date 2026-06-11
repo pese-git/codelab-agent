@@ -187,8 +187,9 @@ class TestProviderResolution:
         self, factory, mock_llm_registry
     ):
         """Если provider не найден — fallback на первый доступный."""
-        from codelab.server.llm.errors import ProviderNotFoundError
         from unittest.mock import AsyncMock
+
+        from codelab.server.llm.errors import ProviderNotFoundError
 
         mock_provider2 = MagicMock(spec=LLMProvider)
         mock_provider2.name = "openai"
@@ -216,6 +217,7 @@ class TestProviderResolution:
     ):
         """Если нет зарегистрированных провайдеров — ValueError."""
         from unittest.mock import AsyncMock
+
         from codelab.server.llm.errors import ProviderNotFoundError
 
         empty_registry = MagicMock(spec=LLMProviderRegistry)

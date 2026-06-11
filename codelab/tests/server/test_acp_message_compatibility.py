@@ -4,8 +4,6 @@
 в JSON-RPC сообщения (например, IntelliJ IDEA с полем type).
 """
 
-import pytest
-from pydantic import ValidationError
 
 from codelab.shared.messages import ACPMessage
 
