@@ -1885,7 +1885,8 @@ class ACPProtocol:
                 
                 # Добавляем сервер и получаем список инструментов
                 # MCP инструменты НЕ регистрируются в глобальном ToolRegistry,
-                # т.к. они привязаны к сессии. Доступ к ним через session_state.mcp_manager.
+                # т.к. они привязаны к сессии. Доступ к ним через
+                # self._runtime_registry.get(session_id).mcp_manager.
                 tool_definitions = await mcp_manager.add_server(config)
                 
                 logger.info(
