@@ -587,10 +587,13 @@ class TestLLMLoopStageStrategyReuse:
     @pytest.mark.asyncio
     async def test_execute_pending_tool_reuses_strategy_dispatcher(self, mock_session):
         """execute_pending_tool переиспользует StrategyDispatcher из process()."""
+        from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
         from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 
         # Arrange: создать LLMLoopStage с StrategyDispatcher
-        mock_dispatcher = AsyncMock(spec=LLMCallStrategy)
+        mock_dispatcher = MagicMock(spec=StrategyDispatcher)
+        mock_dispatcher.select_strategy.return_value = ("single", None)
+        mock_dispatcher.set_current_strategy.return_value = True
         mock_dispatcher.execute = AsyncMock()
         mock_dispatcher.continue_execution = AsyncMock()
 
@@ -616,6 +619,8 @@ class TestLLMLoopStageStrategyReuse:
         # Assert: AgentLoop создан с StrategyDispatcher, не LegacyCallStrategy
         assert stage._agent_loop is not None
         assert stage._agent_loop._strategy is mock_dispatcher
+        # Проверяем что select_strategy был вызван
+        mock_dispatcher.select_strategy.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_pending_tool_fallback_to_legacy(self, mock_session):

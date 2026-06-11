@@ -37,5 +37,13 @@ class SlashCommandStage(PromptStage):
         if outcome is not None:
             context.notifications.extend(outcome.notifications)
             context.should_stop = True  # slash-команда обработана, LLM не нужен
+            
+            # Если была выполнена команда /strategy, установить active_strategy в meta
+            # для использования в следующем prompt turn
+            if command_name == "strategy" and args:
+                # args[0] — это имя стратегии
+                strategy_name = args[0].lower()
+                # Установить в meta для priority chain в StrategyDispatcher
+                context.meta["active_strategy"] = strategy_name
 
         return context

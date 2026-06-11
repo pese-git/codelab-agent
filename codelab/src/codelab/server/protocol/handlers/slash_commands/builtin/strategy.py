@@ -15,9 +15,6 @@ if TYPE_CHECKING:
     from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
     from codelab.server.protocol.state import SessionState
 
-# Доступные стратегии выполнения
-AVAILABLE_STRATEGIES = ["single", "multi_orchestrated", "hierarchical"]
-
 
 class StrategyCommandHandler(CommandHandler):
     """Handler для команды /strategy.
@@ -30,14 +27,14 @@ class StrategyCommandHandler(CommandHandler):
         # Показать текущую strategy
         result = handler.execute([], session)
         # Установить strategy
-        result = handler.execute(["multi_orchestrated"], session)
+        result = handler.execute(["hierarchical"], session)
     """
 
     def __init__(self, strategy_dispatcher: StrategyDispatcher) -> None:
         """Инициализация handler.
 
         Args:
-            strategy_dispatcher: StrategyDispatcher для runtime override
+            strategy_dispatcher: StrategyDispatcher для выбора и установки strategy
         """
         self._strategy_dispatcher = strategy_dispatcher
 
@@ -50,12 +47,13 @@ class StrategyCommandHandler(CommandHandler):
 
         Args:
             args: Пустой список для показа strategy, или [strategy_name] для установки
-            session: Состояние сессии (не используется, но требуется интерфейсом)
+            session: Состояние сессии для установки config_values
 
         Returns:
             CommandResult с информацией о strategy или подтверждением смены
         """
         current_strategy = self._strategy_dispatcher.get_strategy()
+        available_strategies = self._strategy_dispatcher.get_available_strategies()
 
         # Если аргументов нет — показываем текущую strategy
         if not args:
@@ -64,7 +62,7 @@ class StrategyCommandHandler(CommandHandler):
                 "",
                 "**Доступные strategies:**",
             ]
-            for strategy in AVAILABLE_STRATEGIES:
+            for strategy in available_strategies:
                 marker = "→" if strategy == current_strategy else " "
                 lines.append(f" {marker} `{strategy}`")
 
@@ -78,13 +76,14 @@ class StrategyCommandHandler(CommandHandler):
         # Устанавливаем новую strategy
         new_strategy = args[0].lower()
 
-        if new_strategy not in AVAILABLE_STRATEGIES:
+        # Проверить доступность через dispatcher
+        if new_strategy not in available_strategies:
             return CommandResult(
                 content=[{
                     "type": "text",
                     "text": (
-                        f"❌ Неизвестная strategy: `{new_strategy}`\n\n"
-                        f"Доступные: {', '.join(f'`{s}`' for s in AVAILABLE_STRATEGIES)}"
+                        f"❌ Strategy `{new_strategy}` недоступна.\n\n"
+                        f"Доступные: {', '.join(f'`{s}`' for s in available_strategies)}"
                     ),
                 }]
             )
@@ -98,12 +97,16 @@ class StrategyCommandHandler(CommandHandler):
             )
 
         # Устанавливаем новую strategy через dispatcher
-        try:
-            self._strategy_dispatcher.set_strategy(new_strategy)
-        except ValueError as e:
+        if not self._strategy_dispatcher.set_current_strategy(new_strategy):
             return CommandResult(
-                content=[{"type": "text", "text": f"❌ {e}"}]
+                content=[{
+                    "type": "text",
+                    "text": f"❌ Не удалось установить strategy `{new_strategy}`",
+                }]
             )
+
+        # Сохраняем в session.config_values для persistence между turn'ами
+        session.config_values["_active_strategy"] = new_strategy
 
         return CommandResult(
             content=[{
@@ -114,10 +117,12 @@ class StrategyCommandHandler(CommandHandler):
 
     def get_definition(self) -> AvailableCommand:
         """Возвращает определение команды /strategy."""
+        # Получаем доступные стратегии для hint
+        available = self._strategy_dispatcher.get_available_strategies()
+        hint = f"имя strategy ({', '.join(available)})"
+        
         return AvailableCommand(
             name="strategy",
             description="Показать или изменить execution strategy",
-            input=AvailableCommandInput(
-                hint="имя strategy (single, multi_orchestrated, hierarchical)"
-            ),
+            input=AvailableCommandInput(hint=hint),
         )

@@ -133,6 +133,30 @@ class LLMLoopStage(PromptStage):
         # Определить стратегию
         strategy: LLMCallStrategy
         if self._strategy_dispatcher is not None:
+            # Выбрать стратегию через dispatcher (priority chain + validation)
+            strategy_name, fallback_from = self._strategy_dispatcher.select_strategy(
+                session=context.session,
+                context_meta=context.meta,
+            )
+            
+            # Если был fallback, добавить notification
+            if fallback_from is not None:
+                fallback_notification = self._strategy_dispatcher.build_fallback_notification(
+                    session_id=context.session_id,
+                    requested=fallback_from,
+                    actual=strategy_name,
+                    reason="strategy not available",
+                )
+                context.notifications.append(fallback_notification)
+                logger.warning(
+                    "strategy fallback",
+                    requested=fallback_from,
+                    actual=strategy_name,
+                    session_id=context.session_id,
+                )
+            
+            # Установить текущую стратегию
+            self._strategy_dispatcher.set_current_strategy(strategy_name)
             strategy = self._strategy_dispatcher
         else:
             agent_orchestrator = context.meta.get("agent_orchestrator")
@@ -238,6 +262,12 @@ class LLMLoopStage(PromptStage):
             # Fallback: создать AgentLoop с правильной стратегией
             strategy: LLMCallStrategy
             if self._strategy_dispatcher is not None:
+                # Выбрать стратегию через dispatcher (без context_meta для pending tool)
+                strategy_name, _ = self._strategy_dispatcher.select_strategy(
+                    session=session,
+                    context_meta=None,
+                )
+                self._strategy_dispatcher.set_current_strategy(strategy_name)
                 strategy = self._strategy_dispatcher
             elif agent_orchestrator is not None:
                 strategy = LegacyCallStrategy(agent_orchestrator)
