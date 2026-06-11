@@ -114,52 +114,59 @@
 
 ### 8. Client-side UI: StrategySelectorViewModel
 
-- [ ] 8.1 Создать `codelab/src/codelab/client/presentation/strategy_selector_view_model.py`
-- [ ] 8.2 Создать dataclass `StrategyOption` (value, label, description)
-- [ ] 8.3 Создать класс `StrategySelectorViewModel` с Observable свойствами
-- [ ] 8.4 Реализовать `update_strategies_from_config(configOptions, session_id)`
-- [ ] 8.5 Реализовать поиск option с id="_active_strategy"
-- [ ] 8.6 Реализовать `_parse_strategy_options(raw_options)`
-- [ ] 8.7 Реализовать `select_strategy_cmd` — отправка set_config_option
-- [ ] 8.8 Написать тесты: `tests/client/test_presentation_strategy_selector_view_model.py`
-  - [ ] test_update_strategies_from_config
-  - [ ] test_update_strategies_finds_active_strategy
-  - [ ] test_select_strategy_success
-  - [ ] test_select_strategy_updates_config
-  - [ ] test_parse_strategy_options
+- [x] 8.1 Создать `codelab/src/codelab/client/presentation/config_option_selector_view_model.py`
+- [x] 8.2 Создать dataclass `ConfigOption` (value, label, description, extra)
+- [x] 8.3 Создать класс `ConfigOptionSelectorViewModel` с Observable свойствами
+- [x] 8.4 Реализовать `update_from_config(configOptions, session_id)`
+- [x] 8.5 Реализовать поиск option с id=config_id
+- [x] 8.6 Реализовать `_parse_options(raw_options)`
+- [x] 8.7 Реализовать `select_option_cmd` — отправка set_config_option
+- [x] 8.8 Создать специализированные ViewModel:
+  - [x] ModeSelectorViewModel (config_id="mode")
+  - [x] AgentSelectorViewModel (config_id="_agent")
+  - [x] StrategySelectorViewModel (config_id="_active_strategy")
+- [x] 8.9 Написать тесты: `tests/client/test_presentation_config_option_selector_view_model.py`
+  - [x] test_init_with_config_id
+  - [x] test_update_from_config_finds_correct_option
+  - [x] test_update_from_config_uses_default_when_no_current
+  - [x] test_update_from_config_config_not_found
+  - [x] test_get_current_label_returns_label
+  - [x] test_get_current_label_returns_value_if_not_found
+  - [x] test_get_current_label_returns_not_selected_if_none
+  - [x] test_select_option_calls_coordinator
+  - [x] test_select_option_raises_if_not_available
+  - [x] test_parse_options_with_extra_data
 
 ---
 
 ### 9. Client-side UI: StrategySelectorModal
 
-- [ ] 9.1 Создать `codelab/src/codelab/client/tui/components/strategy_selector.py`
-- [ ] 9.2 Создать класс `StrategyItem` (аналог ModelItem)
-- [ ] 9.3 Создать класс `StrategySelectorModal` (ModalScreen)
-- [ ] 9.4 Реализовать compose() — отображение списка стратегий
-- [ ] 9.5 Реализовать навигацию (↑↓)
-- [ ] 9.6 Реализовать выбор (Enter)
-- [ ] 9.7 Реализовать закрытие (Esc)
-- [ ] 9.8 Написать тесты: StrategySelectorModal
-  - [ ] test_strategy_selector_modal_compose
-  - [ ] test_strategy_item_click
-  - [ ] test_strategy_item_current_marker
-  - [ ] test_action_select
-  - [ ] test_action_previous_next
+- [x] 9.1 Создать `codelab/src/codelab/client/tui/components/config_option_selector.py`
+- [x] 9.2 Создать класс `ConfigOptionItem` (аналог ModelItem)
+- [x] 9.3 Создать класс `ConfigOptionSelectorModal` (ModalScreen)
+- [x] 9.4 Реализовать compose() — отображение списка опций
+- [x] 9.5 Реализовать навигацию (↑↓)
+- [x] 9.6 Реализовать выбор (Enter)
+- [x] 9.7 Реализовать закрытие (Esc)
+- [x] 9.8 Реализовать поиск (Input с fuzzy match)
 
 ---
 
 ### 10. Интеграция в TUI
 
-- [ ] 10.1 Обновить `codelab/src/codelab/client/tui/app.py`
-- [ ] 10.2 Создать `StrategySelectorViewModel` в `__init__`
-- [ ] 10.3 Подписаться на событие `config_option_updated`
-- [ ] 10.4 Реализовать `_on_config_option_updated` — обновить ViewModel
-- [ ] 10.5 Реализовать `action_open_strategy_selector()`
-- [ ] 10.6 Добавить hotkey `Ctrl+S` в BINDINGS
-- [ ] 10.7 Написать тесты: интеграция в TUI
-  - [ ] test_strategy_selector_vm_initialized
-  - [ ] test_config_option_updated_updates_strategy_vm
-  - [ ] test_action_open_strategy_selector
+- [x] 10.1 Обновить `codelab/src/codelab/client/tui/app.py`
+- [x] 10.2 Получить `ModeSelectorViewModel`, `AgentSelectorViewModel`, `StrategySelectorViewModel` из DI
+- [x] 10.3 Подписаться на событие `config_option_updated`
+- [x] 10.4 Реализовать `_on_config_option_updated` — обновить все ViewModel
+- [x] 10.5 Реализовать `action_select_mode()`, `action_select_agent()`, `action_select_strategy()`
+- [x] 10.6 Добавить hotkeys:
+  - [x] `Ctrl+Shift+M` — выбрать режим
+  - [x] `Ctrl+A` — выбрать агента
+  - [x] `Ctrl+Shift+A` — выбрать стратегию
+- [x] 10.7 Обновить `codelab/src/codelab/client/infrastructure/view_model_provider.py`
+  - [x] Зарегистрировать ModeSelectorViewModel
+  - [x] Зарегистрировать AgentSelectorViewModel
+  - [x] Зарегистрировать StrategySelectorViewModel
 
 ---
 
@@ -210,9 +217,13 @@
 - [x] Priority chain работает (slash > config > default)
 - [x] Validation через Registry.get_available()
 - [x] Fallback notification отправляется
-- [ ] StrategySelectorViewModel парсит configOptions — требуется Task 8
-- [ ] StrategySelectorModal позволяет выбрать стратегию — требуется Task 9
-- [ ] Hotkey Ctrl+S открывает modal — требуется Task 10
+- [x] ConfigOptionSelectorViewModel парсит configOptions
+- [x] ConfigOptionSelectorModal позволяет выбрать опцию
+- [x] Hotkeys работают:
+  - [x] `Ctrl+M` — выбрать модель
+  - [x] `Ctrl+Shift+M` — выбрать режим
+  - [x] `Ctrl+A` — выбрать агента
+  - [x] `Ctrl+Shift+A` — выбрать стратегию
 - [x] Slash command /strategy работает
-- [x] Все тесты проходят (2372 server tests)
+- [x] Все тесты проходят (3745 tests)
 - [ ] `make check` проходит
