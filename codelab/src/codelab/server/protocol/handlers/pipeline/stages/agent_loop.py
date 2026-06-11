@@ -236,8 +236,12 @@ class AgentLoop:
             if agent_text:
                 final_text = agent_text
                 self._state_manager.add_assistant_message(session, agent_text)
-                notifications.append(
-                    self._build_agent_response_notification(session_id, agent_text)
+                notification = self._build_agent_response_notification(session_id, agent_text)
+                notifications.append(notification)
+                # Сохранить в events_history для replay при session/load
+                self._replay_manager.save_agent_message_chunk(
+                    session,
+                    {"type": "text", "text": agent_text},
                 )
 
             # Обработка plan

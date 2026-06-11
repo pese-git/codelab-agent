@@ -788,6 +788,8 @@ class ChatViewModel(BaseViewModel):
         # Это отдельный проход, чтобы сразу установить messages.value до обработки
         # остальных обновлений через _handle_session_update.
         rebuilt_messages: list[dict[str, str]] = []
+        last_role: str | None = None
+        current_text_parts: list[str] = []
 
         for idx, update_data in enumerate(replay_updates):
             params = update_data.get("params", {})
@@ -831,23 +833,44 @@ class ChatViewModel(BaseViewModel):
                 )
                 continue
 
+            # Определяем роль для текущего chunk
             if update_type == "user_message_chunk":
-                rebuilt_messages.append({"role": "user", "content": text})
-                self.logger.debug(
-                    "restore_added_user_message",
-                    idx=idx,
-                    text_length=len(text),
-                )
+                current_role = "user"
+            elif update_type == "agent_message_chunk":
+                current_role = "system" if self._is_system_ack_chunk(text) else "assistant"
+            else:
                 continue
-            if update_type == "agent_message_chunk":
-                role = "system" if self._is_system_ack_chunk(text) else "assistant"
-                rebuilt_messages.append({"role": role, "content": text})
-                self.logger.debug(
-                    "restore_added_agent_message",
-                    idx=idx,
-                    role=role,
-                    text_length=len(text),
-                )
+
+            # Агрегируем последовательные chunks одного типа в одно сообщение
+            if current_role != last_role and last_role is not None:
+                # Роль изменилась — сохраняем предыдущее сообщение
+                rebuilt_messages.append({
+                    "role": last_role,
+                    "content": "".join(current_text_parts),
+                })
+                current_text_parts = []
+
+            last_role = current_role
+            current_text_parts.append(text)
+
+            self.logger.debug(
+                "restore_aggregating_chunk",
+                idx=idx,
+                role=current_role,
+                text_length=len(text),
+            )
+
+        # Сохраняем последнее сообщение (если есть)
+        if last_role is not None and current_text_parts:
+            rebuilt_messages.append({
+                "role": last_role,
+                "content": "".join(current_text_parts),
+            })
+            self.logger.info(
+                "restore_added_final_message",
+                role=last_role,
+                text_length=len("".join(current_text_parts)),
+            )
 
         # Записываем пересобранное состояние в кэш конкретной сессии.
         # ВАЖНО: НЕ сохраняем replay_updates здесь - это сделает _handle_session_update
