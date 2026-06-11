@@ -86,6 +86,7 @@ def session_new(
     config_specs: dict[str, dict[str, Any]],
     auth_methods: list[dict[str, Any]],
     runtime_capabilities: ClientRuntimeCapabilities | None,
+    command_registry: Any | None = None,
 ) -> ACPMessage:
     """Создает новую in-memory сессию и возвращает ее идентификатор.
 
@@ -126,11 +127,18 @@ def session_new(
     # Создаем сессию через фабрику
     config_values = {config_id: str(spec["default"]) for config_id, spec in config_specs.items()}
 
+    # Динамическая генерация available_commands из CommandRegistry
+    available_commands = (
+        command_registry.get_commands_as_dicts()
+        if command_registry is not None
+        else []
+    )
+
     session_state = SessionFactory.create_session(
         cwd=cwd,
         mcp_servers=mcp_servers,
         config_values=config_values,
-        available_commands=build_default_commands(),
+        available_commands=available_commands,
         runtime_capabilities=runtime_capabilities,
     )
 
@@ -519,37 +527,3 @@ def session_info_notification(
             },
         },
     )
-
-
-def build_default_commands() -> list[dict[str, Any]]:
-    """Возвращает базовый набор команд для сессий.
-
-    Возвращает список встроенных slash-команд в формате, соответствующем
-    спецификации ACP Protocol 14-Slash Commands.
-
-    Пример использования:
-        commands = build_default_commands()
-    """
-    # Встроенные slash-команды согласно спецификации ACP Protocol.
-    # Формат соответствует AvailableCommand: name, description, input? (с hint).
-    return [
-        {
-            "name": "status",
-            "description": "Показать состояние текущей сессии",
-        },
-        {
-            "name": "mode",
-            "description": "Показать или изменить режим сессии",
-            "input": {"hint": "имя режима (code, architect, ask, debug)"},
-        },
-        {
-            "name": "strategy",
-            "description": "Показать или изменить стратегию выполнения",
-            "input": {"hint": "имя стратегии (single, multi_orchestrated, hierarchical)"},
-        },
-        {
-            "name": "help",
-            "description": "Показать список доступных команд",
-            "input": {"hint": "имя команды для подробной справки"},
-        },
-    ]

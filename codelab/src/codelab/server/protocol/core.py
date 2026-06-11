@@ -111,6 +111,7 @@ class ACPProtocol:
         mcp_sse_enabled: bool = True,
         agent_registry: Any | None = None,
         strategy_registry: Any | None = None,
+        command_registry: Any | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -133,6 +134,8 @@ class ACPProtocol:
             agent_registry: Реестр агентов для dynamic _agent config option (опционально).
             strategy_registry: Реестр стратегий для dynamic _active_strategy
                 config option (опционально).
+            command_registry: Реестр slash-команд для динамической генерации
+                available_commands (опционально).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -221,6 +224,9 @@ class ACPProtocol:
 
         # Strategy Registry для dynamic _active_strategy config option
         self._strategy_registry = strategy_registry
+
+        # Command Registry для динамической генерации available_commands
+        self._command_registry = command_registry
 
         # MCP transport capabilities — объявляются клиенту при initialize
         self._mcp_http_enabled = mcp_http_enabled
@@ -1052,6 +1058,7 @@ class ACPProtocol:
             self._config_specs,
             self._auth_methods,
             self._runtime_capabilities,
+            self._command_registry,
         )
 
         # Если создание прошло успешно, сохраняем в storage и кэш
@@ -1062,11 +1069,17 @@ class ACPProtocol:
                     config_id: str(spec["default"])
                     for config_id, spec in self._config_specs.items()
                 }
+                # Динамическая генерация available_commands из CommandRegistry
+                available_commands = (
+                    self._command_registry.get_commands_as_dicts()
+                    if self._command_registry is not None
+                    else []
+                )
                 session_state = SessionFactory.create_session(
                     cwd=params.get("cwd", ""),
                     mcp_servers=params.get("mcpServers", []),
                     config_values=config_values,
-                    available_commands=session.build_default_commands(),
+                    available_commands=available_commands,
                     runtime_capabilities=self._runtime_capabilities,
                     session_id=session_id,
                 )

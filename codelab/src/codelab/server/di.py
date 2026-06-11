@@ -796,6 +796,7 @@ class RequestProvider(Provider):
         runtime_registry: SessionRuntimeRegistry,
         agent_registry: AgentRegistry,
         strategy_registry: StrategyRegistry,
+        command_registry: CommandRegistry,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -826,6 +827,7 @@ class RequestProvider(Provider):
             runtime_registry=runtime_registry,
             agent_registry=agent_registry,
             strategy_registry=strategy_registry,
+            command_registry=command_registry,
         )
 
 
