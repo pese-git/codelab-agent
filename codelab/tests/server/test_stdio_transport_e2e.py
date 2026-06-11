@@ -80,6 +80,8 @@ def _server_env(tmp_cwd: Path) -> dict[str, str]:
     env.update({
         "CODELAB_LLM_PROVIDER": "mock",
         "CODELAB_HOME": str(tmp_cwd / ".codelab"),
+        # Фиктивный API ключ для предотвращения ошибок инициализации провайдеров
+        "OPENAI_API_KEY": "test-key-not-real",
     })
     return env
 
@@ -87,13 +89,14 @@ def _server_env(tmp_cwd: Path) -> dict[str, str]:
 async def _start_server(tmp_cwd: Path) -> asyncio.subprocess.Process:
     """Запустить stdio сервер через uv run."""
     env = _server_env(tmp_cwd)
-    # Добавляем PYTHONPATH чтобы сервер мог импортировать модули
-    project_root = Path(__file__).parent.parent.parent.parent
-    env["PYTHONPATH"] = str(project_root / "src")
+    # Путь к проекту codelab (используем --directory чтобы uv нашел правильный проект)
+    project_root = Path(__file__).parent.parent.parent
 
     return await asyncio.create_subprocess_exec(
         "uv",
         "run",
+        "--directory",
+        str(project_root),
         "codelab",
         "serve",
         "--stdio",
