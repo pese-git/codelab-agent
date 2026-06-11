@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.agent.base import AgentResponse
+from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoop,
     AgentLoopResult,
     ToolProcessingResult,
 )
 from codelab.server.protocol.stop_reasons import StopReason
+from codelab.server.tools.base import ToolExecutionResult
 
 
 @pytest.fixture
@@ -596,3 +598,151 @@ class TestAgentLoop:
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Handled rejection"
+
+    @pytest.mark.asyncio
+    async def test_update_plan_tool_sends_plan_notification(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """update_plan tool отправляет plan notification клиенту."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "update_plan"
+        mock_tool_call.arguments = {
+            "entries": [
+                {"content": "Step 1", "priority": "high", "status": "pending"},
+                {"content": "Step 2", "priority": "medium", "status": "pending"},
+            ]
+        }
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Updating plan"
+        first_response.tool_calls = [mock_tool_call]
+        first_response.plan = None
+        first_response.stop_reason = None
+        first_response.usage = None
+        mock_strategy.execute.return_value = first_response
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Done"
+        second_response.tool_calls = []
+        second_response.plan = None
+        second_response.stop_reason = None
+        second_response.usage = None
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.kind = "think"
+        mock_tool_def.requires_permission = False
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        handler = mock_dependencies["tool_call_handler"]
+        handler.build_tool_call_notification.return_value = MagicMock()
+        handler.build_tool_update_notification.return_value = MagicMock()
+
+        validated_entries = [
+            {"content": "Step 1", "priority": "high", "status": "pending"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
+        ]
+        exec_result = ToolExecutionResult(
+            success=True,
+            output="Plan updated with 2 entries",
+            metadata={"validated_entries": validated_entries},
+        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=exec_result)
+
+        plan_notification = ACPMessage.notification(
+            "session/update",
+            {
+                "sessionId": "test_session",
+                "update": {
+                    "sessionUpdate": "plan",
+                    "entries": validated_entries,
+                },
+            },
+        )
+        mock_dependencies["plan_builder"].build_plan_notification.return_value = plan_notification
+
+        mock_tool_call_state = MagicMock()
+        mock_tool_call_state.tool_call_id_from_llm = "call_1"
+        mock_session.tool_calls = {"tc_1": mock_tool_call_state}
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+        mock_dependencies["content_validator"].validate_content_list.return_value = (True, [])
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Update plan")
+
+        plan_notifications = [
+            n
+            for n in result.notifications
+            if n.params and n.params.get("update", {}).get("sessionUpdate") == "plan"
+        ]
+        assert len(plan_notifications) == 1
+        mock_dependencies["plan_builder"].build_plan_notification.assert_called_once_with(
+            "test_session", validated_entries
+        )
+        mock_dependencies["replay_manager"].save_plan.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_plan_tool_invalid_entries_no_notification(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """update_plan tool с невалидными entries не отправляет plan notification."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "update_plan"
+        mock_tool_call.arguments = {"entries": []}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Updating plan"
+        first_response.tool_calls = [mock_tool_call]
+        first_response.plan = None
+        first_response.stop_reason = None
+        first_response.usage = None
+        mock_strategy.execute.return_value = first_response
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Done"
+        second_response.tool_calls = []
+        second_response.plan = None
+        second_response.stop_reason = None
+        second_response.usage = None
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.kind = "think"
+        mock_tool_def.requires_permission = False
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        handler2 = mock_dependencies["tool_call_handler"]
+        handler2.build_tool_call_notification.return_value = MagicMock()
+        handler2.build_tool_update_notification.return_value = MagicMock()
+
+        exec_result = ToolExecutionResult(
+            success=True,
+            output="Plan updated with 0 entries",
+            metadata={"validated_entries": []},
+        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=exec_result)
+
+        mock_tool_call_state = MagicMock()
+        mock_tool_call_state.tool_call_id_from_llm = "call_1"
+        mock_session.tool_calls = {"tc_1": mock_tool_call_state}
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+        mock_dependencies["content_validator"].validate_content_list.return_value = (True, [])
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Update plan")
+
+        plan_notifications = [
+            n
+            for n in result.notifications
+            if n.params and n.params.get("update", {}).get("sessionUpdate") == "plan"
+        ]
+        assert len(plan_notifications) == 0
+        mock_dependencies["plan_builder"].build_plan_notification.assert_not_called()

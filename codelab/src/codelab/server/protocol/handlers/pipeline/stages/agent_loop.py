@@ -662,6 +662,28 @@ class AgentLoop:
                     result.error,
                 )
 
+                # Plan tool: отправить plan notification клиенту согласно ACP spec
+                # (protocol/11-Agent Plan.md)
+                if acp_tool_name == "update_plan" and result.success:
+                    plan_entries = (
+                        result.metadata.get("validated_entries")
+                        if result.metadata
+                        else None
+                    )
+                    if plan_entries:
+                        session.latest_plan = list(plan_entries)
+                        notifications.append(
+                            self._plan_builder.build_plan_notification(
+                                session_id, plan_entries
+                            )
+                        )
+                        self._replay_manager.save_plan(session, plan_entries)
+                        logger.debug(
+                            "plan notification sent from update_plan tool",
+                            session_id=session_id,
+                            entries_count=len(plan_entries),
+                        )
+
             except Exception as e:
                 logger.error(
                     "tool execution failed",
