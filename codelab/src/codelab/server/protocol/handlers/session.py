@@ -543,6 +543,11 @@ def build_default_commands() -> list[dict[str, Any]]:
             "input": {"hint": "имя режима (code, architect, ask, debug)"},
         },
         {
+            "name": "strategy",
+            "description": "Показать или изменить стратегию выполнения",
+            "input": {"hint": "имя стратегии (single, multi_orchestrated, hierarchical)"},
+        },
+        {
             "name": "help",
             "description": "Показать список доступных команд",
             "input": {"hint": "имя команды для подробной справки"},
