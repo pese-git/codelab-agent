@@ -16,7 +16,9 @@ class TestChunkAggregation:
         """Последовательные user_message_chunk агрегируются в одно сообщение."""
         # Arrange
         coordinator = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator)
+        event_bus = MagicMock()
+        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm._active_session_id = "test_session"
         
         replay_updates = [
             {
@@ -52,7 +54,9 @@ class TestChunkAggregation:
         """Последовательные agent_message_chunk агрегируются в одно сообщение."""
         # Arrange
         coordinator = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator)
+        event_bus = MagicMock()
+        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm._active_session_id = "test_session"
         
         replay_updates = [
             {
@@ -88,7 +92,9 @@ class TestChunkAggregation:
         """Сообщения разных ролей не агрегируются вместе."""
         # Arrange
         coordinator = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator)
+        event_bus = MagicMock()
+        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm._active_session_id = "test_session"
         
         replay_updates = [
             {
@@ -126,7 +132,9 @@ class TestChunkAggregation:
         """Streaming response (множество маленьких chunks) агрегируется в одно сообщение."""
         # Arrange
         coordinator = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator)
+        event_bus = MagicMock()
+        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm._active_session_id = "test_session"
         
         # Имитация streaming: много маленьких chunks
         chunks = ["I", "'ll", " help", " you", " with", " that."]
@@ -156,7 +164,9 @@ class TestChunkAggregation:
         """Сложный диалог с чередованием ролей агрегируется корректно."""
         # Arrange
         coordinator = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator)
+        event_bus = MagicMock()
+        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm._active_session_id = "s"
         
         replay_updates = [
             # User message (2 chunks)

@@ -73,7 +73,7 @@ class ACPMessage(BaseModel):
         wire = response.to_json()
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     # Версия JSON-RPC, фиксировано "2.0"
     jsonrpc: Literal["2.0"] = "2.0"

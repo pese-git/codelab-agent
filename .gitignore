@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 .env
 **/data
+.idea/
 .vscode/
 .zed/
 .codegraph/
