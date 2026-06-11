@@ -27,7 +27,7 @@ class TUIConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     theme: TUITheme = "light"
-    receive_timeout: float = 60.0
+    receive_timeout: float = 300.0
 
 
 class TUIConfigStore:
@@ -147,7 +147,7 @@ class TUIConfigStore:
         normalized_timeout = (
             receive_timeout
             if isinstance(receive_timeout, (int, float)) and receive_timeout > 0
-            else 60.0
+            else 300.0
         )
 
         return TUIConfig(
@@ -290,7 +290,7 @@ def resolve_tui_connection(
             logger.warning(
                 "invalid_env_timeout",
                 value=env_timeout_value,
-                fallback=60.0,
+                fallback=300.0,
             )
 
     # Загружаем с приоритетом

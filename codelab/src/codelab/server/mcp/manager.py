@@ -10,15 +10,33 @@ import asyncio
 import contextlib
 import logging
 import random
+from collections.abc import Callable, Coroutine
 from enum import Enum
 from typing import Any
 
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPClientError, MCPClientState
-from .models import MCPServerConfig, MCPTool
+from .models import (
+    MCPProgressNotification,
+    MCPPrompt,
+    MCPResource,
+    MCPResourceTemplate,
+    MCPRoot,
+    MCPServerConfig,
+    MCPTool,
+)
 from .tool_adapter import MCPToolAdapter
 
 logger = logging.getLogger(__name__)
+
+# Type alias for async callbacks
+type NotificationCallback = Callable[[], Coroutine[Any, Any, None]]
+
+# Type alias for progress callbacks
+# Принимает server_id и MCPProgressNotification
+type ProgressCallback = Callable[
+    [str, MCPProgressNotification], Coroutine[Any, Any, None]
+]
 
 
 class MCPManagerState(Enum):
@@ -84,6 +102,15 @@ class MCPManager:
         self._state: MCPManagerState = MCPManagerState.READY
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._health_check_tasks: dict[str, asyncio.Task] = {}
+        
+        # Notification callbacks
+        self._tool_change_callbacks: list[NotificationCallback] = []
+        self._resource_change_callbacks: list[NotificationCallback] = []
+        self._prompt_change_callbacks: list[NotificationCallback] = []
+        self._server_status_callbacks: list[NotificationCallback] = []
+        
+        # Progress callbacks (принимают server_id и MCPProgressNotification)
+        self._progress_callbacks: list[ProgressCallback] = []
     
     @property
     def server_ids(self) -> list[str]:
@@ -166,6 +193,9 @@ class MCPManager:
             self._adapters[server_id] = adapter
             self._tools_cache[server_id] = mcp_tools
             
+            # Регистрируем обработчики notifications
+            self._register_notification_handlers(server_id, client)
+            
             # Преобразуем инструменты
             tools = adapter.adapt_tools(mcp_tools)
             
@@ -226,6 +256,9 @@ class MCPManager:
         del self._tools_cache[server_id]
         
         logger.info("MCP server '%s' removed successfully", server_id)
+        
+        # Уведомляем об изменении списка инструментов
+        await self._on_tools_changed(server_id)
     
     def get_all_tools(self) -> list[ToolDefinition]:
         """Получить все инструменты от всех MCP серверов.
@@ -396,6 +429,372 @@ class MCPManager:
                 f"Failed to refresh tools from '{server_id}': {e}"
             ) from e
     
+    # ===== Notification Handlers =====
+    
+    def _register_notification_handlers(
+        self,
+        server_id: str,
+        client: MCPClient,
+    ) -> None:
+        """Регистрирует обработчики MCP notifications для сервера.
+        
+        Args:
+            server_id: Идентификатор сервера.
+            client: MCP клиент.
+        """
+        client.register_handler(
+            "notifications/tools/list_changed",
+            lambda params: self._on_tools_changed(server_id),
+        )
+        client.register_handler(
+            "notifications/resources/list_changed",
+            lambda params: self._on_resources_changed(server_id),
+        )
+        client.register_handler(
+            "notifications/prompts/list_changed",
+            lambda params: self._on_prompts_changed(server_id),
+        )
+        
+        # Progress notifications — проксируем через manager
+        client.register_progress_callback(
+            lambda progress: self._on_progress(server_id, progress)
+        )
+    
+    async def _on_tools_changed(self, server_id: str) -> None:
+        """Обработчик изменения списка инструментов.
+        
+        Args:
+            server_id: Идентификатор сервера.
+        """
+        logger.info(
+            "Tools list changed for server '%s', refreshing",
+            server_id,
+        )
+        
+        try:
+            await self.refresh_tools(server_id)
+        except MCPManagerError as e:
+            logger.error("Failed to refresh tools: %s", e)
+        
+        # Уведомляем зарегистрированные callbacks
+        for callback in self._tool_change_callbacks:
+            try:
+                await callback()
+            except Exception as e:
+                logger.error("Error in tool change callback: %s", e)
+    
+    async def _on_resources_changed(self, server_id: str) -> None:
+        """Обработчик изменения списка ресурсов.
+        
+        Args:
+            server_id: Идентификатор сервера.
+        """
+        logger.info("Resources list changed for server '%s'", server_id)
+        
+        for callback in self._resource_change_callbacks:
+            try:
+                await callback()
+            except Exception as e:
+                logger.error("Error in resource change callback: %s", e)
+    
+    async def _on_prompts_changed(self, server_id: str) -> None:
+        """Обработчик изменения списка промптов.
+        
+        Args:
+            server_id: Идентификатор сервера.
+        """
+        logger.info("Prompts list changed for server '%s'", server_id)
+        
+        for callback in self._prompt_change_callbacks:
+            try:
+                await callback()
+            except Exception as e:
+                logger.error("Error in prompt change callback: %s", e)
+    
+    async def _on_progress(
+        self, server_id: str, progress: MCPProgressNotification
+    ) -> None:
+        """Обработчик progress notification от MCP сервера.
+
+        Проксирует progress notification всем зарегистрированным callback'ам,
+        добавляя server_id для идентификации источника.
+
+        Args:
+            server_id: Идентификатор сервера, отправившего progress.
+            progress: Progress notification от MCP сервера.
+        """
+        logger.debug(
+            "Progress from server '%s': token=%s progress=%s/%s",
+            server_id,
+            progress.progress_token,
+            progress.progress,
+            progress.total,
+        )
+        
+        for callback in self._progress_callbacks:
+            try:
+                await callback(server_id, progress)
+            except Exception as e:
+                logger.error("Error in progress callback: %s", e)
+    
+    # ===== Callback Registration =====
+    
+    def register_tool_change_callback(self, callback: NotificationCallback) -> None:
+        """Зарегистрировать callback при изменении списка инструментов.
+        
+        Args:
+            callback: Async функция без аргументов.
+        """
+        self._tool_change_callbacks.append(callback)
+        logger.debug("Registered tool change callback")
+    
+    def register_resource_change_callback(
+        self, callback: NotificationCallback
+    ) -> None:
+        """Зарегистрировать callback при изменении списка ресурсов.
+        
+        Args:
+            callback: Async функция без аргументов.
+        """
+        self._resource_change_callbacks.append(callback)
+        logger.debug("Registered resource change callback")
+    
+    def register_prompt_change_callback(self, callback: NotificationCallback) -> None:
+        """Зарегистрировать callback при изменении списка промптов.
+        
+        Args:
+            callback: Async функция без аргументов.
+        """
+        self._prompt_change_callbacks.append(callback)
+        logger.debug("Registered prompt change callback")
+    
+    def register_server_status_callback(
+        self, callback: NotificationCallback
+    ) -> None:
+        """Зарегистрировать callback при изменении статуса сервера.
+        
+        Args:
+            callback: Async функция без аргументов.
+        """
+        self._server_status_callbacks.append(callback)
+        logger.debug("Registered server status callback")
+    
+    async def _notify_server_status_changed(self) -> None:
+        """Уведомить callbacks об изменении статуса сервера."""
+        for callback in self._server_status_callbacks:
+            try:
+                await callback()
+            except Exception as e:
+                logger.error("Error in server status callback: %s", e)
+    
+    def register_progress_callback(self, callback: ProgressCallback) -> None:
+        """Зарегистрировать callback для progress notifications.
+
+        Callback вызывается при получении notifications/progress
+        от любого подключённого MCP сервера. Получает server_id
+        и MCPProgressNotification как аргументы.
+
+        Args:
+            callback: Async функция (server_id, progress) -> None.
+        """
+        self._progress_callbacks.append(callback)
+        logger.debug("Registered progress callback")
+    
+    # ===== Resources =====
+    
+    async def get_all_resources(self) -> dict[str, list[MCPResource]]:
+        """Получить все ресурсы от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → list[MCPResource].
+        """
+        all_resources: dict[str, list[MCPResource]] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.resources:
+                continue
+            
+            try:
+                resources = await client.list_resources()
+                all_resources[server_id] = resources
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list resources from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_resources
+    
+    async def get_all_resource_templates(
+        self,
+    ) -> dict[str, list[MCPResourceTemplate]]:
+        """Получить все шаблоны ресурсов от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → list[MCPResourceTemplate].
+        """
+        all_templates: dict[str, list[MCPResourceTemplate]] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.resources:
+                continue
+            
+            try:
+                templates = await client.list_resource_templates()
+                all_templates[server_id] = templates
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list resource templates from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_templates
+    
+    async def read_resource(
+        self,
+        server_id: str,
+        uri: str,
+    ) -> Any:
+        """Прочитать ресурс с конкретного сервера.
+        
+        Args:
+            server_id: Идентификатор сервера.
+            uri: URI ресурса.
+        
+        Returns:
+            MCPReadResourceResult с содержимым ресурса.
+        
+        Raises:
+            MCPServerNotFoundError: Если сервер не найден.
+            MCPManagerError: Если не удалось прочитать ресурс.
+        """
+        if server_id not in self._clients:
+            raise MCPServerNotFoundError(
+                f"MCP server '{server_id}' not found in session {self.session_id}"
+            )
+        
+        client = self._clients[server_id]
+        
+        if client.state != MCPClientState.READY:
+            raise MCPManagerError(
+                f"MCP server '{server_id}' is not ready"
+            )
+        
+        try:
+            return await client.read_resource(uri)
+        except MCPClientError as e:
+            raise MCPManagerError(
+                f"Failed to read resource '{uri}' from '{server_id}': {e}"
+            ) from e
+    
+    # ===== Prompts =====
+    
+    async def get_all_prompts(self) -> dict[str, list[MCPPrompt]]:
+        """Получить все промпты от всех MCP серверов.
+        
+        Returns:
+            Словарь server_id → list[MCPPrompt].
+        """
+        all_prompts: dict[str, list[MCPPrompt]] = {}
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            if not client.capabilities or not client.capabilities.prompts:
+                continue
+            
+            try:
+                prompts = await client.list_prompts()
+                all_prompts[server_id] = prompts
+            except MCPClientError as e:
+                logger.warning(
+                    "Failed to list prompts from server '%s': %s",
+                    server_id, e,
+                )
+        
+        return all_prompts
+    
+    async def get_prompt(
+        self,
+        server_id: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> Any:
+        """Получить промпт с конкретного сервера.
+        
+        Args:
+            server_id: Идентификатор сервера.
+            name: Имя промпта.
+            arguments: Аргументы промпта.
+        
+        Returns:
+            MCPGetPromptResult с сообщениями промпта.
+        
+        Raises:
+            MCPServerNotFoundError: Если сервер не найден.
+            MCPManagerError: Если не удалось получить промпт.
+        """
+        if server_id not in self._clients:
+            raise MCPServerNotFoundError(
+                f"MCP server '{server_id}' not found in session {self.session_id}"
+            )
+        
+        client = self._clients[server_id]
+        
+        if client.state != MCPClientState.READY:
+            raise MCPManagerError(
+                f"MCP server '{server_id}' is not ready"
+            )
+        
+        try:
+            return await client.get_prompt(name, arguments or {})
+        except MCPClientError as e:
+            raise MCPManagerError(
+                f"Failed to get prompt '{name}' from '{server_id}': {e}"
+            ) from e
+    
+    # ===== Roots =====
+    
+    async def set_roots(self, roots: list[MCPRoot]) -> None:
+        """Установить roots для всех подключённых MCP серверов.
+        
+        Отправляет notifications/roots/list_changed всем серверам,
+        которые поддерживают roots capability.
+        
+        Args:
+            roots: Список roots (файловых границ) для MCP серверов.
+        """
+        logger.info(
+            "Setting roots для %d MCP серверов в сессии %s (roots=%d)",
+            len(self._clients),
+            self.session_id,
+            len(roots),
+        )
+        
+        for server_id, client in self._clients.items():
+            if client.state != MCPClientState.READY:
+                continue
+            
+            try:
+                await client.set_roots(roots)
+                logger.debug(
+                    "Roots updated for server '%s'",
+                    server_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to set roots for server '%s': %s",
+                    server_id,
+                    e,
+                )
+    
     async def shutdown(self) -> None:
         """Отключить все MCP серверы.
         
@@ -456,6 +855,9 @@ class MCPManager:
         
         self._state = MCPManagerState.RECONNECTING
         
+        # Уведомляем о начале переподключения
+        await self._notify_server_status_changed()
+        
         logger.info(
             "Starting reconnect for server '%s' (max_retries=%d)",
             server_id, max_retries
@@ -496,6 +898,10 @@ class MCPManager:
                 )
                 
                 self._state = MCPManagerState.READY
+                
+                # Уведомляем об успешном переподключении
+                await self._notify_server_status_changed()
+                
                 return True
                 
             except Exception as e:
@@ -514,6 +920,9 @@ class MCPManager:
             "Failed to reconnect to server '%s' after %d attempts",
             server_id, max_retries
         )
+        
+        # Уведомляем о неудачном переподключении
+        await self._notify_server_status_changed()
         
         return False
     

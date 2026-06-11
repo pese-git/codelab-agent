@@ -40,7 +40,7 @@ class StdioClientTransport:
         command: str,
         args: list[str],
         cwd: str | None = None,
-        receive_timeout: float = 60.0,
+        receive_timeout: float = 300.0,
     ) -> None:
         """Инициализирует stdio транспорт.
 
@@ -49,7 +49,7 @@ class StdioClientTransport:
             args: Аргументы командной строки (напр. ["serve", "--stdio"]).
             cwd: Рабочая директория для subprocess.
             receive_timeout: Таймаут ожидания сообщения от сервера в секундах.
-                Default 60.0 — покрывает LLM запросы к удалённым API.
+                Default 300.0 — покрывает длительные LLM запросы и idle периоды.
         """
         self._command = command
         self._args = args
@@ -218,8 +218,12 @@ class StdioClientTransport:
             self._logger.debug("message received", length=len(message))
             return message
         except TimeoutError:
-            msg = f"Timeout ({self._receive_timeout}s) waiting for message from subprocess"
-            self._logger.error("receive timeout")
+            msg = (
+                f"Timeout ({self._receive_timeout}s) waiting for message from subprocess. "
+                "This may indicate the agent is processing a long-running operation "
+                "or the connection is stalled."
+            )
+            self._logger.warning("receive_timeout", timeout_seconds=self._receive_timeout)
             raise RuntimeError(msg) from None
         except asyncio.CancelledError:
             raise

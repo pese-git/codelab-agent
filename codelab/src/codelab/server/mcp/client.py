@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
@@ -17,19 +18,33 @@ from .models import (
     MCPCallToolResult,
     MCPCapabilities,
     MCPClientInfo,
+    MCPGetPromptParams,
     MCPGetPromptResult,
     MCPInitializeParams,
     MCPInitializeResult,
+    MCPListPromptsParams,
     MCPListPromptsResult,
+    MCPListResourcesParams,
     MCPListResourcesResult,
+    MCPListResourceTemplatesParams,
+    MCPListResourceTemplatesResult,
     MCPListToolsResult,
+    MCPProgressNotification,
     MCPPrompt,
+    MCPReadResourceParams,
     MCPReadResourceResult,
     MCPResource,
+    MCPResourceTemplate,
+    MCPRoot,
     MCPServerConfig,
     MCPTool,
 )
-from .transport import StdioTransport, StdioTransportError
+from .transport import (
+    HttpTransportError,
+    SseTransportError,
+    StdioTransportError,
+)
+from .transport_factory import MCPTransport, TransportFactory
 
 logger = logging.getLogger(__name__)
 
@@ -114,12 +129,13 @@ class MCPClient:
             config: Конфигурация MCP сервера для подключения.
         """
         self.config = config
-        self._transport: StdioTransport | None = None
+        self._transport: MCPTransport | None = None
         self._state: MCPClientState = MCPClientState.CREATED
         self._capabilities: MCPCapabilities | None = None
         self._server_info: dict[str, str] | None = None
         self._tools: list[MCPTool] = []
         self._resources: list[MCPResource] = []
+        self._resource_templates: list[MCPResourceTemplate] = []
         self._prompts: list[MCPPrompt] = []
         self._resources_cache: dict[str, MCPReadResourceResult] = {}
         self._prompts_cache: dict[str, MCPGetPromptResult] = {}
@@ -128,6 +144,12 @@ class MCPClient:
         self._notification_queue: asyncio.Queue = asyncio.Queue()
         self._notification_handlers: dict[str, list] = {}
         self._notification_task: asyncio.Task | None = None
+        
+        # Progress notification callbacks
+        self._progress_callbacks: list[Callable] = []
+        
+        # Roots support (MCP specification)
+        self._roots: list[MCPRoot] = []
     
     @property
     def state(self) -> MCPClientState:
@@ -154,14 +176,81 @@ class MCPClient:
         """Проверить, готов ли клиент к работе."""
         return self._state == MCPClientState.READY
     
+    @property
+    def roots(self) -> list[MCPRoot]:
+        """Текущие roots клиента."""
+        return self._roots.copy()
+    
+    async def set_roots(self, roots: list[MCPRoot]) -> None:
+        """Установить roots и уведомить сервер об изменении.
+        
+        Отправляет notifications/roots/list_changed если клиент уже
+        инициализирован и сервер поддерживает roots.
+        
+        Args:
+            roots: Новый список roots.
+        """
+        old_roots = self._roots.copy()
+        self._roots = roots.copy()
+        
+        # Если уже инициализированы, отправляем notification
+        if self._state == MCPClientState.READY and self._transport:
+            # Проверяем, изменились ли roots
+            old_uris = {r.uri for r in old_roots}
+            new_uris = {r.uri for r in roots}
+            
+            if old_uris != new_uris:
+                logger.debug(
+                    "Sending roots/list_changed to MCP server: %s (roots=%d)",
+                    self.config.name,
+                    len(roots),
+                )
+                await self._transport.send_notification(
+                    method="notifications/roots/list_changed"
+                )
+    
+    def _handle_roots_list(self) -> list[dict[str, Any]]:
+        """Обработать запрос roots/list от сервера.
+        
+        Returns:
+            Список roots в формате для JSON-RPC ответа.
+        """
+        return [
+            {"uri": root.uri, "name": root.name}
+            for root in self._roots
+        ]
+    
+    async def _handle_roots_list_request(
+        self, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Обработать входящий запрос roots/list от сервера.
+        
+        Согласно MCP спецификации, сервер может запросить список roots
+        через JSON-RPC запрос. Клиент должен ответить списком roots.
+        
+        Args:
+            params: Параметры запроса (обычно пустые).
+        
+        Returns:
+            Словарь с ключом "roots" и списком roots.
+        """
+        logger.debug(
+            "Handling roots/list request from MCP server: %s",
+            self.config.name
+        )
+        
+        roots_data = self._handle_roots_list()
+        return {"roots": roots_data}
+    
     async def connect(self) -> None:
         """Запустить MCP сервер и установить соединение.
         
-        Запускает процесс MCP сервера, но не выполняет initialize.
+        Запускает процесс MCP сервера (для stdio) или устанавливает HTTP/SSE соединение.
+        Выбор транспорта определяется config.type.
         
         Raises:
             MCPClientError: Если клиент уже подключен.
-            MCPClientError: Если не удалось запустить процесс.
+            MCPClientError: Если не удалось установить соединение.
         """
         if self._state not in (MCPClientState.CREATED, MCPClientState.CLOSED):
             raise MCPClientError(f"Cannot connect in state {self._state}")
@@ -169,25 +258,45 @@ class MCPClient:
         self._state = MCPClientState.CONNECTING
         
         logger.info(
-            "Connecting to MCP server: %s (command=%s)",
+            "Connecting to MCP server: %s (type=%s)",
             self.config.name,
-            self.config.command
+            self.config.type,
         )
         
         try:
-            self._transport = StdioTransport()
-            assert self.config.command is not None, "Command must be set for stdio transport"
-            await self._transport.start(
-                command=self.config.command,
-                args=self.config.args,
-                env=self.config.get_env_dict(),
-            )
+            # Используем фабрику для создания транспорта
+            self._transport = TransportFactory.create(self.config)
+            await self._transport.connect()
             
-            logger.debug("MCP server process started: %s", self.config.name)
+            # Регистрируем обработчик notifications в транспорте
+            # Transport будет вызывать этот метод при получении любой notification
+            if hasattr(self._transport, 'register_notification_handler'):
+                self._transport.register_notification_handler(
+                    "*",  # Регистрируем для всех notifications
+                    self._on_transport_notification
+                )
             
-        except StdioTransportError as e:
+            # Регистрируем обработчик для входящих запросов от сервера
+            # Согласно MCP спецификации, сервер может отправлять запросы клиенту
+            # (например, roots/list)
+            if hasattr(self._transport, 'register_request_handler'):
+                self._transport.register_request_handler(
+                    "roots/list",
+                    self._handle_roots_list_request
+                )
+                logger.debug(
+                    "Registered roots/list request handler for server: %s",
+                    self.config.name
+                )
+            
+            logger.debug("MCP %s connection established: %s", self.config.type, self.config.name)
+            
+        except ValueError as e:
             self._state = MCPClientState.FAILED
-            raise MCPClientError(f"Failed to start MCP server: {e}") from e
+            raise MCPClientError(str(e)) from e
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
+            self._state = MCPClientState.FAILED
+            raise MCPClientError(f"Failed to connect to MCP server: {e}") from e
     
     async def initialize(self) -> MCPCapabilities:
         """Выполнить MCP initialize handshake.
@@ -213,10 +322,17 @@ class MCPClient:
         logger.debug("Sending initialize to MCP server: %s", self.config.name)
         
         try:
+            # Формируем capabilities клиента
+            client_capabilities: dict[str, Any] = {}
+            
+            # Добавляем roots support если есть roots
+            if self._roots:
+                client_capabilities["roots"] = {"listChanged": True}
+            
             # Формируем параметры инициализации
             params = MCPInitializeParams(
                 protocolVersion=MCP_PROTOCOL_VERSION,
-                capabilities={},
+                capabilities=client_capabilities,
                 clientInfo=ACP_CLIENT_INFO,
             )
             
@@ -252,7 +368,7 @@ class MCPClient:
             
             return self._capabilities
             
-        except StdioTransportError as e:
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
             self._state = MCPClientState.FAILED
             raise MCPInitializeError(
                 f"Initialize failed for {self.config.name}: {e}"
@@ -281,7 +397,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер tools
-        if self._capabilities and not self._capabilities.tools:
+        # По MCP спецификации: tools=null — не поддерживает, tools={} — поддерживает
+        if self._capabilities and self._capabilities.tools is None:
             logger.debug(
                 "MCP server %s does not support tools",
                 self.config.name
@@ -316,7 +433,8 @@ class MCPClient:
     async def list_resources(self) -> list[MCPResource]:
         """Получить список доступных ресурсов от MCP сервера.
         
-        Вызывает resources/list и кэширует результат.
+        Вызывает resources/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
         
         Returns:
             Список определений ресурсов.
@@ -331,7 +449,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер resources
-        if self._capabilities and not self._capabilities.resources:
+        # По MCP спецификации: resources=null — не поддерживает, resources={} — поддерживает
+        if self._capabilities and self._capabilities.resources is None:
             logger.debug(
                 "MCP server %s does not support resources",
                 self.config.name
@@ -341,13 +460,28 @@ class MCPClient:
         logger.debug("Requesting resources list from: %s", self.config.name)
         
         try:
-            result_data = await self._transport.send_request(
-                method="resources/list",
-                timeout=30.0,
-            )
+            all_resources: list[MCPResource] = []
+            cursor: str | None = None
             
-            result = MCPListResourcesResult.model_validate(result_data)
-            self._resources = result.resources
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListResourcesParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="resources/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListResourcesResult.model_validate(result_data)
+                all_resources.extend(result.resources)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._resources = all_resources
             
             logger.info(
                 "MCP server %s provides %d resources",
@@ -359,6 +493,76 @@ class MCPClient:
             
         except StdioTransportError as e:
             raise MCPClientError(f"Failed to list resources: {e}") from e
+    
+    async def list_resource_templates(self) -> list[MCPResourceTemplate]:
+        """Получить список шаблонов ресурсов от MCP сервера.
+        
+        Вызывает resources/templates/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
+        
+        Returns:
+            Список определений шаблонов ресурсов.
+        
+        Raises:
+            MCPClientError: Если клиент не готов или запрос не удался.
+        """
+        if self._state != MCPClientState.READY:
+            raise MCPClientError(
+                f"Cannot list resource templates in state {self._state}"
+            )
+        
+        if not self._transport:
+            raise MCPClientError("Transport not available")
+        
+        # Проверяем, поддерживает ли сервер resources (templates — часть resources capability)
+        if self._capabilities and self._capabilities.resources is None:
+            logger.debug(
+                "MCP server %s does not support resources/templates",
+                self.config.name
+            )
+            return []
+        
+        logger.debug(
+            "Requesting resource templates list from: %s",
+            self.config.name
+        )
+        
+        try:
+            all_templates: list[MCPResourceTemplate] = []
+            cursor: str | None = None
+            
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListResourceTemplatesParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="resources/templates/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListResourceTemplatesResult.model_validate(result_data)
+                all_templates.extend(result.resource_templates)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._resource_templates = all_templates
+            
+            logger.info(
+                "MCP server %s provides %d resource templates",
+                self.config.name,
+                len(self._resource_templates)
+            )
+            
+            return self._resource_templates
+            
+        except StdioTransportError as e:
+            raise MCPClientError(
+                f"Failed to list resource templates: {e}"
+            ) from e
     
     async def read_resource(self, uri: str) -> MCPReadResourceResult:
         """Прочитать содержимое ресурса по URI.
@@ -389,9 +593,10 @@ class MCPClient:
         )
         
         try:
+            params = MCPReadResourceParams(uri=uri)
             result_data = await self._transport.send_request(
                 method="resources/read",
-                params={"uri": uri},
+                params=params.model_dump(),
                 timeout=30.0,
             )
             
@@ -413,7 +618,8 @@ class MCPClient:
     async def list_prompts(self) -> list[MCPPrompt]:
         """Получить список доступных промптов от MCP сервера.
         
-        Вызывает prompts/list и кэширует результат.
+        Вызывает prompts/list с поддержкой cursor-based пагинации.
+        Автоматически собирает все страницы результатов.
         
         Returns:
             Список определений промптов.
@@ -428,7 +634,8 @@ class MCPClient:
             raise MCPClientError("Transport not available")
         
         # Проверяем, поддерживает ли сервер prompts
-        if self._capabilities and not self._capabilities.prompts:
+        # По MCP спецификации: prompts=null — не поддерживает, prompts={} — поддерживает
+        if self._capabilities and self._capabilities.prompts is None:
             logger.debug(
                 "MCP server %s does not support prompts",
                 self.config.name
@@ -438,13 +645,28 @@ class MCPClient:
         logger.debug("Requesting prompts list from: %s", self.config.name)
         
         try:
-            result_data = await self._transport.send_request(
-                method="prompts/list",
-                timeout=30.0,
-            )
+            all_prompts: list[MCPPrompt] = []
+            cursor: str | None = None
             
-            result = MCPListPromptsResult.model_validate(result_data)
-            self._prompts = result.prompts
+            # Пагинация: собираем все страницы пока есть nextCursor
+            while True:
+                params = MCPListPromptsParams(cursor=cursor)
+                params_dict = params.model_dump(exclude_none=True)
+                
+                result_data = await self._transport.send_request(
+                    method="prompts/list",
+                    params=params_dict if params_dict else None,
+                    timeout=30.0,
+                )
+                
+                result = MCPListPromptsResult.model_validate(result_data)
+                all_prompts.extend(result.prompts)
+                
+                if result.next_cursor is None:
+                    break
+                cursor = result.next_cursor
+            
+            self._prompts = all_prompts
             
             logger.info(
                 "MCP server %s provides %d prompts",
@@ -494,13 +716,15 @@ class MCPClient:
         )
         
         try:
-            params: dict[str, Any] = {"name": name}
-            if arguments:
-                params["arguments"] = arguments
+            params = MCPGetPromptParams(
+                name=name,
+                arguments=arguments if arguments else None,
+            )
+            params_dict = params.model_dump(exclude_none=True)
             
             result_data = await self._transport.send_request(
                 method="prompts/get",
-                params=params,
+                params=params_dict,
                 timeout=30.0,
             )
             
@@ -524,6 +748,7 @@ class MCPClient:
         name: str,
         arguments: dict[str, Any] | None = None,
         timeout: float = 60.0,
+        _meta: dict[str, Any] | None = None,
     ) -> MCPCallToolResult:
         """Вызвать инструмент MCP сервера.
         
@@ -531,6 +756,7 @@ class MCPClient:
             name: Имя инструмента для вызова.
             arguments: Аргументы для инструмента.
             timeout: Таймаут выполнения в секундах.
+            _meta: Опциональные метаданные (например, progressToken для progress notifications).
         
         Returns:
             Результат вызова инструмента.
@@ -556,11 +782,12 @@ class MCPClient:
             params = MCPCallToolParams(
                 name=name,
                 arguments=arguments or {},
+                meta=_meta,
             )
             
             result_data = await self._transport.send_request(
                 method="tools/call",
-                params=params.model_dump(by_alias=True),
+                params=params.model_dump(by_alias=True, exclude_none=True),
                 timeout=timeout,
             )
             
@@ -582,7 +809,7 @@ class MCPClient:
             
             return result
             
-        except StdioTransportError as e:
+        except (StdioTransportError, HttpTransportError, SseTransportError) as e:
             raise MCPToolCallError(
                 f"Tool call {name} failed: {e}"
             ) from e
@@ -598,6 +825,7 @@ class MCPClient:
         logger.info("Disconnecting from MCP server: %s", self.config.name)
         
         if self._transport:
+            # Единый интерфейс — все транспорты реализуют close()
             await self._transport.close()
             self._transport = None
         
@@ -637,6 +865,21 @@ class MCPClient:
         logger.debug(
             "Registered notification handler for: %s",
             method
+        )
+    
+    def register_progress_callback(self, callback: Callable) -> None:
+        """Зарегистрировать callback для progress notifications.
+
+        Callback вызывается при получении notifications/progress от сервера.
+        Получает MCPProgressNotification как аргумент.
+
+        Args:
+            callback: Async или sync функция, принимающая MCPProgressNotification.
+        """
+        self._progress_callbacks.append(callback)
+        logger.debug(
+            "Registered progress callback for: %s",
+            self.config.name
         )
     
     async def start_notification_processing(self) -> None:
@@ -685,6 +928,12 @@ class MCPClient:
                             method, e
                         )
                 
+                # Специальная обработка progress notifications
+                if method == "notifications/progress":
+                    await self._handle_progress_notification(
+                        notification.get("params", {})
+                    )
+                
                 self._notification_queue.task_done()
                 
             except TimeoutError:
@@ -714,6 +963,57 @@ class MCPClient:
         
         # Помещаем в очередь
         await self._notification_queue.put(notification_data)
+    
+    async def _on_transport_notification(self, notification_data: dict[str, Any]) -> None:
+        """Обработчик notifications от транспорта.
+        
+        Вызывается transport'ом при получении любой notification от сервера.
+        Делегирует обработку в handle_notification.
+        
+        Args:
+            notification_data: Полный JSON-RPC объект notification.
+        """
+        await self.handle_notification(notification_data)
+    
+    async def _handle_progress_notification(
+        self, params: dict[str, Any]
+    ) -> None:
+        """Обработать progress notification и вызвать callbacks.
+
+        Парсит params в MCPProgressNotification и вызывает все
+        зарегистрированные progress callbacks.
+
+        Args:
+            params: Параметры notification из JSON-RPC.
+        """
+        try:
+            progress = MCPProgressNotification.model_validate(params)
+        except Exception as e:
+            logger.warning(
+                "Failed to parse progress notification from %s: %s",
+                self.config.name, e
+            )
+            return
+        
+        logger.debug(
+            "Progress notification from %s: token=%s progress=%s/%s",
+            self.config.name,
+            progress.progress_token,
+            progress.progress,
+            progress.total,
+        )
+        
+        for callback in self._progress_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(progress)
+                else:
+                    callback(progress)
+            except Exception as e:
+                logger.error(
+                    "Error in progress callback for %s: %s",
+                    self.config.name, e
+                )
     
     async def stop_notification_processing(self) -> None:
         """Остановить фоновую задачу обработки notifications."""

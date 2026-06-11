@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from codelab.client.infrastructure.mcp_config_loader import (
     MCPConfigLoader,
     _expand_server_env_vars,
@@ -310,6 +312,28 @@ class TestFindTomlChain:
 
 class TestMCPConfigLoader:
     """Integration tests for MCPConfigLoader class."""
+
+    @pytest.fixture(autouse=True)
+    def isolate_from_global_config(self) -> None:
+        """Изолировать тесты от глобального конфига ~/.codelab/codelab.toml."""
+        with patch(
+            "codelab.client.infrastructure.mcp_config_loader._find_toml_chain"
+        ) as mock_find:
+            # Возвращаем только файлы из tmp_path (без глобального конфига)
+            def find_chain(cwd: Path | None = None) -> list[Path]:
+                if cwd is None:
+                    cwd = Path.cwd()
+                toml_files: list[Path] = []
+                project_config = cwd / "codelab.toml"
+                if project_config.exists():
+                    toml_files.append(project_config)
+                local_config = cwd / "codelab.local.toml"
+                if local_config.exists():
+                    toml_files.append(local_config)
+                return toml_files
+
+            mock_find.side_effect = find_chain
+            yield
 
     def test_load_servers_from_single_toml(self, tmp_path: Path) -> None:
         toml = tmp_path / "codelab.toml"

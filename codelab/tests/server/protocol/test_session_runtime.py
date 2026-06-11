@@ -7,7 +7,6 @@ import pytest
 
 from codelab.server.protocol.session_runtime import (
     SessionRuntimeRegistry,
-    SessionRuntimeState,
 )
 
 

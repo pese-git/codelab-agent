@@ -44,7 +44,7 @@ class TestRegistryToConfigOptionsFlow:
         # Проверим формат options
         for opt in model_option["options"]:
             assert "value" in opt
-            assert "label" in opt
+            assert "name" in opt
             # value должен быть в формате provider/model
             assert "/" in opt["value"]
 
@@ -75,7 +75,7 @@ class TestRegistryToConfigOptionsFlow:
         # Проверим формат каждого option
         for opt in model_opt["options"]:
             assert "value" in opt
-            assert "label" in opt
+            assert "name" in opt
 
     def test_backward_compatibility_empty_toml(self) -> None:
         """Пустой TOML → пустой список моделей → fallback на defaults."""

@@ -8,10 +8,10 @@ from codelab.client.infrastructure.stdio_transport import StdioClientTransport
 class TestStdioClientTransportTimeout:
     """Tests for configurable receive_timeout in StdioClientTransport."""
 
-    def test_default_timeout_is_60_seconds(self) -> None:
-        """Default receive_timeout should be 60.0 seconds."""
+    def test_default_timeout_is_300_seconds(self) -> None:
+        """Default receive_timeout should be 300.0 seconds."""
         transport = StdioClientTransport(command="echo", args=[])
-        assert transport._receive_timeout == 60.0
+        assert transport._receive_timeout == 300.0
 
     def test_custom_timeout(self) -> None:
         """Custom receive_timeout should be stored."""
@@ -47,7 +47,7 @@ class TestClientConfigReceiveTimeout:
             port=8000,
             cwd=Path("/tmp"),
         )
-        assert config.receive_timeout == 60.0
+        assert config.receive_timeout == 300.0
 
     def test_custom_timeout(self) -> None:
         from pathlib import Path
@@ -77,7 +77,7 @@ class TestCreateClientContainerTimeout:
             cwd="/tmp",
         )
         config = container.get(ClientConfig)
-        assert config.receive_timeout == 60.0
+        assert config.receive_timeout == 300.0
         container.close()
 
     def test_custom_timeout_passed(self) -> None:

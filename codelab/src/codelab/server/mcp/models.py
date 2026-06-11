@@ -260,6 +260,42 @@ class MCPListToolsResult(BaseModel):
 # ===== MCP Resource Models =====
 
 
+class MCPAnnotations(BaseModel):
+    """Аннотации для ресурсов и шаблонов (MCP spec 2025-06-18+).
+    
+    Содержат метаданные для отображения и приоритизации.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    audience: list[str] | None = None
+    """Целевая аудитория: 'user' и/или 'assistant'."""
+    
+    priority: float | None = None
+    """Приоритет от 0.0 до 1.0 (1.0 = наиболее важно)."""
+    
+    last_modified: str | None = Field(default=None, alias="lastModified")
+    """ISO 8601 timestamp последнего изменения."""
+
+
+class MCPResourceIcon(BaseModel):
+    """Иконка для ресурса или шаблона (MCP spec 2025-11-25+).
+    
+    Содержит URI иконки и метаданные.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    src: str
+    """URI иконки."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип иконки (например, image/png)."""
+    
+    sizes: list[str] | None = None
+    """Размеры иконки (например, ['48x48', '96x96'])."""
+
+
 class MCPResource(BaseModel):
     """Определение ресурса MCP сервера.
     
@@ -269,16 +305,38 @@ class MCPResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
     uri: str
-    """Уникальный URI ресурса."""
+    """Уникальный URI ресурса (RFC 3986)."""
     
     name: str
     """Человекочитаемое имя ресурса."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя."""
     
     description: str | None = None
     """Описание ресурса."""
     
     mime_type: str | None = Field(default=None, alias="mimeType")
     """MIME-тип ресурса (например, text/plain, image/png)."""
+    
+    size: int | None = None
+    """Размер ресурса в байтах."""
+    
+    icons: list[MCPResourceIcon] | None = None
+    """Массив иконок ресурса."""
+    
+    annotations: MCPAnnotations | None = None
+    """Аннотации для отображения и приоритизации."""
+
+
+class MCPListResourcesParams(BaseModel):
+    """Параметры запроса resources/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
 
 
 class MCPListResourcesResult(BaseModel):
@@ -287,8 +345,116 @@ class MCPListResourcesResult(BaseModel):
     Содержит список доступных ресурсов на MCP сервере.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     resources: list[MCPResource]
     """Список доступных ресурсов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
+
+
+class MCPResourceTemplate(BaseModel):
+    """Шаблон ресурса MCP сервера.
+    
+    Содержит URI template для динамических ресурсов.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    uri_template: str = Field(alias="uriTemplate")
+    """URI template (RFC 6570, например, file:///{path})."""
+    
+    name: str
+    """Человекочитаемое имя шаблона."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя."""
+    
+    description: str | None = None
+    """Описание шаблона."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип ресурсов этого шаблона."""
+    
+    icons: list[MCPResourceIcon] | None = None
+    """Массив иконок шаблона."""
+    
+    annotations: MCPAnnotations | None = None
+    """Аннотации для отображения и приоритизации."""
+
+
+class MCPListResourceTemplatesParams(BaseModel):
+    """Параметры запроса resources/templates/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
+
+
+class MCPListResourceTemplatesResult(BaseModel):
+    """Результат запроса resources/templates/list.
+    
+    Содержит список шаблонов ресурсов на MCP сервере.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    resource_templates: list[MCPResourceTemplate] = Field(
+        default_factory=list,
+        alias="resourceTemplates",
+    )
+    """Список шаблонов ресурсов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
+
+
+class MCPReadResourceParams(BaseModel):
+    """Параметры запроса resources/read.
+
+    Содержит URI ресурса, который нужно прочитать.
+    """
+
+    uri: str
+    """URI ресурса для чтения."""
+
+
+class MCPResourceContent(BaseModel):
+    """Типизированный контент ресурса.
+    
+    Может быть текстовым или бинарным (blob).
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    uri: str
+    """URI ресурса."""
+    
+    mime_type: str | None = Field(default=None, alias="mimeType")
+    """MIME-тип ресурса."""
+    
+    # Текстовый контент
+    text: str | None = None
+    """Текстовое содержимое (для text/* ресурсов)."""
+    
+    # Бинарный контент
+    blob: str | None = None
+    """Base64-закодированный бинарный контент."""
+    
+    def get_text_content(self) -> str:
+        """Извлечь текстовый контент.
+        
+        Returns:
+            Текст или base64 blob.
+        """
+        if self.text is not None:
+            return self.text
+        if self.blob is not None:
+            return self.blob
+        return ""
 
 
 class MCPReadResourceResult(BaseModel):
@@ -299,7 +465,9 @@ class MCPReadResourceResult(BaseModel):
     
     model_config = ConfigDict(populate_by_name=True)
     
-    contents: list[dict[str, Any]]
+    contents: list[dict[str, Any]] | list[MCPResourceContent] = Field(
+        default_factory=list,
+    )
     """Список элементов содержимого ресурса."""
     
     def get_text_content(self) -> str:
@@ -310,8 +478,17 @@ class MCPReadResourceResult(BaseModel):
         """
         texts: list[str] = []
         for item in self.contents:
-            if item.get("type") == "text":
-                texts.append(item.get("text", ""))
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    texts.append(item.get("text", ""))
+                elif item.get("type") == "resource":
+                    resource = item.get("resource", {})
+                    if resource.get("text"):
+                        texts.append(resource["text"])
+                    elif resource.get("blob"):
+                        texts.append(resource["blob"])
+            elif isinstance(item, MCPResourceContent):
+                texts.append(item.get_text_content())
         return "\n".join(texts)
 
 
@@ -319,12 +496,18 @@ class MCPReadResourceResult(BaseModel):
 
 
 class MCPPromptArgument(BaseModel):
-    """Определение аргумента промпта MCP сервера."""
+    """Определение аргумента промпта MCP сервера.
+    
+    Описывает один аргумент, который принимает промпт.
+    """
     
     model_config = ConfigDict(populate_by_name=True)
     
     name: str
     """Имя аргумента."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя аргумента."""
     
     description: str | None = None
     """Описание аргумента."""
@@ -337,12 +520,17 @@ class MCPPrompt(BaseModel):
     """Определение промпта MCP сервера.
     
     Содержит имя, описание и аргументы промпта.
+    Промпты — это переиспользуемые шаблоны для структурирования
+    взаимодействий с языковой моделью.
     """
     
     model_config = ConfigDict(populate_by_name=True)
     
     name: str
     """Уникальное имя промпта."""
+    
+    title: str | None = None
+    """Человекочитаемое отображаемое имя промпта."""
     
     description: str | None = None
     """Описание промпта."""
@@ -351,14 +539,57 @@ class MCPPrompt(BaseModel):
     """Список аргументов промпта."""
 
 
+class MCPListPromptsParams(BaseModel):
+    """Параметры запроса prompts/list.
+    
+    Поддерживает cursor-based пагинацию.
+    """
+    
+    cursor: str | None = None
+    """Opaque cursor для пагинации."""
+
+
 class MCPListPromptsResult(BaseModel):
     """Результат запроса prompts/list.
     
     Содержит список доступных промптов на MCP сервере.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     prompts: list[MCPPrompt]
     """Список доступных промптов."""
+    
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    """Cursor для следующей страницы (отсутствует = конец результатов)."""
+
+
+class MCPGetPromptParams(BaseModel):
+    """Параметры запроса prompts/get.
+    
+    Содержит имя промпта и аргументы для заполнения placeholder'ов.
+    """
+    
+    name: str
+    """Имя промпта для получения."""
+    
+    arguments: dict[str, str] | None = None
+    """Аргументы для заполнения placeholder'ов промпта."""
+
+
+class MCPPromptMessage(BaseModel):
+    """Сообщение в результате prompts/get.
+    
+    Содержит роль отправителя и контент сообщения.
+    """
+    
+    model_config = ConfigDict(populate_by_name=True)
+    
+    role: str
+    """Роль отправителя: 'user' или 'assistant'."""
+    
+    content: dict[str, Any]
+    """Контент сообщения (MCPContent: text, image, resource)."""
 
 
 class MCPGetPromptResult(BaseModel):
@@ -372,7 +603,9 @@ class MCPGetPromptResult(BaseModel):
     description: str | None = None
     """Описание промпта."""
     
-    messages: list[dict[str, Any]]
+    messages: list[dict[str, Any]] | list[MCPPromptMessage] = Field(
+        default_factory=list,
+    )
     """Список сообщений промпта."""
 
 
@@ -385,11 +618,16 @@ class MCPCallToolParams(BaseModel):
     Содержит имя инструмента и аргументы для вызова.
     """
     
+    model_config = ConfigDict(populate_by_name=True)
+    
     name: str
     """Имя вызываемого инструмента."""
     
     arguments: dict[str, Any] = Field(default_factory=dict)
     """Аргументы для инструмента."""
+    
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """Опциональные метаданные (например, progressToken для progress notifications)."""
 
 
 class MCPTextContent(BaseModel):
@@ -568,3 +806,90 @@ class MCPServerConfig(BaseModel):
             "max_delay": self.max_delay,
             "backoff_multiplier": self.backoff_multiplier,
         }
+
+
+# ===== MCP Progress Notification Models =====
+
+
+class MCPProgressNotification(BaseModel):
+    """Progress notification от MCP сервера.
+
+    Отправляется сервером для уведомления о прогрессе длительной операции.
+    Соответствует MCP спецификации notifications/progress.
+
+    Reference:
+        MCP Specification — notifications/progress
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    progress_token: str = Field(alias="progressToken")
+    """Токен прогресса, связанный с запросом (из _meta.progressToken)."""
+
+    progress: float
+    """Текущий прогресс (0.0 до total, или 0.0 до 1.0 если total не указан)."""
+
+    total: float | None = None
+    """Общее количество единиц работы (если известно)."""
+
+    message: str | None = None
+    """Опциональное сообщение о текущем состоянии."""
+
+    @property
+    def percentage(self) -> float | None:
+        """Вычислить процент выполнения (0-100) если возможно.
+
+        Returns:
+            Процент выполнения или None если нельзя вычислить.
+        """
+        if self.total and self.total > 0:
+            return min(100.0, (self.progress / self.total) * 100.0)
+        if self.progress >= 0 and self.progress <= 1.0:
+            return self.progress * 100.0
+        return None
+
+
+# ===== MCP Roots Models =====
+
+
+class MCPRoot(BaseModel):
+    """Root для MCP протокола.
+
+    Roots определяют файловые границы, в которых работает MCP сервер.
+    Клиент отправляет roots серверу при инициализации и может обновлять
+    их через notifications/roots/list_changed.
+
+    Reference:
+        MCP Specification — Roots
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    uri: str
+    """URI корневой директории (file:// URI scheme)."""
+
+    name: str | None = None
+    """Опциональное человекочитаемое имя root."""
+
+
+class MCPClientCapabilities(BaseModel):
+    """Capabilities клиента для MCP протокола.
+
+    Отправляются клиентом серверу при инициализации для объявления
+    поддерживаемых возможностей.
+
+    Reference:
+        MCP Specification — Client Capabilities
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    roots: dict[str, Any] | None = None
+    """Поддержка roots. {"listChanged": true} если клиент поддерживает
+    notifications/roots/list_changed."""
+
+    sampling: dict[str, Any] | None = None
+    """Поддержка sampling (для будущего использования)."""
+
+    elicitation: dict[str, Any] | None = None
+    """Поддержка elicitation (для будущего использования)."""

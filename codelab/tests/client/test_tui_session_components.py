@@ -12,63 +12,60 @@ from datetime import datetime
 
 
 class TestInlineMarkdown:
-    """Тесты для InlineMarkdown компонента."""
+    """Тесты для InlineMarkdown компонента.
     
-    def test_convert_bold(self) -> None:
-        """Конвертация **bold** в Rich markup."""
+    InlineMarkdown теперь наследуется от textual.widgets.Markdown
+    и парсит Markdown напрямую без конвертации в Rich markup.
+    """
+    
+    def test_bold_preserved(self) -> None:
+        """**bold** Markdown синтаксис сохраняется для парсинга."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("**bold text**")
-        result = md._convert_to_rich("**bold text**")
-        assert "[bold]bold text[/bold]" in result
+        assert md.raw_content == "**bold text**"
     
-    def test_convert_italic(self) -> None:
-        """Конвертация *italic* в Rich markup."""
+    def test_italic_preserved(self) -> None:
+        """*italic* Markdown синтаксис сохраняется для парсинга."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("*italic text*")
-        result = md._convert_to_rich("*italic text*")
-        assert "[italic]italic text[/italic]" in result
+        assert md.raw_content == "*italic text*"
     
-    def test_convert_inline_code(self) -> None:
-        """Конвертация `code` в Rich markup."""
+    def test_inline_code_preserved(self) -> None:
+        """`code` Markdown синтаксис сохраняется."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("`code`")
-        result = md._convert_to_rich("`code`")
-        assert "[reverse]" in result and "code" in result
+        assert md.raw_content == "`code`"
     
-    def test_convert_link(self) -> None:
-        """Конвертация [text](url) в текст с URL в скобках."""
+    def test_link_preserved(self) -> None:
+        """[text](url) Markdown синтаксис сохраняется."""
         from codelab.client.tui.components.markdown import InlineMarkdown
 
         md = InlineMarkdown("[link](https://example.com)")
-        result = md._convert_to_rich("[link](https://example.com)")
-        assert "link (https://example.com)" in result
+        assert md.raw_content == "[link](https://example.com)"
     
-    def test_convert_strikethrough(self) -> None:
-        """Конвертация ~~text~~ в Rich markup."""
+    def test_strikethrough_preserved(self) -> None:
+        """~~text~~ Markdown синтаксис сохраняется."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("~~strikethrough~~")
-        result = md._convert_to_rich("~~strikethrough~~")
-        assert "[strike]strikethrough[/strike]" in result
+        assert md.raw_content == "~~strikethrough~~"
     
-    def test_convert_header(self) -> None:
-        """Конвертация # header в Rich markup."""
+    def test_header_preserved(self) -> None:
+        """# header Markdown синтаксис сохраняется."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("# Header")
-        result = md._convert_to_rich("# Header")
-        assert "[bold]Header[/bold]" in result
+        assert md.raw_content == "# Header"
     
     def test_empty_text(self) -> None:
-        """Пустой текст возвращает пустую строку."""
+        """Пустой текст не вызывает ошибок."""
         from codelab.client.tui.components.markdown import InlineMarkdown
         
         md = InlineMarkdown("")
-        result = md._convert_to_rich("")
-        assert result == ""
+        assert md.raw_content == ""
     
     def test_raw_content_property(self) -> None:
         """Свойство raw_content возвращает исходный текст."""
@@ -76,6 +73,14 @@ class TestInlineMarkdown:
         
         md = InlineMarkdown("**test**")
         assert md.raw_content == "**test**"
+    
+    def test_literal_rich_tags_no_crash(self) -> None:
+        """Литеральные Rich-теги не вызывают MarkupError."""
+        from codelab.client.tui.components.markdown import InlineMarkdown
+        
+        # Это ключевой тест — раньше [/bold] в тексте LLM ломал Rich парсер
+        md = InlineMarkdown("text with [/bold] tag")
+        assert md.raw_content == "text with [/bold] tag"
 
 
 class TestCodeBlock:

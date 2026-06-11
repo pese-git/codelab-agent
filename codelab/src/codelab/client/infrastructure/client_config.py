@@ -35,4 +35,4 @@ class ClientConfig:
     stdio_command: str | None = None
     stdio_args: list[str] = field(default_factory=list)
     mcp_servers: list[dict[str, Any]] = field(default_factory=list)
-    receive_timeout: float = 60.0
+    receive_timeout: float = 300.0

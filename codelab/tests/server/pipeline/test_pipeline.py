@@ -322,7 +322,7 @@ class TestSlashCommandStage:
         router = MagicMock()
         outcome = MagicMock()
         outcome.notifications = []
-        router.route = MagicMock(return_value=outcome)
+        router.route = AsyncMock(return_value=outcome)
 
         stage = SlashCommandStage(router)
 
@@ -362,7 +362,7 @@ class TestSlashCommandStage:
     @pytest.mark.asyncio
     async def test_unknown_slash_command_does_not_stop(self):
         router = MagicMock()
-        router.route = MagicMock(return_value=None)
+        router.route = AsyncMock(return_value=None)
 
         stage = SlashCommandStage(router)
 

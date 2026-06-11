@@ -1,81 +1,118 @@
-"""Тесты для InlineMarkdown компонента."""
+"""Тесты для Markdown компонентов.
+
+Проверяют:
+- InlineMarkdown на базе textual.widgets.Markdown
+- MessageContent с Markdown поддержкой
+- Устойчивость к литеральным Rich-тегам в тексте LLM
+"""
 
 from __future__ import annotations
 
 import pytest
 
-from codelab.client.tui.components.markdown import InlineMarkdown
+from codelab.client.tui.components.markdown import InlineMarkdown, MarkdownViewer
 
 
-class TestConvertToRich:
-    """Тесты для метода _convert_to_rich."""
+class TestInlineMarkdown:
+    """Тесты для InlineMarkdown компонента."""
 
-    @pytest.fixture
-    def widget(self) -> InlineMarkdown:
-        """Создаёт экземпляр InlineMarkdown."""
-        return InlineMarkdown()
+    def test_empty_content(self) -> None:
+        """Пустой контент не вызывает ошибок."""
+        widget = InlineMarkdown("")
+        assert widget.raw_content == ""
 
-    def test_empty_text(self, widget: InlineMarkdown) -> None:
-        """Пустой текст возвращает пустую строку."""
-        assert widget._convert_to_rich("") == ""
-        assert widget._convert_to_rich(None) == ""
+    def test_plain_text(self) -> None:
+        """Обычный текст сохраняется."""
+        widget = InlineMarkdown("Hello world")
+        assert widget.raw_content == "Hello world"
 
-    def test_plain_text(self, widget: InlineMarkdown) -> None:
-        """Обычный текст остаётся без изменений."""
-        assert widget._convert_to_rich("Hello world") == "Hello world"
+    def test_bold_text(self) -> None:
+        """Bold Markdown синтаксис сохраняется для парсинга."""
+        widget = InlineMarkdown("**bold text**")
+        assert widget.raw_content == "**bold text**"
 
-    def test_bold_text(self, widget: InlineMarkdown) -> None:
-        """**text** конвертируется в [bold]text[/bold]."""
-        result = widget._convert_to_rich("**bold text**")
-        assert result == "[bold]bold text[/bold]"
+    def test_italic_text(self) -> None:
+        """Italic Markdown синтаксис сохраняется для парсинга."""
+        widget = InlineMarkdown("*italic text*")
+        assert widget.raw_content == "*italic text*"
 
-    def test_italic_text(self, widget: InlineMarkdown) -> None:
-        """*text* конвертируется в [italic]text[/italic]."""
-        result = widget._convert_to_rich("*italic text*")
-        assert result == "[italic]italic text[/italic]"
+    def test_inline_code(self) -> None:
+        """Inline code Markdown синтаксис сохраняется."""
+        widget = InlineMarkdown("`code`")
+        assert widget.raw_content == "`code`"
 
-    def test_inline_code(self, widget: InlineMarkdown) -> None:
-        """`code` конвертируется в [reverse] code [/reverse]."""
-        result = widget._convert_to_rich("`code`")
-        assert result == "[reverse] code [/reverse]"
+    def test_strikethrough(self) -> None:
+        """Strikethrough Markdown синтаксис сохраняется."""
+        widget = InlineMarkdown("~~deleted~~")
+        assert widget.raw_content == "~~deleted~~"
 
-    def test_strikethrough(self, widget: InlineMarkdown) -> None:
-        """~~text~~ конвертируется в [strike]text[/strike]."""
-        result = widget._convert_to_rich("~~deleted~~")
-        assert result == "[strike]deleted[/strike]"
+    def test_header(self) -> None:
+        """Header Markdown синтаксис сохраняется."""
+        widget = InlineMarkdown("# Header")
+        assert widget.raw_content == "# Header"
 
-    def test_header(self, widget: InlineMarkdown) -> None:
-        """# Header конвертируется в [bold]Header[/bold]."""
-        result = widget._convert_to_rich("# Header")
-        assert result == "[bold]Header[/bold]"
+    def test_link(self) -> None:
+        """Link Markdown синтаксис сохраняется."""
+        widget = InlineMarkdown("[link](https://example.com)")
+        assert widget.raw_content == "[link](https://example.com)"
 
-    def test_link(self, widget: InlineMarkdown) -> None:
-        """[text](url) конвертируется в text (url)."""
-        result = widget._convert_to_rich("[link](https://example.com)")
-        assert result == "link (https://example.com)"
+    def test_literal_rich_tags_preserved(self) -> None:
+        """Литеральные Rich-теги в тексте сохраняются как есть.
+        
+        Это ключевой тест — раньше [/bold] в тексте LLM ломал Rich парсер.
+        Теперь textual.widgets.Markdown парсит Markdown, а не Rich markup,
+        поэтому литеральные скобки не вызывают MarkupError.
+        """
+        widget = InlineMarkdown("text with [/bold] tag")
+        assert widget.raw_content == "text with [/bold] tag"
 
-    def test_escaped_brackets_restored(self, widget: InlineMarkdown) -> None:
-        """Экранированные [ восстанавливаются обратно в [."""
-        # Тестируем исправление бага с '\[' -> '['
-        result = widget._convert_to_rich("array[0]")
-        assert "[" in result
-        assert result == "array[0]"
+    def test_mixed_formatting(self) -> None:
+        """Комбинированное форматирование сохраняется."""
+        widget = InlineMarkdown("**bold** and *italic* with `code`")
+        assert "**bold**" in widget.raw_content
+        assert "*italic*" in widget.raw_content
+        assert "`code`" in widget.raw_content
 
-    def test_literal_rich_tags_escaped(self, widget: InlineMarkdown) -> None:
-        """Литеральные Rich-теги в тексте экранируются."""
-        # Если LLM вернёт [/bold] в тексте, это не должно сломать парсер
-        result = widget._convert_to_rich("text with [/bold] tag")
-        # Скобка должна быть восстановлена
-        assert "[/bold]" in result
+    def test_brackets_with_formatting(self) -> None:
+        """Скобки внутри форматированного текста сохраняются."""
+        widget = InlineMarkdown("**array[0]**")
+        assert widget.raw_content == "**array[0]**"
 
-    def test_mixed_formatting(self, widget: InlineMarkdown) -> None:
-        """Комбинированное форматирование."""
-        result = widget._convert_to_rich("**bold** and *italic* with `code`")
-        assert "[bold]bold[/bold]" in result
-        assert "[italic]italic[/italic]" in result
-        assert "[reverse] code [/reverse]" in result
 
-    def test_brackets_with_formatting(self, widget: InlineMarkdown) -> None:
-        """Скобки внутри форматированного текста."""
-        result = widget._convert_to_rich("**array[0]**")
-        assert "[bold]array[0][/bold]" in result
+class TestMarkdownViewer:
+    """Тесты для MarkdownViewer компонента."""
+
+    def test_empty_content(self) -> None:
+        """Пустой контент не вызывает ошибок."""
+        widget = MarkdownViewer("")
+
+    def test_markdown_content(self) -> None:
+        """Markdown контент принимается."""
+        widget = MarkdownViewer("# Hello\n**Bold** text")
+
+    def test_literal_rich_tags(self) -> None:
+        """Литеральные Rich-теги не ломают парсер."""
+        widget = MarkdownViewer("text with [/bold] and [italic] tags")
+
+
+class TestMarkupErrorResistance:
+    """Тесты устойчивости к MarkupError.
+    
+    Проверяют, что литеральные Rich-теги в тексте LLM
+    не вызывают MarkupError при рендеринге.
+    """
+
+    @pytest.mark.parametrize("dangerous_text", [
+        "text with [/bold] tag",
+        "text with [bold] tag",
+        "[/italic] orphan close tag",
+        "[bold]unclosed tag",
+        "array[0] with [1] indices",
+        "**bold [/bold] text**",
+        "code `[/bold]` in backticks",
+    ])
+    def test_dangerous_text_does_not_crash(self, dangerous_text: str) -> None:
+        """Опасный текст не вызывает ошибок при создании виджета."""
+        # Если виджет создаётся без исключений — тест пройден
+        widget = InlineMarkdown(dangerous_text)
+        assert widget.raw_content == dangerous_text

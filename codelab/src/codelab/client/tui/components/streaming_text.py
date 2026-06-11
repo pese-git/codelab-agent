@@ -14,6 +14,7 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.reactive import reactive
 from textual.timer import Timer
+from textual.widgets import Markdown as TextualMarkdown
 from textual.widgets import Static
 
 
@@ -45,6 +46,18 @@ class StreamingText(Container):
     
     StreamingText > .streaming-content {
         height: auto;
+        padding: 0;
+        margin: 0;
+    }
+    
+    StreamingText > .streaming-content MarkdownBlock {
+        padding: 0;
+        margin: 0;
+    }
+    
+    StreamingText > .streaming-content MarkdownParagraph {
+        padding: 0;
+        margin: 0;
     }
     
     StreamingText > .streaming-cursor {
@@ -91,7 +104,7 @@ class StreamingText(Container):
         self._use_markdown = use_markdown
         self._cursor_index = 0
         self._cursor_timer: Timer | None = None
-        self._content_widget: Static | None = None
+        self._content_widget: TextualMarkdown | Static | None = None
         self._cursor_widget: Static | None = None
         
         # Устанавливаем начальные значения
@@ -101,11 +114,17 @@ class StreamingText(Container):
     def compose(self) -> ComposeResult:
         """Создает внутренние виджеты."""
         # Виджет для текстового контента
-        self._content_widget = Static(
-            self._render_text(self._initial_text),
-            classes="streaming-content",
-            markup=True,
-        )
+        if self._use_markdown:
+            self._content_widget = TextualMarkdown(
+                self._initial_text,
+                classes="streaming-content",
+            )
+        else:
+            self._content_widget = Static(
+                self._initial_text,
+                classes="streaming-content",
+                markup=False,
+            )
         yield self._content_widget
         
         # Виджет курсора
@@ -141,24 +160,6 @@ class StreamingText(Container):
             self._cursor_index = (self._cursor_index + 1) % len(self.CURSOR_CHARS)
             self._cursor_widget.update(self.CURSOR_CHARS[self._cursor_index])
     
-    def _render_text(self, text: str) -> str:
-        """Рендерит текст с опциональной Markdown конвертацией.
-        
-        Args:
-            text: Исходный текст
-            
-        Returns:
-            Отрендеренный текст (Rich markup)
-        """
-        if not self._use_markdown:
-            return text
-        
-        # Используем InlineMarkdown для конвертации
-        from codelab.client.tui.components.markdown import InlineMarkdown
-        
-        converter = InlineMarkdown(text)
-        return converter._convert_to_rich(text)
-    
     def watch_text(self, new_text: str) -> None:
         """Реагирует на изменение текста.
         
@@ -166,7 +167,9 @@ class StreamingText(Container):
             new_text: Новый текст
         """
         if self._content_widget is not None:
-            self._content_widget.update(self._render_text(new_text))
+            # Markdown.update() принимает Markdown текст напрямую
+            # Static.update() принимает строку
+            self._content_widget.update(new_text)
     
     def watch_show_cursor(self, show: bool) -> None:
         """Реагирует на изменение видимости курсора.

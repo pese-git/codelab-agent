@@ -205,14 +205,12 @@ def test_build_history_with_mcp_info(
         for t in mock_mcp_tools
     ]
 
-    session_state.mcp_manager = mock_mcp_manager
-
     orc = AgentOrchestrator(
         config=config,
         llm_provider=llm_provider,
         tool_registry=tool_registry,
     )
-    messages = orc._build_history(session_state)
+    messages = orc._build_history(session_state, mcp_manager=mock_mcp_manager)
 
     assert len(messages) == 1
     assert messages[0].role == "system"

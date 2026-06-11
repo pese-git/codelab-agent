@@ -78,10 +78,10 @@ class TestConfigOptionBuilder:
         builder = ConfigOptionBuilder(registry)
         spec = builder.build_model_config_option()
 
-        # Проверить что все options имеют value и label
+        # Проверить что все options имеют value и name
         for option in spec["options"]:
             assert "value" in option
-            assert "label" in option
+            assert "name" in option
             assert "/" in option["value"]  # Формат "provider/model"
 
     def test_model_options_with_pricing(self, registry: LLMProviderRegistry) -> None:
@@ -95,8 +95,8 @@ class TestConfigOptionBuilder:
             None,
         )
         assert gpt4o_option is not None
-        assert "pricing" in gpt4o_option
-        assert "$" in gpt4o_option["pricing"]
+        assert "_pricing" in gpt4o_option
+        assert "$" in gpt4o_option["_pricing"]
 
     def test_model_options_without_pricing(self, registry: LLMProviderRegistry) -> None:
         """Проверить options без pricing."""
@@ -109,7 +109,7 @@ class TestConfigOptionBuilder:
             None,
         )
         assert o3_option is not None
-        assert "pricing" not in o3_option
+        assert "_pricing" not in o3_option
 
     def test_build_config_specs(self, registry: LLMProviderRegistry) -> None:
         """Проверить создание полной спецификации."""

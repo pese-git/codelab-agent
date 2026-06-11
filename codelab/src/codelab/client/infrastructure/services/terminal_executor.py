@@ -112,6 +112,23 @@ class TerminalExecutor:
         terminal_id = f"term_{uuid.uuid4().hex[:12]}"
         args = args or []
 
+        # LLM иногда передаёт всю команду в command: "ls -ahl ." вместо
+        # command="ls", args=["-ahl", "."]. Разбиваем через shlex если args пустой.
+        if not args and " " in command.strip():
+            try:
+                parts = shlex.split(command)
+                if len(parts) > 1:
+                    logger.warning(
+                        "command_auto_split",
+                        original_command=command,
+                        split_command=parts[0],
+                        split_args=parts[1:],
+                    )
+                    command = parts[0]
+                    args = parts[1:]
+            except ValueError:
+                pass  # Если shlex не может распарсить — пробуем как есть
+
         try:
             # Запустить процесс с объединением stderr в stdout
             process = await asyncio.create_subprocess_exec(

@@ -1,6 +1,6 @@
 """Тесты для MCPClient resources и prompts методов."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,9 +11,6 @@ from codelab.server.mcp.client import (
 )
 from codelab.server.mcp.models import (
     MCPServerConfig,
-    MCPResource,
-    MCPPrompt,
-    MCPPromptArgument,
 )
 
 
@@ -58,6 +55,47 @@ class TestMCPClientListResources:
 
         mock_transport.send_request.assert_called_once_with(
             method="resources/list",
+            params=None,
+            timeout=30.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_resources_with_pagination(self):
+        """Пагинация при получении списка ресурсов."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        # Первый вызов возвращает nextCursor, второй — без
+        mock_transport.send_request = AsyncMock(side_effect=[
+            {
+                "resources": [
+                    {"uri": "file:///a.txt", "name": "a.txt"},
+                ],
+                "nextCursor": "page2",
+            },
+            {
+                "resources": [
+                    {"uri": "file:///b.txt", "name": "b.txt"},
+                ],
+            },
+        ])
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(resources={})
+
+        resources = await client.list_resources()
+
+        assert len(resources) == 2
+        assert resources[0].uri == "file:///a.txt"
+        assert resources[1].uri == "file:///b.txt"
+        assert mock_transport.send_request.call_count == 2
+        # Второй вызов должен передать cursor
+        mock_transport.send_request.assert_called_with(
+            method="resources/list",
+            params={"cursor": "page2"},
             timeout=30.0,
         )
 
@@ -168,6 +206,125 @@ class TestMCPClientReadResource:
             await client.read_resource("file:///tmp/test.txt")
 
 
+class TestMCPClientListResourceTemplates:
+    """Тесты метода list_resource_templates."""
+
+    @pytest.mark.asyncio
+    async def test_list_resource_templates_success(self):
+        """Успешное получение списка шаблонов ресурсов."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        mock_transport.send_request = AsyncMock(return_value={
+            "resourceTemplates": [
+                {
+                    "uriTemplate": "file:///{path}",
+                    "name": "Project Files",
+                    "description": "Access project files",
+                    "mimeType": "application/octet-stream",
+                },
+                {
+                    "uriTemplate": "db:///{table}/{id}",
+                    "name": "DB Record",
+                    "mimeType": "application/json",
+                },
+            ]
+        })
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(resources={})
+
+        templates = await client.list_resource_templates()
+
+        assert len(templates) == 2
+        assert templates[0].uri_template == "file:///{path}"
+        assert templates[0].name == "Project Files"
+        assert templates[1].uri_template == "db:///{table}/{id}"
+
+        mock_transport.send_request.assert_called_once_with(
+            method="resources/templates/list",
+            params=None,
+            timeout=30.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_resource_templates_with_pagination(self):
+        """Пагинация при получении списка шаблонов."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        mock_transport.send_request = AsyncMock(side_effect=[
+            {
+                "resourceTemplates": [
+                    {"uriTemplate": "file:///{path}", "name": "Files"},
+                ],
+                "nextCursor": "tpl_page2",
+            },
+            {
+                "resourceTemplates": [
+                    {"uriTemplate": "db:///{table}", "name": "Tables"},
+                ],
+            },
+        ])
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(resources={})
+
+        templates = await client.list_resource_templates()
+
+        assert len(templates) == 2
+        assert templates[0].uri_template == "file:///{path}"
+        assert templates[1].uri_template == "db:///{table}"
+        assert mock_transport.send_request.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_list_resource_templates_not_ready(self):
+        """Ошибка при list_resource_templates в неправильном состоянии."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.CREATED
+
+        with pytest.raises(
+            MCPClientError, match="Cannot list resource templates"
+        ):
+            await client.list_resource_templates()
+
+    @pytest.mark.asyncio
+    async def test_list_resource_templates_not_supported(self):
+        """Шаблоны не поддерживаются (нет resources capability)."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(tools={"listChanged": True})
+
+        templates = await client.list_resource_templates()
+
+        assert templates == []
+        mock_transport.send_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_list_resource_templates_no_transport(self):
+        """Ошибка при list_resource_templates без транспорта."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+        client._transport = None
+
+        with pytest.raises(MCPClientError, match="Transport not available"):
+            await client.list_resource_templates()
+
+
 class TestMCPClientListPrompts:
     """Тесты метода list_prompts."""
 
@@ -214,6 +371,47 @@ class TestMCPClientListPrompts:
 
         mock_transport.send_request.assert_called_once_with(
             method="prompts/list",
+            params=None,
+            timeout=30.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_prompts_with_pagination(self):
+        """Пагинация при получении списка промптов."""
+        config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
+        client = MCPClient(config)
+        client._state = MCPClientState.READY
+
+        mock_transport = AsyncMock()
+        # Первый вызов возвращает nextCursor, второй — без
+        mock_transport.send_request = AsyncMock(side_effect=[
+            {
+                "prompts": [
+                    {"name": "prompt1", "description": "First prompt"},
+                ],
+                "nextCursor": "page2",
+            },
+            {
+                "prompts": [
+                    {"name": "prompt2", "description": "Second prompt"},
+                ],
+            },
+        ])
+        client._transport = mock_transport
+
+        from codelab.server.mcp.models import MCPCapabilities
+        client._capabilities = MCPCapabilities(prompts={})
+
+        prompts = await client.list_prompts()
+
+        assert len(prompts) == 2
+        assert prompts[0].name == "prompt1"
+        assert prompts[1].name == "prompt2"
+        assert mock_transport.send_request.call_count == 2
+        # Второй вызов должен передать cursor
+        mock_transport.send_request.assert_called_with(
+            method="prompts/list",
+            params={"cursor": "page2"},
             timeout=30.0,
         )
 

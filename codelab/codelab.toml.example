@@ -19,6 +19,22 @@ temperature = 0.7
 max_tokens = 8192
 
 # ============================================================================
+# Таймауты HTTP-вызовов LLM провайдера
+# ============================================================================
+# Все значения в секундах. Увеличьте read таймаут для медленных моделей
+# или при работе с большими контекстами.
+
+[llm.timeout]
+# Подключение к серверу API
+connect = 30.0
+# Ожидание ответа от LLM (генерация completion)
+read = 300.0
+# Отправка запроса
+write = 30.0
+# Ожидание соединения из пула
+pool = 30.0
+
+# ============================================================================
 # Конфигурация провайдеров
 # ============================================================================
 
@@ -27,6 +43,13 @@ max_tokens = 8192
 api_key = "${OPENAI_API_KEY}"
 base_url = "https://api.openai.com/v1"
 default_model = "gpt-4o"
+
+# Per-provider таймауты (переопределяют [llm.timeout])
+# [llm.providers.openai.timeout]
+# connect = 30.0
+# read = 300.0
+# write = 30.0
+# pool = 30.0
 
 # Per-model конфигурация
 [llm.providers.openai.models.gpt-4o]
@@ -129,6 +152,69 @@ max_attempts = 3
 retry_on = ["rate_limit", "timeout"]
 
 # ============================================================================
+# Конфигурация мультиагентной системы
+# ============================================================================
+# Агенты можно определить двумя способами:
+#
+# 1. TOML (в этом файле) — аналогично opencode.json:
+#    [agents.definitions.coder]
+#    description = "Senior Python Developer"
+#    mode = "subagent"
+#    model = "anthropic/claude-3-5-sonnet"
+#    prompt = "Ты — Senior Python Developer..."
+#
+# 2. Markdown файлы (приоритет выше, override TOML):
+#    Глобальные: ~/.codelab/agents/*.md
+#    Проектные:  .codelab/agents/*.md
+#
+# Имя файла = имя агента (coder.md → "coder")
+# Frontmatter = конфигурация, тело файла = system prompt
+
+# Пример TOML-агента (раскомментируйте для использования):
+# [agents.definitions.coder]
+# description = "Senior Python Developer"
+# mode = "subagent"
+# priority = 1
+# model = "anthropic/claude-3-5-sonnet"
+# temperature = 0.1
+# prompt = "Ты — Senior Python Developer. Пиши чистый, типизированный код."
+#
+# [agents.definitions.coder.tools]
+# "fs/read_text_file" = true
+# "fs/write_text_file" = true
+#
+# [agents.definitions.coder.permission]
+# edit = "ask"
+
+[agents]
+# Режим выполнения по умолчанию: single | multi_orchestrated | multi_choreographed | hierarchical
+mode = "single"
+
+# Режим fallback если нет нужных агентов для выбранной стратегии
+fallback_mode = "single"
+
+# Модель по умолчанию (если агент не указал свою)
+default_model = "openai/gpt-4o"
+
+# Максимальное количество шагов мультиагентного выполнения
+max_steps = 7
+
+# Модель для Token-Slicing (дешёвая)
+slicer_model = "openai/gpt-4o-mini"
+
+# Лимит токенов для summary
+max_sliced_tokens = 120
+
+# Не сжимать если output < N токенов
+slicer_skip_threshold = 300
+
+# Лимит контекста (триггер compaction)
+context_window_limit = 128000
+
+# Debug mode (полные payload логи, LLM dump)
+debug = false
+
+# ============================================================================
 # Конфигурация TUI клиента
 # ============================================================================
 
@@ -144,9 +230,9 @@ theme = "light"
 # Порт сервера (опционально, можно указать через CLI --port)
 # port = 8765
 
-# Таймаут ожидания ответа от сервера в секундах (по умолчанию: 60)
+# Таймаут ожидания ответа от сервера в секундах (по умолчанию: 300)
 # Увеличьте при работе с медленными LLM API или stdio транспортом
-# receive_timeout = 60
+# receive_timeout = 300
 
 # ============================================================================
 # Конфигурация MCP серверов

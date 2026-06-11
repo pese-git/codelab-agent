@@ -47,6 +47,7 @@ class LMStudioProvider(OpenAICompatibleProvider):
                 base_url=config.base_url,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
+                timeout=config.timeout,
                 extra=config.extra,
             )
         await super().initialize(config)

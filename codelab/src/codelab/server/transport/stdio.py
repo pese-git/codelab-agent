@@ -188,7 +188,6 @@ class StdioServerTransport(AcpServerTransport):
 
     def _setup_signal_handlers(self) -> None:
         """Register signal handlers для graceful shutdown."""
-        loop = asyncio.get_running_loop()
 
         def _signal_handler(signum: int, frame: Any) -> None:
             logger.info("signal received", signal=signum)

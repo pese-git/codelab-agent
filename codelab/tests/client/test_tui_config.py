@@ -40,4 +40,4 @@ def test_resolve_tui_connection_uses_store_values_when_args_missing(monkeypatch)
     assert host == "127.0.0.8"
     assert port == 8800
     assert theme == "light"
-    assert timeout == 60.0
+    assert timeout == 300.0

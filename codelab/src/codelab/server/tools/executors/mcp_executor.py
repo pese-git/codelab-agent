@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -61,6 +62,50 @@ class MCPToolExecutor(ToolExecutor):
         """
         return tool_name.startswith(_MCP_PREFIX)
 
+    @staticmethod
+    def _convert_mcp_content_to_text(content: list[dict[str, Any]]) -> str:
+        """Конвертировать MCP content в текстовый формат.
+
+        Поддерживает text, image (base64 metadata), embedded resource.
+
+        Args:
+            content: Список MCP content элементов.
+
+        Returns:
+            Текстовое представление всех content элементов.
+        """
+        parts: list[str] = []
+        for item in content:
+            item_type = item.get("type", "text")
+
+            if item_type == "text":
+                parts.append(item.get("text", ""))
+
+            elif item_type == "image":
+                # Изображение — описываем metadata, base64 данные не включаем в текст
+                mime_type = item.get("mimeType", "image/unknown")
+                data_len = len(item.get("data", ""))
+                parts.append(f"[Image: {mime_type}, {data_len} bytes base64 data]")
+
+            elif item_type == "resource":
+                # Embedded resource — извлекаем содержимое ресурса
+                resource = item.get("resource", {})
+                if resource.get("text"):
+                    parts.append(resource["text"])
+                elif resource.get("blob"):
+                    mime_type = resource.get("mimeType", "application/octet-stream")
+                    parts.append(f"[Embedded resource: {mime_type}, blob data]")
+                elif resource.get("uri"):
+                    parts.append(f"[Resource link: {resource['uri']}]")
+                else:
+                    parts.append("[Embedded resource: no content]")
+
+            else:
+                # Unknown type — сериализуем как JSON
+                parts.append(json.dumps(item, ensure_ascii=False))
+
+        return "\n".join(parts) if parts else ""
+
     async def execute(
         self,
         session: SessionState,
@@ -101,7 +146,25 @@ class MCPToolExecutor(ToolExecutor):
 
         try:
             result = await self._mcp_manager.call_tool(tool_name, mcp_arguments)
-            return result
+
+            # Если результат уже ToolExecutionResult — возвращаем напрямую
+            if isinstance(result, ToolExecutionResult):
+                return result
+
+            # Конвертируем MCP content в текст
+            if hasattr(result, "content") and result.content:
+                output = self._convert_mcp_content_to_text(result.content)
+                is_error = getattr(result, "is_error", False)
+                return ToolExecutionResult(
+                    success=not is_error,
+                    output=output,
+                    error=output if is_error else None,
+                )
+
+            return ToolExecutionResult(
+                success=True,
+                output=str(result) if result else "",
+            )
         except Exception as exc:
             logger.error(
                 "MCP tool execution failed",

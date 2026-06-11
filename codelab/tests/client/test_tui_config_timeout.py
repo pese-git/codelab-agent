@@ -12,7 +12,7 @@ class TestTUIConfigReceiveTimeout:
 
     def test_default_timeout(self) -> None:
         config = TUIConfig()
-        assert config.receive_timeout == 60.0
+        assert config.receive_timeout == 300.0
 
     def test_custom_timeout(self) -> None:
         config = TUIConfig(receive_timeout=120.0)
@@ -34,7 +34,7 @@ class TestTUIConfigStoreReceiveTimeout:
         json_file.write_text('{"receive_timeout": -5}')
         store = TUIConfigStore(file_path=json_file)
         config = store.load()
-        assert config.receive_timeout == 60.0
+        assert config.receive_timeout == 300.0
 
     def test_toml_timeout(self, tmp_path: Path) -> None:
         toml = tmp_path / "codelab.toml"
@@ -52,7 +52,7 @@ class TestTUIConfigStoreReceiveTimeout:
         store = TUIConfigStore(file_path=tmp_path / "nonexistent.json")
         with patch.object(store, "_find_toml_chain", return_value=[toml]):
             config = store.load_with_priority()
-        assert config.receive_timeout == 60.0
+        assert config.receive_timeout == 300.0
 
     def test_cli_timeout_overrides_toml(self, tmp_path: Path) -> None:
         toml = tmp_path / "codelab.toml"
@@ -132,7 +132,7 @@ class TestResolveTuiConnectionTimeout:
         with patch("codelab.client.tui.config.TUIConfigStore") as mock_store_class:
             mock_store = mock_store_class.return_value
             mock_store.load_with_priority.return_value = TUIConfig(
-                receive_timeout=60.0,
+                receive_timeout=300.0,
             )
 
             with patch.dict(os.environ, {"CODELAB_RECEIVE_TIMEOUT": "invalid"}):

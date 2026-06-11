@@ -29,6 +29,15 @@ from .client import (
     MCPInitializeError,
     MCPToolCallError,
 )
+from .content_mapper import (
+    ContentMapperError,
+    extract_text_from_acp_content,
+    mcp_content_item_to_acp,
+    mcp_content_to_acp_list,
+    mcp_embedded_to_acp,
+    mcp_image_to_acp,
+    mcp_text_to_acp,
+)
 from .manager import (
     MCPManager,
     MCPManagerError,
@@ -36,25 +45,54 @@ from .manager import (
     MCPServerNotFoundError,
 )
 from .models import (
+    MCPAnnotations,
     MCPCallToolParams,
     MCPCallToolResult,
     MCPCapabilities,
+    MCPClientCapabilities,
     MCPClientInfo,
     MCPContent,
     MCPEmbeddedResource,
     MCPError,
+    MCPGetPromptParams,
+    MCPGetPromptResult,
     MCPImageContent,
     MCPInitializeParams,
     MCPInitializeResult,
+    MCPListPromptsParams,
+    MCPListPromptsResult,
+    MCPListResourcesParams,
+    MCPListResourcesResult,
+    MCPListResourceTemplatesParams,
+    MCPListResourceTemplatesResult,
     MCPListToolsResult,
     MCPNotification,
+    MCPProgressNotification,
+    MCPPrompt,
+    MCPPromptArgument,
+    MCPPromptMessage,
+    MCPReadResourceParams,
+    MCPReadResourceResult,
     MCPRequest,
+    MCPResource,
+    MCPResourceContent,
+    MCPResourceIcon,
+    MCPResourceTemplate,
     MCPResponse,
+    MCPRoot,
     MCPServerConfig,
     MCPServerInfo,
     MCPTextContent,
     MCPTool,
     MCPToolInputSchema,
+)
+from .prompt_mapper import (
+    mcp_prompt_to_available_command,
+    mcp_prompts_to_available_commands,
+)
+from .resource_mapper import (
+    mcp_resource_to_resource_link,
+    mcp_resources_to_resource_links,
 )
 from .tool_adapter import MCPToolAdapter
 from .transport import (
@@ -69,6 +107,7 @@ from .transport import (
     StdioTransport,
     StdioTransportError,
 )
+from .transport_factory import MCPTransport, TransportFactory
 
 __all__ = [
     # Client
@@ -84,7 +123,23 @@ __all__ = [
     "MCPServerNotFoundError",
     # Tool Adapter
     "MCPToolAdapter",
+    # Content Mapper
+    "ContentMapperError",
+    "mcp_text_to_acp",
+    "mcp_image_to_acp",
+    "mcp_embedded_to_acp",
+    "mcp_content_item_to_acp",
+    "mcp_content_to_acp_list",
+    "extract_text_from_acp_content",
+    # Resource Mapper
+    "mcp_resource_to_resource_link",
+    "mcp_resources_to_resource_links",
+    # Prompt Mapper
+    "mcp_prompt_to_available_command",
+    "mcp_prompts_to_available_commands",
     # Transport
+    "MCPTransport",
+    "TransportFactory",
     "StdioTransport",
     "StdioTransportError",
     "ProcessNotStartedError",
@@ -118,4 +173,29 @@ __all__ = [
     "MCPTextContent",
     "MCPImageContent",
     "MCPEmbeddedResource",
+    # Models - Resources
+    "MCPAnnotations",
+    "MCPResourceIcon",
+    "MCPResource",
+    "MCPResourceTemplate",
+    "MCPListResourcesParams",
+    "MCPListResourcesResult",
+    "MCPListResourceTemplatesParams",
+    "MCPListResourceTemplatesResult",
+    "MCPReadResourceParams",
+    "MCPReadResourceResult",
+    "MCPResourceContent",
+    # Models - Prompts
+    "MCPPrompt",
+    "MCPPromptArgument",
+    "MCPPromptMessage",
+    "MCPListPromptsParams",
+    "MCPListPromptsResult",
+    "MCPGetPromptParams",
+    "MCPGetPromptResult",
+    # Models - Progress
+    "MCPProgressNotification",
+    # Models - Roots
+    "MCPRoot",
+    "MCPClientCapabilities",
 ]

@@ -50,16 +50,34 @@ class StdioTransport:
         command: Команда для запуска MCP сервера.
         args: Аргументы командной строки.
         env: Переменные окружения для процесса.
+        cwd: Рабочая директория для процесса.
     
     Example:
-        >>> transport = StdioTransport()
-        >>> await transport.start("mcp-server", ["--stdio"])
+        >>> transport = StdioTransport(command="mcp-server", args=["--stdio"])
+        >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
         >>> await transport.close()
     """
     
-    def __init__(self) -> None:
-        """Инициализация транспорта."""
+    def __init__(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> None:
+        """Инициализация транспорта.
+        
+        Args:
+            command: Команда для запуска (путь к исполняемому файлу).
+            args: Аргументы командной строки.
+            env: Дополнительные переменные окружения.
+            cwd: Рабочая директория для процесса.
+        """
+        self._command = command
+        self._args = args or []
+        self._env = env
+        self._cwd = cwd
         self._process: asyncio.subprocess.Process | None = None
         self._request_id: int = 0
         self._pending_requests: dict[int | str, asyncio.Future[MCPResponse]] = {}
@@ -67,9 +85,16 @@ class StdioTransport:
         self._stderr_task: asyncio.Task[None] | None = None
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
+        
+        # Очередь для notifications от сервера
+        self._notification_queue: asyncio.Queue = asyncio.Queue()
+        # Обработчики notifications
+        self._notification_handlers: dict[str, list] = {}
+        # Обработчики входящих запросов от сервера
+        self._request_handlers: dict[str, Callable] = {}
     
     @property
-    def is_running(self) -> bool:
+    def is_connected(self) -> bool:
         """Проверить, запущен ли процесс MCP сервера."""
         return (
             self._process is not None 
@@ -77,52 +102,38 @@ class StdioTransport:
             and not self._closed
         )
     
-    async def start(
-        self,
-        command: str,
-        args: list[str] | None = None,
-        env: dict[str, str] | None = None,
-        cwd: str | None = None,
-    ) -> None:
+    async def connect(self) -> None:
         """Запустить MCP сервер как subprocess.
-        
-        Args:
-            command: Команда для запуска (путь к исполняемому файлу).
-            args: Аргументы командной строки.
-            env: Дополнительные переменные окружения.
-            cwd: Рабочая директория для процесса.
         
         Raises:
             StdioTransportError: Если не удалось запустить процесс.
         """
         if self._process is not None:
-            raise StdioTransportError("Transport already started")
-        
-        args = args or []
+            raise StdioTransportError("Transport already connected")
         
         # Формируем окружение: берём текущее и добавляем пользовательское
         import os
         process_env = os.environ.copy()
-        if env:
-            process_env.update(env)
+        if self._env:
+            process_env.update(self._env)
         
         logger.debug(
             "Starting MCP server: %s %s (cwd=%s)",
-            command, " ".join(args), cwd
+            self._command, " ".join(self._args), self._cwd
         )
         
         try:
             self._process = await asyncio.create_subprocess_exec(
-                command,
-                *args,
+                self._command,
+                *self._args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=process_env,
-                cwd=cwd,
+                cwd=self._cwd,
             )
         except FileNotFoundError as e:
-            raise StdioTransportError(f"MCP server not found: {command}") from e
+            raise StdioTransportError(f"MCP server not found: {self._command}") from e
         except OSError as e:
             raise StdioTransportError(f"Failed to start MCP server: {e}") from e
         
@@ -160,7 +171,7 @@ class StdioTransport:
             asyncio.TimeoutError: Если истёк таймаут.
             StdioTransportError: При ошибке в ответе.
         """
-        if not self.is_running:
+        if not self.is_connected:
             raise ProcessNotStartedError("MCP server process not running")
         
         # Генерируем уникальный ID запроса
@@ -215,7 +226,7 @@ class StdioTransport:
         Raises:
             ProcessNotStartedError: Если процесс не запущен.
         """
-        if not self.is_running:
+        if not self.is_connected:
             raise ProcessNotStartedError("MCP server process not running")
         
         notification = MCPNotification(method=method, params=params)
@@ -376,38 +387,264 @@ class StdioTransport:
     async def _handle_message(self, data: dict[str, Any]) -> None:
         """Обработать входящее JSON-RPC сообщение.
         
+        Согласно JSON-RPC 2.0 спецификации, существует три типа сообщений:
+        1. Request: {"jsonrpc": "2.0", "method": "...", "params": {...}, "id": 1}
+        2. Response: {"jsonrpc": "2.0", "result": {...}, "id": 1}
+           или {"jsonrpc": "2.0", "error": {...}, "id": 1}
+        3. Notification: {"jsonrpc": "2.0", "method": "...", "params": {...}} (без id)
+        
         Args:
             data: Распарсенное JSON сообщение.
         """
-        # Проверяем, есть ли id (это ответ на запрос)
+        message_id = data.get("id")
+        method = data.get("method")
+        has_result = "result" in data
+        has_error = "error" in data
+        
+        # Правильная классификация согласно JSON-RPC 2.0
+        if method is not None and message_id is not None:
+            # Входящий Request от сервера (например, roots/list)
+            await self._handle_incoming_request(data)
+        elif message_id is not None and (has_result or has_error):
+            # Response на наш запрос
+            await self._handle_response_message(data)
+        elif method is not None and message_id is None:
+            # Notification от сервера
+            await self._handle_notification(data)
+        else:
+            logger.warning("Unknown message format: %s", data)
+    
+    async def _handle_response_message(self, data: dict[str, Any]) -> None:
+        """Обработать ответ на наш запрос.
+        
+        Args:
+            data: Распарсенное JSON сообщение (response).
+        """
         message_id = data.get("id")
         
-        if message_id is not None:
-            # Это ответ - ищем ожидающий Future
-            future = self._pending_requests.get(message_id)
-            
-            if future and not future.done():
-                # Парсим как MCPResponse
-                try:
-                    response = MCPResponse.model_validate(data)
-                    future.set_result(response)
-                except Exception as e:
-                    future.set_exception(
-                        StdioTransportError(f"Invalid response: {e}")
-                    )
-            else:
-                logger.warning(
-                    "Received response for unknown request id=%s",
-                    message_id
+        # message_id обязателен для ответов
+        if message_id is None:
+            logger.warning("Received response without id")
+            return
+        
+        # Ищем ожидающий Future
+        future = self._pending_requests.get(message_id)
+        
+        if future and not future.done():
+            # Парсим как MCPResponse
+            try:
+                response = MCPResponse.model_validate(data)
+                future.set_result(response)
+            except Exception as e:
+                future.set_exception(
+                    StdioTransportError(f"Invalid response: {e}")
                 )
         else:
-            # Это нотификация от сервера
-            method = data.get("method", "unknown")
-            logger.debug(
-                "Received MCP notification: method=%s",
+            logger.warning(
+                "Received response for unknown request id=%s",
+                message_id
+            )
+    
+    async def _handle_notification(self, data: dict[str, Any]) -> None:
+        """Обработать notification от сервера.
+        
+        Args:
+            data: Распарсенное JSON сообщение (notification).
+        """
+        method = data.get("method", "unknown")
+        logger.debug(
+            "Received MCP notification: method=%s",
+            method
+        )
+        # Помещаем в очередь notifications
+        await self._notification_queue.put(data)
+        
+        # Вызываем зарегистрированные handlers
+        handlers = self._notification_handlers.get(method, [])
+        # Также вызываем wildcard handlers (для всех notifications)
+        handlers += self._notification_handlers.get("*", [])
+        
+        for handler in handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(data)
+                else:
+                    handler(data)
+            except Exception as e:
+                logger.error(
+                    "Error in notification handler for %s: %s",
+                    method, e
+                )
+    
+    async def _handle_incoming_request(self, data: dict[str, Any]) -> None:
+        """Обработать входящий запрос от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Клиент должен обработать запрос и отправить ответ.
+        
+        Args:
+            data: Распарсенное JSON сообщение (request).
+        """
+        method = data.get("method", "unknown")
+        request_id = data.get("id")
+        params = data.get("params", {})
+        
+        # request_id обязателен для запросов
+        if request_id is None:
+            logger.warning(
+                "Received incoming request without id: method=%s",
                 method
             )
-            # Нотификации пока игнорируем, но можно добавить обработку
+            return
+        
+        logger.debug(
+            "Received incoming request from MCP server: method=%s id=%s",
+            method, request_id
+        )
+        
+        handler = self._request_handlers.get(method)
+        if handler:
+            try:
+                # Вызываем обработчик и отправляем ответ
+                result = await handler(params)
+                await self.send_response(request_id, result)
+                logger.debug(
+                    "Successfully handled incoming request: method=%s id=%s",
+                    method, request_id
+                )
+            except Exception as e:
+                logger.error(
+                    "Error handling incoming request %s: %s",
+                    method, e
+                )
+                # Отправляем ошибку согласно JSON-RPC 2.0
+                await self.send_error(
+                    request_id,
+                    -32603,  # Internal error
+                    f"Internal error: {str(e)}"
+                )
+        else:
+            # Method not found согласно JSON-RPC 2.0
+            logger.warning(
+                "No handler registered for incoming request method: %s",
+                method
+            )
+            await self.send_error(
+                request_id,
+                -32601,  # Method not found
+                f"Method not found: {method}"
+            )
+    
+    def register_notification_handler(self, method: str, handler) -> None:
+        """Зарегистрировать обработчик notification.
+        
+        Args:
+            method: Имя метода notification.
+            handler: Функция-обработчик (async или sync).
+        """
+        if method not in self._notification_handlers:
+            self._notification_handlers[method] = []
+        self._notification_handlers[method].append(handler)
+        logger.debug("Registered notification handler for: %s", method)
+    
+    def register_request_handler(self, method: str, handler: Callable) -> None:
+        """Зарегистрировать обработчик входящего запроса от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Этот метод позволяет зарегистрировать обработчик
+        для таких запросов.
+        
+        Args:
+            method: Имя метода запроса (например, "roots/list").
+            handler: Async функция-обработчик, принимающая params и возвращающая result.
+        """
+        self._request_handlers[method] = handler
+        logger.debug("Registered request handler for: %s", method)
+    
+    async def send_response(self, request_id: int | str, result: Any) -> None:
+        """Отправить ответ на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ответ.
+            result: Результат выполнения запроса.
+        """
+        if not self.is_connected:
+            raise ProcessNotStartedError("MCP server process not running")
+        
+        if not self._process or not self._process.stdin:
+            raise ProcessNotStartedError("MCP server stdin not available")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result
+        }
+        
+        async with self._lock:
+            try:
+                message = json.dumps(response) + "\n"
+                self._process.stdin.write(message.encode("utf-8"))
+                await self._process.stdin.drain()
+                logger.debug(
+                    "Sent response to MCP server: id=%s",
+                    request_id
+                )
+            except Exception as e:
+                raise StdioTransportError(
+                    f"Failed to send response: {e}"
+                ) from e
+    
+    async def send_error(
+        self,
+        request_id: int | str,
+        code: int,
+        message: str,
+        data: Any = None
+    ) -> None:
+        """Отправить ошибку на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ошибку.
+            code: Код ошибки согласно JSON-RPC 2.0.
+            message: Сообщение об ошибке.
+            data: Дополнительные данные об ошибке (опционально).
+        """
+        if not self.is_connected:
+            raise ProcessNotStartedError("MCP server process not running")
+        
+        if not self._process or not self._process.stdin:
+            raise ProcessNotStartedError("MCP server stdin not available")
+        
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": code,
+                "message": message
+            }
+        }
+        
+        if data is not None:
+            error_response["error"]["data"] = data
+        
+        async with self._lock:
+            try:
+                message = json.dumps(error_response) + "\n"
+                self._process.stdin.write(message.encode("utf-8"))
+                await self._process.stdin.drain()
+                logger.debug(
+                    "Sent error response to MCP server: id=%s code=%s",
+                    request_id, code
+                )
+            except Exception as e:
+                raise StdioTransportError(
+                    f"Failed to send error response: {e}"
+                ) from e
+    
+    @property
+    def notification_queue(self) -> asyncio.Queue:
+        """Получить очередь notifications."""
+        return self._notification_queue
 
 
 # ===== HTTP Transport =====
@@ -444,7 +681,7 @@ class HttpTransport:
         >>> transport = HttpTransport(config)
         >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
-        >>> await transport.disconnect()
+        >>> await transport.close()
     """
     
     def __init__(
@@ -468,7 +705,10 @@ class HttpTransport:
         self._pending_requests: dict[int | str, asyncio.Future[MCPResponse]] = {}
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
-        self._notification_handlers: list[Callable] = []
+        # Обработчики notifications: dict[method] -> list[handler]
+        self._notification_handlers: dict[str, list[Callable]] = {}
+        # Обработчики входящих запросов от сервера
+        self._request_handlers: dict[str, Callable] = {}
     
     @staticmethod
     def _build_headers(headers: list[dict[str, str]] | None) -> dict[str, str]:
@@ -677,7 +917,7 @@ class HttpTransport:
                 f"Failed to send notification: {e}"
             ) from e
     
-    async def disconnect(self) -> None:
+    async def close(self) -> None:
         """Закрыть HTTP соединение.
         
         Отменяет все ожидающие запросы и закрывает aiohttp session.
@@ -707,51 +947,254 @@ class HttpTransport:
     async def _handle_response(self, data: dict[str, Any]) -> None:
         """Обработать входящее JSON-RPC сообщение.
         
+        Согласно JSON-RPC 2.0 спецификации, правильно классифицирует сообщения:
+        - Request: method + id
+        - Response: result/error + id
+        - Notification: method без id
+        
         Args:
             data: Распарсенное JSON сообщение.
         """
         message_id = data.get("id")
+        method = data.get("method")
+        has_result = "result" in data
+        has_error = "error" in data
         
-        if message_id is not None:
-            # Это ответ на запрос
-            future = self._pending_requests.get(message_id)
-            
-            if future and not future.done():
-                try:
-                    response = MCPResponse.model_validate(data)
-                    future.set_result(response)
-                except Exception as e:
-                    future.set_exception(
-                        HttpTransportError(f"Invalid response: {e}")
-                    )
-            else:
-                logger.warning(
-                    "Received response for unknown request id=%s",
-                    message_id
-                )
+        # Правильная классификация согласно JSON-RPC 2.0
+        if method is not None and message_id is not None:
+            # Входящий Request от сервера
+            await self._handle_incoming_request(data)
+        elif message_id is not None and (has_result or has_error):
+            # Response на наш запрос
+            await self._handle_response_message(data)
+        elif method is not None and message_id is None:
+            # Notification от сервера
+            await self._handle_notification(data)
         else:
-            # Это нотификация
-            method = data.get("method", "unknown")
-            logger.debug(
-                "Received MCP notification: method=%s",
-                method
-            )
-            # Вызываем обработчики notifications
-            for handler in self._notification_handlers:
-                try:
-                    handler(data)
-                except Exception as e:
-                    logger.error(
-                        "Error in notification handler: %s", e
-                    )
+            logger.warning("Unknown message format: %s", data)
     
-    def register_notification_handler(self, handler: Callable) -> None:
-        """Зарегистрировать обработчик notifications.
+    async def _handle_response_message(self, data: dict[str, Any]) -> None:
+        """Обработать ответ на наш запрос.
         
         Args:
-            handler: Функция для обработки notification.
+            data: Распарсенное JSON сообщение (response).
         """
-        self._notification_handlers.append(handler)
+        message_id = data.get("id")
+        
+        # message_id обязателен для ответов
+        if message_id is None:
+            logger.warning("Received response without id")
+            return
+        
+        future = self._pending_requests.get(message_id)
+        
+        if future and not future.done():
+            try:
+                response = MCPResponse.model_validate(data)
+                future.set_result(response)
+            except Exception as e:
+                future.set_exception(
+                    HttpTransportError(f"Invalid response: {e}")
+                )
+        else:
+            logger.warning(
+                "Received response for unknown request id=%s",
+                message_id
+            )
+    
+    async def _handle_notification(self, data: dict[str, Any]) -> None:
+        """Обработать notification от сервера.
+        
+        Args:
+            data: Распарсенное JSON сообщение (notification).
+        """
+        method = data.get("method", "unknown")
+        logger.debug(
+            "Received MCP notification: method=%s",
+            method
+        )
+        # Вызываем обработчики для конкретного метода
+        handlers = self._notification_handlers.get(method, [])
+        # Также вызываем wildcard handlers (для всех notifications)
+        handlers += self._notification_handlers.get("*", [])
+        
+        for handler in handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(data)
+                else:
+                    handler(data)
+            except Exception as e:
+                logger.error(
+                    "Error in notification handler for %s: %s",
+                    method, e
+                )
+    
+    async def _handle_incoming_request(self, data: dict[str, Any]) -> None:
+        """Обработать входящий запрос от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Клиент должен обработать запрос и отправить ответ.
+        
+        Args:
+            data: Распарсенное JSON сообщение (request).
+        """
+        method = data.get("method", "unknown")
+        request_id = data.get("id")
+        params = data.get("params", {})
+        
+        # request_id обязателен для запросов
+        if request_id is None:
+            logger.warning(
+                "Received incoming request without id: method=%s",
+                method
+            )
+            return
+        
+        logger.debug(
+            "Received incoming request from MCP server: method=%s id=%s",
+            method, request_id
+        )
+        
+        handler = self._request_handlers.get(method)
+        if handler:
+            try:
+                result = await handler(params)
+                await self.send_response(request_id, result)
+                logger.debug(
+                    "Successfully handled incoming request: method=%s id=%s",
+                    method, request_id
+                )
+            except Exception as e:
+                logger.error(
+                    "Error handling incoming request %s: %s",
+                    method, e
+                )
+                await self.send_error(
+                    request_id,
+                    -32603,
+                    f"Internal error: {str(e)}"
+                )
+        else:
+            logger.warning(
+                "No handler registered for incoming request method: %s",
+                method
+            )
+            await self.send_error(
+                request_id,
+                -32601,
+                f"Method not found: {method}"
+            )
+    
+    def register_notification_handler(
+        self, method: str, handler: Callable
+    ) -> None:
+        """Зарегистрировать обработчик notification.
+        
+        Args:
+            method: Имя метода notification (или "*" для всех).
+            handler: Функция-обработчик (async или sync).
+        """
+        if method not in self._notification_handlers:
+            self._notification_handlers[method] = []
+        self._notification_handlers[method].append(handler)
+        logger.debug("Registered notification handler for: %s", method)
+    
+    def register_request_handler(self, method: str, handler: Callable) -> None:
+        """Зарегистрировать обработчик входящего запроса от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Этот метод позволяет зарегистрировать обработчик
+        для таких запросов.
+        
+        Args:
+            method: Имя метода запроса (например, "roots/list").
+            handler: Async функция-обработчик, принимающая params и возвращающая result.
+        """
+        self._request_handlers[method] = handler
+        logger.debug("Registered request handler for: %s", method)
+    
+    async def send_response(self, request_id: int | str, result: Any) -> None:
+        """Отправить ответ на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ответ.
+            result: Результат выполнения запроса.
+        """
+        if not self.is_connected:
+            raise HttpConnectionError("Not connected to MCP server")
+        
+        if not self._session:
+            raise HttpConnectionError("Session not initialized")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result
+        }
+        
+        try:
+            async with self._session.post(
+                self._url,
+                json=response,
+                headers=self._headers,
+            ) as response_obj:
+                logger.debug(
+                    "Sent response to MCP server: id=%s status=%d",
+                    request_id, response_obj.status
+                )
+        except aiohttp.ClientError as e:
+            raise HttpTransportError(
+                f"Failed to send response: {e}"
+            ) from e
+    
+    async def send_error(
+        self,
+        request_id: int | str,
+        code: int,
+        message: str,
+        data: Any = None
+    ) -> None:
+        """Отправить ошибку на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ошибку.
+            code: Код ошибки согласно JSON-RPC 2.0.
+            message: Сообщение об ошибке.
+            data: Дополнительные данные об ошибке (опционально).
+        """
+        if not self.is_connected:
+            raise HttpConnectionError("Not connected to MCP server")
+        
+        if not self._session:
+            raise HttpConnectionError("Session not initialized")
+        
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": code,
+                "message": message
+            }
+        }
+        
+        if data is not None:
+            error_response["error"]["data"] = data
+        
+        try:
+            async with self._session.post(
+                self._url,
+                json=error_response,
+                headers=self._headers,
+            ) as response_obj:
+                logger.debug(
+                    "Sent error response to MCP server: id=%s code=%s status=%d",
+                    request_id, code, response_obj.status
+                )
+        except aiohttp.ClientError as e:
+            raise HttpTransportError(
+                f"Failed to send error response: {e}"
+            ) from e
 
 
 # ===== SSE Transport =====
@@ -779,7 +1222,7 @@ class SseTransport:
         >>> transport = SseTransport(config)
         >>> await transport.connect()
         >>> response = await transport.send_request("initialize", {...})
-        >>> await transport.disconnect()
+        >>> await transport.close()
     """
     
     def __init__(
@@ -806,6 +1249,7 @@ class SseTransport:
         self._lock: asyncio.Lock = asyncio.Lock()
         self._notification_queue: asyncio.Queue = asyncio.Queue()
         self._notification_handlers: dict[str, list[Callable]] = {}
+        self._request_handlers: dict[str, Callable] = {}
         self._read_task: asyncio.Task[None] | None = None
         
         # Логируем warning о deprecated статусе
@@ -987,7 +1431,7 @@ class SseTransport:
                 f"Failed to send notification: {e}"
             ) from e
     
-    async def disconnect(self) -> None:
+    async def close(self) -> None:
         """Закрыть SSE соединение.
         
         Отменяет все ожидающие запросы и закрывает SSE connection.
@@ -1091,6 +1535,11 @@ class SseTransport:
     ) -> None:
         """Обработать SSE событие.
         
+        Согласно JSON-RPC 2.0 спецификации, правильно классифицирует сообщения:
+        - Request: method + id
+        - Response: result/error + id
+        - Notification: method без id
+        
         Args:
             event: Тип события.
             data: Данные события.
@@ -1107,49 +1556,136 @@ class SseTransport:
             logger.warning("Invalid JSON in SSE event: %s", e)
             return
         
-        # Проверяем, это ответ на запрос или notification
+        # Правильная классификация согласно JSON-RPC 2.0
         message_id = json_data.get("id")
+        method = json_data.get("method")
+        has_result = "result" in json_data
+        has_error = "error" in json_data
         
-        if message_id is not None:
-            # Это ответ на запрос
-            future = self._pending_requests.get(message_id)
-            
-            if future and not future.done():
-                try:
-                    response = MCPResponse.model_validate(json_data)
-                    future.set_result(response)
-                except Exception as e:
-                    future.set_exception(
-                        SseTransportError(f"Invalid response: {e}")
-                    )
-            else:
-                logger.warning(
-                    "Received response for unknown request id=%s",
-                    message_id
+        if method is not None and message_id is not None:
+            # Входящий Request от сервера
+            await self._handle_incoming_request(json_data)
+        elif message_id is not None and (has_result or has_error):
+            # Response на наш запрос
+            await self._handle_response_message(json_data)
+        elif method is not None and message_id is None:
+            # Notification от сервера
+            await self._handle_notification(json_data)
+        else:
+            logger.warning("Unknown SSE message format: %s", json_data)
+    
+    async def _handle_response_message(self, data: dict[str, Any]) -> None:
+        """Обработать ответ на наш запрос.
+        
+        Args:
+            data: Распарсенное JSON сообщение (response).
+        """
+        message_id = data.get("id")
+        
+        # message_id обязателен для ответов
+        if message_id is None:
+            logger.warning("Received response without id")
+            return
+        
+        future = self._pending_requests.get(message_id)
+        
+        if future and not future.done():
+            try:
+                response = MCPResponse.model_validate(data)
+                future.set_result(response)
+            except Exception as e:
+                future.set_exception(
+                    SseTransportError(f"Invalid response: {e}")
                 )
         else:
-            # Это notification
-            method = json_data.get("method", "unknown")
-            logger.debug(
-                "Received MCP notification via SSE: method=%s",
+            logger.warning(
+                "Received response for unknown request id=%s",
+                message_id
+            )
+    
+    async def _handle_notification(self, data: dict[str, Any]) -> None:
+        """Обработать notification от сервера.
+        
+        Args:
+            data: Распарсенное JSON сообщение (notification).
+        """
+        method = data.get("method", "unknown")
+        logger.debug(
+            "Received MCP notification via SSE: method=%s",
+            method
+        )
+        
+        # Помещаем в очередь notifications
+        await self._notification_queue.put(data)
+        
+        # Вызываем зарегистрированные handlers
+        handlers = self._notification_handlers.get(method, [])
+        for handler in handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(data)
+                else:
+                    handler(data)
+            except Exception as e:
+                logger.error(
+                    "Error in SSE notification handler: %s", e
+                )
+    
+    async def _handle_incoming_request(self, data: dict[str, Any]) -> None:
+        """Обработать входящий запрос от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Клиент должен обработать запрос и отправить ответ.
+        
+        Args:
+            data: Распарсенное JSON сообщение (request).
+        """
+        method = data.get("method", "unknown")
+        request_id = data.get("id")
+        params = data.get("params", {})
+        
+        # request_id обязателен для запросов
+        if request_id is None:
+            logger.warning(
+                "Received incoming request without id: method=%s",
                 method
             )
-            
-            # Помещаем в очередь notifications
-            await self._notification_queue.put(json_data)
-            
-            # Вызываем зарегистрированные handlers
-            handlers = self._notification_handlers.get(method, [])
-            for handler in handlers:
-                try:
-                    if asyncio.iscoroutinefunction(handler):
-                        await handler(json_data)
-                    else:
-                        handler(json_data)
-                except Exception as e:
-                    logger.error(
-                        "Error in SSE notification handler: %s", e
-                    )
+            return
+        
+        logger.debug(
+            "Received incoming request from MCP server via SSE: method=%s id=%s",
+            method, request_id
+        )
+        
+        handler = self._request_handlers.get(method)
+        if handler:
+            try:
+                result = await handler(params)
+                await self.send_response(request_id, result)
+                logger.debug(
+                    "Successfully handled incoming request: method=%s id=%s",
+                    method, request_id
+                )
+            except Exception as e:
+                logger.error(
+                    "Error handling incoming request %s: %s",
+                    method, e
+                )
+                await self.send_error(
+                    request_id,
+                    -32603,
+                    f"Internal error: {str(e)}"
+                )
+        else:
+            logger.warning(
+                "No handler registered for incoming request method: %s",
+                method
+            )
+            await self.send_error(
+                request_id,
+                -32601,
+                f"Method not found: {method}"
+            )
     
     def register_notification_handler(
         self,
@@ -1165,3 +1701,99 @@ class SseTransport:
         if method not in self._notification_handlers:
             self._notification_handlers[method] = []
         self._notification_handlers[method].append(handler)
+    
+    def register_request_handler(self, method: str, handler: Callable) -> None:
+        """Зарегистрировать обработчик входящего запроса от сервера.
+        
+        Согласно MCP спецификации, сервер может отправлять запросы клиенту
+        (например, roots/list). Этот метод позволяет зарегистрировать обработчик
+        для таких запросов.
+        
+        Args:
+            method: Имя метода запроса (например, "roots/list").
+            handler: Async функция-обработчик, принимающая params и возвращающая result.
+        """
+        self._request_handlers[method] = handler
+        logger.debug("Registered request handler for: %s", method)
+    
+    async def send_response(self, request_id: int | str, result: Any) -> None:
+        """Отправить ответ на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ответ.
+            result: Результат выполнения запроса.
+        """
+        if not self.is_connected:
+            raise SseTransportError("Not connected to MCP server")
+        
+        if not self._session:
+            raise SseTransportError("Session not initialized")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result
+        }
+        
+        try:
+            async with self._session.post(
+                self._url,
+                json=response,
+                headers=self._headers,
+            ) as response_obj:
+                logger.debug(
+                    "Sent response to MCP server via SSE: id=%s status=%d",
+                    request_id, response_obj.status
+                )
+        except aiohttp.ClientError as e:
+            raise SseTransportError(
+                f"Failed to send response: {e}"
+            ) from e
+    
+    async def send_error(
+        self,
+        request_id: int | str,
+        code: int,
+        message: str,
+        data: Any = None
+    ) -> None:
+        """Отправить ошибку на входящий запрос от сервера.
+        
+        Args:
+            request_id: ID запроса, на который отправляем ошибку.
+            code: Код ошибки согласно JSON-RPC 2.0.
+            message: Сообщение об ошибке.
+            data: Дополнительные данные об ошибке (опционально).
+        """
+        if not self.is_connected:
+            raise SseTransportError("Not connected to MCP server")
+        
+        if not self._session:
+            raise SseTransportError("Session not initialized")
+        
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": code,
+                "message": message
+            }
+        }
+        
+        if data is not None:
+            error_response["error"]["data"] = data
+        
+        try:
+            async with self._session.post(
+                self._url,
+                json=error_response,
+                headers=self._headers,
+            ) as response_obj:
+                logger.debug(
+                    "Sent error response to MCP server via SSE: id=%s code=%s status=%d",
+                    request_id, code, response_obj.status
+                )
+        except aiohttp.ClientError as e:
+            raise SseTransportError(
+                f"Failed to send error response: {e}"
+            ) from e

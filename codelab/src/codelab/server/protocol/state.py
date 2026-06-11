@@ -76,6 +76,9 @@ class SessionState(BaseModel):
     # История событий: session/update, permission requests и т.д.
     # Используется для полного восстановления истории при перезагрузке сессии.
     events_history: list[dict[str, Any]] = Field(default_factory=list)
+    # Обработчики MCP prompts для slash-команд (per-session).
+    # Мапа: имя команды -> MCPPromptCommandHandler (не сериализуется).
+    mcp_prompt_handlers: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     @field_serializer("cancelled_permission_requests", "cancelled_client_rpc_requests")
     def serialize_set(self, value: set) -> list:

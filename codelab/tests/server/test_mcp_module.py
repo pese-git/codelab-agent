@@ -88,8 +88,8 @@ def sample_mcp_tools() -> list[MCPTool]:
 def mock_transport() -> MagicMock:
     """Создаёт mock транспорта для MCP клиента."""
     transport = MagicMock()
-    transport.is_running = True
-    transport.start = AsyncMock()
+    transport.is_connected = True
+    transport.connect = AsyncMock()
     transport.close = AsyncMock()
     transport.send_request = AsyncMock()
     transport.send_notification = AsyncMock()
@@ -311,15 +311,15 @@ class TestMCPClient:
         """Проверяет, что connect запускает транспорт."""
         client = MCPClient(mcp_server_config)
 
-        # Подменяем создание транспорта
+        # Подменяем создание транспорта через factory
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
 
         # Проверяем, что транспорт запущен
-        mock_transport.start.assert_called_once()
+        mock_transport.connect.assert_called_once()
         assert client.state == MCPClientState.CONNECTING
 
     @pytest.mark.asyncio
@@ -333,9 +333,9 @@ class TestMCPClient:
         
         # Первый connect
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
         
         # Повторный connect должен вызвать ошибку
@@ -359,9 +359,9 @@ class TestMCPClient:
         }
 
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
             capabilities = await client.initialize()
 
@@ -392,9 +392,9 @@ class TestMCPClient:
         }
 
         with patch(
-            "codelab.server.mcp.client.StdioTransport",
-            return_value=mock_transport,
-        ):
+            "codelab.server.mcp.client.TransportFactory",
+        ) as mock_factory:
+            mock_factory.create.return_value = mock_transport
             await client.connect()
             await client.initialize()
             await client.disconnect()
@@ -743,14 +743,16 @@ class TestSessionMCPIntegration:
         
         session_id = outcome.response.result["sessionId"]
         
-        # Проверяем, что сессия создана и MCPManager инициализирован
+        # Проверяем, что сессия создана и MCPManager инициализирован в runtime registry
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is not None
-        assert isinstance(session_state.mcp_manager, MCPManager)
+        runtime = await protocol._runtime_registry.get(session_id)
+        assert runtime is not None
+        assert runtime.mcp_manager is not None
+        assert isinstance(runtime.mcp_manager, MCPManager)
         
         # Проверяем, что MCPManager привязан к правильной сессии
-        assert session_state.mcp_manager.session_id == session_id
+        assert runtime.mcp_manager.session_id == session_id
 
     @pytest.mark.asyncio
     async def test_session_new_without_mcp_servers_no_manager(
@@ -790,7 +792,9 @@ class TestSessionMCPIntegration:
         # Проверяем, что MCPManager НЕ создан (нет mcpServers)
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is None
+        runtime = await protocol._runtime_registry.get(session_id)
+        # Runtime может не существовать или mcp_manager может быть None
+        assert runtime is None or runtime.mcp_manager is None
 
     @pytest.mark.asyncio
     async def test_session_new_with_empty_mcp_servers_no_manager(
@@ -827,7 +831,9 @@ class TestSessionMCPIntegration:
         # Пустой список - MCPManager не создаётся
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
-        assert session_state.mcp_manager is None
+        runtime = await protocol._runtime_registry.get(session_id)
+        # Runtime может не существовать или mcp_manager может быть None
+        assert runtime is None or runtime.mcp_manager is None
 
     @pytest.mark.asyncio
     async def test_session_new_with_invalid_mcp_config_graceful(
@@ -876,5 +882,7 @@ class TestSessionMCPIntegration:
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
         # MCPManager создаётся, но без успешных подключений
-        assert session_state.mcp_manager is not None
-        assert session_state.mcp_manager.server_count == 0
+        runtime = await protocol._runtime_registry.get(session_id)
+        assert runtime is not None
+        assert runtime.mcp_manager is not None
+        assert runtime.mcp_manager.server_count == 0

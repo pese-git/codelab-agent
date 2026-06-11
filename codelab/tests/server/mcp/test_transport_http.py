@@ -8,13 +8,12 @@ import pytest
 
 from codelab.server.mcp.transport import (
     HttpConnectionError,
+    HttpTimeoutError,
     HttpTransport,
     HttpTransportError,
-    HttpTimeoutError,
     SseTransport,
     SseTransportError,
 )
-
 
 # ===== HttpTransport Tests =====
 
@@ -190,7 +189,7 @@ class TestHttpTransportSendRequest:
         transport._session = mock_session
 
         # Патчим asyncio.wait_for чтобы всегда вызывать timeout
-        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+        with patch("asyncio.wait_for", side_effect=TimeoutError()):
             with pytest.raises(HttpTimeoutError, match="Request timeout"):
                 await transport.send_request("test_method", timeout=0.01)
 
@@ -257,7 +256,7 @@ class TestHttpTransportDisconnect:
         mock_session.close = AsyncMock()
         transport._session = mock_session
 
-        await transport.disconnect()
+        await transport.close()
 
         assert transport._closed is True
         assert transport._session is None
@@ -269,7 +268,7 @@ class TestHttpTransportDisconnect:
         transport = HttpTransport(url="http://localhost:8080")
         transport._closed = True
 
-        await transport.disconnect()
+        await transport.close()
         # Не должно вызвать ошибок
 
 
@@ -280,9 +279,10 @@ class TestHttpTransportNotificationHandler:
         """Регистрация обработчика notifications."""
         transport = HttpTransport(url="http://localhost:8080")
         handler = MagicMock()
-        transport.register_notification_handler(handler)
+        transport.register_notification_handler("notifications/test", handler)
 
-        assert handler in transport._notification_handlers
+        assert "notifications/test" in transport._notification_handlers
+        assert handler in transport._notification_handlers["notifications/test"]
 
     @pytest.mark.asyncio
     async def test_handle_response_notification(self):
@@ -293,7 +293,9 @@ class TestHttpTransportNotificationHandler:
         def handler(data):
             handler_calls.append(data)
 
-        transport.register_notification_handler(handler)
+        transport.register_notification_handler(
+            "notifications/tools/list_changed", handler
+        )
 
         notification_data = {
             "method": "notifications/tools/list_changed",
@@ -421,7 +423,7 @@ class TestSseTransportDisconnect:
         mock_sse_response.release = AsyncMock()
         transport._sse_response = mock_sse_response
 
-        await transport.disconnect()
+        await transport.close()
 
         assert transport._closed is True
         assert transport._session is None
@@ -433,7 +435,7 @@ class TestSseTransportDisconnect:
         transport = SseTransport(url="http://localhost:8080/sse")
         transport._closed = True
 
-        await transport.disconnect()
+        await transport.close()
         # Не должно вызвать ошибок
 
 

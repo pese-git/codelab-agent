@@ -6,7 +6,7 @@ SlashCommandRouter направляет slash-команды к соответс
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -26,12 +26,13 @@ class SlashCommandRouter:
     """Маршрутизатор slash-команд к обработчикам.
 
     Принимает распарсенную slash-команду и направляет её к соответствующему
-    handler'у из CommandRegistry. Если handler не найден, возвращает None
-    для fallback обработки (например, отправки в LLM).
+    handler'у из CommandRegistry или к MCP prompt handler'у.
+    Если handler не найден, возвращает None для fallback обработки
+    (например, отправки в LLM).
 
     Пример использования:
         router = SlashCommandRouter(registry)
-        result = router.route("status", [], session)
+        result = await router.route("status", [], session)
         if result is not None:
             # Команда обработана
             return result
@@ -48,49 +49,82 @@ class SlashCommandRouter:
         """
         self._registry = registry
 
-    def route(
+    async def route(
         self,
         command: str,
         args: list[str],
         session: SessionState,
+        mcp_prompt_handlers: dict[str, Any] | None = None,
     ) -> ProtocolOutcome | None:
         """Маршрутизирует команду к handler'у.
+
+        Сначала ищет handler в CommandRegistry (встроенные команды).
+        Если не найден, проверяет mcp_prompt_handlers (MCP prompts).
 
         Args:
             command: Имя команды (без слеша)
             args: Аргументы команды
             session: Текущее состояние сессии
+            mcp_prompt_handlers: Обработчики MCP prompts из runtime registry
 
         Returns:
             ProtocolOutcome с результатом или None для fallback
         """
+        # Сначала проверяем встроенные команды в registry
         handler = self._registry.get_handler(command)
 
-        if handler is None:
-            logger.debug(
-                "No handler for slash command, falling back",
+        if handler is not None:
+            logger.info(
+                "Routing slash command to handler",
                 command=command,
+                args=args,
                 session_id=session.session_id,
             )
-            return None
 
-        logger.info(
-            "Routing slash command to handler",
+            try:
+                # Для help команды передаём mcp_prompt_handlers
+                if command == "help" and hasattr(handler, "execute_with_handlers"):
+                    result = handler.execute_with_handlers(args, session, mcp_prompt_handlers or {})
+                else:
+                    result = handler.execute(args, session)
+                return self._build_outcome(result, session)
+            except Exception as e:
+                logger.exception(
+                    "Slash command execution failed",
+                    command=command,
+                    error=str(e),
+                )
+                return self._build_error_outcome(command, str(e), session)
+
+        # Проверяем MCP prompt handlers из runtime registry
+        handlers = mcp_prompt_handlers or {}
+        mcp_handler = handlers.get(command)
+        if mcp_handler is not None:
+            logger.info(
+                "Routing MCP prompt slash command",
+                command=command,
+                args=args,
+                session_id=session.session_id,
+            )
+
+            try:
+                # MCPPromptCommandHandler имеет async execute_async
+                result = await mcp_handler.execute_async(args, session)
+                return self._build_outcome(result, session)
+            except Exception as e:
+                logger.exception(
+                    "MCP prompt slash command execution failed",
+                    command=command,
+                    error=str(e),
+                )
+                return self._build_error_outcome(command, str(e), session)
+
+        logger.debug(
+            "No handler for slash command, falling back",
             command=command,
-            args=args,
             session_id=session.session_id,
         )
-
-        try:
-            result = handler.execute(args, session)
-            return self._build_outcome(result, session)
-        except Exception as e:
-            logger.exception(
-                "Slash command execution failed",
-                command=command,
-                error=str(e),
-            )
-            return self._build_error_outcome(command, str(e), session)
+        return None
 
     def _build_outcome(
         self,

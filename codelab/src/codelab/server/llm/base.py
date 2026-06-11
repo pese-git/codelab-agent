@@ -22,6 +22,23 @@ from codelab.server.llm.models import (
 
 
 @dataclass
+class LLMTimeoutConfig:
+    """Таймауты для HTTP-вызовов LLM провайдера.
+
+    Атрибуты:
+        connect: Таймаут подключения к серверу (секунды)
+        read: Таймаут ожидания ответа от LLM (секунды)
+        write: Таймаут отправки запроса (секунды)
+        pool: Таймаут ожидания соединения из пула (секунды)
+    """
+
+    connect: float = 30.0
+    read: float = 300.0
+    write: float = 30.0
+    pool: float = 30.0
+
+
+@dataclass
 class LLMCapabilities:
     """Возможности LLM провайдера.
 
@@ -54,6 +71,7 @@ class LLMConfig:
         base_url: Base URL API (опционально, для кастомных endpoint)
         temperature: Температура генерации (0.0-2.0)
         max_tokens: Максимальное количество токенов
+        timeout: Таймауты HTTP-вызовов (connect, read, write, pool)
         extra: Дополнительные параметры провайдера
     """
 
@@ -62,6 +80,7 @@ class LLMConfig:
     base_url: str | None = None
     temperature: float = 0.7
     max_tokens: int = 8192
+    timeout: LLMTimeoutConfig = field(default_factory=LLMTimeoutConfig)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -151,4 +170,5 @@ __all__ = [
     "LLMProvider",
     "LLMResponse",
     "LLMToolCall",
+    "LLMTimeoutConfig",
 ]

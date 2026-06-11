@@ -58,19 +58,17 @@ class MarkdownViewer(TextualMarkdown):
         super().__init__(markdown, name=name, id=id, classes=classes)
 
 
-class InlineMarkdown(Static):
+class InlineMarkdown(TextualMarkdown):
     """Компактный Markdown рендер для коротких inline текстов.
     
-    Использует Rich markup вместо полного Markdown парсера для:
-    - Быстрого рендеринга коротких сообщений
-    - Inline форматирования (bold, italic, code)
-    - Не создает лишних отступов/padding
+    Использует textual.widgets.Markdown для корректного парсинга Markdown
+    без смешения уровней абстракции (Markdown → Rich markup → парсер).
     
-    Конвертирует базовый Markdown в Rich markup:
-    - **bold** -> [bold]...[/bold]
-    - *italic* -> [italic]...[/italic]
-    - `code` -> [reverse]...[/reverse]
-    - [link](url) -> [link=url]...[/link]
+    Преимущества перед ручной конвертацией:
+    - Нет проблем с экранированием скобок
+    - Нет MarkupError от литеральных Rich-тегов в тексте LLM
+    - Корректная обработка всех Markdown элементов
+    - Архитектурно чистое решение
     
     Пример:
         >>> text = InlineMarkdown("**Bold** and *italic* with `code`")
@@ -81,6 +79,26 @@ class InlineMarkdown(Static):
         padding: 0;
         margin: 0;
         height: auto;
+    }
+    
+    InlineMarkdown MarkdownBlock {
+        padding: 0;
+        margin: 0;
+    }
+    
+    InlineMarkdown MarkdownH1,
+    InlineMarkdown MarkdownH2,
+    InlineMarkdown MarkdownH3,
+    InlineMarkdown MarkdownH4,
+    InlineMarkdown MarkdownH5,
+    InlineMarkdown MarkdownH6 {
+        padding: 0;
+        margin: 0;
+    }
+    
+    InlineMarkdown MarkdownParagraph {
+        padding: 0;
+        margin: 0;
     }
     """
     
@@ -100,8 +118,7 @@ class InlineMarkdown(Static):
             id: ID виджета
             classes: CSS классы
         """
-        rendered = self._convert_to_rich(content)
-        super().__init__(rendered, name=name, id=id, classes=classes, markup=True)
+        super().__init__(content, name=name, id=id, classes=classes)
         self._raw_content = content
     
     @property
@@ -116,50 +133,7 @@ class InlineMarkdown(Static):
             content: Новый Markdown текст
         """
         self._raw_content = content
-        self.update(self._convert_to_rich(content))
-    
-    def _convert_to_rich(self, text: str) -> str:
-        """Конвертирует Markdown в Rich markup.
-
-        Args:
-            text: Markdown текст
-
-        Returns:
-            Rich markup строка
-        """
-        import re
-
-        if not text:
-            return ""
-
-        # Шаг 1: Экранируем ВСЕ [ в исходном тексте, чтобы литеральные
-        # Rich-теги (например, [/bold] в ответе LLM) не ломали парсер.
-        # Используем временный плейсхолдер для наших будущих тегов.
-        result = text.replace('[', '\u0000LBRACKET\u0000')
-
-        # Шаг 2: Применяем Markdown -> Rich конверсии
-        # Bold: **text** -> [bold]text[/bold]
-        result = re.sub(r'\*\*([^*]+)\*\*', r'[bold]\1[/bold]', result)
-
-        # Italic: *text* -> [italic]text[/italic] (но не **bold**)
-        result = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'[italic]\1[/italic]', result)
-
-        # Inline code: `code` -> [reverse]code[/reverse]
-        result = re.sub(r'`([^`]+)`', r'[reverse] \1 [/reverse]', result)
-
-        # Links: [text](url) -> text (url) — скобки уже экранированы на шаге 1
-        result = re.sub(r'\u0000LBRACKET\u0000([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', result)
-
-        # Strikethrough: ~~text~~ -> [strike]text[/strike]
-        result = re.sub(r'~~([^~]+)~~', r'[strike]\1[/strike]', result)
-
-        # Headers: # text -> [bold]text[/bold] (упрощенно для inline)
-        result = re.sub(r'^#{1,6}\s+(.+)$', r'[bold]\1[/bold]', result, flags=re.MULTILINE)
-
-        # Шаг 3: Восстанавливаем экранированные [ обратно
-        result = result.replace('\u0000LBRACKET\u0000', '[')
-
-        return result
+        self.update(content)
 
 
 class CodeBlock(Static):
@@ -184,7 +158,7 @@ class CodeBlock(Static):
     def __init__(
         self,
         code: str,
-        language: str = "python",
+        language: str = "text",
         *,
         name: str | None = None,
         id: str | None = None,

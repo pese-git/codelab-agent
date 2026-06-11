@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codelab.server.llm.base import LLMConfig, LLMProvider
+from codelab.server.llm.base import LLMConfig, LLMProvider, LLMTimeoutConfig
 from codelab.server.llm.errors import ProviderNotFoundError
 from codelab.server.llm.registry import LLMProviderRegistry
 
@@ -227,6 +227,7 @@ class ModelResolver:
                 base_url=config.base_url,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
+                timeout=config.timeout,
                 extra=config.extra,
             )
         else:
@@ -267,6 +268,12 @@ class ModelResolver:
                 api_key=pc.api_key,
                 model=model_id,
                 base_url=pc.base_url,
+                timeout=LLMTimeoutConfig(
+                    connect=pc.timeout.connect,
+                    read=pc.timeout.read,
+                    write=pc.timeout.write,
+                    pool=pc.timeout.pool,
+                ),
             )
         # Fallback: только model_id, без API key
         return LLMConfig(model=model_id)
