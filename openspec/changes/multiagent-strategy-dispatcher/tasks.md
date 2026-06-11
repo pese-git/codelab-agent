@@ -79,24 +79,24 @@
 
 ### 5. Интеграция в Pipeline
 
-- [ ] 5.1 Обновить `prompt_orchestrator.py` — интеграция StrategyDispatcher
-- [ ] 5.2 Обновить `llm_loop.py` — вызывать `select_strategy()` перед execute
-- [ ] 5.3 Отправить fallback notification если режим изменился
-- [ ] 5.4 Установить стратегию через `set_current_strategy()`
-- [ ] 5.5 Получить экземпляр через `get_current_strategy()`
-- [ ] 5.6 Написать тесты: интеграция с pipeline
-- [ ] 5.7 Написать тесты: fallback notification отправляется
+- [x] 5.1 Обновить `prompt_orchestrator.py` — интеграция StrategyDispatcher
+- [x] 5.2 Обновить `llm_loop.py` — вызывать `select_strategy()` перед execute
+- [x] 5.3 Отправить fallback notification если режим изменился
+- [x] 5.4 Установить стратегию через `set_current_strategy()`
+- [x] 5.5 Получить экземпляр через `get_current_strategy()`
+- [x] 5.6 Написать тесты: интеграция с pipeline
+- [x] 5.7 Написать тесты: fallback notification отправляется
 
 ---
 
 ### 6. Интеграция Slash Command
 
-- [ ] 6.1 Обновить обработчик slash command `strategy.py`
-- [ ] 6.2 Добавить проверку доступности через `strategy_registry.get_available()`
-- [ ] 6.3 Установить `session.config_values["_active_strategy"]` при slash command
-- [ ] 6.4 Обновить `slash_commands.py` — установить `context.meta["active_strategy"]` после slash command
-- [ ] 6.5 Написать тесты: override slash командой
-- [ ] 6.6 Написать тесты: slash command валидирует доступность
+- [x] 6.1 Обновить обработчик slash command `strategy.py`
+- [x] 6.2 Добавить проверку доступности через `strategy_registry.get_available()`
+- [x] 6.3 Установить `session.config_values["_active_strategy"]` при slash command
+- [x] 6.4 Обновить `slash_commands.py` — установить `context.meta["active_strategy"]` после slash command
+- [x] 6.5 Написать тесты: override slash командой
+- [x] 6.6 Написать тесты: slash command валидирует доступность
 
 ---
 
@@ -207,12 +207,12 @@
 - [x] StrategyRegistry создан и работает
 - [x] StrategyDispatcher использует Registry (только маршрутизация)
 - [x] configOptions формируется динамически из Registry
-- [ ] Priority chain работает (slash > config > default) — требуется Task 5, 6
+- [x] Priority chain работает (slash > config > default)
 - [x] Validation через Registry.get_available()
 - [x] Fallback notification отправляется
 - [ ] StrategySelectorViewModel парсит configOptions — требуется Task 8
 - [ ] StrategySelectorModal позволяет выбрать стратегию — требуется Task 9
 - [ ] Hotkey Ctrl+S открывает modal — требуется Task 10
-- [ ] Slash command /strategy работает — требуется Task 6
+- [x] Slash command /strategy работает
 - [x] Все тесты проходят (2372 server tests)
 - [ ] `make check` проходит
