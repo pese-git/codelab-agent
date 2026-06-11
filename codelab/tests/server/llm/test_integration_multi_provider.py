@@ -45,7 +45,11 @@ pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class FailingProvider(LLMProvider):
     """Провайдер который всегда падает (для тестов fallback)."""
 
-    def __init__(self, provider_id: str = "failing", error_message: str = "Primary provider failed") -> None:
+    def __init__(
+        self,
+        provider_id: str = "failing",
+        error_message: str = "Primary provider failed",
+    ) -> None:
         self._provider_id = provider_id
         self._error_message = error_message
         self._config: LLMConfig | None = None
@@ -84,7 +88,11 @@ class FailingProvider(LLMProvider):
 class SuccessProvider(LLMProvider):
     """Провайдер который всегда успешен (для тестов fallback)."""
 
-    def __init__(self, provider_id: str = "success", response_text: str = "Fallback success") -> None:
+    def __init__(
+        self,
+        provider_id: str = "success",
+        response_text: str = "Fallback success",
+    ) -> None:
         self._provider_id = provider_id
         self._response_text = response_text
         self._config: LLMConfig | None = None
@@ -268,7 +276,11 @@ async def test_fallback_chain_primary_fails_fallback_succeeds() -> None:
     fallback = SequentialFallback(
         provider_order=["failing", "success"],
     )
-    config = FallbackConfig(enabled=True, max_attempts=3, retry_on=[ProviderErrorType.INTERNAL_ERROR])
+    config = FallbackConfig(
+        enabled=True,
+        max_attempts=3,
+        retry_on=[ProviderErrorType.INTERNAL_ERROR],
+    )
     orchestrator = FallbackOrchestrator(strategy=fallback, config=config)
 
     # Act — выполнить completion с fallback
@@ -294,13 +306,15 @@ async def test_fallback_chain_primary_fails_fallback_succeeds() -> None:
 
 
 # ============================================================================
-# 17.1 E2E тест: full flow — initialize → session/new → configOptions → set_config_option(model) → prompt
+# 17.1 E2E тест: full flow — initialize → session/new → configOptions
+# → set_config_option(model) → prompt
 # ============================================================================
 
 
 @pytest.mark.asyncio
 async def test_e2e_full_flow_with_model_config() -> None:
-    """Полный поток: initialize → session/new → configOptions → set_config_option(model) → prompt."""
+    """Полный поток: initialize → session/new → configOptions
+    → set_config_option(model) → prompt."""
     # Arrange — создать registry с mock провайдером
     registry = LLMProviderRegistry()
     mock_provider = MockLLMProvider(response="E2E test response")
@@ -552,4 +566,7 @@ async def test_model_switching_invalid_model() -> None:
     # Assert — ошибка
     assert outcome.response is not None
     assert outcome.response.error is not None
-    assert "not found" in outcome.response.error.message.lower() or "invalid" in outcome.response.error.message.lower()
+    assert (
+        "not found" in outcome.response.error.message.lower()
+        or "invalid" in outcome.response.error.message.lower()
+    )

@@ -38,7 +38,10 @@ logger = structlog.get_logger()
 _SERVER_SIDE_TOOL_KINDS: frozenset[str] = frozenset({"think", "plan"})
 
 
-@deprecated("Use ExecutionEngine + StrategyDispatcher instead. Will be removed in a future version.")
+@deprecated(
+    "Use ExecutionEngine + StrategyDispatcher instead. "
+    "Will be removed in a future version.",
+)
 class AgentOrchestrator:
     """Оркестратор для управления LLM-агентом в контексте ACP протокола.
 

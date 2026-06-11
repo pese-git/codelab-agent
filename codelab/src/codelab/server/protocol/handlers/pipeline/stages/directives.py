@@ -143,7 +143,9 @@ class DirectivesStage(PromptStage):
                 if prepared is not None:
                     context.notifications.extend(prepared.messages)
                     if context.session.active_turn is not None:
-                        context.session.active_turn.pending_client_request = prepared.pending_request
+                        context.session.active_turn.pending_client_request = (
+                            prepared.pending_request
+                        )
                         context.session.active_turn.phase = "waiting_client_rpc"
                     context.pending_permission = True  # turn deferred — не отправлять response
                     context.should_stop = True
@@ -164,7 +166,10 @@ class DirectivesStage(PromptStage):
                             "sessionUpdate": "agent_message_chunk",
                             "content": {
                                 "type": "text",
-                                "text": "Tool runtime unavailable: capability not negotiated via initialize",
+                                "text": (
+                                    "Tool runtime unavailable: capability not "
+                                    "negotiated via initialize"
+                                ),
                             },
                         },
                     },

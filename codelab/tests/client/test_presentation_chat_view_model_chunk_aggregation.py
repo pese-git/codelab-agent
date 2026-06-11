@@ -168,17 +168,81 @@ class TestChunkAggregation:
         
         replay_updates = [
             # User message (2 chunks)
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "Hello"}}}},
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": " World"}}}},
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "Hello"},
+                    },
+                },
+            },
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": " World"},
+                    },
+                },
+            },
             # Agent response (3 chunks)
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Hi"}}}},
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " there"}}}},
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "!"}}}},
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "Hi"},
+                    },
+                },
+            },
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": " there"},
+                    },
+                },
+            },
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "!"},
+                    },
+                },
+            },
             # User message (1 chunk)
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "How are you?"}}}},
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "How are you?"},
+                    },
+                },
+            },
             # Agent response (2 chunks)
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "I'm"}}}},
-            {"params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " good!"}}}},
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "I'm"},
+                    },
+                },
+            },
+            {
+                "params": {
+                    "sessionId": "s",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": " good!"},
+                    },
+                },
+            },
         ]
         
         # Act

@@ -90,7 +90,11 @@ class TestAgentMessageChunkPreservation:
         mock_tool_call.arguments = {}
         
         responses = [
-            AgentResponse(text="First response", tool_calls=[mock_tool_call], stop_reason="tool_use"),
+            AgentResponse(
+                text="First response",
+                tool_calls=[mock_tool_call],
+                stop_reason="tool_use",
+            ),
             AgentResponse(text="Second response", tool_calls=[], stop_reason="end_turn"),
         ]
         mock_strategy.execute.return_value = responses[0]

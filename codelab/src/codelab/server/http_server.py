@@ -28,13 +28,13 @@ import structlog
 from aiohttp import web
 from dishka import AsyncContainer
 
+if TYPE_CHECKING:
+    from .protocol.core import ACPProtocol
+
 from .config import AppConfig
 from .di import ObservabilityFlushManager, make_container
 from .storage import SessionStorage
 from .transport.websocket import WebSocketTransport
-
-if TYPE_CHECKING:
-    pass
 
 # Получаем структурированный logger
 logger = structlog.get_logger()

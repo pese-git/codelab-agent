@@ -211,7 +211,11 @@ class TestE2EMcpToolExecution:
         )
 
         tool_calls = [
-            MockToolCall(name="fs_read_text_file", arguments={"path": "/tmp/test.txt"}, id="call_1"),
+            MockToolCall(
+                name="fs_read_text_file",
+                arguments={"path": "/tmp/test.txt"},
+                id="call_1",
+            ),
             MockToolCall(name="mcp_test_tool", arguments={}, id="call_2"),
         ]
 
@@ -417,7 +421,8 @@ class TestMcpToolNotifications:
             mcp_manager=mock_mcp_manager,
         )
 
-        # Должны быть notifications: tool_call (pending) + tool_call_update (in_progress) + tool_call_update (completed)
+        # Должны быть notifications: tool_call (pending) +
+        # tool_call_update (in_progress) + tool_call_update (completed)
         assert len(notifications) >= 2
 
     @pytest.mark.asyncio

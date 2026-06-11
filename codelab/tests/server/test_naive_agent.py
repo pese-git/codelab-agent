@@ -16,12 +16,12 @@ from codelab.server.agent.base import AgentContext, ContinuationContext
 from codelab.server.agent.naive import NaiveAgent, _format_prompt, _to_openai_tools_format
 from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
-
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 from codelab.server.llm.models import CompletionRequest, CompletionResponse, StopReason
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition
 from codelab.server.tools.registry import SimpleToolRegistry
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 # ============================================================================
 # Вспомогательные инструменты

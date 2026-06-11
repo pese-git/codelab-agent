@@ -169,7 +169,10 @@ class TestFallbackOrchestrator:
         orchestrator = FallbackOrchestrator(strategy, config)
 
         provider = _make_mock_provider("openai")
-        request = CompletionRequest(model="gpt-4o", messages=[LLMMessage(role="user", content="Hi")])
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
 
         response = await orchestrator.execute_completion([provider], request)
         assert response.text == "Response from openai"
@@ -187,7 +190,10 @@ class TestFallbackOrchestrator:
         )
         secondary = _make_mock_provider("anthropic")
 
-        request = CompletionRequest(model="gpt-4o", messages=[LLMMessage(role="user", content="Hi")])
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
 
         response = await orchestrator.execute_completion([primary, secondary], request)
         assert response.text == "Response from anthropic"
@@ -204,7 +210,10 @@ class TestFallbackOrchestrator:
             error=ProviderError("Auth error", error_type=ProviderErrorType.AUTH_ERROR),
         )
 
-        request = CompletionRequest(model="gpt-4o", messages=[LLMMessage(role="user", content="Hi")])
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
 
         with pytest.raises(ProviderError) as exc_info:
             await orchestrator.execute_completion([provider], request)
@@ -226,7 +235,10 @@ class TestFallbackOrchestrator:
             error=ProviderError("Error 2", error_type=ProviderErrorType.TIMEOUT),
         )
 
-        request = CompletionRequest(model="gpt-4o", messages=[LLMMessage(role="user", content="Hi")])
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
 
         with pytest.raises(AllProvidersFailed):
             await orchestrator.execute_completion([primary, secondary], request)
@@ -239,7 +251,10 @@ class TestFallbackOrchestrator:
         orchestrator = FallbackOrchestrator(strategy, config)
 
         provider = _make_mock_provider("openai")
-        request = CompletionRequest(model="gpt-4o", messages=[LLMMessage(role="user", content="Hi")])
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
 
         response = await orchestrator.execute_completion([provider], request)
         assert response.text == "Response from openai"

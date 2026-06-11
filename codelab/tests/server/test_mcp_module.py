@@ -177,7 +177,10 @@ class TestMCPToolAdapter:
         mock_client = MagicMock()
         adapter = MCPToolAdapter("test", mock_client)
 
-        for name in ["write_file", "create_file", "update_content", "edit_text", "modify_data", "append_log"]:
+        for name in [
+            "write_file", "create_file", "update_content",
+            "edit_text", "modify_data", "append_log",
+        ]:
             tool = MCPTool(name=name, description="test")
             assert adapter._infer_kind(tool) == "edit", f"Failed for {name}"
 

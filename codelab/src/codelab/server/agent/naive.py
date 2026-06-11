@@ -262,7 +262,11 @@ class NaiveAgent(LLMAgent):
         return AgentResponse(
             text=response.text,
             tool_calls=response.tool_calls if response.tool_calls else [],
-            stop_reason=response.stop_reason.value if isinstance(response.stop_reason, StopReason) else response.stop_reason,
+            stop_reason=(
+                response.stop_reason.value
+                if isinstance(response.stop_reason, StopReason)
+                else response.stop_reason
+            ),
             metadata={},
             plan=plan,
         )

@@ -343,7 +343,8 @@ class OpenAICompatibleProvider(LLMProvider):
                         message_index=i,
                     )
                     raise ValueError(
-                        f"Tool message at index {i} must follow an assistant message with tool_calls"
+                        f"Tool message at index {i} must follow an assistant "
+                        f"message with tool_calls"
                     )
 
     def _normalize_model_id(self, model: str) -> str:

@@ -3029,7 +3029,12 @@ async def test_middleware_is_called_for_registered_method():
         return result
 
     protocol = ACPProtocol(middleware=[logging_middleware])
-    outcome = await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     assert outcome.response is not None
     assert outcome.response.error is None
@@ -3084,7 +3089,12 @@ async def test_multiple_middleware_applied_in_order():
         return result
 
     protocol = ACPProtocol(middleware=[mw_outer, mw_inner])
-    await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     # Onion pattern: outer -> inner -> handler -> inner -> outer
     assert call_log == [
@@ -3109,7 +3119,12 @@ async def test_middleware_can_modify_response():
         return result
 
     protocol = ACPProtocol(middleware=[error_middleware])
-    outcome = await protocol.handle(ACPMessage.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}}))
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {"protocolVersion": 1, "clientCapabilities": {}},
+        )
+    )
 
     assert outcome.response is not None
     assert len(outcome.notifications) == 1

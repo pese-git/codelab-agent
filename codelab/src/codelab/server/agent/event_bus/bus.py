@@ -225,7 +225,9 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
         tasks = [
             _dispatch_agent(name, handler) for name, handler in self._agents.items()
         ]
-        results: list[tuple[str, ChoreographyAnswer | Exception] | BaseException] = await asyncio.gather(
+        results: list[
+            tuple[str, ChoreographyAnswer | Exception] | BaseException
+        ] = await asyncio.gather(
             *tasks, return_exceptions=True,
         )
 
