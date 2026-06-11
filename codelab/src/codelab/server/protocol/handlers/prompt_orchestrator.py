@@ -193,7 +193,6 @@ class PromptOrchestrator:
         context.meta["agent_orchestrator"] = agent_orchestrator
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
-        context.notifications.append(_build_ack_notification(session_id, text_preview))
 
         result = await self._pipeline.run(context)
 
@@ -439,19 +438,6 @@ def _extract_full_text(prompt: list[dict[str, Any]]) -> str:
         if isinstance(block, dict)
         and block.get("type") == "text"
         and isinstance(block.get("text"), str)
-    )
-
-
-def _build_ack_notification(session_id: str, text_preview: str) -> ACPMessage:
-    return ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": f"Processing prompt: {text_preview[:80]}"},
-            },
-        },
     )
 
 

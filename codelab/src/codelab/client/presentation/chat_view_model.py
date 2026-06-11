@@ -312,9 +312,6 @@ class ChatViewModel(BaseViewModel):
                 if text:
                     # Добавляем текст в состояние той сессии, откуда пришёл update.
                     if target_session_id is not None:
-                        if self._is_system_ack_chunk(text):
-                            self.add_message("system", text, session_id=target_session_id)
-                            return
                         self._append_streaming_text_to_session(target_session_id, text)
 
                     self.logger.debug("agent_message_chunk_processed", text_length=len(text))
@@ -837,7 +834,7 @@ class ChatViewModel(BaseViewModel):
             if update_type == "user_message_chunk":
                 current_role = "user"
             elif update_type == "agent_message_chunk":
-                current_role = "system" if self._is_system_ack_chunk(text) else "assistant"
+                current_role = "assistant"
             else:
                 continue
 
@@ -1083,8 +1080,7 @@ class ChatViewModel(BaseViewModel):
             if update_type == "user_message_chunk":
                 rebuilt_messages.append({"role": "user", "content": text})
             elif update_type == "agent_message_chunk":
-                role = "system" if self._is_system_ack_chunk(text) else "assistant"
-                rebuilt_messages.append({"role": role, "content": text})
+                rebuilt_messages.append({"role": "assistant", "content": text})
 
         return rebuilt_messages
 
@@ -1135,13 +1131,6 @@ class ChatViewModel(BaseViewModel):
 
         if self._active_session_id == session_id:
             self.last_stop_reason.value = stop_reason
-
-    @staticmethod
-    def _is_system_ack_chunk(text: str) -> bool:
-        """Определяет служебный ACK chunk от сервера."""
-
-        normalized = text.strip()
-        return normalized.startswith("Processing with agent:")
 
     # Event handlers
     def _handle_prompt_started(self, event: Any) -> None:
