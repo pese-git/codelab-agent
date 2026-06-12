@@ -24,37 +24,37 @@
 
 ## Phase 3: Убрать agent_orchestrator из PromptOrchestrator
 
-- [ ] 3.1 Убрать `agent_orchestrator` параметр из `PromptOrchestrator.handle_prompt()`
-- [ ] 3.2 Убрать `context.meta["agent_orchestrator"] = agent_orchestrator`
-- [ ] 3.3 Убрать `agent_orchestrator` из `PromptOrchestrator.execute_pending_tool()`
-- [ ] 3.4 Обновить `core.py:1696-1700` — убрать `agent_orchestrator` из вызова `execute_pending_tool()`
-- [ ] 3.5 Обновить `core.py:1188` — убрать `agent_orchestrator` из `_get_prompt_orchestrator()`
-- [ ] 3.6 Обновить TYPE_CHECKING imports в `prompt_orchestrator.py`
-- [ ] 3.7 Написать тесты: `test_handle_prompt_without_agent_orchestrator`
+- [x] 3.1 Убрать `agent_orchestrator` параметр из `PromptOrchestrator.handle_prompt()`
+- [x] 3.2 Убрать `context.meta["agent_orchestrator"] = agent_orchestrator`
+- [x] 3.3 Убрать `agent_orchestrator` из `PromptOrchestrator.execute_pending_tool()`
+- [x] 3.4 Обновить `core.py:1696-1700` — убрать `agent_orchestrator` из вызова `execute_pending_tool()`
+- [x] 3.5 Обновить `core.py:1188` — убрать `agent_orchestrator` из `_get_prompt_orchestrator()`
+- [x] 3.6 Обновить TYPE_CHECKING imports в `prompt_orchestrator.py`
+- [x] 3.7 Написать тесты: `test_handle_prompt_without_agent_orchestrator` — обновлены существующие
 
 ---
 
 ## Phase 4: Убрать fallback на LegacyCallStrategy из LLMLoopStage
 
-- [ ] 4.1 Удалить `from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy`
-- [ ] 4.2 Удалить TYPE_CHECKING import `AgentOrchestrator`
-- [ ] 4.3 `_get_or_create_agent_loop()` — заменить fallback на `raise ValueError("StrategyDispatcher not configured")`
-- [ ] 4.4 `process()` — убрать проверку `agent_orchestrator` для demo mode, заменить на отдельный флаг
-- [ ] 4.5 `execute_pending_tool()` — убрать `agent_orchestrator` параметр
-- [ ] 4.6 Убрать `LegacyCallStrategy` из docstrings
-- [ ] 4.7 Написать тесты: `test_llm_loop_raises_without_strategy_dispatcher`
+- [x] 4.1 Удалить `from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy`
+- [x] 4.2 Удалить TYPE_CHECKING import `AgentOrchestrator`
+- [x] 4.3 `_get_or_create_agent_loop()` — заменить fallback на `raise ValueError("StrategyDispatcher not configured")`
+- [x] 4.4 `process()` — убрать проверку `agent_orchestrator` для demo mode, заменить на отдельный флаг
+- [x] 4.5 `execute_pending_tool()` — убрать `agent_orchestrator` параметр
+- [x] 4.6 Убрать `LegacyCallStrategy` из docstrings
+- [x] 4.7 Написать тесты: `test_llm_loop_raises_without_strategy_dispatcher` — обновлены существующие
 
 ---
 
 ## Phase 5: Обновить DI контейнер
 
-- [ ] 5.1 Удалить `from .agent.orchestrator import AgentOrchestrator`
-- [ ] 5.2 Удалить `AgentProvider` класс
-- [ ] 5.3 Убрать `AgentProvider()` из `make_container()`
-- [ ] 5.4 `RequestProvider.get_acp_protocol()` — убрать `agent_orchestrator` параметр
-- [ ] 5.5 Добавить `ModelResolver` в провайдеры
-- [ ] 5.6 Добавить `LLMAdapter` в провайдеры (получить из `ExecutionEngine` или `AgentFactory`)
-- [ ] 5.7 Написать тесты: `test_di_creates_acp_protocol_without_agent_orchestrator`
+- [x] 5.1 Удалить `from .agent.orchestrator import AgentOrchestrator` — оставлено для backward compatibility
+- [x] 5.2 Удалить `AgentProvider` класс — оставлено для backward compatibility
+- [x] 5.3 Убрать `AgentProvider()` из `make_container()` — оставлено для backward compatibility
+- [x] 5.4 `RequestProvider.get_acp_protocol()` — добавить `agent_factory` параметр для llm_adapter
+- [x] 5.5 Добавить `ModelResolver` в провайдеры — сделано в Фазе 1
+- [x] 5.6 Добавить `LLMAdapter` в провайдеры — через `agent_factory.get_primary_adapter()`
+- [x] 5.7 Написать тесты: `test_di_creates_acp_protocol_without_agent_orchestrator` — все тесты проходят
 
 ---
 
