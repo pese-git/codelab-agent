@@ -417,19 +417,6 @@ class MultiAgentProvider(Provider):
         await registry.initialize()
         return registry
 
-    @provide(scope=Scope.APP)
-    def get_llm_adapter(
-        self,
-        agent_factory: AgentFactory,
-    ) -> LLMAdapter | None:
-        """Возвращает LLMAdapter primary агента для cancellation.
-
-        LLMAdapter создаётся лениво при первом вызове агента через
-        AgentFactory.create_adapter(). Этот провайдер возвращает
-        уже созданный адаптер (или None если ещё не создан).
-        """
-        return agent_factory.get_primary_adapter()
-
 
 class ManagersProvider(Provider):
     """Провайдер stateless менеджеров (APP scope)."""
@@ -837,6 +824,7 @@ class RequestProvider(Provider):
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         storage: SessionStorage,
         agent_orchestrator: AgentOrchestrator,
+        agent_factory: AgentFactory,
         tool_registry: ToolRegistryProtocol,
         prompt_orchestrator: PromptOrchestrator,
         holder: ClientRPCServiceHolder,
@@ -847,7 +835,6 @@ class RequestProvider(Provider):
         strategy_registry: StrategyRegistry,
         command_registry: CommandRegistry,
         model_resolver: ModelResolver,
-        llm_adapter: LLMAdapter,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -863,6 +850,9 @@ class RequestProvider(Provider):
             )
 
             middleware.append(create_message_trace_middleware(enabled=True))
+
+        # Получаем LLMAdapter для cancellation (может быть None если primary агент ещё не создан)
+        llm_adapter = agent_factory.get_primary_adapter()
 
         return ACPProtocol(
             require_auth=require_auth,

@@ -944,6 +944,8 @@ class ACPProtocol:
 
         if self._tool_registry is None:
             self._tool_registry = SimpleToolRegistry()
+        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+
         from .handlers.permission_manager import PermissionManager
         from .handlers.pipeline import (
             PlanBuildingStage,
@@ -965,7 +967,6 @@ class ACPProtocol:
         from .handlers.state_manager import StateManager
         from .handlers.tool_call_handler import ToolCallHandler
         from .handlers.turn_lifecycle_manager import TurnLifecycleManager
-        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
 
         state_manager = StateManager()
         plan_builder = PlanBuilder()
