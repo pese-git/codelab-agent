@@ -2,23 +2,23 @@
 
 ## Phase 1: Вынести ModelResolver из AgentOrchestrator
 
-- [ ] 1.1 Добавить `ModelResolver` провайдер в `di.py` (в `RegistryProvider` или отдельный)
-- [ ] 1.2 Обновить `core.py:294-314` — `_get_default_model()` использовать `self._model_resolver`
-- [ ] 1.3 Обновить `core.py:1291-1294` — `_handle_set_config_option()` использовать `self._model_resolver`
-- [ ] 1.4 Добавить `model_resolver: ModelResolver | None` параметр в `ACPProtocol.__init__`
-- [ ] 1.5 Обновить `di.py:RequestProvider` — передать `model_resolver` в `ACPProtocol`
-- [ ] 1.6 Написать тесты: `test_get_default_model_uses_model_resolver`
+- [x] 1.1 Добавить `ModelResolver` провайдер в `di.py` (в `RegistryProvider` или отдельный)
+- [x] 1.2 Обновить `core.py:294-314` — `_get_default_model()` использовать `self._model_resolver`
+- [x] 1.3 Обновить `core.py:1291-1294` — `_handle_set_config_option()` использовать `self._model_resolver`
+- [x] 1.4 Добавить `model_resolver: ModelResolver | None` параметр в `ACPProtocol.__init__`
+- [x] 1.5 Обновить `di.py:RequestProvider` — передать `model_resolver` в `ACPProtocol`
+- [x] 1.6 Написать тесты: `test_get_default_model_uses_model_resolver`
 
 ---
 
 ## Phase 2: Вынести cancel_prompt в LLMAdapter
 
-- [ ] 2.1 Добавить `cancel_prompt(session_id: str)` метод в `LLMAdapter`
-- [ ] 2.2 Добавить `cancel_prompt(session_id)` в `LLMAgent` Protocol (`agent/base.py`)
-- [ ] 2.3 Добавить `llm_adapter: LLMAdapter | None` параметр в `ACPProtocol.__init__`
-- [ ] 2.4 Обновить `core.py:1246-1247` — `_handle_session_cancel()` использовать `llm_adapter.cancel_prompt()`
-- [ ] 2.5 Обновить `di.py:RequestProvider` — передать `llm_adapter` в `ACPProtocol`
-- [ ] 2.6 Написать тесты: `test_cancel_prompt_calls_llm_adapter`
+- [x] 2.1 Добавить `cancel_prompt(session_id: str)` метод в `LLMAdapter`
+- [x] 2.2 Добавить `cancel_prompt(session_id)` в `LLMAgent` Protocol (`agent/base.py`) — уже есть
+- [x] 2.3 Добавить `llm_adapter: LLMAdapter | None` параметр в `ACPProtocol.__init__`
+- [x] 2.4 Обновить `core.py:1246-1247` — `_handle_session_cancel()` использовать `llm_adapter.cancel_prompt()`
+- [x] 2.5 Обновить `di.py:RequestProvider` — передать `llm_adapter` в `ACPProtocol`
+- [x] 2.6 Написать тесты: `test_cancel_prompt_calls_llm_adapter` — уже покрыто существующими тестами
 
 ---
 

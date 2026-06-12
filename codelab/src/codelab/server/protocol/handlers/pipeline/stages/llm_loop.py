@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
@@ -33,7 +32,6 @@ from ..base import PromptStage
 from ..context import PromptContext
 
 if TYPE_CHECKING:
-    from codelab.server.agent.orchestrator import AgentOrchestrator
     from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
     from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
@@ -52,8 +50,7 @@ logger = structlog.get_logger()
 class LLMLoopStage(PromptStage):
     """Тонкий адаптер pipeline → AgentLoop.
 
-    Поддерживает два пути выполнения через LLMCallStrategy:
-    - Legacy: через LegacyCallStrategy → AgentOrchestrator → NaiveAgent
+    Поддерживает один путь выполнения через LLMCallStrategy:
     - EventBus: через StrategyDispatcher → SingleStrategy → LLMAdapter
 
     Стратегия выбирается лениво при первом вызове process().
@@ -89,8 +86,7 @@ class LLMLoopStage(PromptStage):
             plan_builder: Построитель планов выполнения.
             system_prompt_builder: Билдер system prompt (config + MCP info).
             global_policy_manager: Менеджер глобальных политик (опционально).
-            strategy_dispatcher: StrategyDispatcher для EventBus пути (опционально).
-                Если None, используется LegacyCallStrategy.
+            strategy_dispatcher: StrategyDispatcher для EventBus пути (обязательно).
             tracer: Tracer для observability (опционально).
         """
         self._tool_registry = tool_registry
@@ -163,13 +159,10 @@ class LLMLoopStage(PromptStage):
             self._strategy_dispatcher.set_current_strategy(strategy_name)
             strategy = self._strategy_dispatcher
         else:
-            agent_orchestrator = context.meta.get("agent_orchestrator")
-            if agent_orchestrator is None:
-                raise ValueError(
-                    "No LLM strategy available: "
-                    "neither strategy_dispatcher nor agent_orchestrator"
-                )
-            strategy = LegacyCallStrategy(agent_orchestrator)
+            raise ValueError(
+                "StrategyDispatcher not configured. "
+                "LLMLoopStage requires strategy_dispatcher to be set."
+            )
 
         self._agent_loop = AgentLoop(
             strategy=strategy,
@@ -196,9 +189,8 @@ class LLMLoopStage(PromptStage):
         Returns:
             Обновлённый контекст с результатами.
         """
-        # Demo mode: нет LLM
-        agent_orchestrator: AgentOrchestrator | None = context.meta.get("agent_orchestrator")
-        if agent_orchestrator is None and self._strategy_dispatcher is None:
+        # Demo mode: нет LLM стратегии
+        if self._strategy_dispatcher is None:
             if context.raw_text:
                 ack_text = f"ACK: {context.raw_text[:80]}"
                 ack_content = {"type": "text", "text": ack_text}
@@ -243,7 +235,6 @@ class LLMLoopStage(PromptStage):
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        agent_orchestrator: AgentOrchestrator | None = None,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
@@ -255,8 +246,6 @@ class LLMLoopStage(PromptStage):
             session: Состояние сессии.
             session_id: ID сессии.
             tool_call_id: ID tool call для выполнения.
-            agent_orchestrator: Legacy оркестратор
-                (используется только если нет StrategyDispatcher).
             mcp_manager: MCP manager для tool execution.
 
         Returns:
@@ -274,8 +263,6 @@ class LLMLoopStage(PromptStage):
                 )
                 self._strategy_dispatcher.set_current_strategy(strategy_name)
                 strategy = self._strategy_dispatcher
-            elif agent_orchestrator is not None:
-                strategy = LegacyCallStrategy(agent_orchestrator)
             else:
                 logger.error(
                     "No LLM strategy available for execute_pending_tool",

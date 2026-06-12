@@ -1195,7 +1195,6 @@ class ACPProtocol:
             params=params,
             session=session,
             storage=self._storage,
-            agent_orchestrator=self._agent_orchestrator,  # type: ignore[arg-type]
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
         )
@@ -1677,15 +1676,6 @@ class ACPProtocol:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
         
-        # Проверить наличие agent_orchestrator для LLM loop
-        if self._agent_orchestrator is None:
-            logger.error(
-                "agent_orchestrator not configured for LLM loop",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-            )
-            return LLMLoopResult(notifications=[], stop_reason="end_turn")
-
         # Получить MCP manager из runtime registry с defensive re-initialization
         mcp_manager = await self._ensure_mcp_initialized(session)
 
@@ -1703,7 +1693,6 @@ class ACPProtocol:
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
-            agent_orchestrator=self._agent_orchestrator,
             mcp_manager=mcp_manager,
         )
 
