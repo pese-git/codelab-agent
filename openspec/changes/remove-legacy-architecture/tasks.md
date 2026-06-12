@@ -60,47 +60,47 @@
 
 ## Phase 6: Удалить legacy файлы
 
-- [ ] 6.1 Удалить `codelab/src/codelab/server/agent/orchestrator.py`
-- [ ] 6.2 Удалить `codelab/src/codelab/server/agent/naive.py`
-- [ ] 6.3 Удалить `codelab/src/codelab/server/agent/strategies/legacy_adapter.py`
-- [ ] 6.4 Обновить `agent/__init__.py` — убрать экспорты `NaiveAgent`, `AgentOrchestrator`
-- [ ] 6.5 Обновить `agent/strategies/__init__.py` — убрать экспорт `LegacyCallStrategy`
-- [ ] 6.6 Обновить `agent/strategies/base.py` docstring — убрать упоминание `LegacyCallStrategy`
-- [ ] 6.7 Обновить `agent/base.py` docstring — убрать упоминание `AgentOrchestrator`
+- [x] 6.1 Удалить `codelab/src/codelab/server/agent/orchestrator.py`
+- [x] 6.2 Удалить `codelab/src/codelab/server/agent/naive.py`
+- [x] 6.3 Удалить `codelab/src/codelab/server/agent/strategies/legacy_adapter.py`
+- [x] 6.4 Обновить `agent/__init__.py` — убрать экспорты `NaiveAgent`, `AgentOrchestrator`
+- [x] 6.5 Обновить `agent/strategies/__init__.py` — убрать экспорт `LegacyCallStrategy`
+- [x] 6.6 Обновить `agent/strategies/base.py` docstring — убрать упоминание `LegacyCallStrategy`
+- [x] 6.7 Обновить `agent/base.py` docstring — убрать упоминание `AgentOrchestrator`
 
 ---
 
 ## Phase 7: Удалить legacy тесты
 
-- [ ] 7.1 Удалить `tests/server/test_agent_orchestrator.py`
-- [ ] 7.2 Удалить `tests/server/test_naive_agent.py`
-- [ ] 7.3 Удалить `tests/server/agent/strategies/test_legacy_adapter.py`
-- [ ] 7.4 Удалить `tests/server/agent/test_orchestrator_mcp.py`
+- [x] 7.1 Удалить `tests/server/test_agent_orchestrator.py`
+- [x] 7.2 Удалить `tests/server/test_naive_agent.py`
+- [x] 7.3 Удалить `tests/server/agent/strategies/test_legacy_adapter.py`
+- [x] 7.4 Удалить `tests/server/agent/test_orchestrator_mcp.py`
 
 ---
 
 ## Phase 8: Обновить интеграционные тесты
 
-- [ ] 8.1 Обновить `tests/server/test_protocol.py` — убрать `agent_orchestrator` из fixtures
-- [ ] 8.2 Обновить `tests/server/test_protocol_with_agent.py` — перейти на `StrategyDispatcher`
-- [ ] 8.3 Обновить `tests/server/test_prompt_orchestrator.py` — убрать `agent_orchestrator` параметр
-- [ ] 8.4 Обновить `tests/server/test_agent_loop_integration.py` — убрать legacy path тесты
-- [ ] 8.5 Обновить `tests/server/test_tool_execution_integration.py` — обновить fixtures
-- [ ] 8.6 Обновить `tests/server/test_extensibility.py` — обновить fixtures
-- [ ] 8.7 Обновить `tests/server/test_client_rpc_service_integration.py` — обновить fixtures
-- [ ] 8.8 Обновить `tests/server/llm/test_integration_multi_provider.py` — обновить `model_resolver` usage
-- [ ] 8.9 Обновить `tests/server/factories.py` — обновить factory функции
+- [x] 8.1 Обновить `tests/server/test_protocol.py` — убрать legacy тест
+- [x] 8.2 Обновить `tests/server/test_protocol_with_agent.py` — использовать mock PromptOrchestrator
+- [x] 8.3 Обновить `tests/server/test_prompt_orchestrator.py` — использовать mock StrategyDispatcher
+- [x] 8.4 Обновить `tests/server/test_agent_loop_integration.py` — убрать legacy path тесты
+- [x] 8.5 Обновить `tests/server/test_tool_execution_integration.py` — использовать LLMAdapter
+- [x] 8.6 Обновить `tests/server/test_extensibility.py` — не требуется
+- [x] 8.7 Обновить `tests/server/test_client_rpc_service_integration.py` — убрать agent_orchestrator
+- [x] 8.8 Обновить `tests/server/llm/test_integration_multi_provider.py` — убрать AgentOrchestrator
+- [x] 8.9 Обновить `tests/server/factories.py` — не требуется
 
 ---
 
 ## Phase 9: Обновить docstrings и комментарии
 
-- [ ] 9.1 `agent/tool_filter.py:3` — убрать "Рефакторинг из AgentOrchestrator"
-- [ ] 9.2 `agent/execution_engine.py:3` — убрать "Заменяет AgentOrchestrator"
-- [ ] 9.3 `agent/history_builder.py:3` — убрать "Рефакторинг из AgentOrchestrator"
-- [ ] 9.4 `agent/message_sanitizer.py:3` — убрать "Рефакторинг из AgentOrchestrator"
-- [ ] 9.5 `agent/system_prompt_builder.py:3` — убрать "Рефакторинг из AgentOrchestrator"
-- [ ] 9.6 `agent/llm_adapter.py:3` — убрать "Заменяет NaiveAgent"
+- [x] 9.1 `agent/tool_filter.py:3` — убрать "Рефакторинг из AgentOrchestrator"
+- [x] 9.2 `agent/execution_engine.py:3` — убрать "Заменяет AgentOrchestrator"
+- [x] 9.3 `agent/history_builder.py:3` — убрать "Рефакторинг из AgentOrchestrator"
+- [x] 9.4 `agent/message_sanitizer.py:3` — убрать "Рефакторинг из AgentOrchestrator"
+- [x] 9.5 `agent/system_prompt_builder.py:3` — убрать "Рефакторинг из AgentOrchestrator"
+- [x] 9.6 `agent/llm_adapter.py:3` — убрать "Заменяет NaiveAgent"
 
 ---
 
