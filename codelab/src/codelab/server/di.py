@@ -42,6 +42,7 @@ from .llm import LLMProvider, MockLLMProvider
 from .llm.base import LLMConfig, LLMTimeoutConfig
 from .llm.errors import ProviderNotFoundError
 from .llm.registry import LLMProviderRegistry
+from .llm.resolver import ModelResolver
 from .observability import EventTimeline, MetricsTracker, Tracer
 from .observability.exporters import FileEventExporter, FileMetricsExporter, FileSpanExporter
 from .protocol.core import ACPProtocol
@@ -792,6 +793,25 @@ class RegistryProvider(Provider):
         """Создаёт билдер config options."""
         return ConfigOptionBuilder(registry)
 
+    @provide(scope=Scope.APP)
+    def get_model_resolver(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+        registry: LLMProviderRegistry,
+    ) -> ModelResolver:
+        """Создаёт ModelResolver для dynamic model selection.
+
+        ModelResolver резолвит ссылки на модели в формате "provider/model"
+        в конкретные LLMProvider экземпляры через Registry.
+        Поддерживает кэширование на уровне сессии и инвалидацию
+        при смене модели через session/set_config_option.
+        """
+        return ModelResolver(
+            registry=registry,
+            default_provider=config.llm.provider,
+            provider_configs=config.llm.providers,
+        )
+
 
 class RequestProvider(Provider):
     """Провайдер REQUEST-scoped зависимостей (на WebSocket соединение)."""
@@ -812,6 +832,7 @@ class RequestProvider(Provider):
         agent_registry: AgentRegistry,
         strategy_registry: StrategyRegistry,
         command_registry: CommandRegistry,
+        model_resolver: ModelResolver,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -843,6 +864,7 @@ class RequestProvider(Provider):
             agent_registry=agent_registry,
             strategy_registry=strategy_registry,
             command_registry=command_registry,
+            model_resolver=model_resolver,
         )
 
 

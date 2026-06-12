@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from ..agent.orchestrator import AgentOrchestrator
     from ..client_rpc.service import ClientRPCService
     from ..llm.registry import LLMProviderRegistry
+    from ..llm.resolver import ModelResolver
     from ..tools.base import ToolRegistry
     from .handlers.config_option_builder import ConfigOptionBuilder
     from .handlers.global_policy_manager import GlobalPolicyManager
@@ -112,6 +113,7 @@ class ACPProtocol:
         agent_registry: Any | None = None,
         strategy_registry: Any | None = None,
         command_registry: Any | None = None,
+        model_resolver: ModelResolver | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -136,6 +138,7 @@ class ACPProtocol:
                 config option (опционально).
             command_registry: Реестр slash-команд для динамической генерации
                 available_commands (опционально).
+            model_resolver: Резолвер моделей для dynamic model selection (опционально).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -156,6 +159,9 @@ class ACPProtocol:
 
         # Оркестратор LLM-агента для обработки prompt-turns через агента
         self._agent_orchestrator = agent_orchestrator
+
+        # Резолвер моделей для dynamic model selection и cache invalidation
+        self._model_resolver = model_resolver
 
         # Сервис ClientRPC для выполнения встроенных инструментов
         self._client_rpc_service = client_rpc_service
@@ -297,12 +303,9 @@ class ACPProtocol:
         Returns:
             Модель в формате "provider/model" (например, "openrouter/gpt-4o").
         """
-        # Попробовать взять из agent_orchestrator config
-        if self._agent_orchestrator is not None:
-            orchestrator_config = self._agent_orchestrator.config
-            provider_class = orchestrator_config.llm_provider_class
-            model = orchestrator_config.model
-            return f"{provider_class}/{model}"
+        # Попробовать взять из model_resolver
+        if self._model_resolver is not None:
+            return f"{self._model_resolver.default_provider}/gpt-4o"
 
         # Fallback: взять первую модель из Registry
         if self._config_option_builder is not None:
@@ -1288,16 +1291,12 @@ class ACPProtocol:
     async def _handle_set_config_option(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/set_config_option."""
         params = message.params or {}
-        # Получить model_resolver из agent_orchestrator для инвалидации кэша
-        model_resolver = None
-        if self._agent_orchestrator is not None:
-            model_resolver = self._agent_orchestrator.model_resolver
         return await config.session_set_config_option(
             message.id,
             params,
             self._storage,
             self._config_specs,
-            model_resolver=model_resolver,
+            model_resolver=self._model_resolver,
         )
 
     async def _handle_set_mode(self, message: ACPMessage) -> ProtocolOutcome:
