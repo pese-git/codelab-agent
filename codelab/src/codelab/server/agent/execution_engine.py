@@ -56,7 +56,7 @@ class ExecutionEngine:
         self.sanitizer = sanitizer or MessageSanitizer()
         self.plan_extractor = plan_extractor or PlanExtractor()
 
-    def build_context(
+    async def build_context(
         self,
         session: SessionState,
         prompt: str,
@@ -64,6 +64,10 @@ class ExecutionEngine:
         mcp_manager: Any | None = None,
     ) -> AgentContext:
         """Собрать AgentContext из сессии и промпта.
+
+        Автоматически применяет ContextCompactor если история превышает лимит.
+        Это гарантирует что все стратегии (Single, Orchestrated, Hierarchical,
+        Choreography) получают компактный контекст без дублирования логики.
 
         Args:
             session: Состояние сессии.
@@ -94,6 +98,10 @@ class ExecutionEngine:
         # Санитайзим
         history = self.sanitizer.sanitize(history)
 
+        # Compaction: автоматически если история превышает лимит
+        # Это обеспечивает единый путь для всех стратегий (SRP, Open/Closed)
+        history, _, _ = await self.ensure_context_fits(history)
+
         return AgentContext(
             session_id=session.session_id,
             session=session,
@@ -104,12 +112,14 @@ class ExecutionEngine:
             model=session.config_values.get("model", ""),
         )
 
-    def build_continuation_context(
+    async def build_continuation_context(
         self,
         session: SessionState,
         mcp_manager: Any | None = None,
     ) -> ContinuationContext:
         """Собрать ContinuationContext для продолжения после tool_results.
+
+        Автоматически применяет ContextCompactor если история превышает лимит.
 
         Args:
             session: Состояние сессии (история уже содержит tool_results).
@@ -130,6 +140,9 @@ class ExecutionEngine:
 
         history = self.history_builder.build(session.history)
         history = self.sanitizer.sanitize(history)
+
+        # Compaction: автоматически если история превышает лимит
+        history, _, _ = await self.ensure_context_fits(history)
 
         return ContinuationContext(
             session_id=session.session_id,

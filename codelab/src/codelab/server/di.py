@@ -27,6 +27,7 @@ from dishka import (
     provide,
 )
 
+from .agent.context_compactor import ContextCompactor
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
 from .agent.factory import AgentFactory
@@ -316,12 +317,43 @@ class MultiAgentProvider(Provider):
     """
 
     @provide(scope=Scope.APP)
+    async def get_context_compactor(
+        self,
+        llm_provider: LLMProvider,
+    ) -> ContextCompactor:
+        """Создаёт ContextCompactor для автоматического сжатия контекста.
+
+        Использует дефолтные значения из спецификации мультиагентной системы:
+        - context_window_limit: 128000
+        - compaction_reserved_tokens: 4096
+        - slicer_model: openai/gpt-4o-mini
+        """
+        from codelab.server.agent.config.models import AgentsGlobalConfig
+
+        defaults = AgentsGlobalConfig()
+        return ContextCompactor(
+            llm=llm_provider,
+            model=defaults.slicer_model,
+            max_context_tokens=defaults.context_window_limit,
+            reserved_tokens=defaults.compaction_reserved_tokens,
+        )
+
+    @provide(scope=Scope.APP)
     def get_execution_engine(
         self,
         tool_registry: ToolRegistryProtocol,
+        compactor: ContextCompactor,
     ) -> ExecutionEngine:
-        """Создаёт ExecutionEngine."""
-        return ExecutionEngine(tool_registry=tool_registry)
+        """Создаёт ExecutionEngine с ContextCompactor.
+
+        Compactor автоматически сжимает историю в build_context() и
+        build_continuation_context() — это работает для всех стратегий
+        (Single, Orchestrated, Hierarchical, Choreography) без дублирования.
+        """
+        return ExecutionEngine(
+            tool_registry=tool_registry,
+            compactor=compactor,
+        )
 
     @provide(scope=Scope.APP)
     def get_agent_factory(
