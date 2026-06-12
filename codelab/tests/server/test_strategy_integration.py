@@ -444,6 +444,7 @@ class TestDynamicStrategyListUpdates:
                 permission_manager=MagicMock(),
                 state_manager=MagicMock(),
                 plan_builder=MagicMock(),
+                system_prompt_builder=MagicMock(),
                 strategy_dispatcher=dispatcher,
             )
 

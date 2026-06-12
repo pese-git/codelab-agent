@@ -1,6 +1,5 @@
 """HistoryBuilder — конвертация session history в LLMMessage.
 
-Рефакторинг из AgentOrchestrator._convert_to_llm_messages().
 Поддерживает различные форматы записей истории и добавление system prompt.
 """
 

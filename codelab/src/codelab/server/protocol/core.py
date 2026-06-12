@@ -36,9 +36,10 @@ from .state import (
 )
 
 if TYPE_CHECKING:
-    from ..agent.orchestrator import AgentOrchestrator
+    from ..agent.llm_adapter import LLMAdapter
     from ..client_rpc.service import ClientRPCService
     from ..llm.registry import LLMProviderRegistry
+    from ..llm.resolver import ModelResolver
     from ..tools.base import ToolRegistry
     from .handlers.config_option_builder import ConfigOptionBuilder
     from .handlers.global_policy_manager import GlobalPolicyManager
@@ -97,7 +98,6 @@ class ACPProtocol:
         require_auth: bool = False,
         auth_api_key: str | None = None,
         storage: SessionStorage | None = None,
-        agent_orchestrator: AgentOrchestrator | None = None,
         client_rpc_service: ClientRPCService | None = None,
         tool_registry: ToolRegistry | None = None,
         prompt_orchestrator: PromptOrchestrator | None = None,
@@ -112,6 +112,8 @@ class ACPProtocol:
         agent_registry: Any | None = None,
         strategy_registry: Any | None = None,
         command_registry: Any | None = None,
+        model_resolver: ModelResolver | None = None,
+        llm_adapter: LLMAdapter | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -119,7 +121,6 @@ class ACPProtocol:
             require_auth: Требовать аутентификацию перед session setup.
             auth_api_key: API ключ для аутентификации.
             storage: Хранилище сессий (по умолчанию InMemoryStorage).
-            agent_orchestrator: Оркестратор LLM-агента для обработки prompts (опционально).
             client_rpc_service: Сервис ClientRPC для выполнения инструментов (опционально).
             tool_registry: Реестр инструментов для регистрации и выполнения tools (опционально).
             prompt_orchestrator: Оркестратор prompt-turn (опционально, создаётся лениво).
@@ -136,15 +137,8 @@ class ACPProtocol:
                 config option (опционально).
             command_registry: Реестр slash-команд для динамической генерации
                 available_commands (опционально).
-
-        Пример использования:
-            protocol = ACPProtocol()
-            # или с кастомным хранилищем и агентом:
-            from codelab.server.storage import InMemoryStorage
-            from codelab.server.agent.orchestrator import AgentOrchestrator
-            storage = InMemoryStorage()
-            agent = AgentOrchestrator(...)
-            protocol = ACPProtocol(storage=storage, agent_orchestrator=agent)
+            model_resolver: Резолвер моделей для dynamic model selection (опционально).
+            llm_adapter: Адаптер LLM для cancellation и других операций (опционально).
         """
 
         # Инициализировать хранилище (по умолчанию InMemoryStorage)
@@ -154,8 +148,11 @@ class ACPProtocol:
             storage = InMemoryStorage()
         self._storage = storage
 
-        # Оркестратор LLM-агента для обработки prompt-turns через агента
-        self._agent_orchestrator = agent_orchestrator
+        # Резолвер моделей для dynamic model selection и cache invalidation
+        self._model_resolver = model_resolver
+
+        # LLM адаптер для cancellation и других операций
+        self._llm_adapter = llm_adapter
 
         # Сервис ClientRPC для выполнения встроенных инструментов
         self._client_rpc_service = client_rpc_service
@@ -297,12 +294,9 @@ class ACPProtocol:
         Returns:
             Модель в формате "provider/model" (например, "openrouter/gpt-4o").
         """
-        # Попробовать взять из agent_orchestrator config
-        if self._agent_orchestrator is not None:
-            orchestrator_config = self._agent_orchestrator.config
-            provider_class = orchestrator_config.llm_provider_class
-            model = orchestrator_config.model
-            return f"{provider_class}/{model}"
+        # Попробовать взять из model_resolver
+        if self._model_resolver is not None:
+            return f"{self._model_resolver.default_provider}/gpt-4o"
 
         # Fallback: взять первую модель из Registry
         if self._config_option_builder is not None:
@@ -935,6 +929,8 @@ class ACPProtocol:
 
         if self._tool_registry is None:
             self._tool_registry = SimpleToolRegistry()
+        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+
         from .handlers.permission_manager import PermissionManager
         from .handlers.pipeline import (
             PlanBuildingStage,
@@ -963,6 +959,10 @@ class ACPProtocol:
         tool_call_handler = ToolCallHandler()
         permission_manager = PermissionManager()
         client_rpc_handler = ClientRPCHandler()
+        system_prompt_builder = SystemPromptBuilder(
+            global_prompt="",
+            agent_registry=self._agent_registry,
+        )
 
         llm_loop_stage = LLMLoopStage(
             tool_registry=self._tool_registry,
@@ -970,6 +970,7 @@ class ACPProtocol:
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
         )
 
@@ -1179,7 +1180,6 @@ class ACPProtocol:
             params=params,
             session=session,
             storage=self._storage,
-            agent_orchestrator=self._agent_orchestrator,  # type: ignore[arg-type]
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
         )
@@ -1237,8 +1237,8 @@ class ACPProtocol:
         # Прервать активный LLM-запрос для этой сессии.
         # handle_cancel помечает флаг и закрывает turn, но asyncio.Task с LLM
         # продолжает работать до ответа модели — нужно явно его отменить.
-        if self._agent_orchestrator is not None:
-            await self._agent_orchestrator.cancel_prompt(session_id)
+        if self._llm_adapter is not None:
+            await self._llm_adapter.cancel_prompt(session_id)
             logger.info("agent_llm_task_cancelled", session_id=session_id)
 
         await self._storage.save_session(session)
@@ -1282,16 +1282,12 @@ class ACPProtocol:
     async def _handle_set_config_option(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/set_config_option."""
         params = message.params or {}
-        # Получить model_resolver из agent_orchestrator для инвалидации кэша
-        model_resolver = None
-        if self._agent_orchestrator is not None:
-            model_resolver = self._agent_orchestrator.model_resolver
         return await config.session_set_config_option(
             message.id,
             params,
             self._storage,
             self._config_specs,
-            model_resolver=model_resolver,
+            model_resolver=self._model_resolver,
         )
 
     async def _handle_set_mode(self, message: ACPMessage) -> ProtocolOutcome:
@@ -1665,15 +1661,6 @@ class ACPProtocol:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
         
-        # Проверить наличие agent_orchestrator для LLM loop
-        if self._agent_orchestrator is None:
-            logger.error(
-                "agent_orchestrator not configured for LLM loop",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-            )
-            return LLMLoopResult(notifications=[], stop_reason="end_turn")
-
         # Получить MCP manager из runtime registry с defensive re-initialization
         mcp_manager = await self._ensure_mcp_initialized(session)
 
@@ -1691,7 +1678,6 @@ class ACPProtocol:
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
-            agent_orchestrator=self._agent_orchestrator,
             mcp_manager=mcp_manager,
         )
 

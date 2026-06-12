@@ -76,6 +76,8 @@ def agent_loop(
     plan_builder: PlanBuilder,
 ) -> AgentLoop:
     """Создаёт AgentLoop с mock стратегией."""
+    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+
     mock_strategy = MagicMock()
     return AgentLoop(
         strategy=mock_strategy,
@@ -88,6 +90,7 @@ def agent_loop(
         content_formatter=ContentFormatter(),
         replay_manager=ReplayManager(),
         plan_builder=plan_builder,
+        system_prompt_builder=SystemPromptBuilder(global_prompt=""),
     )
 
 

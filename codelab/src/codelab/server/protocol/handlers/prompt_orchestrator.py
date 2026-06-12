@@ -26,7 +26,6 @@ from .tool_call_handler import ToolCallHandler
 from .turn_lifecycle_manager import TurnLifecycleManager
 
 if TYPE_CHECKING:
-    from ...agent.orchestrator import AgentOrchestrator
     from .global_policy_manager import GlobalPolicyManager
 
 logger = structlog.get_logger()
@@ -136,7 +135,6 @@ class PromptOrchestrator:
         params: dict[str, Any],
         session: SessionState,
         storage: SessionStorage,
-        agent_orchestrator: AgentOrchestrator,
         mcp_manager: Any | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
     ) -> ProtocolOutcome:
@@ -155,7 +153,6 @@ class PromptOrchestrator:
             params: Параметры (должны содержать prompt array)
             session: Состояние сессии
             storage: Хранилище сессий
-            agent_orchestrator: LLM-агент для обработки
             mcp_manager: MCP manager для сессии (из runtime registry)
             mcp_prompt_handlers: Обработчики MCP prompts (из runtime registry)
 
@@ -190,7 +187,6 @@ class PromptOrchestrator:
             params=params,
             raw_text=prompt_text,
         )
-        context.meta["agent_orchestrator"] = agent_orchestrator
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
 
@@ -399,7 +395,6 @@ class PromptOrchestrator:
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        agent_orchestrator: AgentOrchestrator,
         mcp_manager: Any | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
@@ -407,7 +402,6 @@ class PromptOrchestrator:
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
-            agent_orchestrator=agent_orchestrator,
             mcp_manager=mcp_manager,
         )
 

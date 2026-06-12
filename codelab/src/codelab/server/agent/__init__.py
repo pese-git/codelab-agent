@@ -49,8 +49,6 @@ from codelab.server.agent.event_bus.routing import (
     AgentRoutingInterface,
     RequestHandler,
 )
-from codelab.server.agent.naive import NaiveAgent
-from codelab.server.agent.orchestrator import AgentOrchestrator
 from codelab.server.agent.registry import AgentRegistry
 from codelab.server.agent.state import OrchestratorConfig
 
@@ -60,8 +58,6 @@ __all__ = [
     "AgentContext",
     "AgentResponse",
     "OrchestratorConfig",
-    "NaiveAgent",
-    "AgentOrchestrator",
     # Config models
     "AgentMode",
     "AgentPermission",

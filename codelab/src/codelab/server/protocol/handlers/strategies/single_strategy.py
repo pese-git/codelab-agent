@@ -128,8 +128,8 @@ class SingleStrategy:
                 parent=parent_span,
             )
 
-        # Собираем контекст
-        context = self.execution_engine.build_context(
+        # Собираем контекст (async — включает ContextCompactor)
+        context = await self.execution_engine.build_context(
             session=session,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -205,7 +205,7 @@ class SingleStrategy:
                 parent=parent_span,
             )
 
-        context = self.execution_engine.build_continuation_context(
+        context = await self.execution_engine.build_continuation_context(
             session=session,
             mcp_manager=mcp_manager,
         )

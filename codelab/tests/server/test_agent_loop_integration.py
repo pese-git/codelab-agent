@@ -3,7 +3,6 @@
 Проверяют корректную работу AgentLoop в интеграции с:
 - LLMLoopStage (pipeline adapter)
 - StrategyDispatcher (EventBus путь)
-- LegacyCallStrategy (AgentOrchestrator путь)
 - ToolRegistry и ToolCallHandler
 - PermissionManager и permission flow
 """
@@ -17,7 +16,6 @@ import pytest
 from codelab.server.agent.base import AgentResponse
 from codelab.server.agent.strategies.base import LLMCallStrategy
 from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
@@ -151,6 +149,7 @@ class TestAgentLoopEventBusPath:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+        system_prompt_builder=MagicMock(),
         )
 
         # Act
@@ -165,81 +164,6 @@ class TestAgentLoopEventBusPath:
 
         # Проверяем что tool result добавлен в историю
         assert len(mock_session.history) >= 2  # assistant tool_call + tool result
-
-
-class TestAgentLoopLegacyPath:
-    """Тесты AgentLoop через Legacy путь (LegacyCallStrategy)."""
-
-    @pytest.mark.asyncio
-    async def test_full_cycle_with_tool_calls(self, mock_session):
-        """Полный цикл через LegacyCallStrategy."""
-        # Arrange
-        mock_orchestrator = AsyncMock()
-
-        tool_call = MagicMock()
-        tool_call.id = "call_1"
-        tool_call.name = "legacy_tool"
-        tool_call.arguments = {}
-
-        first_response = MagicMock(spec=AgentResponse)
-        first_response.text = ""
-        first_response.tool_calls = [tool_call]
-        first_response.plan = None
-
-        second_response = MagicMock(spec=AgentResponse)
-        second_response.text = "Legacy done"
-        second_response.tool_calls = []
-        second_response.plan = None
-
-        mock_orchestrator.process_prompt.return_value = first_response
-        mock_orchestrator.continue_with_tool_results.return_value = second_response
-
-        strategy = LegacyCallStrategy(mock_orchestrator)
-
-        # Mock dependencies
-        mock_tool_def = MagicMock()
-        mock_tool_def.requires_permission = False
-        mock_tool_def.kind = "other"
-
-        mock_tool_registry = MagicMock()
-        mock_tool_registry.get.return_value = mock_tool_def
-        mock_tool_result = MagicMock()
-        mock_tool_result.success = True
-        mock_tool_result.output = "Legacy tool output"
-        mock_tool_result.error = None
-        mock_tool_registry.execute_tool = AsyncMock(return_value=mock_tool_result)
-
-        mock_tool_call_handler = MagicMock()
-        mock_tool_call_handler.create_tool_call.return_value = "tc_1"
-        mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
-        mock_tool_call_handler.build_tool_update_notification.return_value = MagicMock()
-
-        mock_content_extractor = AsyncMock()
-        mock_extracted = MagicMock()
-        mock_extracted.content_items = []
-        mock_content_extractor.extract_from_result.return_value = mock_extracted
-
-        loop = AgentLoop(
-            strategy=strategy,
-            tool_registry=mock_tool_registry,
-            tool_call_handler=mock_tool_call_handler,
-            permission_manager=MagicMock(),
-            state_manager=MagicMock(),
-            content_extractor=mock_content_extractor,
-            content_validator=MagicMock(),
-            content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
-            plan_builder=MagicMock(),
-        )
-
-        # Act
-        result = await loop.run(mock_session, "test_session", "Legacy test")
-
-        # Assert
-        assert result.stop_reason == StopReason.END_TURN
-        assert result.text == "Legacy done"
-        mock_orchestrator.process_prompt.assert_called_once()
-        mock_orchestrator.continue_with_tool_results.assert_called_once()
 
 
 class TestAgentLoopPermissionFlow:
@@ -331,6 +255,7 @@ class TestAgentLoopPermissionFlow:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+        system_prompt_builder=MagicMock(),
         )
 
         # Act 1: Запуск — должен приостановиться на permission
@@ -401,6 +326,7 @@ class TestAgentLoopCancellation:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+        system_prompt_builder=MagicMock(),
         )
 
         # Устанавливаем cancel_requested после обработки tool_calls
@@ -476,6 +402,7 @@ class TestAgentLoopMaxTurnRequests:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
             max_turn_requests=3,  # Ограничиваем до 3
         )
 
@@ -509,6 +436,7 @@ class TestAgentLoopErrorHandling:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+        system_prompt_builder=MagicMock(),
         )
 
         # Act
@@ -566,6 +494,7 @@ class TestAgentLoopErrorHandling:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
+        system_prompt_builder=MagicMock(),
         )
 
         # Act
@@ -603,16 +532,16 @@ class TestLLMLoopStageStrategyReuse:
             permission_manager=MagicMock(),
             state_manager=MagicMock(),
             plan_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
             strategy_dispatcher=mock_dispatcher,
         )
 
-        # Act: вызвать execute_pending_tool без agent_orchestrator
+        # Act: вызвать execute_pending_tool
         mock_session.tool_calls = {}
         await stage.execute_pending_tool(
             session=mock_session,
             session_id="test_session",
             tool_call_id="nonexistent_tc",
-            agent_orchestrator=None,
             mcp_manager=None,
         )
 
@@ -621,35 +550,3 @@ class TestLLMLoopStageStrategyReuse:
         assert stage._agent_loop._strategy is mock_dispatcher
         # Проверяем что select_strategy был вызван
         mock_dispatcher.select_strategy.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_execute_pending_tool_fallback_to_legacy(self, mock_session):
-        """execute_pending_tool fallback на LegacyCallStrategy если нет StrategyDispatcher."""
-        from codelab.server.agent.strategies.legacy_adapter import LegacyCallStrategy
-        from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
-
-        # Arrange: LLMLoopStage без StrategyDispatcher
-        stage = LLMLoopStage(
-            tool_registry=MagicMock(),
-            tool_call_handler=MagicMock(),
-            permission_manager=MagicMock(),
-            state_manager=MagicMock(),
-            plan_builder=MagicMock(),
-            strategy_dispatcher=None,  # Нет EventBus пути
-        )
-
-        mock_orchestrator = AsyncMock()
-
-        # Act: вызвать execute_pending_tool с agent_orchestrator
-        mock_session.tool_calls = {}
-        await stage.execute_pending_tool(
-            session=mock_session,
-            session_id="test_session",
-            tool_call_id="nonexistent_tc",
-            agent_orchestrator=mock_orchestrator,
-            mcp_manager=None,
-        )
-
-        # Assert: AgentLoop создан с LegacyCallStrategy
-        assert stage._agent_loop is not None
-        assert isinstance(stage._agent_loop._strategy, LegacyCallStrategy)

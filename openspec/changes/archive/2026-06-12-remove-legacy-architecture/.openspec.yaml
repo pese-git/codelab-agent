@@ -1,0 +1,8 @@
+schema_version: 1
+name: remove-legacy-architecture
+status: proposed
+created: 2026-06-12
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

@@ -37,6 +37,7 @@ from codelab.server.tools.mapping import llm_name_to_acp_name
 if TYPE_CHECKING:
     from codelab.server.agent.base import AgentResponse
     from codelab.server.agent.strategies.base import LLMCallStrategy
+    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 
 logger = structlog.get_logger()
@@ -124,13 +125,14 @@ class AgentLoop:
         content_formatter: ContentFormatter,
         replay_manager: ReplayManager,
         plan_builder: PlanBuilder,
+        system_prompt_builder: SystemPromptBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         max_turn_requests: int = 10,
     ) -> None:
         """Инициализация AgentLoop.
 
         Args:
-            strategy: Стратегия вызова LLM (StrategyDispatcher или LegacyCallStrategy).
+            strategy: Стратегия вызова LLM (StrategyDispatcher).
             tool_registry: Реестр инструментов для выполнения.
             tool_call_handler: Обработчик tool calls для управления состоянием.
             permission_manager: Менеджер разрешений для permission requests.
@@ -140,6 +142,7 @@ class AgentLoop:
             content_formatter: Форматировщик контента для LLM.
             replay_manager: Менеджер replay для сохранения событий.
             plan_builder: Построитель планов выполнения.
+            system_prompt_builder: Билдер system prompt (config + MCP info).
             global_policy_manager: Менеджер глобальных политик (опционально).
             max_turn_requests: Максимальное количество запросов к LLM в turn.
         """
@@ -153,6 +156,7 @@ class AgentLoop:
         self._content_formatter = content_formatter
         self._replay_manager = replay_manager
         self._plan_builder = plan_builder
+        self._system_prompt_builder = system_prompt_builder
         self._global_policy_manager = global_policy_manager
         self._max_turn_requests = max_turn_requests
 
@@ -406,8 +410,13 @@ class AgentLoop:
         Returns:
             AgentResponse с ответом LLM.
         """
+        # Формируем system prompt (agent + config + MCP info)
+        system_prompt = self._system_prompt_builder.build(session, mcp_manager)
+
         if iteration == 1 and prompt:
-            return await self._strategy.execute(session, prompt, mcp_manager)
+            return await self._strategy.execute(
+                session, prompt, mcp_manager, system_prompt=system_prompt
+            )
         else:
             return await self._strategy.continue_execution(session, mcp_manager)
 

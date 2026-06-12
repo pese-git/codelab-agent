@@ -8,7 +8,7 @@ These tests are kept for backward compatibility verification.
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -93,12 +93,35 @@ def llm_loop_stage(
     plan_builder: PlanBuilder,
 ) -> LLMLoopStage:
     """Создаёт LLMLoopStage."""
+    from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+
+    mock_dispatcher = MagicMock(spec=StrategyDispatcher)
+    mock_dispatcher.select_strategy.return_value = ("single", None)
+    mock_dispatcher.set_current_strategy.return_value = True
+    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
+        text="",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
+    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
+        text="",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
+
     return LLMLoopStage(
         tool_registry=tool_registry,
         tool_call_handler=tool_call_handler,
         permission_manager=permission_manager,
         state_manager=state_manager,
         plan_builder=plan_builder,
+        system_prompt_builder=SystemPromptBuilder(global_prompt=""),
+        strategy_dispatcher=mock_dispatcher,
     )
 
 
@@ -233,7 +256,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         assert session.active_turn is None  # Должен быть очищен после завершения
@@ -253,7 +276,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         # Проверяем что история обновлена
@@ -275,7 +298,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         assert outcome.notifications is not None
@@ -300,7 +323,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": []},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         # Должны быть notifications даже при пустом промпте
@@ -323,7 +346,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         # Должны быть notifications с ошибкой
@@ -346,7 +369,7 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         assert session.title == "My test prompt"
@@ -622,7 +645,7 @@ class TestPromptOrchestratorComponentIntegration:
             {"prompt": prompt},
             session,
             sessions,
-            agent_orchestrator,
+
         )
 
         # Проверяем что StateManager обновил состояние
@@ -663,8 +686,8 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
         tool_registry: SimpleToolRegistry,
+        llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что tool call обрабатывается без TypeError по сигнатуре."""
         session.config_values["mode"] = "auto"
@@ -680,7 +703,9 @@ class TestPromptOrchestratorToolCallFlow:
             requires_permission=False,
         )
 
-        agent_orchestrator.process_prompt.return_value = SimpleNamespace(
+        # Настроить mock dispatcher для возврата tool_calls
+        mock_dispatcher = llm_loop_stage._strategy_dispatcher
+        mock_dispatcher.execute.return_value = SimpleNamespace(
             text="Tool executed",
             tool_calls=[
                 LLMToolCall(
@@ -689,6 +714,9 @@ class TestPromptOrchestratorToolCallFlow:
                     arguments={},
                 )
             ],
+            stop_reason="tool_use",
+            usage=None,
+            plan=None,
         )
 
         outcome = await orchestrator.handle_prompt(
@@ -696,7 +724,6 @@ class TestPromptOrchestratorToolCallFlow:
             {"prompt": [{"type": "text", "text": "run tool"}]},
             session,
             sessions,
-            agent_orchestrator,
         )
 
         tool_call_notifications = [
@@ -735,12 +762,13 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
+        llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что ask-режим не публикует не-ACP статус pending_permission."""
         session.config_values["mode"] = "ask"
 
-        agent_orchestrator.process_prompt.return_value = SimpleNamespace(
+        mock_dispatcher = llm_loop_stage._strategy_dispatcher
+        mock_dispatcher.execute.return_value = SimpleNamespace(
             text="Need permission",
             tool_calls=[
                 LLMToolCall(
@@ -749,6 +777,9 @@ class TestPromptOrchestratorToolCallFlow:
                     arguments={"path": "README.md"},
                 )
             ],
+            stop_reason="tool_use",
+            usage=None,
+            plan=None,
         )
 
         outcome = await orchestrator.handle_prompt(
@@ -756,7 +787,6 @@ class TestPromptOrchestratorToolCallFlow:
             {"prompt": [{"type": "text", "text": "read file"}]},
             session,
             sessions,
-            agent_orchestrator,
         )
 
         permission_requests = [
@@ -789,12 +819,13 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
+        llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что в ask-flow отправляется ровно один RPC permission request."""
         session.config_values["mode"] = "ask"
 
-        agent_orchestrator.process_prompt.return_value = SimpleNamespace(
+        mock_dispatcher = llm_loop_stage._strategy_dispatcher
+        mock_dispatcher.execute.return_value = SimpleNamespace(
             text="Need permission",
             tool_calls=[
                 LLMToolCall(
@@ -803,6 +834,9 @@ class TestPromptOrchestratorToolCallFlow:
                     arguments={"path": "README.md"},
                 )
             ],
+            stop_reason="tool_use",
+            usage=None,
+            plan=None,
         )
 
         outcome = await orchestrator.handle_prompt(
@@ -810,7 +844,6 @@ class TestPromptOrchestratorToolCallFlow:
             {"prompt": [{"type": "text", "text": "read file"}]},
             session,
             sessions,
-            agent_orchestrator,
         )
 
         permission_requests = [
@@ -827,14 +860,15 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
+        llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что reject policy публикуется как failed, а не cancelled."""
         session.config_values["mode"] = "ask"
         # Устанавливаем reject policy на "other" kind, т.к. tool не найден в registry
         session.permission_policy["other"] = "reject_always"
 
-        agent_orchestrator.process_prompt.return_value = SimpleNamespace(
+        mock_dispatcher = llm_loop_stage._strategy_dispatcher
+        mock_dispatcher.execute.return_value = SimpleNamespace(
             text="Permission denied by policy",
             tool_calls=[
                 LLMToolCall(
@@ -843,6 +877,9 @@ class TestPromptOrchestratorToolCallFlow:
                     arguments={"path": "README.md"},
                 )
             ],
+            stop_reason="tool_use",
+            usage=None,
+            plan=None,
         )
 
         outcome = await orchestrator.handle_prompt(
@@ -850,7 +887,6 @@ class TestPromptOrchestratorToolCallFlow:
             {"prompt": [{"type": "text", "text": "read file"}]},
             session,
             sessions,
-            agent_orchestrator,
         )
 
         statuses: list[str | None] = []

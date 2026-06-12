@@ -3620,14 +3620,29 @@ class ToolDefinition:
 
 ## 10. УДАЛЯЕМЫЕ КОМПОНЕНТЫ
 
+> **Обновлено 12 июня 2026** — анализ зависимостей показал, что `base.py` был переписан
+> и остаётся рабочим компонентом. См. [`doc/architecture/LEGACY_FILES_ANALYSIS.md`](./LEGACY_FILES_ANALYSIS.md).
+
+### 10.1. Уже удалённые
+
 | Файл | Причина | Функциональность перенесена в |
 |---|---|---|
 | `server/agent/naive.py` | Замена на LLMAdapter | `server/agent/adapters/llm_adapter.py` |
 | `server/agent/orchestrator.py` | Замена на ExecutionEngine | `server/agent/engine.py` + adapters |
-| `server/agent/state.py` | Замена на MultiAgentConfig | `server/agent/config.py` |
 | `server/agent/plan_extractor.py` | Перенос в adapters | `server/agent/adapters/plan_extractor.py` |
-| `server/agent/base.py` | Замена Agent Protocol | `server/agent/core/agent.py` |
-| `server/llm/telemetry/` | Замена на InMemoryTracer | `server/observability/tracer.py` — InMemoryTracer покрывает всё + tracing, correlation, exporters. **TelemetrySink задепрекейтить** (не удалять сразу) — оставить как legacy-интерфейс пока InMemoryTracer не готов |
+
+### 10.2. Подлежит удалению
+
+| Файл | Причина | Функциональность перенесена в |
+|---|---|---|
+| `server/agent/state.py` | `OrchestratorConfig.agent_class="naive"` ссылается на удалённый класс; все поля дублируются в `LLMConfig` и `AgentsGlobalConfig`; нет потребителей кроме `__init__.py` | `server/agent/config/models.py` (AgentsGlobalConfig), `server/llm/base.py` (LLMConfig) |
+
+### 10.3. НЕ удалять (spec обновлён)
+
+| Файл | Причина |
+|---|---|
+| `server/agent/base.py` | **Переписан, не legacy.** Содержит рабочие классы: `AgentContext`, `ContinuationContext`, `AgentResponse` (dataclass), `LLMAgent` (ABC). Активно используется 7 файлами: `execution_engine.py`, `strategies/dispatcher.py`, `strategies/base.py`, `llm_adapter.py`, `pipeline/stages/agent_loop.py`, `strategies/single_strategy.py`, `agent/__init__.py`. Директория `server/agent/core/` (указанная в spec как замена) не существует. |
+| `server/llm/telemetry/` | **Задепрекейтить, не удалять.** Оставить как legacy-интерфейс пока InMemoryTracer полностью не покрывает все сценарии. |
 
 ---
 

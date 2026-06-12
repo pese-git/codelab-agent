@@ -27,20 +27,21 @@ from dishka import (
     provide,
 )
 
+from .agent.context_compactor import ContextCompactor
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
 from .agent.factory import AgentFactory
-from .agent.orchestrator import AgentOrchestrator
 from .agent.registry import AgentRegistry
-from .agent.state import OrchestratorConfig
 from .agent.strategies.descriptor import StrategyDependencies
 from .agent.strategies.dispatcher import StrategyDispatcher
 from .agent.strategies.registry import StrategyRegistry
+from .agent.system_prompt_builder import SystemPromptBuilder
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider
 from .llm.base import LLMConfig, LLMTimeoutConfig
 from .llm.errors import ProviderNotFoundError
 from .llm.registry import LLMProviderRegistry
+from .llm.resolver import ModelResolver
 from .observability import EventTimeline, MetricsTracker, Tracer
 from .observability.exporters import FileEventExporter, FileMetricsExporter, FileSpanExporter
 from .protocol.core import ACPProtocol
@@ -316,12 +317,43 @@ class MultiAgentProvider(Provider):
     """
 
     @provide(scope=Scope.APP)
+    async def get_context_compactor(
+        self,
+        llm_provider: LLMProvider,
+    ) -> ContextCompactor:
+        """Создаёт ContextCompactor для автоматического сжатия контекста.
+
+        Использует дефолтные значения из спецификации мультиагентной системы:
+        - context_window_limit: 128000
+        - compaction_reserved_tokens: 4096
+        - slicer_model: openai/gpt-4o-mini
+        """
+        from codelab.server.agent.config.models import AgentsGlobalConfig
+
+        defaults = AgentsGlobalConfig()
+        return ContextCompactor(
+            llm=llm_provider,
+            model=defaults.slicer_model,
+            max_context_tokens=defaults.context_window_limit,
+            reserved_tokens=defaults.compaction_reserved_tokens,
+        )
+
+    @provide(scope=Scope.APP)
     def get_execution_engine(
         self,
         tool_registry: ToolRegistryProtocol,
+        compactor: ContextCompactor,
     ) -> ExecutionEngine:
-        """Создаёт ExecutionEngine."""
-        return ExecutionEngine(tool_registry=tool_registry)
+        """Создаёт ExecutionEngine с ContextCompactor.
+
+        Compactor автоматически сжимает историю в build_context() и
+        build_continuation_context() — это работает для всех стратегий
+        (Single, Orchestrated, Hierarchical, Choreography) без дублирования.
+        """
+        return ExecutionEngine(
+            tool_registry=tool_registry,
+            compactor=compactor,
+        )
 
     @provide(scope=Scope.APP)
     def get_agent_factory(
@@ -555,48 +587,20 @@ class RuntimeRegistryProvider(Provider):
         await registry.cleanup()
 
 
-class AgentProvider(Provider):
-    """Провайдер агентов (APP scope)."""
-
-    @provide(scope=Scope.APP)
-    def get_agent_orchestrator(
-        self,
-        config: Annotated[AppConfig, from_context(provides=AppConfig)],
-        llm_provider: LLMProvider,
-        tool_registry: ToolRegistryProtocol,
-        llm_registry: LLMProviderRegistry,
-    ) -> AgentOrchestrator:
-        """Создаёт AgentOrchestrator."""
-        orchestrator_config = OrchestratorConfig(
-            enabled=True,
-            agent_class="naive",
-            model=config.llm.model,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-            llm_provider_class=config.llm.provider,
-            system_prompt=config.agent.system_prompt,
-        )
-
-        # Создать model resolver для multi-provider support
-        from codelab.server.llm.resolver import ModelResolver
-
-        model_resolver = ModelResolver(
-            registry=llm_registry,
-            default_provider=config.llm.provider,
-            provider_configs=config.llm.providers,
-        )
-
-        return AgentOrchestrator(
-            config=orchestrator_config,
-            llm_provider=llm_provider,
-            tool_registry=tool_registry,
-            llm_registry=llm_registry,
-            model_resolver=model_resolver,
-        )
-
-
 class PipelineProvider(Provider):
     """Провайдер pipeline стадий (APP scope)."""
+
+    @provide(scope=Scope.APP)
+    def get_system_prompt_builder(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+        agent_registry: AgentRegistry,
+    ) -> SystemPromptBuilder:
+        """Создаёт SystemPromptBuilder из конфигурации и AgentRegistry."""
+        return SystemPromptBuilder(
+            global_prompt=config.agent.system_prompt,
+            agent_registry=agent_registry,
+        )
 
     @provide(scope=Scope.APP)
     def get_llm_loop_stage(
@@ -609,6 +613,7 @@ class PipelineProvider(Provider):
         global_policy_manager: GlobalPolicyManager,
         tracer: Tracer,
         strategy_dispatcher: StrategyDispatcher,
+        system_prompt_builder: SystemPromptBuilder,
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -618,6 +623,7 @@ class PipelineProvider(Provider):
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=system_prompt_builder,
             global_policy_manager=global_policy_manager,
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,
@@ -777,6 +783,25 @@ class RegistryProvider(Provider):
         """Создаёт билдер config options."""
         return ConfigOptionBuilder(registry)
 
+    @provide(scope=Scope.APP)
+    def get_model_resolver(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+        registry: LLMProviderRegistry,
+    ) -> ModelResolver:
+        """Создаёт ModelResolver для dynamic model selection.
+
+        ModelResolver резолвит ссылки на модели в формате "provider/model"
+        в конкретные LLMProvider экземпляры через Registry.
+        Поддерживает кэширование на уровне сессии и инвалидацию
+        при смене модели через session/set_config_option.
+        """
+        return ModelResolver(
+            registry=registry,
+            default_provider=config.llm.provider,
+            provider_configs=config.llm.providers,
+        )
+
 
 class RequestProvider(Provider):
     """Провайдер REQUEST-scoped зависимостей (на WebSocket соединение)."""
@@ -787,7 +812,7 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         storage: SessionStorage,
-        agent_orchestrator: AgentOrchestrator,
+        agent_factory: AgentFactory,
         tool_registry: ToolRegistryProtocol,
         prompt_orchestrator: PromptOrchestrator,
         holder: ClientRPCServiceHolder,
@@ -797,6 +822,7 @@ class RequestProvider(Provider):
         agent_registry: AgentRegistry,
         strategy_registry: StrategyRegistry,
         command_registry: CommandRegistry,
+        model_resolver: ModelResolver,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -813,11 +839,13 @@ class RequestProvider(Provider):
 
             middleware.append(create_message_trace_middleware(enabled=True))
 
+        # Получаем LLMAdapter для cancellation (может быть None если primary агент ещё не создан)
+        llm_adapter = agent_factory.get_primary_adapter()
+
         return ACPProtocol(
             require_auth=require_auth,
             auth_api_key=auth_api_key,
             storage=storage,
-            agent_orchestrator=agent_orchestrator,
             client_rpc_service=client_rpc_service,
             tool_registry=tool_registry,
             prompt_orchestrator=prompt_orchestrator,
@@ -828,6 +856,8 @@ class RequestProvider(Provider):
             agent_registry=agent_registry,
             strategy_registry=strategy_registry,
             command_registry=command_registry,
+            model_resolver=model_resolver,
+            llm_adapter=llm_adapter,
         )
 
 
@@ -865,7 +895,6 @@ def make_container(
         LLMProvider_(),
         ToolsProvider(),
         RuntimeRegistryProvider(),
-        AgentProvider(),
         PipelineProvider(),
         PromptOrchestratorProvider(),
         RequestProvider(),

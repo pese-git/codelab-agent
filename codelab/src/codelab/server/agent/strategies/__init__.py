@@ -7,12 +7,10 @@
 from .base import LLMCallStrategy
 from .descriptor import StrategyDependencies, StrategyDescriptor
 from .dispatcher import StrategyDispatcher
-from .legacy_adapter import LegacyCallStrategy
 from .registry import StrategyRegistry
 
 __all__ = [
     "LLMCallStrategy",
-    "LegacyCallStrategy",
     "StrategyDependencies",
     "StrategyDescriptor",
     "StrategyDispatcher",
