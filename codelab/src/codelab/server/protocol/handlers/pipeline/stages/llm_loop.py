@@ -107,6 +107,7 @@ class LLMLoopStage(PromptStage):
 
         # Лениво создаваемый AgentLoop
         self._agent_loop: AgentLoop | None = None
+        self._strategy_selected: bool = False
 
         strategy_name = "event_bus" if strategy_dispatcher else "legacy"
         logger.info(
@@ -117,6 +118,9 @@ class LLMLoopStage(PromptStage):
 
     def _get_or_create_agent_loop(self, context: PromptContext) -> AgentLoop:
         """Лениво создать AgentLoop с нужной стратегией.
+
+        Стратегия выбирается один раз и фиксируется через set_current_strategy,
+        чтобы continue_execution мог использовать ту же стратегию.
 
         Args:
             context: Контекст pipeline для получения agent_orchestrator.
@@ -130,16 +134,20 @@ class LLMLoopStage(PromptStage):
         if self._agent_loop is not None:
             return self._agent_loop
 
-        # Определить стратегию
-        strategy: LLMCallStrategy
-        if self._strategy_dispatcher is not None:
-            # Выбрать стратегию через dispatcher (priority chain + validation)
+        if self._strategy_dispatcher is None:
+            raise ValueError(
+                "StrategyDispatcher not configured. "
+                "LLMLoopStage requires strategy_dispatcher to be set."
+            )
+
+        # Выбрать и зафиксировать стратегию ДО создания AgentLoop.
+        # Это гарантирует что _current_strategy_name установлен для continue_execution.
+        if not self._strategy_selected:
             strategy_name, fallback_from = self._strategy_dispatcher.select_strategy(
                 session=context.session,
                 context_meta=context.meta,
             )
-            
-            # Если был fallback, добавить notification
+
             if fallback_from is not None:
                 fallback_notification = self._strategy_dispatcher.build_fallback_notification(
                     session_id=context.session_id,
@@ -154,18 +162,12 @@ class LLMLoopStage(PromptStage):
                     actual=strategy_name,
                     session_id=context.session_id,
                 )
-            
-            # Установить текущую стратегию
+
             self._strategy_dispatcher.set_current_strategy(strategy_name)
-            strategy = self._strategy_dispatcher
-        else:
-            raise ValueError(
-                "StrategyDispatcher not configured. "
-                "LLMLoopStage requires strategy_dispatcher to be set."
-            )
+            self._strategy_selected = True
 
         self._agent_loop = AgentLoop(
-            strategy=strategy,
+            strategy=self._strategy_dispatcher,
             tool_registry=self._tool_registry,
             tool_call_handler=self._tool_call_handler,
             permission_manager=self._permission_manager,

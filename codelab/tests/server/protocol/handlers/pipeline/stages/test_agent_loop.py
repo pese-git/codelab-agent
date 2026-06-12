@@ -751,3 +751,217 @@ class TestAgentLoop:
         ]
         assert len(plan_notifications) == 0
         mock_dependencies["plan_builder"].build_plan_notification.assert_not_called()
+
+
+class TestAgentLoopBypassMode:
+    """Тесты AgentLoop в bypass mode — инструменты выполняются без permission."""
+
+    @pytest.mark.asyncio
+    async def test_bypass_mode_tool_executes_and_loop_continues(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """В bypass mode tool выполняется синхронно, цикл продолжает и LLM возвращает ответ."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "fs_read_text_file"
+        mock_tool_call.arguments = {"path": "README.md"}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Reading file..."
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "File contains: Hello World"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        # Tool не требует permission (bypass mode)
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "read"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.output = "Hello World"
+        mock_tool_result.error = None
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        # Bypass mode в config
+        mock_session.config_values = {"mode": "bypass"}
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Read README.md")
+
+        assert result.stop_reason == StopReason.END_TURN
+        assert result.text == "File contains: Hello World"
+        mock_strategy.execute.assert_called_once()
+        mock_strategy.continue_execution.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bypass_mode_multiple_tool_calls(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """В bypass mode несколько tool calls выполняются последовательно."""
+        mock_tool_call_1 = MagicMock()
+        mock_tool_call_1.id = "call_1"
+        mock_tool_call_1.name = "fs_read_text_file"
+        mock_tool_call_1.arguments = {"path": "file1.txt"}
+
+        mock_tool_call_2 = MagicMock()
+        mock_tool_call_2.id = "call_2"
+        mock_tool_call_2.name = "fs_read_text_file"
+        mock_tool_call_2.arguments = {"path": "file2.txt"}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Reading files..."
+        first_response.tool_calls = [mock_tool_call_1, mock_tool_call_2]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Both files read successfully"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "read"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.output = "File content"
+        mock_tool_result.error = None
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        mock_session.config_values = {"mode": "bypass"}
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Read both files")
+
+        assert result.stop_reason == StopReason.END_TURN
+        assert result.text == "Both files read successfully"
+        assert mock_strategy.execute.call_count == 1
+        assert mock_strategy.continue_execution.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_bypass_mode_tool_requires_permission_but_mode_allows(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """В bypass mode tool с requires_permission=True выполняется без запроса."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "terminal_create"
+        mock_tool_call.arguments = {"command": "ls"}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Running command..."
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Command completed"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        # Tool требует permission, но bypass mode должен разрешить
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = True
+        mock_tool_def.kind = "execute"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.output = "total 100"
+        mock_tool_result.error = None
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        mock_session.config_values = {"mode": "bypass"}
+        mock_session.active_turn = MagicMock()
+        mock_session.active_turn.cancel_requested = False
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Run ls")
+
+        assert result.stop_reason == StopReason.END_TURN
+        assert result.text == "Command completed"
+        # Permission manager НЕ должен быть вызван в bypass mode
+        mock_dependencies["permission_manager"].build_permission_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bypass_mode_tool_error_continues_loop(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """В bypass mode ошибка инструмента не прерывает цикл."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "fs_read_text_file"
+        mock_tool_call.arguments = {"path": "nonexistent.txt"}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Trying to read..."
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "File not found, sorry"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "read"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        # Tool execution fails
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = False
+        mock_tool_result.output = None
+        mock_tool_result.error = "File not found"
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        mock_session.config_values = {"mode": "bypass"}
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        result = await loop.run(mock_session, "test_session", "Read file")
+
+        assert result.stop_reason == StopReason.END_TURN
+        assert result.text == "File not found, sorry"
+        mock_strategy.continue_execution.assert_called_once()

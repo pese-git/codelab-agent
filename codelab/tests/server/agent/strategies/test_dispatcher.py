@@ -402,3 +402,56 @@ class TestStrategyDispatcherLLMCallStrategy:
 
         assert result is mock_response
         mock_strategy.continue_execution.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_continue_execution_selects_default_when_strategy_not_set(self) -> None:
+        """continue_execution выбирает дефолтную стратегию если _current_strategy_name = None."""
+        from unittest.mock import AsyncMock
+
+        strategy_registry = MagicMock(spec=StrategyRegistry)
+        agent_registry = MagicMock()
+
+        # Настраиваем descriptor
+        mock_descriptor = MagicMock(spec=StrategyDescriptor)
+        mock_descriptor.name = "single"
+        strategy_registry.get_available.return_value = [mock_descriptor]
+        strategy_registry.get.return_value = mock_descriptor
+
+        # Настраиваем mock стратегию
+        mock_strategy = MagicMock()
+        mock_response = MagicMock()
+        mock_strategy.continue_execution = AsyncMock(return_value=mock_response)
+        strategy_registry.create_instance.return_value = mock_strategy
+
+        # Настраиваем agent_registry
+        primary_agent = MagicMock()
+        primary_agent.name = "primary"
+        agent_registry.get_primary_agents.return_value = {"primary": primary_agent}
+
+        deps = MagicMock()
+        deps.event_bus = MagicMock()
+        deps.execution_engine = MagicMock()
+        deps.tracer = None
+        deps.agent_name = "primary"
+
+        dispatcher = StrategyDispatcher(
+            strategy_registry=strategy_registry,
+            agent_registry=agent_registry,
+            strategy_dependencies=deps,
+            default_strategy="single",
+            fallback_strategy="single",
+        )
+
+        # Сбрасываем _current_strategy_name в None
+        dispatcher._current_strategy_name = None
+
+        session = MagicMock()
+        session.session_id = "test-session"
+        session.config_values = {}
+
+        result = await dispatcher.continue_execution(session)
+
+        assert result is mock_response
+        # Стратегия должна быть выбрана автоматически
+        assert dispatcher._current_strategy_name == "single"
+        mock_strategy.continue_execution.assert_called_once()
