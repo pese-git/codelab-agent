@@ -465,6 +465,7 @@ class AcpServerTransport(Protocol):
 | **Agent→Client RPC** | Единый `asyncio.Lock` на запись в stdout |
 | **EOF** | Graceful exit из цикла, cleanup pending operations |
 | **SIGTERM/SIGINT** | Signal handlers → `close()` + `sys.exit(0)` |
+| **Background Prompt** | `session/prompt` выполняется в `asyncio.create_task`, receive-loop продолжает читать stdin |
 
 ### Клиентский транспорт
 
@@ -903,6 +904,74 @@ class PromptOrchestrator:
 5. Проверку разрешений
 6. Обновление состояния сессии
 7. Отправку events в историю
+
+### 6. Background Prompt Execution в StdioServerTransport (устранение deadlock в bypass mode)
+
+**Проблема:** В bypass mode (без permission gate) агент отправляет `fs/read_text_file` клиенту через Agent→Client RPC и синхронно ждёт ответа. До фикса `session/prompt` обрабатывался синхронно внутри `await on_message()` — receive-loop был заблокирован и не читал stdin. Ответ клиента приходил на stdin, но никто его не читал → **deadlock на 44+ секунд**.
+
+```mermaid
+graph TB
+    subgraph Before["❌ До фикса: Deadlock"]
+        A1["stdin: session/prompt"]
+        A2["on_message() → BLOCKED"]
+        A3["AgentLoop: fs/read_text_file"]
+        A4["await client RPC response"]
+        A5["stdin: client response → ❌ Никто не читает!"]
+        
+        A1 --> A2 --> A3 --> A4 --> A5
+        A5 -.x.-> A4
+        
+        style A5 fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
+    end
+    
+    subgraph After["✅ После фикса: Background execution"]
+        B1["stdin: session/prompt"]
+        B2["asyncio.create_task(prompt)"]
+        B3["prompt task: await client RPC"]
+        B4["receive-loop: продолжает читать stdin"]
+        B5["stdin: client response → ✅ Доставлен!"]
+        B6["prompt task: получает ответ → завершается"]
+        
+        B1 --> B2
+        B2 --> B3
+        B2 --> B4
+        B4 --> B5
+        B5 --> B3
+        B3 --> B6
+        
+        style B5 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+        style B6 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    end
+    
+    Before --> After
+```
+
+**Решение:** `StdioServerTransport.run()` теперь запускает `session/prompt` в фоновой задаче через `asyncio.create_task()`, зеркально логике `WebSocketTransport`. Receive-loop продолжает читать stdin и маршрутизирует client RPC responses (`method=None, id=<rpc_id>`) в `on_message()`, где `protocol.handle()` перенаправляет на `handle_client_response()`.
+
+**Интеграция без прямой зависимости от ACPProtocol:** Transport принимает 4 опциональных callback в `__init__`:
+
+| Callback | Назначение | Вызывается когда |
+|----------|------------|-------------------|
+| `schedule_pending_tool` | Запуск pending tool execution | `outcome.pending_tool_execution` после permission approval |
+| `should_auto_complete` | Проверка автозавершения turn | `session/prompt` вернул outcome без response |
+| `complete_active_turn` | Завершение turn + финальный response | Deferred prompt completion (после guard delay 50ms) |
+| `load_pending_prompt_response` | Построение response при cancel | `session/cancel` отменяет deferred prompt task |
+
+**Полный паритет с WebSocketTransport:**
+
+| Фича | WebSocket | Stdio |
+|------|-----------|-------|
+| Background `session/prompt` | ✅ `_process_prompt_request_in_background` | ✅ `_process_prompt_request_in_background` |
+| Deferred prompt completion | ✅ `_complete_deferred_prompt` | ✅ `_complete_deferred_prompt` |
+| Pending tool execution | ✅ `_execute_tool_in_background` | ✅ через `schedule_pending_tool` callback |
+| `session/cancel` → отмена deferred | ✅ | ✅ |
+| Cleanup при disconnect | ✅ `prompt_request_tasks` cleanup | ✅ `_cleanup_background_tasks` |
+
+**Файлы:**
+- [`codelab/src/codelab/server/transport/stdio.py`](codelab/src/codelab/server/transport/stdio.py) — основная логика
+- [`codelab/src/codelab/server/transport/stdio_runner.py`](codelab/src/codelab/server/transport/stdio_runner.py) — проброс callbacks из `ACPProtocol`
+
+**Тесты:** 14 новых unit-тестов в [`tests/server/transport/test_stdio.py`](codelab/tests/server/transport/test_stdio.py), включая регрессионный тест `test_bypass_mode_client_rpc_response_routes_during_prompt`.
 
 ---
 
