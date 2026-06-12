@@ -1,0 +1,67 @@
+## 1. Mode values и валидация
+- [ ] 1.1 Определить константы MODE_PLAN, MODE_STANDARD, MODE_BYPASS
+- [ ] 1.2 Создать валидатор mode в state.py
+- [ ] 1.3 Добавить backward compatibility mapping (ask→standard, code→bypass, architect→plan, debug→standard)
+- [ ] 1.4 Unit-тесты валидации mode
+
+## 2. session/set_mode handler
+- [ ] 2.1 Обновить session_set_mode() в config.py — валидация modeId
+- [ ] 2.2 Отправка notification mode_changed при успешной смене
+- [ ] 2.3 Обработка невалидного modeId → ошибка -32602
+- [ ] 2.4 Unit-тесты session_set_mode
+
+## 3. Mode в permission decision chain
+- [ ] 3.1 Обновить PermissionManager.decide() — mode check первым
+- [ ] 3.2 mode=plan → reject write/execute
+- [ ] 3.3 mode=bypass → allow все инструменты
+- [ ] 3.4 mode=standard → существующий policy chain
+- [ ] 3.5 Unit-тесты permission decision с mode
+
+## 4. Tool execution по mode
+- [ ] 4.1 Обновить directives.py — tool execution учитывает mode
+- [ ] 4.2 mode=plan: блокировать edit/delete/execute, разрешить read/search
+- [ ] 4.3 mode=standard: permission request (текущий ask flow)
+- [ ] 4.4 mode=bypass: auto-execute (текущий code flow)
+- [ ] 4.5 Integration тесты tool execution по mode
+
+## 5. Slash command /mode
+- [ ] 5.1 Обновить AVAILABLE_MODES → ["plan", "standard", "bypass"]
+- [ ] 5.2 Обновить описания режимов
+- [ ] 5.3 Обновить обработку аргументов
+- [ ] 5.4 Unit-тесты /mode command
+
+## 6. Session setup — modes state
+- [ ] 6.1 Обновить build_modes_state() в session.py
+- [ ] 6.2 Возвращать availableModes: plan, standard, bypass
+- [ ] 6.3 currentModeId из session.config_values["mode"]
+- [ ] 6.4 Unit-тесты modes state
+
+## 7. Child session mode inheritance
+- [ ] 7.1 Обновить OrchestratedStrategy — child session наследует mode
+- [ ] 7.2 Обновить HierarchicalStrategy — child session наследует mode
+- [ ] 7.3 Обновить ChoreographyStrategy — winner child session наследует mode
+- [ ] 7.4 Безопасность: запретить child mode != parent.mode
+- [ ] 7.5 Integration тесты mode inheritance
+
+## 8. Backward compatibility
+- [ ] 8.1 Migration function: old_mode → new_mode
+- [ ] 8.2 Deprecation warning при загрузке старого mode
+- [ ] 8.3 Обновить config option builder для mode
+- [ ] 8.4 Unit-тесты backward compatibility
+
+## 9. Тесты
+- [ ] 9.1 Unit-тесты mode валидации
+- [ ] 9.2 Unit-тесты session_set_mode
+- [ ] 9.3 Unit-тесты permission decision с mode
+- [ ] 9.4 Unit-тесты tool execution по mode
+- [ ] 9.5 Unit-тесты /mode command
+- [ ] 9.6 Unit-тесты modes state
+- [ ] 9.7 Integration тесты mode inheritance
+- [ ] 9.8 Integration тесты mode × strategy matrix
+- [ ] 9.9 Integration тесты backward compatibility
+
+## 10. Верификация
+- [ ] 10.1 uv run ruff check .
+- [ ] 10.2 uv run ty check
+- [ ] 10.3 uv run python -m pytest
+- [ ] 10.4 make check
