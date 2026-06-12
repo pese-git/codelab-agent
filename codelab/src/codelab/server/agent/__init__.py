@@ -50,14 +50,12 @@ from codelab.server.agent.event_bus.routing import (
     RequestHandler,
 )
 from codelab.server.agent.registry import AgentRegistry
-from codelab.server.agent.state import OrchestratorConfig
 
 __all__ = [
     # Original agent classes
     "LLMAgent",
     "AgentContext",
     "AgentResponse",
-    "OrchestratorConfig",
     # Config models
     "AgentMode",
     "AgentPermission",
