@@ -30,7 +30,6 @@ from dishka import (
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
 from .agent.factory import AgentFactory
-from .agent.llm_adapter import LLMAdapter
 from .agent.registry import AgentRegistry
 from .agent.strategies.descriptor import StrategyDependencies
 from .agent.strategies.dispatcher import StrategyDispatcher

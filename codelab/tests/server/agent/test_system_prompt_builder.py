@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
 
 

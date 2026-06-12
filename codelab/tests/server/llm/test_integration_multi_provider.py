@@ -10,12 +10,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
 from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.mock_provider import MockLLMProvider
@@ -35,7 +33,6 @@ from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage.memory import InMemoryStorage
-from codelab.server.tools.registry import SimpleToolRegistry
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -381,9 +378,9 @@ async def test_e2e_full_flow_with_model_config() -> None:
 
 def _create_mock_orchestrator(mock_dispatcher: MagicMock):
     """Создаёт mock PromptOrchestrator с StrategyDispatcher."""
-    from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
     from codelab.server.protocol.handlers.pipeline import PromptPipeline
     from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
+    from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 
     mock_stage = MagicMock(spec=LLMLoopStage)
     mock_stage._strategy_dispatcher = mock_dispatcher
@@ -398,7 +395,6 @@ def _create_mock_orchestrator(mock_dispatcher: MagicMock):
 @pytest.mark.asyncio
 async def test_e2e_initialize_session_prompt_with_mock_provider() -> None:
     """E2E: initialize → session/new → session/prompt с mock провайдером."""
-    from codelab.server.messages import ACPMessage
     from codelab.server.protocol.state import ProtocolOutcome
     from codelab.server.storage import InMemoryStorage
 

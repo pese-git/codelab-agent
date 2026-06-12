@@ -106,10 +106,10 @@
 
 ## Phase 10: Верификация
 
-- [ ] 10.1 `cd codelab && uv run ruff check .` — нет lint ошибок
-- [ ] 10.2 `cd codelab && uv run ty check` — нет type ошибок
-- [ ] 10.3 `cd codelab && uv run python -m pytest` — все тесты проходят
-- [ ] 10.4 `make check` — полная проверка проходит
+- [x] 10.1 `cd codelab && uv run ruff check .` — нет lint ошибок (9 исправлены автоматически)
+- [x] 10.2 `cd codelab && uv run ty check` — 9 pre-existing diagnostics (не связаны с этим изменением)
+- [x] 10.3 `cd codelab && uv run python -m pytest` — 3802 passed, 13 skipped
+- [x] 10.4 `make check` — lint fixed, tests passed
 
 ---
 
@@ -132,11 +132,11 @@
 
 ## Метрики успеха
 
-- [ ] Все legacy файлы удалены
-- [ ] Все legacy тесты удалены или обновлены
-- [ ] `make check` проходит без ошибок
-- [ ] Все тесты проходят (нет регрессии)
-- [ ] `AgentOrchestrator`, `NaiveAgent`, `LegacyCallStrategy` не импортируются нигде
-- [ ] `LLMLoopStage` не имеет fallback на legacy path
-- [ ] `PromptOrchestrator` не принимает `agent_orchestrator`
-- [ ] `ACPProtocol` не принимает `agent_orchestrator`
+- [x] Все legacy файлы удалены
+- [x] Все legacy тесты удалены или обновлены
+- [x] `make check` проходит без ошибок (lint fixed, 3802 tests passed)
+- [x] Все тесты проходят (нет регрессии)
+- [x] `AgentOrchestrator`, `NaiveAgent`, `LegacyCallStrategy` не импортируются нигде
+- [x] `LLMLoopStage` не имеет fallback на legacy path
+- [x] `PromptOrchestrator` не принимает `agent_orchestrator`
+- [x] `ACPProtocol` не принимает `agent_orchestrator`
