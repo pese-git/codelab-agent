@@ -569,7 +569,7 @@ debug = false
 
 [agents.definitions.coder]
 description = "Senior Python Developer — writes clean, efficient code"
-mode = "subagent"
+role = "subagent"
 priority = 1
 model = "anthropic/claude-3-5-sonnet"
 temperature = 0.1
@@ -585,7 +585,7 @@ bash = { "*" = "ask", "git *" = "allow" }
 
 [agents.definitions.tester]
 description = "QA Engineer — writes and runs tests"
-mode = "subagent"
+role = "subagent"
 priority = 2
 model = "openai/gpt-4o-mini"
 prompt = """
@@ -611,7 +611,7 @@ class AgentTOMLConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     description: str
-    mode: AgentMode = AgentMode.subagent
+    role: AgentRole = AgentRole.SUBAGENT
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -660,7 +660,7 @@ class AgentsGlobalConfig(BaseModel):
 ```markdown
 ---
 description: Senior Python Developer — writes clean, efficient code
-mode: subagent
+role: subagent
 model: anthropic/claude-3-5-sonnet
 temperature: 0.1
 steps: 10
@@ -693,7 +693,7 @@ permission:
 | Параметр | Тип | Обязательный | Описание |
 |---|---|---|---|
 | `description` | string | ✅ | Что делает агент, когда использовать |
-| `mode` | string | | `primary`, `subagent`, `orchestrator` (default: `subagent`) |
+| `role` | string | | `primary`, `subagent`, `orchestrator` (default: `subagent`) |
 | `priority` | int | | Приоритет для Conflict Resolution (default: 99, меньше = важнее) |
 | `model` | string | | `provider/model-id` (fallback: `global.default_model`) |
 | `temperature` | float | | 0.0–1.0 (fallback: model default → 0.0) |
@@ -709,7 +709,7 @@ permission:
 **Pydantic модели:**
 
 ```python
-class AgentMode(str, Enum):
+class AgentRole(str, Enum):
     primary = "primary"
     subagent = "subagent"
     orchestrator = "orchestrator"  # агент-маршрутизатор для OrchestratedStrategy
@@ -729,7 +729,7 @@ class AgentMarkdownConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     description: str
-    mode: AgentMode = AgentMode.subagent
+    role: AgentRole = AgentRole.SUBAGENT
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -820,7 +820,7 @@ class ResolvedAgent(BaseModel):
     """Полностью разрешённая конфигурация агента."""
     name: str
     description: str
-    mode: AgentMode
+    role: AgentRole
     priority: int = 99
     model: str                        # resolved: agent → default
     system_prompt: str                # из тела Markdown или {file:...}
@@ -919,13 +919,13 @@ class AgentRegistry:
         """Получить все активные агенты."""
 
     def get_primary_agents(self) -> dict[str, ResolvedAgent]:
-        """Получить агенты с mode=primary."""
+        """Получить агенты с role=primary."""
 
     def get_subagents(self) -> dict[str, ResolvedAgent]:
-        """Получить агенты с mode=subagent."""
+        """Получить агенты с role=subagent."""
 
     def get_orchestrator(self) -> ResolvedAgent | None:
-        """Получить агента с mode=orchestrator."""
+        """Получить агента с role=orchestrator."""
 ```
 
 #### 3.6.6. Hot reload flow
@@ -976,7 +976,7 @@ def _merge_agents_config(cls, toml_data: dict[str, Any]) -> AgentsGlobalConfig:
 ```toml
 [agents.definitions.coder]
 description = "Senior Python Developer"
-mode = "subagent"
+role = "subagent"
 priority = 1
 model = "anthropic/claude-3-5-sonnet"
 temperature = 0.1
@@ -991,7 +991,7 @@ edit = "ask"
 
 [agents.definitions.orchestrator]
 description = "Orchestrator — routes tasks to specialized agents"
-mode = "orchestrator"
+role = "orchestrator"
 priority = 0
 model = "openai/gpt-4o"
 temperature = 0.1
@@ -999,7 +999,7 @@ prompt = "You are an orchestrator. Analyze requests and route to agents."
 
 [agents.definitions.tester]
 description = "QA Engineer — writes and runs tests"
-mode = "subagent"
+role = "subagent"
 priority = 2
 model = "openai/gpt-4o-mini"
 prompt = """
@@ -1022,7 +1022,7 @@ edit = "deny"
 ```markdown
 ---
 description: Senior Python Developer
-mode: subagent
+role: subagent
 priority: 1
 model: anthropic/claude-3-5-sonnet
 temperature: 0.1
@@ -1041,7 +1041,7 @@ permission:
 ```markdown
 ---
 description: Code reviewer for this project
-mode: subagent
+role: subagent
 priority: 3
 model: openai/gpt-4o
 tools:
@@ -1065,7 +1065,7 @@ Review code for this project. Focus on:
 ```markdown
 ---
 description: Security auditor
-mode: subagent
+role: subagent
 priority: 4
 model: anthropic/claude-3-5-sonnet
 prompt: "{file:./prompts/security-audit.txt}"
@@ -1081,7 +1081,7 @@ permission:
 ```markdown
 ---
 description: Deep reasoning agent for complex problems
-mode: subagent
+role: subagent
 model: openai/gpt-5
 reasoningEffort: high
 textVerbosity: low
@@ -1123,7 +1123,7 @@ debug = false
 # 1. TOML (в этом файле) — аналогично opencode.json:
 #    [agents.definitions.coder]
 #    description = "Senior Python Developer"
-#    mode = "subagent"
+#    role = "subagent"
 #    model = "anthropic/claude-3-5-sonnet"
 #    prompt = "Ты — Senior Python Developer..."
 #
@@ -1146,7 +1146,7 @@ debug = false
 | Проектные override глобальные | Стандартный паттерн конфигурации |
 | Имя файла = имя агента | Просто, предсказуемо, как в OpenCode |
 | Числовой priority | Проще сортировка, вставка между значениями, default 99 |
-| `mode: orchestrator` | Ясно, проще валидация, TUI визуально выделяет |
+| `role: orchestrator` | Ясно, проще валидация, TUI визуально выделяет |
 | `mode=all` удалён | Явность ролей, проще валидация, разные роли = разные промпты |
 | `model_config(extra="allow")` | Vendor-specific параметры без изменения схемы |
 | Inline prompt в TOML | Поддержка однострочных и multi-line (triple-quote) промптов |
@@ -1162,7 +1162,7 @@ debug = false
 
 | Параметр | Single | Orchestrated | Choreography | Hierarchical |
 |---|---|---|---|---|
-| **Требуемые mode** | любой | `orchestrator` + `subagent` | `subagent` (≥2) | `primary` + `subagent` |
+| **Требуемые role** | любой | `orchestrator` + `subagent` | `subagent` (≥2) | `primary` + `subagent` |
 | **priority** | ❌ не используется | ❌ не используется (LLM routing) | ✅ Conflict Resolution | ✅ порядок fallback |
 | **task permission** | ❌ | ❌ | ❌ | ✅ обязательно для primary |
 | **hidden** | ❌ | ❌ | ❌ | ✅ для compact/slicer |
@@ -1181,12 +1181,12 @@ debug = false
 
 | Стратегия | Минимум | Пример |
 |---|---|---|
-| **Single** | 1 агент (любой mode) | `coder.md` (mode: subagent) |
+| **Single** | 1 агент (любой role) | `coder.md` (role: subagent) |
 | **Orchestrated** | 1 orchestrator + 1 subagent | `orchestrator` (TOML) + `coder.md` |
 | **Choreography** | ≥2 subagents | `coder.md` + `reviewer.md` |
 | **Hierarchical** | 1 primary + 1 subagent | `coder` (TOML, primary) + `tester.md` |
 
-> **Примечание:** SingleStrategy не проверяет `mode` агента — подходит любой зарегистрированный агент (`primary`, `subagent` или `orchestrator`). В примере показан `subagent` как наиболее типичный случай, но все три режима работают идентично. Валидация для SingleStrategy всегда проходит (строка 1189).
+> **Примечание:** SingleStrategy не проверяет `role` агента — подходит любой зарегистрированный агент (`primary`, `subagent` или `orchestrator`). В примере показан `subagent` как наиболее типичный случай, но все три режима работают идентично. Валидация для SingleStrategy всегда проходит (строка 1189).
 
 #### 3.6.12. Валидация совместимости mode + стратегия
 
@@ -1198,9 +1198,9 @@ debug = false
 | Стратегия | Проверка | При fail → |
 |---|---|---|
 | **Single** | Всегда проходит | — |
-| **Orchestrated** | Есть ≥1 агент с `mode=orchestrator` И ≥1 с `mode=subagent` | `fallback_mode` |
-| **Choreography** | Есть ≥2 агента с `mode=subagent` | `fallback_mode` |
-| **Hierarchical** | Есть ≥1 агент с `mode=primary` И ≥1 с `mode=subagent` | `fallback_mode` |
+| **Orchestrated** | Есть ≥1 агент с `role=orchestrator` И ≥1 с `role=subagent` | `fallback_mode` |
+| **Choreography** | Есть ≥2 агента с `role=subagent` | `fallback_mode` |
+| **Hierarchical** | Есть ≥1 агент с `role=primary` И ≥1 с `role=subagent` | `fallback_mode` |
 
 **Логика валидации (StrategyDispatcher):**
 
@@ -1214,9 +1214,9 @@ class StrategyDispatcher:
             return "single"  # всегда доступно
 
         if mode == "multi_orchestrated":
-            has_orchestrator = any(a.mode == AgentMode.orchestrator for a in agents.values())
+            has_orchestrator = any(a.mode == AgentRole.ORCHESTRATOR for a in agents.values())
             has_subagent = any(
-                a.mode == AgentMode.subagent for a in agents.values()
+                a.mode == AgentRole.SUBAGENT for a in agents.values()
             )
             if has_orchestrator and has_subagent:
                 return "multi_orchestrated"
@@ -1229,7 +1229,7 @@ class StrategyDispatcher:
         if mode == "multi_choreographed":
             subagents = [
                 a for a in agents.values()
-                if a.mode == AgentMode.subagent
+                if a.mode == AgentRole.SUBAGENT
             ]
             if len(subagents) >= 2:
                 return "multi_choreographed"
@@ -1241,10 +1241,10 @@ class StrategyDispatcher:
 
         if mode == "hierarchical":
             has_primary = any(
-                a.mode == AgentMode.primary for a in agents.values()
+                a.mode == AgentRole.PRIMARY for a in agents.values()
             )
             has_subagent = any(
-                a.mode == AgentMode.subagent for a in agents.values()
+                a.mode == AgentRole.SUBAGENT for a in agents.values()
             )
             if has_primary and has_subagent:
                 return "hierarchical"
@@ -1320,7 +1320,7 @@ Session flow с двухфазным Compaction:
 
 #### OrchestratedStrategy
 
-**Требует:** ≥1 агент с `mode: orchestrator` + ≥1 агент с `mode: subagent`.
+**Требует:** ≥1 агент с `role: orchestrator` + ≥1 агент с `role: subagent`.
 
 ```
 1. Orchestrator LLM делает RouteDecision (Structured Outputs → Pydantic)
@@ -1392,7 +1392,7 @@ agent_descriptions = "\n".join(
 
 #### ChoreographyStrategy
 
-**Требует:** ≥2 агента с `mode: subagent`.
+**Требует:** ≥2 агента с `role: subagent`.
 
 ```
 1. Broadcast ContextBroadcast всем агентам параллельно
@@ -1427,7 +1427,7 @@ Child session winner-агента — отдельная сессия, к ней
 
 #### HierarchicalStrategy
 
-**Требует:** ≥1 агент с `mode: primary` + ≥1 агент с `mode: subagent`.
+**Требует:** ≥1 агент с `role: primary` + ≥1 агент с `role: subagent`.
 
 Стратегия иерархического делегирования (OpenCode-style Primary + Subagent):
 
@@ -1547,7 +1547,7 @@ def _invocation_to_request(
 ```markdown
 ---
 description: Primary agent — delegates to subagents
-mode: primary
+role: primary
 priority: 0
 model: anthropic/claude-3-5-sonnet
 tools:
@@ -1570,7 +1570,7 @@ Primary agent — delegates to subagents.
 ```markdown
 ---
 description: Writes and runs tests
-mode: subagent
+role: subagent
 priority: 1
 model: openai/gpt-4o-mini
 tools:
@@ -1584,7 +1584,7 @@ Write and run tests.
 ```markdown
 ---
 description: System agent for context compaction
-mode: subagent
+role: subagent
 priority: 99
 hidden: true
 model: openai/gpt-4o-mini
@@ -3087,7 +3087,7 @@ Config option `_active_strategy` — кастомное расширение ACP
 }
 ```
 
-**Без категории** — избегаем конфликта с зарезервированной категорией `mode` (ACP spec 13-Session Config Options.md):
+**Без категории** — избегаем конфликта с зарезервированной категорией `role` (ACP spec 13-Session Config Options.md):
 > *"Category names that do not begin with `_` are reserved for the ACP spec."*
 
 **Поток данных в ACP:**
@@ -3374,7 +3374,7 @@ class ToolDefinition:
 
 | # | Файл | Описание |
 |---|---|---|
-| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent`, `AgentMode` enum, `model_config(extra="allow")` |
+| 2a.1 | `server/toml_config/agent_config.py` | `AgentsGlobalConfig`, `AgentMarkdownConfig`, `ResolvedAgent`, `AgentRole` enum, `model_config(extra="allow")` |
 | 2a.2 | `server/agent/markdown_loader.py` | `AgentConfigLoader` — загрузка из TOML + Markdown, override логика |
 | 2a.3 | `server/agent/config_resolver.py` | `AgentConfigResolver` — merge global + markdown → ResolvedAgent |
 | 2a.4 | `server/agent/registry.py` | `AgentRegistry` — dict[name] → ResolvedAgent, hot reload, EventBus publish |
@@ -4331,7 +4331,7 @@ TimelineEvent:
 | **MCPToolAdapter** | Конвертация MCPTool → ToolDefinition с namespace prefix |
 | **MCPToolExecutor** | Исполнитель MCP инструментов через ToolExecutor интерфейс |
 | **MCPServerConfig** | Pydantic модель конфигурации MCP сервера |
-| **AgentMode** | Enum: `primary`, `subagent`, `orchestrator` — тип роли агента |
+| **AgentRole — Enum: `primary`, `subagent`, `orchestrator` — тип роли агента |
 | **AgentRegistry** | Единый реестр агентов — dict[name] → ResolvedAgent |
 | **AgentMarkdownLoader** | Загрузка и парсинг Markdown файлов с YAML frontmatter |
 | **AgentConfigResolver** | Merge TOML global + Markdown config → ResolvedAgent |
