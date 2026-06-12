@@ -1,7 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Pydantic TOML Configuration
-The system SHALL use Pydantic Settings with `TomlConfigSettingsSource` to parse TOML configuration files into validated Pydantic models, replacing the custom `dataclass`-based `toml_loader.py`.
+
+> **Архитектурное решение:** Вместо `TomlConfigSettingsSource` из `pydantic-settings`
+> используется ручной парсинг через `tomllib` + deep merge нескольких файлов.
+> Это необходимо потому что проект использует multi-file merge chain
+> (auth.toml → codelab.toml → codelab.local.toml → custom) с deep merge и env var
+> expansion, что `TomlConfigSettingsSource` не поддерживает.
+
+Система ДОЛЖНА использовать Pydantic модели для валидации TOML конфигурации,
+заменяя кастомные dataclass из `toml_loader.py`.
 
 #### Scenario: TOML file parsing with Pydantic Settings
 - **WHEN** `TOMLConfig()` is instantiated with a valid `codelab.toml` file
@@ -52,13 +60,16 @@ Each Pydantic configuration model SHALL provide a `to_provider_info()` method th
 - **THEN** the field validator expands it to the actual environment variable value
 - **AND** if the environment variable is not set, the value becomes empty string
 
-### Requirement: Registry Provider Integration with Pydantic Config
-The `RegistryProvider` SHALL use `TOMLConfig.providers` and call `to_provider_info()` on each provider to populate `LLMProviderRegistry` with `ProviderInfo` containing models.
+### Requirement: DI Integration для регистрации провайдеров
+
+`RegistryProvider` (в DI контейнере) ДОЛЖЕН использовать `config.llm.providers`
+и вызывать `to_provider_info()` для каждого провайдера чтобы заполнить
+`LLMProviderRegistry` с `ProviderInfo` содержащим модели.
 
 #### Scenario: Registry populated with TOML models
-- **WHEN** `RegistryProvider.get_llm_registry()` is called with a `TOMLConfig` containing providers
-- **THEN** the registry's `list_all_models()` returns all models from TOML
-- **AND** `get_provider_info(provider_id)` returns the correct `ProviderInfo` for each provider
+- **WHEN** `RegistryProvider.get_llm_registry()` вызван с конфигурацией содержащей провайдеры
+- **THEN** registry `list_all_models()` возвращает все модели из TOML
+- **AND** `get_provider_info(provider_id)` возвращает правильный `ProviderInfo` для каждого провайдера
 
 #### Scenario: Mock provider without TOML config
 - **WHEN** `mock` provider is not defined in TOML

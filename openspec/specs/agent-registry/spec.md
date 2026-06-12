@@ -69,19 +69,25 @@
 ### Требование: Интерфейс AgentRegistry
 
 Система ДОЛЖНА предоставлять `AgentRegistry` с методами:
-- `async initialize() -> None` — загрузить агентов, зарегистрировать в EventBus, запустить watchdog
-- `async reload() -> None` — hot reload агентов из файлов
+- `async initialize() -> None` — загрузить агентов, зарегистрировать в EventBus
+- `async reload() -> None` — hot reload агентов из файлов (ручной вызов)
 - `get(agent_name: str) -> ResolvedAgent | None` — получить конфигурацию агента
 - `get_all() -> dict[str, ResolvedAgent]` — получить всех активных агентов
 - `get_primary_agents() -> dict[str, ResolvedAgent]` — агенты с mode=primary
 - `get_subagents() -> dict[str, ResolvedAgent]` — агенты с mode=subagent
 - `get_orchestrator() -> ResolvedAgent | None` — агент с mode=orchestrator
 
+> **Planned:** Автоматический watchdog для file watching запланирован.
+> Текущая реализация поддерживает ручной `reload()`.
+
 ### Требование: Hot Reload
 
+> **Planned:** Автоматический file watching через watchdog запланирован.
+> Текущая реализация: ручной `reload()` вызов.
+
 AgentRegistry ДОЛЖЕН:
-- Наблюдать за `.codelab/agents/*.md`, `~/.codelab/agents/*.md`, `codelab.toml`, `~/.codelab/codelab.toml`
-- При изменении: перезагрузить всех агентов, сравнить с предыдущим состоянием
+- Поддерживать hot reload через `reload()` метод
+- При вызове: перезагрузить всех агентов, сравнить с предыдущим состоянием
 - Удалить удалённых агентов, зарегистрировать новых
 - Публиковать события жизненного цикла (AgentRegistered, AgentUnregistered, AgentListChanged)
 

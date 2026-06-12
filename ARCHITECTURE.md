@@ -86,7 +86,7 @@ graph TB
 | **ACPProtocol** | Protocol | Диспетчер методов ACP, `handle_and_process` для фоновых задач | [`codelab/src/codelab/server/protocol/core.py`](codelab/src/codelab/server/protocol/core.py:39) |
 | **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`codelab/src/codelab/server/protocol/handlers/`](codelab/src/codelab/server/protocol/handlers/) |
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py`](codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
-| **AgentOrchestrator** | Agent | Управление LLM-агентом | [`codelab/src/codelab/server/agent/orchestrator.py`](codelab/src/codelab/server/agent/orchestrator.py:18) |
+ | **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter | [`codelab/src/codelab/server/agent/execution_engine.py`](codelab/src/codelab/server/agent/execution_engine.py) |
 | **ToolRegistry** | Tools | Регистрация и управление инструментами | [`codelab/src/codelab/server/tools/registry.py`](codelab/src/codelab/server/tools/registry.py) |
 | **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`codelab/src/codelab/server/tools/mapping.py`](codelab/src/codelab/server/tools/mapping.py) |
 | **Storage** | Storage | Persistence для сессий | [`codelab/src/codelab/server/storage/`](codelab/src/codelab/server/storage/) |
@@ -115,7 +115,7 @@ graph LR
     end
     
     subgraph Processing["Processing"]
-        Agent["AgentOrchestrator<br/>LLM обработка"]
+        Agent["ExecutionEngine<br/>LLM обработка"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
         Executors["Executors<br/>FS / Terminal"]
     end
@@ -294,7 +294,7 @@ sequenceDiagram
     participant HttpServer
     participant ACPProtocol
     participant PromptOrch as PromptOrchestrator
-    participant Agent as AgentOrchestrator
+    participant Agent as ExecutionEngine
     participant Tools as ToolRegistry
     participant ClientRPC as ClientRPCService
 
@@ -520,7 +520,7 @@ graph TB
         E5["message_added: assistant message"]
     end
     
-    LLMContext -->|читается| AgentLLM["AgentOrchestrator<br/>для process_prompt"]
+    LLMContext -->|читается| AgentLLM["ExecutionEngine<br/>для process_prompt"]
     ReplayContext -->|используется| SessionLoad["session/load<br/>для восстановления состояния"]
     
     NewPrompt["Новый prompt"]
@@ -544,7 +544,7 @@ graph TB
 | **Воспроизведение** | Невозможно (информация потеряна) | Полное восстановление через replay |
 
 **Архитектурное решение:**
-- **AgentOrchestrator.process_prompt()** — **НЕ** модифицирует SessionState
+- **ExecutionEngine.process_prompt()** — **НЕ** модифицирует SessionState
 - **PromptOrchestrator** отвечает за добавление messages в history
 - **TurnLifecycleManager** добавляет события в events_history
 - Это обеспечивает **разделение ответственности** и **централизованное управление**
@@ -773,7 +773,7 @@ graph LR
 
 | Место | Направление | Описание |
 |-------|-------------|----------|
-| `NaiveAgent._to_openai_tools_format()` | ACP → LLM | При отправке инструментов в LLM API |
+| `LLMAdapter._convert_tools()` | ACP → LLM | При отправке инструментов в LLM API |
 | `SimpleToolRegistry.to_llm_tools()` | ACP → LLM | При конвертации для LLM |
 | `SimpleToolRegistry.execute_tool()` | LLM → ACP | При выполнении инструмента (lookup в registry) |
 | `LLMLoopStage._process_tool_calls()` | LLM → ACP | При обработке tool calls от LLM |

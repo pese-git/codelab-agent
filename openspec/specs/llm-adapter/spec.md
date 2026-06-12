@@ -17,13 +17,17 @@ async def call(
 
 > **Примечание:** Использовать `LLMMessage` из `server/llm/models.py`, `ToolDefinition` из `server/tools/base.py`.
 
-### Требование: Цикл LLM вызовов
+### Требование: Единственный LLM вызов
 
 LLMAdapter ДОЛЖЕН:
-- Вызывать LLM провайдер с messages и tools
-- Выполнять tool calls если присутствуют (максимум 5 итераций)
-- Возвращать `AgentResult` с text, tool_calls, usage, stop_reason, agent_name, plan
+- Вызывать LLM провайдер с messages и tools ровно один раз
+- Возвращать `AgentResult` с text, tool_calls, usage, stop_reason, agent_name
 - Поддерживать отмену через asyncio.Task
+
+> **Архитектурное решение:** LLMAdapter делает ровно один вызов LLM провайдера.
+> Цикл tool-calling выполняется в LLMLoopStage/AgentLoop, а не в LLMAdapter.
+> Это обеспечивает единую точку для permissions, MCP, notifications.
+> См. [ADR-001](../../../doc/architecture/adr/ADR-001-llm-adapter-single-call.md).
 
 ### Требование: Регистрация в EventBus
 

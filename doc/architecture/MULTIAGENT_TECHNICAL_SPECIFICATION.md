@@ -3290,6 +3290,32 @@ class ToolDefinition:
 > Это позволяет получить работающий baseline раньше, observability добавляется
 > поверх уже работающей стратегии.
 
+### 8.1. Статус реализации (обновлено 12 июня 2026)
+
+| Блок | Название | Статус | Примечание |
+|---|---|---|---|
+| **1a** | EventBus foundation | ✅ 100% | Все компоненты реализованы |
+| **1b** | Metrics models + Storage | ⚠️ 60% | ExecutionMetrics есть; PricingEngine, models_price.json — не реализованы |
+| **1c** | Новый Agent Layer | ⚠️ 70% | Нет `agent/core/` (Agent Protocol, TurnContext, AgentCaller) |
+| **2a** | Agent Config System | ✅ 100% | Loader, Resolver, Registry, Factory |
+| **2b** | SingleStrategy + Pipeline | ⚠️ 80% | SingleStrategy есть; нет AgentCaller, StrategySelectionStage |
+| **3a** | Tracer + Timeline | ⚠️ 70% | Tracer, Timeline есть; нет ObservabilityFactory, Abstract exporters |
+| **3b** | Context Compactor | ✅ 100% | ContextCompactor реализован |
+| **3c** | MetricsTracker | ⚠️ 70% | MetricsTracker есть; нет отдельного metrics/ модуля |
+| **3d** | Integration Observability | ⚠️ 50% | Частично интегрировано |
+| **4a** | OrchestratedStrategy | ❌ 0% | TokenSlicer, RouteDecision, HybridContextManager — не реализованы |
+| **4b** | HierarchicalStrategy | ❌ 0% | TaskInvocation, TaskResult, task permissions — не реализованы |
+| **4c** | ChoreographyStrategy | ❌ 0% | Broadcast, Conflict Resolution — не реализованы |
+| **5a** | ToolsGuard | ❌ 0% | danger_level — не реализован |
+| **5b** | Pipeline Integration | ⚠️ 30% | `/strategy` slash command есть; `_active_strategy` частично |
+| **6a** | TUI observability | ❌ 0% | Live view, session navigation — не реализованы |
+| **6b** | Debug Mode + Export | ⚠️ 40% | File exporters есть; нет DebugMode, ComparativeReport |
+| **6c** | Cleanup | ⚠️ 60% | 3 из 4 legacy файлов удалены; `base.py` оставлен (переписан) |
+
+**Общий прогресс:** ~45% (55 из 120 задач выполнено)
+
+---
+
 ### БЛОК 1: INFRASTRUCTURE
 
 > **Цель:** Создать базовую инфраструктуру — EventBus и новый Agent Layer.
