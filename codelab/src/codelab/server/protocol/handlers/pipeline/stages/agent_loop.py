@@ -132,7 +132,7 @@ class AgentLoop:
         """Инициализация AgentLoop.
 
         Args:
-            strategy: Стратегия вызова LLM (StrategyDispatcher или LegacyCallStrategy).
+            strategy: Стратегия вызова LLM (StrategyDispatcher).
             tool_registry: Реестр инструментов для выполнения.
             tool_call_handler: Обработчик tool calls для управления состоянием.
             permission_manager: Менеджер разрешений для permission requests.

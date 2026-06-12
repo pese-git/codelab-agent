@@ -4,7 +4,7 @@
   - LLMAgent отвечает за ОДИН вызов LLM. Цикл tool-calling — в LLMLoopStage.
   - start_turn: начало нового turn — добавляет user message и вызывает LLM.
   - continue_turn: продолжение после tool_results — НЕ добавляет user message.
-  - Управление историей (session.history) — ответственность AgentOrchestrator.
+  - Управление историей (session.history) — ответственность ExecutionEngine.
 """
 
 from abc import ABC, abstractmethod

@@ -1,7 +1,7 @@
 """ToolFilter — фильтрация инструментов по client capabilities + MCP.
 
-Рефакторинг из AgentOrchestrator._filter_tools_by_capabilities().
 MCP инструменты всегда включаются (выполняются на сервере).
+Серверные инструменты (think, plan) всегда доступны.
 """
 
 from __future__ import annotations

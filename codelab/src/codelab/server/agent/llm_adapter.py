@@ -1,6 +1,6 @@
 """LLMAdapter — единый LLM-агент для мультиагентной архитектуры.
 
-Заменяет NaiveAgent. Реализует:
+Реализует:
 - call() → AgentResult с сохранением usage (токены)
 - Регистрацию в AgentEventBus как RequestHandler
 - Tracer span для каждого LLM вызова

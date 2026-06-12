@@ -5,19 +5,17 @@
 - Fallback chain при ошибках
 - Model switching mid-session
 - E2E flow: initialize → session/new → configOptions → set_config_option(model) → prompt
-
-NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
-These tests are kept for backward compatibility verification.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.orchestrator import AgentOrchestrator
-from codelab.server.agent.state import OrchestratorConfig
+from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
 from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.mock_provider import MockLLMProvider
@@ -381,16 +379,39 @@ async def test_e2e_full_flow_with_model_config() -> None:
     assert model_option["currentValue"] == "mock/model-v2"
 
 
+def _create_mock_orchestrator(mock_dispatcher: MagicMock):
+    """Создаёт mock PromptOrchestrator с StrategyDispatcher."""
+    from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
+    from codelab.server.protocol.handlers.pipeline import PromptPipeline
+    from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
+
+    mock_stage = MagicMock(spec=LLMLoopStage)
+    mock_stage._strategy_dispatcher = mock_dispatcher
+    mock_pipeline = MagicMock(spec=PromptPipeline)
+    mock_pipeline.run = AsyncMock()
+
+    orchestrator = MagicMock(spec=PromptOrchestrator)
+    orchestrator.handle_prompt = AsyncMock()
+    return orchestrator
+
+
 @pytest.mark.asyncio
 async def test_e2e_initialize_session_prompt_with_mock_provider() -> None:
     """E2E: initialize → session/new → session/prompt с mock провайдером."""
-    # Arrange — создать orchestrator с mock provider
-    config = OrchestratorConfig(agent_class="naive")
-    llm_provider = MockLLMProvider(response="Hello from E2E test")
-    tool_registry = SimpleToolRegistry()
-    agent_orchestrator = AgentOrchestrator(config, llm_provider, tool_registry)
+    from codelab.server.messages import ACPMessage
+    from codelab.server.protocol.state import ProtocolOutcome
+    from codelab.server.storage import InMemoryStorage
 
-    protocol = ACPProtocol(agent_orchestrator=agent_orchestrator)
+    # Arrange — создать mock orchestrator
+    mock_outcome = ProtocolOutcome(
+        response=ACPMessage.response("req-1", {"stopReason": "end_turn"}),
+        notifications=[],
+    )
+    mock_handle_prompt = AsyncMock(return_value=mock_outcome)
+
+    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol._prompt_orchestrator = MagicMock()
+    protocol._prompt_orchestrator.handle_prompt = mock_handle_prompt
 
     # Act — initialize
     init_outcome = await protocol.handle(

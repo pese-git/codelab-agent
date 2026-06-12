@@ -37,7 +37,6 @@ from .state import (
 
 if TYPE_CHECKING:
     from ..agent.llm_adapter import LLMAdapter
-    from ..agent.orchestrator import AgentOrchestrator
     from ..client_rpc.service import ClientRPCService
     from ..llm.registry import LLMProviderRegistry
     from ..llm.resolver import ModelResolver
@@ -99,7 +98,6 @@ class ACPProtocol:
         require_auth: bool = False,
         auth_api_key: str | None = None,
         storage: SessionStorage | None = None,
-        agent_orchestrator: AgentOrchestrator | None = None,
         client_rpc_service: ClientRPCService | None = None,
         tool_registry: ToolRegistry | None = None,
         prompt_orchestrator: PromptOrchestrator | None = None,
@@ -123,7 +121,6 @@ class ACPProtocol:
             require_auth: Требовать аутентификацию перед session setup.
             auth_api_key: API ключ для аутентификации.
             storage: Хранилище сессий (по умолчанию InMemoryStorage).
-            agent_orchestrator: Оркестратор LLM-агента для обработки prompts (опционально).
             client_rpc_service: Сервис ClientRPC для выполнения инструментов (опционально).
             tool_registry: Реестр инструментов для регистрации и выполнения tools (опционально).
             prompt_orchestrator: Оркестратор prompt-turn (опционально, создаётся лениво).
@@ -142,15 +139,6 @@ class ACPProtocol:
                 available_commands (опционально).
             model_resolver: Резолвер моделей для dynamic model selection (опционально).
             llm_adapter: Адаптер LLM для cancellation и других операций (опционально).
-
-        Пример использования:
-            protocol = ACPProtocol()
-            # или с кастомным хранилищем и агентом:
-            from codelab.server.storage import InMemoryStorage
-            from codelab.server.agent.orchestrator import AgentOrchestrator
-            storage = InMemoryStorage()
-            agent = AgentOrchestrator(...)
-            protocol = ACPProtocol(storage=storage, agent_orchestrator=agent)
         """
 
         # Инициализировать хранилище (по умолчанию InMemoryStorage)
@@ -159,9 +147,6 @@ class ACPProtocol:
 
             storage = InMemoryStorage()
         self._storage = storage
-
-        # Оркестратор LLM-агента для обработки prompt-turns через агента
-        self._agent_orchestrator = agent_orchestrator
 
         # Резолвер моделей для dynamic model selection и cache invalidation
         self._model_resolver = model_resolver

@@ -31,9 +31,7 @@ from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
 from .agent.factory import AgentFactory
 from .agent.llm_adapter import LLMAdapter
-from .agent.orchestrator import AgentOrchestrator
 from .agent.registry import AgentRegistry
-from .agent.state import OrchestratorConfig
 from .agent.strategies.descriptor import StrategyDependencies
 from .agent.strategies.dispatcher import StrategyDispatcher
 from .agent.strategies.registry import StrategyRegistry
@@ -558,46 +556,6 @@ class RuntimeRegistryProvider(Provider):
         await registry.cleanup()
 
 
-class AgentProvider(Provider):
-    """Провайдер агентов (APP scope)."""
-
-    @provide(scope=Scope.APP)
-    def get_agent_orchestrator(
-        self,
-        config: Annotated[AppConfig, from_context(provides=AppConfig)],
-        llm_provider: LLMProvider,
-        tool_registry: ToolRegistryProtocol,
-        llm_registry: LLMProviderRegistry,
-    ) -> AgentOrchestrator:
-        """Создаёт AgentOrchestrator."""
-        orchestrator_config = OrchestratorConfig(
-            enabled=True,
-            agent_class="naive",
-            model=config.llm.model,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-            llm_provider_class=config.llm.provider,
-            system_prompt=config.agent.system_prompt,
-        )
-
-        # Создать model resolver для multi-provider support
-        from codelab.server.llm.resolver import ModelResolver
-
-        model_resolver = ModelResolver(
-            registry=llm_registry,
-            default_provider=config.llm.provider,
-            provider_configs=config.llm.providers,
-        )
-
-        return AgentOrchestrator(
-            config=orchestrator_config,
-            llm_provider=llm_provider,
-            tool_registry=tool_registry,
-            llm_registry=llm_registry,
-            model_resolver=model_resolver,
-        )
-
-
 class PipelineProvider(Provider):
     """Провайдер pipeline стадий (APP scope)."""
 
@@ -823,7 +781,6 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         storage: SessionStorage,
-        agent_orchestrator: AgentOrchestrator,
         agent_factory: AgentFactory,
         tool_registry: ToolRegistryProtocol,
         prompt_orchestrator: PromptOrchestrator,
@@ -858,7 +815,6 @@ class RequestProvider(Provider):
             require_auth=require_auth,
             auth_api_key=auth_api_key,
             storage=storage,
-            agent_orchestrator=agent_orchestrator,
             client_rpc_service=client_rpc_service,
             tool_registry=tool_registry,
             prompt_orchestrator=prompt_orchestrator,
@@ -908,7 +864,6 @@ def make_container(
         LLMProvider_(),
         ToolsProvider(),
         RuntimeRegistryProvider(),
-        AgentProvider(),
         PipelineProvider(),
         PromptOrchestratorProvider(),
         RequestProvider(),

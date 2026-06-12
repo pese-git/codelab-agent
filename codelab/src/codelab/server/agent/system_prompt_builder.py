@@ -1,6 +1,5 @@
 """SystemPromptBuilder — формирование system prompt для LLM.
 
-Рефакторинг из AgentOrchestrator._build_system_message().
 Формирует system prompt из трёх частей (в порядке приоритета для LLM):
 1. Agent prompt (роль агента из ~/.codelab/agents/*.md)
 2. Global prompt (общие инструкции из config.agent.system_prompt)

@@ -1,7 +1,7 @@
 """Базовые интерфейсы для стратегий вызова LLM.
 
 Определяет LLMCallStrategy Protocol — контракт для стратегий вызова LLM.
-Реализуется StrategyDispatcher (EventBus путь) и LegacyCallStrategy (legacy путь).
+Реализуется StrategyDispatcher (EventBus путь).
 
 Архитектурное решение:
 - AgentLoop зависит от LLMCallStrategy Protocol (DIP)
@@ -27,7 +27,6 @@ class LLMCallStrategy(Protocol):
 
     Реализации:
     - StrategyDispatcher — EventBus путь (SingleStrategy → LLMAdapter)
-    - LegacyCallStrategy — legacy путь (AgentOrchestrator → NaiveAgent)
 
     Пример использования:
         async def run(strategy: LLMCallStrategy, session: SessionState):

@@ -1,6 +1,5 @@
 """MessageSanitizer — исправление orphaned tool calls в истории.
 
-Рефакторинг из AgentOrchestrator._sanitize_orphaned_tool_calls().
 Добавляет синтетические error-результаты для потерянных tool_calls.
 """
 

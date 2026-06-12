@@ -1,6 +1,6 @@
 """ExecutionEngine — композиционный движок выполнения.
 
-Заменяет AgentOrchestrator. Композиция компонентов:
+Композиция переиспользуемых компонентов:
 - HistoryBuilder — session.history → LLMMessage
 - ToolFilter — filter by capabilities + MCP
 - MessageSanitizer — fix orphaned tool calls
