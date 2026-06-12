@@ -36,6 +36,7 @@ from .agent.state import OrchestratorConfig
 from .agent.strategies.descriptor import StrategyDependencies
 from .agent.strategies.dispatcher import StrategyDispatcher
 from .agent.strategies.registry import StrategyRegistry
+from .agent.system_prompt_builder import SystemPromptBuilder
 from .config import AppConfig
 from .llm import LLMProvider, MockLLMProvider
 from .llm.base import LLMConfig, LLMTimeoutConfig
@@ -599,6 +600,18 @@ class PipelineProvider(Provider):
     """Провайдер pipeline стадий (APP scope)."""
 
     @provide(scope=Scope.APP)
+    def get_system_prompt_builder(
+        self,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
+        agent_registry: AgentRegistry,
+    ) -> SystemPromptBuilder:
+        """Создаёт SystemPromptBuilder из конфигурации и AgentRegistry."""
+        return SystemPromptBuilder(
+            global_prompt=config.agent.system_prompt,
+            agent_registry=agent_registry,
+        )
+
+    @provide(scope=Scope.APP)
     def get_llm_loop_stage(
         self,
         tool_registry: ToolRegistryProtocol,
@@ -609,6 +622,7 @@ class PipelineProvider(Provider):
         global_policy_manager: GlobalPolicyManager,
         tracer: Tracer,
         strategy_dispatcher: StrategyDispatcher,
+        system_prompt_builder: SystemPromptBuilder,
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -618,6 +632,7 @@ class PipelineProvider(Provider):
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=system_prompt_builder,
             global_policy_manager=global_policy_manager,
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,

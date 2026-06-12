@@ -47,6 +47,7 @@ class TestAgentMessageChunkPreservation:
             content_formatter=MagicMock(),
             replay_manager=replay_manager,
             plan_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
         
         # Act
@@ -121,6 +122,7 @@ class TestAgentMessageChunkPreservation:
             content_formatter=MagicMock(),
             replay_manager=replay_manager,
             plan_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
         
         # Act

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
 from codelab.server.client_rpc.service import ClientRPCService
 from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
@@ -52,6 +53,7 @@ def make_orchestrator(
         permission_manager=permission_manager,
         state_manager=state_manager,
         plan_builder=plan_builder,
+        system_prompt_builder=SystemPromptBuilder(global_prompt=""),
         global_policy_manager=global_policy_manager,
     )
 

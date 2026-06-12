@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
 from codelab.server.messages import JsonRpcId
 from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -231,6 +232,7 @@ class TestPermissionFlowIntegration:
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=SystemPromptBuilder(global_prompt=""),
         )
 
         command_registry = CommandRegistry()

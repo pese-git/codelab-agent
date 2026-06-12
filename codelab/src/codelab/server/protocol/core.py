@@ -956,6 +956,7 @@ class ACPProtocol:
         from .handlers.state_manager import StateManager
         from .handlers.tool_call_handler import ToolCallHandler
         from .handlers.turn_lifecycle_manager import TurnLifecycleManager
+        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
 
         state_manager = StateManager()
         plan_builder = PlanBuilder()
@@ -963,6 +964,10 @@ class ACPProtocol:
         tool_call_handler = ToolCallHandler()
         permission_manager = PermissionManager()
         client_rpc_handler = ClientRPCHandler()
+        system_prompt_builder = SystemPromptBuilder(
+            global_prompt="",
+            agent_registry=self._agent_registry,
+        )
 
         llm_loop_stage = LLMLoopStage(
             tool_registry=self._tool_registry,
@@ -970,6 +975,7 @@ class ACPProtocol:
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
         )
 

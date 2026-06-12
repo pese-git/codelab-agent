@@ -41,6 +41,8 @@ def mock_session():
 @pytest.fixture
 def mock_dependencies():
     """Mock зависимости AgentLoop."""
+    mock_spb = MagicMock()
+    mock_spb.build.return_value = "You are a helpful assistant."
     return {
         "tool_registry": MagicMock(),
         "tool_call_handler": MagicMock(),
@@ -51,6 +53,7 @@ def mock_dependencies():
         "content_formatter": MagicMock(),
         "replay_manager": MagicMock(),
         "plan_builder": MagicMock(),
+        "system_prompt_builder": mock_spb,
     }
 
 
@@ -392,7 +395,9 @@ class TestAgentLoop:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         await loop.run(mock_session, "test_session", "Initial prompt")
 
-        mock_strategy.execute.assert_called_once_with(mock_session, "Initial prompt", None)
+        mock_strategy.execute.assert_called_once_with(
+            mock_session, "Initial prompt", None, system_prompt="You are a helpful assistant."
+        )
         mock_strategy.continue_execution.assert_not_called()
 
     @pytest.mark.asyncio

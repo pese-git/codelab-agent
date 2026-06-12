@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from codelab.server.agent.orchestrator import AgentOrchestrator
     from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
     from codelab.server.observability.tracer import Tracer
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
     from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -73,6 +74,7 @@ class LLMLoopStage(PromptStage):
         permission_manager: PermissionManager,
         state_manager: StateManager,
         plan_builder: PlanBuilder,
+        system_prompt_builder: SystemPromptBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         strategy_dispatcher: StrategyDispatcher | None = None,
         tracer: Tracer | None = None,
@@ -85,6 +87,7 @@ class LLMLoopStage(PromptStage):
             permission_manager: Менеджер разрешений для permission requests.
             state_manager: Менеджер состояния сессии.
             plan_builder: Построитель планов выполнения.
+            system_prompt_builder: Билдер system prompt (config + MCP info).
             global_policy_manager: Менеджер глобальных политик (опционально).
             strategy_dispatcher: StrategyDispatcher для EventBus пути (опционально).
                 Если None, используется LegacyCallStrategy.
@@ -95,6 +98,7 @@ class LLMLoopStage(PromptStage):
         self._permission_manager = permission_manager
         self._state_manager = state_manager
         self._plan_builder = plan_builder
+        self._system_prompt_builder = system_prompt_builder
         self._global_policy_manager = global_policy_manager
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
@@ -178,6 +182,7 @@ class LLMLoopStage(PromptStage):
             content_formatter=self._content_formatter,
             replay_manager=self._replay_manager,
             plan_builder=self._plan_builder,
+            system_prompt_builder=self._system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
         )
         return self._agent_loop
@@ -290,6 +295,7 @@ class LLMLoopStage(PromptStage):
                 content_formatter=self._content_formatter,
                 replay_manager=self._replay_manager,
                 plan_builder=self._plan_builder,
+                system_prompt_builder=self._system_prompt_builder,
                 global_policy_manager=self._global_policy_manager,
             )
 

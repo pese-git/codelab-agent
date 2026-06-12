@@ -93,12 +93,14 @@ def llm_loop_stage(
     plan_builder: PlanBuilder,
 ) -> LLMLoopStage:
     """Создаёт LLMLoopStage."""
+    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
     return LLMLoopStage(
         tool_registry=tool_registry,
         tool_call_handler=tool_call_handler,
         permission_manager=permission_manager,
         state_manager=state_manager,
         plan_builder=plan_builder,
+        system_prompt_builder=SystemPromptBuilder(global_prompt=""),
     )
 
 

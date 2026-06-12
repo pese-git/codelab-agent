@@ -58,15 +58,22 @@ class LegacyCallStrategy:
         session: SessionState,
         prompt: str | None,
         mcp_manager: Any | None = None,
+        *,
+        system_prompt: str | None = None,
+        parent_span: Any | None = None,
     ) -> AgentResponse:
         """Выполнить вызов LLM с начальным prompt.
 
         Делегирует AgentOrchestrator.process_prompt().
+        system_prompt игнорируется — legacy path формирует system prompt
+        самостоятельно через AgentOrchestrator._build_system_message().
 
         Args:
             session: Состояние сессии.
             prompt: Текст промпта пользователя.
             mcp_manager: MCP manager для tool execution.
+            system_prompt: Игнорируется (legacy формирует сам).
+            parent_span: Игнорируется.
 
         Returns:
             AgentResponse с текстом, tool_calls, usage, stop_reason.
