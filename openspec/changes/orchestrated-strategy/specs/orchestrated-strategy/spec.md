@@ -110,6 +110,26 @@ Child sessions ДОЛЖНЫ:
 - **ТОГДА** отображается полная история child session
 - **И** доступны переходы Leader+Right → следующая child, Leader+Left → parent
 
+### Требование: Child session mode inheritance
+
+При создании child session ДОЛЖНА наследовать mode от parent session:
+
+- Child session.config_values["mode"] = parent.config_values["mode"]
+- Субагент НЕ может переключить mode на другое значение
+- При попытке установить другой mode → warning в лог, mode остаётся parent.mode
+
+#### Сценарий: Наследование mode в child session
+- **КОГДА** parent session имеет mode="plan"
+- **И** orchestrator создаёт child session для субагента
+- **ТОГДА** child session.config_values["mode"] = "plan"
+- **И** субагент НЕ может записать файлы (plan mode блокирует write/execute)
+
+#### Сценарий: Безопасность наследования
+- **КОГДА** parent session имеет mode="standard"
+- **И** orchestrator пытается создать child session с mode="bypass"
+- **ТОГДА** mode принудительно устанавливается в parent.mode ("standard")
+- **И** записывается warning в лог
+
 ### Требование: MCP Tools в OrchestratedStrategy
 
 MCP инструменты ДОЛЖНЫ быть доступны субагентам:

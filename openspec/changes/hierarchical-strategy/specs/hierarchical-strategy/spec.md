@@ -101,6 +101,20 @@ class TaskResult(DomainEvent):
 - **И** child sessions помечаются status="cancelled"
 - **И** все pending send_request отменяются
 
+### Требование: Child session mode inheritance
+
+При создании child session ДОЛЖНА наследовать mode от parent session:
+
+- Child session.config_values["mode"] = parent.config_values["mode"]
+- Субагент НЕ может переключить mode на другое значение
+- При попытке установить другой mode → warning в лог, mode остаётся parent.mode
+
+#### Сценарий: Наследование mode в child session
+- **КОГДА** primary session имеет mode="plan"
+- **И** primary делегирует задачу субагенту
+- **ТОГДА** child session.config_values["mode"] = "plan"
+- **И** субагент НЕ может записать файлы (plan mode блокирует write/execute)
+
 ### Требование: Валидация стратегии
 
 HierarchicalStrategy ДОЛЖНА требовать:

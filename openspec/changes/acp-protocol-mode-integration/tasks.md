@@ -31,32 +31,30 @@
 - [ ] 5.4 Unit-тесты /mode command
 
 ## 6. Session setup — modes state
-- [ ] 6.1 Обновить build_modes_state() в session.py
-- [ ] 6.2 Возвращать availableModes: plan, standard, bypass
-- [ ] 6.3 currentModeId из session.config_values["mode"]
-- [ ] 6.4 Unit-тесты modes state
+- [x] 6.1 Обновить build_modes_state() в session.py
+- [x] 6.2 Возвращать availableModes: plan, standard, bypass
+- [x] 6.3 currentModeId из session.config_values["mode"]
+- [x] 6.4 Обновить _default_config_specs в core.py
 
 ## 7. Child session mode inheritance
-- [ ] 7.1 Обновить OrchestratedStrategy — child session наследует mode
-- [ ] 7.2 Обновить HierarchicalStrategy — child session наследует mode
-- [ ] 7.3 Обновить ChoreographyStrategy — winner child session наследует mode
-- [ ] 7.4 Безопасность: запретить child mode != parent.mode
-- [ ] 7.5 Integration тесты mode inheritance
+> Перенесено в spec'и стратегий — child sessions создаются только в
+> OrchestratedStrategy, HierarchicalStrategy, ChoreographyStrategy.
+> Задачи будут реализованы вместе со стратегиями.
 
 ## 8. Backward compatibility
-- [ ] 8.1 Migration function: old_mode → new_mode
-- [ ] 8.2 Deprecation warning при загрузке старого mode
-- [ ] 8.3 Обновить config option builder для mode
+- [x] 8.1 Migration function: old_mode → new_mode (уже реализовано в mode.py)
+- [x] 8.2 Deprecation warning при загрузке старого mode (уже реализовано в state.py)
+- [x] 8.3 Обновить config option builder для mode (уже обновлено в core.py)
 - [ ] 8.4 Unit-тесты backward compatibility
 
 ## 9. Тесты
-- [ ] 9.1 Unit-тесты mode валидации
+- [ ] 9.1 Unit-тесты mode валидации (уже реализовано в test_mode.py)
 - [ ] 9.2 Unit-тесты session_set_mode
 - [ ] 9.3 Unit-тесты permission decision с mode
 - [ ] 9.4 Unit-тесты tool execution по mode
 - [ ] 9.5 Unit-тесты /mode command
 - [ ] 9.6 Unit-тесты modes state
-- [ ] 9.7 Integration тесты mode inheritance
+- [ ] 9.7 Integration тесты mode inheritance (перенесено в spec'и стратегий)
 - [ ] 9.8 Integration тесты mode × strategy matrix
 - [ ] 9.9 Integration тесты backward compatibility
 
