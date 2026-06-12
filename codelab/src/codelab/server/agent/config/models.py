@@ -1,7 +1,7 @@
 """Конфигурация мультиагентной системы.
 
 Pydantic модели для:
-- AgentMode — режим агента (primary, subagent, orchestrator)
+- AgentRole — роль агента (primary, subagent, orchestrator)
 - AgentPermission — разрешения агента
 - AgentTOMLConfig — конфигурация из TOML
 - AgentsGlobalConfig — глобальные настройки [agents]
@@ -18,8 +18,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AgentMode(StrEnum):
-    """Режим агента в мультиагентной системе."""
+class AgentRole(StrEnum):
+    """Роль агента в мультиагентной системе."""
 
     PRIMARY = "primary"
     SUBAGENT = "subagent"
@@ -46,7 +46,7 @@ class AgentTOMLConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     enabled: bool = True
-    mode: AgentMode = AgentMode.PRIMARY
+    role: AgentRole = AgentRole.PRIMARY
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -61,8 +61,8 @@ class AgentsGlobalConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    mode: AgentMode = AgentMode.PRIMARY
-    fallback_mode: AgentMode = AgentMode.PRIMARY
+    role: AgentRole = AgentRole.PRIMARY
+    fallback_role: AgentRole = AgentRole.PRIMARY
     default_model: str = "openai/gpt-4o"
     max_steps: int = 10
     # TokenSlicer конфигурация
@@ -88,7 +88,7 @@ class AgentMarkdownConfig(BaseModel):
 
     name: str = ""
     enabled: bool = True
-    mode: AgentMode = AgentMode.PRIMARY
+    role: AgentRole = AgentRole.PRIMARY
     priority: int = 99
     model: str | None = None
     temperature: float | None = None
@@ -103,7 +103,7 @@ class ResolvedAgent(BaseModel):
 
     name: str
     enabled: bool = True
-    mode: AgentMode = AgentMode.PRIMARY
+    role: AgentRole = AgentRole.PRIMARY
     priority: int = 99
     model: str = ""
     temperature: float = 0.0

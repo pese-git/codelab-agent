@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.agent.config.models import AgentMode, ResolvedAgent
+from codelab.server.agent.config.models import AgentRole, ResolvedAgent
 from codelab.server.agent.factory import AgentFactory
 from codelab.server.llm.base import LLMProvider
 from codelab.server.llm.registry import LLMProviderRegistry
@@ -53,7 +53,7 @@ class TestCreateAdapter:
         agent = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         adapter = await factory.create_adapter(agent)
@@ -70,7 +70,7 @@ class TestCreateAdapter:
         agent = ResolvedAgent(
             name="tester",
             model="",  # пустая модель
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         await factory.create_adapter(agent, default_model="openai/gpt-4o-mini")
@@ -84,7 +84,7 @@ class TestCreateAdapter:
         agent = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         adapter1 = await factory.create_adapter(agent)
@@ -102,12 +102,12 @@ class TestCreateAdapter:
         agent1 = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
         agent2 = ResolvedAgent(
             name="tester",
             model="openai/gpt-4o-mini",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         adapter1 = await factory.create_adapter(agent1)
@@ -127,7 +127,7 @@ class TestGetAdapter:
         agent = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         await factory.create_adapter(agent)
@@ -152,7 +152,7 @@ class TestClearCache:
         agent = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         await factory.create_adapter(agent)
@@ -169,7 +169,7 @@ class TestClearCache:
         agent = ResolvedAgent(
             name="coder",
             model="openai/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         adapter1 = await factory.create_adapter(agent)
@@ -205,7 +205,7 @@ class TestProviderResolution:
         agent = ResolvedAgent(
             name="coder",
             model="unknown/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         adapter = await factory.create_adapter(agent)
@@ -235,7 +235,7 @@ class TestProviderResolution:
         agent = ResolvedAgent(
             name="coder",
             model="unknown/gpt-4o",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
         )
 
         with pytest.raises(ValueError, match="No LLM providers registered"):

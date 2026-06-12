@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from codelab.server.agent.config.loader import AgentConfigLoader
-from codelab.server.agent.config.models import AgentMode
+from codelab.server.agent.config.models import AgentRole
 
 
 @pytest.fixture
@@ -21,14 +21,14 @@ class TestParseMarkdown:
     def test_with_frontmatter(self, temp_dir):
         md_file = temp_dir / "coder.md"
         md_file.write_text(
-            "---\nname: coder\nmode: primary\nmodel: openai/gpt-4o\n---\nYou are a coder."
+            "---\nname: coder\nrole: primary\nmodel: openai/gpt-4o\n---\nYou are a coder."
         )
 
         loader = AgentConfigLoader(project_config_dir=temp_dir)
         cfg = loader._parse_markdown(md_file)
 
         assert cfg.name == "coder"
-        assert cfg.mode == AgentMode.PRIMARY
+        assert cfg.role == AgentRole.PRIMARY
         assert cfg.model == "openai/gpt-4o"
         assert cfg.prompt == "You are a coder."
 
@@ -63,7 +63,7 @@ class TestTomlToMarkdown:
         loader = AgentConfigLoader()
         toml_cfg = AgentTOMLConfig(
             enabled=True,
-            mode=AgentMode.SUBAGENT,
+            role=AgentRole.SUBAGENT,
             model="openai/gpt-4o-mini",
             temperature=0.5,
             tools=["read_file"],
@@ -72,7 +72,7 @@ class TestTomlToMarkdown:
         md_cfg = loader._toml_to_markdown("reviewer", toml_cfg)
 
         assert md_cfg.name == "reviewer"
-        assert md_cfg.mode == AgentMode.SUBAGENT
+        assert md_cfg.role == AgentRole.SUBAGENT
         assert md_cfg.model == "openai/gpt-4o-mini"
         assert md_cfg.temperature == 0.5
         assert md_cfg.tools == ["read_file"]
@@ -106,7 +106,7 @@ class TestLoadAll:
             "agents": {
                 "definitions": {
                     "coder": {
-                        "mode": "primary",
+                        "role": "primary",
                         "model": "openai/gpt-4o",
                     }
                 }
@@ -127,7 +127,7 @@ class TestLoadAll:
             "agents": {
                 "definitions": {
                     "coder": {
-                        "mode": "primary",
+                        "role": "primary",
                         "model": "openai/gpt-3.5",
                     }
                 }
@@ -138,11 +138,11 @@ class TestLoadAll:
         agents_dir = temp_dir / "agents"
         agents_dir.mkdir()
         (agents_dir / "coder.md").write_text(
-            "---\nname: coder\nmode: subagent\n---\nCoder prompt."
+            "---\nname: coder\nrole: subagent\n---\nCoder prompt."
         )
 
         result = loader.load_all(project_toml=project_toml)
-        assert result["coder"].mode == AgentMode.SUBAGENT  # Из MD, не TOML
+        assert result["coder"].role == AgentRole.SUBAGENT  # Из MD, не TOML
 
     def test_override_chain(self, temp_dir):
         """global TOML < global MD < project TOML < project MD."""
@@ -155,7 +155,7 @@ class TestLoadAll:
         global_toml = {
             "agents": {
                 "definitions": {
-                    "coder": {"mode": "primary", "model": "global-toml-model"},
+                    "coder": {"role": "primary", "model": "global-toml-model"},
                 }
             }
         }
@@ -171,7 +171,7 @@ class TestLoadAll:
         project_toml = {
             "agents": {
                 "definitions": {
-                    "coder": {"mode": "primary", "model": "project-toml-model"},
+                    "coder": {"role": "primary", "model": "project-toml-model"},
                 }
             }
         }

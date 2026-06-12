@@ -18,7 +18,7 @@ from typing import Any
 
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
-    AgentMode,
+    AgentRole,
     AgentTOMLConfig,
 )
 
@@ -116,7 +116,7 @@ class AgentConfigLoader:
         Формат:
         ---
         name: coder
-        mode: primary
+        role: primary
         model: openai/gpt-4o
         ---
         System prompt body...
@@ -136,12 +136,16 @@ class AgentConfigLoader:
         # Парсим YAML frontmatter вручную (без pyyaml)
         frontmatter = self._parse_yaml_simple(frontmatter_str)
 
-        # Извлекаем mode как enum
-        mode_str = frontmatter.pop("mode", "primary")
+        # Извлекаем role как enum (с backward compatibility для mode)
+        role_str = frontmatter.pop("role", frontmatter.pop("mode", "primary"))
+        if role_str != frontmatter.get("role", None):
+            logger.warning(
+                "Agent '%s': поле 'mode' deprecated, используйте 'role'", path.stem
+            )
         try:
-            mode = AgentMode(mode_str)
+            role = AgentRole(role_str)
         except ValueError:
-            mode = AgentMode.PRIMARY
+            role = AgentRole.PRIMARY
 
         # Имя из frontmatter или из файла
         name = frontmatter.pop("name", path.stem)
@@ -154,7 +158,7 @@ class AgentConfigLoader:
 
         return AgentMarkdownConfig(
             name=name,
-            mode=mode,
+            role=role,
             prompt=body.strip(),
             permissions=permissions,
             **frontmatter,  # extra="allow"
@@ -251,7 +255,7 @@ class AgentConfigLoader:
         return AgentMarkdownConfig(
             name=name,
             enabled=toml_cfg.enabled,
-            mode=toml_cfg.mode,
+            role=toml_cfg.role,
             priority=toml_cfg.priority,
             model=toml_cfg.model,
             temperature=toml_cfg.temperature,

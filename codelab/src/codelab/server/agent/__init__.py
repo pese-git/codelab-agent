@@ -13,8 +13,8 @@ from codelab.server.agent.config import (
     AgentConfigLoader,
     AgentConfigResolver,
     AgentMarkdownConfig,
-    AgentMode,
     AgentPermission,
+    AgentRole,
     AgentsGlobalConfig,
     AgentTOMLConfig,
     ResolvedAgent,
@@ -57,7 +57,7 @@ __all__ = [
     "AgentContext",
     "AgentResponse",
     # Config models
-    "AgentMode",
+    "AgentRole",
     "AgentPermission",
     "AgentTOMLConfig",
     "AgentsGlobalConfig",

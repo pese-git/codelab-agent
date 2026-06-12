@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codelab.server.agent.config.models import (
-    AgentMode,
+    AgentRole,
     AgentsGlobalConfig,
     ResolvedAgent,
 )
@@ -75,8 +75,8 @@ class TestInitialize:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
-                "reviewer": ResolvedAgent(name="reviewer", mode=AgentMode.SUBAGENT),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
+                "reviewer": ResolvedAgent(name="reviewer", role=AgentRole.SUBAGENT),
             },
         ):
             await registry.initialize()
@@ -97,7 +97,7 @@ class TestInitialize:
             return_value={
                 "coder": ResolvedAgent(
                     name="coder",
-                    mode=AgentMode.PRIMARY,
+                    role=AgentRole.PRIMARY,
                     model="openai/gpt-4o",
                 ),
             },
@@ -124,7 +124,7 @@ class TestInitialize:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
             },
         ):
             await registry.initialize()
@@ -172,8 +172,8 @@ class TestGetMethods:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
-                "helper": ResolvedAgent(name="helper", mode=AgentMode.SUBAGENT),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
+                "helper": ResolvedAgent(name="helper", role=AgentRole.SUBAGENT),
             },
         ):
             await registry.initialize()
@@ -188,9 +188,9 @@ class TestGetMethods:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
-                "helper": ResolvedAgent(name="helper", mode=AgentMode.SUBAGENT),
-                "assistant": ResolvedAgent(name="assistant", mode=AgentMode.SUBAGENT),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
+                "helper": ResolvedAgent(name="helper", role=AgentRole.SUBAGENT),
+                "assistant": ResolvedAgent(name="assistant", role=AgentRole.SUBAGENT),
             },
         ):
             await registry.initialize()
@@ -206,9 +206,9 @@ class TestGetMethods:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
                 "orchestrator": ResolvedAgent(
-                    name="orchestrator", mode=AgentMode.ORCHESTRATOR
+                    name="orchestrator", role=AgentRole.ORCHESTRATOR
                 ),
             },
         ):
@@ -224,7 +224,7 @@ class TestGetMethods:
             registry._resolver,
             "resolve_all",
             return_value={
-                "coder": ResolvedAgent(name="coder", mode=AgentMode.PRIMARY),
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
             },
         ):
             await registry.initialize()
