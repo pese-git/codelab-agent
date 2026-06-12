@@ -920,6 +920,11 @@ class AgentLoop:
     async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
         """Определить решение о выполнении tool.
 
+        Цепочка решений:
+        1. mode=plan → reject для write/execute, allow для read
+        2. mode=bypass → allow все инструменты
+        3. mode=standard → session policy → global policy → ask
+
         Args:
             session: Состояние сессии.
             tool_kind: Тип инструмента.
@@ -927,6 +932,21 @@ class AgentLoop:
         Returns:
             "allow", "reject" или "ask".
         """
+        from ....mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
+
+        mode = session.config_values.get("mode", "standard")
+
+        # 1. Plan mode: блокируем write/execute инструменты
+        if mode == MODE_PLAN:
+            if is_tool_blocked_in_plan_mode(tool_kind):
+                return "reject"
+            return "allow"
+
+        # 2. Bypass mode: auto-execute все инструменты
+        if mode == MODE_BYPASS:
+            return "allow"
+
+        # 3. Standard mode: policy chain
         session_policy = session.permission_policy.get(tool_kind)
         if session_policy == "allow_always":
             return "allow"
