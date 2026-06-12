@@ -145,16 +145,20 @@ async def session_set_mode(
     storage: SessionStorage,
     config_specs: dict[str, dict[str, Any]],
 ) -> ProtocolOutcome:
-    """Legacy-совместимый метод смены режима через `session/set_mode`.
+    """ACP метод смены режима через `session/set_mode`.
+
+    Поддерживает новые значения mode: plan, standard, bypass.
+    Автоматически нормализует старые значения (ask→standard, code→bypass, etc).
 
     Пример использования:
         outcome = await session_set_mode(
             "req_1",
-            {"sessionId": "sess_1", "modeId": "code"},
+            {"sessionId": "sess_1", "modeId": "bypass"},
             storage,
             config_specs,
         )
     """
+    from ..mode import VALID_MODES, normalize_mode
 
     session_id = params.get("sessionId")
     mode_id = params.get("modeId")
@@ -167,12 +171,26 @@ async def session_set_mode(
             )
         )
 
+    # Нормализуем mode (backward compatibility)
+    normalized_mode = normalize_mode(mode_id)
+
+    # Валидация: если mode_id не валидный и не маппится — ошибка
+    if mode_id not in VALID_MODES and mode_id not in ("ask", "code", "architect", "debug"):
+        valid_list = ", ".join(sorted(VALID_MODES))
+        return ProtocolOutcome(
+            response=ACPMessage.error_response(
+                request_id,
+                code=-32602,
+                message=f"Invalid params: modeId must be one of: {valid_list}",
+            )
+        )
+
     mapped = await session_set_config_option(
         request_id,
         {
             "sessionId": session_id,
             "configId": "mode",
-            "value": mode_id,
+            "value": normalized_mode,
         },
         storage,
         config_specs,
@@ -180,10 +198,19 @@ async def session_set_mode(
     if mapped.response is None or mapped.response.error is not None:
         return mapped
 
+    # Добавляем mode_changed notification
+    mode_changed = ACPMessage.notification(
+        "session/mode_changed",
+        {
+            "sessionId": session_id,
+            "mode": normalized_mode,
+        },
+    )
+
     # По схеме `session/set_mode` возвращает пустой объект.
     return ProtocolOutcome(
         response=ACPMessage.response(request_id, {}),
-        notifications=mapped.notifications,
+        notifications=[*mapped.notifications, mode_changed],
     )
 
 

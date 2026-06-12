@@ -1,33 +1,33 @@
 ## 1. Mode values и валидация
-- [ ] 1.1 Определить константы MODE_PLAN, MODE_STANDARD, MODE_BYPASS
-- [ ] 1.2 Создать валидатор mode в state.py
-- [ ] 1.3 Добавить backward compatibility mapping (ask→standard, code→bypass, architect→plan, debug→standard)
-- [ ] 1.4 Unit-тесты валидации mode
+- [x] 1.1 Определить константы MODE_PLAN, MODE_STANDARD, MODE_BYPASS
+- [x] 1.2 Создать валидатор mode в state.py
+- [x] 1.3 Добавить backward compatibility mapping (ask→standard, code→bypass, architect→plan, debug→standard)
+- [x] 1.4 Unit-тесты валидации mode
 
 ## 2. session/set_mode handler
-- [ ] 2.1 Обновить session_set_mode() в config.py — валидация modeId
-- [ ] 2.2 Отправка notification mode_changed при успешной смене
-- [ ] 2.3 Обработка невалидного modeId → ошибка -32602
+- [x] 2.1 Обновить session_set_mode() в config.py — валидация modeId
+- [x] 2.2 Отправка notification mode_changed при успешной смене
+- [x] 2.3 Обработка невалидного modeId → ошибка -32602
 - [ ] 2.4 Unit-тесты session_set_mode
 
 ## 3. Mode в permission decision chain
-- [ ] 3.1 Обновить PermissionManager.decide() — mode check первым
-- [ ] 3.2 mode=plan → reject write/execute
-- [ ] 3.3 mode=bypass → allow все инструменты
-- [ ] 3.4 mode=standard → существующий policy chain
+- [x] 3.1 Обновить PermissionManager.decide() — mode check первым
+- [x] 3.2 mode=plan → reject write/execute
+- [x] 3.3 mode=bypass → allow все инструменты
+- [x] 3.4 mode=standard → существующий policy chain
 - [ ] 3.5 Unit-тесты permission decision с mode
 
 ## 4. Tool execution по mode
-- [ ] 4.1 Обновить directives.py — tool execution учитывает mode
-- [ ] 4.2 mode=plan: блокировать edit/delete/execute, разрешить read/search
-- [ ] 4.3 mode=standard: permission request (текущий ask flow)
-- [ ] 4.4 mode=bypass: auto-execute (текущий code flow)
+- [x] 4.1 Обновить directives.py — tool execution учитывает mode
+- [x] 4.2 mode=plan: блокировать edit/delete/execute, разрешить read/search
+- [x] 4.3 mode=standard: permission request (текущий ask flow)
+- [x] 4.4 mode=bypass: auto-execute (текущий code flow)
 - [ ] 4.5 Integration тесты tool execution по mode
 
 ## 5. Slash command /mode
-- [ ] 5.1 Обновить AVAILABLE_MODES → ["plan", "standard", "bypass"]
-- [ ] 5.2 Обновить описания режимов
-- [ ] 5.3 Обновить обработку аргументов
+- [x] 5.1 Обновить AVAILABLE_MODES → ["plan", "standard", "bypass"]
+- [x] 5.2 Обновить описания режимов
+- [x] 5.3 Обновить обработку аргументов
 - [ ] 5.4 Unit-тесты /mode command
 
 ## 6. Session setup — modes state

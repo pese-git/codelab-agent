@@ -40,7 +40,28 @@ def _can_run_tool_runtime(session: SessionState) -> bool:
 
 
 def _decide_tool_policy(session: SessionState, tool_kind: str) -> str:
-    """Определяет политику выполнения tool (allow/reject/ask)."""
+    """Определяет политику выполнения tool (allow/reject/ask) с учётом mode.
+
+    Цепочка решений:
+    1. mode=plan → reject для write/execute, allow для read
+    2. mode=bypass → allow все
+    3. mode=standard → session policy → ask
+    """
+    from ...mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
+
+    mode = session.config_values.get("mode", "standard")
+
+    # Plan mode: блокируем write/execute
+    if mode == MODE_PLAN:
+        if is_tool_blocked_in_plan_mode(tool_kind):
+            return "reject"
+        return "allow"
+
+    # Bypass mode: auto-execute
+    if mode == MODE_BYPASS:
+        return "allow"
+
+    # Standard mode: policy chain
     session_policy = session.permission_policy.get(tool_kind)
     if session_policy == "allow_always":
         return "allow"
@@ -200,12 +221,11 @@ class DirectivesStage(PromptStage):
             )
         )
 
-        # Проверяем политику разрешений
+        # Проверяем политику разрешений (включает mode check)
         policy = _decide_tool_policy(context.session, directives.tool_kind)
 
         if policy == "allow":
             # Политика разрешает — выполняем tool без запроса permission.
-            # Продолжаем pipeline (LLMLoopStage → close), turn завершится нормально.
             execution_updates = build_executor_tool_execution_updates(
                 session=context.session,
                 session_id=context.session_id,
@@ -227,55 +247,30 @@ class DirectivesStage(PromptStage):
             context.stop_reason = "cancelled"
             return context
 
-        # policy == "ask" — запрашиваем permission у пользователя (только в режиме "ask")
-        mode = context.session.config_values.get("mode", "ask")
-        if mode != "ask":
-            # В не-ask режиме (code, architect и т.д.) выполняем tool без permission request
-            execution_updates = build_executor_tool_execution_updates(
-                session=context.session,
-                session_id=context.session_id,
-                tool_call_id=tool_call_id,
-                leave_running=directives.keep_tool_pending,
-            )
-            context.notifications.extend(execution_updates)
-            if directives.keep_tool_pending:
-                if context.session.active_turn is not None:
-                    context.session.active_turn.phase = "waiting_tool_completion"
-                context.pending_permission = True  # turn deferred
-                context.should_stop = True
-            return context
-
-        if mode == "ask":
-            options = self._permission_manager.build_permission_options()
-            permission_request = ACPMessage.request(
-                "session/request_permission",
-                {
-                    "sessionId": context.session_id,
-                    "toolCall": {
-                        "toolCallId": tool_call_id,
-                        "title": tool_title,
-                        "kind": directives.tool_kind,
-                        "status": "pending",
-                    },
-                    "options": options,
+        # policy == "ask" — запрашиваем permission у пользователя
+        options = self._permission_manager.build_permission_options()
+        permission_request = ACPMessage.request(
+            "session/request_permission",
+            {
+                "sessionId": context.session_id,
+                "toolCall": {
+                    "toolCallId": tool_call_id,
+                    "title": tool_title,
+                    "kind": directives.tool_kind,
+                    "status": "pending",
                 },
-            )
-            if context.session.active_turn is not None:
-                context.session.active_turn.permission_request_id = permission_request.id
-                context.session.active_turn.permission_tool_call_id = tool_call_id
-                context.session.active_turn.phase = "waiting_permission"
-            context.notifications.append(permission_request)
-            context.pending_permission = True
-            context.should_stop = True
+                "options": options,
+            },
+        )
+        if context.session.active_turn is not None:
+            context.session.active_turn.permission_request_id = permission_request.id
+            context.session.active_turn.permission_tool_call_id = tool_call_id
+            context.session.active_turn.phase = "waiting_permission"
+        context.notifications.append(permission_request)
+        context.pending_permission = True
+        context.should_stop = True
 
-            if directives.keep_tool_pending and context.session.active_turn is not None:
-                context.session.active_turn.phase = "waiting_tool_completion"
-        elif directives.keep_tool_pending:
-            # Не режим ask, но /tool-pending — defer turn without permission request.
-            # Turn остаётся открытым в фазе "waiting_tool_completion".
-            if context.session.active_turn is not None:
-                context.session.active_turn.phase = "waiting_tool_completion"
-            context.pending_permission = True  # сигнализирует handle_prompt об отложенном turn
-            context.should_stop = True
+        if directives.keep_tool_pending and context.session.active_turn is not None:
+            context.session.active_turn.phase = "waiting_tool_completion"
 
         return context
