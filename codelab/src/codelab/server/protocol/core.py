@@ -36,6 +36,7 @@ from .state import (
 )
 
 if TYPE_CHECKING:
+    from ..agent.llm_adapter import LLMAdapter
     from ..agent.orchestrator import AgentOrchestrator
     from ..client_rpc.service import ClientRPCService
     from ..llm.registry import LLMProviderRegistry
@@ -114,6 +115,7 @@ class ACPProtocol:
         strategy_registry: Any | None = None,
         command_registry: Any | None = None,
         model_resolver: ModelResolver | None = None,
+        llm_adapter: LLMAdapter | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -139,6 +141,7 @@ class ACPProtocol:
             command_registry: Реестр slash-команд для динамической генерации
                 available_commands (опционально).
             model_resolver: Резолвер моделей для dynamic model selection (опционально).
+            llm_adapter: Адаптер LLM для cancellation и других операций (опционально).
 
         Пример использования:
             protocol = ACPProtocol()
@@ -162,6 +165,9 @@ class ACPProtocol:
 
         # Резолвер моделей для dynamic model selection и cache invalidation
         self._model_resolver = model_resolver
+
+        # LLM адаптер для cancellation и других операций
+        self._llm_adapter = llm_adapter
 
         # Сервис ClientRPC для выполнения встроенных инструментов
         self._client_rpc_service = client_rpc_service
@@ -1246,8 +1252,8 @@ class ACPProtocol:
         # Прервать активный LLM-запрос для этой сессии.
         # handle_cancel помечает флаг и закрывает turn, но asyncio.Task с LLM
         # продолжает работать до ответа модели — нужно явно его отменить.
-        if self._agent_orchestrator is not None:
-            await self._agent_orchestrator.cancel_prompt(session_id)
+        if self._llm_adapter is not None:
+            await self._llm_adapter.cancel_prompt(session_id)
             logger.info("agent_llm_task_cancelled", session_id=session_id)
 
         await self._storage.save_session(session)

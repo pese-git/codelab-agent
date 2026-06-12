@@ -262,6 +262,25 @@ class LLMAdapter:
                     await task
         self._active_tasks.clear()
 
+    async def cancel_prompt(self, session_id: str) -> None:
+        """Отменить активный LLM запрос для сессии.
+
+        Находит задачу по session_id и отменяет её.
+
+        Args:
+            session_id: ID сессии для поиска активного запроса.
+        """
+        for task_id, task in list(self._active_tasks.items()):
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                logger.debug(
+                    "LLM request cancelled for session",
+                    session_id=session_id,
+                    task_id=task_id,
+                )
+
     async def _handle_request(
         self,
         request: AgentRequest,

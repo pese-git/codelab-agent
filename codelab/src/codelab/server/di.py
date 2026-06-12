@@ -30,6 +30,7 @@ from dishka import (
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
 from .agent.factory import AgentFactory
+from .agent.llm_adapter import LLMAdapter
 from .agent.orchestrator import AgentOrchestrator
 from .agent.registry import AgentRegistry
 from .agent.state import OrchestratorConfig
@@ -415,6 +416,19 @@ class MultiAgentProvider(Provider):
         registry = AgentRegistry(event_bus, agent_factory, global_config)
         await registry.initialize()
         return registry
+
+    @provide(scope=Scope.APP)
+    def get_llm_adapter(
+        self,
+        agent_factory: AgentFactory,
+    ) -> LLMAdapter | None:
+        """Возвращает LLMAdapter primary агента для cancellation.
+
+        LLMAdapter создаётся лениво при первом вызове агента через
+        AgentFactory.create_adapter(). Этот провайдер возвращает
+        уже созданный адаптер (или None если ещё не создан).
+        """
+        return agent_factory.get_primary_adapter()
 
 
 class ManagersProvider(Provider):
@@ -833,6 +847,7 @@ class RequestProvider(Provider):
         strategy_registry: StrategyRegistry,
         command_registry: CommandRegistry,
         model_resolver: ModelResolver,
+        llm_adapter: LLMAdapter,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
         """Создаёт ACPProtocol для текущего соединения."""
@@ -865,6 +880,7 @@ class RequestProvider(Provider):
             strategy_registry=strategy_registry,
             command_registry=command_registry,
             model_resolver=model_resolver,
+            llm_adapter=llm_adapter,
         )
 
 

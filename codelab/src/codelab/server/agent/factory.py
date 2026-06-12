@@ -137,3 +137,11 @@ class AgentFactory:
     def clear_cache(self) -> None:
         """Очистить кэш адаптеров (для hot reload)."""
         self._adapters.clear()
+
+    def get_primary_adapter(self) -> LLMAdapter | None:
+        """Получить адаптер primary агента для cancellation.
+
+        Returns:
+            LLMAdapter primary агента или None если не создан.
+        """
+        return self._adapters.get("primary")
