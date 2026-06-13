@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+import structlog
+
 from ..mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
 
 if TYPE_CHECKING:
@@ -23,6 +25,8 @@ if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
 
 PermissionDecision = Literal["allow", "reject", "ask"]
+
+logger = structlog.get_logger()
 
 
 def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecision:
@@ -46,24 +50,56 @@ def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecis
     """
     mode = session.config_values.get("mode", "standard")
 
-    # 1. Plan mode: блокируем write/execute
     if mode == MODE_PLAN:
         if is_tool_blocked_in_plan_mode(tool_kind):
+            logger.debug(
+                "tool_policy_decision",
+                mode=mode,
+                tool_kind=tool_kind,
+                decision="reject",
+                reason="plan_mode_blocks",
+            )
             return "reject"
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="plan_mode_allows_read",
+        )
         return "allow"
 
-    # 2. Bypass mode: auto-execute все инструменты
     if mode == MODE_BYPASS:
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="bypass_auto_execute",
+        )
         return "allow"
 
-    # 3. Standard mode: session policy
     session_policy = session.permission_policy.get(tool_kind)
     if session_policy == "allow_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="session_policy_allow_always",
+        )
         return "allow"
     if session_policy == "reject_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="reject",
+            reason="session_policy_reject_always",
+        )
         return "reject"
 
-    return "ask"
+    return _decide_core(session, tool_kind, global_policy=None)
 
 
 async def decide_tool_policy_async(
@@ -90,31 +126,98 @@ async def decide_tool_policy_async(
         "reject" — отклонить.
         "ask" — запросить разрешение у пользователя.
     """
+    # Fast path: plan/bypass не требуют global policy
     mode = session.config_values.get("mode", "standard")
-
-    # 1. Plan mode: блокируем write/execute
     if mode == MODE_PLAN:
         if is_tool_blocked_in_plan_mode(tool_kind):
+            logger.debug(
+                "tool_policy_decision",
+                mode=mode,
+                tool_kind=tool_kind,
+                decision="reject",
+                reason="plan_mode_blocks",
+            )
             return "reject"
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="plan_mode_allows_read",
+        )
         return "allow"
 
-    # 2. Bypass mode: auto-execute все инструменты
     if mode == MODE_BYPASS:
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="bypass_auto_execute",
+        )
         return "allow"
 
-    # 3. Standard mode: session policy
+    # Standard mode: session policy
     session_policy = session.permission_policy.get(tool_kind)
     if session_policy == "allow_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="session_policy_allow_always",
+        )
         return "allow"
     if session_policy == "reject_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="reject",
+            reason="session_policy_reject_always",
+        )
         return "reject"
 
-    # 4. Global policy
+    # Global policy — вызываем только если дошли сюда
+    global_policy = None
     if global_policy_manager is not None:
         global_policy = await global_policy_manager.get_global_policy(tool_kind)
-        if global_policy == "allow_always":
-            return "allow"
-        if global_policy == "reject_always":
-            return "reject"
 
+    return _decide_core(session, tool_kind, global_policy=global_policy)
+
+
+def _decide_core(
+    session: SessionState,
+    tool_kind: str,
+    global_policy: str | None,
+) -> PermissionDecision:
+    """Завершение цепочки решений после session policy (global policy → ask)."""
+    mode = session.config_values.get("mode", "standard")
+
+    if global_policy == "allow_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="global_policy_allow_always",
+        )
+        return "allow"
+    if global_policy == "reject_always":
+        logger.debug(
+            "tool_policy_decision",
+            mode=mode,
+            tool_kind=tool_kind,
+            decision="reject",
+            reason="global_policy_reject_always",
+        )
+        return "reject"
+
+    logger.debug(
+        "tool_policy_decision",
+        mode=mode,
+        tool_kind=tool_kind,
+        decision="ask",
+        reason="default_ask",
+    )
     return "ask"
