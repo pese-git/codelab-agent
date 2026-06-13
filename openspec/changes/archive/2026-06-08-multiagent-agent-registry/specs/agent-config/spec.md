@@ -73,9 +73,9 @@
 - `async reload() -> None` — hot reload агентов из файлов
 - `get(agent_name: str) -> ResolvedAgent | None` — получить конфигурацию агента
 - `get_all() -> dict[str, ResolvedAgent]` — получить всех активных агентов
-- `get_primary_agents() -> dict[str, ResolvedAgent]` — агенты с mode=primary
-- `get_subagents() -> dict[str, ResolvedAgent]` — агенты с mode=subagent
-- `get_orchestrator() -> ResolvedAgent | None` — агент с mode=orchestrator
+- `get_primary_agents() -> dict[str, ResolvedAgent]` — агенты с role=primary
+- `get_subagents() -> dict[str, ResolvedAgent]` — агенты с role=subagent
+- `get_orchestrator() -> ResolvedAgent | None` — агент с role=orchestrator
 
 ### Требование: Hot Reload
 
@@ -98,7 +98,7 @@ AgentRegistry ДОЛЖЕН:
 Система ДОЛЖНА определять `ResolvedAgent` с разрешёнными полями:
 - `name: str`
 - `description: str`
-- `mode: AgentMode`
+- `role: AgentRole`
 - `priority: int` (по умолчанию: 99)
 - `model: str` (разрешено: agent → default)
 - `system_prompt: str`

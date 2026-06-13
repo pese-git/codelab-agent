@@ -104,7 +104,7 @@ AgentRegistry ДОЛЖЕН:
 Система ДОЛЖНА определять `ResolvedAgent` с разрешёнными полями:
 - `name: str`
 - `description: str`
-- `mode: AgentMode`
+- `role: AgentRole`
 - `priority: int` (по умолчанию: 99)
 - `model: str` (разрешено: agent → default)
 - `system_prompt: str`

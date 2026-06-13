@@ -1214,9 +1214,9 @@ class StrategyDispatcher:
             return "single"  # всегда доступно
 
         if mode == "multi_orchestrated":
-            has_orchestrator = any(a.mode == AgentRole.ORCHESTRATOR for a in agents.values())
+            has_orchestrator = any(a.role == AgentRole.ORCHESTRATOR for a in agents.values())
             has_subagent = any(
-                a.mode == AgentRole.SUBAGENT for a in agents.values()
+                a.role == AgentRole.SUBAGENT for a in agents.values()
             )
             if has_orchestrator and has_subagent:
                 return "multi_orchestrated"
@@ -1229,7 +1229,7 @@ class StrategyDispatcher:
         if mode == "multi_choreographed":
             subagents = [
                 a for a in agents.values()
-                if a.mode == AgentRole.SUBAGENT
+                if a.role == AgentRole.SUBAGENT
             ]
             if len(subagents) >= 2:
                 return "multi_choreographed"
@@ -1241,10 +1241,10 @@ class StrategyDispatcher:
 
         if mode == "hierarchical":
             has_primary = any(
-                a.mode == AgentRole.PRIMARY for a in agents.values()
+                a.role == AgentRole.PRIMARY for a in agents.values()
             )
             has_subagent = any(
-                a.mode == AgentRole.SUBAGENT for a in agents.values()
+                a.role == AgentRole.SUBAGENT for a in agents.values()
             )
             if has_primary and has_subagent:
                 return "hierarchical"

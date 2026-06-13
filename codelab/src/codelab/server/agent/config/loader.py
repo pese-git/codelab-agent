@@ -137,11 +137,15 @@ class AgentConfigLoader:
         frontmatter = self._parse_yaml_simple(frontmatter_str)
 
         # Извлекаем role как enum (с backward compatibility для mode)
-        role_str = frontmatter.pop("role", frontmatter.pop("mode", "primary"))
-        if role_str != frontmatter.get("role", None):
+        if "role" in frontmatter:
+            role_str = frontmatter.pop("role")
+        elif "mode" in frontmatter:
+            role_str = frontmatter.pop("mode")
             logger.warning(
                 "Agent '%s': поле 'mode' deprecated, используйте 'role'", path.stem
             )
+        else:
+            role_str = "primary"
         try:
             role = AgentRole(role_str)
         except ValueError:

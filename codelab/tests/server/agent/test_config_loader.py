@@ -87,6 +87,51 @@ class TestTomlToMarkdown:
         assert md_cfg.model_extra.get("custom") == "value"
 
 
+class TestBackwardCompatibility:
+    """2.9 — backward compatibility: чтение deprecated поля mode."""
+
+    def test_mode_field_in_markdown_fallback(self, temp_dir, caplog):
+        """Когда Markdown содержит mode но не role — читает как role с warning."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text(
+            "---\nname: coder\nmode: subagent\nmodel: openai/gpt-4o\n---\nYou are a coder."
+        )
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.SUBAGENT
+        assert cfg.model == "openai/gpt-4o"
+        assert "mode" in caplog.text.lower()
+        assert "deprecated" in caplog.text.lower()
+
+    def test_mode_field_in_markdown_defaults_to_primary(self, temp_dir, caplog):
+        """Невалидный mode → default PRIMARY с warning."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text("---\nname: coder\nmode: invalid_role\n---\nPrompt.")
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.PRIMARY
+
+    def test_role_takes_precedence_over_mode(self, temp_dir, caplog):
+        """Когда есть и role и mode — role имеет приоритет, warning не генерируется."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text(
+            "---\nname: coder\nrole: subagent\nmode: orchestrator\n---\nPrompt."
+        )
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.SUBAGENT
+        assert "deprecated" not in caplog.text.lower()
+
+
 class TestLoadAll:
     """2.8 — логика override."""
 
