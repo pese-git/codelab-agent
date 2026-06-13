@@ -533,11 +533,11 @@ class Agent(Protocol):
 ```toml
 # codelab.toml
 [agents]
-# Режим выполнения по умолчанию
-mode = "single"  # single | multi_orchestrated | multi_choreographed | hierarchical
+# Стратегия выполнения по умолчанию
+strategy = "single"  # single | multi_orchestrated | multi_choreographed | hierarchical
 
-# Режим fallback если нет нужных агентов для выбранной стратегии
-fallback_mode = "single"
+# Стратегия fallback если нет нужных агентов для выбранной стратегии
+fallback_strategy = "single"
 
 # Модель по умолчанию (если агент не указал свою)
 default_model = "openai/gpt-4o"
@@ -626,8 +626,8 @@ class AgentTOMLConfig(BaseModel):
 
 class AgentsGlobalConfig(BaseModel):
     """Глобальные настройки агентов из TOML [agents]."""
-    mode: str = "single"
-    fallback_mode: str = "single"
+    role: AgentRole = AgentRole.PRIMARY
+    fallback_role: AgentRole = AgentRole.PRIMARY
     default_model: str = "openai/gpt-4o"
     max_steps: int = 7
     slicer_model: str = "openai/gpt-4o-mini"
@@ -1097,11 +1097,11 @@ You are a deep reasoning agent. Solve complex problems step by step.
 # ============================================================================
 
 [agents]
-# Режим выполнения по умолчанию
-mode = "single"
+# Стратегия выполнения по умолчанию
+strategy = "single"
 
-# Режим fallback если нет нужных агентов
-fallback_mode = "single"
+# Стратегия fallback если нет нужных агентов
+fallback_strategy = "single"
 
 # Модель по умолчанию
 default_model = "openai/gpt-4o"
@@ -3839,7 +3839,7 @@ set_config_option(_active_strategy="single")
 
 # Через codelab.toml:
 [agents]
-  mode = "single"
+  strategy = "single"
 
 # Через TUI slash command:
 /single

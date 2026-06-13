@@ -131,6 +131,55 @@ class TestBackwardCompatibility:
         assert cfg.role == AgentRole.SUBAGENT
         assert "deprecated" not in caplog.text.lower()
 
+    def test_mode_field_in_toml_fallback(self, caplog):
+        """Когда TOML содержит mode но не role — читает как role с warning."""
+        loader = AgentConfigLoader()
+        project_toml = {
+            "agents": {
+                "definitions": {
+                    "coder": {
+                        "mode": "subagent",
+                        "model": "openai/gpt-4o",
+                    }
+                }
+            }
+        }
+
+        with caplog.at_level("WARNING"):
+            result = loader.load_all(project_toml=project_toml)
+
+        assert "coder" in result
+        assert result["coder"].role == AgentRole.SUBAGENT
+        assert result["coder"].model == "openai/gpt-4o"
+        assert "mode" in caplog.text.lower()
+        assert "deprecated" in caplog.text.lower()
+
+    def test_toml_role_takes_precedence_over_mode(self, caplog):
+        """Когда TOML есть и role и mode — role имеет приоритет."""
+        loader = AgentConfigLoader(
+            global_config_dir=Path("/nonexistent-global"),
+            project_config_dir=Path("/nonexistent-project"),
+        )
+        project_toml = {
+            "agents": {
+                "definitions": {
+                    "coder": {
+                        "role": "primary",
+                        "mode": "subagent",
+                        "model": "openai/gpt-4o",
+                    }
+                }
+            }
+        }
+
+        with caplog.at_level("WARNING"):
+            result = loader.load_all(project_toml=project_toml)
+
+        assert result["coder"].role == AgentRole.PRIMARY
+        # Warning only from agents that have mode but not role;
+        # coder has role so no warning for it
+        assert "coder" not in caplog.text.lower() or "deprecated" not in caplog.text.lower()
+
 
 class TestLoadAll:
     """2.8 — логика override."""

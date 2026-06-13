@@ -84,6 +84,14 @@ class AgentConfigLoader:
 
         for name, cfg_dict in definitions.items():
             try:
+                # Backward compatibility: mode → role
+                if "role" not in cfg_dict and "mode" in cfg_dict:
+                    cfg_dict = dict(cfg_dict)
+                    cfg_dict["role"] = cfg_dict.pop("mode")
+                    logger.warning(
+                        "Agent '%s': поле 'mode' deprecated в TOML, используйте 'role'",
+                        name,
+                    )
                 toml_cfg = AgentTOMLConfig(**cfg_dict)
                 md_cfg = self._toml_to_markdown(name, toml_cfg)
                 result[name] = md_cfg
@@ -267,5 +275,5 @@ class AgentConfigLoader:
             tools=list(toml_cfg.tools),
             permissions=dict(toml_cfg.permissions),
             prompt=toml_cfg.prompt or "",
-            **toml_cfg.model_extra,  # extra поля
+            **(toml_cfg.model_extra or {}),  # extra поля
         )
