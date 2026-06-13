@@ -525,6 +525,7 @@ class TestLLMLoopStageStrategyReuse:
         mock_dispatcher.set_current_strategy.return_value = True
         mock_dispatcher.execute = AsyncMock()
         mock_dispatcher.continue_execution = AsyncMock()
+        mock_dispatcher._current_strategy_name = "single"  # simulate set_current_strategy was called
 
         stage = LLMLoopStage(
             tool_registry=MagicMock(),
