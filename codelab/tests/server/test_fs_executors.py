@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.client_rpc.exceptions import ClientRPCResponseError
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
@@ -184,6 +185,32 @@ class TestFileSystemExecutorRead:
         assert result.error is not None
         assert "Network error" in result.error
 
+    @pytest.mark.asyncio
+    async def test_read_file_directory_returns_error_message(
+        self,
+        executor: FileSystemToolExecutor,
+        session: SessionState,
+    ) -> None:
+        """Сообщение ClientRPCResponseError доходит до LLM."""
+        # Arrange
+        executor._bridge.read_file = AsyncMock(  # type: ignore
+            side_effect=ClientRPCResponseError(
+                code=-32000,
+                message="Not a file: /tmp/directory",
+            )
+        )
+        
+        # Act
+        result = await executor.execute_read(
+            session=session,
+            path="/tmp/directory",
+        )
+        
+        # Assert
+        assert result.success is False
+        assert result.error is not None
+        assert "Not a file: /tmp/directory" in result.error
+
 
 class TestFileSystemExecutorWrite:
     """Тесты операции записи файлов."""
@@ -302,6 +329,34 @@ class TestFileSystemExecutorWrite:
         # Assert
         assert result.success is False
         assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_write_file_error_propagation(
+        self,
+        executor: FileSystemToolExecutor,
+        session: SessionState,
+    ) -> None:
+        """Сообщение ClientRPCResponseError при записи доходит до LLM."""
+        # Arrange
+        executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
+        executor._bridge.write_file = AsyncMock(  # type: ignore
+            side_effect=ClientRPCResponseError(
+                code=-32000,
+                message="Permission denied: /etc/passwd",
+            )
+        )
+        
+        # Act
+        result = await executor.execute_write(
+            session=session,
+            path="/etc/passwd",
+            content="malicious content",
+        )
+        
+        # Assert
+        assert result.success is False
+        assert result.error is not None
+        assert "Permission denied: /etc/passwd" in result.error
 
 
 class TestFileSystemExecutorDispatch:
