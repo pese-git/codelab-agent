@@ -128,7 +128,7 @@ async def test_session_prompt_preserves_meta_in_request() -> None:
     # Prompt может вернуть notifications или response в зависимости от конфигурации
     # Главное — не должно быть ошибки из-за _meta
     if outcome.response is not None and outcome.response.error is not None:
-        # Ошибка допустима только если нет agent_orchestrator
+        # Ошибка допустима, но не должна быть связана с _meta
         assert "meta" not in outcome.response.error.message.lower()
 
 

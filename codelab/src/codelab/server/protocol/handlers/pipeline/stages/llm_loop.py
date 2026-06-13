@@ -123,7 +123,7 @@ class LLMLoopStage(PromptStage):
         чтобы continue_execution мог использовать ту же стратегию.
 
         Args:
-            context: Контекст pipeline для получения agent_orchestrator.
+            context: Контекст pipeline (session, meta).
 
         Returns:
             AgentLoop с нужной стратегией.
