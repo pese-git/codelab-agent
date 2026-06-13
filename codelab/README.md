@@ -373,6 +373,18 @@ graph TD
 3. При каждом WebSocket-подключении создаётся `ClientRPCService`, устанавливается в `ClientRPCServiceHolder`, и REQUEST scope получает `ACPProtocol` с уже настроенным holder.
 4. `ClientRPCServiceHolder` — мост между APP и REQUEST scope: сервис обновляется per-request, а `PromptOrchestrator` и `ACPProtocol` используют holder без пересоздания.
 
+### Транспортный слой
+
+Сервер поддерживает два транспорта: **WebSocket** (для Web UI и удалённого подключения) и **stdio** (stdin/stdout, для IDE plugins и локального режима).
+
+**`session/prompt` в фоне:** Оба транспорта запускают обработку `session/prompt` через `asyncio.create_task()`, чтобы receive-loop мог продолжать читать входящие сообщения и маршрутизировать client RPC responses (например, ответы клиента на `fs/read_text_file`). Это устраняет deadlock в bypass mode, когда tool execution синхронно ожидает ответ от клиента.
+
+| Транспорт | Файл | Особенности |
+|-----------|------|-------------|
+| `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI |
+| `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC |
+| `StdioRunner` | `server/transport/stdio_runner.py` | Запуск stdio сервера с DI |
+
 ### AgentLoop — унифицированный цикл итераций LLM
 
 `AgentLoop` отвечает за цикл итераций LLM tool-calling в соответствии с ACP спецификацией:

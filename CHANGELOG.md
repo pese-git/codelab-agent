@@ -7,6 +7,17 @@
 ## [Unreleased]
 
 ### Fixed
+- **Stdio transport deadlock в bypass mode**: `session/prompt` теперь выполняется в фоновой задаче (`asyncio.create_task`), чтобы receive-loop мог продолжать читать stdin и маршрутизировать client RPC responses (например, ответы на `fs/read_text_file`). Раньше transport loop блокировался на `await on_message()` и не читал stdin → deadlock на 44+ секунд.
+  - `StdioServerTransport` принимает callbacks для интеграции с `ACPProtocol` без прямой зависимости
+  - Полный паритет с `WebSocketTransport`: deferred prompt completion, session/cancel отмена, cleanup при disconnect
+  - 14 новых unit-тестов, включая регрессионный тест на bypass-mode deadlock
+
+- **Дублирование pending_tool_execution scheduling**: Убрано двойное выполнение инструментов — ранее и `protocol.handle_and_process()`, и `_finalize_outcome_and_send()` в каждом транспорте schedule'или background task. Теперь только `handle_and_process()` отвечает за scheduling.
+  - Исправлено в `StdioServerTransport` и `WebSocketTransport`
+  - Убран `schedule_pending_tool` callback из stdio транспорта (упрощение API)
+
+- **Strategy dispatcher defensive fixes**: Стратегия фиксируется на первый вызов (`_strategy_selected` флаг), `continue_execution` выбирает дефолтную стратегию если `_current_strategy_name = None`, добавлено детальное логирование (`llm_response_received`, `tool_execution_decision`).
+
 - **Terminal output flow (ГЭП #11)**: Исправлена работа терминальных инструментов со сторонними клиентами (Zed IDE)
   - `TerminalWaitForExitResponse` теперь соответствует ACP spec (только `exitCode` и `signal`, без `output`)
   - `TerminalOutputResponse` использует `exitStatus` и `truncated` по ACP spec
