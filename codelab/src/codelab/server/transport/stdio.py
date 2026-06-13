@@ -15,7 +15,6 @@ execute синхронно ожидает client RPC response внутри об�
 
 Пример использования:
     transport = StdioServerTransport(
-        schedule_pending_tool=protocol._execute_tool_in_background,
         should_auto_complete=protocol.should_auto_complete_active_turn,
         complete_active_turn=protocol.complete_active_turn,
         load_pending_prompt_response=load_pending_prompt_response,
@@ -43,7 +42,6 @@ _DEFERRED_PROMPT_GUARD_DELAY = 0.05
 
 
 # Типы callbacks для интеграции с протоколом (без прямой зависимости от ACPProtocol)
-SchedulePendingToolCallback = Callable[[str, str], Awaitable[None]]
 ShouldAutoCompleteCallback = Callable[[str], Awaitable[bool]]
 CompleteActiveTurnCallback = Callable[[str, str], Awaitable[ACPMessage | None]]
 LoadPendingPromptResponseCallback = Callable[[str], Awaitable[ACPMessage | None]]
@@ -83,7 +81,6 @@ class StdioServerTransport:
     def __init__(
         self,
         *,
-        schedule_pending_tool: SchedulePendingToolCallback | None = None,
         should_auto_complete: ShouldAutoCompleteCallback | None = None,
         complete_active_turn: CompleteActiveTurnCallback | None = None,
         load_pending_prompt_response: LoadPendingPromptResponseCallback | None = None,
@@ -91,9 +88,6 @@ class StdioServerTransport:
         """Инициализирует stdio транспорт.
 
         Args:
-            schedule_pending_tool: Callback для фонового запуска
-                pending tool execution. Без него ``pending_tool_execution`` в
-                outcome будет проигнорирован (с warning).
             should_auto_complete: Callback для проверки, нужно ли автозавершать
                 active turn. Если None — deferred completion отключено.
             complete_active_turn: Callback для завершения active turn. Если
@@ -109,7 +103,6 @@ class StdioServerTransport:
         self._on_message: Callable[[ACPMessage], Awaitable[ProtocolOutcome]] | None = None
 
         # Callbacks для интеграции с ACPProtocol (опциональные)
-        self._schedule_pending_tool = schedule_pending_tool
         self._should_auto_complete = should_auto_complete
         self._complete_active_turn = complete_active_turn
         self._load_pending_prompt_response = load_pending_prompt_response
@@ -345,45 +338,6 @@ class StdioServerTransport:
 
                 self._deferred_prompt_tasks[session_id] = asyncio.create_task(
                     self._complete_deferred_prompt(session_id=session_id)
-                )
-
-        # Обработка pending_tool_execution для permission response
-        if outcome.pending_tool_execution is not None:
-            pending = outcome.pending_tool_execution
-            if self._schedule_pending_tool is not None:
-                logger.info(
-                    "scheduling pending tool execution in background",
-                    session_id=pending.session_id,
-                    tool_call_id=pending.tool_call_id,
-                )
-                # Оборачиваем callback в локальную coroutine: это даёт
-                # `create_task` корректный Coroutine[Any, Any, None] вместо
-                # широкого Awaitable[None] и упрощает обработку ошибок.
-                scheduled_session_id = pending.session_id
-                scheduled_tool_call_id = pending.tool_call_id
-                scheduled_callback = self._schedule_pending_tool
-
-                async def _run_scheduled_tool() -> None:
-                    try:
-                        await scheduled_callback(
-                            scheduled_session_id,
-                            scheduled_tool_call_id,
-                        )
-                    except Exception as exc:
-                        logger.error(
-                            "scheduled pending tool execution failed",
-                            session_id=scheduled_session_id,
-                            tool_call_id=scheduled_tool_call_id,
-                            error=str(exc),
-                            exc_info=True,
-                        )
-
-                asyncio.create_task(_run_scheduled_tool())
-            else:
-                logger.warning(
-                    "pending_tool_execution requested but no callback configured",
-                    session_id=pending.session_id,
-                    tool_call_id=pending.tool_call_id,
                 )
 
         await self._send_outcome(outcome)

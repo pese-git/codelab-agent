@@ -27,7 +27,6 @@ class TestStdioServerTransportInit:
         # Новые поля для background-режима
         assert transport._prompt_tasks == set()
         assert transport._deferred_prompt_tasks == {}
-        assert transport._schedule_pending_tool is None
         assert transport._should_auto_complete is None
         assert transport._complete_active_turn is None
         assert transport._load_pending_prompt_response is None
@@ -37,18 +36,15 @@ class TestStdioServerTransportInit:
         cb1 = AsyncMock()
         cb2 = AsyncMock()
         cb3 = AsyncMock()
-        cb4 = AsyncMock()
 
         transport = StdioServerTransport(
-            schedule_pending_tool=cb1,
-            should_auto_complete=cb2,
-            complete_active_turn=cb3,
-            load_pending_prompt_response=cb4,
+            should_auto_complete=cb1,
+            complete_active_turn=cb2,
+            load_pending_prompt_response=cb3,
         )
-        assert transport._schedule_pending_tool is cb1
-        assert transport._should_auto_complete is cb2
-        assert transport._complete_active_turn is cb3
-        assert transport._load_pending_prompt_response is cb4
+        assert transport._should_auto_complete is cb1
+        assert transport._complete_active_turn is cb2
+        assert transport._load_pending_prompt_response is cb3
 
 
 class TestStdioServerTransportSend:
@@ -261,13 +257,20 @@ class TestStdioServerTransportSignalHandlers:
 
 
 class TestStdioFinalizeOutcomeAndSend:
-    """Тесты _finalize_outcome_and_send: pending tool, deferred completion, cancel."""
+    """Тесты _finalize_outcome_and_send: deferred completion, cancel.
+
+    pending_tool_execution обрабатывается в protocol.handle_and_process(),
+    а не в транспорте — транспорт только отправляет outcome.
+    """
 
     @pytest.mark.asyncio
-    async def test_pending_tool_execution_scheduled_via_callback(self) -> None:
-        """pending_tool_execution в outcome триггерит schedule_pending_tool."""
-        schedule_cb = AsyncMock()
-        transport = StdioServerTransport(schedule_pending_tool=schedule_cb)
+    async def test_finalize_does_not_schedule_pending_tool(self) -> None:
+        """_finalize_outcome_and_send НЕ schedule'ит pending_tool_execution.
+
+        Это ответственность protocol.handle_and_process(). Транспорт только
+        отправляет outcome — избегаем двойного выполнения tool.
+        """
+        transport = StdioServerTransport()
 
         outcome = ProtocolOutcome(
             response=ACPMessage(jsonrpc="2.0", id="1", result={"ok": True}),
@@ -284,41 +287,10 @@ class TestStdioFinalizeOutcomeAndSend:
                 session_id="sess_1",
                 outcome=outcome,
             )
-            # schedule_pending_tool вызывается через create_task — даём ему выполниться
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
 
-        schedule_cb.assert_awaited_once_with("sess_1", "call_42")
-        # Response также отправлен
+        # Только response отправлен — никакого scheduling
         assert len(sent) == 1
-
-    @pytest.mark.asyncio
-    async def test_pending_tool_execution_without_callback_logs_warning(self) -> None:
-        """Без schedule_pending_tool transport не падает, лог warning."""
-        transport = StdioServerTransport()
-
-        outcome = ProtocolOutcome(
-            response=None,
-            pending_tool_execution=PendingToolExecution(
-                session_id="sess_1",
-                tool_call_id="call_42",
-            ),
-        )
-
-        with patch.object(transport, "send"), \
-             patch("codelab.server.transport.stdio.logger") as mock_logger:
-            await transport._finalize_outcome_and_send(
-                method_name="session/request_permission",
-                session_id="sess_1",
-                outcome=outcome,
-            )
-
-        # Должен быть лог warning
-        warn_calls = [c for c in mock_logger.warning.call_args_list]
-        assert any(
-            "pending_tool_execution requested but no callback configured" in str(c)
-            for c in warn_calls
-        )
+        assert sent[0].result == {"ok": True}
 
     @pytest.mark.asyncio
     async def test_deferred_prompt_completion_invoked_when_auto_complete_true(

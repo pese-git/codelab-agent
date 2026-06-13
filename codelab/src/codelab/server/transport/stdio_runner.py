@@ -114,14 +114,8 @@ async def run_stdio_server(
 
             # Callbacks для интеграции stdio transport с protocol.
             # Зеркалят логику WebSocketTransport: фоновое выполнение
-            # session/prompt, deferred completion, pending tool execution.
-            async def _schedule_pending_tool(
-                session_id: str, tool_call_id: str
-            ) -> None:
-                await protocol._execute_tool_in_background(
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                )
+            # session/prompt, deferred completion.
+            # pending_tool_execution обрабатывается в protocol.handle_and_process().
 
             async def _should_auto_complete(session_id: str) -> bool:
                 return await protocol.should_auto_complete_active_turn(session_id)
@@ -173,7 +167,6 @@ async def run_stdio_server(
                 return response
 
             transport = StdioServerTransport(
-                schedule_pending_tool=_schedule_pending_tool,
                 should_auto_complete=_should_auto_complete,
                 complete_active_turn=_complete_active_turn,
                 load_pending_prompt_response=_load_pending_prompt_response,
