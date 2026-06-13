@@ -952,10 +952,13 @@ graph TB
 
 | Callback | Назначение | Вызывается когда |
 |----------|------------|-------------------|
-| `schedule_pending_tool` | Запуск pending tool execution | `outcome.pending_tool_execution` после permission approval |
 | `should_auto_complete` | Проверка автозавершения turn | `session/prompt` вернул outcome без response |
 | `complete_active_turn` | Завершение turn + финальный response | Deferred prompt completion (после guard delay 50ms) |
 | `load_pending_prompt_response` | Построение response при cancel | `session/cancel` отменяет deferred prompt task |
+
+> **Важно:** `pending_tool_execution` обрабатывается в `protocol.handle_and_process()`,
+> а не в транспорте. Транспорт только отправляет outcome — это предотвращает
+> двойное выполнение tool (ранее и protocol, и transport schedule'или задачу).
 
 **Полный паритет с WebSocketTransport:**
 
@@ -963,7 +966,7 @@ graph TB
 |------|-----------|-------|
 | Background `session/prompt` | ✅ `_process_prompt_request_in_background` | ✅ `_process_prompt_request_in_background` |
 | Deferred prompt completion | ✅ `_complete_deferred_prompt` | ✅ `_complete_deferred_prompt` |
-| Pending tool execution | ✅ `_execute_tool_in_background` | ✅ через `schedule_pending_tool` callback |
+| Pending tool execution | ✅ `handle_and_process()` | ✅ `handle_and_process()` |
 | `session/cancel` → отмена deferred | ✅ | ✅ |
 | Cleanup при disconnect | ✅ `prompt_request_tasks` cleanup | ✅ `_cleanup_background_tasks` |
 
