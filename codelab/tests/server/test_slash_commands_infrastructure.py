@@ -192,20 +192,20 @@ class TestModeCommandHandler:
         result = handler.execute([], session)
 
         text = result.content[0]["text"]
-        assert "code" in text
+        assert "bypass" in text
         assert "Текущий режим" in text
 
     def test_change_mode(self, session: SessionState) -> None:
         """С аргументом изменяет режим."""
         handler = ModeCommandHandler()
-        result = handler.execute(["architect"], session)
+        result = handler.execute(["plan"], session)
 
         # Проверяем, что режим изменился
-        assert session.config_values["mode"] == "architect"
+        assert session.config_values["mode"] == "plan"
         # Проверяем, что есть update для клиента
         assert len(result.updates) == 1
         assert result.updates[0]["sessionUpdate"] == "current_mode_update"
-        assert result.updates[0]["mode"] == "architect"
+        assert result.updates[0]["mode"] == "plan"
 
     def test_invalid_mode(self, session: SessionState) -> None:
         """Неизвестный режим возвращает ошибку."""
@@ -214,13 +214,13 @@ class TestModeCommandHandler:
 
         text = result.content[0]["text"]
         assert "Неизвестный режим" in text
-        # Режим не изменился
-        assert session.config_values["mode"] == "code"
+        # Режим не изменился (остался bypass после миграции)
+        assert session.config_values["mode"] == "bypass"
 
     def test_same_mode(self, session: SessionState) -> None:
         """Установка текущего режима сообщает, что режим уже активен."""
         handler = ModeCommandHandler()
-        result = handler.execute(["code"], session)
+        result = handler.execute(["bypass"], session)
 
         text = result.content[0]["text"]
         assert "уже активен" in text

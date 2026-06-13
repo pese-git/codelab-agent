@@ -19,6 +19,7 @@ from codelab.server.protocol.handlers.prompt import (
     resolve_prompt_directives,
     resolve_tool_title,
 )
+from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
 from codelab.server.protocol.state import SessionState
 
 from ..base import PromptStage
@@ -37,37 +38,6 @@ def _can_run_tool_runtime(session: SessionState) -> bool:
     if caps is None:
         return False
     return caps.terminal or caps.fs_read or caps.fs_write
-
-
-def _decide_tool_policy(session: SessionState, tool_kind: str) -> str:
-    """Определяет политику выполнения tool (allow/reject/ask) с учётом mode.
-
-    Цепочка решений:
-    1. mode=plan → reject для write/execute, allow для read
-    2. mode=bypass → allow все
-    3. mode=standard → session policy → ask
-    """
-    from ...mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
-
-    mode = session.config_values.get("mode", "standard")
-
-    # Plan mode: блокируем write/execute
-    if mode == MODE_PLAN:
-        if is_tool_blocked_in_plan_mode(tool_kind):
-            return "reject"
-        return "allow"
-
-    # Bypass mode: auto-execute
-    if mode == MODE_BYPASS:
-        return "allow"
-
-    # Standard mode: policy chain
-    session_policy = session.permission_policy.get(tool_kind)
-    if session_policy == "allow_always":
-        return "allow"
-    if session_policy == "reject_always":
-        return "reject"
-    return "ask"
 
 
 class DirectivesStage(PromptStage):
@@ -222,7 +192,7 @@ class DirectivesStage(PromptStage):
         )
 
         # Проверяем политику разрешений (включает mode check)
-        policy = _decide_tool_policy(context.session, directives.tool_kind)
+        policy = decide_tool_policy(context.session, directives.tool_kind)
 
         if policy == "allow":
             # Политика разрешает — выполняем tool без запроса permission.

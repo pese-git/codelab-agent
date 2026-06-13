@@ -28,6 +28,7 @@ from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+from codelab.server.protocol.handlers.tool_policy import decide_tool_policy_async
 from codelab.server.protocol.state import SessionState, ToolResult
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolRegistry
@@ -957,10 +958,7 @@ class AgentLoop:
     async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
         """Определить решение о выполнении tool.
 
-        Цепочка решений:
-        1. mode=plan → reject для write/execute, allow для read
-        2. mode=bypass → allow все инструменты
-        3. mode=standard → session policy → global policy → ask
+        Делегирует единой логике в ToolPolicyDecider.
 
         Args:
             session: Состояние сессии.
@@ -969,35 +967,9 @@ class AgentLoop:
         Returns:
             "allow", "reject" или "ask".
         """
-        from ....mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
-
-        mode = session.config_values.get("mode", "standard")
-
-        # 1. Plan mode: блокируем write/execute инструменты
-        if mode == MODE_PLAN:
-            if is_tool_blocked_in_plan_mode(tool_kind):
-                return "reject"
-            return "allow"
-
-        # 2. Bypass mode: auto-execute все инструменты
-        if mode == MODE_BYPASS:
-            return "allow"
-
-        # 3. Standard mode: policy chain
-        session_policy = session.permission_policy.get(tool_kind)
-        if session_policy == "allow_always":
-            return "allow"
-        if session_policy == "reject_always":
-            return "reject"
-
-        if self._global_policy_manager is not None:
-            global_policy = await self._global_policy_manager.get_global_policy(tool_kind)
-            if global_policy == "allow_always":
-                return "allow"
-            if global_policy == "reject_always":
-                return "reject"
-
-        return "ask"
+        return await decide_tool_policy_async(
+            session, tool_kind, self._global_policy_manager
+        )
 
     def _is_cancel_requested(self, session: SessionState) -> bool:
         """Проверить флаг отмены."""

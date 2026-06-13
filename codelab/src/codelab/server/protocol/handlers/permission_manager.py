@@ -9,12 +9,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from ...messages import ACPMessage, JsonRpcId
-from ..mode import (
-    MODE_BYPASS,
-    MODE_PLAN,
-    is_tool_blocked_in_plan_mode,
-)
 from ..state import SessionState
+from .tool_policy import decide_tool_policy
 
 # Тип возвращаемого значения для decision
 PermissionDecision = Literal["allow", "reject", "ask"]
@@ -59,6 +55,8 @@ class PermissionManager:
     ) -> PermissionDecision:
         """Определяет действие для tool call с учётом mode.
 
+        Делегирует единой логике в ToolPolicyDecider.
+
         Цепочка решений:
         1. mode == "plan" → reject для write/execute инструментов
         2. mode == "bypass" → allow все инструменты
@@ -73,21 +71,7 @@ class PermissionManager:
             "reject" — отклонить
             "ask" — запросить разрешение у пользователя
         """
-        mode = session.config_values.get("mode", "standard")
-
-        # 1. Plan mode: блокируем write/execute
-        if mode == MODE_PLAN:
-            if is_tool_blocked_in_plan_mode(tool_kind):
-                return "reject"
-            # Read-only инструменты разрешены
-            return "allow"
-
-        # 2. Bypass mode: auto-execute все инструменты
-        if mode == MODE_BYPASS:
-            return "allow"
-
-        # 3. Standard mode: policy chain (session → global → ask)
-        return self._resolve_policy(session, tool_kind)
+        return decide_tool_policy(session, tool_kind)
 
     def _resolve_policy(self, session: SessionState, tool_kind: str) -> str:
         """Разрешает политику для данного tool kind в единой точке.
