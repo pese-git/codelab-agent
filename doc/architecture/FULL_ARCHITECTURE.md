@@ -716,9 +716,9 @@ flowchart TB
             JOS["JsonObservabilityStorage\nstorage/debug/"]
         end
         
-        subbus Config_Storage["Config Storage (NEW)"]
+        subbus Config_Storage["Config Storage"]
             ACS["AgentConfigStorage (ABC)\nload, reload, watch"]
-            YACS["YamlAgentConfigStorage\nagents.yaml + watchdog"]
+            MDACS["MarkdownAgentConfigStorage\n~/.codelab/agents/*.md + .codelab/agents/*.md\nYAML frontmatter + body"]
         end
         
         subbus Policy_Storage["Policy Storage"]
@@ -731,7 +731,7 @@ flowchart TB
     SS --> CS
     MR --> JMR
     OS --> JOS
-    ACS --> YACS
+    ACS --> MDACS
 ```
 
 **Ключевые файлы:**
@@ -741,16 +741,20 @@ codelab/src/codelab/server/storage/
 ├── memory.py                 # InMemoryStorage
 ├── json_file.py              # JsonFileStorage
 ├── cached.py                 # CachedSessionStorage
-├── global_policy_storage.py  # GlobalPolicyStorage
-├── metrics.py                # JsonMetricsRepository (NEW)
-├── observability.py          # JsonObservabilityStorage (NEW)
-└── agent_config.py           # YamlAgentConfigStorage (NEW)
+└── global_policy_storage.py  # GlobalPolicyStorage
+
+codelab/src/codelab/server/agent/config/
+├── loader.py                 # AgentConfigLoader (4 источника)
+├── resolver.py               # AgentConfigResolver
+└── models.py                 # AgentMarkdownConfig, AgentTOMLConfig
 
 ~/.codelab/
 ├── sessions/                 # {session_id}.json
 ├── data/policies/            # global_permissions.json
+├── agents/                   # agent configs (*.md с YAML frontmatter)
+│   ├── coder.md
+│   └── tester.md
 └── storage/
-    ├── agents.yaml
     ├── models_price.json
     ├── benchmarks/           # run_{session_id}.json
     └── debug/                # trace_*.json, timeline_*.json
@@ -1083,6 +1087,36 @@ flowchart TB
     RA -.->|coordination_overhead| M
 ```
 
+### 5.4. Multi-Agent (Hierarchical)
+
+```mermaid
+flowchart TB
+    U[User prompt] --> SD[StrategyDispatcher]
+    SD -->|routing_mode=hierarchical| HS[HierarchicalStrategy]
+    
+    HS -->|decompose| TaskTree[Task Tree<br/>root → subtasks → leaves]
+    TaskTree -->|assign| L1[Level 1: Orchestrator Agent]
+    L1 -->|delegate| L2a[Level 2: Coder Agent]
+    L1 -->|delegate| L2b[Level 2: Tester Agent]
+    L1 -->|delegate| L2c[Level 2: Reviewer Agent]
+    
+    L2a -->|subtask result| L1
+    L2b -->|subtask result| L1
+    L2c -->|subtask result| L1
+    
+    L1 -->|aggregate| HS
+    HS -->|TurnResult| SD
+    SD -->|response| U
+    
+    L1 -.->|metrics| M[MetricsTracker]
+    L2a -.->|metrics| M
+    L2b -.->|metrics| M
+    L2c -.->|metrics| M
+    TaskTree -.->|span| Tr[Tracer]
+```
+
+> **Статус:** Hierarchical strategy запланирована, но не реализована. Diagramma показывает целевую архитектуру.
+
 ---
 
 ## 6. Observability Flow
@@ -1157,8 +1191,15 @@ flowchart TB
 │   └── policies/
 │       └── global_permissions.json  # Global policy storage
 │
-└── storage/                    # Multi-agent storage
-    ├── agents.yaml             # Agent configuration
+├── agents/                     # Agent configurations (Markdown с YAML frontmatter)
+│   ├── coder.md
+│   ├── tester.md
+│   └── ...
+│
+├── logs/
+│   └── codelab.log             # Application logs
+│
+└── storage/                    # Metrics + debug storage
     ├── models_price.json       # Pricing reference
     ├── benchmarks/             # Session metrics
     │   ├── run_sess_abc123.json
@@ -1167,6 +1208,23 @@ flowchart TB
         ├── trace_sess_abc123.json
         ├── timeline_sess_abc123.json
         └── ...
+
+<cwd>/                          # Workspace root
+├── codelab.toml                # Project-level TOML config
+├── codelab.local.toml          # Local overrides (не коммитится)
+└── .codelab/
+    └── agents/                 # Project-level agent configs (Markdown)
+        ├── reviewer.md
+        └── ...
+```
+
+**Источники конфигурации агентов** (приоритет от низшего к высшему):
+1. `~/.codelab/codelab.toml` → `[agents.definitions.*]`
+2. `~/.codelab/agents/*.md` — глобальные Markdown конфиги
+3. `<cwd>/codelab.toml` → `[agents.definitions.*]`
+4. `<cwd>/.codelab/agents/*.md` — проектные Markdown конфиги
+
+Каждый Markdown файл содержит YAML frontmatter с метаданными агента (name, model, system_prompt, tools) и тело документа как описание/инструкции.
 
 codelab/src/codelab/server/storage/
 ├── base.py                     # SessionStorage ABC
