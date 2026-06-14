@@ -119,8 +119,8 @@ graph TB
 
 ```bash
 # Клонирование репозитория
-git clone https://github.com/pese-git/codelab-ai.git
-cd acp-protocol/codelab
+git clone https://github.com/pese-git/codelab-agent.git
+cd codelab-agent/codelab
 
 # Установка зависимостей
 uv sync

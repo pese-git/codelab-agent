@@ -47,7 +47,7 @@ uv run codelab connect --stdio          # клиент запускает аге
 ## Структура проекта
 
 ```
-acp-protocol/
+codelab-agent/
 ├── codelab/                    # Основной Python-пакет
 │   ├── src/codelab/
 │   │   ├── client/             # ACP-клиент (Clean Architecture)

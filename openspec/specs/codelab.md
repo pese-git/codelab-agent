@@ -70,7 +70,7 @@ flowchart TB
 
 ```mermaid
 mindmap
-  root((acp-protocol))
+  root((codelab-agent))
     codelab
       src/codelab
         cli.py
