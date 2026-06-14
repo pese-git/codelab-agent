@@ -4,7 +4,7 @@
   - LLMAgent отвечает за ОДИН вызов LLM. Цикл tool-calling — в LLMLoopStage.
   - start_turn: начало нового turn — добавляет user message и вызывает LLM.
   - continue_turn: продолжение после tool_results — НЕ добавляет user message.
-  - Управление историей (session.history) — ответственность AgentOrchestrator.
+  - Управление историей (session.history) — ответственность ExecutionEngine.
 """
 
 from abc import ABC, abstractmethod
@@ -72,6 +72,7 @@ class AgentResponse:
         metadata: Дополнительные метаданные (зарезервировано).
         plan: Список шагов плана, если LLM использовал update_plan.
             Каждый элемент: {content, priority, status, description?}
+        usage: Информация об использовании токенов (опционально).
     """
 
     text: str
@@ -79,6 +80,7 @@ class AgentResponse:
     stop_reason: str
     metadata: dict[str, Any] = field(default_factory=dict)
     plan: list[dict[str, str]] | None = None
+    usage: dict[str, int] | None = None
 
 
 class LLMAgent(ABC):

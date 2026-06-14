@@ -1,6 +1,7 @@
 """Тесты для MCPClient notification handling."""
 
 import asyncio
+import contextlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -81,10 +82,8 @@ class TestMCPClientNotificationHandling:
         task = asyncio.create_task(client._process_notifications())
         await asyncio.sleep(0.1)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         
         assert len(handler_calls) == 1
         assert handler_calls[0] == {"server": "test"}
@@ -145,10 +144,8 @@ class TestMCPClientNotificationHandling:
         task = asyncio.create_task(client._process_notifications())
         await asyncio.sleep(0.1)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         
         # Success handler должен был вызваться
         success_handler.assert_called_once_with({"server": "test"})

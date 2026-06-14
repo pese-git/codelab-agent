@@ -30,12 +30,16 @@ class LLMProviderRegistry:
     Поддерживает регистрацию провайдеров, получение информации
     о моделях и провайдерах.
 
+    Гарантирует что get_provider() возвращает инициализированный провайдер
+    если установлена default_config через set_default_config().
+
     Пример использования:
         registry = LLMProviderRegistry()
+        registry.set_default_config(LLMConfig(api_key="...", model="gpt-4o"))
         registry.register("openai", lambda: OpenAIProvider())
         registry.register("anthropic", lambda: AnthropicProvider())
 
-        provider = await registry.get_provider("openai")
+        provider = await registry.get_provider("openai")  # инициализирован
         models = registry.list_all_models()
     """
 
@@ -43,6 +47,19 @@ class LLMProviderRegistry:
         self._factories: dict[str, ProviderFactory] = {}
         self._instances: dict[str, LLMProvider] = {}
         self._provider_info: dict[str, ProviderInfo] = {}
+        self._default_config: LLMConfig | None = None
+
+    def set_default_config(self, config: LLMConfig) -> None:
+        """Установить конфигурацию для автоинициализации провайдеров.
+
+        После установки все провайдеры, получаемые через get_provider(),
+        будут автоматически инициализированы этой конфигурацией.
+
+        Args:
+            config: Конфигурация для инициализации провайдеров
+        """
+        self._default_config = config
+        logger.debug("default config set for provider registry")
 
     def register(
         self,
@@ -82,16 +99,17 @@ class LLMProviderRegistry:
         return list(self._factories.keys())
 
     async def get_provider(self, provider_id: str) -> LLMProvider:
-        """Получить экземпляр провайдера.
+        """Получить инициализированный экземпляр провайдера.
 
         Создаёт провайдер лениво при первом обращении.
         Повторные вызовы возвращают кэшированный экземпляр.
+        Автоматически инициализирует провайдер если установлена default_config.
 
         Args:
             provider_id: Идентификатор провайдера
 
         Returns:
-            Экземпляр провайдера
+            Инициализированный экземпляр провайдера
 
         Raises:
             ProviderNotFoundError: Если провайдер не зарегистрирован
@@ -106,9 +124,30 @@ class LLMProviderRegistry:
         # Создать новый экземпляр
         factory = self._factories[provider_id]
         instance = factory()
-        self._instances[provider_id] = instance
 
-        logger.info("provider instance created", provider_id=provider_id)
+        # Автоинициализация если есть default_config
+        if self._default_config is not None:
+            try:
+                await instance.initialize(self._default_config)
+                await event_bus.publish(
+                    ProviderInitialized(
+                        provider_id=provider_id,
+                        model=self._default_config.model,
+                        base_url=self._default_config.base_url,
+                    )
+                )
+            except Exception as e:
+                await event_bus.publish(
+                    ProviderFailed(
+                        provider_id=provider_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                )
+                raise
+
+        self._instances[provider_id] = instance
+        logger.info("provider instance created and initialized", provider_id=provider_id)
         return instance
 
     async def create_provider(
@@ -168,7 +207,7 @@ class LLMProviderRegistry:
             Список всех моделей от всех зарегистрированных провайдеров
         """
         models: list[ModelInfo] = []
-        for provider_id, info in self._provider_info.items():
+        for _provider_id, info in self._provider_info.items():
             models.extend(info.models)
         return models
 

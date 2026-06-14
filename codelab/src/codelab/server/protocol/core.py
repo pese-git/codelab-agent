@@ -36,9 +36,10 @@ from .state import (
 )
 
 if TYPE_CHECKING:
-    from ..agent.orchestrator import AgentOrchestrator
+    from ..agent.llm_adapter import LLMAdapter
     from ..client_rpc.service import ClientRPCService
     from ..llm.registry import LLMProviderRegistry
+    from ..llm.resolver import ModelResolver
     from ..tools.base import ToolRegistry
     from .handlers.config_option_builder import ConfigOptionBuilder
     from .handlers.global_policy_manager import GlobalPolicyManager
@@ -97,7 +98,6 @@ class ACPProtocol:
         require_auth: bool = False,
         auth_api_key: str | None = None,
         storage: SessionStorage | None = None,
-        agent_orchestrator: AgentOrchestrator | None = None,
         client_rpc_service: ClientRPCService | None = None,
         tool_registry: ToolRegistry | None = None,
         prompt_orchestrator: PromptOrchestrator | None = None,
@@ -109,6 +109,11 @@ class ACPProtocol:
         runtime_registry: SessionRuntimeRegistry | None = None,
         mcp_http_enabled: bool = True,
         mcp_sse_enabled: bool = True,
+        agent_registry: Any | None = None,
+        strategy_registry: Any | None = None,
+        command_registry: Any | None = None,
+        model_resolver: ModelResolver | None = None,
+        llm_adapter: LLMAdapter | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -116,7 +121,6 @@ class ACPProtocol:
             require_auth: Требовать аутентификацию перед session setup.
             auth_api_key: API ключ для аутентификации.
             storage: Хранилище сессий (по умолчанию InMemoryStorage).
-            agent_orchestrator: Оркестратор LLM-агента для обработки prompts (опционально).
             client_rpc_service: Сервис ClientRPC для выполнения инструментов (опционально).
             tool_registry: Реестр инструментов для регистрации и выполнения tools (опционально).
             prompt_orchestrator: Оркестратор prompt-turn (опционально, создаётся лениво).
@@ -128,15 +132,13 @@ class ACPProtocol:
             runtime_registry: Реестр runtime-состояний сессий (опционально).
             mcp_http_enabled: Поддерживается ли MCP HTTP transport (опционально, по умолчанию True).
             mcp_sse_enabled: Поддерживается ли MCP SSE transport (опционально, по умолчанию True).
-
-        Пример использования:
-            protocol = ACPProtocol()
-            # или с кастомным хранилищем и агентом:
-            from codelab.server.storage import InMemoryStorage
-            from codelab.server.agent.orchestrator import AgentOrchestrator
-            storage = InMemoryStorage()
-            agent = AgentOrchestrator(...)
-            protocol = ACPProtocol(storage=storage, agent_orchestrator=agent)
+            agent_registry: Реестр агентов для dynamic _agent config option (опционально).
+            strategy_registry: Реестр стратегий для dynamic _active_strategy
+                config option (опционально).
+            command_registry: Реестр slash-команд для динамической генерации
+                available_commands (опционально).
+            model_resolver: Резолвер моделей для dynamic model selection (опционально).
+            llm_adapter: Адаптер LLM для cancellation и других операций (опционально).
         """
 
         # Инициализировать хранилище (по умолчанию InMemoryStorage)
@@ -146,8 +148,11 @@ class ACPProtocol:
             storage = InMemoryStorage()
         self._storage = storage
 
-        # Оркестратор LLM-агента для обработки prompt-turns через агента
-        self._agent_orchestrator = agent_orchestrator
+        # Резолвер моделей для dynamic model selection и cache invalidation
+        self._model_resolver = model_resolver
+
+        # LLM адаптер для cancellation и других операций
+        self._llm_adapter = llm_adapter
 
         # Сервис ClientRPC для выполнения встроенных инструментов
         self._client_rpc_service = client_rpc_service
@@ -210,6 +215,15 @@ class ACPProtocol:
 
         # Реестр runtime-состояний сессий (REQUEST-scoped)
         self._runtime_registry = runtime_registry or SessionRuntimeRegistry()
+
+        # Agent Registry для dynamic _agent config option
+        self._agent_registry = agent_registry
+
+        # Strategy Registry для dynamic _active_strategy config option
+        self._strategy_registry = strategy_registry
+
+        # Command Registry для динамической генерации available_commands
+        self._command_registry = command_registry
 
         # MCP transport capabilities — объявляются клиенту при initialize
         self._mcp_http_enabled = mcp_http_enabled
@@ -280,12 +294,9 @@ class ACPProtocol:
         Returns:
             Модель в формате "provider/model" (например, "openrouter/gpt-4o").
         """
-        # Попробовать взять из agent_orchestrator config
-        if self._agent_orchestrator is not None:
-            orchestrator_config = self._agent_orchestrator.config
-            provider_class = orchestrator_config.llm_provider_class
-            model = orchestrator_config.model
-            return f"{provider_class}/{model}"
+        # Попробовать взять из model_resolver
+        if self._model_resolver is not None:
+            return f"{self._model_resolver.default_provider}/gpt-4o"
 
         # Fallback: взять первую модель из Registry
         if self._config_option_builder is not None:
@@ -299,19 +310,224 @@ class ACPProtocol:
     def _build_config_specs(self) -> dict[str, dict[str, Any]]:
         """Построить config specs из Registry или использовать defaults.
 
+        Включает:
+        - mode: ACP standard (permission behavior: ask/code)
+        - _agent: custom category (agent selection from Registry)
+        - _active_strategy: custom category (strategy selection from StrategyRegistry)
+        - model: из config_option_builder
+
         Returns:
             Dict config_id -> spec
         """
         if self._config_option_builder:
             additional_specs = {
                 "mode": self._default_config_specs["mode"],
+                "_agent": self._build_agent_config_spec(),
+                "_active_strategy": self._build_active_strategy_config_spec(),
             }
             default_model = self._get_default_model()
             return self._config_option_builder.build_config_specs(
                 default_model=default_model,
                 additional_specs=additional_specs,
             )
-        return dict(self._default_config_specs)
+        # Fallback без config_option_builder
+        specs = dict(self._default_config_specs)
+        specs["_agent"] = self._build_agent_config_spec()
+        specs["_active_strategy"] = self._build_active_strategy_config_spec()
+        return specs
+
+    def _build_active_strategy_config_spec(self) -> dict[str, Any]:
+        """Построить config spec для _active_strategy из StrategyRegistry.
+
+        Формирует список доступных стратегий из StrategyRegistry.get_available().
+        Включает ТОЛЬКО стратегии, доступные для выполнения (validator возвращает True).
+
+        Returns:
+            Config spec для _active_strategy option
+        """
+        # Metadata для стратегий (display_name, description)
+        strategy_metadata = {
+            "single": {
+                "name": "Single",
+                "description": "Single agent execution",
+            },
+            "multi_orchestrated": {
+                "name": "Multi-Orchestrated",
+                "description": "Orchestrator + subagents collaboration",
+            },
+            "multi_choreographed": {
+                "name": "Multi-Choreographed",
+                "description": "Multiple subagents peer collaboration",
+            },
+            "hierarchical": {
+                "name": "Hierarchical",
+                "description": "Primary delegates to subagents",
+            },
+        }
+
+        # Fallback если StrategyRegistry не доступен
+        if not self._strategy_registry or not self._agent_registry:
+            return {
+                "id": "_active_strategy",
+                "name": "Strategy",
+                "category": "strategy",
+                "type": "select",
+                "default": "single",
+                "options": [
+                    {
+                        "value": "single",
+                        "name": "Single",
+                        "description": "Single agent execution",
+                    }
+                ],
+            }
+
+        # Получить доступные стратегии из Registry
+        try:
+            available = self._strategy_registry.get_available(self._agent_registry)
+        except Exception:
+            # Fallback при ошибке
+            available = []
+
+        # Если нет доступных стратегий, вернуть только "single"
+        if not available:
+            return {
+                "id": "_active_strategy",
+                "name": "Strategy",
+                "category": "strategy",
+                "type": "select",
+                "default": "single",
+                "options": [
+                    {
+                        "value": "single",
+                        "name": "Single",
+                        "description": "Single agent execution",
+                    }
+                ],
+            }
+
+        # Формировать options из descriptors
+        options = []
+        for descriptor in available:
+            meta = strategy_metadata.get(descriptor.name, {})
+            options.append({
+                "value": descriptor.name,
+                "name": meta.get("name", descriptor.display_name),
+                "description": meta.get("description", descriptor.description),
+            })
+
+        # Текущая стратегия по умолчанию — первая доступная
+        default_strategy = available[0].name if available else "single"
+
+        return {
+            "id": "_active_strategy",
+            "name": "Strategy",
+            "category": "strategy",
+            "type": "select",
+            "default": default_strategy,
+            "options": options,
+        }
+
+    def _build_agent_config_spec(self) -> dict[str, Any]:
+        """Построить config spec для _agent из AgentRegistry.
+
+        Формирует список primary agents из Registry как options
+        для IDE dropdown. Агенты сортируются по priority.
+
+        Returns:
+            Config spec для _agent option
+        """
+        # Fallback если Registry не инициализирован
+        if not self._agent_registry:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Проверяем инициализацию Registry
+        is_initialized = getattr(self._agent_registry, "is_initialized", False)
+        if not is_initialized:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Получаем primary agents из Registry
+        get_primary = getattr(self._agent_registry, "get_primary_agents", None)
+        if get_primary is None:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        primary_agents = get_primary()
+        if not primary_agents:
+            return {
+                "id": "_agent",
+                "name": "Agent",
+                "category": "_agent",
+                "type": "select",
+                "default": "primary",
+                "options": [
+                    {
+                        "value": "primary",
+                        "name": "Primary",
+                        "description": "Default agent",
+                    }
+                ],
+            }
+
+        # Сортируем по priority (меньше = выше приоритет)
+        sorted_agents = sorted(primary_agents.values(), key=lambda a: a.priority)
+
+        options = []
+        for agent in sorted_agents:
+            options.append({
+                "value": agent.name,
+                "name": agent.name.capitalize(),
+                "description": f"{agent.model} (priority: {agent.priority})",
+            })
+
+        default_agent = sorted_agents[0].name
+
+        return {
+            "id": "_agent",
+            "name": "Agent",
+            "category": "_agent",
+            "type": "select",
+            "default": default_agent,
+            "options": options,
+        }
 
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:
         """Маршрутизирует входящее сообщение по методу через реестр обработчиков.
@@ -713,6 +929,8 @@ class ACPProtocol:
 
         if self._tool_registry is None:
             self._tool_registry = SimpleToolRegistry()
+        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+
         from .handlers.permission_manager import PermissionManager
         from .handlers.pipeline import (
             PlanBuildingStage,
@@ -741,6 +959,10 @@ class ACPProtocol:
         tool_call_handler = ToolCallHandler()
         permission_manager = PermissionManager()
         client_rpc_handler = ClientRPCHandler()
+        system_prompt_builder = SystemPromptBuilder(
+            global_prompt="",
+            agent_registry=self._agent_registry,
+        )
 
         llm_loop_stage = LLMLoopStage(
             tool_registry=self._tool_registry,
@@ -748,6 +970,7 @@ class ACPProtocol:
             permission_manager=permission_manager,
             state_manager=state_manager,
             plan_builder=plan_builder,
+            system_prompt_builder=system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
         )
 
@@ -836,6 +1059,7 @@ class ACPProtocol:
             self._config_specs,
             self._auth_methods,
             self._runtime_capabilities,
+            self._command_registry,
         )
 
         # Если создание прошло успешно, сохраняем в storage и кэш
@@ -846,11 +1070,17 @@ class ACPProtocol:
                     config_id: str(spec["default"])
                     for config_id, spec in self._config_specs.items()
                 }
+                # Динамическая генерация available_commands из CommandRegistry
+                available_commands = (
+                    self._command_registry.get_commands_as_dicts()
+                    if self._command_registry is not None
+                    else []
+                )
                 session_state = SessionFactory.create_session(
                     cwd=params.get("cwd", ""),
                     mcp_servers=params.get("mcpServers", []),
                     config_values=config_values,
-                    available_commands=session.build_default_commands(),
+                    available_commands=available_commands,
                     runtime_capabilities=self._runtime_capabilities,
                     session_id=session_id,
                 )
@@ -950,7 +1180,6 @@ class ACPProtocol:
             params=params,
             session=session,
             storage=self._storage,
-            agent_orchestrator=self._agent_orchestrator,  # type: ignore[arg-type]
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
         )
@@ -1008,8 +1237,8 @@ class ACPProtocol:
         # Прервать активный LLM-запрос для этой сессии.
         # handle_cancel помечает флаг и закрывает turn, но asyncio.Task с LLM
         # продолжает работать до ответа модели — нужно явно его отменить.
-        if self._agent_orchestrator is not None:
-            await self._agent_orchestrator.cancel_prompt(session_id)
+        if self._llm_adapter is not None:
+            await self._llm_adapter.cancel_prompt(session_id)
             logger.info("agent_llm_task_cancelled", session_id=session_id)
 
         await self._storage.save_session(session)
@@ -1053,16 +1282,12 @@ class ACPProtocol:
     async def _handle_set_config_option(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/set_config_option."""
         params = message.params or {}
-        # Получить model_resolver из agent_orchestrator для инвалидации кэша
-        model_resolver = None
-        if self._agent_orchestrator is not None:
-            model_resolver = self._agent_orchestrator.model_resolver
         return await config.session_set_config_option(
             message.id,
             params,
             self._storage,
             self._config_specs,
-            model_resolver=model_resolver,
+            model_resolver=self._model_resolver,
         )
 
     async def _handle_set_mode(self, message: ACPMessage) -> ProtocolOutcome:
@@ -1436,15 +1661,6 @@ class ACPProtocol:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
         
-        # Проверить наличие agent_orchestrator для LLM loop
-        if self._agent_orchestrator is None:
-            logger.error(
-                "agent_orchestrator not configured for LLM loop",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-            )
-            return LLMLoopResult(notifications=[], stop_reason="end_turn")
-
         # Получить MCP manager из runtime registry с defensive re-initialization
         mcp_manager = await self._ensure_mcp_initialized(session)
 
@@ -1462,7 +1678,6 @@ class ACPProtocol:
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
-            agent_orchestrator=self._agent_orchestrator,
             mcp_manager=mcp_manager,
         )
 
@@ -1656,7 +1871,8 @@ class ACPProtocol:
                 
                 # Добавляем сервер и получаем список инструментов
                 # MCP инструменты НЕ регистрируются в глобальном ToolRegistry,
-                # т.к. они привязаны к сессии. Доступ к ним через session_state.mcp_manager.
+                # т.к. они привязаны к сессии. Доступ к ним через
+                # self._runtime_registry.get(session_id).mcp_manager.
                 tool_definitions = await mcp_manager.add_server(config)
                 
                 logger.info(

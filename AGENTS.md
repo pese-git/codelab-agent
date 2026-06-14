@@ -51,6 +51,7 @@ uv run python -m pytest
   - `core.py` — основной класс ACPProtocol (диспетчеризация методов)
   - `state.py` — dataclasses состояния (SessionState, ToolCallState, и т.д.)
   - `session_factory.py` — фабрика создания сессий
+  - `stop_reasons.py` — StopReason enum (ACP stop reasons: end_turn, max_tokens, и т.д.)
   - `handlers/` — обработчики методов протокола:
     - `auth.py` — методы аутентификации (authenticate, initialize)
     - `session.py` — управление сессиями (session/new, load, list)
@@ -65,6 +66,9 @@ uv run python -m pytest
     - `plan_builder.py` — построение планов агента
     - `state_manager.py` — управление состоянием
     - `turn_lifecycle_manager.py` — управление жизненным циклом turn
+    - `pipeline/` — pipeline обработка prompt-turn:
+      - `stages/agent_loop.py` — AgentLoop (унифицированный цикл итераций LLM)
+      - `stages/llm_loop.py` — LLMLoopStage (адаптер pipeline → AgentLoop)
   - `content/` — типы контента (ACP Content Types):
     - `base.py` — базовые классы
     - `text.py`, `image.py`, `audio.py` — типы контента
@@ -87,6 +91,12 @@ uv run python -m pytest
   - `naive.py` — NaiveAgent (базовая реализация)
   - `base.py` — базовые классы агентов
   - `state.py` — состояние агента
+  - `strategies/` — стратегии вызова LLM (Strategy Pattern):
+    - `base.py` — LLMCallStrategy Protocol (интерфейс для стратегий)
+    - `descriptor.py` — StrategyDescriptor (self-describing стратегия) и StrategyDependencies (DI контейнер)
+    - `registry.py` — StrategyRegistry (реестр стратегий, аналог AgentRegistry/ToolRegistry)
+    - `dispatcher.py` — StrategyDispatcher (маршрутизация: priority chain + fallback)
+    - `legacy_adapter.py` — LegacyCallStrategy (адаптер AgentOrchestrator)
 - `tools/` — инструменты агента:
   - `registry.py` — ToolRegistry (регистрация и управление инструментами)
   - `base.py` — базовые классы инструментов
@@ -137,3 +147,7 @@ Clean Architecture, 5 слоев:
 - Для сверки с протоколами использовать материалы в `doc/Agent Client Protocol/`, `doc/Agent To Agent Protocol/` и `doc/Model Context Protocol/`.
 - **Все диаграммы, схемы описывать с помощью Mermaid**.
 - **При каждом изменении архитектуры необходимо обновлять документацию и диаграммы/графики/схемы** — архитектурная документация должна отражать текущее состояние системы.
+
+## Технические решения
+
+- **MCP SSE Transport (`SseTransport`)** — помечен как deprecated в MCP spec, но **НЕЛЬЗЯ удалять**. Оставлен для обратной совместимости с клиентами, которые используют SSE транспорт.

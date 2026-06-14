@@ -10,11 +10,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.orchestrator import AgentOrchestrator
-from codelab.server.agent.state import OrchestratorConfig
 from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.mock_provider import MockLLMProvider
@@ -34,13 +33,18 @@ from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage.memory import InMemoryStorage
-from codelab.server.tools.registry import SimpleToolRegistry
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 class FailingProvider(LLMProvider):
     """Провайдер который всегда падает (для тестов fallback)."""
 
-    def __init__(self, provider_id: str = "failing", error_message: str = "Primary provider failed") -> None:
+    def __init__(
+        self,
+        provider_id: str = "failing",
+        error_message: str = "Primary provider failed",
+    ) -> None:
         self._provider_id = provider_id
         self._error_message = error_message
         self._config: LLMConfig | None = None
@@ -79,7 +83,11 @@ class FailingProvider(LLMProvider):
 class SuccessProvider(LLMProvider):
     """Провайдер который всегда успешен (для тестов fallback)."""
 
-    def __init__(self, provider_id: str = "success", response_text: str = "Fallback success") -> None:
+    def __init__(
+        self,
+        provider_id: str = "success",
+        response_text: str = "Fallback success",
+    ) -> None:
         self._provider_id = provider_id
         self._response_text = response_text
         self._config: LLMConfig | None = None
@@ -263,7 +271,11 @@ async def test_fallback_chain_primary_fails_fallback_succeeds() -> None:
     fallback = SequentialFallback(
         provider_order=["failing", "success"],
     )
-    config = FallbackConfig(enabled=True, max_attempts=3, retry_on=[ProviderErrorType.INTERNAL_ERROR])
+    config = FallbackConfig(
+        enabled=True,
+        max_attempts=3,
+        retry_on=[ProviderErrorType.INTERNAL_ERROR],
+    )
     orchestrator = FallbackOrchestrator(strategy=fallback, config=config)
 
     # Act — выполнить completion с fallback
@@ -289,13 +301,15 @@ async def test_fallback_chain_primary_fails_fallback_succeeds() -> None:
 
 
 # ============================================================================
-# 17.1 E2E тест: full flow — initialize → session/new → configOptions → set_config_option(model) → prompt
+# 17.1 E2E тест: full flow — initialize → session/new → configOptions
+# → set_config_option(model) → prompt
 # ============================================================================
 
 
 @pytest.mark.asyncio
 async def test_e2e_full_flow_with_model_config() -> None:
-    """Полный поток: initialize → session/new → configOptions → set_config_option(model) → prompt."""
+    """Полный поток: initialize → session/new → configOptions
+    → set_config_option(model) → prompt."""
     # Arrange — создать registry с mock провайдером
     registry = LLMProviderRegistry()
     mock_provider = MockLLMProvider(response="E2E test response")
@@ -362,16 +376,38 @@ async def test_e2e_full_flow_with_model_config() -> None:
     assert model_option["currentValue"] == "mock/model-v2"
 
 
+def _create_mock_orchestrator(mock_dispatcher: MagicMock):
+    """Создаёт mock PromptOrchestrator с StrategyDispatcher."""
+    from codelab.server.protocol.handlers.pipeline import PromptPipeline
+    from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
+    from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
+
+    mock_stage = MagicMock(spec=LLMLoopStage)
+    mock_stage._strategy_dispatcher = mock_dispatcher
+    mock_pipeline = MagicMock(spec=PromptPipeline)
+    mock_pipeline.run = AsyncMock()
+
+    orchestrator = MagicMock(spec=PromptOrchestrator)
+    orchestrator.handle_prompt = AsyncMock()
+    return orchestrator
+
+
 @pytest.mark.asyncio
 async def test_e2e_initialize_session_prompt_with_mock_provider() -> None:
     """E2E: initialize → session/new → session/prompt с mock провайдером."""
-    # Arrange — создать orchestrator с mock provider
-    config = OrchestratorConfig(agent_class="naive")
-    llm_provider = MockLLMProvider(response="Hello from E2E test")
-    tool_registry = SimpleToolRegistry()
-    agent_orchestrator = AgentOrchestrator(config, llm_provider, tool_registry)
+    from codelab.server.protocol.state import ProtocolOutcome
+    from codelab.server.storage import InMemoryStorage
 
-    protocol = ACPProtocol(agent_orchestrator=agent_orchestrator)
+    # Arrange — создать mock orchestrator
+    mock_outcome = ProtocolOutcome(
+        response=ACPMessage.response("req-1", {"stopReason": "end_turn"}),
+        notifications=[],
+    )
+    mock_handle_prompt = AsyncMock(return_value=mock_outcome)
+
+    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol._prompt_orchestrator = MagicMock()
+    protocol._prompt_orchestrator.handle_prompt = mock_handle_prompt
 
     # Act — initialize
     init_outcome = await protocol.handle(
@@ -547,4 +583,7 @@ async def test_model_switching_invalid_model() -> None:
     # Assert — ошибка
     assert outcome.response is not None
     assert outcome.response.error is not None
-    assert "not found" in outcome.response.error.message.lower() or "invalid" in outcome.response.error.message.lower()
+    assert (
+        "not found" in outcome.response.error.message.lower()
+        or "invalid" in outcome.response.error.message.lower()
+    )

@@ -206,10 +206,7 @@ class ModelResolver:
             ModelNotFoundError: Если модель не найдена у провайдера
         """
         # Распарсить строку если нужно
-        if isinstance(model_ref, str):
-            ref = ModelRef.parse(model_ref)
-        else:
-            ref = model_ref
+        ref = ModelRef.parse(model_ref) if isinstance(model_ref, str) else model_ref
 
         # Определить provider_id
         provider_id = ref.provider_id or self._default_provider

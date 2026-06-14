@@ -189,9 +189,11 @@ class TestHttpTransportSendRequest:
         transport._session = mock_session
 
         # Патчим asyncio.wait_for чтобы всегда вызывать timeout
-        with patch("asyncio.wait_for", side_effect=TimeoutError()):
-            with pytest.raises(HttpTimeoutError, match="Request timeout"):
-                await transport.send_request("test_method", timeout=0.01)
+        with (
+            patch("asyncio.wait_for", side_effect=TimeoutError()),
+            pytest.raises(HttpTimeoutError, match="Request timeout"),
+        ):
+            await transport.send_request("test_method", timeout=0.01)
 
     @pytest.mark.asyncio
     async def test_send_request_http_error(self):

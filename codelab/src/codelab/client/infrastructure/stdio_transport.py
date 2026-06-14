@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 import structlog
@@ -130,10 +131,8 @@ class StdioClientTransport:
             # Закрываем stdin — сигнал агенту о завершении
             if self._process.stdin is not None:
                 self._process.stdin.close()
-                try:
+                with contextlib.suppress(Exception):
                     await self._process.stdin.wait_closed()
-                except Exception:
-                    pass
 
             # Ждём завершения процесса
             try:

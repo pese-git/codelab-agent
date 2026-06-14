@@ -44,8 +44,8 @@ class TestClientRPCServiceIntegration:
 
         assert orchestrator.client_rpc_service is client_rpc_service
 
-    def test_client_rpc_service_without_agent_orchestrator(self) -> None:
-        """Проверяет что ClientRPCService работает без agent_orchestrator."""
+    def test_client_rpc_service_without_prompt_orchestrator(self) -> None:
+        """Проверяет что ClientRPCService работает без prompt_orchestrator."""
         send_callback = AsyncMock()
         client_rpc_service = ClientRPCService(
             send_request_callback=send_callback,
@@ -55,11 +55,9 @@ class TestClientRPCServiceIntegration:
         protocol = ACPProtocol(
             storage=InMemoryStorage(),
             client_rpc_service=client_rpc_service,
-            agent_orchestrator=None,
         )
 
-        assert protocol._client_rpc_service is client_rpc_service
-        assert protocol._agent_orchestrator is None
+        assert protocol._prompt_orchestrator is None
 
     def test_make_orchestrator_without_client_rpc_service(self) -> None:
         """Проверяет что make_orchestrator() работает без client_rpc_service."""

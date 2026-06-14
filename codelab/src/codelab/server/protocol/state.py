@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+from ..agent.config.models import SessionMetrics
 from ..messages import ACPMessage, JsonRpcId
 from ..models import AvailableCommand, HistoryMessage, PlanStep
 
@@ -30,8 +31,8 @@ class SessionState(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    # Версия схемы для будущих миграций
-    schema_version: int = Field(default=1)
+    # Версия схемы для миграций
+    schema_version: int = Field(default=3)
 
     session_id: str
     cwd: str
@@ -80,6 +81,26 @@ class SessionState(BaseModel):
     # Мапа: имя команды -> MCPPromptCommandHandler (не сериализуется).
     mcp_prompt_handlers: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
+    # Multi-agent поддержка (spec: agent-config/spec.md)
+    # Текущая активная стратегия выполнения сессии
+    active_strategy: str = "single"
+    # Список активных агентов в текущей сессии
+    active_agents: list[str] = Field(default_factory=list)
+    # Метрики сессии (время, токены, стоимость, успех задачи)
+    session_metrics: SessionMetrics | None = None
+    # Сквозной correlation_id для observability prompt turn
+    correlation_id: str | None = None
+    # ID родительской сессии (для child sessions в hierarchical/multi-orchestrated)
+    parent_session_id: str | None = None
+    # ID дочерних сессий (для orchestration/hierarchical)
+    child_session_ids: list[str] = Field(default_factory=list)
+    # Флаг child session (True если эта сессия создана другой сессией)
+    is_child_session: bool = False
+    # Результат делегирования от child session (HierarchicalStrategy)
+    task_result: str | None = None
+    # Суммаризированный ответ субагента (TokenSlicer output)
+    sliced_summary: str | None = None
+
     @field_serializer("cancelled_permission_requests", "cancelled_client_rpc_requests")
     def serialize_set(self, value: set) -> list:
         """set не сериализуется в JSON напрямую — конвертируем в list."""
@@ -92,11 +113,27 @@ class SessionState(BaseModel):
         if not isinstance(data, dict):
             return data
         version = data.get("schema_version", 0)
+
+        # v0 → v1: events_history, config_values
         if version < 1:
-            # Мигрировать поля из v0 в v1
             data.setdefault("events_history", [])
             data.setdefault("config_values", {})
             data["schema_version"] = 1
+            version = 1
+
+        # v1 → v3: multi-agent fields
+        if version < 3:
+            data.setdefault("active_strategy", "single")
+            data.setdefault("active_agents", [])
+            data.setdefault("session_metrics", None)
+            data.setdefault("correlation_id", None)
+            data.setdefault("parent_session_id", None)
+            data.setdefault("child_session_ids", [])
+            data.setdefault("is_child_session", False)
+            data.setdefault("task_result", None)
+            data.setdefault("sliced_summary", None)
+            data["schema_version"] = 3
+
         return data
 
 
@@ -279,7 +316,7 @@ class LLMLoopResult(BaseModel):
     """
 
     notifications: list[Any] = Field(default_factory=list)
-    # Причина завершения: "end_turn", "cancelled", "max_iterations", None (deferred)
+    # Причина завершения: "end_turn", "cancelled", "max_turn_requests", None (deferred)
     stop_reason: str | None = None
     # Финальный текстовый ответ от LLM
     final_text: str | None = None

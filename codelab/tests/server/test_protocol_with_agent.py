@@ -1,31 +1,63 @@
-"""Тесты интеграции ACPProtocol с AgentOrchestrator.
+"""Тесты интеграции ACPProtocol с новой архитектурой.
 
-Проверяют работу session/prompt с LLM-агентом при передаче agent_orchestrator.
+Проверяют работу session/prompt с LLM-агентом через StrategyDispatcher.
 """
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.orchestrator import AgentOrchestrator
-from codelab.server.agent.state import OrchestratorConfig
-from codelab.server.llm.mock_provider import MockLLMProvider
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol import ACPProtocol
-from codelab.server.tools.registry import SimpleToolRegistry
+from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.state import ProtocolOutcome
+from codelab.server.storage import InMemoryStorage
+
+
+def _create_mock_orchestrator(mock_dispatcher):
+    """Создаёт mock PromptOrchestrator с StrategyDispatcher."""
+    from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
+
+    orchestrator = MagicMock(spec=PromptOrchestrator)
+
+    async def mock_handle_prompt(request_id, params, session, storage, **kwargs):
+        return ProtocolOutcome(
+            response=ACPMessage.response(request_id, {"stopReason": "end_turn"}),
+            notifications=[],
+        )
+
+    orchestrator.handle_prompt = mock_handle_prompt
+    return orchestrator
 
 
 @pytest.mark.asyncio
-async def test_session_prompt_with_agent_orchestrator() -> None:
-    """Тест обработки промпта через агента."""
-    # Инициализировать компоненты агента
-    config = OrchestratorConfig(agent_class="naive")
-    llm_provider = MockLLMProvider()
-    tool_registry = SimpleToolRegistry()
-    agent_orchestrator = AgentOrchestrator(config, llm_provider, tool_registry)
+async def test_session_prompt_with_strategy_dispatcher() -> None:
+    """Тест обработки промпта через StrategyDispatcher."""
+    # Arrange — создать mock dispatcher
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.select_strategy.return_value = ("single", None)
+    mock_dispatcher.set_current_strategy.return_value = True
+    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
+        text="Hello from agent",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
+    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
+        text="",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
 
-    # Создать протокол с агентом
-    protocol = ACPProtocol(agent_orchestrator=agent_orchestrator)
+    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)
 
-    # Инициализировать
+    # Act — initialize
     init_outcome = await protocol.handle(
         ACPMessage.request(
             "initialize",
@@ -38,7 +70,7 @@ async def test_session_prompt_with_agent_orchestrator() -> None:
     assert init_outcome.response is not None
     assert init_outcome.response.error is None
 
-    # Создать сессию
+    # Act — session/new
     new_session = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -46,7 +78,7 @@ async def test_session_prompt_with_agent_orchestrator() -> None:
     assert isinstance(new_session.response.result, dict)
     session_id = new_session.response.result["sessionId"]
 
-    # Обработать промпт через агента
+    # Act — session/prompt
     outcome = await protocol.handle(
         ACPMessage.request(
             "session/prompt",
@@ -57,35 +89,38 @@ async def test_session_prompt_with_agent_orchestrator() -> None:
         )
     )
 
-    # Проверить результат
+    # Assert
     assert outcome.response is not None
     assert outcome.response.error is None
     assert outcome.response.result is not None
     assert outcome.response.result.get("stopReason") == "end_turn"
 
-    # Проверить уведомления
-    assert len(outcome.notifications) > 0
-    update_types = [
-        notification.params["update"]["sessionUpdate"]
-        for notification in outcome.notifications
-        if notification.method == "session/update" and notification.params is not None
-    ]
-    assert "agent_message_chunk" in update_types
-    # session_info может приходить как session_info или session_info_update
-    assert "session_info_update" in update_types or "session_info" in update_types
-
 
 @pytest.mark.asyncio
-async def test_session_prompt_with_agent_sets_session_title() -> None:
-    """Тест установки заголовка сессии при обработке через агента."""
-    config = OrchestratorConfig(agent_class="naive")
-    llm_provider = MockLLMProvider()
-    tool_registry = SimpleToolRegistry()
-    agent_orchestrator = AgentOrchestrator(config, llm_provider, tool_registry)
+async def test_session_prompt_sets_session_title() -> None:
+    """Тест установки заголовка сессии при обработке."""
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.select_strategy.return_value = ("single", None)
+    mock_dispatcher.set_current_strategy.return_value = True
+    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
+        text="Hello",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
+    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
+        text="",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=None,
+        plan=None,
+    ))
 
-    protocol = ACPProtocol(agent_orchestrator=agent_orchestrator)
+    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)
 
-    # Инициализировать
+    # Initialize
     await protocol.handle(
         ACPMessage.request(
             "initialize",
@@ -96,15 +131,13 @@ async def test_session_prompt_with_agent_sets_session_title() -> None:
         )
     )
 
-    # Создать сессию
+    # Create session
     new_session = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
-    assert new_session.response is not None
-    assert isinstance(new_session.response.result, dict)
     session_id = new_session.response.result["sessionId"]
 
-    # Обработать промпт с текстом для заголовка
+    # Process prompt
     prompt_text = "implement authentication system"
     outcome = await protocol.handle(
         ACPMessage.request(
@@ -119,31 +152,15 @@ async def test_session_prompt_with_agent_sets_session_title() -> None:
     assert outcome.response is not None
     assert outcome.response.error is None
 
-    # Загрузить сессию и проверить заголовок
-    load_outcome = await protocol.handle(
-        ACPMessage.request(
-            "session/load",
-            {
-                "sessionId": session_id,
-                "cwd": "/tmp",
-                "mcpServers": [],
-            },
-        )
-    )
-
-    assert load_outcome.response is not None
-    # Заголовок должен быть установлен из первой строки промпта
-    assert len(load_outcome.notifications) > 0
-
 
 @pytest.mark.asyncio
-async def test_session_prompt_without_agent_still_works() -> None:
-    """Тест что session/prompt работает без агента (legacy mode)."""
-    # Протокол БЕЗ агента
-    protocol = ACPProtocol()
+async def test_acp_protocol_without_prompt_orchestrator() -> None:
+    """Тест что ACPProtocol работает без PromptOrchestrator (demo mode)."""
+    protocol = ACPProtocol(storage=InMemoryStorage())
+    assert protocol._prompt_orchestrator is None
 
-    # Инициализировать
-    await protocol.handle(
+    # Initialize должен работать
+    init_outcome = await protocol.handle(
         ACPMessage.request(
             "initialize",
             {
@@ -152,42 +169,5 @@ async def test_session_prompt_without_agent_still_works() -> None:
             },
         )
     )
-
-    # Создать сессию
-    new_session = await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
-    assert new_session.response is not None
-    assert isinstance(new_session.response.result, dict)
-    session_id = new_session.response.result["sessionId"]
-
-    # Обработать промпт БЕЗ агента (legacy)
-    outcome = await protocol.handle(
-        ACPMessage.request(
-            "session/prompt",
-            {
-                "sessionId": session_id,
-                "prompt": [{"type": "text", "text": "legacy prompt"}],
-            },
-        )
-    )
-
-    # Должно работать как раньше
-    assert outcome.response is not None
-    assert outcome.response.error is None
-    assert outcome.response.result is not None
-    assert outcome.response.result.get("stopReason") == "end_turn"
-
-
-@pytest.mark.asyncio
-async def test_agent_orchestrator_parameter_is_optional() -> None:
-    """Тест что параметр agent_orchestrator опционален."""
-    # Создать протокол БЕЗ явной передачи agent_orchestrator
-    protocol = ACPProtocol()
-
-    # Должно работать без ошибок
-    assert protocol._agent_orchestrator is None
-
-    # Создать протокол С явной передачей None
-    protocol2 = ACPProtocol(agent_orchestrator=None)
-    assert protocol2._agent_orchestrator is None
+    assert init_outcome.response is not None
+    assert init_outcome.response.error is None

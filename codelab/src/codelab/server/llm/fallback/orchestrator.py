@@ -110,7 +110,10 @@ class FallbackOrchestrator:
         # Все попытки exhausted
         raise AllProvidersFailed(
             errors=self._errors,
-            message=f"All {len(self._errors)} providers failed after {self._config.max_attempts} attempts",
+            message=(
+                f"All {len(self._errors)} providers failed "
+                f"after {self._config.max_attempts} attempts"
+            ),
         )
 
     async def execute_streaming(

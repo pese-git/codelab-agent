@@ -10,10 +10,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ProviderErrorType(str, Enum):
+class ProviderErrorType(StrEnum):
     """Типы ошибок LLM провайдера.
 
     Атрибуты:

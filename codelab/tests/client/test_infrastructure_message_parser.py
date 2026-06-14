@@ -21,7 +21,10 @@ class TestMessageParserJsonParsing:
     def test_parse_json_request(self) -> None:
         """Проверяет парсинг JSON-запроса."""
         parser = MessageParser()
-        json_str = '{"jsonrpc": "2.0", "id": "1", "method": "initialize", "params": {"protocolVersion": 1}}'
+        json_str = (
+            '{"jsonrpc": "2.0", "id": "1", "method": "initialize", '
+            '"params": {"protocolVersion": 1}}'
+        )
         message = parser.parse_json(json_str)
 
         assert message.jsonrpc == "2.0"
@@ -78,7 +81,10 @@ class TestMessageParserDictParsing:
     def test_parse_dict_request(self) -> None:
         """Проверяет парсинг dict-запроса."""
         parser = MessageParser()
-        payload = {"jsonrpc": "2.0", "id": "1", "method": "initialize", "params": {"protocolVersion": 1}}
+        payload = {
+            "jsonrpc": "2.0", "id": "1", "method": "initialize",
+            "params": {"protocolVersion": 1},
+        }
         message = parser.parse_dict(payload)
 
         assert message.method == "initialize"

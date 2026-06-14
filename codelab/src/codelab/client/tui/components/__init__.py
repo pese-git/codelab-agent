@@ -38,6 +38,7 @@ from .chat_view import ChatView
 from .chat_view_permission_manager import ChatViewPermissionManager, PermissionWidgetType
 from .collapsible_panel import AccordionGroup
 from .command_palette import Command, CommandCategory, CommandItem, CommandPalette
+from .config_option_selector import ConfigOptionSelectorModal
 from .container import Card, ContainerVariant, StyledContainer
 from .context_menu import (
     ContextMenu,
@@ -208,6 +209,7 @@ __all__ = [
     "CommandItem",
     "ModelSelectorModal",
     "ModelItem",
+    "ConfigOptionSelectorModal",
     "StatusLine",
     "CompactStatusLine",
     "StatusMode",

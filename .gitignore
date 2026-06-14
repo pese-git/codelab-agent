@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 .env
 **/data
+.idea/
 .vscode/
 .zed/
 .codegraph/
@@ -32,3 +33,6 @@ opencode_debug.log
 # Файлы операционных систем, которые могут содержать кэш
 .DS_Store
 Thumbs.db
+
+codelab/.coverage
+codelab/coverage.json

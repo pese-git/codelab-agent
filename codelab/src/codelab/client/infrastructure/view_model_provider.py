@@ -1,6 +1,6 @@
 """ViewModelProvider — декларативный DI-провайдер для ViewModels.
 
-Заменяет ViewModelFactory. Регистрирует все 9 ViewModels как
+Заменяет ViewModelFactory. Регистрирует все ViewModels как
 синглтоны (Scope.APP), автоматически разрешая зависимости.
 
 Пример использования:
@@ -22,6 +22,11 @@ from codelab.client.infrastructure.services.terminal_executor import (
     TerminalExecutor,
 )
 from codelab.client.presentation.chat_view_model import ChatViewModel
+from codelab.client.presentation.config_option_selector_view_model import (
+    AgentSelectorViewModel,
+    ModeSelectorViewModel,
+    StrategySelectorViewModel,
+)
 from codelab.client.presentation.file_viewer_view_model import FileViewerViewModel
 from codelab.client.presentation.filesystem_view_model import FileSystemViewModel
 from codelab.client.presentation.model_selector_view_model import ModelSelectorViewModel
@@ -36,7 +41,7 @@ from codelab.client.presentation.ui_view_model import UIViewModel
 class ViewModelProvider(Provider):
     """Провайдер ViewModels клиентского приложения.
 
-    Регистрирует 10 ViewModels как синглтоны (Scope.APP):
+    Регистрирует ViewModels как синглтоны (Scope.APP):
     1. UIViewModel — глобальное UI состояние
     2. SessionViewModel — управление сессиями
     3. PlanViewModel — управление планом (создаётся до ChatViewModel)
@@ -47,6 +52,9 @@ class ViewModelProvider(Provider):
     8. PermissionViewModel — управление разрешениями
     9. TerminalLogViewModel — просмотр логов терминала
     10. ModelSelectorViewModel — выбор LLM модели
+    11. ModeSelectorViewModel — выбор режима сессии
+    12. AgentSelectorViewModel — выбор агента
+    13. StrategySelectorViewModel — выбор стратегии выполнения
     """
 
     scope = Scope.APP
@@ -171,6 +179,52 @@ class ViewModelProvider(Provider):
     ) -> ModelSelectorViewModel:
         """Создаёт ModelSelectorViewModel для выбора LLM модели."""
         return ModelSelectorViewModel(
+            coordinator=coordinator,
+            event_bus=event_bus,
+            logger=logger,
+        )
+
+    # =========================================================================
+    # Специализированные ConfigOptionSelectorViewModel
+    # =========================================================================
+
+    @provide(scope=Scope.APP)
+    def get_mode_selector_vm(
+        self,
+        coordinator: SessionCoordinator,
+        event_bus: EventBus,
+        logger: structlog.stdlib.BoundLogger,
+    ) -> ModeSelectorViewModel:
+        """Создаёт ModeSelectorViewModel для выбора режима сессии."""
+        return ModeSelectorViewModel(
+            coordinator=coordinator,
+            event_bus=event_bus,
+            logger=logger,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_agent_selector_vm(
+        self,
+        coordinator: SessionCoordinator,
+        event_bus: EventBus,
+        logger: structlog.stdlib.BoundLogger,
+    ) -> AgentSelectorViewModel:
+        """Создаёт AgentSelectorViewModel для выбора агента."""
+        return AgentSelectorViewModel(
+            coordinator=coordinator,
+            event_bus=event_bus,
+            logger=logger,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_strategy_selector_vm(
+        self,
+        coordinator: SessionCoordinator,
+        event_bus: EventBus,
+        logger: structlog.stdlib.BoundLogger,
+    ) -> StrategySelectorViewModel:
+        """Создаёт StrategySelectorViewModel для выбора стратегии выполнения."""
+        return StrategySelectorViewModel(
             coordinator=coordinator,
             event_bus=event_bus,
             logger=logger,

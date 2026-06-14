@@ -130,8 +130,8 @@ flowchart LR
 
 **Приоритет выбора режима:**
 ```
-1. Slash command override (context.meta["routing_mode"]) — если есть
-2. Config value (config_values["_routing_mode"]) — persistent режим сессии
+1. Slash command override (context.meta["active_strategy"]) — если есть
+2. Config value (config_values["_active_strategy"]) — persistent режим сессии
 3. Default ("single") — fallback
 ```
 
@@ -2456,7 +2456,7 @@ class ObservabilityFactory:
 ### 3.11. StrategyDispatcher
 
 **Назначение:** Диспетчер стратегий выполнения — выбирает и делегирует обработку
-prompt turn соответствующей стратегии на основе `_routing_mode`.
+prompt turn соответствующей стратегии на основе `_active_strategy`.
 
 ```python
 class StrategyDispatcher:
@@ -2473,28 +2473,28 @@ class StrategyDispatcher:
     async def execute(
         self,
         context: TurnContext,
-        routing_mode: str | None = None,
+        active_strategy: str | None = None,
     ) -> LLMLoopResult:
         """Выбрать стратегию и выполнить.
 
         Priority:
-        1. routing_mode из параметра (slash command override)
-        2. config_values["_routing_mode"] из сессии
+        1. active_strategy из параметра (slash command override)
+        2. config_values["_active_strategy"] из сессии
         3. default_strategy
 
         Args:
             context: TurnContext с промптом, историей, correlation_id
-            routing_mode: Override режима (из slash command meta)
+            active_strategy: Override режима (из slash command meta)
 
         Returns:
             LLMLoopResult с notifications и финальным текстом
 
         Raises:
-            UnknownStrategyError: если routing_mode не зарегистрирован (invariant violation).
+            UnknownStrategyError: если active_strategy не зарегистрирован (invariant violation).
                 В нормальной работе не возникает — _validate_strategy() гарантирует
                 доступность стратегии до вызова execute().
         """
-        mode = routing_mode or context.config.get("_routing_mode") or self._default
+        mode = active_strategy or context.config.get("_active_strategy") or self._default
         strategy = self._strategies.get(mode)
         if strategy is None:
             raise UnknownStrategyError(f"Unknown routing mode: {mode}")
@@ -2515,7 +2515,7 @@ class StrategyDispatcher:
 ```
 PromptOrchestrator
   → Pipeline (stages)
-    → StrategySelectionStage: определяет routing_mode
+    → StrategySelectionStage: определяет active_strategy
     → LLMLoopStage: делегирует StrategyDispatcher.execute(context)
       → StrategyDispatcher выбирает стратегию
         → ExecutionStrategy.execute(context)
@@ -3063,17 +3063,17 @@ def migrate_schema(cls, data: dict) -> dict:
 | configId | Single режим | Multi режим | Описание |
 |---|---|---|---|
 | `"model"` | Модель единственного агента | Модель **оркестратора** (для RouteDecision) | Существующая |
-| `"_routing_mode"` | N/A | `"single"` / `"multi_orchestrated"` / `"multi_choreographed"` | **НОВАЯ** (кастомная) |
+| `"_active_strategy"` | N/A | `"single"` / `"multi_orchestrated"` / `"multi_choreographed"` | **НОВАЯ** (кастомная) |
 | `"mode"` | Режим работы (code/ask) | Режим работы (code/ask) | Существующая |
 
-### 6.2.1. Спецификация `_routing_mode`
+### 6.2.1. Спецификация `_active_strategy`
 
-Config option `_routing_mode` — кастомное расширение ACP для выбора режима выполнения агента.
+Config option `_active_strategy` — кастомное расширение ACP для выбора режима выполнения агента.
 
 **Формат (ACP config option):**
 ```json
 {
-  "id": "_routing_mode",
+  "id": "_active_strategy",
   "name": "Routing Mode",
   "description": "Agent execution mode: single, multi-orchestrated, multi-choreographed, or hierarchical",
   "type": "select",
@@ -3092,9 +3092,9 @@ Config option `_routing_mode` — кастомное расширение ACP д
 
 **Поток данных в ACP:**
 
-1. **`session/new`** — сервер возвращает `_routing_mode` в `configOptions` (дефолт из `codelab.toml`)
-2. **`session/set_config_option`** — клиент меняет режим: `{"configId": "_routing_mode", "value": "multi_orchestrated"}`
-3. **`session/prompt`** — `StrategySelectionStage` читает `config_values["_routing_mode"]` и выбирает стратегию
+1. **`session/new`** — сервер возвращает `_active_strategy` в `configOptions` (дефолт из `codelab.toml`)
+2. **`session/set_config_option`** — клиент меняет режим: `{"configId": "_active_strategy", "value": "multi_orchestrated"}`
+3. **`session/prompt`** — `StrategySelectionStage` читает `config_values["_active_strategy"]` и выбирает стратегию
 
 ### 6.2.2. Slash Command override
 
@@ -3102,8 +3102,8 @@ Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` — **one-s
 
 **Приоритет разрешения режима:**
 ```
-1. Slash command override (context.meta["routing_mode"]) — если есть
-2. Config value (config_values["_routing_mode"]) — persistent режим сессии
+1. Slash command override (context.meta["active_strategy"]) — если есть
+2. Config value (config_values["_active_strategy"]) — persistent режим сессии
 3. Default ("single") — fallback
 ```
 
@@ -3117,12 +3117,12 @@ Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` — **one-s
 Напиши тесты                         → multi_orchestrated (вернулся к дефолту)
 
 # Пользователь хочет сменить дефолт:
-set_config_option(_routing_mode=multi_choreographed)
+set_config_option(_active_strategy=multi_choreographed)
 Теперь все промпты → multi_choreographed
 ```
 
 **Реализация:**
-- `SlashCommandStage` распознаёт `/single`, `/multi`, `/choreography`, `/hierarchical` → записывает в `context.meta["routing_mode"]`
+- `SlashCommandStage` распознаёт `/single`, `/multi`, `/choreography`, `/hierarchical` → записывает в `context.meta["active_strategy"]`
 - `StrategySelectionStage` читает `meta` → `config_values` → `default`
 - Slash command **не мутирует** `config_values` — только override на один prompt turn
 
@@ -3366,7 +3366,7 @@ class ToolDefinition:
 | 2b.3 | `server/agent/core/caller.py` | `AgentCaller` — единый интерфейс вызова через EventBus |
 | 2b.4 | `server/protocol/state.py` | **SessionState migration v1→v3**: execution_mode, active_agents, session_metrics, correlation_id, parent_session_id, child_session_ids, is_child_session, task_result, sliced_summary |
 | 2b.5 | `server/protocol/history.py` | Утилиты для мультиагентной истории: add_agent_message(), add_tool_call() |
-| 2b.6 | `server/protocol/handlers/pipeline/stages/strategy_selection.py` | `StrategySelectionStage` — читает `_routing_mode` с приоритетом: slash override > config_values > default |
+| 2b.6 | `server/protocol/handlers/pipeline/stages/strategy_selection.py` | `StrategySelectionStage` — читает `_active_strategy` с приоритетом: slash override > config_values > default |
 | 2b.7 | `server/protocol/handlers/pipeline/stages/llm_loop.py` | РЕФАКТОРИНГ: делегирует ExecutionEngine + StrategyDispatcher |
 | 2b.8 | `server/di.py` | Новые провайдеры: AgentEventBus, AgentRegistry, ExecutionEngine, AgentCaller |
 | 2b.9 | `tests/server/agent/strategies/test_single.py` | Unit-тесты SingleStrategy — идентичное поведение текущему single-agent |
@@ -3376,7 +3376,7 @@ class ToolDefinition:
 - ✅ Все ~1800 существующих тестов проходят
 - ✅ Бенчмарк: latency ≤ baseline + 10ms bus overhead
 - ✅ SingleStrategy работает через EventBus → LLMAdapter
-- ✅ `_routing_mode = "single"` — дефолт, мультиагентность не активна
+- ✅ `_active_strategy = "single"` — дефолт, мультиагентность не активна
 - ✅ Pipeline интегрирован: StrategySelectionStage → StrategyDispatcher → SingleStrategy
 
 ---
@@ -3513,8 +3513,8 @@ class ToolDefinition:
 
 | # | Файл | Описание |
 |---|---|---|
-| 5b.1 | `server/protocol/handlers/config.py` | Обработка `_routing_mode`, расширенная обработка `model` |
-| 5b.2 | `server/protocol/handlers/config_option_builder.py` | `build_routing_mode_config_option()` — spec для `_routing_mode` |
+| 5b.1 | `server/protocol/handlers/config.py` | Обработка `_active_strategy`, расширенная обработка `model` |
+| 5b.2 | `server/protocol/handlers/config_option_builder.py` | `build_active_strategy_config_option()` — spec для `_active_strategy` |
 | 5b.3 | `server/protocol/handlers/slash_commands/routing.py` | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` (one-shot override) |
 | 5b.4 | `server/protocol/handlers/slash_commands/agent_config.py` | `/config agent <name> model <ref>` |
 | 5b.5 | `server/protocol/handlers/plan_builder.py` | Поддержка multi-agent plan: merged plan из parent + child sessions |
@@ -3522,7 +3522,7 @@ class ToolDefinition:
 
 **Критерий завершения Блока 5:**
 - ✅ ToolsGuard работает: danger_level decision matrix
-- ✅ `_routing_mode` config option — persistent режим сессии
+- ✅ `_active_strategy` config option — persistent режим сессии
 - ✅ Slash commands работают как one-shot override
 - ✅ Plan Tool работает во всех стратегиях
 
@@ -3586,7 +3586,7 @@ class ToolDefinition:
 | 6 | В режиме Orchestrator модель строго подчиняется списку активных агентов | Unit test | 4a |
 | 7 | Cancellation (`session/cancel`) работает во всех режимах | Integration test | 2b–4c |
 | 8 | `session/set_config_option(model=...)` меняет модель оркестратора | Unit test | 2b |
-| 9 | `session/set_config_option(_routing_mode=...)` переключает режим | Unit test | 5b |
+| 9 | `session/set_config_option(_active_strategy=...)` переключает режим | Unit test | 5b |
 | 10 | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` работают как one-shot override | Integration test | 5b |
 | 11 | ~1800 существующих тестов не сломаны | `make check` | 2b |
 
@@ -3620,14 +3620,29 @@ class ToolDefinition:
 
 ## 10. УДАЛЯЕМЫЕ КОМПОНЕНТЫ
 
+> **Обновлено 12 июня 2026** — анализ зависимостей показал, что `base.py` был переписан
+> и остаётся рабочим компонентом. См. [`doc/architecture/LEGACY_FILES_ANALYSIS.md`](./LEGACY_FILES_ANALYSIS.md).
+
+### 10.1. Уже удалённые
+
 | Файл | Причина | Функциональность перенесена в |
 |---|---|---|
 | `server/agent/naive.py` | Замена на LLMAdapter | `server/agent/adapters/llm_adapter.py` |
 | `server/agent/orchestrator.py` | Замена на ExecutionEngine | `server/agent/engine.py` + adapters |
-| `server/agent/state.py` | Замена на MultiAgentConfig | `server/agent/config.py` |
 | `server/agent/plan_extractor.py` | Перенос в adapters | `server/agent/adapters/plan_extractor.py` |
-| `server/agent/base.py` | Замена Agent Protocol | `server/agent/core/agent.py` |
-| `server/llm/telemetry/` | Замена на InMemoryTracer | `server/observability/tracer.py` — InMemoryTracer покрывает всё + tracing, correlation, exporters. **TelemetrySink задепрекейтить** (не удалять сразу) — оставить как legacy-интерфейс пока InMemoryTracer не готов |
+
+### 10.2. Подлежит удалению
+
+| Файл | Причина | Функциональность перенесена в |
+|---|---|---|
+| `server/agent/state.py` | `OrchestratorConfig.agent_class="naive"` ссылается на удалённый класс; все поля дублируются в `LLMConfig` и `AgentsGlobalConfig`; нет потребителей кроме `__init__.py` | `server/agent/config/models.py` (AgentsGlobalConfig), `server/llm/base.py` (LLMConfig) |
+
+### 10.3. НЕ удалять (spec обновлён)
+
+| Файл | Причина |
+|---|---|
+| `server/agent/base.py` | **Переписан, не legacy.** Содержит рабочие классы: `AgentContext`, `ContinuationContext`, `AgentResponse` (dataclass), `LLMAgent` (ABC). Активно используется 7 файлами: `execution_engine.py`, `strategies/dispatcher.py`, `strategies/base.py`, `llm_adapter.py`, `pipeline/stages/agent_loop.py`, `strategies/single_strategy.py`, `agent/__init__.py`. Директория `server/agent/core/` (указанная в spec как замена) не существует. |
+| `server/llm/telemetry/` | **Задепрекейтить, не удалять.** Оставить как legacy-интерфейс пока InMemoryTracer полностью не покрывает все сценарии. |
 
 ---
 
@@ -3674,7 +3689,7 @@ class ToolDefinition:
 | Agent Config System: Loader, Resolver, Registry | Загрузка агентов из TOML/Markdown |
 | SingleStrategy через EventBus → LLMAdapter | Заменяет NaiveAgent |
 | ExecutionEngine заменяет AgentOrchestrator | Композиция из HistoryBuilder, ToolFilter, MessageSanitizer |
-| Pipeline integration: StrategySelectionStage, StrategyDispatcher | Выбор стратегии по `_routing_mode` |
+| Pipeline integration: StrategySelectionStage, StrategyDispatcher | Выбор стратегии по `_active_strategy` |
 | **Все ~1800 тестов проходят** | Поведение идентично |
 | Бенчмарк: latency ≤ baseline + 10ms bus overhead | Performance acceptable |
 
@@ -3682,7 +3697,7 @@ class ToolDefinition:
 - ✅ Все существующие тесты проходят
 - ✅ Бенчмарк single mode ≤ baseline + 10%
 - ✅ `make check` проходит без ошибок
-- ✅ `_routing_mode = "single"` — дефолт, работает через новую архитектуру
+- ✅ `_active_strategy = "single"` — дефолт, работает через новую архитектуру
 
 #### Этап 2: Observability (Блок 3)
 
@@ -3712,7 +3727,7 @@ class ToolDefinition:
 | **4b** | `HierarchicalStrategy` | Child Sessions, HybridContextManager, Task Permissions | Делегирование Primary→Subagent с child sessions и навигацией |
 | **4c** | `ChoreographyStrategy` | Broadcast, Conflict Resolution | Параллельный broadcast всем агентам |
 
-**По умолчанию:** `_routing_mode = "single"` — мультиагентность доступна, но не включена.
+**По умолчанию:** `_active_strategy = "single"` — мультиагентность доступна, но не включена.
 
 #### Этап 4: Integration (Блок 5)
 
@@ -3721,9 +3736,9 @@ class ToolDefinition:
 | Действие | Результат |
 |---|---|
 | ToolsGuard (danger_level, decision matrix) | Безопасность инструментов |
-| StrategySelectionStage в pipeline | Выбор стратегии по `_routing_mode` |
+| StrategySelectionStage в pipeline | Выбор стратегии по `_active_strategy` |
 | Slash commands `/single`, `/multi`, `/choreography`, `/hierarchical` | One-shot override |
-| `_routing_mode` config option | Persistent режим сессии |
+| `_active_strategy` config option | Persistent режим сессии |
 | Plan Tool multi-agent support | Merged plan из parent + child sessions |
 
 #### Этап 5: Cleanup (Блок 6)
@@ -3783,18 +3798,18 @@ def migrate_schema(cls, data: dict) -> dict:
 
 | Этап | Rollback |
 |---|---|
-| **Этап 1** (Infrastructure + Single) | `_routing_mode = "single"` — работает через EventBus, old code ещё не удалён |
+| **Этап 1** (Infrastructure + Single) | `_active_strategy = "single"` — работает через EventBus, old code ещё не удалён |
 | **Этап 2** (Observability) | Tracer no-op — single mode работает без observability |
-| **Этап 3a** (OrchestratedStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
-| **Этап 3b** (HierarchicalStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
-| **Этап 3c** (ChoreographyStrategy) | `_routing_mode = "single"` — мультиагентность не используется |
+| **Этап 3a** (OrchestratedStrategy) | `_active_strategy = "single"` — мультиагентность не используется |
+| **Этап 3b** (HierarchicalStrategy) | `_active_strategy = "single"` — мультиагентность не используется |
+| **Этап 3c** (ChoreographyStrategy) | `_active_strategy = "single"` — мультиагентность не используется |
 | **Этап 4** (Integration) | Убрать slash commands, config option — single mode работает |
 | **Этап 5** (Cleanup) | Нечего откатывать — только observability + удаление old code |
 
 **Мгновенный rollback в production:**
 ```bash
 # Через config:
-set_config_option(_routing_mode="single")
+set_config_option(_active_strategy="single")
 
 # Через codelab.toml:
 [agents]
@@ -3861,7 +3876,7 @@ ACPError (базовое — server/exceptions.py)
 │   └── ToolExecutionError       — ошибка выполнения инструмента
 ├── ProtocolError
 │   └── InvalidStateError        — операция невозможна в текущем состоянии
-└── UnknownStrategyError         — неизвестный routing_mode (НОВАЯ)
+└── UnknownStrategyError         — неизвестный active_strategy (НОВАЯ)
 
 ProviderError (LLM layer — server/llm/errors.py)
 ├── ProviderNotFoundError
@@ -4276,7 +4291,7 @@ TimelineEvent:
 | **Hot Reload** | Перезагрузка конфигурации без перезапуска |
 | **LLMAdapter** | Адаптер LLM провайдера → Agent Protocol (замена NaiveAgent) |
 | **ExecutionEngine** | Композиция компонентов для выполнения turn (замена AgentOrchestrator) |
-| **`_routing_mode`** | Кастомная config option для выбора режима выполнения (ACP-compliant) |
+| **`_active_strategy`** | Кастомная config option для выбора режима выполнения (ACP-compliant) |
 | **Slash Override** | One-shot override режима через `/single`, `/multi`, `/choreography`, `/hierarchical` |
 | **Task tool** | Инструмент делегирования Primary → Subagent в HierarchicalStrategy |
 | **TaskInvocation** | Доменное событие делегирования — конвертируется в AgentRequest перед вызовом шины |

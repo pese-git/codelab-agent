@@ -275,3 +275,31 @@ async def test_model_change_without_resolver(
 
     assert outcome.response is not None
     assert outcome.response.error is None
+
+
+def test_get_default_model_uses_model_resolver() -> None:
+    """Проверить что _get_default_model использует model_resolver."""
+    from unittest.mock import MagicMock
+
+    from codelab.server.protocol.core import ACPProtocol
+
+    # Создать mock model_resolver
+    mock_resolver = MagicMock()
+    mock_resolver.default_provider = "openrouter"
+
+    protocol = ACPProtocol(model_resolver=mock_resolver)
+
+    # Проверить что используется model_resolver.default_provider
+    default_model = protocol._get_default_model()
+    assert default_model == "openrouter/gpt-4o"
+
+
+def test_get_default_model_fallback_without_resolver() -> None:
+    """Проверить что _get_default_model имеет fallback без model_resolver."""
+    from codelab.server.protocol.core import ACPProtocol
+
+    protocol = ACPProtocol()
+
+    # Без model_resolver — fallback на openai/gpt-4o
+    default_model = protocol._get_default_model()
+    assert default_model == "openai/gpt-4o"
