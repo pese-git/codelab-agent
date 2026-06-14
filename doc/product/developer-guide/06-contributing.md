@@ -43,7 +43,7 @@ acp-protocol/
 │   │   └── shared/       # Общие модули
 │   └── tests/            # Тесты
 ├── doc/                  # Документация
-│   ├── Agent Client Protocol/  # Спецификация ACP (НЕ ИЗМЕНЯТЬ)
+│   ├── protocols/              # Спецификация протоколов (НЕ ИЗМЕНЯТЬ)
 │   ├── architecture/     # Архитектурные документы
 │   └── product/          # Пользовательская документация
 ├── AGENTS.md             # Правила для AI агентов
@@ -185,7 +185,7 @@ async def create_session(
 
 ### Запрещено
 
-1. ❌ Изменять `doc/Agent Client Protocol/` — это официальный протокол
+1. ❌ Изменять `doc/protocols/` — это официальные протоколы
 2. ❌ Нарушать спецификацию ACP
 3. ❌ Добавлять зависимости без необходимости
 4. ❌ Коммитить `.venv`, `__pycache__`, `.pytest_cache`
@@ -254,7 +254,7 @@ class TestMyFeature:
 
 ```
 doc/
-├── Agent Client Protocol/   # НЕ ИЗМЕНЯТЬ
+├── protocols/              # НЕ ИЗМЕНЯТЬ
 ├── architecture/            # Архитектурные решения
 └── product/                 # Пользовательская документация
     ├── overview/

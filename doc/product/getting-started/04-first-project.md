@@ -388,4 +388,4 @@ graph TD
 
 - [Сценарии использования](../overview/03-use-cases.md)
 - [Архитектура](../overview/02-architecture.md)
-- [Спецификация ACP](../../Agent%20Client%20Protocol/protocol/01-Overview.md)
+- [Спецификация ACP](../../protocols/Agent%20Client%20Protocol/protocol/01-Overview.md)

@@ -4,7 +4,7 @@
 
 ## Обзор
 
-CodeLab реализует клиент-серверную архитектуру на основе [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/01-Introduction.md). Проект использует **Dishka DI контейнер** для управления зависимостями и следует принципам **Clean Architecture** на клиенте.
+CodeLab реализует клиент-серверную архитектуру на основе [Agent Client Protocol (ACP)](../../protocols/Agent%20Client%20Protocol/get-started/01-Introduction.md). Проект использует **Dishka DI контейнер** для управления зависимостями и следует принципам **Clean Architecture** на клиенте.
 
 ```mermaid
 graph TB

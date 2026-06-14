@@ -23,6 +23,6 @@
 ## Протоколы
 
 Референсные спецификации находятся отдельно:
-- [Agent Client Protocol](../Agent%20Client%20Protocol/)
-- [Agent To Agent Protocol](../Agent%20To%20Agent%20Protocol/)
-- [Model Context Protocol](../Model%20Context%20Protocol/)
+- [Agent Client Protocol](../protocols/Agent%20Client%20Protocol/)
+- [Agent To Agent Protocol](../protocols/Agent%20To%20Agent%20Protocol/)
+- [Model Context Protocol](../protocols/Model%20Context%20Protocol/)

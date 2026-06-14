@@ -4,7 +4,7 @@
 
 ## Что такое CodeLab?
 
-CodeLab — это полнофункциональная реализация [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/01-Introduction.md), стандартизированного протокола взаимодействия между AI-агентами и редакторами кода.
+CodeLab — это полнофункциональная реализация [Agent Client Protocol (ACP)](../../protocols/Agent%20Client%20Protocol/get-started/01-Introduction.md), стандартизированного протокола взаимодействия между AI-агентами и редакторами кода.
 
 CodeLab объединяет в себе:
 - **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)

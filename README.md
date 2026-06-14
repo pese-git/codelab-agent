@@ -1,6 +1,6 @@
 # CodeLab
 
-> Унифицированная реализация [Agent Client Protocol (ACP)](doc/Agent%20Client%20Protocol/get-started/01-Introduction.md) — AI-агент и клиент в едином Python-пакете.
+> Унифицированная реализация [Agent Client Protocol (ACP)](doc/protocols/Agent%20Client%20Protocol/get-started/01-Introduction.md) — AI-агент и клиент в едином Python-пакете.
 
 ## Что такое CodeLab?
 
@@ -42,7 +42,7 @@ uv run codelab connect --stdio          # клиент запускает аге
 | [Руководство разработчика](doc/product/developer-guide/01-architecture.md) | Архитектура и разработка |
 | [Справочник CLI](doc/product/reference/01-cli.md) | Команды и опции |
 | [Архитектура](doc/internals/architecture/ARCHITECTURE.md) | Детальная архитектура системы |
-| [ACP Protocol](doc/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
+| [ACP Protocol](doc/protocols/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
 
 ## Структура проекта
 
@@ -79,9 +79,8 @@ acp-protocol/
 │   │   ├── Agent Client Protocol/
 │   │   ├── Agent To Agent Protocol/
 │   │   └── Model Context Protocol/
-│   ├── architecture/           # Архитектурные документы и ADR
 │   └── internals/              # Внутренние документы
-│       ├── architecture/       # Детальная архитектура, карта проекта
+│       ├── architecture/       # Архитектура, ADR, карта проекта
 │       ├── roadmap/            # Планы развития кодовой базы
 │       └── archive/            # Исторические документы
 └── Makefile                    # Команды сборки и проверок

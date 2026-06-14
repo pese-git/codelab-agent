@@ -4,7 +4,7 @@
 
 ## Общая архитектура
 
-CodeLab реализует клиент-серверную архитектуру, определённую [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/02-Architecture.md).
+CodeLab реализует клиент-серверную архитектуру, определённую [Agent Client Protocol (ACP)](../../protocols/Agent%20Client%20Protocol/get-started/02-Architecture.md).
 
 ```mermaid
 graph TB
@@ -680,4 +680,4 @@ codelab/src/codelab/
 
 - [Введение](01-introduction.md) — общая информация о CodeLab
 - [Сценарии использования](03-use-cases.md) — примеры применения
-- [Спецификация ACP](../../Agent%20Client%20Protocol/protocol/01-Overview.md) — детали протокола
+- [Спецификация ACP](../../protocols/Agent%20Client%20Protocol/protocol/01-Overview.md) — детали протокола
