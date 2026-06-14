@@ -12,9 +12,9 @@
 
 Это привело к реализации цикла tool-calling внутри `LLMAdapter._execute()`, что противоречит:
 
-1. **Технической спецификации** (§3.4): "LLMAdapter сохраняет от NaiveAgent: **Single LLM call pattern**"
+1. **Технической спецификации** (§3.4): "LLMAdapter сохраняет: **Single LLM call pattern**"
 2. **Архитектурному разделению слоёв** (§2.2): Agent Layer (LLMAdapter) ≠ ACP Layer (LLMLoopStage)
-3. **Существующей реализации NaiveAgent** (`naive.py:203`): один `create_completion()`, цикл в LLMLoopStage
+3. **Существующей реализации LLMAdapter** (`llm_adapter.py`): один `create_completion()`, цикл в LLMLoopStage
 
 ### Проблемы дублирующегося цикла
 
@@ -50,7 +50,7 @@
 use_event_bus = false  # по умолчанию — legacy путь
 ```
 
-- `false` (default): legacy путь через `AgentOrchestrator → NaiveAgent`
+- `false` (default): legacy путь через `AgentOrchestrator → NaiveAgent` (удалён 2026-06-12)
 - `true`: новый путь через `StrategyDispatcher → SingleStrategy → EventBus → LLMAdapter`
 
 ## Последствия
@@ -71,7 +71,7 @@ use_event_bus = false  # по умолчанию — legacy путь
 
 ### Нейтральные
 
-- `AgentOrchestrator` и `NaiveAgent` сохраняются для legacy пути
+- `AgentOrchestrator` и `NaiveAgent` удалены (2026-06-12), заменены на `ExecutionEngine` + `LLMAdapter`
 - 3558 существующих тестов остаются зелёными (feature flag = false по умолчанию)
 
 ## Ссылки
@@ -81,4 +81,4 @@ use_event_bus = false  # по умолчанию — legacy путь
 | `doc/architecture/MULTIAGENT_TECHNICAL_SPECIFICATION.md` | §3.4: LLMAdapter spec |
 | `doc/architecture/MULTIAGENT_TECHNICAL_SPECIFICATION.md` | §2.2: Layer boundaries |
 | `openspec/changes/archive/2026-06-08-multiagent-llm-adapter/tasks.md` | Задача 1.4 (ошибка формулировки) |
-| `codelab/src/codelab/server/agent/naive.py:203` | NaiveAgent._execute_llm_call (эталон) |
+| `codelab/src/codelab/server/agent/llm_adapter.py` | LLMAdapter.call() (эталон single call) |

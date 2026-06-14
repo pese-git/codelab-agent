@@ -100,7 +100,7 @@
 - Stop reasons: `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`
 - Cancellation с корректной обработкой pending requests и tombstones
 - `session/cancel` отправляется немедленно: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` через per-request response queue, не ожидая завершения `session/prompt`
-- На сервере `ACPProtocol._handle_session_cancel()` вызывает `AgentOrchestrator.cancel_prompt()`, который отменяет активный `asyncio.Task` с LLM-запросом (`CancelledError`)
+- На сервере `ACPProtocol._handle_session_cancel()` вызывает `LLMAdapter.cancel_prompt()`, который отменяет активный `asyncio.Task` с LLM-запросом (`CancelledError`)
 
 ### ✅ 06. Content — Полностью реализовано
 
@@ -237,11 +237,11 @@
 
 ### 🟡 Важные (рекомендуется для production)
 
-#### ~~1. `NaiveAgent.cancel_prompt()` — заглушка~~ ✅ Решено (2026-05-20)
+#### ~~1. `LLMAdapter.cancel_prompt()` — заглушка~~ ✅ Решено (2026-05-20)
 
-**Файл:** `server/agent/naive.py`
+**Файл:** `server/agent/llm_adapter.py`
 
-Реализована реальная отмена: агент хранит ссылку на активный `asyncio.Task` с LLM-запросом и отменяет его через `task.cancel()`. `ACPProtocol._handle_session_cancel()` теперь явно вызывает `AgentOrchestrator.cancel_prompt()` после завершения `handle_cancel()`.
+Реализована реальная отмена: `LLMAdapter` хранит ссылку на активный `asyncio.Task` с LLM-запросом и отменяет его через `task.cancel()`. `ACPProtocol._handle_session_cancel()` теперь явно вызывает `LLMAdapter.cancel_prompt()` после завершения `handle_cancel()`.
 
 Дополнительно исправлена клиентская сторона: `ACPTransportService.cancel_prompt()` обходит `_callbacks_request_lock` и отправляет `session/cancel` немедленно, не ожидая завершения `session/prompt`. Время отмены сократилось с ~16 с до ~3 мс.
 
@@ -298,14 +298,14 @@ LLM: terminal/release → cleanup
 
 #### ~~10. `LLMAgent.process_prompt` — неясный контракт~~ ✅ Решено (2026-05-20)
 
-**Файлы:** `server/agent/base.py`, `server/agent/naive.py`, `server/agent/orchestrator.py`
+**Файлы:** `server/agent/base.py`, `server/agent/llm_adapter.py`, `server/agent/execution_engine.py`
 
 Интерфейс `LLMAgent` рефакторирован:
 - Удалён `process_prompt(prompt, history, tools)` с неясной семантикой (кто добавляет user message?)
 - Добавлены `start_turn(AgentContext)` и `continue_turn(ContinuationContext)` — явные контракты
 - `start_turn`: добавляет user message из prompt, вызывает LLM
 - `continue_turn`: **НЕ** добавляет user message — история уже содержит tool_results
-- Удалён мёртвый `while` loop из `NaiveAgent` (всегда возвращал на первой итерации)
+- Удалён мёртвый `while` loop из `NaiveAgent` (всегда возвращал на первой итерации, legacy)
 - Удалён `_session_histories` — история жила в двух местах параллельно (баг)
 - `_filter_tools_by_capabilities` теперь всегда включает серверные инструменты (`kind in {"think", "plan"}`)
 - Исправлен баг с hang после `update_plan`: `continue_turn` больше не добавляет пустое user message
@@ -340,13 +340,13 @@ LLM: terminal/release → cleanup
 | `wait_for_exit` | `terminal/wait_for_exit` |
 | `release_terminal` | `terminal/release` |
 
-Теперь `_filter_tools_by_capabilities()` в `orchestrator.py` корректно фильтрует инструменты по capabilities.
+Теперь `ToolFilter.filter()` корректно фильтрует инструменты по capabilities.
 
 **Двусторонний маппинг (2026-05-21):** Добавлен модуль `tools/mapping.py` для конвертации имён между ACP и LLM форматами:
 - `acp_name_to_llm_name()`: `fs/read_text_file` → `fs_read_text_file` (ACP → LLM API)
 - `llm_name_to_acp_name()`: `fs_read_text_file` → `fs/read_text_file` (LLM → ACP registry lookup)
 
-Применяется в: `NaiveAgent._to_openai_tools_format()`, `SimpleToolRegistry.to_llm_tools()`, `SimpleToolRegistry.execute_tool()`, `LLMLoopStage._process_tool_calls()`.
+Применяется в: `LLMAdapter._to_openai_tools_format()`, `SimpleToolRegistry.to_llm_tools()`, `SimpleToolRegistry.execute_tool()`, `LLMLoopStage._process_tool_calls()`.
 
 #### ~~11. Stop reasons `max_tokens`, `max_turn_requests`, `refusal` не тестированы~~ ✅ Решено (2026-05-22)
 
@@ -359,7 +359,7 @@ LLM: terminal/release → cleanup
 3. **`DirectivesStage`** — установка `context.stop_reason`, pipeline continuation (не останавливает), комбинации с другими директивами
 4. **`normalize_stop_reason`** — нормализация `max_iterations` → `end_turn`, `tool_use` → `end_turn`, `error` → `end_turn`
 5. **`resolve_prompt_stop_reason`** — все ACP reasons проходят корректно
-6. **LLM propagation** — `NaiveAgent.start_turn/continue_turn` propagates `max_tokens`, `refusal`, `tool_use` от LLM провайдера
+6. **LLM propagation** — `LLMAdapter.start_turn/continue_turn` propagates `max_tokens`, `refusal`, `tool_use` от LLM провайдера
 7. **Integration** — `_meta` forcedStopReason для `max_turn_requests` и `refusal` через полный pipeline
 
 #### ~~5. Только OpenAI LLM провайдер~~ ✅ Решено (2026-05-22)
@@ -596,8 +596,8 @@ graph TB
 sequenceDiagram
     participant PO as PromptOrchestrator
     participant LL as LLMLoopStage
-    participant ORCH as AgentOrchestrator
-    participant AG as NaiveAgent
+    participant EE as ExecutionEngine
+    participant LA as LLMAdapter
     participant TM as ToolMapping
     participant LLM as OpenAIProvider
     participant TR as ToolRegistry
@@ -605,24 +605,14 @@ sequenceDiagram
     PO->>LL: process(context)
 
     loop LLM Loop (до 10 итераций)
-        alt Первая итерация (новый turn)
-            LL->>ORCH: process_prompt(session, prompt)
-            ORCH->>ORCH: _build_history(session)
-            ORCH->>AG: start_turn(AgentContext)
-            Note over AG: Добавляет user message<br/>из prompt к conversation_history
-        else Последующие итерации (tool results)
-            LL->>ORCH: continue_with_tool_results(session, tool_results)
-            ORCH->>ORCH: _add_tool_result_to_history()
-            ORCH->>ORCH: _build_history(session)
-            ORCH->>AG: continue_turn(ContinuationContext)
-            Note over AG: НЕ добавляет user message<br/>история содержит tool_results
-        end
-        AG->>TM: acp_name_to_llm_name() для tools
-        TM-->>AG: LLM-совместимые имена (с _)
-        AG->>LLM: create_completion(messages, tools)
-        LLM-->>AG: LLMResponse(text, tool_calls, stop_reason)
-        AG-->>ORCH: AgentResponse
-        ORCH-->>LL: AgentResponse
+        LL->>EE: execute(context)
+        EE->>LA: create_completion(messages, tools)
+        LA->>TM: acp_name_to_llm_name() для tools
+        TM-->>LA: LLM-совместимые имена (с _)
+        LA->>LLM: create_completion(messages, tools)
+        LLM-->>LA: LLMResponse(text, tool_calls, stop_reason)
+        LA-->>EE: LLMResponse
+        EE-->>LL: AgentResponse
 
         alt end_turn — нет tool calls
             LL-->>PO: stop_reason=end_turn
@@ -652,21 +642,19 @@ sequenceDiagram
     participant C as Client
     participant TS as ACPTransportService
     participant S as ACPProtocol
-    participant ORCH as AgentOrchestrator
-    participant AG as NaiveAgent
+    participant LA as LLMAdapter
     participant LLM as OpenAI API
 
-    Note over AG,LLM: asyncio.Task — HTTP запрос к LLM
-    AG->>LLM: POST /v1/chat/completions
+    Note over LA,LLM: asyncio.Task — HTTP запрос к LLM
+    LA->>LLM: POST /v1/chat/completions
 
     C->>TS: Stop (cancel_prompt)
     Note over TS: Обходит _callbacks_request_lock<br/>через per-request response queue
     TS->>S: session/cancel (немедленно)
-    S->>ORCH: cancel_prompt(session_id)
-    ORCH->>AG: active_task.cancel()
-    LLM--xAG: CancelledError
-    AG-->>ORCH: stop_reason=cancelled
-    ORCH-->>S: stop_reason=cancelled
+    S->>LA: cancel_prompt(session_id)
+    LA->>LA: active_task.cancel()
+    LLM--xLA: CancelledError
+    LA-->>S: stop_reason=cancelled
     S-->>C: {stopReason: "cancelled"}
 ```
 

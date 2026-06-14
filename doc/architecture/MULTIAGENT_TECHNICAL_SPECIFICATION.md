@@ -1,8 +1,11 @@
 # ТЕХНИЧЕСКОЕ ЗАДАНИЕ: Мультиагентная экосистема CodeLab на базе ACP и EventBus
 
-> Версия: 1.0
+> Версия: 1.1
 > Дата: 27 мая 2026
-> Статус: Утверждено к реализации
+> Обновлено: 14 июня 2026 — миграция завершена
+> Статус: ✅ Блоки 1–2 реализованы. `AgentOrchestrator` и `NaiveAgent` удалены, заменены на `ExecutionEngine` + `LLMAdapter` + `SingleStrategy`.
+
+> **Примечание:** Документ описывает целевую архитектуру. Ссылки на `AgentOrchestrator` и `NaiveAgent` в разделах миграции (Блок 1, Блок 2) сохранены как исторический контекст — откуда был рефакторинг.
 
 ---
 
@@ -3366,7 +3369,7 @@ class ToolDefinition:
 
 ### БЛОК 2: SINGLE STRATEGY (BASELINE)
 
-> **Цель:** Заменить текущий `AgentOrchestrator` + `NaiveAgent` на SingleStrategy
+> **Цель:** ✅ РЕАЛИЗОВАНО. `AgentOrchestrator` + `NaiveAgent` заменены на SingleStrategy
 > через новую архитектуру, сохранив поведение идентичным. Все ~1800 тестов должны пройти.
 > Observability ещё нет — tracing no-op, compaction добавится позже.
 
@@ -3705,18 +3708,18 @@ class ToolDefinition:
 
 ### 12.2. Этапы миграции
 
-#### Этап 1: Infrastructure + SingleStrategy (Блоки 1–2)
+#### Этап 1: Infrastructure + SingleStrategy (Блоки 1–2) — ✅ ЗАВЕРШЁН
 
-**Цель:** Заменить NaiveAgent + AgentOrchestrator на новую архитектуру, сохранив поведение single-agent идентичным.
+**Цель:** ✅ Выполнена. `NaiveAgent` + `AgentOrchestrator` заменены на новую архитектуру, поведение single-agent идентично.
 
 | Действие | Результат |
 |---|---|
-| Создать EventBus, LLMAdapter, ExecutionEngine, NoOpTracer | Новая инфраструктура готова |
-| Agent Config System: Loader, Resolver, Registry | Загрузка агентов из TOML/Markdown |
-| SingleStrategy через EventBus → LLMAdapter | Заменяет NaiveAgent |
-| ExecutionEngine заменяет AgentOrchestrator | Композиция из HistoryBuilder, ToolFilter, MessageSanitizer |
-| Pipeline integration: StrategySelectionStage, StrategyDispatcher | Выбор стратегии по `_active_strategy` |
-| **Все ~1800 тестов проходят** | Поведение идентично |
+| Создать EventBus, LLMAdapter, ExecutionEngine, NoOpTracer | ✅ Новая инфраструктура готова |
+| Agent Config System: Loader, Resolver, Registry | ✅ Загрузка агентов из TOML/Markdown |
+| SingleStrategy через EventBus → LLMAdapter | ✅ Заменяет NaiveAgent |
+| ExecutionEngine заменяет AgentOrchestrator | ✅ Композиция из HistoryBuilder, ToolFilter, MessageSanitizer |
+| Pipeline integration: StrategySelectionStage, StrategyDispatcher | ✅ Выбор стратегии по `_active_strategy` |
+| **Все ~3300 тестов проходят** | ✅ Поведение идентично |
 | Бенчмарк: latency ≤ baseline + 10ms bus overhead | Performance acceptable |
 
 **Критерий перехода к этапу 2:**

@@ -132,7 +132,7 @@
 **Исправлена передача capabilities от клиента согласно ACP спецификации**
 
 - Клиент теперь отправляет правильные `clientCapabilities` в `initialize` запросе
-- `AgentOrchestrator` фильтрует инструменты на основе объявленных capabilities
+- `ExecutionEngine` (через `ToolFilter`) фильтрует инструменты на основе объявленных capabilities
 - Соответствие спецификации: "Clients and Agents MUST treat all capabilities omitted in the initialize request as UNSUPPORTED"
 
 ### Added - Этап 4: Prompt Turn Content Integration (Фазы 1-3) (2026-04-16)

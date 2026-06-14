@@ -128,18 +128,21 @@ acp-protocol/
 
 | Файл | Описание |
 |------|----------|
-| `agent/base.py` | Базовые классы агентов |
-| `agent/execution_engine.py` | `ExecutionEngine` — композиция HistoryBuilder, ToolFilter, LLMAdapter |
-| `agent/factory.py` | Фабрика агентов |
-| `agent/registry.py` | `AgentRegistry` — регистрация агентов |
-| `agent/orchestrator.py` | `AgentOrchestrator` — управление LLM-агентом |
-| `agent/naive.py` | `NaiveAgent` — базовая реализация |
-| `agent/state.py` | Состояние агента |
-| `agent/system_prompt_builder.py` | Построение системного промпта |
-| `agent/message_sanitizer.py` | Санитизация сообщений |
-| `agent/context_compactor.py` | Компактизация контекста |
-| `agent/tool_filter.py` | Фильтрация инструментов |
-| `agent/plan_extractor.py` | Извлечение планов из ответов LLM |
+| `agent/base.py` | `LLMAgent(ABC)` — базовый интерфейс агента |
+| `agent/execution_engine.py` | `ExecutionEngine` — композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor |
+| `agent/llm_adapter.py` | `LLMAdapter` — адаптер LLMProvider (замена NaiveAgent) |
+| `agent/factory.py` | `AgentFactory` — создание LLMAdapter per-agent |
+| `agent/registry.py` | `AgentRegistry` — регистрация агентов с hot reload |
+| `agent/history_builder.py` | `HistoryBuilder` — конвертация session.history → list[LLMMessage] |
+| `agent/tool_filter.py` | `ToolFilter` — фильтрация инструментов по client capabilities + MCP |
+| `agent/message_sanitizer.py` | `MessageSanitizer` — восстановление orphaned tool calls |
+| `agent/context_compactor.py` | `ContextCompactor` — сжатие контекста при превышении лимита |
+| `agent/plan_extractor.py` | `PlanExtractor` — извлечение планов из ответов LLM |
+| `agent/system_prompt_builder.py` | `SystemPromptBuilder` — построение системного промпта |
+
+> ~~`agent/orchestrator.py`~~ — `AgentOrchestrator` удалён, заменён на `ExecutionEngine`
+> ~~`agent/naive.py`~~ — `NaiveAgent` удалён, заменён на `LLMAdapter`
+> ~~`agent/state.py`~~ — `OrchestratorConfig` удалён, конфигурация через TOML/Markdown
 
 #### Конфигурация агентов (agent/config/)
 
@@ -639,7 +642,7 @@ AgentLoop.resume_after_permission() → continue_execution()
 | `SessionStorage` | from_context |
 | `LLMProvider` | AppConfig |
 | `ToolRegistry` | — |
-| `AgentOrchestrator` | LLMProvider, ToolRegistry, AgentRegistry |
+| `ExecutionEngine` | HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor |
 | `GlobalPolicyManager` | GlobalPolicyStorage |
 | `StateManager`, `PlanBuilder`, `TurnLifecycleManager`, `ToolCallHandler`, `PermissionManager`, `ClientRPCHandler` | — |
 | `LLMLoopStage` | ToolRegistry, ToolCallHandler, PermissionManager, StateManager, PlanBuilder, GlobalPolicyManager |
@@ -649,7 +652,7 @@ AgentLoop.resume_after_permission() → continue_execution()
 
 | Компонент | Зависимости |
 |-----------|-------------|
-| `ACPProtocol` | SessionStorage, AgentOrchestrator, ToolRegistry, PromptOrchestrator, ClientRPCServiceHolder |
+| `ACPProtocol` | SessionStorage, ExecutionEngine, ToolRegistry, PromptOrchestrator, ClientRPCServiceHolder |
 
 ### Client: APP Scope (singleton)
 
@@ -662,7 +665,7 @@ AgentLoop.resume_after_permission() → continue_execution()
 | `FileSystemExecutor`, `TerminalExecutor` | ClientConfig |
 | `FileSystemHandler`, `TerminalHandler` | Executors |
 | `SessionCoordinator`, `PermissionHandler` | TransportService, SessionRepository, EventBus |
-| 9 ViewModels | EventBus, Logger, SessionCoordinator, ... |
+| 14 ViewModels | EventBus, Logger, SessionCoordinator, ... |
 
 ---
 
