@@ -25,7 +25,7 @@ graph TB
         HTTP[ACPHttpServer]
         AP[ACPProtocol]
         PO[PromptOrchestrator]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
         TR[ToolRegistry]
         MCP[MCPManager]
         Storage[(SessionStorage<br/>LRU Cache)]
@@ -41,7 +41,7 @@ graph TB
     TS --> BgLoop
     TS --> WS & STDIO
     WS & STDIO --> HTTP --> AP --> PO
-    PO --> AO --> LLM
+    PO --> EE --> LLM
     PO --> TR --> FS & TERM
     PO --> MCP
     AP --> Storage

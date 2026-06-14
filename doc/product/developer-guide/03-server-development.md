@@ -40,7 +40,8 @@ graph TB
     end
     
     subgraph Agent["Agent Layer"]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
+        LA[LLMAdapter]
         LLM[LLM Provider]
     end
     
@@ -96,7 +97,7 @@ container = make_container(
 | `StorageProvider` | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | LLMProviderRegistry (8+ провайдеров) |
 | `ToolsProvider` | SimpleToolRegistry |
-| `AgentProvider` | AgentOrchestrator |
+| `AgentProvider` | ExecutionEngine, LLMAdapter, AgentEventBus |
 | `PipelineProvider` | LLMLoopStage, PromptPipeline (7 стадий) |
 | `PromptOrchestratorProvider` | ClientRPCServiceHolder, PromptOrchestrator |
 | `RequestProvider` | ACPProtocol (per-connection) |
@@ -280,7 +281,7 @@ class LLMAgent(ABC):
 
 ### ExecutionEngine
 
-Основной компонент обработки LLM-запросов:
+Основной компонент обработки LLM-запросов. Композиция из HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor, SystemPromptBuilder.
 
 ```python
 class ExecutionEngine:
@@ -306,64 +307,18 @@ class ExecutionEngine:
         ...
 ```
 
-### AgentLoop
+### PromptOrchestrator
 
-Унифицированный цикл LLM tool-calling итераций:
-
-```python
-class AgentLoop:
-    async def run(self, context: AgentLoopContext) -> AgentLoopResult:
-        iteration = 0
-        while iteration < self.max_turn_requests:
-            # Вызов LLM через стратегию
-            response = await self.strategy.execute(context)
-            
-            if not response.tool_calls:
-                return AgentLoopResult(stop_reason=StopReason.END_TURN)
-            
-            # Обработка tool calls
-            for tool_call in response.tool_calls:
-                result = await self._process_tool_call(tool_call, context)
-                context.add_tool_result(tool_call.id, result)
-            
-            iteration += 1
-        
-        return AgentLoopResult(stop_reason=StopReason.MAX_TURN_REQUESTS)
-```
-
-### LLM Call Strategies
-
-| Стратегия | Статус | Описание |
-|-----------|--------|----------|
-| `SingleStrategy` | ✅ | Единственная реализованная. Один LLM-вызов → обработка tool_calls → повтор |
-| `StrategyDispatcher` | ✅ | Диспетчер с priority chain + fallback |
-| `MultiOrchestrated` | ❌ | Запланирована (мультиагент с оркестратором) |
-| `MultiChoreographed` | ❌ | Запланирована (мультиагент без оркестратора) |
-| `Hierarchical` | ❌ | Запланирована (иерархическая мультиагентная) |
-
-> **Важно:** Только `SingleStrategy` имеет конкретную реализацию. Попытка использовать незавершённые стратегии приведёт к ошибке.
-
-### AgentOrchestrator
-
-Управление агентом и фильтрация инструментов:
+Главный координатор prompt-turn. Содержит `handle_cancel()` для отмены активного промпта:
 
 ```python
-class AgentOrchestrator:
-    async def process_prompt(self, session: SessionState, prompt: list) -> AgentResponse:
-        # Фильтрация инструментов по client capabilities
-        available_tools = [
-            tool for tool in all_tools
-            if client_capabilities.supports_tool(tool.id)
-        ]
-        
-        # Вызов агента
-        return await self.agent.start_turn(context)
-    
-    async def cancel_prompt(self, session_id: str) -> None:
-        # Отмена активного asyncio.Task
-        if self._active_task:
-            self._active_task.cancel()
+class PromptOrchestrator:
+    def handle_cancel(self, session: SessionState, session_id: str) -> None:
+        # Устанавливает флаг отмены, закрывает turn
+        ...
 ```
+
+Отмена LLM-запроса выполняется через `LLMAdapter.cancel_prompt(session_id)`, который отменяет активный `asyncio.Task` с HTTP-запросом к модели (`CancelledError`).
 
 ## Tool System
 

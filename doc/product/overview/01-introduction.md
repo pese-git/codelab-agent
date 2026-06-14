@@ -86,7 +86,7 @@ graph TB
     subgraph Server["Сервер (Dishka DI)"]
         AP[ACPProtocol]
         PO[PromptOrchestrator]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
         TR[ToolRegistry]
         MCP[MCP Manager]
     end
@@ -99,7 +99,7 @@ graph TB
     
     TUI --> VM --> UC --> TS
     TS --> WS & STDIO
-    WS & STDIO --> AP --> PO --> AO --> LLM
+    WS & STDIO --> AP --> PO --> EE --> LLM
     PO --> TR --> FS & TERM
     PO --> MCP
 ```

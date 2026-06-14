@@ -1,6 +1,6 @@
 # CodeLab
 
-Унифицированная реализация ACP (Agent Client Protocol) — сервер агента и клиент в одном пакете.
+CodeLab — это полноценная агентная система, основная задача которой — ускорить и оптимизировать рабочие процессы разработчиков. Обеспечивает полную интеграцию с современными средами разработки: JetBrains IntelliJ IDEA, VSCode, Zed IDE.
 
 ## Быстрый старт за 5 минут
 
@@ -544,7 +544,7 @@ cancel_prompt(session_id) → обходит _callbacks_request_lock
 
 `ACPTransportService` переопределяет этот метод с lock-free реализацией. Базовый класс `TransportService` содержит fallback через `request_with_callbacks` для совместимости с другими реализациями транспорта.
 
-На стороне сервера `session/cancel` отменяет активный `asyncio.Task` с LLM-запросом через `AgentOrchestrator.cancel_prompt()`, что немедленно прерывает HTTP-запрос к модели (`CancelledError`).
+На стороне сервера `session/cancel` отменяет активный `asyncio.Task` с LLM-запросом через `LLMAdapter.cancel_prompt()`, что немедленно прерывает HTTP-запрос к модели (`CancelledError`).
 
 ## MCP интеграция
 
