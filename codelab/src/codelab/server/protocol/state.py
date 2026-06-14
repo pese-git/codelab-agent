@@ -134,6 +134,16 @@ class SessionState(BaseModel):
             data.setdefault("sliced_summary", None)
             data["schema_version"] = 3
 
+        # Normalize mode in config_values (backward compatibility)
+        config_values = data.get("config_values", {})
+        if "mode" in config_values:
+            from ..protocol.mode import normalize_mode
+
+            old_mode = config_values["mode"]
+            new_mode = normalize_mode(old_mode)
+            if new_mode != old_mode:
+                config_values["mode"] = new_mode
+
         return data
 
 

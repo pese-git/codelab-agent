@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from codelab.server.agent.config.loader import AgentConfigLoader
-from codelab.server.agent.config.models import AgentMode
+from codelab.server.agent.config.models import AgentRole
 
 
 @pytest.fixture
@@ -21,14 +21,14 @@ class TestParseMarkdown:
     def test_with_frontmatter(self, temp_dir):
         md_file = temp_dir / "coder.md"
         md_file.write_text(
-            "---\nname: coder\nmode: primary\nmodel: openai/gpt-4o\n---\nYou are a coder."
+            "---\nname: coder\nrole: primary\nmodel: openai/gpt-4o\n---\nYou are a coder."
         )
 
         loader = AgentConfigLoader(project_config_dir=temp_dir)
         cfg = loader._parse_markdown(md_file)
 
         assert cfg.name == "coder"
-        assert cfg.mode == AgentMode.PRIMARY
+        assert cfg.role == AgentRole.PRIMARY
         assert cfg.model == "openai/gpt-4o"
         assert cfg.prompt == "You are a coder."
 
@@ -63,7 +63,7 @@ class TestTomlToMarkdown:
         loader = AgentConfigLoader()
         toml_cfg = AgentTOMLConfig(
             enabled=True,
-            mode=AgentMode.SUBAGENT,
+            role=AgentRole.SUBAGENT,
             model="openai/gpt-4o-mini",
             temperature=0.5,
             tools=["read_file"],
@@ -72,7 +72,7 @@ class TestTomlToMarkdown:
         md_cfg = loader._toml_to_markdown("reviewer", toml_cfg)
 
         assert md_cfg.name == "reviewer"
-        assert md_cfg.mode == AgentMode.SUBAGENT
+        assert md_cfg.role == AgentRole.SUBAGENT
         assert md_cfg.model == "openai/gpt-4o-mini"
         assert md_cfg.temperature == 0.5
         assert md_cfg.tools == ["read_file"]
@@ -85,6 +85,100 @@ class TestTomlToMarkdown:
         md_cfg = loader._toml_to_markdown("test", toml_cfg)
 
         assert md_cfg.model_extra.get("custom") == "value"
+
+
+class TestBackwardCompatibility:
+    """2.9 — backward compatibility: чтение deprecated поля mode."""
+
+    def test_mode_field_in_markdown_fallback(self, temp_dir, caplog):
+        """Когда Markdown содержит mode но не role — читает как role с warning."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text(
+            "---\nname: coder\nmode: subagent\nmodel: openai/gpt-4o\n---\nYou are a coder."
+        )
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.SUBAGENT
+        assert cfg.model == "openai/gpt-4o"
+        assert "mode" in caplog.text.lower()
+        assert "deprecated" in caplog.text.lower()
+
+    def test_mode_field_in_markdown_defaults_to_primary(self, temp_dir, caplog):
+        """Невалидный mode → default PRIMARY с warning."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text("---\nname: coder\nmode: invalid_role\n---\nPrompt.")
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.PRIMARY
+
+    def test_role_takes_precedence_over_mode(self, temp_dir, caplog):
+        """Когда есть и role и mode — role имеет приоритет, warning не генерируется."""
+        md_file = temp_dir / "coder.md"
+        md_file.write_text(
+            "---\nname: coder\nrole: subagent\nmode: orchestrator\n---\nPrompt."
+        )
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        with caplog.at_level("WARNING"):
+            cfg = loader._parse_markdown(md_file)
+
+        assert cfg.role == AgentRole.SUBAGENT
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_mode_field_in_toml_fallback(self, caplog):
+        """Когда TOML содержит mode но не role — читает как role с warning."""
+        loader = AgentConfigLoader()
+        project_toml = {
+            "agents": {
+                "definitions": {
+                    "coder": {
+                        "mode": "subagent",
+                        "model": "openai/gpt-4o",
+                    }
+                }
+            }
+        }
+
+        with caplog.at_level("WARNING"):
+            result = loader.load_all(project_toml=project_toml)
+
+        assert "coder" in result
+        assert result["coder"].role == AgentRole.SUBAGENT
+        assert result["coder"].model == "openai/gpt-4o"
+        assert "mode" in caplog.text.lower()
+        assert "deprecated" in caplog.text.lower()
+
+    def test_toml_role_takes_precedence_over_mode(self, caplog):
+        """Когда TOML есть и role и mode — role имеет приоритет."""
+        loader = AgentConfigLoader(
+            global_config_dir=Path("/nonexistent-global"),
+            project_config_dir=Path("/nonexistent-project"),
+        )
+        project_toml = {
+            "agents": {
+                "definitions": {
+                    "coder": {
+                        "role": "primary",
+                        "mode": "subagent",
+                        "model": "openai/gpt-4o",
+                    }
+                }
+            }
+        }
+
+        with caplog.at_level("WARNING"):
+            result = loader.load_all(project_toml=project_toml)
+
+        assert result["coder"].role == AgentRole.PRIMARY
+        # Warning only from agents that have mode but not role;
+        # coder has role so no warning for it
+        assert "coder" not in caplog.text.lower() or "deprecated" not in caplog.text.lower()
 
 
 class TestLoadAll:
@@ -106,7 +200,7 @@ class TestLoadAll:
             "agents": {
                 "definitions": {
                     "coder": {
-                        "mode": "primary",
+                        "role": "primary",
                         "model": "openai/gpt-4o",
                     }
                 }
@@ -127,7 +221,7 @@ class TestLoadAll:
             "agents": {
                 "definitions": {
                     "coder": {
-                        "mode": "primary",
+                        "role": "primary",
                         "model": "openai/gpt-3.5",
                     }
                 }
@@ -138,11 +232,11 @@ class TestLoadAll:
         agents_dir = temp_dir / "agents"
         agents_dir.mkdir()
         (agents_dir / "coder.md").write_text(
-            "---\nname: coder\nmode: subagent\n---\nCoder prompt."
+            "---\nname: coder\nrole: subagent\n---\nCoder prompt."
         )
 
         result = loader.load_all(project_toml=project_toml)
-        assert result["coder"].mode == AgentMode.SUBAGENT  # Из MD, не TOML
+        assert result["coder"].role == AgentRole.SUBAGENT  # Из MD, не TOML
 
     def test_override_chain(self, temp_dir):
         """global TOML < global MD < project TOML < project MD."""
@@ -155,7 +249,7 @@ class TestLoadAll:
         global_toml = {
             "agents": {
                 "definitions": {
-                    "coder": {"mode": "primary", "model": "global-toml-model"},
+                    "coder": {"role": "primary", "model": "global-toml-model"},
                 }
             }
         }
@@ -171,7 +265,7 @@ class TestLoadAll:
         project_toml = {
             "agents": {
                 "definitions": {
-                    "coder": {"mode": "primary", "model": "project-toml-model"},
+                    "coder": {"role": "primary", "model": "project-toml-model"},
                 }
             }
         }

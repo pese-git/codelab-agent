@@ -11,6 +11,10 @@ TBD - created by archiving change mcp-requirements. Update Purpose after archive
 - **THEN** агент вызывает `tools/list` для обновления кэша инструментов
 
 #### Scenario: Обновление ToolRegistry после list_changed
+
+> **Примечание:** `available_commands_update` отправляется клиенту во время обработки
+> prompt turn (prompt_orchestrator.py), а не напрямую при изменении списка инструментов.
+
 - **WHEN** агент получает обновленный список инструментов от MCP сервера
 - **THEN** агент обновляет ToolRegistry и отправляет `available_commands_update` клиенту
 
@@ -26,8 +30,12 @@ TBD - created by archiving change mcp-requirements. Update Purpose after archive
 - **THEN** handler вызывается при получении соответствующей notification
 
 #### Scenario: Multiple handlers для одного notification type
+
+> **Deferred:** Параллельный вызов handlers через `asyncio.gather()` запланирован.
+> Текущая реализация вызывает handlers последовательно в цикле.
+
 - **WHEN** несколько компонентов регистрируют handlers для одного notification type
-- **THEN** все handlers вызываются параллельно
+- **THEN** все handlers вызываются последовательно
 
 ### Requirement: Notification logging
 Агент SHALL логировать все полученные notifications с уровнем DEBUG для troubleshooting.

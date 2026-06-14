@@ -5,8 +5,8 @@
 ### Требование: Глобальная конфигурация TOML
 
 Система ДОЛЖНА парсить секцию `[agents]` из codelab.toml с полями:
-- `mode: str` — режим выполнения по умолчанию (по умолчанию: "single")
-- `fallback_mode: str` — fallback при недоступности стратегии (по умолчанию: "single")
+- `role: str` — режим выполнения по умолчанию (по умолчанию: "single")
+- `fallback_role: str` — fallback при недоступности стратегии (по умолчанию: "single")
 - `default_model: str` — модель LLM по умолчанию (по умолчанию: "openai/gpt-4o")
 - `max_steps: int` — макс. шагов мультиагентного выполнения (по умолчанию: 7)
 - `slicer_model: str` — модель для Token-Slicing (по умолчанию: "openai/gpt-4o-mini")
@@ -22,7 +22,7 @@
 
 Система ДОЛЖНА парсить секции `[agents.definitions.<name>]` с полями:
 - `description: str` — обязательно
-- `mode: str` — "primary", "subagent", "orchestrator" (по умолчанию: "subagent")
+- `role: str` — "primary", "subagent", "orchestrator" (по умолчанию: "subagent")
 - `priority: int` — приоритет разрешения конфликтов (по умолчанию: 99)
 - `model: str | None` — модель LLM (fallback: default_model)
 - `temperature: float | None` — 0.0-1.0 (fallback: модель по умолчанию → 0.0)
@@ -45,7 +45,7 @@
 
 Система ДОЛЖНА поддерживать параметры frontmatter:
 - `description` (обязательно): string
-- `mode`: "primary", "subagent", "orchestrator" (по умолчанию: "subagent")
+- `role`: "primary", "subagent", "orchestrator" (по умолчанию: "subagent")
 - `priority`: int (по умолчанию: 99)
 - `model`: string (fallback: global.default_model)
 - `temperature`: float (fallback: модель по умолчанию → 0.0)
@@ -69,19 +69,25 @@
 ### Требование: Интерфейс AgentRegistry
 
 Система ДОЛЖНА предоставлять `AgentRegistry` с методами:
-- `async initialize() -> None` — загрузить агентов, зарегистрировать в EventBus, запустить watchdog
-- `async reload() -> None` — hot reload агентов из файлов
+- `async initialize() -> None` — загрузить агентов, зарегистрировать в EventBus
+- `async reload() -> None` — hot reload агентов из файлов (ручной вызов)
 - `get(agent_name: str) -> ResolvedAgent | None` — получить конфигурацию агента
 - `get_all() -> dict[str, ResolvedAgent]` — получить всех активных агентов
-- `get_primary_agents() -> dict[str, ResolvedAgent]` — агенты с mode=primary
-- `get_subagents() -> dict[str, ResolvedAgent]` — агенты с mode=subagent
-- `get_orchestrator() -> ResolvedAgent | None` — агент с mode=orchestrator
+- `get_primary_agents() -> dict[str, ResolvedAgent]` — агенты с role=primary
+- `get_subagents() -> dict[str, ResolvedAgent]` — агенты с role=subagent
+- `get_orchestrator() -> ResolvedAgent | None` — агент с role=orchestrator
+
+> **Planned:** Автоматический watchdog для file watching запланирован.
+> Текущая реализация поддерживает ручной `reload()`.
 
 ### Требование: Hot Reload
 
+> **Planned:** Автоматический file watching через watchdog запланирован.
+> Текущая реализация: ручной `reload()` вызов.
+
 AgentRegistry ДОЛЖЕН:
-- Наблюдать за `.codelab/agents/*.md`, `~/.codelab/agents/*.md`, `codelab.toml`, `~/.codelab/codelab.toml`
-- При изменении: перезагрузить всех агентов, сравнить с предыдущим состоянием
+- Поддерживать hot reload через `reload()` метод
+- При вызове: перезагрузить всех агентов, сравнить с предыдущим состоянием
 - Удалить удалённых агентов, зарегистрировать новых
 - Публиковать события жизненного цикла (AgentRegistered, AgentUnregistered, AgentListChanged)
 
@@ -98,7 +104,7 @@ AgentRegistry ДОЛЖЕН:
 Система ДОЛЖНА определять `ResolvedAgent` с разрешёнными полями:
 - `name: str`
 - `description: str`
-- `mode: AgentMode`
+- `role: AgentRole`
 - `priority: int` (по умолчанию: 99)
 - `model: str` (разрешено: agent → default)
 - `system_prompt: str`

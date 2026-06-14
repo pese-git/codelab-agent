@@ -94,7 +94,7 @@ class AgentConfigResolver:
         return ResolvedAgent(
             name=name,
             enabled=md_config.enabled,
-            mode=md_config.mode,
+            role=md_config.role,
             priority=md_config.priority,
             model=model,
             temperature=temperature,

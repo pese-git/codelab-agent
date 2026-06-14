@@ -3,7 +3,6 @@
 import pytest
 
 from codelab.server.agent.base import AgentContext, AgentResponse, LLMAgent
-from codelab.server.agent.state import OrchestratorConfig
 from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse, LLMToolCall
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
@@ -107,27 +106,6 @@ def test_agent_response_with_metadata() -> None:
         metadata={"tokens_used": 150},
     )
     assert response.metadata["tokens_used"] == 150
-
-
-def test_orchestrator_config_creation() -> None:
-    """Проверить создание OrchestratorConfig."""
-    config = OrchestratorConfig(enabled=True)
-    assert config.enabled is True
-    assert config.model == "gpt-4o"
-    assert config.temperature == 0.7
-
-
-def test_orchestrator_config_custom() -> None:
-    """Проверить OrchestratorConfig с пользовательскими значениями."""
-    config = OrchestratorConfig(
-        enabled=True,
-        model="gpt-4-turbo",
-        temperature=0.5,
-        max_tokens=4096,
-    )
-    assert config.model == "gpt-4-turbo"
-    assert config.temperature == 0.5
-    assert config.max_tokens == 4096
 
 
 def test_llm_provider_is_abstract() -> None:

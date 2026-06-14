@@ -2,9 +2,6 @@
 
 Проверяет интеграцию всех компонентов Этапа 2 и Этапа 3
 при обработке prompt-turn.
-
-NOTE: AgentOrchestrator is deprecated. Use ExecutionEngine + StrategyDispatcher instead.
-These tests are kept for backward compatibility verification.
 """
 
 from types import SimpleNamespace
@@ -12,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.base import AgentResponse
 from codelab.server.llm.base import LLMToolCall
 from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -203,28 +199,6 @@ def sessions(session: SessionState) -> dict[str, SessionState]:
     return {"sess_1": session}
 
 
-@pytest.fixture
-def agent_orchestrator() -> AsyncMock:
-    """Создает mock для AgentOrchestrator.
-    
-    Возвращает AgentResponse вместо SessionState для соответствия
-    новой архитектуре LLM loop.
-    """
-    mock = AsyncMock()
-    # AgentResponse с пустым текстом и без tool calls
-    mock.process_prompt = AsyncMock(return_value=AgentResponse(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-    ))
-    mock.continue_with_tool_results = AsyncMock(return_value=AgentResponse(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-    ))
-    return mock
-
-
 class TestPromptOrchestratorInitialization:
     """Тесты инициализации PromptOrchestrator."""
 
@@ -247,7 +221,6 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Создает active turn при обработке промпта."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -267,7 +240,6 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Обновляет состояние сессии при обработке."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -289,7 +261,6 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Возвращает notifications при обработке."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -315,7 +286,6 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Обрабатывает пустой промпт."""
         outcome = await orchestrator.handle_prompt(
@@ -335,10 +305,8 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Обрабатывает ошибку агента."""
-        agent_orchestrator.process_prompt.side_effect = Exception("Agent failed")
 
         prompt = [{"type": "text", "text": "Test prompt"}]
         outcome = await orchestrator.handle_prompt(
@@ -360,7 +328,6 @@ class TestPromptOrchestratorHandlePrompt:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """Устанавливает заголовок сессии из первого промпта."""
         prompt = [{"type": "text", "text": "My test prompt"}]
@@ -636,7 +603,6 @@ class TestPromptOrchestratorComponentIntegration:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
-        agent_orchestrator: AsyncMock,
     ) -> None:
         """StateManager интегрирован в prompt handling."""
         prompt = [{"type": "text", "text": "Test"}]

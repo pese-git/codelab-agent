@@ -40,7 +40,8 @@ graph TB
     end
     
     subgraph Agent["Agent Layer"]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
+        LA[LLMAdapter]
         LLM[LLM Provider]
     end
     
@@ -96,7 +97,7 @@ container = make_container(
 | `StorageProvider` | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | LLMProviderRegistry (8+ провайдеров) |
 | `ToolsProvider` | SimpleToolRegistry |
-| `AgentProvider` | AgentOrchestrator |
+| `AgentProvider` | ExecutionEngine, LLMAdapter, AgentEventBus |
 | `PipelineProvider` | LLMLoopStage, PromptPipeline (7 стадий) |
 | `PromptOrchestratorProvider` | ClientRPCServiceHolder, PromptOrchestrator |
 | `RequestProvider` | ACPProtocol (per-connection) |
@@ -278,40 +279,46 @@ class LLMAgent(ABC):
         ...
 ```
 
-### NaiveAgent
+### ExecutionEngine
 
-Реализация с OpenAI function calling:
+Основной компонент обработки LLM-запросов. Композиция из HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor, SystemPromptBuilder.
 
 ```python
-class NaiveAgent(LLMAgent):
-    async def start_turn(self, context: AgentContext) -> AgentResponse:
-        # Добавляет user message к conversation_history
-        # Вызывает LLM с tools
-        # Возвращает AgentResponse(text, tool_calls, stop_reason)
+class ExecutionEngine:
+    def __init__(
+        self,
+        history_builder: HistoryBuilder,
+        tool_filter: ToolFilter,
+        llm_adapter: LLMAdapter,
+        message_sanitizer: MessageSanitizer,
+        plan_extractor: PlanExtractor,
+        context_compactor: ContextCompactor,
+        system_prompt_builder: SystemPromptBuilder,
+    ):
+        ...
+    
+    async def execute(self, context: ExecutionContext) -> ExecutionResult:
+        # 1. Build LLM messages from session history
+        # 2. Filter tools by client capabilities
+        # 3. Sanitize orphaned tool calls
+        # 4. Build system prompt
+        # 5. Call LLM via LLMAdapter
+        # 6. Extract plan from response
         ...
 ```
 
-### AgentOrchestrator
+### PromptOrchestrator
 
-Управление агентом и фильтрация инструментов:
+Главный координатор prompt-turn. Содержит `handle_cancel()` для отмены активного промпта:
 
 ```python
-class AgentOrchestrator:
-    async def process_prompt(self, session: SessionState, prompt: list) -> AgentResponse:
-        # Фильтрация инструментов по client capabilities
-        available_tools = [
-            tool for tool in all_tools
-            if client_capabilities.supports_tool(tool.id)
-        ]
-        
-        # Вызов агента
-        return await self.agent.start_turn(context)
-    
-    async def cancel_prompt(self, session_id: str) -> None:
-        # Отмена активного asyncio.Task
-        if self._active_task:
-            self._active_task.cancel()
+class PromptOrchestrator:
+    def handle_cancel(self, session: SessionState, session_id: str) -> None:
+        # Устанавливает флаг отмены, закрывает turn
+        ...
 ```
+
+Отмена LLM-запроса выполняется через `LLMAdapter.cancel_prompt(session_id)`, который отменяет активный `asyncio.Task` с HTTP-запросом к модели (`CancelledError`).
 
 ## Tool System
 

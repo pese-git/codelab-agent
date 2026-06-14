@@ -179,7 +179,9 @@ class TestSessionStateMigrationV1toV3:
         assert session.cwd == "/project"
         assert session.mcp_servers == [{"name": "test-server"}]
         assert session.title == "Test Title"
-        assert session.config_values == {"model": "gpt-4o", "mode": "code"}
+        # mode=code мигрирует на bypass
+        assert session.config_values["model"] == "gpt-4o"
+        assert session.config_values["mode"] == "bypass"
         assert len(session.history) == 1
         assert session.tool_call_counter == 42
         assert session.permission_policy == {"read": "allow_always"}

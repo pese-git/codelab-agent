@@ -525,5 +525,5 @@ async def _notification_handler(self, notification: MCPNotification):
 
 - [Архитектура CodeLab](01-architecture.md) — общая архитектура
 - [MCP серверы (user guide)](../user-guide/14-mcp-servers.md) — пользовательская документация
-- [MCP Protocol](../../Model%20Context%20Protocol/) — полная спецификация MCP
+- [MCP Protocol](../../protocols/Model%20Context%20Protocol/) — полная спецификация MCP
 - [Тестирование](05-testing.md) — запуск и написание тестов

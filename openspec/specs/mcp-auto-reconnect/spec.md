@@ -18,6 +18,10 @@ TBD - created by archiving change mcp-requirements. Update Purpose after archive
 - **WHEN** агент не может переподключиться после 5 попыток
 - **THEN** агент помечает сервер как FAILED и логирует ошибку
 
+> **Deferred:** Graceful degradation (удаление сервера из active, удаление инструментов
+> из available_tools, уведомление клиента) запланировано для будущей реализации.
+> Текущая реализация устанавливает state=FAILED и уведомляет callbacks.
+
 ### Requirement: Retry configuration
 Конфигурация retry策略 SHALL быть настраиваемой через parameters: `max_retries`, `initial_delay`, `max_delay`, `backoff_multiplier`.
 

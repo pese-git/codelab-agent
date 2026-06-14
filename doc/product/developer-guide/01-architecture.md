@@ -4,13 +4,13 @@
 
 ## Обзор
 
-CodeLab реализует клиент-серверную архитектуру на основе [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/01-Introduction.md). Проект использует **Dishka DI контейнер** для управления зависимостями и следует принципам **Clean Architecture** на клиенте.
+CodeLab реализует клиент-серверную архитектуру на основе [Agent Client Protocol (ACP)](../../protocols/Agent%20Client%20Protocol/get-started/01-Introduction.md). Проект использует **Dishka DI контейнер** для управления зависимостями и следует принципам **Clean Architecture** на клиенте.
 
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
         TUI[TUI App<br/>45 компонентов]
-        VM[9 ViewModels]
+        VM[14 ViewModels]
         UC[5 Use Cases]
         TS[ACPTransportService]
     end
@@ -24,7 +24,7 @@ graph TB
         HTTP[ACPHttpServer]
         AP[ACPProtocol]
         PO[PromptOrchestrator]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
         TR[ToolRegistry]
         Storage[(SessionStorage)]
     end
@@ -32,7 +32,7 @@ graph TB
     TUI --> VM --> UC --> TS
     TS --> WS & STDIO
     WS & STDIO --> HTTP --> AP --> PO
-    PO --> AO --> TR
+    PO --> EE --> TR
     AP --> Storage
 ```
 
@@ -182,9 +182,11 @@ graph TB
 
         subgraph AGENT["Agent Layer"]
             direction TB
-            AO[AgentOrchestrator]
-            AGENT_BASE[LLMAgent(ABC)]
-            NAIVE[NaiveAgent]
+            EE[ExecutionEngine<br/>HistoryBuilder + ToolFilter<br/>+ LLMAdapter + MessageSanitizer<br/>+ PlanExtractor + ContextCompactor]
+            LA[LLMAdapter]
+            HB[HistoryBuilder]
+            TF[ToolFilter]
+            MS[MessageSanitizer]
             PE[PlanExtractor]
         end
 
@@ -338,7 +340,7 @@ codelab/
 │   │   ├── domain/         # Entities, Repositories, Events
 │   │   ├── application/    # Use Cases, DTOs, State Machine
 │   │   ├── infrastructure/ # DI, Transport, Handlers, EventBus
-│   │   ├── presentation/   # 9 ViewModels (MVVM)
+│   │   ├── presentation/   # 14 ViewModels (MVVM)
 │   │   └── tui/            # 45 Textual компонентов
 │   └── server/             # ACP сервер (Dishka DI)
 │       ├── di.py           # Dishka контейнер (APP/REQUEST scope)
@@ -365,7 +367,7 @@ graph TB
     end
     
     subgraph Presentation["Presentation Layer"]
-        VM[9 ViewModels]
+        VM[14 ViewModels]
         Obs[Observable<T>]
     end
     
@@ -436,7 +438,7 @@ graph TB
 **DI Container (Dishka):**
 - `create_client_container()` — фабрика контейнера
 - `ClientProvider` — инфраструктурные сервисы (транспорт, репозитории, обработчики)
-- `ViewModelProvider` — 9 ViewModels
+- `ViewModelProvider` — 14 ViewModels
 
 **Транспорт:**
 - `WebSocketTransport` — aiohttp WebSocket клиент
@@ -505,7 +507,7 @@ graph TB
 | `StorageProvider` | APP | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
 | `ToolsProvider` | APP | SimpleToolRegistry, MCPToolExecutor |
-| `AgentProvider` | APP | AgentOrchestrator |
+| `AgentProvider` | APP | ExecutionEngine, LLMAdapter, AgentEventBus |
 | `PipelineProvider` | APP | LLMLoopStage, PromptPipeline (7 стадий) |
 | `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, PromptOrchestrator |
 | `MCPProvider` | APP | MCPManager factory |
@@ -547,7 +549,7 @@ graph TB
 7. `TurnLifecycleStage(close)` — закрытие turn
 
 **LLMLoopStage** — главная стадия:
-- Вызов LLM через AgentOrchestrator
+- Вызов LLM через ExecutionEngine + LLMAdapter
 - Обработка tool calls с проверкой разрешений
 - Выполнение инструментов через ToolRegistry
 - Отправка session/update уведомлений
@@ -568,9 +570,14 @@ graph TB
 | Файл | Класс | Описание |
 |------|-------|----------|
 | `base.py` | `LLMAgent(ABC)` | Интерфейс: `start_turn()`, `continue_turn()`, `cancel_prompt()` |
-| `naive.py` | `NaiveAgent` | Реализация с OpenAI function calling |
-| `orchestrator.py` | `AgentOrchestrator` | Построение контекстов, фильтрация инструментов по capabilities |
+| `llm_adapter.py` | `LLMAdapter` | Адаптер LLMProvider, замена NaiveAgent |
+| `execution_engine.py` | `ExecutionEngine` | Композиция: HistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor |
+| `history_builder.py` | `HistoryBuilder` | Конвертация session.history → list[LLMMessage] |
+| `tool_filter.py` | `ToolFilter` | Фильтрация инструментов по client capabilities + MCP |
+| `message_sanitizer.py` | `MessageSanitizer` | Восстановление orphaned tool calls |
 | `plan_extractor.py` | `PlanExtractor` | Извлечение плана из LLM ответа |
+| `context_compactor.py` | `ContextCompactor` | Сжатие контекста при превышении лимита |
+| `system_prompt_builder.py` | `SystemPromptBuilder` | Построение системного промпта |
 
 **Фильтрация инструментов:** `_SERVER_SIDE_TOOL_KINDS = {"think", "plan"}` — всегда доступны. Остальные (fs_read, fs_write, terminal) требуют matching client capabilities.
 
@@ -702,7 +709,7 @@ sequenceDiagram
     participant S as ACPProtocol
     participant PO as PromptOrchestrator
     participant LL as LLMLoopStage
-    participant AO as AgentOrchestrator
+    participant EE as ExecutionEngine
     participant LLM as LLM Provider
     participant TR as ToolRegistry
     participant Storage[(SessionStorage)]
@@ -713,9 +720,9 @@ sequenceDiagram
     PO->>LL: process(context)
     
     loop LLM Loop (до 10 итераций)
-        LL->>AO: process_prompt/continue_turn
-        AO->>LLM: create_completion(messages, tools)
-        LLM-->>AO: LLMResponse(text, tool_calls, stop_reason)
+        LL->>EE: execute(context)
+        EE->>LLM: create_completion(messages, tools)
+        LLM-->>EE: LLMResponse(text, tool_calls, stop_reason)
         
         alt stop_reason = end_turn
             LL-->>PO: stop_reason=end_turn
@@ -783,7 +790,7 @@ cancel_prompt(session_id) → обходит _callbacks_request_lock
     └─ ждёт ответа (timeout 5 с) и очищает очередь
 ```
 
-На стороне сервера `session/cancel` отменяет активный `asyncio.Task` с LLM-запросом через `AgentOrchestrator.cancel_prompt()`, что немедленно прерывает HTTP-запрос к модели (`CancelledError`).
+На стороне сервера `session/cancel` отменяет активный `asyncio.Task` с LLM-запросом через `LLMAdapter.cancel_prompt()`, что немедленно прерывает HTTP-запрос к модели (`CancelledError`).
 
 ## Дополнительные материалы
 

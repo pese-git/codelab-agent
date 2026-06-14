@@ -1,10 +1,12 @@
 # Введение в CodeLab
 
-> Унифицированная реализация Agent Client Protocol (ACP) — сервер агента и клиент в одном пакете.
+> AI-ассистент для разработчиков с открытой архитектурой и полным контролем над действиями агента.
 
 ## Что такое CodeLab?
 
-CodeLab — это полнофункциональная реализация [Agent Client Protocol (ACP)](../../Agent%20Client%20Protocol/get-started/01-Introduction.md), стандартизированного протокола взаимодействия между AI-агентами и редакторами кода.
+CodeLab — AI-ассистент для разработчиков, который работает с вашим кодом: читает файлы, выполняет команды, создаёт и редактирует код — из терминала или IDE. Все действия проходят через систему разрешений — вы контролируете каждое изменение агента.
+
+CodeLab построен на базе [Agent Client Protocol (ACP)](../../protocols/Agent%20Client%20Protocol/get-started/01-Introduction.md) — открытого стандарта взаимодействия между AI-агентами и клиентами.
 
 CodeLab объединяет в себе:
 - **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)
@@ -86,7 +88,7 @@ graph TB
     subgraph Server["Сервер (Dishka DI)"]
         AP[ACPProtocol]
         PO[PromptOrchestrator]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
         TR[ToolRegistry]
         MCP[MCP Manager]
     end
@@ -99,7 +101,7 @@ graph TB
     
     TUI --> VM --> UC --> TS
     TS --> WS & STDIO
-    WS & STDIO --> AP --> PO --> AO --> LLM
+    WS & STDIO --> AP --> PO --> EE --> LLM
     PO --> TR --> FS & TERM
     PO --> MCP
 ```

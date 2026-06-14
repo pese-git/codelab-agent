@@ -549,17 +549,16 @@ class TestClientRPCBridgeOtherMethods:
         )
 
     @pytest.mark.asyncio
-    async def test_read_file_error_returns_none(
+    async def test_read_file_error_raises(
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
-        """Ошибка чтения файла возвращает None."""
+        """Ошибка чтения файла пробрасывает исключение."""
         mock_rpc_service.read_text_file = AsyncMock(
             side_effect=ClientRPCError("error")
         )
 
-        result = await bridge.read_file(session, path="/tmp/test.txt")
-
-        assert result is None
+        with pytest.raises(ClientRPCError, match="error"):
+            await bridge.read_file(session, path="/tmp/test.txt")
 
     @pytest.mark.asyncio
     async def test_write_file_success(
@@ -573,17 +572,16 @@ class TestClientRPCBridgeOtherMethods:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_write_file_error_returns_false(
+    async def test_write_file_error_raises(
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
-        """Ошибка записи файла возвращает False."""
+        """Ошибка записи файла пробрасывает исключение."""
         mock_rpc_service.write_text_file = AsyncMock(
             side_effect=ClientRPCError("error")
         )
 
-        result = await bridge.write_file(session, path="/tmp/test.txt", content="data")
-
-        assert result is False
+        with pytest.raises(ClientRPCError, match="error"):
+            await bridge.write_file(session, path="/tmp/test.txt", content="data")
 
     @pytest.mark.asyncio
     async def test_create_terminal_success(

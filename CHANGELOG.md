@@ -7,6 +7,17 @@
 ## [Unreleased]
 
 ### Fixed
+- **Stdio transport deadlock в bypass mode**: `session/prompt` теперь выполняется в фоновой задаче (`asyncio.create_task`), чтобы receive-loop мог продолжать читать stdin и маршрутизировать client RPC responses (например, ответы на `fs/read_text_file`). Раньше transport loop блокировался на `await on_message()` и не читал stdin → deadlock на 44+ секунд.
+  - `StdioServerTransport` принимает callbacks для интеграции с `ACPProtocol` без прямой зависимости
+  - Полный паритет с `WebSocketTransport`: deferred prompt completion, session/cancel отмена, cleanup при disconnect
+  - 14 новых unit-тестов, включая регрессионный тест на bypass-mode deadlock
+
+- **Дублирование pending_tool_execution scheduling**: Убрано двойное выполнение инструментов — ранее и `protocol.handle_and_process()`, и `_finalize_outcome_and_send()` в каждом транспорте schedule'или background task. Теперь только `handle_and_process()` отвечает за scheduling.
+  - Исправлено в `StdioServerTransport` и `WebSocketTransport`
+  - Убран `schedule_pending_tool` callback из stdio транспорта (упрощение API)
+
+- **Strategy dispatcher defensive fixes**: Стратегия фиксируется на первый вызов (`_strategy_selected` флаг), `continue_execution` выбирает дефолтную стратегию если `_current_strategy_name = None`, добавлено детальное логирование (`llm_response_received`, `tool_execution_decision`).
+
 - **Terminal output flow (ГЭП #11)**: Исправлена работа терминальных инструментов со сторонними клиентами (Zed IDE)
   - `TerminalWaitForExitResponse` теперь соответствует ACP spec (только `exitCode` и `signal`, без `output`)
   - `TerminalOutputResponse` использует `exitStatus` и `truncated` по ACP spec
@@ -42,12 +53,12 @@
 - Добавлены integration тесты для проверки persistence
 
 **Документы:**
-- [`doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md`](doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md) (~750 строк)
+- [`doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md`](doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md) (~750 строк)
   * Анализ текущей реализации (SessionState, PermissionManager, Storage)
   * 4 диаграммы Mermaid (sequence, state, class, gantt)
   * 3-уровневая storage architecture
   * 4-фазный план реализации
-- [`doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md`](doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md) (~480 строк)
+- [`doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md`](doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md) (~480 строк)
   * Детальный анализ 4 проблем с impact и root cause
   * Рекомендации по приоритизации
   * Риски и mitigation strategies
@@ -79,7 +90,7 @@
 ### Added - Этап 4, Фаза 5: E2E Testing Content Integration (2026-04-16)
 
 #### Архитектура
-- Создан архитектурный документ [`doc/architecture/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md`](doc/architecture/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md)
+- Создан архитектурный документ [`doc/architecture/archive/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md`](doc/architecture/archive/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md)
 - 4 диаграммы Mermaid: Test Flow, Test Sequence, Coverage Matrix, Data Flow
 - Определено 40+ E2E сценариев с приоритетами
 
@@ -121,7 +132,7 @@
 **Исправлена передача capabilities от клиента согласно ACP спецификации**
 
 - Клиент теперь отправляет правильные `clientCapabilities` в `initialize` запросе
-- `AgentOrchestrator` фильтрует инструменты на основе объявленных capabilities
+- `ExecutionEngine` (через `ToolFilter`) фильтрует инструменты на основе объявленных capabilities
 - Соответствие спецификации: "Clients and Agents MUST treat all capabilities omitted in the initialize request as UNSUPPORTED"
 
 ### Added - Этап 4: Prompt Turn Content Integration (Фазы 1-3) (2026-04-16)
@@ -176,7 +187,7 @@
 #### Архитектура
 
 **Документация:**
-- [`doc/architecture/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md`](doc/architecture/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md) - полная архитектура (1900+ строк)
+- [`doc/architecture/archive/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md`](doc/architecture/archive/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md) - полная архитектура (1900+ строк)
 - 4 Mermaid диаграммы: Component, Sequence, Data Flow, Class
 - Детальный implementation plan для всех фаз
 
@@ -268,7 +279,7 @@
 **Полная реализация клиентских методов для доступа к локальной среде пользователя**
 
 #### Архитектура
-- Создан архитектурный документ [`doc/architecture/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/CLIENT_METHODS_ARCHITECTURE.md) (1600+ строк)
+- Создан архитектурный документ [`doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md) (1600+ строк)
 - Исправлено понимание направления вызовов: Agent → Client RPC
 - 6 диаграмм Mermaid (Component, Sequence, State, Class)
 
@@ -328,7 +339,7 @@
 
 #### Документация
 
-- **Архитектурный план:** [`doc/architecture/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/CLIENT_METHODS_ARCHITECTURE.md) — полная архитектура
+- **Архитектурный план:** [`doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md) — полная архитектура
 - **Спецификация:** [`doc/Agent Client Protocol/protocol/09-File System.md`](doc/Agent Client Protocol/protocol/09-File System.md) и [`doc/Agent Client Protocol/protocol/10-Terminal.md`](doc/Agent Client Protocol/protocol/10-Terminal.md)
 
 #### Метрики качества
@@ -396,7 +407,7 @@
 - **Итого:** 132 теста (100% успешность)
 
 #### Документация
-- **Архитектурный план:** [`doc/architecture/CONTENT_TYPES_ARCHITECTURE.md`](doc/architecture/CONTENT_TYPES_ARCHITECTURE.md) — полное описание дизайна и реализации
+- **Архитектурный план:** [`doc/architecture/archive/CONTENT_TYPES_ARCHITECTURE.md`](doc/architecture/archive/CONTENT_TYPES_ARCHITECTURE.md) — полное описание дизайна и реализации
 - **Спецификация:** [`doc/Agent Client Protocol/protocol/06-Content.md`](doc/Agent Client Protocol/protocol/06-Content.md) — официальная спецификация протокола
 
 #### Метрики качества

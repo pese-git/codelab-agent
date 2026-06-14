@@ -335,9 +335,25 @@ class StrategyDispatcher:
         Returns:
             AgentResponse с результатом
         """
-        # Используем текущую стратегию
+        # Defensive: если стратегия не выбрана (например, resume_after_permission
+        # без предварительного execute), выбрать дефолтную
+        if self._current_strategy_name is None:
+            self._current_strategy_name, _ = self.select_strategy(
+                session, context_meta=None
+            )
+            logger.warning(
+                "continue_execution: strategy was not set, selected default",
+                strategy=self._current_strategy_name,
+                session_id=session.session_id,
+            )
+
         strategy = self.get_current_strategy()
         if strategy is None:
+            logger.error(
+                "continue_execution: failed to create strategy instance",
+                strategy_name=self._current_strategy_name,
+                session_id=session.session_id,
+            )
             raise ValueError(f"No strategy instance for: {self._current_strategy_name}")
 
         # Получаем agent_name из session config

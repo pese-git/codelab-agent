@@ -1,6 +1,6 @@
 """Handler для команды /mode.
 
-Показывает или изменяет режим сессии.
+Показывает или изменяет режим сессии (ACP Protocol mode).
 """
 
 from __future__ import annotations
@@ -8,14 +8,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from codelab.server.models import AvailableCommand, AvailableCommandInput
+from codelab.server.protocol.mode import (
+    DEFAULT_MODE,
+    MODE_DESCRIPTIONS,
+    VALID_MODES,
+    normalize_mode,
+)
 
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
-
-# Доступные режимы сессии
-AVAILABLE_MODES = ["code", "architect", "ask", "debug"]
 
 
 class ModeCommandHandler(CommandHandler):
@@ -24,12 +27,7 @@ class ModeCommandHandler(CommandHandler):
     Без аргументов: показывает текущий режим.
     С аргументом: устанавливает новый режим.
 
-    Пример использования:
-        handler = ModeCommandHandler()
-        # Показать текущий режим
-        result = handler.execute([], session)
-        # Установить режим
-        result = handler.execute(["architect"], session)
+    Доступные режимы: plan, standard, bypass
     """
 
     def execute(
@@ -46,7 +44,7 @@ class ModeCommandHandler(CommandHandler):
         Returns:
             CommandResult с информацией о режиме или подтверждением смены
         """
-        current_mode = session.config_values.get("mode", "code")
+        current_mode = session.config_values.get("mode", DEFAULT_MODE)
 
         # Если аргументов нет — показываем текущий режим
         if not args:
@@ -55,9 +53,10 @@ class ModeCommandHandler(CommandHandler):
                 "",
                 "**Доступные режимы:**",
             ]
-            for mode in AVAILABLE_MODES:
-                marker = "→" if mode == current_mode else " "
-                lines.append(f" {marker} `{mode}`")
+            for mode_id in sorted(VALID_MODES):
+                info = MODE_DESCRIPTIONS.get(mode_id, {})
+                marker = "→" if mode_id == current_mode else " "
+                lines.append(f" {marker} `{mode_id}` — {info.get('name', mode_id)}")
 
             lines.append("")
             lines.append("Для смены режима: `/mode <имя_режима>`")
@@ -68,19 +67,21 @@ class ModeCommandHandler(CommandHandler):
 
         # Устанавливаем новый режим
         new_mode = args[0].lower()
+        normalized = normalize_mode(new_mode)
 
-        if new_mode not in AVAILABLE_MODES:
+        if new_mode not in VALID_MODES and new_mode not in ("ask", "code", "architect", "debug"):
+            valid_list = ", ".join(f"`{m}`" for m in sorted(VALID_MODES))
             return CommandResult(
                 content=[{
                     "type": "text",
                     "text": (
                         f"❌ Неизвестный режим: `{new_mode}`\n\n"
-                        f"Доступные режимы: {', '.join(f'`{m}`' for m in AVAILABLE_MODES)}"
+                        f"Доступные режимы: {valid_list}"
                     ),
                 }]
             )
 
-        if new_mode == current_mode:
+        if normalized == current_mode:
             return CommandResult(
                 content=[{
                     "type": "text",
@@ -89,18 +90,22 @@ class ModeCommandHandler(CommandHandler):
             )
 
         # Устанавливаем новый режим в config_values
-        session.config_values["mode"] = new_mode
+        session.config_values["mode"] = normalized
 
         # Формируем update для клиента
         mode_update = {
             "sessionUpdate": "current_mode_update",
-            "mode": new_mode,
+            "mode": normalized,
         }
+
+        msg = f"✅ Режим изменён: `{current_mode}` → `{normalized}`"
+        if normalized != new_mode:
+            msg += f" (нормализовано из `{new_mode}`)"
 
         return CommandResult(
             content=[{
                 "type": "text",
-                "text": f"✅ Режим изменён: `{current_mode}` → `{new_mode}`",
+                "text": msg,
             }],
             updates=[mode_update],
         )
@@ -111,6 +116,6 @@ class ModeCommandHandler(CommandHandler):
             name="mode",
             description="Показать или изменить режим сессии",
             input=AvailableCommandInput(
-                hint="имя режима (code, architect, ask, debug)"
+                hint="режим (plan, standard, bypass)"
             ),
         )

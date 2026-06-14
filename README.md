@@ -1,15 +1,18 @@
 # CodeLab
 
-> Унифицированная реализация [Agent Client Protocol (ACP)](doc/Agent%20Client%20Protocol/get-started/01-Introduction.md) — AI-агент и клиент в едином Python-пакете.
+> AI-ассистент для разработчиков с открытой архитектурой и полным контролем над действиями агента.
 
 ## Что такое CodeLab?
 
-CodeLab — это полнофункциональная реализация протокола ACP для взаимодействия AI-агентов с редакторами кода. Проект объединяет:
+CodeLab — AI-ассистент для разработчиков, который работает с вашим кодом: читает файлы, выполняет команды, создаёт и редактирует код — из терминала или IDE. Все действия проходят через систему разрешений — вы контролируете каждое изменение агента.
 
-- **ACP-сервер** — интеллектуальный агент с поддержкой OpenAI GPT-4
+Проект объединяет:
+
+- **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)
 - **TUI-клиент** — терминальный интерфейс на базе Textual
 - **Web UI** — браузерный интерфейс для удаленной работы
 - **stdio транспорт** — основной транспорт ACP (stdin/stdout JSON-RPC)
+- **MCP интеграция** — подключение внешних инструментов через Model Context Protocol
 
 ## Быстрый старт
 
@@ -38,7 +41,8 @@ uv run codelab connect --stdio          # клиент запускает аге
 | [Руководство пользователя](doc/product/user-guide/01-tui-client.md) | Работа с TUI-клиентом |
 | [Руководство разработчика](doc/product/developer-guide/01-architecture.md) | Архитектура и разработка |
 | [Справочник CLI](doc/product/reference/01-cli.md) | Команды и опции |
-| [ACP Protocol](doc/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
+| [Архитектура](doc/internals/architecture/ARCHITECTURE.md) | Детальная архитектура системы |
+| [ACP Protocol](doc/protocols/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
 
 ## Структура проекта
 
@@ -50,21 +54,35 @@ acp-protocol/
 │   │   │   ├── domain/         # Сущности и интерфейсы
 │   │   │   ├── application/    # Use Cases, State Machine
 │   │   │   ├── infrastructure/ # DI, Transport, Handlers
-│   │   │   ├── presentation/   # ViewModels (MVVM)
+│   │   │   ├── presentation/   # ViewModels (MVVM, 14 штук)
 │   │   │   └── tui/            # Textual UI компоненты
 │   │   ├── server/             # ACP-сервер
-│   │   │   ├── protocol/       # Обработчики методов ACP
-│   │   │   ├── agent/          # LLM-агент (OpenAI)
-│   │   │   ├── tools/          # Инструменты (fs, terminal)
+│   │   │   ├── protocol/       # Обработчики методов ACP + Pipeline
+│   │   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
+│   │   │   ├── tools/          # Инструменты (fs, terminal, plan)
 │   │   │   ├── storage/        # Хранилище сессий
-│   │   │   └── llm/            # LLM-провайдеры
-│   │   ├── shared/             # Общие модули
+│   │   │   ├── llm/            # LLM-провайдеры (8+)
+│   │   │   ├── mcp/            # MCP интеграция (Manager, Client, Adapters)
+│   │   │   └── observability/  # Tracing, Metrics, Timeline
+│   │   ├── shared/             # Общие модули (messages, logging, content)
 │   │   └── cli.py              # CLI точка входа
-│   └── tests/                  # Тесты (~1800 тестов)
+│   └── tests/                  # Тесты (~3300 тестов)
 ├── doc/
-│   ├── product/                # Продуктовая документация
-│   ├── architecture/           # Архитектурные документы
-│   └── Agent Client Protocol/  # Спецификация ACP (не изменять!)
+│   ├── product/                # Продуктовая документация (для website)
+│   │   ├── overview/           # Введение, архитектура, сценарии
+│   │   ├── getting-started/    # Установка, быстрый старт
+│   │   ├── user-guide/         # Руководство пользователя
+│   │   ├── developer-guide/    # Для разработчиков
+│   │   ├── reference/          # Справочники (CLI, config, env)
+│   │   └── support/            # FAQ, troubleshooting
+│   ├── protocols/              # Референсные протоколы (не изменять!)
+│   │   ├── Agent Client Protocol/
+│   │   ├── Agent To Agent Protocol/
+│   │   └── Model Context Protocol/
+│   └── internals/              # Внутренние документы
+│       ├── architecture/       # Архитектура, ADR, карта проекта
+│       ├── roadmap/            # Планы развития кодовой базы
+│       └── archive/            # Исторические документы
 └── Makefile                    # Команды сборки и проверок
 ```
 
