@@ -28,13 +28,22 @@
 - **OpenAICompatibleProvider**: Базовый класс для всех OpenAI-совместимых провайдеров
 - **AnthropicProvider**: Отдельная реализация через Messages API
 
-### MCP Integration (Stage 8)
+### MCP Integration (Stage 8) — ЗАВЕРШЕНО
 
-Добавлена поддержка Model Context Protocol:
-- Модуль интеграции с MCP серверами
-- Поддержка параметра `mcpServers` в сессиях
-- Transport для запуска MCP серверов через stdio
-- Адаптер инструментов MCP для ToolRegistry
+Добавлена полная поддержка Model Context Protocol:
+- **MCPManager** — управление несколькими MCP-серверами на сессию
+- **MCPClient** — клиент с state machine (Created → Connecting → Initializing → Ready)
+- **3 транспорта**: StdioTransport, HttpTransport, SseTransport
+- **MCPToolAdapter** — адаптация MCP инструментов с kind inference
+- **MCPResourceMapper** — MCP resources → ACP ResourceLinkContent
+- **MCPPromptMapper** — MCP prompts → slash commands
+- **Auto-reconnect** — с exponential backoff (1s → 30s + jitter 10%)
+- **Health checks** — проверка состояния MCP-серверов
+- **Notifications** — tools/resources/prompts list_changed, progress
+- **Roots** — поддержка roots/list и notifications
+- **TOML Config** — загрузка MCP-серверов из `codelab.toml` с env variable expansion
+- **SessionRuntimeRegistry** — REQUEST-scoped реестр runtime объектов
+- **Тесты**: 150+ MCP тестов
 
 ### Advanced Permission Management (Stage 5)
 
@@ -57,15 +66,51 @@
 - Модальные окна разрешений
 - Allow/Reject once и always политики
 
+### Observability Layer
+
+Добавлен observability layer для мониторинга и трассировки:
+- **Tracer** — distributed tracing с spans и trace IDs
+- **EventTimeline** — хронология событий сессии
+- **MetricsTracker** — сбор метрик + auto-log, TelemetrySink
+- **FileEventExporter** — экспорт событий в JSON-файл
+- **FileMetricsExporter** — экспорт метрик в JSON-файл
+- **FileSpanExporter** — экспорт spans в JSON-файл
+
+### Pipeline System (7 стадий)
+
+Замена монолитного PromptOrchestrator на pipeline:
+1. ValidationStage → 2. SlashCommandStage → 3. PlanBuildingStage → 4. TurnLifecycleStage(open) → 5. DirectivesStage → 6. LLMLoopStage → 7. TurnLifecycleStage(close)
+
+### AgentLoop + SingleStrategy
+
+Унифицированный цикл LLM tool-calling итераций:
+- **AgentLoop** — единый цикл с обработкой tool_calls, permission pause/resume, cancellation
+- **SingleStrategy** — единственная реализованная стратегия LLM-вызовов
+- **StrategyDispatcher** — диспетчер стратегий с priority chain + fallback
+- **StopReason** — ACP-compliant: `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`
+
+### Тесты
+
+- **3,302** тестовых метода (+1,502 с момента последней документации)
+- **196** тестовых файлов
+- Покрытие: unit, integration, E2E (24 теста для 6 content types)
+
 ## Roadmap
 
 ### Выполнено
 
 - ✅ **Multi-Provider LLM** — 8+ провайдеров, fallback, model switching, TOML config
 - ✅ **Global Policy Management** — глобальные политики разрешений (Stage 5)
-- ✅ **MCP Integration** — поддержка Model Context Protocol (Stage 8)
+- ✅ **MCP Integration** — полная поддержка: 3 транспорта, auto-reconnect, roots, resources, prompts, TOML config (Stage 8)
 - ✅ **Content Types** — полная интеграция типов контента (Stage 4)
 - ✅ **Terminal Output Flow** — корректная работа терминала по ACP spec
+- ✅ **Pipeline System** — 7-stage pipeline для обработки промптов
+- ✅ **AgentLoop** — унифицированный цикл LLM tool-calling
+- ✅ **Observability** — Tracer, Metrics, Timeline, File Exporters
+- ✅ **Stdio Transport** — полный паритет с WebSocket (background prompt, deadlock fix)
+- ✅ **TOML Configuration** — 4-level hierarchy с env expansion
+- ✅ **14 ViewModels** — 9 базовых + 5 selector ViewModels
+- ✅ **3,302 теста** — unit, integration, E2E
 
 ### Планируется
 

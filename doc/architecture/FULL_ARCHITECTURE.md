@@ -1,7 +1,12 @@
 # Архитектура CodeLab — Полная схема проекта
 
 > Документ отражает архитектуру после реализации мультиагентной экосистемы
-> Версия: 1.0 | Дата: 27 мая 2026
+> Версия: 1.1 | Дата: 14 июня 2026
+>
+> **Важно:** Диаграмма показывает целевую архитектуру. Из мультиагентных компонентов
+> реализованы только `LLMAdapter` и `SingleStrategy`. `Orchestrator_Agent`, `Coder_Agent`,
+> `Tester_Agent`, `multi_orchestrated`, `multi_choreographed`, `hierarchical` — запланированы,
+> но не реализованы.
 
 ---
 
@@ -15,11 +20,11 @@ flowchart TB
 
     subgraph Client["Client Layer (TUI)"]
         TUI["Textual TUI App"]
-        TUI_Components["Компоненты:\n• ChatView\n• PromptInput\n• FileTree\n• Sidebar\n• Footer\n• PermissionModal\n• AgentStatus\n• StepLogger\n• TraceViewer"]
-        Client_Domain["Domain:\n• Session\n• Message\n• Events (15+)"]
+        TUI_Components["Компоненты:\n• ChatView\n• PromptInput\n• FileTree\n• Sidebar\n• Footer\n• PermissionModal\n• ModelSelector\n• ConfigOptionSelector"]
+        Client_Domain["Domain:\n• Session\n• Message\n• Events (16+)"]
         Client_App["Application:\n• UseCases\n• StateMachine\n• DTOs\n• PermissionHandler"]
         Client_Infra["Infrastructure:\n• DI Container (dishka)\n• EventBus\n• Transport (WebSocket/stdio)\n• Handlers (fs/*, terminal/*)"]
-        Client_Presentation["Presentation:\n• ViewModels (MVVM)\n• Observable"]
+        Client_Presentation["Presentation:\n• 14 ViewModels (MVVM)\n• Observable"]
     end
 
     subgraph Transport["Transport Layer"]
@@ -30,16 +35,17 @@ flowchart TB
 
     subgraph Server["Server Layer (Agent)"]
         ACP_Protocol["ACPProtocol\nJSON-RPC Dispatcher"]
-        Prompt_Orch["PromptOrchestrator\nPipeline: 6 stages"]
-        Strategy_Dispatch["StrategyDispatcher\nsingle | multi_orchestrated | multi_choreographed"]
-        Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + MessageSanitizer + PlanExtractor"]
+        Prompt_Orch["PromptOrchestrator\nPipeline: 7 stages"]
+        AgentLoop["AgentLoop\nLLM tool-calling цикл"]
+        Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor"]
         Agent_Bus["AgentEventBus (INTERNAL)\nPoint-to-Point + Broadcast + Pub/Sub"]
         
-        subgraph Agents["Агенты"]
-            LLM_Adapter["LLMAdapter\n(замена NaiveAgent)"]
-            Orchestrator_Agent["LLMAdapter\n(orchestrator)"]
-            Coder_Agent["LLMAdapter\n(coder)"]
-            Tester_Agent["LLMAdapter\n(tester)"]
+        subgraph Strategies["LLM Call Strategies"]
+            Single["SingleStrategy ✅\n(единственная реализованная)"]
+            Dispatcher["StrategyDispatcher ✅\n(маршрутизатор)"]
+            MultiOrch["MultiOrchestrated ❌\n(запланирована)"]
+            MultiChor["MultiChoreographed ❌\n(запланирована)"]
+            Hierarchical["Hierarchical ❌\n(запланирована)"]
         end
         
         subgraph Observability["Observability Layer"]
@@ -48,15 +54,8 @@ flowchart TB
             Metrics["MetricsTracker\nTelemetrySink + auto-log"]
         end
         
-        subgraph Config["Configuration"]
-            Agent_Loader["AgentSystemLoader\nagents.yaml + watchdog"]
-            Agent_Factory["AgentFactory\nсоздаёт LLMAdapter из конфига"]
-        end
-        
         subgraph Storage["Storage Layer"]
-            Session_Storage["SessionStorage\nJSON / In-Memory / Cached"]
-            Metrics_Repo["MetricsRepository\nstorage/benchmarks/"]
-            Observability_Storage["ObservabilityStorage\nstorage/debug/"]
+            Session_Storage["SessionStorage\nInMemory / JsonFile / Cached"]
             Global_Policies["GlobalPolicyStorage\n~/.codelab/data/policies/"]
         end
         
@@ -69,9 +68,14 @@ flowchart TB
         subgraph Tools["Tools Layer"]
             Tool_Registry["ToolRegistry"]
             Tool_Definitions["Definitions:\n• FileSystem\n• Terminal\n• Plan"]
-            Tool_Executors["Executors:\n• FileSystem\n• Terminal\n• Plan"]
-            Tools_Guard["ToolsGuardInterceptor\nSAFE/DANGEROUS/CRITICAL"]
+            Tool_Executors["Executors:\n• FileSystem\n• Terminal\n• Plan\n• MCP"]
             Client_RPC_Bridge["ClientRPCBridge\nAgent → Client RPC"]
+        end
+        
+        subgraph MCP["MCP Integration"]
+            MCP_Mgr["MCPManager"]
+            MCP_Client["MCPClient"]
+            MCP_Adapt["MCPToolAdapter"]
         end
     end
 
@@ -87,26 +91,17 @@ flowchart TB
     Transport <-->|JSON-RPC 2.0| ACP_Protocol
     
     ACP_Protocol --> Prompt_Orch
-    Prompt_Orch --> Strategy_Dispatch
-    Strategy_Dispatch --> Execution_Engine
+    Prompt_Orch --> AgentLoop
+    AgentLoop --> Strategies
+    Strategies --> Single
+    Strategies -.-> MultiOrch & MultiChor & Hierarchical
+    Single --> Execution_Engine
     Execution_Engine --> Agent_Bus
     Agent_Bus --> LLM_Adapter
-    Agent_Bus --> Orchestrator_Agent
-    Agent_Bus --> Coder_Agent
-    Agent_Bus --> Tester_Agent
     
     Execution_Engine -.->|tracer spans| Tracer
     Agent_Bus -.->|timeline events| Timeline
     LLM_Adapter -.->|metrics| Metrics
-    Orchestrator_Agent -.->|metrics| Metrics
-    Coder_Agent -.->|metrics| Metrics
-    Tester_Agent -.->|metrics| Metrics
-    
-    Agent_Loader -->|hot reload| Agent_Factory
-    Agent_Factory -->|creates| LLM_Adapter
-    Agent_Factory -->|creates| Orchestrator_Agent
-    Agent_Factory -->|creates| Coder_Agent
-    Agent_Factory -->|creates| Tester_Agent
     
     Execution_Engine --> LLM
     LLM_Adapter --> Provider_Registry
@@ -118,7 +113,10 @@ flowchart TB
     Tool_Registry --> Tool_Definitions
     Tool_Definitions --> Tool_Executors
     Tool_Executors --> Client_RPC_Bridge
-    Tool_Executors --> Tools_Guard
+    Tool_Registry --> MCP_Adapt
+    MCP_Mgr --> MCP_Client
+    MCP_Client --> MCP_Adapt
+    MCP_Adapt --> Tool_Executors
     
     Metrics --> Metrics_Repo
     Tracer --> Observability_Storage

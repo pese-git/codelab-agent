@@ -9,8 +9,11 @@
 5. [Транспортный слой](#транспортный-слой)
 6. [Двухуровневая история в codelab.server](#двухуровневая-история)
 7. [Background Receive Loop в codelab.client](#background-receive-loop)
-8. [Критические архитектурные решения](#критические-архитектурные-решения)
-9. [Расширение и интеграция](#расширение-и-интеграция)
+8. [MCP Integration](#mcp-integration)
+9. [Observability Layer](#observability-layer)
+10. [LLM Call Strategies](#llm-call-strategies)
+11. [Критические архитектурные решения](#критические-архитектурные-решения)
+12. [Расширение и интеграция](#расширение-и-интеграция)
 
 ---
 
@@ -19,8 +22,8 @@
 ACP (Agent Client Protocol) — стандартный протокол взаимодействия между LLM-агентами и клиентами для выполнения задач с инструментами.
 
 Проект реализован как **монорепозиторий** с двумя независимыми Python-компонентами:
-- **[codelab/](codelab/)** — серверная реализация протокола с LLM-агентом и управлением сессиями
-- **[codelab/](codelab/)** — клиентская реализация с TUI интерфейсом на базе Clean Architecture
+- **[codelab/server](codelab/src/codelab/server/)** — серверная реализация протокола с LLM-агентом и управлением сессиями
+- **[codelab/client](codelab/src/codelab/client/)** — клиентская реализация с TUI интерфейсом на базе Clean Architecture
 
 ---
 
@@ -40,10 +43,11 @@ graph TB
     
     subgraph Server["codelab-server (Server Side)"]
         Transport["🌐 Transport Layer<br/>WebSocket / stdio"]
-        Protocol["🔄 Protocol Layer<br/>ACPProtocol + Handlers"]
-        Agent["🤖 Agent Layer<br/>LLM Orchestration"]
-        Tools["🛠️ Tools Layer<br/>Executors + Registry"]
+        Protocol["🔄 Protocol Layer<br/>ACPProtocol + Handlers + Pipeline"]
+        Agent["🤖 Agent Layer<br/>LLM Orchestration + AgentLoop"]
+        Tools["🛠️ Tools Layer<br/>Executors + Registry + MCP"]
         Storage["💾 Storage Layer<br/>SessionStorage Backends"]
+        Observability["📊 Observability<br/>Tracer + Metrics + Timeline"]
     end
     
     subgraph Transports["Транспорты"]
@@ -76,23 +80,29 @@ graph TB
 | Компонент | Слой | Ответственность | Файлы |
 |-----------|------|-----------------|-------|
 | **TUI** | Presentation | Textual компоненты, User Interaction | `codelab/src/codelab/client/tui/` |
-| **ViewModels** | Presentation | MVVM паттерн, Observable state | `codelab/src/codelab/client/presentation/` |
+| **ViewModels** | Presentation | MVVM паттерн, Observable state (14 ViewModels) | `codelab/src/codelab/client/presentation/` |
 | **Use Cases** | Application | Business scenarios, DTOs | `codelab/src/codelab/client/application/` |
-| **DIContainer** | Infrastructure | Dependency Injection | [`codelab/src/codelab/client/infrastructure/di_container.py`](codelab/src/codelab/client/infrastructure/di_container.py:33) |
+| **DIContainer** | Infrastructure | Dependency Injection (dishka) | [`codelab/src/codelab/client/infrastructure/di_container.py`](codelab/src/codelab/client/infrastructure/di_container.py:33) |
 | **BackgroundReceiveLoop** | Infrastructure | Единственный receive() на транспорт | [`codelab/src/codelab/client/infrastructure/services/background_receive_loop.py`](codelab/src/codelab/client/infrastructure/services/background_receive_loop.py:22) |
 | **MessageRouter** | Infrastructure | Маршрутизация сообщений | [`codelab/src/codelab/client/infrastructure/services/message_router.py`](codelab/src/codelab/client/infrastructure/services/message_router.py:26) |
 | **EventBus** | Infrastructure | Pub/Sub система событий | [`codelab/src/codelab/client/infrastructure/events/bus.py`](codelab/src/codelab/client/infrastructure/events/bus.py) |
 | **StdioClientTransport** | Infrastructure | stdio транспорт (subprocess) | [`codelab/src/codelab/client/infrastructure/stdio_transport.py`](codelab/src/codelab/client/infrastructure/stdio_transport.py) |
 | **ACPProtocol** | Protocol | Диспетчер методов ACP, `handle_and_process` для фоновых задач | [`codelab/src/codelab/server/protocol/core.py`](codelab/src/codelab/server/protocol/core.py:39) |
 | **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`codelab/src/codelab/server/protocol/handlers/`](codelab/src/codelab/server/protocol/handlers/) |
+| **PromptPipeline** | Protocol | 7-stage pipeline: Validation → SlashCommand → PlanBuilding → TurnLifecycle(open) → Directives → LLMLoop → TurnLifecycle(close) | [`codelab/src/codelab/server/protocol/handlers/pipeline/`](codelab/src/codelab/server/protocol/handlers/pipeline/) |
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py`](codelab/src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
- | **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter | [`codelab/src/codelab/server/agent/execution_engine.py`](codelab/src/codelab/server/agent/execution_engine.py) |
+| **AgentLoop** | Agent | Цикл LLM tool-calling итераций | [`codelab/src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py`](codelab/src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py) |
+| **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`codelab/src/codelab/server/agent/execution_engine.py`](codelab/src/codelab/server/agent/execution_engine.py) |
 | **ToolRegistry** | Tools | Регистрация и управление инструментами | [`codelab/src/codelab/server/tools/registry.py`](codelab/src/codelab/server/tools/registry.py) |
 | **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`codelab/src/codelab/server/tools/mapping.py`](codelab/src/codelab/server/tools/mapping.py) |
+| **MCPManager** | MCP | Управление MCP-серверами (stdio/HTTP/SSE, auto-reconnect, roots) | [`codelab/src/codelab/server/mcp/manager.py`](codelab/src/codelab/server/mcp/manager.py) |
 | **Storage** | Storage | Persistence для сессий | [`codelab/src/codelab/server/storage/`](codelab/src/codelab/server/storage/) |
 | **WebSocketTransport** | Transport | WebSocket endpoint | [`codelab/src/codelab/server/transport/websocket.py`](codelab/src/codelab/server/transport/websocket.py) |
 | **StdioServerTransport** | Transport | stdio транспорт (stdin/stdout) | [`codelab/src/codelab/server/transport/stdio.py`](codelab/src/codelab/server/transport/stdio.py) |
 | **StdioRunner** | Transport | Запуск stdio сервера с DI | [`codelab/src/codelab/server/transport/stdio_runner.py`](codelab/src/codelab/server/transport/stdio_runner.py) |
+| **Tracer** | Observability | Distributed tracing | [`codelab/src/codelab/server/observability/tracer.py`](codelab/src/codelab/server/observability/tracer.py) |
+| **MetricsTracker** | Observability | Metrics collection + auto-log | [`codelab/src/codelab/server/observability/metrics_tracker.py`](codelab/src/codelab/server/observability/metrics_tracker.py) |
+| **EventTimeline** | Observability | Хронология событий | [`codelab/src/codelab/server/observability/event_timeline.py`](codelab/src/codelab/server/observability/event_timeline.py) |
 
 ---
 
@@ -111,19 +121,34 @@ graph LR
     subgraph Protocol["Protocol Layer"]
         Core["ACPProtocol"]
         Handlers["Handlers<br/>auth / session / prompt"]
+        Pipeline["PromptPipeline<br/>7 stages"]
         PromptOrch["PromptOrchestrator<br/>(Главный координатор)"]
     end
     
     subgraph Processing["Processing"]
-        Agent["ExecutionEngine<br/>LLM обработка"]
+        AgentLoop["AgentLoop<br/>LLM итерации"]
+        Engine["ExecutionEngine<br/>HistoryBuilder + ToolFilter + LLMAdapter"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
-        Executors["Executors<br/>FS / Terminal"]
+        Executors["Executors<br/>FS / Terminal / Plan / MCP"]
+    end
+    
+    subgraph MCP["MCP Integration"]
+        MCPMgr["MCPManager"]
+        MCPClient["MCPClient"]
+        MCPAdapt["MCPToolAdapter"]
     end
     
     subgraph Persistence["Persistence"]
         SessionStore["SessionStorage<br/>Abstract"]
         InMem["InMemoryStorage"]
         JsonFile["JsonFileStorage"]
+        Cached["CachedSessionStorage"]
+    end
+    
+    subgraph Observability["Observability"]
+        Tracer["Tracer"]
+        Timeline["EventTimeline"]
+        Metrics["MetricsTracker"]
     end
     
     subgraph RPC["Client RPC"]
@@ -134,22 +159,35 @@ graph LR
     STDIO --> Base
     Base --> Core
     Core --> Handlers
-    Handlers --> PromptOrch
-    PromptOrch --> Agent
+    Handlers --> Pipeline
+    Pipeline --> PromptOrch
+    PromptOrch --> AgentLoop
+    AgentLoop --> Engine
     PromptOrch --> ToolReg
     ToolReg --> Executors
+    ToolReg --> MCPAdapt
+    MCPMgr --> MCPClient
+    MCPClient --> MCPAdapt
+    MCPAdapt --> Executors
     Executors --> ClientRPCService
     ClientRPCService --> Base
     
     Core --> SessionStore
     SessionStore --> InMem
     SessionStore --> JsonFile
+    SessionStore --> Cached
+    
+    Engine -.-> Tracer
+    Engine -.-> Timeline
+    Engine -.-> Metrics
     
     style Transport fill:#fff3e0
     style Protocol fill:#f3e5f5
     style Processing fill:#e8f5e9
+    style MCP fill:#e0f7fa
     style Persistence fill:#e0f2f1
-    style RPC fill:#fce4ec
+    style Observability fill:#fce4ec
+    style RPC fill:#f1f8e9
 ```
 
 ### codelab-client: Clean Architecture в 5 слоев
@@ -157,17 +195,29 @@ graph LR
 ```mermaid
 graph TB
     subgraph TUI["TUI Layer"]
-        Chat["Chat View<br/>Terminal UI"]
-        FileView["File Viewer"]
-        Permission["Permission Modal"]
-        Terminal["Terminal Output"]
+        Chat["Chat View<br/>ChatView, MessageList, MessageBubble"]
+        FileView["File Viewer<br/>FileTree, FileViewer"]
+        Permission["Permission Modal<br/>PermissionModal, InlinePermissionWidget"]
+        Terminal["Terminal Output<br/>TerminalOutput, TerminalPanel"]
+        Tools["Tool Panel<br/>ToolCallCard, ToolCallList, FileChangePreview"]
+        Config["Config Selectors<br/>ModelSelector, ConfigOptionSelector"]
     end
     
-    subgraph Presentation["Presentation Layer"]
+    subgraph Presentation["Presentation Layer (14 ViewModels)"]
         ChatVM["ChatViewModel"]
         FileVM["FileSystemViewModel"]
         PermVM["PermissionViewModel"]
         SessionVM["SessionViewModel"]
+        UI_VM["UIViewModel"]
+        PlanVM["PlanViewModel"]
+        TermVM["TerminalViewModel"]
+        FV_VM["FileViewerViewModel"]
+        TLogVM["TerminalLogViewModel"]
+        ModelVM["ModelSelectorViewModel"]
+        ModeVM["ModeSelectorViewModel"]
+        AgentVM["AgentSelectorViewModel"]
+        StratVM["StrategySelectorViewModel"]
+        ConfigVM["ConfigOptionSelectorViewModel"]
     end
     
     subgraph Application["Application Layer"]
@@ -182,7 +232,7 @@ graph TB
         Router["MessageRouter<br/>Маршрутизация"]
         Queues["RoutingQueues<br/>Распределение"]
         EventBus["EventBus<br/>Pub/Sub система"]
-        DI["DIContainer<br/>Dependency Injection"]
+        DI["DIContainer<br/>dishka"]
         StdioTransport["StdioClientTransport<br/>subprocess"]
         
         subgraph AgentRPC["Agent → Client RPC"]
@@ -202,7 +252,9 @@ graph TB
     Chat --> ChatVM
     FileView --> FileVM
     Permission --> PermVM
-    Terminal --> SessionVM
+    Terminal --> TermVM
+    Tools --> ChatVM
+    Config --> ModelVM
     
     ChatVM --> UseCases
     FileVM --> UseCases
@@ -645,6 +697,115 @@ graph LR
 
 ---
 
+## MCP Integration
+
+CodeLab поддерживает Model Context Protocol (MCP) для подключения внешних инструментов, ресурсов и промптов.
+
+### Компоненты
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `MCPManager` | `server/mcp/manager.py` | Управление несколькими MCP-серверами на сессию, auto-reconnect с backoff |
+| `MCPClient` | `server/mcp/client.py` | Подключение к одному MCP-серверу с state machine |
+| `MCPToolAdapter` | `server/mcp/tool_adapter.py` | Адаптация MCP tools → ACP ToolDefinition, kind inference |
+| `MCPResourceMapper` | `server/mcp/resource_mapper.py` | Маппинг MCP resources → ACP ResourceLinkContent |
+| `MCPPromptMapper` | `server/mcp/prompt_mapper.py` | Маппинг MCP prompts → slash commands |
+| `MCPContentMapper` | `server/mcp/content_mapper.py` | Конвертация MCP content → ACP content |
+
+### Транспорты
+
+| Транспорт | Протокол | Статус |
+|-----------|----------|--------|
+| Stdio | subprocess stdin/stdout | ✅ Полностью |
+| HTTP | HTTP POST/GET | ✅ Полностью |
+| SSE | Server-Sent Events | ✅ Полностью |
+
+### Функциональность
+
+- **Tools**: MCP инструменты регистрируются в ToolRegistry с namespace `mcp:server_id:tool_name`
+- **Resources**: MCP resources доступны через ResourceLinkContent
+- **Prompts**: MCP prompts доступны как slash commands
+- **Notifications**: Поддержка `tools/list_changed`, `resources/list_changed`, `prompts/list_changed`, progress notifications
+- **Auto-reconnect**: С exponential backoff и health checks
+- **Roots**: Поддержка `roots/list` и notifications
+- **TOML Config**: Загрузка MCP-серверов из `codelab.toml` с env variable expansion
+
+### Интеграция в pipeline
+
+MCP инструменты интегрируются в `LLMLoopStage` — доступны агенту наравне с нативными инструментами. Permission flow для MCP инструментов использует kind inference для определения типа разрешения.
+
+---
+
+## Observability Layer
+
+Сервер предоставляет абстрактный observability layer для трассировки, метрик и хронологии событий.
+
+### Компоненты
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `Tracer` | `server/observability/tracer.py` | Distributed tracing с spans и trace IDs |
+| `EventTimeline` | `server/observability/event_timeline.py` | Хронология событий сессии |
+| `MetricsTracker` | `server/observability/metrics_tracker.py` | Сбор метрик + auto-log, TelemetrySink |
+
+### Exporters
+
+| Exporter | Файл | Формат |
+|----------|------|--------|
+| `FileEventExporter` | `server/observability/exporters/file_event_exporter.py` | JSON events в файл |
+| `FileMetricsExporter` | `server/observability/exporters/file_metrics_exporter.py` | JSON metrics в файл |
+| `FileSpanExporter` | `server/observability/exporters/file_span_exporter.py` | JSON spans в файл |
+
+### Интеграция
+
+Observability компоненты инжектируются через DI-контейнер и используются в `ExecutionEngine`, `AgentLoop`, `LLMAdapter` для трассировки LLM-вызовов, tool execution, и prompt turns.
+
+---
+
+## LLM Call Strategies
+
+Система стратегий вызова LLM обеспечивает гибкость в управлении циклом tool-calling итераций.
+
+### Архитектура
+
+```mermaid
+graph TD
+    A[LLMCallStrategy Protocol] -->|интерфейс| B[execute]
+    A -->|интерфейс| C[continue_execution]
+    A -->|реализация| D[SingleStrategy ✅]
+    A -->|реализация| E[StrategyDispatcher ✅]
+    D -->|использует| F[EventBus]
+    E -->|маршрутизирует| D
+    E -->|маршрутизирует| G[MultiOrchestrated ❌]
+    E -->|маршрутизирует| H[MultiChoreographed ❌]
+    E -->|маршрутизирует| I[Hierarchical ❌]
+    
+    style D fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style E fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style G fill:#ffcdd2,stroke:#b71c1c,stroke-dasharray: 5 5
+    style H fill:#ffcdd2,stroke:#b71c1c,stroke-dasharray: 5 5
+    style I fill:#ffcdd2,stroke:#b71c1c,stroke-dasharray: 5 5
+```
+
+### Реализованные стратегии
+
+| Стратегия | Файл | Статус | Описание |
+|-----------|------|--------|----------|
+| `SingleStrategy` | `protocol/handlers/strategies/single_strategy.py` | ✅ | Единственная реализованная стратегия. Один LLM-вызов → обработка tool calls → повтор |
+| `StrategyDispatcher` | `agent/strategies/dispatcher.py` | ✅ | Диспетчер стратегий с priority chain + fallback. Маршрутизирует к зарегистрированным стратегиям |
+
+### Запланированные (не реализованы)
+
+| Стратегия | Статус | Описание |
+|-----------|--------|----------|
+| `MultiOrchestrated` | ❌ | Мультиагент с оркестратором |
+| `MultiChoreographed` | ❌ | Мультиагент без оркестратора (choreography) |
+| `Hierarchical` | ❌ | Иерархическая мультиагентная стратегия |
+
+> **Важно:** Config specs ссылаются на `multi_orchestrated`, `multi_choreographed`, `hierarchical` стратегии, но только `single` имеет конкретную реализацию. Попытка использовать незавершённые стратегии приведёт к ошибке.
+
+---
+
 ## Критические архитектурные решения
 
 ### 1. Абстракция SessionStorage в codelab.server
@@ -1059,8 +1220,9 @@ class MyLLMProvider(BaseLLMProvider):
 ### Специальные документы
 
 - **[AGENTS.md](AGENTS.md)** — инструкции для агентных ассистентов
-- **[doc/ACP_IMPLEMENTATION_STATUS.md](doc/ACP_IMPLEMENTATION_STATUS.md)** — матрица соответствия ACP спецификации
-- **[doc/Agent Client Protocol/](doc/Agent Client Protocol/)** — официальная спецификация ACP (не менять!)
+- **[doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md](doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md)** — верифицированная матрица соответствия ACP спецификации (3,302 теста)
+- **[doc/architecture/FULL_ARCHITECTURE.md](doc/architecture/FULL_ARCHITECTURE.md)** — полная схема проекта с мультиагентной экосистемой
+- **[doc/Agent Client Protocol/](doc/Agent%20Client%20Protocol/)** — официальная спецификация ACP (не менять!)
 
 ---
 

@@ -6,10 +6,11 @@
 
 CodeLab — это полнофункциональная реализация протокола ACP для взаимодействия AI-агентов с редакторами кода. Проект объединяет:
 
-- **ACP-сервер** — интеллектуальный агент с поддержкой OpenAI GPT-4
+- **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)
 - **TUI-клиент** — терминальный интерфейс на базе Textual
 - **Web UI** — браузерный интерфейс для удаленной работы
 - **stdio транспорт** — основной транспорт ACP (stdin/stdout JSON-RPC)
+- **MCP интеграция** — подключение внешних инструментов через Model Context Protocol
 
 ## Быстрый старт
 
@@ -50,17 +51,19 @@ acp-protocol/
 │   │   │   ├── domain/         # Сущности и интерфейсы
 │   │   │   ├── application/    # Use Cases, State Machine
 │   │   │   ├── infrastructure/ # DI, Transport, Handlers
-│   │   │   ├── presentation/   # ViewModels (MVVM)
+│   │   │   ├── presentation/   # ViewModels (MVVM, 14 штук)
 │   │   │   └── tui/            # Textual UI компоненты
 │   │   ├── server/             # ACP-сервер
-│   │   │   ├── protocol/       # Обработчики методов ACP
-│   │   │   ├── agent/          # LLM-агент (OpenAI)
-│   │   │   ├── tools/          # Инструменты (fs, terminal)
+│   │   │   ├── protocol/       # Обработчики методов ACP + Pipeline
+│   │   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
+│   │   │   ├── tools/          # Инструменты (fs, terminal, plan)
 │   │   │   ├── storage/        # Хранилище сессий
-│   │   │   └── llm/            # LLM-провайдеры
-│   │   ├── shared/             # Общие модули
+│   │   │   ├── llm/            # LLM-провайдеры (8+)
+│   │   │   ├── mcp/            # MCP интеграция (Manager, Client, Adapters)
+│   │   │   └── observability/  # Tracing, Metrics, Timeline
+│   │   ├── shared/             # Общие модули (messages, logging, content)
 │   │   └── cli.py              # CLI точка входа
-│   └── tests/                  # Тесты (~1800 тестов)
+│   └── tests/                  # Тесты (~3300 тестов)
 ├── doc/
 │   ├── product/                # Продуктовая документация
 │   ├── architecture/           # Архитектурные документы

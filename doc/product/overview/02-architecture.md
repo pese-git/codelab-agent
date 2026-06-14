@@ -9,8 +9,8 @@ CodeLab реализует клиент-серверную архитектур�
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
-        TUI[TUI Components<br/>45 widgets]
-        VM[9 ViewModels]
+        TUI[TUI Components<br/>45+ widgets]
+        VM[14 ViewModels]
         UC[Use Cases]
         TS[ACPTransportService<br/>WebSocket / stdio]
         BgLoop[BackgroundReceiveLoop]
@@ -74,6 +74,11 @@ graph TB
         VM7[FileViewerViewModel]
         VM8[PermissionViewModel]
         VM9[TerminalLogViewModel]
+        VM10[ModelSelectorViewModel]
+        VM11[ModeSelectorViewModel]
+        VM12[AgentSelectorViewModel]
+        VM13[StrategySelectorViewModel]
+        VM14[ConfigOptionSelectorViewModel]
     end
     
     subgraph Application["Application Layer"]
@@ -101,8 +106,8 @@ graph TB
         Events[16 Domain Events]
     end
     
-    Chat & Sidebar & FileTree & Prompt & ToolPanel & CmdPalette --> VM1 & VM2 & VM3 & VM4 & VM5 & VM6 & VM7 & VM8 & VM9
-    VM1 & VM2 & VM3 & VM4 & VM5 & VM6 & VM7 & VM8 & VM9 --> UC1 & UC2 & UC3 & UC4
+    Chat & Sidebar & FileTree & Prompt & ToolPanel & CmdPalette --> VM1 & VM2 & VM3 & VM4 & VM5 & VM6 & VM7 & VM8 & VM9 & VM10 & VM11 & VM12 & VM13 & VM14
+    VM1 & VM2 & VM3 & VM4 & VM5 & VM6 & VM7 & VM8 & VM9 & VM10 & VM11 & VM12 & VM13 & VM14 --> UC1 & UC2 & UC3 & UC4
     UC1 & UC2 & UC3 & UC4 --> SM & PH
     SM & PH --> DI
     DI --> TS & EB & Handlers
@@ -111,8 +116,8 @@ graph TB
 ```
 
 **Слои клиента:**
-- **TUI Layer** — 45 Textual компонентов (ChatView, Sidebar, FileTree, CommandPalette, и др.)
-- **Presentation** — 9 ViewModels с Observable состоянием (MVVM)
+- **TUI Layer** — 45+ Textual компонентов (ChatView, Sidebar, FileTree, CommandPalette, ModelSelector, и др.)
+- **Presentation** — 14 ViewModels с Observable состоянием (MVVM): 9 базовых + 5 selector ViewModels
 - **Application** — 5 Use Cases, UIStateMachine, PermissionHandler
 - **Infrastructure** — Dishka DI, ACPTransportService, BackgroundReceiveLoop, MessageRouter, EventBus
 - **Domain** — Session, Message, Permission, ToolCall, Repository интерфейсы, 16 Domain Events
@@ -156,7 +161,8 @@ graph TB
     
     subgraph Agent["Agent Layer"]
         AO[AgentOrchestrator]
-        AG[NaiveAgent]
+        EE[ExecutionEngine]
+        AL[AgentLoop]
         LLM[LLM Registry<br/>8+ Providers]
     end
     
@@ -170,7 +176,7 @@ graph TB
     subgraph MCP["MCP Layer"]
         MM[MCPManager]
         MT[MCPToolAdapter]
-        TE[MCPToolExecutor]
+        MTE[MCPToolExecutor]
         SRR[SessionRuntimeRegistry]
     end
     
@@ -179,19 +185,26 @@ graph TB
         GPS[GlobalPolicyStorage]
     end
     
+    subgraph Observability["Observability Layer"]
+        Tracer[Tracer]
+        Timeline[EventTimeline]
+        Metrics[MetricsTracker]
+    end
+    
     HTTP --> WS & STDIO
     WS & STDIO --> AP
     AP --> PO
     PO --> Pipeline
     V --> SC --> PB --> TL1 --> DS --> LL --> TL2
     PO --> SM & PBuilder & TLCM & TCH & PM & CRH & GPM
-    LL --> AO --> AG --> LLM
+    LL --> AO --> EE --> LLM
     LL --> TR --> FS & TE --> Bridge
     LL --> MM --> MT
-    LL --> TE
+    LL --> MTE
     SRR --> MM
     AP --> SS
     PM --> GPS
+    EE -.-> Tracer & Timeline & Metrics
 ```
 
 **Скоупы DI контейнера:**
@@ -373,41 +386,6 @@ stateDiagram-v2
 
 > **Подробная документация:** [MCP серверы (user guide)](../user-guide/14-mcp-servers.md) · [MCP разработка (dev guide)](../developer-guide/08-mcp-development.md)
 
-## Маппинг имён инструментов
-
-ACP протокол использует имена с `/` (например `fs/read_text_file`), но некоторые LLM провайдеры не поддерживают этот символ. Модуль `tools/mapping.py` обеспечивает двустороннюю конвертацию:
-
-```mermaid
-graph LR
-    subgraph ACP["ACP Protocol"]
-        A1["fs/read_text_file"]
-        A2["terminal/create"]
-    end
-    
-    subgraph Mapping["ToolMapping"]
-        M1["acp_name_to_llm_name()\n/ → _"]
-        M2["llm_name_to_acp_name()\n_ → /"]
-    end
-    
-    subgraph LLM["LLM API"]
-        L1["fs_read_text_file"]
-        L2["terminal_create"]
-    end
-    
-    A1 --> M1 --> L1
-    A2 --> M1 --> L2
-    L1 --> M2 --> A1
-    L2 --> M2 --> A2
-    
-    style ACP fill:#e3f2fd,stroke:#1565c0
-    style LLM fill:#fff3e0,stroke:#e65100
-    style Mapping fill:#f3e5f5,stroke:#6a1b9a
-```
-
-**Применение:**
-- При отправке инструментов в LLM: `acp_name_to_llm_name()`
-- При получении tool calls от LLM: `llm_name_to_acp_name()`
-
 ## Протокол ACP
 
 Взаимодействие происходит через JSON-RPC 2.0:
@@ -470,8 +448,8 @@ sequenceDiagram
     participant S as ACPProtocol
     participant PO as PromptOrchestrator
     participant LL as LLMLoopStage
-    participant ORCH as AgentOrchestrator
-    participant AG as NaiveAgent
+    participant AL as AgentLoop
+    participant EE as ExecutionEngine
     participant LLM as OpenAIProvider
     participant TR as ToolRegistry
     participant TM as ToolMapping
@@ -482,24 +460,15 @@ sequenceDiagram
     PO->>LL: process(context)
 
     loop LLM Loop (до 10 итераций)
-        alt Первая итерация (новый turn)
-            LL->>ORCH: process_prompt(session, prompt)
-            ORCH->>AG: start_turn(AgentContext)
-            Note over AG: Добавляет user message<br/>из prompt к conversation_history
-        else Последующие итерации (tool results)
-            LL->>ORCH: continue_with_tool_results(session, tool_results)
-            ORCH->>ORCH: _add_tool_result_to_history()
-            ORCH->>AG: continue_turn(ContinuationContext)
-            Note over AG: НЕ добавляет user message<br/>история содержит tool_results
-        end
-        AG->>TM: acp_name_to_llm_name() для инструментов
-        TM-->>AG: LLM-совместимые имена (с _)
-        AG->>LLM: create_completion(messages, tools)
-        LLM-->>AG: LLMResponse(text, tool_calls, stop_reason)
-        AG-->>ORCH: AgentResponse
-        ORCH-->>LL: AgentResponse
+        AL->>EE: execute(context)
+        EE->>TM: acp_name_to_llm_name() для инструментов
+        TM-->>EE: LLM-совместимые имена (с _)
+        EE->>LLM: create_completion(messages, tools)
+        LLM-->>EE: LLMResponse(text, tool_calls, stop_reason)
+        EE-->>AL: AgentResponse
 
         alt stop_reason = end_turn
+            AL-->>LL: stop_reason=end_turn
             LL-->>PO: stop_reason=end_turn
             PO-->>S: ProtocolOutcome
             S-->>C: session/update + result
@@ -556,60 +525,25 @@ sequenceDiagram
     participant C as Client
     participant TS as ACPTransportService
     participant S as ACPProtocol
-    participant ORCH as AgentOrchestrator
-    participant AG as NaiveAgent
+    participant PO as PromptOrchestrator
+    participant AL as AgentLoop
     participant LLM as OpenAI API
 
-    Note over AG,LLM: asyncio.Task — HTTP запрос к LLM
-    AG->>LLM: POST /chat/completions
+    Note over AL,LLM: asyncio.Task — HTTP запрос к LLM
+    AL->>LLM: POST /chat/completions
 
     U->>C: Нажимает Stop
     Note over TS: cancel_prompt() обходит<br/>_callbacks_request_lock
     C->>TS: stop_button_pressed
     TS->>S: session/cancel (немедленно)
-    S->>ORCH: cancel_prompt(session_id)
-    ORCH->>AG: active_task.cancel()
-    LLM--xAG: CancelledError
-    AG-->>ORCH: stop_reason=cancelled
-    ORCH-->>S: stop_reason=cancelled
+    S->>PO: cancel_prompt(session_id)
+    PO->>AL: active_task.cancel()
+    LLM--xAL: CancelledError
+    AL-->>PO: stop_reason=cancelled
+    PO-->>S: stop_reason=cancelled
     S-->>C: session/update {stopReason: cancelled}
     C-->>U: Стриминг остановлен
 ```
-
-## Маппинг имён инструментов
-
-ACP протокол использует имена с `/` (например `fs/read_text_file`), но некоторые LLM провайдеры не поддерживают этот символ. Модуль `tools/mapping.py` обеспечивает двустороннюю конвертацию:
-
-```mermaid
-graph LR
-    subgraph ACP["ACP Protocol"]
-        A1["fs/read_text_file"]
-        A2["terminal/create"]
-    end
-    
-    subgraph Mapping["ToolMapping"]
-        M1["acp_name_to_llm_name()\n/ → _"]
-        M2["llm_name_to_acp_name()\n_ → /"]
-    end
-    
-    subgraph LLM["LLM API"]
-        L1["fs_read_text_file"]
-        L2["terminal_create"]
-    end
-    
-    A1 --> M1 --> L1
-    A2 --> M1 --> L2
-    L1 --> M2 --> A1
-    L2 --> M2 --> A2
-    
-    style ACP fill:#e3f2fd,stroke:#1565c0
-    style LLM fill:#fff3e0,stroke:#e65100
-    style Mapping fill:#f3e5f5,stroke:#6a1b9a
-```
-
-**Применение:**
-- При отправке инструментов в LLM: `acp_name_to_llm_name()`
-- При получении tool calls от LLM: `llm_name_to_acp_name()`
 
 ## Потоки данных
 
@@ -718,12 +652,13 @@ codelab/src/codelab/
 │   │   │   ├── slash_commands/         # /help, /mode, /status
 │   │   │   └── ... (менеджеры)
 │   │   └── content/     # Extractor, Validator, Formatter
-│   ├── agent/           # LLM агент (NaiveAgent, Orchestrator)
+│   ├── agent/           # LLM агент (ExecutionEngine, AgentLoop, Strategies)
 │   ├── tools/           # Инструменты (registry, executors)
 │   ├── storage/         # Хранилище сессий (LRU cache)
 │   ├── mcp/             # MCP интеграция
 │   ├── client_rpc/      # Agent→Client RPC
 │   ├── llm/             # LLM подсистема (Registry, 8+ Providers, Fallback, Events)
+│   ├── observability/   # Tracer, Metrics, Timeline, Exporters
 │   └── transport/       # WebSocket, stdio
 │
 └── client/              # Клиентская часть
@@ -733,8 +668,8 @@ codelab/src/codelab/
     │   ├── services/    # ACPTransportService, BackgroundReceiveLoop
     │   ├── handlers/    # FS, Terminal handlers
     │   └── events/      # EventBus
-    ├── presentation/    # ViewModels (MVVM, 9 штук)
-    └── tui/             # TUI компоненты (45 файлов)
+    ├── presentation/    # ViewModels (MVVM, 14 штук)
+    └── tui/             # TUI компоненты (45+ файлов)
         ├── app.py       # ACPClientApp
         ├── components/  # ChatView, Sidebar, FileTree, ...
         ├── navigation/  # NavigationManager

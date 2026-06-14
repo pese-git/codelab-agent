@@ -67,7 +67,19 @@ codelab/
 │   │   ├── logging.py    # Структурированное логирование
 │   │   └── content/      # Типы контента ACP
 │   ├── server/           # Серверная часть (агент)
+│   │   ├── protocol/     # ACPProtocol, Pipeline, Handlers
+│   │   ├── agent/        # ExecutionEngine, AgentLoop, Strategies
+│   │   ├── tools/        # FS, Terminal, Plan, MCP executors
+│   │   ├── llm/          # 8+ LLM провайдеров
+│   │   ├── mcp/          # MCP Manager, Client, Adapters
+│   │   ├── storage/      # SessionStorage backends
+│   │   └── observability/# Tracer, Metrics, Timeline, Exporters
 │   └── client/           # Клиентская часть (TUI)
+│       ├── domain/       # Entities, Repositories, Events
+│       ├── application/  # Use Cases, SessionCoordinator
+│       ├── infrastructure/# DI, Transport, Handlers, EventBus
+│       ├── presentation/ # 14 ViewModels (MVVM)
+│       └── tui/          # Textual UI компоненты
 ```
 
 ## CLI
@@ -393,25 +405,25 @@ graph TD
 graph TD
     A[LLMLoopStage] -->|использует| B[AgentLoop]
     B -->|использует| C[LLMCallStrategy Protocol]
-    C -->|реализация| D[LegacyCallStrategy]
-    C -->|реализация| E[StrategyDispatcher]
-    D -->|адаптирует| F[AgentOrchestrator]
-    E -->|использует| G[SingleStrategy]
-    G -->|вызывает| H[EventBus]
+    C -->|реализация| D[StrategyDispatcher]
+    D -->|маршрутизирует| E[SingleStrategy]
+    E -->|вызывает| F[EventBus]
 ```
 
 **Компоненты:**
 
 - **`StopReason`** enum (`protocol/stop_reasons.py`) — ACP-compliant stop reasons: `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`.
-- **`LLMCallStrategy`** Protocol (`agent/strategies/base.py`) — интерфейс для стратегий вызова LLM с методами `execute()` и `continue_execution()`.
-- **`LegacyCallStrategy`** (`agent/strategies/legacy_adapter.py`) — адаптер AgentOrchestrator под LLMCallStrategy (legacy путь).
-- **`StrategyDispatcher`** (`agent/strategies/dispatcher.py`) — диспетчер стратегий через EventBus (EventBus путь).
-- **`AgentLoop`** (`pipeline/stages/agent_loop.py`) — универсальный цикл итераций с обработкой tool_calls, permission pause/resume, cancellation.
+- **`LLMCallStrategy`** Protocol (`agent/strategies/base.py`) — интерфейс для стратегий вызова LLM.
+- **`StrategyDispatcher`** (`agent/strategies/dispatcher.py`) — диспетчер стратегий через EventBus.
+- **`SingleStrategy`** (`protocol/handlers/strategies/single_strategy.py`) — **единственная реализованная стратегия**. Один LLM-вызов → обработка tool_calls → повтор.
+- **`AgentLoop`** (`protocol/handlers/pipeline/stages/agent_loop.py`) — универсальный цикл итераций с обработкой tool_calls, permission pause/resume, cancellation.
 - **`LLMLoopStage`** (`pipeline/stages/llm_loop.py`) — тонкий адаптер pipeline → AgentLoop.
+
+> **Важно:** Config specs ссылаются на `multi_orchestrated`, `multi_choreographed`, `hierarchical` стратегии, но они **не реализованы**. Попытка использовать их приведёт к ошибке.
 
 **Принципы работы:**
 
-1. `LLMLoopStage` создаёт `AgentLoop` с нужной стратегией (StrategyDispatcher или LegacyCallStrategy).
+1. `LLMLoopStage` создаёт `AgentLoop` со стратегией `SingleStrategy` через `StrategyDispatcher`.
 2. `AgentLoop.run()` выполняет цикл итераций: вызов LLM → обработка tool_calls → продолжение.
 3. Цикл завершается при: отсутствии tool_calls (`end_turn`), достижении `max_turn_requests`, отмене (`cancelled`).
 4. При запросе permission цикл приостанавливается и возобновляется через `resume_after_permission()`.
@@ -456,6 +468,11 @@ graph TD
             FV_VM[FileViewerViewModel]
             PERM_VM[PermissionViewModel]
             TLOG_VM[TerminalLogViewModel]
+            MODEL_VM[ModelSelectorViewModel]
+            MODE_VM[ModeSelectorViewModel]
+            AGENT_VM[AgentSelectorViewModel]
+            STRAT_VM[StrategySelectorViewModel]
+            CONFIG_VM[ConfigOptionSelectorViewModel]
         end
     end
 
@@ -480,8 +497,8 @@ graph TD
     TS -. "_permission_handler\npost-init" .-> PH
 
     %% ViewModels: все получают EventBus + BoundLogger
-    EB --> UI_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM
-    LOG --> UI_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM
+    EB --> UI_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM & MODEL_VM & MODE_VM & AGENT_VM & STRAT_VM & CONFIG_VM
+    LOG --> UI_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM & MODEL_VM & MODE_VM & AGENT_VM & STRAT_VM & CONFIG_VM
     SC --> SESS_VM & CHAT_VM
     EB --> SESS_VM & CHAT_VM
     LOG --> SESS_VM & CHAT_VM
@@ -495,13 +512,14 @@ graph TD
     TUI -->|"get(TransportService)"| TS
     TUI -->|get ViewModels| UI_VM & SESS_VM & CHAT_VM & PLAN_VM
     TUI -->|get ViewModels| TERM_VM & FS_VM & FV_VM & PERM_VM & TLOG_VM
+    TUI -->|get ViewModels| MODEL_VM & MODE_VM & AGENT_VM & STRAT_VM & CONFIG_VM
 
     classDef svc fill:#e1f5fe,stroke:#01579b
     classDef vm fill:#f3e5f5,stroke:#4a148c
     classDef cfg fill:#fff3e0,stroke:#e65100
     classDef tui fill:#e8f5e9,stroke:#1b5e20
     class LOG,EB,TS,SR,FSE,FSH,TE,TH,SC,PH svc
-    class UI_VM,SESS_VM,PLAN_VM,CHAT_VM,TERM_VM,FS_VM,FV_VM,PERM_VM,TLOG_VM vm
+    class UI_VM,SESS_VM,PLAN_VM,CHAT_VM,TERM_VM,FS_VM,FV_VM,PERM_VM,TLOG_VM,MODEL_VM,MODE_VM,AGENT_VM,STRAT_VM,CONFIG_VM vm
     class CFG cfg
     class TUI tui
 ```
@@ -510,7 +528,7 @@ graph TD
 
 1. При запуске `codelab connect` создаётся DI-контейнер через `create_client_container()` — все APP-зависимости инициализируются один раз.
 2. `CoreServices` — фабрика, которая создаёт `SessionCoordinator` и `PermissionHandler` в два шага, а затем связывает их через `_permission_handler`, обходя циклическую зависимость.
-3. `ACPClientApp` резолвит `SessionCoordinator`, `TransportService` и все 9 ViewModels в `__init__` через `container.get()` — без Service Locator в методах.
+3. `ACPClientApp` резолвит `SessionCoordinator`, `TransportService` и все 14 ViewModels в `__init__` через `container.get()` — без Service Locator в методах.
 4. При выходе `on_unmount` вызывает `transport.disconnect()` и `container.close()`.
 
 ### Отмена промпта
@@ -538,6 +556,8 @@ graph LR
         MM[MCPManager]
         MC[MCPClient]
         MT[MCPToolAdapter]
+        MR[MCPResourceMapper]
+        MP[MCPPromptMapper]
     end
     
     subgraph Tools["ToolRegistry"]
@@ -546,14 +566,29 @@ graph LR
     
     MM --> MC
     MC --> MT
+    MC --> MR
+    MC --> MP
     MT --> TR
+    MP --> TR
 ```
 
 **Компоненты:**
-- `MCPManager` — управление несколькими MCP-серверами на сессию
+- `MCPManager` — управление несколькими MCP-серверами на сессию, auto-reconnect с backoff
 - `MCPClient` — клиент для одного MCP-сервера с state machine
-- `MCPToolAdapter` — адаптация MCP инструментов к ACP ToolDefinition
-- `StdioTransport` — запуск MCP-серверов через stdio subprocess
+- `MCPToolAdapter` — адаптация MCP инструментов к ACP ToolDefinition, kind inference
+- `MCPResourceMapper` — маппинг MCP resources → ACP ResourceLinkContent
+- `MCPPromptMapper` — маппинг MCP prompts → slash commands
+- `MCPContentMapper` — конвертация MCP content → ACP content
+- `StdioTransport` / `HttpTransport` / `SseTransport` — транспорты для MCP-серверов
+
+**Функциональность:**
+- **Tools**: namespace `mcp:server_id:tool_name`
+- **Resources**: доступны через ResourceLinkContent
+- **Prompts**: доступны как slash commands
+- **Notifications**: `tools/list_changed`, `resources/list_changed`, `prompts/list_changed`, progress
+- **Auto-reconnect**: с exponential backoff и health checks
+- **Roots**: поддержка `roots/list` и notifications
+- **TOML Config**: загрузка из `codelab.toml` с env variable expansion
 
 **Использование:**
 ```json

@@ -278,18 +278,70 @@ class LLMAgent(ABC):
         ...
 ```
 
-### NaiveAgent
+### ExecutionEngine
 
-Реализация с OpenAI function calling:
+Основной компонент обработки LLM-запросов:
 
 ```python
-class NaiveAgent(LLMAgent):
-    async def start_turn(self, context: AgentContext) -> AgentResponse:
-        # Добавляет user message к conversation_history
-        # Вызывает LLM с tools
-        # Возвращает AgentResponse(text, tool_calls, stop_reason)
+class ExecutionEngine:
+    def __init__(
+        self,
+        history_builder: HistoryBuilder,
+        tool_filter: ToolFilter,
+        llm_adapter: LLMAdapter,
+        message_sanitizer: MessageSanitizer,
+        plan_extractor: PlanExtractor,
+        context_compactor: ContextCompactor,
+        system_prompt_builder: SystemPromptBuilder,
+    ):
+        ...
+    
+    async def execute(self, context: ExecutionContext) -> ExecutionResult:
+        # 1. Build LLM messages from session history
+        # 2. Filter tools by client capabilities
+        # 3. Sanitize orphaned tool calls
+        # 4. Build system prompt
+        # 5. Call LLM via LLMAdapter
+        # 6. Extract plan from response
         ...
 ```
+
+### AgentLoop
+
+Унифицированный цикл LLM tool-calling итераций:
+
+```python
+class AgentLoop:
+    async def run(self, context: AgentLoopContext) -> AgentLoopResult:
+        iteration = 0
+        while iteration < self.max_turn_requests:
+            # Вызов LLM через стратегию
+            response = await self.strategy.execute(context)
+            
+            if not response.tool_calls:
+                return AgentLoopResult(stop_reason=StopReason.END_TURN)
+            
+            # Обработка tool calls
+            for tool_call in response.tool_calls:
+                result = await self._process_tool_call(tool_call, context)
+                context.add_tool_result(tool_call.id, result)
+            
+            iteration += 1
+        
+        return AgentLoopResult(stop_reason=StopReason.MAX_TURN_REQUESTS)
+```
+
+### LLM Call Strategies
+
+| Стратегия | Статус | Описание |
+|-----------|--------|----------|
+| `SingleStrategy` | ✅ | Единственная реализованная. Один LLM-вызов → обработка tool_calls → повтор |
+| `StrategyDispatcher` | ✅ | Диспетчер с priority chain + fallback |
+| `MultiOrchestrated` | ❌ | Запланирована (мультиагент с оркестратором) |
+| `MultiChoreographed` | ❌ | Запланирована (мультиагент без оркестратора) |
+| `Hierarchical` | ❌ | Запланирована (иерархическая мультиагентная) |
+
+> **Важно:** Только `SingleStrategy` имеет конкретную реализацию. Попытка использовать незавершённые стратегии приведёт к ошибке.
 
 ### AgentOrchestrator
 
