@@ -53,12 +53,12 @@
 - Добавлены integration тесты для проверки persistence
 
 **Документы:**
-- [`doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md`](doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md) (~750 строк)
+- [`doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md`](doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ARCHITECTURE.md) (~750 строк)
   * Анализ текущей реализации (SessionState, PermissionManager, Storage)
   * 4 диаграммы Mermaid (sequence, state, class, gantt)
   * 3-уровневая storage architecture
   * 4-фазный план реализации
-- [`doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md`](doc/architecture/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md) (~480 строк)
+- [`doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md`](doc/architecture/archive/ADVANCED_PERMISSION_MANAGEMENT_ANALYSIS_REPORT.md) (~480 строк)
   * Детальный анализ 4 проблем с impact и root cause
   * Рекомендации по приоритизации
   * Риски и mitigation strategies
@@ -90,7 +90,7 @@
 ### Added - Этап 4, Фаза 5: E2E Testing Content Integration (2026-04-16)
 
 #### Архитектура
-- Создан архитектурный документ [`doc/architecture/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md`](doc/architecture/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md)
+- Создан архитектурный документ [`doc/architecture/archive/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md`](doc/architecture/archive/CONTENT_INTEGRATION_E2E_TESTING_ARCHITECTURE.md)
 - 4 диаграммы Mermaid: Test Flow, Test Sequence, Coverage Matrix, Data Flow
 - Определено 40+ E2E сценариев с приоритетами
 
@@ -187,7 +187,7 @@
 #### Архитектура
 
 **Документация:**
-- [`doc/architecture/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md`](doc/architecture/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md) - полная архитектура (1900+ строк)
+- [`doc/architecture/archive/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md`](doc/architecture/archive/PROMPT_TURN_CONTENT_INTEGRATION_ARCHITECTURE.md) - полная архитектура (1900+ строк)
 - 4 Mermaid диаграммы: Component, Sequence, Data Flow, Class
 - Детальный implementation plan для всех фаз
 
@@ -279,7 +279,7 @@
 **Полная реализация клиентских методов для доступа к локальной среде пользователя**
 
 #### Архитектура
-- Создан архитектурный документ [`doc/architecture/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/CLIENT_METHODS_ARCHITECTURE.md) (1600+ строк)
+- Создан архитектурный документ [`doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md) (1600+ строк)
 - Исправлено понимание направления вызовов: Agent → Client RPC
 - 6 диаграмм Mermaid (Component, Sequence, State, Class)
 
@@ -339,7 +339,7 @@
 
 #### Документация
 
-- **Архитектурный план:** [`doc/architecture/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/CLIENT_METHODS_ARCHITECTURE.md) — полная архитектура
+- **Архитектурный план:** [`doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md`](doc/architecture/archive/CLIENT_METHODS_ARCHITECTURE.md) — полная архитектура
 - **Спецификация:** [`doc/Agent Client Protocol/protocol/09-File System.md`](doc/Agent Client Protocol/protocol/09-File System.md) и [`doc/Agent Client Protocol/protocol/10-Terminal.md`](doc/Agent Client Protocol/protocol/10-Terminal.md)
 
 #### Метрики качества
@@ -407,7 +407,7 @@
 - **Итого:** 132 теста (100% успешность)
 
 #### Документация
-- **Архитектурный план:** [`doc/architecture/CONTENT_TYPES_ARCHITECTURE.md`](doc/architecture/CONTENT_TYPES_ARCHITECTURE.md) — полное описание дизайна и реализации
+- **Архитектурный план:** [`doc/architecture/archive/CONTENT_TYPES_ARCHITECTURE.md`](doc/architecture/archive/CONTENT_TYPES_ARCHITECTURE.md) — полное описание дизайна и реализации
 - **Спецификация:** [`doc/Agent Client Protocol/protocol/06-Content.md`](doc/Agent Client Protocol/protocol/06-Content.md) — официальная спецификация протокола
 
 #### Метрики качества

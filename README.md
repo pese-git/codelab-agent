@@ -41,6 +41,7 @@ uv run codelab connect --stdio          # клиент запускает аге
 | [Руководство пользователя](doc/product/user-guide/01-tui-client.md) | Работа с TUI-клиентом |
 | [Руководство разработчика](doc/product/developer-guide/01-architecture.md) | Архитектура и разработка |
 | [Справочник CLI](doc/product/reference/01-cli.md) | Команды и опции |
+| [Архитектура](doc/internals/architecture/ARCHITECTURE.md) | Детальная архитектура системы |
 | [ACP Protocol](doc/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
 
 ## Структура проекта
@@ -67,9 +68,22 @@ acp-protocol/
 │   │   └── cli.py              # CLI точка входа
 │   └── tests/                  # Тесты (~3300 тестов)
 ├── doc/
-│   ├── product/                # Продуктовая документация
-│   ├── architecture/           # Архитектурные документы
-│   └── Agent Client Protocol/  # Спецификация ACP (не изменять!)
+│   ├── product/                # Продуктовая документация (для website)
+│   │   ├── overview/           # Введение, архитектура, сценарии
+│   │   ├── getting-started/    # Установка, быстрый старт
+│   │   ├── user-guide/         # Руководство пользователя
+│   │   ├── developer-guide/    # Для разработчиков
+│   │   ├── reference/          # Справочники (CLI, config, env)
+│   │   └── support/            # FAQ, troubleshooting
+│   ├── protocols/              # Референсные протоколы (не изменять!)
+│   │   ├── Agent Client Protocol/
+│   │   ├── Agent To Agent Protocol/
+│   │   └── Model Context Protocol/
+│   ├── architecture/           # Архитектурные документы и ADR
+│   └── internals/              # Внутренние документы
+│       ├── architecture/       # Детальная архитектура, карта проекта
+│       ├── roadmap/            # Планы развития кодовой базы
+│       └── archive/            # Исторические документы
 └── Makefile                    # Команды сборки и проверок
 ```
 
