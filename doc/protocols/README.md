@@ -9,6 +9,7 @@
 | [Agent Client Protocol](Agent%20Client%20Protocol/) | Протокол взаимодействия AI-агентов и клиентов |
 | [Agent To Agent Protocol](Agent%20To%20Agent%20Protocol/) | Протокол взаимодействия между агентами |
 | [Model Context Protocol](Model%20Context%20Protocol/) | Протокол подключения внешних инструментов и ресурсов |
+| [Agent Skills](Agent%20Skills/) | Спецификация и руководство по созданию скиллов |
 
 ## Справочники
 
