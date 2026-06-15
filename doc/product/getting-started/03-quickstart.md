@@ -14,7 +14,7 @@
 Откройте терминал и запустите:
 
 ```bash
-cd acp-protocol/codelab
+cd codelab-agent/codelab
 
 # Локальный режим (stdio транспорт, сервер как subprocess)
 uv run codelab

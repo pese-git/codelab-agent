@@ -6,8 +6,8 @@
 
 ```bash
 # 1. Клонирование репозитория
-git clone https://github.com/pese-git/codelab-ai.git
-cd acp-protocol/codelab
+git clone https://github.com/pese-git/codelab-agent.git
+cd codelab-agent/codelab
 
 # 2. Установка зависимостей
 uv sync
@@ -167,7 +167,7 @@ INFO     endpoints_available ws_api=ws://127.0.0.1:8765/acp/ws web_ui=http://127
 
 ```bash
 # Получение обновлений
-cd acp-protocol
+cd codelab-agent
 git pull origin main
 
 # Переустановка зависимостей
@@ -179,7 +179,7 @@ uv sync
 
 ```bash
 # Удаление репозитория
-rm -rf acp-protocol
+rm -rf codelab-agent
 
 # Удаление домашней директории (опционально)
 rm -rf ~/.codelab

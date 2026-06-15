@@ -22,9 +22,9 @@ graph LR
     end
     
     subgraph "Клиент"
-        Files[(Файлы)]
+        Files["Файлы"]
         Shell[Shell]
-        External[(Внешние API)]
+        External["Внешние API"]
     end
     
     LLM -->|tool_call| FS

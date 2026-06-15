@@ -7,8 +7,8 @@
 ### Клонирование репозитория
 
 ```bash
-git clone https://github.com/pese-git/codelab-ai.git
-cd acp-protocol
+git clone https://github.com/pese-git/codelab-agent.git
+cd codelab-agent
 ```
 
 ### Настройка окружения
@@ -35,7 +35,7 @@ uv run codelab
 ## Структура проекта
 
 ```
-acp-protocol/
+codelab-agent/
 ├── codelab/              # Основной проект
 │   ├── src/codelab/      # Исходный код
 │   │   ├── client/       # TUI клиент
