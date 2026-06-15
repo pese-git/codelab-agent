@@ -132,7 +132,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    GLOBAL[Глобальные политики<br/>~/.codelab/data/policies/]
+    GLOBAL["Глобальные политики<br/>~/.codelab/data/policies/"]
     SESSION[Политики сессии]
     REQUEST[Отдельные запросы]
     

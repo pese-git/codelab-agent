@@ -54,7 +54,7 @@ graph TB
     end
     
     subgraph "Server"
-        TextualWeb[textual-web<br/>Renderer]
+        TextualWeb["textual-web<br/>Renderer"]
         TUIApp[TUI App]
         ACPHttpServer[ACP HTTP/WS Server]
     end

@@ -74,15 +74,15 @@ CodeLab следует клиент-серверной архитектуре AC
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
-        TUI[TUI Components<br/>45 widgets]
+        TUI["TUI Components<br/>45 widgets"]
         VM[9 ViewModels]
         UC[Use Cases]
-        TS[Transport Service<br/>WebSocket / stdio]
+        TS["Transport Service<br/>WebSocket / stdio"]
     end
     
     subgraph Transport["Транспорт"]
-        WS[WebSocket<br/>JSON-RPC 2.0]
-        STDIO[stdio<br/>stdin/stdout]
+        WS["WebSocket<br/>JSON-RPC 2.0"]
+        STDIO["stdio<br/>stdin/stdout"]
     end
     
     subgraph Server["Сервер (Dishka DI)"]
@@ -94,7 +94,7 @@ graph TB
     end
     
     subgraph External["Внешние системы"]
-        LLM[LLM Provider<br/>OpenAI/Anthropic/Mock]
+        LLM["LLM Provider<br/>OpenAI/Anthropic/Mock"]
         FS[File System]
         TERM[Terminal]
     end

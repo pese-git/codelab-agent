@@ -15,7 +15,7 @@ graph TB
         State[Состояние агента]
     end
     
-    History --> Session[(Session Storage)]
+    History --> Session["Session Storage"]
     Config --> Session
     Perms --> Session
     State --> Session
