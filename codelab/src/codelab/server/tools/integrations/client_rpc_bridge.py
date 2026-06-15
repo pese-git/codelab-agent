@@ -91,13 +91,20 @@ class ClientRPCBridge:
                 extra={"session_id": session.session_id, "error": str(e)},
             )
             return None
-            
-        except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
+
+        except ClientRPCTimeoutError as e:
+            logger.error(
+                "Timeout при чтении файла",
+                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+            )
+            return None
+
+        except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при чтении файла",
                 extra={"session_id": session.session_id, "path": path, "error": str(e)},
             )
-            return None
+            raise
 
     async def write_file(
         self,
@@ -146,13 +153,20 @@ class ClientRPCBridge:
                 extra={"session_id": session.session_id, "error": str(e)},
             )
             return False
-            
-        except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
+
+        except ClientRPCTimeoutError as e:
+            logger.error(
+                "Timeout при записи файла",
+                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+            )
+            return False
+
+        except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при записи файла",
                 extra={"session_id": session.session_id, "path": path, "error": str(e)},
             )
-            return False
+            raise
 
     async def create_terminal(
         self,

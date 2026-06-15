@@ -14,7 +14,7 @@ graph TB
     end
     
     subgraph Presentation["Presentation Layer"]
-        VM[9 ViewModels]
+        VM[14 ViewModels]
         Obs[Observable<T>]
     end
     
@@ -58,7 +58,7 @@ container = create_client_container(
 
 **Провайдеры:**
 - `ClientProvider` — инфраструктурные сервисы (транспорт, репозитории, обработчики)
-- `ViewModelProvider` — 9 ViewModels
+- `ViewModelProvider` — 14 ViewModels
 
 **Разрешение циклической зависимости:** `SessionCoordinator ↔ PermissionHandler` разрешается через двухфазную инициализацию в `CoreServices`.
 

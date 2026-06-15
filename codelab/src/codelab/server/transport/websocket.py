@@ -475,26 +475,6 @@ class WebSocketTransport:
                 )
             )
 
-        # Обработка pending_tool_execution для permission response
-        if outcome.pending_tool_execution is not None:
-            pending = outcome.pending_tool_execution
-            self._conn_logger.info(
-                "scheduling pending tool execution in background",
-                session_id=pending.session_id,
-                tool_call_id=pending.tool_call_id,
-            )
-            asyncio.create_task(
-                protocol._execute_tool_in_background(
-                    session_id=pending.session_id,
-                    tool_call_id=pending.tool_call_id,
-                )
-            )
-        else:
-            self._conn_logger.debug(
-                "_finalize_outcome_and_send: no pending_tool_execution in outcome",
-                session_id=session_id,
-            )
-
         await self._send_outcome(outcome, request_id=request_id)
 
     async def _process_prompt_request_in_background(

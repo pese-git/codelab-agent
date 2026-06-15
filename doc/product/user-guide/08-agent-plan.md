@@ -4,7 +4,7 @@
 
 ## Обзор
 
-План агента — это структурированный список задач, которые агент планирует выполнить для достижения цели пользователя. CodeLab реализует визуализацию плана согласно [ACP спецификации Agent Plan](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md).
+План агента — это структурированный список задач, которые агент планирует выполнить для достижения цели пользователя. CodeLab реализует визуализацию плана согласно [ACP спецификации Agent Plan](../../protocols/Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md).
 
 ```mermaid
 graph TB
@@ -321,4 +321,4 @@ Ctrl+C
 
 - [Инструменты](07-tools.md) — инструменты агента
 - [TUI клиент](01-tui-client.md) — интерфейс
-- [Спецификация Agent Plan](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md) — протокол
+- [Спецификация Agent Plan](../../protocols/Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md) — протокол

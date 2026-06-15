@@ -558,5 +558,5 @@ CodeLab автоматически восстанавливает соедине
 - [Разрешения](05-permissions.md) — политики инструментов
 - [MCP серверы](14-mcp-servers.md) — подключение и настройка MCP
 - [План агента](08-agent-plan.md) — планирование использования инструментов
-- [Спецификация File System](../../Agent%20Client%20Protocol/protocol/09-File%20System.md) — протокол
-- [Спецификация Terminal](../../Agent%20Client%20Protocol/protocol/10-Terminal.md) — протокол
+- [Спецификация File System](../../protocols/Agent%20Client%20Protocol/protocol/09-File%20System.md) — протокол
+- [Спецификация Terminal](../../protocols/Agent%20Client%20Protocol/protocol/10-Terminal.md) — протокол

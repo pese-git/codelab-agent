@@ -6,10 +6,14 @@ permission policy, построения permission messages и обработк�
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from ...messages import ACPMessage, JsonRpcId
 from ..state import SessionState
+from .tool_policy import decide_tool_policy
+
+# Тип возвращаемого значения для decision
+PermissionDecision = Literal["allow", "reject", "ask"]
 
 
 class PermissionManager:
@@ -43,6 +47,31 @@ class PermissionManager:
             "kind": "reject_always",
         },
     ]
+
+    def decide(
+        self,
+        session: SessionState,
+        tool_kind: str,
+    ) -> PermissionDecision:
+        """Определяет действие для tool call с учётом mode.
+
+        Делегирует единой логике в ToolPolicyDecider.
+
+        Цепочка решений:
+        1. mode == "plan" → reject для write/execute инструментов
+        2. mode == "bypass" → allow все инструменты
+        3. mode == "standard" → session policy → global policy → ask
+
+        Args:
+            session: Состояние сессии
+            tool_kind: Категория инструмента
+
+        Returns:
+            "allow" — выполнить автоматически
+            "reject" — отклонить
+            "ask" — запросить разрешение у пользователя
+        """
+        return decide_tool_policy(session, tool_kind)
 
     def _resolve_policy(self, session: SessionState, tool_kind: str) -> str:
         """Разрешает политику для данного tool kind в единой точке.

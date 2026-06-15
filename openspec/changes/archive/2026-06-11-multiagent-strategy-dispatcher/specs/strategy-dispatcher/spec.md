@@ -15,9 +15,9 @@ StrategyDispatcher ДОЛЖЕН использовать `StrategyRegistry` дл
 
 StrategyDispatcher ДОЛЖЕН валидировать доступность стратегии через `StrategyRegistry.get_available(agent_registry)`:
 - `single`: всегда доступно (validator возвращает True)
-- `multi_orchestrated`: требует ≥1 агент с mode=orchestrator И ≥1 с mode=subagent
-- `multi_choreographed`: требует ≥2 агента с mode=subagent
-- `hierarchical`: требует ≥1 агент с mode=primary И ≥1 с mode=subagent
+- `multi_orchestrated`: требует ≥1 агент с role=orchestrator И ≥1 с role=subagent
+- `multi_choreographed`: требует ≥2 агента с role=subagent
+- `hierarchical`: требует ≥1 агент с role=primary И ≥1 с role=subagent
 
 ### Требование: Поведение Fallback
 

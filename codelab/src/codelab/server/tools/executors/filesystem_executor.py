@@ -7,6 +7,7 @@ from typing import Any
 
 import structlog
 
+from codelab.server.client_rpc.exceptions import ClientRPCResponseError
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
@@ -141,6 +142,20 @@ class FileSystemToolExecutor(ToolExecutor):
                 content=content_items,
             )
             
+        except ClientRPCResponseError as e:
+            logger.error(
+                "RPC ошибка при чтении файла",
+                extra={
+                    "session_id": session.session_id,
+                    "path": path,
+                    "error": str(e),
+                },
+            )
+            return ToolExecutionResult(
+                success=False,
+                error=f"Ошибка при чтении файла: {e.message}",
+            )
+
         except Exception as e:
             logger.error(
                 "Ошибка при чтении файла",
@@ -250,6 +265,20 @@ class FileSystemToolExecutor(ToolExecutor):
                 content=content_items,
             )
             
+        except ClientRPCResponseError as e:
+            logger.error(
+                "RPC ошибка при записи файла",
+                extra={
+                    "session_id": session.session_id,
+                    "path": path,
+                    "error": str(e),
+                },
+            )
+            return ToolExecutionResult(
+                success=False,
+                error=f"Ошибка при записи файла: {e.message}",
+            )
+
         except Exception as e:
             logger.error(
                 "Ошибка при записи файла",

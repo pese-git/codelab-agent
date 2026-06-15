@@ -566,4 +566,4 @@ echo "MY_API_KEY=your-secret-key" >> .env
 - [Разрешения](05-permissions.md) — система разрешений
 - [Конфигурация](04-configuration.md) — настройка CodeLab
 - [TOML конфигурация](13-toml-configuration.md) — формат конфигурации
-- [MCP Protocol](../../Model%20Context%20Protocol/) — полная документация MCP
+- [MCP Protocol](../../protocols/Model%20Context%20Protocol/) — полная документация MCP

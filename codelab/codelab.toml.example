@@ -159,7 +159,7 @@ retry_on = ["rate_limit", "timeout"]
 # 1. TOML (в этом файле) — аналогично opencode.json:
 #    [agents.definitions.coder]
 #    description = "Senior Python Developer"
-#    mode = "subagent"
+#    role = "subagent"
 #    model = "anthropic/claude-3-5-sonnet"
 #    prompt = "Ты — Senior Python Developer..."
 #
@@ -173,7 +173,7 @@ retry_on = ["rate_limit", "timeout"]
 # Пример TOML-агента (раскомментируйте для использования):
 # [agents.definitions.coder]
 # description = "Senior Python Developer"
-# mode = "subagent"
+# role = "subagent"
 # priority = 1
 # model = "anthropic/claude-3-5-sonnet"
 # temperature = 0.1

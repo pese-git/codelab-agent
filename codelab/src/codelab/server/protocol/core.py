@@ -260,17 +260,22 @@ class ACPProtocol:
         "mode": {
             "name": "Session Mode",
             "category": "mode",
-            "default": "ask",
+            "default": "standard",
             "options": [
                 {
-                    "value": "ask",
-                    "name": "Ask",
-                    "description": "Request permission before sensitive actions",
+                    "value": "plan",
+                    "name": "Plan",
+                    "description": "Read-only planning mode",
                 },
                 {
-                    "value": "code",
-                    "name": "Code",
-                    "description": "Execute actions without per-step approval",
+                    "value": "standard",
+                    "name": "Standard",
+                    "description": "Confirm changes before execution",
+                },
+                {
+                    "value": "bypass",
+                    "name": "Bypass",
+                    "description": "Full autonomy, no confirmation",
                 },
             ],
         },

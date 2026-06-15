@@ -13,8 +13,8 @@ from codelab.server.agent.config import (
     AgentConfigLoader,
     AgentConfigResolver,
     AgentMarkdownConfig,
-    AgentMode,
     AgentPermission,
+    AgentRole,
     AgentsGlobalConfig,
     AgentTOMLConfig,
     ResolvedAgent,
@@ -50,16 +50,14 @@ from codelab.server.agent.event_bus.routing import (
     RequestHandler,
 )
 from codelab.server.agent.registry import AgentRegistry
-from codelab.server.agent.state import OrchestratorConfig
 
 __all__ = [
     # Original agent classes
     "LLMAgent",
     "AgentContext",
     "AgentResponse",
-    "OrchestratorConfig",
     # Config models
-    "AgentMode",
+    "AgentRole",
     "AgentPermission",
     "AgentTOMLConfig",
     "AgentsGlobalConfig",

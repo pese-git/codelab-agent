@@ -161,31 +161,31 @@ class AgentRegistry:
         return dict(self._agents)
 
     def get_primary_agents(self) -> dict[str, ResolvedAgent]:
-        """Получить агентов с mode=primary."""
-        from codelab.server.agent.config.models import AgentMode
+        """Получить агентов с role=primary."""
+        from codelab.server.agent.config.models import AgentRole
 
         return {
             name: agent
             for name, agent in self._agents.items()
-            if agent.mode == AgentMode.PRIMARY
+            if agent.role == AgentRole.PRIMARY
         }
 
     def get_subagents(self) -> dict[str, ResolvedAgent]:
-        """Получить агентов с mode=subagent."""
-        from codelab.server.agent.config.models import AgentMode
+        """Получить агентов с role=subagent."""
+        from codelab.server.agent.config.models import AgentRole
 
         return {
             name: agent
             for name, agent in self._agents.items()
-            if agent.mode == AgentMode.SUBAGENT
+            if agent.role == AgentRole.SUBAGENT
         }
 
     def get_orchestrator(self) -> ResolvedAgent | None:
-        """Получить агента с mode=orchestrator."""
-        from codelab.server.agent.config.models import AgentMode
+        """Получить агента с role=orchestrator."""
+        from codelab.server.agent.config.models import AgentRole
 
         for _name, agent in self._agents.items():
-            if agent.mode == AgentMode.ORCHESTRATOR:
+            if agent.role == AgentRole.ORCHESTRATOR:
                 return agent
         return None
 

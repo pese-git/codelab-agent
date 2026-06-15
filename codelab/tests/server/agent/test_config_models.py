@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
-    AgentMode,
     AgentPermission,
+    AgentRole,
     AgentsGlobalConfig,
     AgentTOMLConfig,
     ResolvedAgent,
@@ -14,18 +14,18 @@ from codelab.server.agent.config.models import (
 )
 
 
-class TestAgentMode:
+class TestAgentRole:
     def test_primary(self):
-        assert AgentMode.PRIMARY == "primary"
+        assert AgentRole.PRIMARY == "primary"
 
     def test_subagent(self):
-        assert AgentMode.SUBAGENT == "subagent"
+        assert AgentRole.SUBAGENT == "subagent"
 
     def test_orchestrator(self):
-        assert AgentMode.ORCHESTRATOR == "orchestrator"
+        assert AgentRole.ORCHESTRATOR == "orchestrator"
 
     def test_from_string(self):
-        assert AgentMode("primary") == AgentMode.PRIMARY
+        assert AgentRole("primary") == AgentRole.PRIMARY
 
 
 class TestAgentPermission:
@@ -52,7 +52,7 @@ class TestAgentTOMLConfig:
     def test_defaults(self):
         cfg = AgentTOMLConfig()
         assert cfg.enabled is True
-        assert cfg.mode == AgentMode.PRIMARY
+        assert cfg.role == AgentRole.PRIMARY
         assert cfg.priority == 99
         assert cfg.model is None
         assert cfg.tools == []
@@ -60,12 +60,12 @@ class TestAgentTOMLConfig:
     def test_custom(self):
         cfg = AgentTOMLConfig(
             enabled=False,
-            mode=AgentMode.SUBAGENT,
+            role=AgentRole.SUBAGENT,
             model="openai/gpt-4o-mini",
             tools=["read_file"],
         )
         assert cfg.enabled is False
-        assert cfg.mode == AgentMode.SUBAGENT
+        assert cfg.role == AgentRole.SUBAGENT
         assert cfg.model == "openai/gpt-4o-mini"
 
     def test_extra_fields(self):
@@ -76,7 +76,8 @@ class TestAgentTOMLConfig:
 class TestAgentsGlobalConfig:
     def test_defaults(self):
         cfg = AgentsGlobalConfig()
-        assert cfg.mode == AgentMode.PRIMARY
+        assert cfg.role == AgentRole.PRIMARY
+        assert cfg.fallback_role == AgentRole.PRIMARY
         assert cfg.default_model == "openai/gpt-4o"
         assert cfg.max_steps == 10
         assert cfg.slicer_model == "openai/gpt-4o-mini"
@@ -101,14 +102,14 @@ class TestAgentMarkdownConfig:
         cfg = AgentMarkdownConfig()
         assert cfg.name == ""
         assert cfg.enabled is True
-        assert cfg.mode == AgentMode.PRIMARY
+        assert cfg.role == AgentRole.PRIMARY
         assert cfg.priority == 99
         assert cfg.prompt == ""
 
     def test_custom(self):
         cfg = AgentMarkdownConfig(
             name="coder",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
             prompt="You are a coding assistant.",
         )
         assert cfg.name == "coder"
@@ -124,7 +125,7 @@ class TestResolvedAgent:
         agent = ResolvedAgent(name="test")
         assert agent.name == "test"
         assert agent.enabled is True
-        assert agent.mode == AgentMode.PRIMARY
+        assert agent.role == AgentRole.PRIMARY
         assert agent.priority == 99
         assert agent.model == ""
         assert agent.temperature == 0.0
@@ -134,7 +135,7 @@ class TestResolvedAgent:
     def test_full_config(self):
         agent = ResolvedAgent(
             name="coder",
-            mode=AgentMode.PRIMARY,
+            role=AgentRole.PRIMARY,
             model="openai/gpt-4o",
             temperature=0.7,
             max_steps=15,

@@ -451,27 +451,30 @@ def build_modes_state(
     values: dict[str, str],
     config_specs: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Строит legacy-состояние modes для совместимых клиентов ACP.
+    """Строит состояние modes для клиентов ACP.
+
+    Возвращает список доступных режимов (plan, standard, bypass)
+    и текущий активный режим.
 
     Пример использования:
-        modes = build_modes_state({"mode": "ask", "model": "baseline"}, specs)
+        modes = build_modes_state({"mode": "standard", "model": "baseline"}, specs)
     """
+    from ..mode import DEFAULT_MODE, MODE_DESCRIPTIONS, VALID_MODES
 
-    mode_option = config_specs.get("mode", {})
-    available_modes = []
-    for option in mode_option.get("options", []):
-        if isinstance(option, dict) and isinstance(option.get("value"), str):
-            available_modes.append(
-                {
-                    "id": option["value"],
-                    "name": option.get("name", option["value"]),
-                    "description": option.get("description"),
-                }
-            )
+    available_modes = [
+        {
+            "id": mode_id,
+            "name": MODE_DESCRIPTIONS[mode_id]["name"],
+            "description": MODE_DESCRIPTIONS[mode_id]["description"],
+        }
+        for mode_id in sorted(VALID_MODES)
+    ]
+
+    current_mode = values.get("mode", DEFAULT_MODE)
 
     return {
         "availableModes": available_modes,
-        "currentModeId": values.get("mode", str(mode_option.get("default", "ask"))),
+        "currentModeId": current_mode,
     }
 
 

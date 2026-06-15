@@ -544,7 +544,7 @@ async def test_session_new_returns_modes_state() -> None:
     assert created.response is not None
     assert isinstance(created.response.result, dict)
     assert isinstance(created.response.result.get("modes"), dict)
-    assert created.response.result["modes"]["currentModeId"] == "ask"
+    assert created.response.result["modes"]["currentModeId"] == "standard"
 
 
 @pytest.mark.asyncio
@@ -975,7 +975,7 @@ async def test_set_config_option_updates_value() -> None:
             {
                 "sessionId": created_id,
                 "configId": "mode",
-                "value": "code",
+                "value": "bypass",
             },
         )
     )
@@ -984,9 +984,9 @@ async def test_set_config_option_updates_value() -> None:
     assert isinstance(updated.response.result, dict)
     config_options = updated.response.result["configOptions"]
     assert isinstance(updated.response.result.get("modes"), dict)
-    assert updated.response.result["modes"]["currentModeId"] == "code"
+    assert updated.response.result["modes"]["currentModeId"] == "bypass"
     mode = next(option for option in config_options if option["id"] == "mode")
-    assert mode["currentValue"] == "code"
+    assert mode["currentValue"] == "bypass"
     assert len(updated.notifications) == 3
     assert updated.notifications[0].params is not None
     assert updated.notifications[0].params["update"]["sessionUpdate"] == "config_option_update"
@@ -1038,7 +1038,7 @@ async def test_prompt_can_emit_tool_call_updates() -> None:
             {
                 "sessionId": created_id,
                 "configId": "mode",
-                "value": "code",
+                "value": "bypass",
             },
         )
     )
@@ -2857,19 +2857,20 @@ async def test_session_set_mode_updates_current_mode() -> None:
             "session/set_mode",
             {
                 "sessionId": session_id,
-                "modeId": "code",
+                "modeId": "bypass",
             },
         )
     )
 
     assert outcome.response is not None
     assert outcome.response.result == {}
-    update_types = [
-        notification.params["update"]["sessionUpdate"]
-        for notification in outcome.notifications
-        if notification.params is not None
+    # mode_changed notification имеет params {"sessionId": ..., "mode": ...}
+    mode_changed = [
+        n for n in outcome.notifications
+        if n.method == "session/mode_changed"
     ]
-    assert "current_mode_update" in update_types
+    assert len(mode_changed) >= 1
+    assert mode_changed[0].params["mode"] == "bypass"
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,9 @@
 - **THEN** `description` каждой опции включает информацию о стоимости: `"Description · $X.XX/M input · $Y.YY/M output"`
 
 #### Scenario: Текущее значение отражает активную модель
+
+> **Planned:** `currentValue` в configOptions запланирован для подсветки текущей модели в UI.
+
 - **WHEN** строится model configOption для сессии с активной моделью `"anthropic/claude-sonnet-4"`
 - **THEN** `currentValue` установлен в `"anthropic/claude-sonnet-4"`
 
@@ -98,6 +101,10 @@
 - **THEN** возвращён ответ с ошибкой с кодом `-32602` (Invalid params)
 
 ### Requirement: Конфигурация провайдеров
+
+> **Planned:** `enabled`, `max_retries` — запланированы для будущей реализации.
+> Текущая реализация поддерживает `api_key`, `base_url`, `default_model`, `timeout`.
+
 Система ДОЛЖНА поддерживать конфигурацию для каждого провайдера, включая `api_key`, `base_url`, `default_model`, `enabled`, `timeout` и `max_retries`.
 
 #### Scenario: Провайдер с custom base_url
@@ -105,6 +112,9 @@
 - **THEN** провайдер использует этот base_url для всех API-запросов
 
 #### Scenario: Отключённый провайдер
+
+> **Planned:** Функция отключения провайдера через `enabled=false` запланирована.
+
 - **WHEN** провайдер имеет `enabled=false` в конфигурации
 - **THEN** провайдер не зарегистрирован в реестре и не доступен в configOptions
 
@@ -113,6 +123,11 @@
 - **THEN** только эти модели отображаются в configOptions для данного провайдера
 
 ### Requirement: Per-model конфигурация
+
+> **Planned:** `enabled`, `name` на уровне модели — запланированы для будущей реализации.
+> Текущая реализация поддерживает `context_window`, `max_output_tokens`,
+> `cost_per_input_token`, `cost_per_output_token`.
+
 Система ДОЛЖНА поддерживать конфигурацию на уровне каждой модели, включая `context_window`, `max_output_tokens`, `cost_per_1m_input`, `cost_per_1m_output`, `name` и `enabled`.
 
 #### Scenario: Модель с контекстными лимитами
@@ -128,6 +143,9 @@
 - **THEN** в configOptions используется это имя вместо дефолтного
 
 #### Scenario: Отключённая модель
+
+> **Planned:** Функция отключения модели через `enabled=false` запланирована.
+
 - **WHEN** модель имеет `enabled = false` в конфигурации
 - **THEN** модель не отображается в configOptions и не доступна для выбора
 

@@ -28,6 +28,7 @@ from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+from codelab.server.protocol.handlers.tool_policy import decide_tool_policy_async
 from codelab.server.protocol.state import SessionState, ToolResult
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolRegistry
@@ -237,6 +238,16 @@ class AgentLoop:
             agent_text = response.text if response else ""
             has_tool_calls = bool(response and response.tool_calls)
 
+            logger.debug(
+                "llm_response_received",
+                session_id=session_id,
+                iteration=iteration,
+                has_text=bool(agent_text),
+                has_tool_calls=has_tool_calls,
+                tool_call_count=len(response.tool_calls) if response else 0,
+                stop_reason=getattr(response, "stop_reason", None),
+            )
+
             if agent_text:
                 final_text = agent_text
                 self._state_manager.add_assistant_message(session, agent_text)
@@ -362,6 +373,20 @@ class AgentLoop:
             AgentLoopResult с результатом выполнения.
         """
         notifications: list[ACPMessage] = []
+
+        # Убедиться что стратегия инициализирована для continue_execution.
+        # StrategyDispatcher имеет _current_strategy_name и select_strategy,
+        # но LLMCallStrategy Protocol их не определяет — проверяем динамически.
+        strategy_name_attr = getattr(self._strategy, "_current_strategy_name", None)
+        if strategy_name_attr is None:
+            select_fn = getattr(self._strategy, "select_strategy", None)
+            if callable(select_fn):
+                select_fn(session, context_meta=None)
+                logger.debug(
+                    "resume_after_permission: strategy re-initialized",
+                    strategy=getattr(self._strategy, "_current_strategy_name", "unknown"),
+                    session_id=session_id,
+                )
 
         # Выполнить pending tool
         tool_result = await self._execute_pending_tool(
@@ -505,6 +530,19 @@ class AgentLoop:
                 decision = "allow"
             else:
                 decision = await self._decide_tool_execution(session, tool_kind)
+
+            logger.debug(
+                "tool_execution_decision",
+                session_id=session_id,
+                tool_name=acp_tool_name,
+                tool_kind=tool_kind,
+                is_mcp=is_mcp,
+                requires_permission=(
+                    tool_definition.requires_permission if tool_definition else None
+                ),
+                mode=session.config_values.get("mode", "standard"),
+                decision=decision,
+            )
 
             if decision == "ask":
                 tool_call_state = session.tool_calls.get(tool_call_id)
@@ -920,6 +958,8 @@ class AgentLoop:
     async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
         """Определить решение о выполнении tool.
 
+        Делегирует единой логике в ToolPolicyDecider.
+
         Args:
             session: Состояние сессии.
             tool_kind: Тип инструмента.
@@ -927,20 +967,9 @@ class AgentLoop:
         Returns:
             "allow", "reject" или "ask".
         """
-        session_policy = session.permission_policy.get(tool_kind)
-        if session_policy == "allow_always":
-            return "allow"
-        if session_policy == "reject_always":
-            return "reject"
-
-        if self._global_policy_manager is not None:
-            global_policy = await self._global_policy_manager.get_global_policy(tool_kind)
-            if global_policy == "allow_always":
-                return "allow"
-            if global_policy == "reject_always":
-                return "reject"
-
-        return "ask"
+        return await decide_tool_policy_async(
+            session, tool_kind, self._global_policy_manager
+        )
 
     def _is_cancel_requested(self, session: SessionState) -> bool:
         """Проверить флаг отмены."""
