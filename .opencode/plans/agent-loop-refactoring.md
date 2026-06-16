@@ -29,7 +29,7 @@
 ## Структура файлов
 
 ```
-codelab/src/codelab/server/
+src/codelab/server/
 ├── agent/strategies/
 │   ├── base.py                    # LLMCallStrategy Protocol
 │   ├── dispatcher.py              # StrategyDispatcher (уже есть, адаптировать)
@@ -47,7 +47,7 @@ codelab/src/codelab/server/
 
 ### 1. Создать `StopReason` enum
 
-**Файл:** `codelab/src/codelab/server/protocol/stop_reasons.py`
+**Файл:** `src/codelab/server/protocol/stop_reasons.py`
 
 ```python
 from enum import StrEnum
@@ -66,7 +66,7 @@ class StopReason(StrEnum):
 
 ### 2. Создать `LLMCallStrategy` Protocol
 
-**Файл:** `codelab/src/codelab/server/agent/strategies/base.py`
+**Файл:** `src/codelab/server/agent/strategies/base.py`
 
 ```python
 from typing import Protocol, Any
@@ -96,7 +96,7 @@ class LLMCallStrategy(Protocol):
 
 ### 3. Создать `LegacyCallStrategy` адаптер
 
-**Файл:** `codelab/src/codelab/server/agent/strategies/legacy_adapter.py`
+**Файл:** `src/codelab/server/agent/strategies/legacy_adapter.py`
 
 ```python
 class LegacyCallStrategy:
@@ -120,7 +120,7 @@ class LegacyCallStrategy:
 
 ### 4. Адаптировать `StrategyDispatcher` под `LLMCallStrategy`
 
-**Файл:** `codelab/src/codelab/server/agent/strategies/dispatcher.py`
+**Файл:** `src/codelab/server/agent/strategies/dispatcher.py`
 
 **Изменения:**
 - Убедиться что сигнатуры `execute()` и `continue_execution()` совпадают с Protocol
@@ -130,7 +130,7 @@ class LegacyCallStrategy:
 
 ### 5. Создать `AgentLoop`
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py`
+**Файл:** `src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py`
 
 ```python
 class AgentLoop:
@@ -214,7 +214,7 @@ class AgentLoop:
 
 ### 6. Рефакторить `LLMLoopStage`
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/pipeline/stages/llm_loop.py`
+**Файл:** `src/codelab/server/protocol/handlers/pipeline/stages/llm_loop.py`
 
 **Изменения:**
 - Удалить `_run_llm_loop` (legacy) — заменён `AgentLoop.run()`
@@ -280,7 +280,7 @@ class LLMLoopStage(PromptStage):
 
 ### 7. Обновить DI провайдеры
 
-**Файл:** `codelab/src/codelab/server/di.py`
+**Файл:** `src/codelab/server/di.py`
 
 **Изменения:**
 - Обновить `PipelineProvider.get_llm_loop_stage()` для передачи новых зависимостей

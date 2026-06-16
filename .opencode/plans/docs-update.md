@@ -7,7 +7,7 @@
 
 ## 1. Сервер: ACPProtocol — handle_and_process + send_callback
 
-**Файлы:** `codelab/src/codelab/server/protocol/core.py`
+**Файлы:** `src/codelab/server/protocol/core.py`
 
 **Изменения:**
 - Добавлен метод `handle_and_process()` — основной entry point для транспорта
@@ -26,7 +26,7 @@
 
 ## 2. Сервер: ToolMapping — маппинг имён инструментов
 
-**Файлы:** `codelab/src/codelab/server/tools/mapping.py` (новый), `registry.py`, `llm_loop.py`, `naive.py`
+**Файлы:** `src/codelab/server/tools/mapping.py` (новый), `registry.py`, `llm_loop.py`, `naive.py`
 
 **Изменения:**
 - Новый модуль `mapping.py` с функциями `acp_name_to_llm_name()` и `llm_name_to_acp_name()`
@@ -47,7 +47,7 @@
 
 ## 3. Транспорт: stdio и WebSocket — новый entry point
 
-**Файлы:** `codelab/src/codelab/server/transport/stdio_runner.py`, `websocket.py`
+**Файлы:** `src/codelab/server/transport/stdio_runner.py`, `websocket.py`
 
 **Изменения:**
 - `stdio_runner.py`: использует `protocol.handle_and_process()` вместо `protocol.handle()`
@@ -65,7 +65,7 @@
 
 ## 4. Клиент: Async callbacks для stdio режима
 
-**Файлы:** `codelab/src/codelab/client/infrastructure/services/acp_transport_service.py`, `chat_view_model.py`
+**Файлы:** `src/codelab/client/infrastructure/services/acp_transport_service.py`, `chat_view_model.py`
 
 **Изменения:**
 - Добавлен `_call_callback()` — поддержка sync и async callbacks
@@ -83,7 +83,7 @@
 
 ## 5. Клиент: TUI — Content API для безопасного рендеринга
 
-**Файлы:** `codelab/src/codelab/client/tui/components/chat_view.py`, `markdown.py`
+**Файлы:** `src/codelab/client/tui/components/chat_view.py`, `markdown.py`
 
 **Изменения:**
 - `chat_view.py`: использует `Content.from_markup()` + `Content.from_text()` вместо Rich markup escape

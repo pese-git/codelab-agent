@@ -626,7 +626,7 @@ erDiagram
 ## Директории проекта
 
 ```
-codelab/src/codelab/
+src/codelab/
 ├── shared/              # Общие модули
 │   ├── messages.py      # JSON-RPC сообщения
 │   ├── logging.py       # Структурированное логирование

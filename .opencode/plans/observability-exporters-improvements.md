@@ -43,7 +43,7 @@
 
 ### 1.1 Изменения в Tracer
 
-**Файл:** `codelab/src/codelab/server/observability/tracer.py`
+**Файл:** `src/codelab/server/observability/tracer.py`
 
 **Изменения:**
 1. Добавить поле `_exported_count: int = 0`
@@ -83,7 +83,7 @@ class Tracer:
 
 ### 1.2 Изменения в EventTimeline
 
-**Файл:** `codelab/src/codelab/server/observability/event_timeline.py`
+**Файл:** `src/codelab/server/observability/event_timeline.py`
 
 **Изменения:**
 1. Добавить поле `_exported_count: int = 0`
@@ -129,7 +129,7 @@ class EventTimeline:
 
 ### 1.3 Изменения в FileSpanExporter
 
-**Файл:** `codelab/src/codelab/server/observability/exporters/file_span_exporter.py`
+**Файл:** `src/codelab/server/observability/exporters/file_span_exporter.py`
 
 **Изменения:**
 1. Убрать `mkdir` из `__init__`
@@ -216,7 +216,7 @@ class FileSpanExporter:
 
 ### 1.4 Изменения в FileEventExporter
 
-**Файл:** `codelab/src/codelab/server/observability/exporters/file_event_exporter.py`
+**Файл:** `src/codelab/server/observability/exporters/file_event_exporter.py`
 
 **Изменения:**
 1. Убрать `mkdir` из `__init__`

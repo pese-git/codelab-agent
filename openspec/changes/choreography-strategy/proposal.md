@@ -36,11 +36,11 @@
 ## Impact
 
 **Новые файлы:**
-- `codelab/src/codelab/server/agent/strategies/models.py` — ContextBroadcast, ChoreographyAnswer
-- `codelab/src/codelab/server/agent/strategies/choreography.py` — ChoreographyStrategy
+- `src/codelab/server/agent/strategies/models.py` — ContextBroadcast, ChoreographyAnswer
+- `src/codelab/server/agent/strategies/choreography.py` — ChoreographyStrategy
 
 **Изменяемые файлы:**
-- `codelab/src/codelab/server/agent/strategies/descriptor.py` — CHOREOGRAPHY_STRATEGY_DESCRIPTOR
-- `codelab/src/codelab/server/agent/event_bus/bus.py` — broadcast() implementation
+- `src/codelab/server/agent/strategies/descriptor.py` — CHOREOGRAPHY_STRATEGY_DESCRIPTOR
+- `src/codelab/server/agent/event_bus/bus.py` — broadcast() implementation
 
 **Зависимости:** Зависит от event-bus, llm-adapter, agent-registry, observability.
