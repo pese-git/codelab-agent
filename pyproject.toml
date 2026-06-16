@@ -56,6 +56,8 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.11",
     "ty>=0.0.32",
+    "commitizen>=4.0.0",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -82,3 +84,11 @@ include = ["src"]
 pythonpath = ["src", "tests/server"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "pep621"
+update_changelog_on_bump = true
+major_version_zero = true
