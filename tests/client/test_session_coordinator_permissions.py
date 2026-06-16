@@ -28,9 +28,6 @@ from codelab.client.messages import (
     SelectedPermissionOutcome,
 )
 
-# Все тесты в этом модуле - async
-pytestmark = pytest.mark.asyncio
-
 
 class TestSessionCoordinatorPermissions:
     """Тесты для методов permission в SessionCoordinator."""
@@ -109,6 +106,7 @@ class TestSessionCoordinatorPermissions:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_request_permission_without_handler(
         self,
         coordinator_without_handler: SessionCoordinator,
@@ -127,6 +125,7 @@ class TestSessionCoordinatorPermissions:
         # Callback не должен быть вызван
         callback.assert_not_called()
 
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_request_permission_with_handler_success(
         self,
@@ -176,6 +175,7 @@ class TestSessionCoordinatorPermissions:
         await test_flow()
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_request_permission_timeout(
         self,
         coordinator_with_handler: SessionCoordinator,
@@ -211,6 +211,7 @@ class TestSessionCoordinatorPermissions:
 
         await test_with_short_timeout()
 
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_request_permission_handler_error(
         self,
@@ -252,6 +253,7 @@ class TestSessionCoordinatorPermissions:
         )
         # Не должно бросать исключение
 
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_resolve_permission_success(
         self,
@@ -332,6 +334,7 @@ class TestSessionCoordinatorPermissions:
         # Не должно бросать исключение
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_cancel_permission_success(
         self,
         coordinator_with_handler: SessionCoordinator,
@@ -390,6 +393,7 @@ class TestSessionCoordinatorPermissions:
         coordinator_with_handler.cancel_permission(request_id="perm_1")
         # Не должно бросать исключение
 
+    @pytest.mark.asyncio
     async def test_handle_permission_deprecated(
         self,
         coordinator_with_handler: SessionCoordinator,

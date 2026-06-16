@@ -70,6 +70,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["SIM117"]
+
 [tool.ty.src]
 include = ["src"]
 
@@ -84,6 +87,12 @@ include = ["src"]
 pythonpath = ["src", "tests/server"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
+    "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
+    "ignore:coroutine.*SearchInput:RuntimeWarning",
+]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
