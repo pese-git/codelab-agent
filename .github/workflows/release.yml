@@ -1,32 +1,53 @@
-name: Automated Release
+name: CI/CD Pipeline
 
 on:
   push:
     branches:
       - main
 
-permissions:
-  contents: write
-
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run Linter
+        run: uv run ruff check .
+
+      - name: Run Formatter Check
+        run: uv run ruff format --check .
+
+      - name: Run Tests
+        run: uv run pytest
+
   release:
+    needs: verify
     if: "!contains(github.event.head_commit.message, 'bump:')"
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version-file: "pyproject.toml"
 
@@ -35,16 +56,14 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Run Commitizen Bump
-        run: |
-          uv run cz bump --yes
+        run: uv run cz bump --yes
 
       - name: Push changes and tags
-        run: |
-          git push origin main --tags
+        run: git push origin HEAD:${{ github.ref_name }} --tags
 
   publish:
     needs: release
@@ -55,20 +74,16 @@ jobs:
       url: https://pypi.org/p/codelab
     permissions:
       id-token: write
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version-file: "pyproject.toml"
 
