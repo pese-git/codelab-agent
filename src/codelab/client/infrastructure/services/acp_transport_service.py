@@ -503,6 +503,253 @@ class ACPTransportService(TransportService):
         finally:
             await self._queues.cleanup_response_queue(request_id)
 
+    async def _ensure_connected(self) -> None:
+        """Проверяет соединение и восстанавливает при необходимости."""
+        if not self.is_connected():
+            self._logger.warning("request_with_callbacks_connection_lost_reconnecting")
+            try:
+                await self.connect()
+            except Exception as e:
+                msg = f"Failed to reconnect to server: {e}"
+                self._logger.error("request_with_callbacks_reconnect_failed", error=str(e))
+                raise RuntimeError(msg) from e
+
+    async def _validate_request_setup(self) -> None:
+        """Валидирует что транспорт готов к запросу."""
+        if self._queues is None:
+            msg = "Routing queues not initialized"
+            self._logger.error("queues_not_initialized")
+            raise RuntimeError(msg)
+
+    async def _drain_remaining_notifications(
+        self,
+        *,
+        method: str,
+        request_id: str | int,
+        on_update: Callable[[dict[str, Any]], None] | None,
+    ) -> int:
+        """Забирает оставшиеся уведомления после финального ответа."""
+        remaining_notifications = 0
+        max_remaining_iterations = 10
+        for _ in range(max_remaining_iterations):
+            try:
+                notification_data = await asyncio.wait_for(
+                    self._queues.notification_queue.get(),
+                    timeout=0.2,
+                )
+                notification = ACPMessage.from_dict(notification_data)
+                remaining_notifications += 1
+
+                if notification.method == "session/update" and on_update is not None:
+                    self._logger.debug(
+                        "handling_remaining_session_update",
+                        method=method,
+                        request_id=request_id,
+                        remaining_count=remaining_notifications,
+                    )
+                    on_update(notification_data)
+            except TimeoutError:
+                break
+            except Exception as e:
+                self._logger.warning(
+                    "error_processing_remaining_notification",
+                    error=str(e),
+                )
+                break
+
+        if remaining_notifications > 0:
+            self._logger.info(
+                "processed_remaining_notifications",
+                method=method,
+                request_id=request_id,
+                count=remaining_notifications,
+            )
+
+        return remaining_notifications
+
+    async def _process_response(
+        self,
+        response_task: asyncio.Task[dict[str, Any]],
+        *,
+        method: str,
+        request_id: str | int,
+        on_update: Callable[[dict[str, Any]], None] | None,
+    ) -> dict[str, Any]:
+        """Обрабатывает финальный ответ и оставшиеся уведомления."""
+        response_data = response_task.result()
+        if response_data.get("id") != request_id:
+            raise RuntimeError(f"Response id mismatch: expected {request_id}")
+
+        if isinstance(response_data.get("error"), dict):
+            error_payload = response_data["error"]
+            self._logger.error(
+                "request_error",
+                method=method,
+                error_code=error_payload.get("code"),
+                error_message=error_payload.get("message"),
+            )
+
+        await self._drain_remaining_notifications(
+            method=method,
+            request_id=request_id,
+            on_update=on_update,
+        )
+
+        self._logger.info(
+            "request_completed",
+            method=method,
+            request_id=request_id,
+        )
+        return response_data
+
+    async def _wait_for_response_with_events(
+        self,
+        response_task: asyncio.Task[dict[str, Any]],
+        permission_task: asyncio.Task[dict[str, Any]] | None,
+        *,
+        method: str,
+        request_id: str | int,
+        on_update: Callable[[dict[str, Any]], None] | None,
+        on_fs_read: Callable[[str], Any] | None,
+        on_fs_write: Callable[[str, str], Any] | None,
+        on_terminal_create: Callable[[str], Any] | None,
+        on_terminal_output: Callable[[str], Any] | None,
+        on_terminal_wait: Callable[[str], Any] | None,
+        on_terminal_release: Callable[[str], Any] | None,
+        on_terminal_kill: Callable[[str], Any] | None,
+    ) -> dict[str, Any]:
+        """Основной цикл ожидания ответа с обработкой permission и notifications."""
+        while True:
+            notification_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(
+                asyncio.wait_for(
+                    self._queues.notification_queue.get(),
+                    timeout=0.1,
+                )
+            )
+
+            tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [response_task, notification_task]
+            if permission_task is not None:
+                tasks_to_wait.append(permission_task)
+
+            done, pending = await asyncio.wait(
+                tasks_to_wait,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if notification_task in pending:
+                notification_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                    await notification_task
+
+            if permission_task is not None and permission_task in done:
+                self._handle_permission_task(
+                    permission_task, method=method, request_id=request_id,
+                )
+                permission_task = asyncio.create_task(
+                    self._queues.permission_queue.get()
+                )
+
+            if notification_task in done:
+                await self._handle_notification_task(
+                    notification_task,
+                    method=method,
+                    request_id=request_id,
+                    on_update=on_update,
+                    on_fs_read=on_fs_read,
+                    on_fs_write=on_fs_write,
+                    on_terminal_create=on_terminal_create,
+                    on_terminal_output=on_terminal_output,
+                    on_terminal_wait=on_terminal_wait,
+                    on_terminal_release=on_terminal_release,
+                    on_terminal_kill=on_terminal_kill,
+                )
+
+            if response_task in done:
+                return await self._process_response(
+                    response_task,
+                    method=method,
+                    request_id=request_id,
+                    on_update=on_update,
+                )
+
+    def _handle_permission_task(
+        self,
+        permission_task: asyncio.Task[dict[str, Any]],
+        *,
+        method: str,
+        request_id: str | int,
+    ) -> None:
+        """Обрабатывает завершённый permission task (синхронная часть)."""
+        try:
+            permission_data = permission_task.result()
+            self._logger.debug(
+                "tool_lifecycle_permission_request_received",
+                method=method,
+                request_id=request_id,
+                permission_id=permission_data.get("id"),
+            )
+        except Exception as e:
+            self._logger.warning(
+                "tool_lifecycle_permission_request_failed",
+                method=method,
+                request_id=request_id,
+                error=str(e),
+            )
+            return
+
+        # Запускаем async обработку отдельно чтобы не блокировать
+        asyncio.ensure_future(
+            self._handle_permission_request_with_handler(permission_data)
+        )
+
+    async def _handle_notification_task(
+        self,
+        notification_task: asyncio.Task[dict[str, Any]],
+        *,
+        method: str,
+        request_id: str | int,
+        on_update: Callable[[dict[str, Any]], None] | None,
+        on_fs_read: Callable[[str], Any] | None,
+        on_fs_write: Callable[[str, str], Any] | None,
+        on_terminal_create: Callable[[str], Any] | None,
+        on_terminal_output: Callable[[str], Any] | None,
+        on_terminal_wait: Callable[[str], Any] | None,
+        on_terminal_release: Callable[[str], Any] | None,
+        on_terminal_kill: Callable[[str], Any] | None,
+    ) -> None:
+        """Обрабатывает завершённый notification task."""
+        try:
+            notification_data = notification_task.result()
+            self._logger.debug(
+                "tool_lifecycle_notification_received",
+                method=method,
+                request_id=request_id,
+                notification_id=notification_data.get("id"),
+                notification_method=notification_data.get("method"),
+            )
+            await self._handle_notification_or_client_rpc(
+                method=method,
+                request_id=request_id,
+                notification_data=notification_data,
+                on_update=on_update,
+                on_fs_read=on_fs_read,
+                on_fs_write=on_fs_write,
+                on_terminal_create=on_terminal_create,
+                on_terminal_output=on_terminal_output,
+                on_terminal_wait=on_terminal_wait,
+                on_terminal_release=on_terminal_release,
+                on_terminal_kill=on_terminal_kill,
+            )
+        except TimeoutError:
+            pass
+        except Exception as e:
+            self._logger.warning(
+                "tool_lifecycle_notification_failed",
+                method=method,
+                request_id=request_id,
+                error=str(e),
+            )
+
     async def request_with_callbacks(
         self,
         method: str,
@@ -542,19 +789,8 @@ class ACPTransportService(TransportService):
             Финальный ответ на request
         """
         # Проверяем и восстанавливаем соединение если оно потеряно
-        if not self.is_connected():
-            self._logger.warning("request_with_callbacks_connection_lost_reconnecting")
-            try:
-                await self.connect()
-            except Exception as e:
-                msg = f"Failed to reconnect to server: {e}"
-                self._logger.error("request_with_callbacks_reconnect_failed", error=str(e))
-                raise RuntimeError(msg) from e
-
-        if self._queues is None:
-            msg = "Routing queues not initialized"
-            self._logger.error("queues_not_initialized")
-            raise RuntimeError(msg)
+        await self._ensure_connected()
+        await self._validate_request_setup()
 
         async with self._callbacks_request_lock:
             # Слушаем incoming server->client RPC всегда: даже без пользовательских
@@ -590,13 +826,6 @@ class ACPTransportService(TransportService):
                     request_id=request_id,
                 )
 
-                # Получаем ответы, обрабатывая промежуточные события.
-                # ИСПРАВЛЕНИЕ: response_task и permission_task создаются ОДИН раз
-                # перед циклом и переиспользуются между итерациями.
-                # notification_task создаётся каждую итерацию для короткого polling.
-                # Это предотвращает потерю permission_request когда notification
-                # timeout (0.1s) завершается раньше.
-                
                 # Создаём долгоживущие tasks ВНЕ цикла
                 response_task: asyncio.Task[dict[str, Any]] = asyncio.create_task(
                     response_queue.get()
@@ -606,176 +835,22 @@ class ACPTransportService(TransportService):
                     permission_task = asyncio.create_task(
                         self._queues.permission_queue.get()
                     )
-                
+
                 try:
-                    while True:
-                        # notification_task создаётся каждую итерацию (короткий polling)
-                        notification_task: asyncio.Task[dict[str, Any]] | None = None
-                        if should_listen_notifications:
-                            notification_task = asyncio.create_task(
-                                asyncio.wait_for(
-                                    self._queues.notification_queue.get(),
-                                    timeout=0.1
-                                )
-                            )
-
-                        # Собираем активные tasks для ожидания
-                        tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [response_task]
-                        if notification_task is not None:
-                            tasks_to_wait.append(notification_task)
-                        if permission_task is not None:
-                            tasks_to_wait.append(permission_task)
-
-                        # Ждём первого результата
-                        done, pending = await asyncio.wait(
-                            tasks_to_wait,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-
-                        # Отменяем ТОЛЬКО notification_task (короткий polling)
-                        # response_task и permission_task НЕ отменяем!
-                        if notification_task is not None and notification_task in pending:
-                            notification_task.cancel()
-                            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                                await notification_task
-
-                        # Обрабатываем permission_task если завершился
-                        if permission_task is not None and permission_task in done:
-                            try:
-                                permission_data = permission_task.result()
-                                self._logger.debug(
-                                    "tool_lifecycle_permission_request_received",
-                                    method=method,
-                                    request_id=request_id,
-                                    permission_id=permission_data.get("id"),
-                                )
-                                # Обрабатываем через PermissionHandler
-                                await self._handle_permission_request_with_handler(
-                                    permission_data,
-                                )
-                            except Exception as e:
-                                self._logger.warning(
-                                    "tool_lifecycle_permission_request_failed",
-                                    method=method,
-                                    request_id=request_id,
-                                    error=str(e),
-                                )
-                            # Пересоздаём permission_task для следующего permission
-                            permission_task = asyncio.create_task(
-                                self._queues.permission_queue.get()
-                            )
-
-                        # Обрабатываем notification_task если завершился
-                        if notification_task is not None and notification_task in done:
-                            try:
-                                notification_data = notification_task.result()
-                                self._logger.debug(
-                                    "tool_lifecycle_notification_received",
-                                    method=method,
-                                    request_id=request_id,
-                                    notification_id=notification_data.get("id"),
-                                    notification_method=notification_data.get("method"),
-                                )
-                                await self._handle_notification_or_client_rpc(
-                                    method=method,
-                                    request_id=request_id,
-                                    notification_data=notification_data,
-                                    on_update=on_update,
-                                    on_fs_read=on_fs_read,
-                                    on_fs_write=on_fs_write,
-                                    on_terminal_create=on_terminal_create,
-                                    on_terminal_output=on_terminal_output,
-                                    on_terminal_wait=on_terminal_wait,
-                                    on_terminal_release=on_terminal_release,
-                                    on_terminal_kill=on_terminal_kill,
-                                )
-                            except TimeoutError:
-                                # Таймаут при polling уведомлений — нормально
-                                pass
-                            except Exception as e:
-                                self._logger.warning(
-                                    "tool_lifecycle_notification_failed",
-                                    method=method,
-                                    request_id=request_id,
-                                    error=str(e),
-                                )
-
-                        # Проверяем результат от response queue.
-                        if response_task in done:
-                            try:
-                                response_data = response_task.result()
-                                # Сравниваем id по raw payload, чтобы не терять корректный
-                                # ответ из-за излишне строгого разбора в ACPMessage.
-                                if response_data.get("id") == request_id:
-                                    if isinstance(response_data.get("error"), dict):
-                                        error_payload = response_data["error"]
-                                        self._logger.error(
-                                            "request_error",
-                                            method=method,
-                                            error_code=error_payload.get("code"),
-                                            error_message=error_payload.get("message"),
-                                        )
-
-                                    # Обрабатываем уведомления после финального ответа.
-                                    # Небольшой grace period нужен, чтобы забрать события,
-                                    # которые могли прийти сразу после response и попасть
-                                    # в очередь чуть позже этой проверки.
-                                    # Ограничиваем количество итераций чтобы избежать deadlock.
-                                    remaining_notifications = 0
-                                    max_remaining_iterations = 10
-                                    for _ in range(max_remaining_iterations):
-                                        try:
-                                            notification_data = await asyncio.wait_for(
-                                                self._queues.notification_queue.get(),
-                                                timeout=0.2,
-                                            )
-                                            notification = ACPMessage.from_dict(notification_data)
-                                            remaining_notifications += 1
-
-                                            if (
-                                                notification.method == "session/update"
-                                                and on_update is not None
-                                            ):
-                                                self._logger.debug(
-                                                    "handling_remaining_session_update",
-                                                    method=method,
-                                                    request_id=request_id,
-                                                    remaining_count=remaining_notifications,
-                                                )
-                                                on_update(notification_data)
-                                        except TimeoutError:
-                                            break
-                                        except Exception as e:
-                                            self._logger.warning(
-                                                "error_processing_remaining_notification",
-                                                error=str(e),
-                                            )
-                                            break
-
-                                    if remaining_notifications > 0:
-                                        self._logger.info(
-                                            "processed_remaining_notifications",
-                                            method=method,
-                                            request_id=request_id,
-                                            count=remaining_notifications,
-                                        )
-
-                                    self._logger.info(
-                                        "request_completed",
-                                        method=method,
-                                        request_id=request_id,
-                                    )
-                                    return response_data
-                            except TimeoutError:
-                                self._logger.error(
-                                    "request_timeout",
-                                    method=method,
-                                    request_id=request_id,
-                                )
-                                raise RuntimeError(f"Request {request_id} timed out") from None
-                            except Exception:
-                                # Продолжаем если была ошибка.
-                                pass
+                    return await self._wait_for_response_with_events(
+                        response_task,
+                        permission_task,
+                        method=method,
+                        request_id=request_id,
+                        on_update=on_update,
+                        on_fs_read=on_fs_read,
+                        on_fs_write=on_fs_write,
+                        on_terminal_create=on_terminal_create,
+                        on_terminal_output=on_terminal_output,
+                        on_terminal_wait=on_terminal_wait,
+                        on_terminal_release=on_terminal_release,
+                        on_terminal_kill=on_terminal_kill,
+                    )
                 finally:
                     # Очистка долгоживущих tasks при выходе из цикла
                     if not response_task.done():
@@ -891,359 +966,262 @@ class ACPTransportService(TransportService):
         notification = ACPMessage.from_dict(notification_data)
 
         if notification.method == "session/update":
-            if on_update is not None:
-                self._logger.debug(
-                    "handling_session_update",
-                    method=method,
-                    request_id=request_id,
-                    has_callback=on_update is not None,
-                )
-                on_update(notification_data)
-            else:
-                self._logger.warning(
-                    "session_update_received_but_no_callback",
-                    method=method,
-                    request_id=request_id,
-                )
+            await self._handle_session_update(
+                notification_data, method=method, request_id=request_id, on_update=on_update,
+            )
             return
 
         rpc_method = notification.method
         if rpc_method is None or notification.id is None:
             return
 
+        rpc_id: str | int = notification.id
         rpc_params = notification.params if isinstance(notification.params, dict) else {}
         self._logger.debug(
             "tool_lifecycle_rpc_received",
             request_id=request_id,
             method=method,
-            rpc_id=notification.id,
+            rpc_id=rpc_id,
             rpc_method=rpc_method,
         )
 
-        if rpc_method == "fs/read_text_file":
-            path = rpc_params.get("path")
+        handlers: dict[str, Callable[[], Any]] = {
+            "fs/read_text_file": lambda: self._handle_fs_read(
+                rpc_id, rpc_params, on_fs_read,
+            ),
+            "fs/write_text_file": lambda: self._handle_fs_write(
+                rpc_id, rpc_params, on_fs_write,
+            ),
+            "terminal/create": lambda: self._handle_terminal_create(
+                rpc_id, rpc_params, on_terminal_create,
+            ),
+            "terminal/output": lambda: self._handle_terminal_output(
+                rpc_id, rpc_params, on_terminal_output,
+            ),
+            "terminal/wait_for_exit": lambda: self._handle_terminal_wait(
+                rpc_id, rpc_params, on_terminal_wait,
+            ),
+            "terminal/release": lambda: self._handle_terminal_release(
+                rpc_id, rpc_params, on_terminal_release,
+            ),
+            "terminal/kill": lambda: self._handle_terminal_kill(
+                rpc_id, rpc_params, on_terminal_kill,
+            ),
+        }
+
+        handler = handlers.get(rpc_method)
+        if handler is not None:
+            await handler()
+        else:
+            await self._handle_unknown_rpc(notification.id)
+
+    async def _handle_session_update(
+        self,
+        notification_data: dict[str, Any],
+        *,
+        method: str,
+        request_id: str | int,
+        on_update: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        if on_update is not None:
+            self._logger.debug(
+                "handling_session_update",
+                method=method,
+                request_id=request_id,
+                has_callback=on_update is not None,
+            )
+            on_update(notification_data)
+        else:
+            self._logger.warning(
+                "session_update_received_but_no_callback",
+                method=method,
+                request_id=request_id,
+            )
+
+    async def _handle_fs_read(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_fs_read: Callable[[str], Any] | None,
+    ) -> None:
+        path = rpc_params.get("path")
+        self._logger.info(
+            "fs_read_rpc_start",
+            rpc_id=rpc_id,
+            path=path,
+            has_callback=on_fs_read is not None,
+        )
+        try:
+            content = (
+                await _call_callback(on_fs_read, path)
+                if on_fs_read is not None and isinstance(path, str)
+                else ""
+            )
             self._logger.info(
-                "fs_read_rpc_start",
-                rpc_id=notification.id,
+                "fs_read_rpc_callback_done",
+                rpc_id=rpc_id,
+                content_size=len(content),
+            )
+            response_msg = ACPMessage.response(rpc_id, {"content": content}).to_dict()
+            self._logger.info(
+                "fs_read_rpc_sending_response",
+                rpc_id=rpc_id,
+            )
+            await self.send(response_msg)
+            self._logger.info(
+                "fs_read_rpc_response_sent",
+                rpc_id=rpc_id,
+            )
+        except Exception as e:
+            self._logger.error(
+                "fs_read_rpc_error",
+                rpc_id=rpc_id,
                 path=path,
-                has_callback=on_fs_read is not None,
+                error=str(e),
+                error_type=type(e).__name__,
             )
-            try:
-                content = (
-                    await _call_callback(on_fs_read, path)
-                    if on_fs_read is not None and isinstance(path, str)
-                    else ""
-                )
-                self._logger.info(
-                    "fs_read_rpc_callback_done",
-                    rpc_id=notification.id,
-                    content_size=len(content),
-                )
-                response_msg = ACPMessage.response(notification.id, {"content": content}).to_dict()
-                self._logger.info(
-                    "fs_read_rpc_sending_response",
-                    rpc_id=notification.id,
-                )
-                await self.send(response_msg)
-                self._logger.info(
-                    "fs_read_rpc_response_sent",
-                    rpc_id=notification.id,
-                )
-            except Exception as e:
-                self._logger.error(
-                    "fs_read_rpc_error",
-                    rpc_id=notification.id,
-                    path=path,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                # Отправляем error response обратно на сервер
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": notification.id,
-                    "error": {"code": -32603, "message": str(e)},
-                }
-                await self.send(error_response)
-            return
+            error_response = {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {"code": -32603, "message": str(e)},
+            }
+            await self.send(error_response)
 
-        if rpc_method == "fs/write_text_file":
-            path = rpc_params.get("path")
-            text = rpc_params.get("content")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
+    async def _handle_fs_write(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_fs_write: Callable[[str, str], Any] | None,
+    ) -> None:
+        path = rpc_params.get("path")
+        text = rpc_params.get("content")
+        self._logger.debug(
+            "tool_lifecycle_callback_start",
+            rpc_id=rpc_id,
+            rpc_method="fs/write_text_file",
+            path=path,
+            text_size=len(text) if isinstance(text, str) else 0,
+            has_callback=on_fs_write is not None,
+        )
+        try:
+            if on_fs_write is not None and isinstance(path, str) and isinstance(text, str):
+                await _call_callback(on_fs_write, path, text)
+            await self.send(ACPMessage.response(rpc_id, {}).to_dict())
+        except Exception as e:
+            self._logger.error(
+                "fs_write_rpc_error",
+                rpc_id=rpc_id,
                 path=path,
-                text_size=len(text) if isinstance(text, str) else 0,
-                has_callback=on_fs_write is not None,
+                error=str(e),
+                error_type=type(e).__name__,
             )
-            try:
-                success = (
-                    await _call_callback(on_fs_write, path, text)
-                    if on_fs_write is not None and isinstance(path, str) and isinstance(text, str)
-                    else False
-                )
-                self._logger.debug(
-                    "tool_lifecycle_callback_done",
-                    rpc_id=notification.id,
-                    rpc_method=rpc_method,
-                    success=success,
-                )
-                self._logger.debug(
-                    "tool_lifecycle_response_sending",
-                    rpc_id=notification.id,
-                    rpc_method=rpc_method,
-                )
-                # ACP spec: empty response means success
-                response_data = {}
-                await self.send(ACPMessage.response(notification.id, response_data).to_dict())
-                self._logger.debug(
-                    "tool_lifecycle_response_sent",
-                    rpc_id=notification.id,
-                    rpc_method=rpc_method,
-                    success=success,
-                )
-            except Exception as e:
-                self._logger.error(
-                    "fs_write_rpc_error",
-                    rpc_id=notification.id,
-                    path=path,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": notification.id,
-                    "error": {"code": -32603, "message": str(e)},
-                }
-                await self.send(error_response)
-            return
+            await self.send({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {"code": -32603, "message": str(e)},
+            })
 
-        if rpc_method == "terminal/create":
-            command = rpc_params.get("command")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                command=command,
-                has_callback=on_terminal_create is not None,
-            )
-            terminal_id = (
-                await _call_callback(on_terminal_create, command)
-                if on_terminal_create is not None and isinstance(command, str)
-                else None
-            )
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                terminal_id=terminal_id,
-            )
-            self._logger.debug(
-                "tool_lifecycle_response_sending",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                result_keys=["terminalId"] if terminal_id else [],
-            )
-            if terminal_id is None:
-                await self.send(
-                    ACPMessage.error_response(
-                        notification.id,
-                        code=-32000,
-                        message="terminal/create callback not configured",
-                    ).to_dict()
-                )
-            else:
-                await self.send(
-                    ACPMessage.response(notification.id, {"terminalId": terminal_id}).to_dict()
-                )
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            return
-
-        if rpc_method == "terminal/output":
-            terminal_id = rpc_params.get("terminalId")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                terminal_id=terminal_id,
-                has_callback=on_terminal_output is not None,
-            )
-            output_data: dict[str, Any] | None = (
-                await _call_callback(on_terminal_output, terminal_id)
-                if on_terminal_output is not None and isinstance(terminal_id, str)
-                else None
-            )
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                output_size=len(output_data.get("output", "")) if output_data else 0,
-            )
-            if output_data is None:
-                self._logger.debug(
-                    "tool_lifecycle_response_sending",
-                    rpc_id=notification.id,
-                    rpc_method=rpc_method,
-                    result_keys=[],
-                )
-                await self.send(
-                    ACPMessage.error_response(
-                        notification.id,
-                        code=-32000,
-                        message="terminal/output callback not configured",
-                    ).to_dict()
-                )
-            else:
-                self._logger.debug(
-                    "tool_lifecycle_response_sending",
-                    rpc_id=notification.id,
-                    rpc_method=rpc_method,
-                    result_keys=list(output_data.keys()),
-                )
-                await self.send(ACPMessage.response(notification.id, output_data).to_dict())
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            return
-
-        if rpc_method == "terminal/wait_for_exit":
-            terminal_id = rpc_params.get("terminalId")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                terminal_id=terminal_id,
-                has_callback=on_terminal_wait is not None,
-            )
-            exit_code: int | None = None
-            output: str | None = None
-            if on_terminal_wait is not None and isinstance(terminal_id, str):
-                wait_result = await _call_callback(on_terminal_wait, terminal_id)
-                if isinstance(wait_result, tuple):
-                    candidate_exit_code, candidate_output = wait_result
-                    exit_code = (
-                        candidate_exit_code if isinstance(candidate_exit_code, int) else None
-                    )
-                    output = candidate_output if isinstance(candidate_output, str) else None
-                elif isinstance(wait_result, int):
-                    exit_code = wait_result
-
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                exit_code=exit_code,
-                output_size=len(output) if isinstance(output, str) else 0,
-            )
-            result_payload: dict[str, Any] = {}
-            if exit_code is not None:
-                result_payload["exitCode"] = exit_code
-            if output is not None:
-                result_payload["output"] = output
-            self._logger.debug(
-                "tool_lifecycle_response_sending",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                result_keys=list(result_payload.keys()),
-            )
-            await self.send(ACPMessage.response(notification.id, result_payload).to_dict())
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            return
-
-        if rpc_method == "terminal/release":
-            terminal_id = rpc_params.get("terminalId")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                terminal_id=terminal_id,
-                has_callback=on_terminal_release is not None,
-            )
-            if on_terminal_release is not None and isinstance(terminal_id, str):
-                await _call_callback(on_terminal_release, terminal_id)
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            self._logger.debug(
-                "tool_lifecycle_response_sending",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                result_keys=[],
-            )
-            await self.send(ACPMessage.response(notification.id, {}).to_dict())
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            return
-
-        if rpc_method == "terminal/kill":
-            terminal_id = rpc_params.get("terminalId")
-            self._logger.debug(
-                "tool_lifecycle_callback_start",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                terminal_id=terminal_id,
-                has_callback=on_terminal_kill is not None,
-            )
-            killed = (
-                await _call_callback(on_terminal_kill, terminal_id)
-                if on_terminal_kill is not None and isinstance(terminal_id, str)
-                else False
-            )
-            self._logger.debug(
-                "tool_lifecycle_callback_done",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                killed=killed,
-            )
-            self._logger.debug(
-                "tool_lifecycle_response_sending",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-                result_keys=["killed"],
-            )
-            await self.send(ACPMessage.response(notification.id, {"killed": killed}).to_dict())
-            self._logger.debug(
-                "tool_lifecycle_response_sent",
-                rpc_id=notification.id,
-                rpc_method=rpc_method,
-            )
-            return
-
-        # Для неизвестных server->client RPC возвращаем пустой успешный response,
-        # чтобы не блокировать prompt-turn на сервере.
-        self._logger.warning(
-            "tool_lifecycle_unknown_rpc_fallback",
-            rpc_id=notification.id,
-            rpc_method=rpc_method,
+    async def _handle_terminal_create(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_terminal_create: Callable[[str], Any] | None,
+    ) -> None:
+        command = rpc_params.get("command")
+        terminal_id = (
+            await _call_callback(on_terminal_create, command)
+            if on_terminal_create is not None and isinstance(command, str)
+            else None
         )
-        self._logger.debug(
-            "tool_lifecycle_response_sending",
-            rpc_id=notification.id,
-            rpc_method=rpc_method,
-            result_keys=[],
+        if terminal_id is None:
+            await self.send(
+                ACPMessage.error_response(
+                    rpc_id,
+                    code=-32000,
+                    message="terminal/create callback not configured",
+                ).to_dict()
+            )
+        else:
+            await self.send(
+                ACPMessage.response(rpc_id, {"terminalId": terminal_id}).to_dict()
+            )
+
+    async def _handle_terminal_output(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_terminal_output: Callable[[str], Any] | None,
+    ) -> None:
+        terminal_id = rpc_params.get("terminalId")
+        output_data: dict[str, Any] | None = (
+            await _call_callback(on_terminal_output, terminal_id)
+            if on_terminal_output is not None and isinstance(terminal_id, str)
+            else None
         )
-        await self.send(ACPMessage.response(notification.id, {}).to_dict())
-        self._logger.debug(
-            "tool_lifecycle_response_sent",
-            rpc_id=notification.id,
-            rpc_method=rpc_method,
+        if output_data is None:
+            await self.send(
+                ACPMessage.error_response(
+                    rpc_id,
+                    code=-32000,
+                    message="terminal/output callback not configured",
+                ).to_dict()
+            )
+        else:
+            await self.send(ACPMessage.response(rpc_id, output_data).to_dict())
+
+    async def _handle_terminal_wait(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_terminal_wait: Callable[[str], Any] | None,
+    ) -> None:
+        terminal_id = rpc_params.get("terminalId")
+        exit_code: int | None = None
+        output: str | None = None
+        if on_terminal_wait is not None and isinstance(terminal_id, str):
+            wait_result = await _call_callback(on_terminal_wait, terminal_id)
+            if isinstance(wait_result, tuple):
+                candidate_exit_code, candidate_output = wait_result
+                exit_code = candidate_exit_code if isinstance(candidate_exit_code, int) else None
+                output = candidate_output if isinstance(candidate_output, str) else None
+            elif isinstance(wait_result, int):
+                exit_code = wait_result
+
+        result_payload: dict[str, Any] = {}
+        if exit_code is not None:
+            result_payload["exitCode"] = exit_code
+        if output is not None:
+            result_payload["output"] = output
+        await self.send(ACPMessage.response(rpc_id, result_payload).to_dict())
+
+    async def _handle_terminal_release(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_terminal_release: Callable[[str], Any] | None,
+    ) -> None:
+        terminal_id = rpc_params.get("terminalId")
+        if on_terminal_release is not None and isinstance(terminal_id, str):
+            await _call_callback(on_terminal_release, terminal_id)
+        await self.send(ACPMessage.response(rpc_id, {}).to_dict())
+
+    async def _handle_terminal_kill(
+        self,
+        rpc_id: str | int,
+        rpc_params: dict[str, Any],
+        on_terminal_kill: Callable[[str], Any] | None,
+    ) -> None:
+        terminal_id = rpc_params.get("terminalId")
+        killed = (
+            await _call_callback(on_terminal_kill, terminal_id)
+            if on_terminal_kill is not None and isinstance(terminal_id, str)
+            else False
         )
+        await self.send(ACPMessage.response(rpc_id, {"killed": killed}).to_dict())
+
+    async def _handle_unknown_rpc(self, rpc_id: str | int) -> None:
+        """Отправляет пустой response на неизвестный RPC."""
+        await self.send(ACPMessage.response(rpc_id, {}).to_dict())
 
     def cleanup(self) -> None:
         """Очищает ресурсы синхронно (вызывается DI контейнером).
