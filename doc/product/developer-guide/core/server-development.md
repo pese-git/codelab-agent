@@ -1186,7 +1186,7 @@ async def test_reconnect_with_backoff():
 
 ## См. также
 
-- [Архитектура](architecture.md) — общая архитектура системы
-- [Обработчики протокола](protocol-handlers.md) — создание новых handlers
-- [MCP разработка](mcp-development.md) — полное руководство по MCP
-- [Тестирование](testing.md) — запуск и написание тестов
+- [Архитектура](../architecture.md) — общая архитектура системы
+- [Обработчики протокола](../protocols/protocol-handlers.md) — создание новых handlers
+- [MCP разработка](../protocols/mcp-development.md) — полное руководство по MCP
+- [Тестирование](../workflow/testing.md) — запуск и написание тестов

@@ -384,4 +384,4 @@ python3 -c "import tomllib; tomllib.load(open('codelab.toml', 'rb'))"
 - [Fallback и устойчивость](../llm/fallback-resilience.md) — fallback цепочки
 - [Конфигурация (справочник)](../../reference/configuration.md) — все параметры
 - [Переменные окружения](../../reference/environment.md) — все CODELAB_* переменные
-- [Добавление провайдера](../../developer-guide/adding-providers.md) — developer guide
+- [Добавление провайдера](../../developer-guide/extending/adding-providers.md) — developer guide

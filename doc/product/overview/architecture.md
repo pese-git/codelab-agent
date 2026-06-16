@@ -384,7 +384,7 @@ stateDiagram-v2
 - **Скоуп:** REQUEST-scoped через Dishka
 - **Cleanup:** Автоматический shutdown MCP subprocesses при disconnect
 
-> **Подробная документация:** [MCP серверы (user guide)](../user-guide/extensions/mcp-servers.md) · [MCP разработка (dev guide)](../developer-guide/mcp-development.md)
+> **Подробная документация:** [MCP серверы (user guide)](../user-guide/extensions/mcp-servers.md) · [MCP разработка (dev guide)](../developer-guide/protocols/mcp-development.md)
 
 ## Протокол ACP
 

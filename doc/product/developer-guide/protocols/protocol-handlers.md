@@ -448,7 +448,7 @@ async def handle_session_new(self, message: ACPMessage) -> ProtocolOutcome:
 
 ## См. также
 
-- [Архитектура](architecture.md) — общая архитектура системы
-- [Разработка сервера](server-development.md) — детали реализации сервера
+- [Архитектура](../architecture.md) — общая архитектура системы
+- [Разработка сервера](../core/server-development.md) — детали реализации сервера
 - [MCP разработка](mcp-development.md) — MCP интеграция в pipeline
-- [Тестирование](testing.md) — запуск и написание тестов
+- [Тестирование](../workflow/testing.md) — запуск и написание тестов

@@ -473,7 +473,7 @@ uv run python -m pytest tests/server/mcp/ --cov=codelab.server.mcp
 
 ## См. также
 
-- [Архитектура](architecture.md) — общая архитектура системы
-- [Разработка клиента](client-development.md) — детали реализации клиента
-- [Разработка сервера](server-development.md) — детали реализации сервера
+- [Архитектура](../architecture.md) — общая архитектура системы
+- [Разработка клиента](../core/client-development.md) — детали реализации клиента
+- [Разработка сервера](../core/server-development.md) — детали реализации сервера
 - [Вклад в проект](contributing.md) — как внести вклад

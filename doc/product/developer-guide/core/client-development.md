@@ -405,6 +405,6 @@ async def test_transport_request_with_callbacks():
 
 ## См. также
 
-- [Архитектура](architecture.md) — общая архитектура системы
+- [Архитектура](../architecture.md) — общая архитектура системы
 - [Разработка сервера](server-development.md) — детали реализации сервера
-- [Тестирование](testing.md) — запуск и написание тестов
+- [Тестирование](../workflow/testing.md) — запуск и написание тестов
