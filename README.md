@@ -32,7 +32,7 @@ uv sync
 CODELAB_LLM_PROVIDER=openai CODELAB_LLM_MODEL=gemma4:e2b CODELAB_LLM_BASE_URL=http://localhost:11434 codelab
 ```
 
-> Подробнее: [Настройка Ollama](doc/product/getting-started/05-ollama-setup.md)
+> Подробнее: [Настройка Ollama](doc/product/getting-started/ollama-setup.md)
 
 ## Установка
 
@@ -73,11 +73,11 @@ pipx install "git+https://github.com/pese-git/codelab-ai.git"
 
 | Раздел | Описание |
 |--------|----------|
-| [Введение](doc/product/overview/01-introduction.md) | Обзор возможностей и архитектуры |
-| [Быстрый старт](doc/product/getting-started/03-quickstart.md) | Пошаговая инструкция запуска |
-| [Руководство пользователя](doc/product/user-guide/01-tui-client.md) | Работа с TUI-клиентом |
-| [Руководство разработчика](doc/product/developer-guide/01-architecture.md) | Архитектура и разработка |
-| [Справочник CLI](doc/product/reference/01-cli.md) | Команды и опции |
+| [Введение](doc/product/overview/introduction.md) | Обзор возможностей и архитектуры |
+| [Быстрый старт](doc/product/getting-started/quickstart.md) | Пошаговая инструкция запуска |
+| [Руководство пользователя](doc/product/user-guide/clients/tui-client.md) | Работа с TUI-клиентом |
+| [Руководство разработчика](doc/product/developer-guide/architecture.md) | Архитектура и разработка |
+| [Справочник CLI](doc/product/reference/cli.md) | Команды и опции |
 | [Архитектура](doc/internals/architecture/ARCHITECTURE.md) | Детальная архитектура системы |
 | [ACP Protocol](doc/protocols/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
 
