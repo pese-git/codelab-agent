@@ -1,0 +1,16 @@
+{
+  "watcher": {
+    "ignore": [
+      "**/__pycache__/**",
+      "**/.pytest_cache/**",
+      "**/.venv/**",
+      "**/venv/**",
+      "**/.git/**",
+      "**/htmlcov/**",
+      "**/*.pyc"
+    ]
+  },
+  "compaction": {
+    "auto": true
+  }
+}
