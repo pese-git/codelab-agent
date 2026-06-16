@@ -217,7 +217,7 @@ def _flatten_dotted_keys(data: dict[str, Any]) -> dict[str, Any]:
             nested_value = value[nested_key]
             if isinstance(nested_value, dict):
                 # Продолжаем распутывание
-                flattened = _flatten_dotted_keys({nested_key: nested_value})
+                flattened = _flatten_dotted_keys({str(nested_key): nested_value})
                 # Объединяем с результатом
                 for fk, fv in flattened.items():
                     full_key = f"{key}.{fk}"

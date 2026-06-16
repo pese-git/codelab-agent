@@ -17,7 +17,7 @@ import structlog
 
 from codelab.client.infrastructure.services.message_router import MessageRouter
 from codelab.client.infrastructure.services.routing_queues import RoutingQueues
-from codelab.client.infrastructure.transport import WebSocketTransport
+from codelab.client.infrastructure.transport import Transport
 
 
 class BackgroundReceiveLoop:
@@ -48,7 +48,7 @@ class BackgroundReceiveLoop:
 
     def __init__(
         self,
-        transport: WebSocketTransport,
+        transport: Transport,
         router: MessageRouter,
         queues: RoutingQueues,
     ) -> None:

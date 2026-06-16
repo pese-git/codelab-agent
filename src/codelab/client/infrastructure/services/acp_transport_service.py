@@ -492,6 +492,8 @@ class ACPTransportService(TransportService):
             params={"sessionId": session_id},
         )
         request_id = request.id
+        if request_id is None:
+            return
         response_queue = await self._queues.get_or_create_response_queue(request_id)
         await self.send(request.to_dict())
         try:

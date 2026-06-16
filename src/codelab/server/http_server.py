@@ -443,6 +443,10 @@ class ACPHttpServer:
         )
         await ws.prepare(request)
 
+        if self._app_container is None:
+            await ws.close(code=1011, message=b"Server not initialized")
+            return ws
+
         # Создаём WebSocketTransport и делегируем обработку
         transport = WebSocketTransport(
             ws=ws,

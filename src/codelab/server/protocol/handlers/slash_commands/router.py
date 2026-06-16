@@ -83,8 +83,9 @@ class SlashCommandRouter:
 
             try:
                 # Для help команды передаём mcp_prompt_handlers
-                if command == "help" and hasattr(handler, "execute_with_handlers"):
-                    result = handler.execute_with_handlers(args, session, mcp_prompt_handlers or {})
+                execute_fn = getattr(handler, "execute_with_handlers", None)
+                if command == "help" and execute_fn is not None:
+                    result = execute_fn(args, session, mcp_prompt_handlers or {})
                 else:
                     result = handler.execute(args, session)
                 return self._build_outcome(result, session)

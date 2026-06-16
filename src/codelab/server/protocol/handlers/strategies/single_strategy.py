@@ -131,7 +131,7 @@ class SingleStrategy:
         # Собираем контекст (async — включает ContextCompactor)
         context = await self.execution_engine.build_context(
             session=session,
-            prompt=prompt,
+            prompt=prompt or "",
             system_prompt=system_prompt,
             mcp_manager=mcp_manager,
         )
