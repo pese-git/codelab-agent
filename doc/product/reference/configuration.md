@@ -69,6 +69,134 @@ CodeLab поддерживает два формата конфигурации:
 | `CODELAB_HOST` | `127.0.0.1` | Адрес привязки сервера |
 | `CODELAB_HOME` | `~/.codelab` | Домашняя директория приложения |
 
+## Конфигурация LLM таймаутов
+
+| Опция | По умолчанию | Описание |
+|-------|--------------|----------|
+| `CODELAB_LLM_TIMEOUT_CONNECT` | `30.0` | Таймаут подключения к LLM API (секунды) |
+| `CODELAB_LLM_TIMEOUT_READ` | `300.0` | Таймаут ожидания ответа от LLM API (секунды) |
+| `CODELAB_LLM_TIMEOUT_WRITE` | `30.0` | Таймаут отправки запроса к LLM API (секунды) |
+| `CODELAB_LLM_TIMEOUT_POOL` | `30.0` | Таймаут ожидания соединения из пула (секунды) |
+
+### TOML секция таймаутов
+
+```toml
+[llm.timeout]
+connect = 30.0
+read = 300.0
+write = 30.0
+pool = 30.0
+```
+
+## Конфигурация мультиагентной системы
+
+| Опция | По умолчанию | Описание |
+|-------|--------------|----------|
+| `CODELAB_AGENTS_STRATEGY` | `single` | Стратегия выполнения: `single`, `multi_orchestrated`, `hierarchical` |
+| `CODELAB_AGENTS_FALLBACK_STRATEGY` | `single` | Fallback стратегия если нет нужных агентов |
+| `CODELAB_AGENTS_DEFAULT_MODEL` | `openai/gpt-4o` | Модель по умолчанию для агентов |
+| `CODELAB_AGENTS_MAX_STEPS` | `7` | Максимальное количество шагов мультиагентного выполнения |
+
+### TOML секция `[agents]`
+
+```toml
+[agents]
+strategy = "single"
+fallback_strategy = "single"
+default_model = "openai/gpt-4o"
+max_steps = 7
+debug = false
+
+# TokenSlicer конфигурация
+slicer_model = "openai/gpt-4o-mini"
+max_sliced_tokens = 120
+slicer_skip_threshold = 300
+
+# Context compaction
+context_window_limit = 128000
+compaction_reserved_tokens = 4096
+```
+
+### Определения агентов (TOML)
+
+```toml
+[agents.definitions.coder]
+enabled = true
+role = "primary"
+priority = 10
+model = "openai/gpt-4o"
+temperature = 0.0
+max_steps = 10
+tools = ["fs/read_text_file", "fs/write_file", "terminal/execute"]
+prompt = "Ты — эксперт-разработчик."
+
+[agents.definitions.coder.permissions]
+edit = true
+bash = true
+webfetch = false
+task = false
+
+[agents.definitions.reviewer]
+enabled = true
+role = "subagent"
+priority = 20
+model = "anthropic/claude-sonnet-4"
+temperature = 0.0
+prompt = "Ты — code reviewer."
+```
+
+### Определения агентов (Markdown)
+
+Файл `.codelab/agents/coder.md`:
+
+```markdown
+---
+name: coder
+role: primary
+model: openai/gpt-4o
+temperature: 0.0
+priority: 10
+permissions:
+  edit: true
+  bash: true
+---
+Ты — эксперт-разработчик. Пиши чистый код...
+```
+
+Источники конфигурации агентов (приоритет от низшего к высшему):
+1. `~/.codelab/codelab.toml` → `[agents.definitions.*]`
+2. `~/.codelab/agents/*.md`
+3. `codelab.toml` → `[agents.definitions.*]`
+4. `.codelab/agents/*.md`
+
+## Конфигурация observability
+
+| Опция | По умолчанию | Описание |
+|-------|--------------|----------|
+| `CODELAB_OBSERVABILITY_ENABLED` | `true` | Включить экспорт observability данных в файлы |
+| `CODELAB_OBSERVABILITY_EXPORT_DIR` | `~/.codelab/data/observability` | Базовая директория для экспорта |
+| `CODELAB_OBSERVABILITY_FLUSH_INTERVAL` | `60` | Интервал flush в секундах |
+| `CODELAB_OBSERVABILITY_MAX_FILE_SIZE` | `10485760` | Максимальный размер файла перед ротацией (байты) |
+
+### TOML секция observability
+
+```toml
+[observability]
+enabled = true
+export_dir = "~/.codelab/data/observability"
+flush_interval = 60
+max_file_size = 10485760  # 10MB
+```
+
+Структура директории observability:
+
+```
+~/.codelab/data/observability/
+├── spans/     # JSON файлы span'ов (Tracer)
+├── metrics/   # JSON файлы метрик (MetricsTracker)
+└── events/    # JSON файлы событий (EventTimeline)
+```
+
 ## Конфигурация логирования
 
 | Опция | Значения | По умолчанию | Описание |
@@ -94,13 +222,26 @@ CODELAB_LLM_MODEL=openai/gpt-4o
 CODELAB_LLM_TEMPERATURE=0.7
 CODELAB_LLM_MAX_TOKENS=8192
 
+# LLM Timeouts
+CODELAB_LLM_TIMEOUT_CONNECT=30.0
+CODELAB_LLM_TIMEOUT_READ=300.0
+
 # Server Configuration
 CODELAB_PORT=8765
 CODELAB_HOST=127.0.0.1
 CODELAB_HOME=~/.codelab
 
+# Multi-agent Configuration
+CODELAB_AGENTS_STRATEGY=single
+CODELAB_AGENTS_DEFAULT_MODEL=openai/gpt-4o
+CODELAB_AGENTS_MAX_STEPS=7
+
 # Logging
 CODELAB_LOG_LEVEL=INFO
+
+# Observability
+CODELAB_OBSERVABILITY_ENABLED=true
+CODELAB_OBSERVABILITY_FLUSH_INTERVAL=60
 ```
 
 ### TOML конфигурация (codelab.toml)
@@ -120,10 +261,31 @@ base_url = "https://api.openai.com/v1"
 context_window = 128000
 max_output_tokens = 16384
 
+[llm.timeout]
+connect = 30.0
+read = 300.0
+write = 30.0
+pool = 30.0
+
 [llm.fallback]
 enabled = true
 order = ["openai", "openrouter", "ollama"]
 retry_on = ["rate_limit", "timeout"]
+
+[agents]
+strategy = "single"
+default_model = "openai/gpt-4o"
+max_steps = 7
+
+[agents.definitions.coder]
+role = "primary"
+model = "openai/gpt-4o"
+prompt = "Ты — эксперт-разработчик."
+
+[observability]
+enabled = true
+export_dir = "~/.codelab/data/observability"
+flush_interval = 60
 ```
 
 ### Использование совместимого API (OpenRouter, Azure)
@@ -262,7 +424,11 @@ url = "https://mcp.example.com/sse"
 ├── data/
 │   ├── sessions/         # JSON файлы сессий
 │   ├── history/          # История чатов клиента
-│   └── policies/         # Глобальные политики разрешений
+│   ├── policies/         # Глобальные политики разрешений
+│   └── observability/    # Observability данные
+│       ├── spans/        # JSON файлы span'ов (Tracer)
+│       ├── metrics/      # JSON файлы метрик (MetricsTracker)
+│       └── events/       # JSON файлы событий (EventTimeline)
 └── cache/                # Временные данные и кэш MCP
 ```
 

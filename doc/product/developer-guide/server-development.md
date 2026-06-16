@@ -231,6 +231,7 @@ class LLMLoopStage:
 - `/help` — список доступных команд
 - `/mode` — переключение режима сессии
 - `/status` — текущее состояние сессии
+- `/strategy` — показать или изменить execution strategy
 
 ### Создание новой команды
 
@@ -561,6 +562,389 @@ LLM получает информацию о подключённых MCP сер
 You have access to the following MCP servers:
 - **filesystem** (5 tools): read_file, write_file, list_directory, ...
 - **github** (12 tools): list_repositories, create_issue, ...
+```
+
+## Мультиагентная система
+
+### Стратегии выполнения
+
+Сервер поддерживает несколько стратегий через Strategy Pattern (OCP):
+
+```mermaid
+graph TB
+    subgraph "Strategy Layer"
+        SD[StrategyDispatcher]
+        SR[StrategyRegistry]
+        DESC["StrategyDescriptor<br/>(name, factory, validator)"]
+    end
+
+    subgraph "Concrete Strategies"
+        SS[SingleStrategy]
+    end
+
+    subgraph "Agent Layer"
+        EB[AgentEventBus]
+        EE[ExecutionEngine]
+        AR[AgentRegistry]
+        AF[AgentFactory]
+        AL[LLMAdapter]
+    end
+
+    SD --> SR --> DESC
+    SD --> SS
+    SS --> EB --> AL
+    AR --> AF --> AL
+    AR --> EB
+```
+
+#### LLMCallStrategy Protocol
+
+```python
+class LLMCallStrategy(Protocol):
+    async def execute(self, session, prompt, mcp_manager) -> AgentResponse: ...
+    async def continue_execution(self, session, mcp_manager) -> AgentResponse: ...
+```
+
+`AgentLoop` зависит от абстракции (DIP). Добавление новой стратегии не требует изменения `AgentLoop`.
+
+#### StrategyRegistry
+
+```python
+class StrategyRegistry:
+    def register(self, descriptor: StrategyDescriptor) -> None: ...
+    def get_available(self, agent_registry: AgentRegistry) -> list[StrategyDescriptor]: ...
+    def create_instance(self, name: str, deps: StrategyDependencies) -> LLMCallStrategy | None: ...
+```
+
+#### StrategyDispatcher — маршрутизация
+
+Priority chain:
+1. `context_meta["active_strategy"]` — slash command override (`/strategy`)
+2. `session.config_values["_active_strategy"]` — persistent config option
+3. `default_strategy` — server config default
+
+```python
+dispatcher = StrategyDispatcher(
+    strategy_registry=registry,
+    agent_registry=agent_registry,
+    strategy_dependencies=deps,
+    default_strategy="single",
+    fallback_strategy="single",
+)
+strategy_name, fallback_from = dispatcher.select_strategy(session, meta)
+```
+
+#### StrategyDescriptor
+
+```python
+@dataclass
+class StrategyDescriptor:
+    name: str                          # "single", "hierarchical"
+    display_name: str                  # "Single", "Hierarchical"
+    description: str                   # Описание для UI
+    factory: Callable[[StrategyDependencies], LLMCallStrategy]
+    validator: Callable[[AgentRegistry], bool]
+```
+
+#### SingleStrategy
+
+Базовая стратегия — вызов единственного агента через `EventBus.send_request()`:
+
+```python
+class SingleStrategy:
+    async def execute(self, session, prompt, mcp_manager, ...) -> AgentResponse:
+        context = await self.execution_engine.build_context(session, prompt, ...)
+        request = AgentRequest(target_agent=agent_name, messages=context.history, ...)
+        response = await self.event_bus.send_request(request, parent_span=span)
+        return convert_to_agent_response(response)
+```
+
+Регистрация через descriptor:
+
+```python
+SINGLE_STRATEGY_DESCRIPTOR = StrategyDescriptor(
+    name="single",
+    display_name="Single",
+    description="Single agent execution via EventBus",
+    factory=lambda deps: SingleStrategy(...),
+    validator=lambda registry: True,  # всегда доступна
+)
+```
+
+### AgentEventBus
+
+In-memory шина межагентской коммуникации. Реализует два интерфейса:
+
+| Интерфейс | Методы | Назначение |
+|-----------|--------|------------|
+| `AbstractEventBus` | `subscribe()`, `publish()`, `unsubscribe()` | Pub/sub для observability |
+| `AgentRoutingInterface` | `register_agent()`, `send_request()`, `broadcast()` | Маршрутизация запросов |
+
+```python
+class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
+    async def send_request(self, request, parent_span) -> AgentResponse:
+        # Retry: до max_attempts с exponential backoff
+        # Publish: AgentResponse для observability
+
+    async def broadcast(self, broadcast_msg) -> list[ChoreographyAnswer]:
+        # Параллельная рассылка всем агентам
+        # BroadcastPartialFailure при частичном падении
+```
+
+#### RetryConfig
+
+```python
+@dataclass
+class RetryConfig:
+    max_attempts: int = 3
+    base_delay: float = 0.1  # exponential backoff: 0.1s, 0.2s, 0.4s
+```
+
+### AgentRegistry
+
+Реестр агентов с загрузкой конфигураций из 4 источников:
+
+```python
+class AgentRegistry:
+    def __init__(self, event_bus, agent_factory, global_config, ...): ...
+    async def initialize(self, global_toml, project_toml) -> None: ...
+    def get_primary_agents(self) -> dict[str, ResolvedAgent]: ...
+    def get_all(self) -> dict[str, ResolvedAgent]: ...
+```
+
+#### Источники конфигурации (приоритет)
+
+1. `~/.codelab/codelab.toml` → `[agents.definitions.*]` (низший)
+2. `~/.codelab/agents/*.md`
+3. `codelab.toml` → `[agents.definitions.*]`
+4. `.codelab/agents/*.md` (высший)
+
+#### AgentConfigLoader
+
+```python
+class AgentConfigLoader:
+    def load_all(self, global_toml, project_toml) -> dict[str, AgentMarkdownConfig]:
+        # 1. Global TOML → 2. Global MD → 3. Project TOML → 4. Project MD
+        # Override: каждый источник перезаписывает предыдущий
+```
+
+#### AgentConfigResolver
+
+Применяет defaults из `AgentsGlobalConfig`:
+
+```python
+class AgentConfigResolver:
+    def resolve_all(self, global_toml, project_toml) -> dict[str, ResolvedAgent]:
+        # model: agent → global.default_model
+        # temperature: agent → 0.0
+        # max_steps: agent → global.max_steps
+```
+
+### AgentFactory
+
+Фабрика создания `LLMAdapter` из конфигурации агента:
+
+```python
+class AgentFactory:
+    async def create_adapter(self, agent: ResolvedAgent) -> LLMAdapter:
+        # Резолвит model → LLMProvider через LLMProviderRegistry
+        # Кэширует adapter per agent_name (singleton)
+```
+
+### Domain Events (контракты шины)
+
+```python
+@dataclass(frozen=True)
+class DomainEvent:
+    session_id: str = ""
+    timestamp: float = field(default_factory=time.time)
+```
+
+| Событие | Поля | Описание |
+|---------|------|----------|
+| `AgentRequest` | `target_agent`, `messages`, `tools`, `correlation_id` | Запрос к агенту |
+| `AgentResult` | `text`, `tool_calls`, `usage`, `stop_reason` | Результат вызова агента |
+| `AgentResponse` | `request_id` + поля AgentResult | DomainEvent для EventBus |
+| `ContextBroadcast` | `context`, `available_agents`, `step` | Broadcast всем агентам |
+| `ChoreographyAnswer` | `agent_name`, `action_taken`, `reasoning`, `status_signal` | Ответ на broadcast |
+| `AgentRegistered` | `agent_name`, `capabilities` | Lifecycle event |
+| `AgentUnregistered` | `agent_name` | Lifecycle event |
+| `AgentListChanged` | `added`, `removed` | Пакетная операция |
+
+### Роли агентов (AgentRole)
+
+```python
+class AgentRole(StrEnum):
+    PRIMARY = "primary"        # Основной агент
+    SUBAGENT = "subagent"      # Subагент для делегирования
+    ORCHESTRATOR = "orchestrator"  # Оркестратор
+```
+
+### Slash-команда `/strategy`
+
+```python
+class StrategyCommandHandler(CommandHandler):
+    # /strategy → показать текущую и доступные
+    # /strategy hierarchical → переключить
+    # Сохраняет в session.config_values["_active_strategy"]
+```
+
+## Observability
+
+### Архитектура
+
+```mermaid
+graph TB
+    subgraph "Collection"
+        Tracer[Tracer]
+        MT[MetricsTracker]
+        ET[EventTimeline]
+    end
+
+    subgraph "Event Bus"
+        EB[AgentEventBus]
+    end
+
+    subgraph "Exporters (background flush)"
+        FSE[FileSpanExporter]
+        FME[FileMetricsExporter]
+        FEE[FileEventExporter]
+    end
+
+    EB -->|subscribe| MT
+    EB -->|subscribe| ET
+    FSE -->|flush| Tracer
+    FME -->|flush| MT
+    FEE -->|flush| ET
+```
+
+### Tracer
+
+```python
+class Tracer:
+    def start_span(self, name, parent=None, session_id="") -> SpanContext: ...
+    def end_span(self, span, attributes=None) -> None: ...
+    def get_current_span(self) -> SpanContext | None: ...
+    def get_completed_spans(self, session_id=None) -> list[SpanContext]: ...
+```
+
+Span hierarchy: `strategy_execution → bus_request → llm_call → tool_execution`.
+
+### MetricsTracker
+
+```python
+class MetricsTracker:
+    def record_bus_dispatch(self, latency_ms, target_agent, session_id): ...
+    def record_llm_call(self, latency_ms, model, input_tokens, output_tokens, session_id): ...
+    def record_agent_response(self, agent_name, stop_reason, usage, session_id): ...
+    def record_compression(self, original_tokens, sliced_tokens, ratio, session_id): ...
+    def record_slicer(self, original_tokens, sliced_tokens, latency_ms, was_skipped, session_id): ...
+    def record_strategy_execution(self, strategy, total_time_ms, session_id): ...
+    def subscribe_to_bus(self, bus: AbstractEventBus) -> None: ...
+```
+
+### EventTimeline
+
+```python
+class EventTimeline:
+    def record_event(self, event_type, session_id, details=None) -> TimelineEvent: ...
+    def subscribe_to_bus(self, bus: AbstractEventBus) -> None: ...
+    # Автоподписка на: AgentRegistered, AgentUnregistered, AgentListChanged, AgentResponse
+```
+
+### File Exporters
+
+```python
+class FileSpanExporter:
+    def flush(self, tracer: Tracer) -> Path | None: ...
+    def cleanup(self, max_age_days=30) -> int: ...
+
+class FileMetricsExporter:
+    def flush(self, metrics_tracker: MetricsTracker) -> Path | None: ...
+    def cleanup(self, max_age_days=30) -> int: ...
+
+class FileEventExporter:
+    def flush(self, timeline: EventTimeline) -> Path | None: ...
+    def cleanup(self, max_age_days=30) -> int: ...
+```
+
+| Экспортёр | Директория | Формат | Режим |
+|-----------|-----------|--------|-------|
+| `FileSpanExporter` | `spans/` | `YYYY-MM-DD-HH-MM-SS.json` | Write + ротация |
+| `FileMetricsExporter` | `metrics/` | `YYYY-MM-DD.json` | Atomic overwrite |
+| `FileEventExporter` | `events/` | `YYYY-MM-DD.json` | Append + ротация |
+
+### ObservabilityFlushManager
+
+Background-задача (APP scope) для периодического flush observability данных:
+
+```python
+# Каждые flush_interval секунд (по умолчанию 60):
+# 1. FileSpanExporter.flush(tracer)
+# 2. FileMetricsExporter.flush(metrics_tracker)
+# 3. FileEventExporter.flush(event_timeline)
+```
+
+## Middleware (Protocol Layer)
+
+Middleware — сквозная логика на уровне протокола. Применяется в порядке onion pattern.
+
+```python
+class MiddlewareFn(Protocol):
+    async def __call__(self, message: ACPMessage, next_handler: MethodHandler) -> ProtocolOutcome: ...
+```
+
+### Регистрация
+
+```python
+protocol = ACPProtocol(middleware=[trace_mw, custom_mw])
+```
+
+### Message Trace Middleware
+
+```python
+from codelab.server.protocol.middleware.message_trace import create_message_trace_middleware
+
+trace_mw = create_message_trace_middleware(
+    enabled=True,
+    connection_id="abc123",
+    max_payload_length=4096,
+)
+```
+
+Логирует:
+- **Входящие:** direction=in, method, params, connection_id, request_id
+- **Исходящие:** direction=out, response/notifications, payload
+
+Пишет в logger `codelab.trace` (JSON формат, отдельный файл `traces-{pid}.log`).
+
+## LLM подсистема (детали)
+
+### Model Discovery
+
+```python
+class ModelDiscovery(ABC):
+    async def discover_models(self) -> list[ModelInfo]: ...
+
+class StaticDiscovery(ModelDiscovery):
+    # Возвращает предопределённый список моделей из ProviderInfo
+
+@dataclass
+class DiscoveryConfig:
+    enabled: bool = False
+    refresh_interval: float = 300.0  # 5 минут
+    default_models: list[str] = field(default_factory=list)
+```
+
+### Telemetry
+
+```python
+class TelemetrySink(ABC):
+    async def record_request(self, provider_id, model_id, latency_ms, success): ...
+    async def record_cost(self, provider_id, model_id, cost_usd): ...
+
+class NoOpTelemetry(TelemetrySink):
+    # Заглушка для MVP
 ```
 
 ## Storage Layer

@@ -224,7 +224,7 @@ graph TB
 
 **Pipeline стадии:**
 1. `ValidationStage` — валидация входных данных
-2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`
+2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`, `/strategy`
 3. `PlanBuildingStage` — построение плана
 4. `TurnLifecycleStage(open)` — открытие turn
 5. `DirectivesStage` — обработка директив промпта
@@ -545,6 +545,373 @@ sequenceDiagram
     C-->>U: Стриминг остановлен
 ```
 
+## Мультиагентная система
+
+### Архитектура
+
+Сервер поддерживает несколько стратегий выполнения агентов через EventBus-архитектуру:
+
+```mermaid
+graph TB
+    subgraph "Strategy Layer"
+        SD[StrategyDispatcher]
+        SR[StrategyRegistry]
+        DESC[StrategyDescriptor]
+    end
+
+    subgraph "Agent Layer"
+        AR[AgentRegistry]
+        AF[AgentFactory]
+        EB[AgentEventBus]
+        AL[LLMAdapter]
+    end
+
+    subgraph "Strategies"
+        SS[SingleStrategy]
+        MS[Multi-Orchestrated]
+        MC[Multi-Choreographed]
+        H[Hierarchical]
+    end
+
+    subgraph "Config"
+        ACL[AgentConfigLoader]
+        ACR[AgentConfigResolver]
+    end
+
+    SD --> SR
+    SR --> DESC
+    SD --> SS & MS & MC & H
+    SS --> EB
+    EB --> AL
+    AR --> AF --> AL
+    AR --> EB
+    ACL --> ACR --> AR
+```
+
+### Стратегии выполнения
+
+| Стратегия | ID | Описание |
+|-----------|----|----------|
+| **Single** | `single` | Один агент через EventBus. Базовая стратегия, всегда доступна |
+| **Multi-Orchestrated** | `multi_orchestrated` | Оркестратор + subагенты |
+| **Multi-Choreographed** | `multi_choreographed` | Peer-to-peer collaboration через broadcast |
+| **Hierarchical** | `hierarchical` | Primary делегирует subагентам |
+
+### StrategyDispatcher — приоритет выбора
+
+```mermaid
+flowchart TD
+    A[Запрос] --> B{context_meta active_strategy?}
+    B -->|Да| C[Slash command override]
+    B -->|Нет| D{config_values _active_strategy?}
+    D -->|Да| E[Persistent config]
+    D -->|Нет| F[Server default]
+    C --> G{Доступна?}
+    E --> G
+    F --> G
+    G -->|Да| H[Использовать]
+    G -->|Нет| I[Fallback strategy]
+    I --> J{Fallback доступен?}
+    J -->|Да| H
+    J -->|Нет| K[Первая доступная]
+```
+
+### LLMCallStrategy Protocol
+
+```python
+class LLMCallStrategy(Protocol):
+    async def execute(self, session, prompt, mcp_manager) -> AgentResponse: ...
+    async def continue_execution(self, session, mcp_manager) -> AgentResponse: ...
+```
+
+`AgentLoop` зависит от абстракции (DIP), конкретные стратегии реализуют Protocol. Добавление новой стратегии не требует изменения `AgentLoop` (OCP).
+
+### StrategyDescriptor — self-describing стратегии
+
+```python
+@dataclass
+class StrategyDescriptor:
+    name: str                          # "single", "hierarchical"
+    display_name: str                  # "Single", "Hierarchical"
+    description: str                   # Описание для UI
+    factory: Callable[[StrategyDependencies], LLMCallStrategy]
+    validator: Callable[[AgentRegistry], bool]  # Проверка доступности
+```
+
+### AgentRegistry
+
+Единый реестр агентов с загрузкой конфигураций из 4 источников:
+
+```mermaid
+flowchart LR
+    subgraph "Источники (приоритет от низшего к высшему)"
+        GT["~/.codelab/codelab.toml<br/>[agents.definitions.*]"]
+        GM["~/.codelab/agents/*.md"]
+        PT["codelab.toml<br/>[agents.definitions.*]"]
+        PM[".codelab/agents/*.md"]
+    end
+
+    GT --> GM --> PT --> PM --> AR[AgentRegistry]
+    AR --> AF[AgentFactory]
+    AF --> EB[AgentEventBus]
+```
+
+### Роли агентов
+
+| Роль | Описание |
+|------|----------|
+| `primary` | Основной агент, обрабатывает запросы пользователя |
+| `subagent` | Subагент для делегирования задач |
+| `orchestrator` | Оркестратор, управляет subагентами |
+
+### Формат Markdown-конфигурации агента
+
+```markdown
+---
+name: coder
+role: primary
+model: openai/gpt-4o
+temperature: 0.0
+priority: 10
+permissions:
+  edit: true
+  bash: true
+---
+Ты — эксперт-разработчик. Пиши чистый код...
+```
+
+### AgentEventBus
+
+In-memory шина межагентской коммуникации. Реализует два интерфейса:
+
+| Интерфейс | Назначение |
+|-----------|------------|
+| `AbstractEventBus` (pub/sub) | Observability: MetricsTracker, EventTimeline подписываются на события |
+| `AgentRoutingInterface` (routing) | Стратегии отправляют запросы агентам через `send_request()` и `broadcast()` |
+
+```mermaid
+sequenceDiagram
+    participant S as Strategy
+    participant EB as AgentEventBus
+    participant A as LLMAdapter (agent)
+    participant OBS as Observability
+
+    S->>EB: send_request(AgentRequest)
+    EB->>A: handler(request)
+    A-->>EB: AgentResult
+    EB->>EB: wrap in AgentResponse
+    EB->>OBS: publish(AgentResponse)
+    EB-->>S: AgentResponse
+```
+
+**Retry:** `send_request()` повторяет до `max_attempts` (по умолчанию 3) с exponential backoff.
+
+**Broadcast:** `broadcast()` рассылает `ContextBroadcast` всем агентам параллельно, собирает `ChoreographyAnswer`. При частичном падении — `BroadcastPartialFailure`.
+
+### Domain Events
+
+| Событие | Описание |
+|---------|----------|
+| `AgentRegistered` | Агент зарегистрирован в шине |
+| `AgentUnregistered` | Агент удалён из шины |
+| `AgentListChanged` | Список агентов изменился (пакетная операция) |
+| `AgentResponse` | Ответ агента (для observability) |
+| `AgentRequest` | Запрос к агенту |
+| `ContextBroadcast` | Broadcast всем агентам |
+| `ChoreographyAnswer` | Ответ агента на broadcast |
+
+### AgentFactory
+
+Фабрика создания `LLMAdapter` из конфигурации агента. Каждый агент может использовать свою модель:
+
+```python
+class AgentFactory:
+    async def create_adapter(self, agent: ResolvedAgent) -> LLMAdapter:
+        # Резолвит model → LLMProvider через LLMProviderRegistry
+        # Создаёт LLMAdapter с правильным провайдером
+        # Кэширует adapter per agent_name
+```
+
+### Slash-команда `/strategy`
+
+```
+/strategy              # Показать текущую strategy и доступные
+/strategy hierarchical # Переключить на hierarchical
+```
+
+Сохраняет выбор в `session.config_values["_active_strategy"]` для persistence между turn'ами.
+
+## Observability
+
+### Архитектура
+
+```mermaid
+graph TB
+    subgraph "Collection"
+        Tracer[Tracer]
+        MT[MetricsTracker]
+        ET[EventTimeline]
+    end
+
+    subgraph "Event Bus"
+        EB[AgentEventBus]
+    end
+
+    subgraph "Exporters"
+        FSE[FileSpanExporter]
+        FME[FileMetricsExporter]
+        FEE[FileEventExporter]
+    end
+
+    subgraph "Storage"
+        SD["~/.codelab/data/observability/spans/"]
+        MD["~/.codelab/data/observability/metrics/"]
+        ED["~/.codelab/data/observability/events/"]
+    end
+
+    EB -->|subscribe| MT
+    EB -->|subscribe| ET
+    Tracer --> FSE --> SD
+    MT --> FME --> MD
+    ET --> FEE --> ED
+```
+
+### Tracer
+
+Span hierarchy с context propagation:
+
+```mermaid
+graph TD
+    S1["strategy_execution"] --> S2["bus_request"]
+    S2 --> S3["llm_call"]
+    S2 --> S4["tool_execution"]
+```
+
+| Компонент | Описание |
+|-----------|----------|
+| `SpanContext` | ID, name, parent_id, attributes, start/end_time, session_id |
+| `Tracer` | Управление span'ами: start/end/current, стек активных span'ов |
+| `debug` mode | Сохраняет полные атрибуты span'ов |
+
+### MetricsTracker
+
+Автоматический сбор метрик через подписку на EventBus:
+
+| Метрика | Описание |
+|---------|----------|
+| `bus_dispatch_count` / `bus_dispatch_total_ms` | Dispatch операции |
+| `llm_call_count` / `llm_total_input_tokens` / `llm_total_output_tokens` | LLM вызовы |
+| `compression_count` / `compression_total_ratio` | Context compression |
+| `slicer_count` / `slicer_total_original_tokens` / `slicer_total_sliced_tokens` | Token slicing |
+| `strategy_execution_count` / `strategy_execution_total_ms` | Выполнение стратегий |
+| `agent_responses` / `agent_errors` | Ответы и ошибки агентов |
+
+### EventTimeline
+
+Хронология событий сессии. Автоматически подписывается на:
+- `AgentRegistered`, `AgentUnregistered`, `AgentListChanged`, `AgentResponse`
+
+### File Exporters
+
+| Экспортёр | Формат файла | Режим |
+|-----------|-------------|-------|
+| `FileSpanExporter` | `spans/YYYY-MM-DD-HH-MM-SS.json` | Write + ротация |
+| `FileMetricsExporter` | `metrics/YYYY-MM-DD.json` | Overwrite (atomic) |
+| `FileEventExporter` | `events/YYYY-MM-DD.json` | Append + ротация |
+
+Все экспортёры поддерживают:
+- **Ротация** при превышении `max_file_size` (по умолчанию 10MB)
+- **Cleanup** удаление файлов старше `max_age_days` (по умолчанию 30 дней)
+- **ExportMetrics** — метрики экспорта (total_exports, failed_exports, total_items_exported)
+- **Background flush** через `ObservabilityFlushManager` (APP scope)
+
+### Конфигурация observability
+
+```toml
+[observability]
+enabled = true
+export_dir = "~/.codelab/data/observability"
+flush_interval = 60       # секунды
+max_file_size = 10485760  # 10MB
+```
+
+## Middleware (Protocol Layer)
+
+Middleware применяется в порядке onion pattern: первое в списке — внешнее, последнее — ближе к обработчику.
+
+```mermaid
+flowchart LR
+    REQ[Request] --> MW1[Middleware 1]
+    MW1 --> MW2[Middleware 2]
+    MW2 --> H[Handler]
+    H --> MW2
+    MW2 --> MW1
+    MW1 --> RES[Response]
+```
+
+### Встроенные middleware
+
+| Middleware | Описание |
+|------------|----------|
+| `message_trace_middleware` | Трассировка JSON-RPC сообщений (вкл. через `--trace-messages`) |
+
+**Message Trace Middleware:**
+- Логирует входящие запросы и исходящие ответы с полным payload
+- Пишет в отдельный logger `codelab.trace` (JSON формат)
+- Поддерживает обрезку payload через `max_payload_length`
+- Контекст: `connection_id`, `request_id`, `direction` (in/out)
+
+```python
+trace_mw = create_message_trace_middleware(
+    enabled=True,
+    connection_id="abc123",
+    max_payload_length=4096,
+)
+protocol = ACPProtocol(middleware=[trace_mw])
+```
+
+## LLM подсистема (детали)
+
+### Model Discovery
+
+```python
+class ModelDiscovery(ABC):
+    async def discover_models(self) -> list[ModelInfo]: ...
+```
+
+| Реализация | Описание |
+|------------|----------|
+| `StaticDiscovery` | Статический список моделей из `ProviderInfo` (используется сейчас) |
+| `DiscoveryConfig` | Конфигурация: `enabled`, `refresh_interval`, `default_models` |
+
+Extension points: `OllamaDiscovery` (dynamic через Ollama API), `LMStudioDiscovery` — future.
+
+### Telemetry
+
+```python
+class TelemetrySink(ABC):
+    async def record_request(self, provider_id, model_id, latency_ms, success): ...
+    async def record_cost(self, provider_id, model_id, cost_usd): ...
+```
+
+| Реализация | Описание |
+|------------|----------|
+| `NoOpTelemetry` | Заглушка (используется сейчас) |
+
+Extension points: `PrometheusTelemetry`, `DatadogTelemetry` — future.
+
+### LLM Timeouts
+
+```toml
+[llm.timeout]
+connect = 30.0   # Таймаут подключения к API (секунды)
+read = 300.0     # Таймаут ожидания ответа (секунды)
+write = 30.0     # Таймаут отправки запроса (секунды)
+pool = 30.0      # Таймаут ожидания соединения из пула (секунды)
+```
+
+CLI: `--llm-timeout-connect`, `--llm-timeout-read`, `--llm-timeout-write`, `--llm-timeout-pool`.
+
 ## Потоки данных
 
 ### Prompt Turn
@@ -649,10 +1016,15 @@ codelab/src/codelab/
 │   │   │   ├── config.py
 │   │   │   ├── prompt_orchestrator.py  # Главный координатор
 │   │   │   ├── pipeline/               # 7 стадий pipeline
-│   │   │   ├── slash_commands/         # /help, /mode, /status
+│   │   │   ├── slash_commands/         # /help, /mode, /status, /strategy
+│   │   │   ├── middleware/             # message_trace middleware
 │   │   │   └── ... (менеджеры)
 │   │   └── content/     # Extractor, Validator, Formatter
-│   ├── agent/           # LLM агент (ExecutionEngine, AgentLoop, Strategies)
+│   ├── agent/           # LLM агент (ExecutionEngine, AgentLoop, Strategies, EventBus)
+│   │   ├── strategies/  # StrategyRegistry, StrategyDispatcher, SingleStrategy
+│   │   ├── config/      # AgentConfigLoader, AgentConfigResolver (TOML + Markdown)
+│   │   ├── contracts/   # DomainEvent, AgentRequest, AgentResponse, Broadcast
+│   │   └── event_bus/   # AgentEventBus (pub/sub + routing)
 │   ├── tools/           # Инструменты (registry, executors)
 │   ├── storage/         # Хранилище сессий (LRU cache)
 │   ├── mcp/             # MCP интеграция

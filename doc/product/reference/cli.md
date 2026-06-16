@@ -43,8 +43,45 @@ codelab serve [опции]
 |----------|--------------|----------|
 | `--host` | `127.0.0.1` | Адрес для прослушивания |
 | `--port` | `8765` | Порт для прослушивания |
-| `--no-web` | - | Отключить Web UI на корневом пути `/` |
-| `--stdio` | - | Запустить stdio транспорт вместо WebSocket |
+| `--stdio` | — | Запустить stdio транспорт вместо WebSocket |
+| `--require-auth` | — | Требовать `authenticate` перед `session/new` и `session/load` |
+| `--auth-api-key` | — | API key для аутентификации (или env `ACP_SERVER_API_KEY`) |
+| `--no-web` | — | Отключить Web UI на корневом пути `/` |
+| `--log-level` | `INFO` | Уровень логирования: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--log-json` | — | JSON формат для логов (production) |
+| `--log-file` | — | Путь к файлу логов. `default` для `~/.codelab/logs/codelab-server.log` |
+| `--storage` | `memory` | Storage backend: `memory` или `json:/path/to/dir` |
+| `--config` | — | Путь к custom TOML файлу конфигурации |
+| `--trace-messages` | — | Детальное логирование всех JSON-RPC сообщений |
+
+### Параметры LLM
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `--llm-provider` | — | LLM провайдер (`openai`, `anthropic`, `openrouter`, `zen`, `go`, `ollama`, `lmstudio`, `mock`) |
+| `--llm-model` | — | Модель LLM (формат `provider/model`) |
+| `--llm-api-key` | — | API ключ для LLM провайдера |
+| `--llm-base-url` | — | Base URL для LLM провайдера |
+| `--llm-temperature` | — | Temperature для LLM (0.0-1.0) |
+| `--llm-max-tokens` | — | Максимум токенов для LLM |
+| `--system-prompt` | — | Системный промпт для агента |
+
+### Параметры таймаутов LLM
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `--llm-timeout-connect` | `30.0` | Таймаут подключения к LLM API (секунды) |
+| `--llm-timeout-read` | `300.0` | Таймаут ожидания ответа от LLM API (секунды) |
+| `--llm-timeout-write` | `30.0` | Таймаут отправки запроса к LLM API (секунды) |
+| `--llm-timeout-pool` | `30.0` | Таймаут ожидания соединения из пула (секунды) |
+
+### Параметры fallback
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `--fallback-enabled` | — | Включить fallback цепочку при ошибках провайдера |
+| `--fallback-strategy` | `sequential` | Стратегия fallback |
+| `--fallback-order` | — | Порядок провайдеров через запятую (например, `openai,openrouter,ollama`) |
 
 ### Примеры
 
@@ -63,6 +100,30 @@ codelab serve --stdio
 
 # Запуск с подробным логированием
 codelab -v serve --port 8080
+
+# Запуск с JSON логами и файлом логов
+codelab serve --log-level DEBUG --log-json --log-file default
+
+# Запуск с персистентным хранилищем сессий
+codelab serve --storage "json:~/.codelab/data/sessions"
+
+# Запуск с аутентификацией
+codelab serve --require-auth --auth-api-key "my-secret-key"
+
+# Запуск с конкретным LLM провайдером
+codelab serve --llm-provider openai --llm-model openai/gpt-4o --llm-api-key "$OPENAI_API_KEY"
+
+# Запуск с fallback цепочкой
+codelab serve --fallback-enabled --fallback-order openai,openrouter,ollama
+
+# Запуск с трассировкой сообщений
+codelab serve --trace-messages
+
+# Запуск с custom TOML конфигурацией
+codelab serve --config /path/to/custom.toml
+
+# Запуск с кастомными таймаутами
+codelab serve --llm-timeout-read 600 --llm-timeout-connect 60
 ```
 
 ### Endpoints
@@ -132,7 +193,8 @@ codelab connect --stdio --agent-command "codelab serve --stdio" --cwd ~/projects
 ├── data/
 │   ├── sessions/ # Сохранённые сессии
 │   ├── history/  # История чатов
-│   └── policies/ # Глобальные политики разрешений
+│   ├── policies/ # Глобальные политики разрешений
+│   └── observability/ # Observability данные (spans, metrics, events)
 └── cache/        # Кэш MCP и временные данные
 ```
 
