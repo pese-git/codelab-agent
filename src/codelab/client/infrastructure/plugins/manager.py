@@ -271,9 +271,6 @@ class PluginManager:
 
         try:
             await plugin.shutdown()
-            if plugin_name in self._loaded_plugins:
-                self._loaded_plugins.remove(plugin_name)
-
             self._logger.info(
                 "plugin_shutdown",
                 plugin_name=plugin.name,
@@ -286,6 +283,9 @@ class PluginManager:
                 exc_info=True,
             )
             raise
+        finally:
+            if plugin_name in self._loaded_plugins:
+                self._loaded_plugins.remove(plugin_name)
 
     async def shutdown_all(self) -> None:
         """Завершить работу всех инициализированных плагинов.

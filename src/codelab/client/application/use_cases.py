@@ -562,14 +562,19 @@ class SendPromptUseCase(UseCase):
 
             # Отправляем prompt через transport с обработкой callbacks
             # Согласно протоколу ACP, prompt должен быть массивом content items
-            prompt_response = await self._transport.request_with_callbacks(
-                method="session/prompt",
-                params={
-                    "sessionId": request.session_id,
-                    "prompt": [{"type": "text", "text": request.prompt_text}],
-                },
-                **transport_callbacks,
-            )
+            try:
+                prompt_response = await self._transport.request_with_callbacks(
+                    method="session/prompt",
+                    params={
+                        "sessionId": request.session_id,
+                        "prompt": [{"type": "text", "text": request.prompt_text}],
+                    },
+                    **transport_callbacks,
+                )
+            except ValueError as e:
+                error_msg = f"Failed to send prompt: {e}"
+                self._logger.error("send_prompt_transport_error", error=str(e))
+                raise RuntimeError(error_msg) from e
 
             # Проверяем ошибки в ответе
             from codelab.client.messages import ACPMessage
