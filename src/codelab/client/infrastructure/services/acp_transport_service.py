@@ -619,6 +619,12 @@ class ACPTransportService(TransportService):
         on_terminal_kill: Callable[[str], Any] | None,
     ) -> dict[str, Any]:
         """Основной цикл ожидания ответа с обработкой permission и notifications."""
+        self._logger.info(
+            "wait_for_response_with_events_start",
+            method=method,
+            request_id=request_id,
+            has_permission_task=permission_task is not None,
+        )
         while True:
             notification_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(
                 asyncio.wait_for(
@@ -642,6 +648,11 @@ class ACPTransportService(TransportService):
                     await notification_task
 
             if permission_task is not None and permission_task in done:
+                self._logger.info(
+                    "permission_task_completed_in_wait_loop",
+                    method=method,
+                    request_id=request_id,
+                )
                 self._handle_permission_task(
                     permission_task, method=method, request_id=request_id,
                 )
@@ -680,13 +691,20 @@ class ACPTransportService(TransportService):
         request_id: str | int,
     ) -> None:
         """Обрабатывает завершённый permission task (синхронная часть)."""
+        self._logger.info(
+            "handle_permission_task_called",
+            method=method,
+            request_id=request_id,
+            task_done=permission_task.done(),
+        )
         try:
             permission_data = permission_task.result()
-            self._logger.debug(
+            self._logger.info(
                 "tool_lifecycle_permission_request_received",
                 method=method,
                 request_id=request_id,
                 permission_id=permission_data.get("id"),
+                permission_method=permission_data.get("method"),
             )
         except Exception as e:
             self._logger.warning(
@@ -694,6 +712,7 @@ class ACPTransportService(TransportService):
                 method=method,
                 request_id=request_id,
                 error=str(e),
+                error_type=type(e).__name__,
             )
             return
 
@@ -890,8 +909,30 @@ class ACPTransportService(TransportService):
         Args:
             message: JSON-RPC сообщение с permission request
         """
+        self._logger.info(
+            "handle_permission_request_with_handler_called",
+            message_id=message.get("id"),
+            method=message.get("method"),
+            has_permission_handler=self._permission_handler is not None,
+            has_permission_callback=self._permission_callback is not None,
+        )
+
         if self._permission_handler is None:
-            self._logger.debug("permission_handler_not_configured_skipping")
+            self._logger.warning("permission_handler_not_configured_skipping")
+            # Отправить cancel response чтобы сервер не завис
+            try:
+                cancel_response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {"outcome": "cancelled"},
+                }
+                await self.send(cancel_response)
+                self._logger.debug("cancel_response_sent_for_missing_handler")
+            except Exception as send_error:
+                self._logger.error(
+                    "failed_to_send_cancel_response",
+                    error=str(send_error),
+                )
             return
 
         try:
