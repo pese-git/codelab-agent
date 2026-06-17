@@ -35,14 +35,14 @@ class InlineSelector(Static):
 
     DEFAULT_CSS = """
     InlineSelector {
-        height: 1;
+        height: 100%;
         width: auto;
-        min-width: 12;
+        min-width: 14;
         padding: 0 1;
         background: $surface;
         color: $foreground;
         border: round $border;
-        content-align: center middle;
+        text-style: bold;
     }
 
     InlineSelector:hover {
