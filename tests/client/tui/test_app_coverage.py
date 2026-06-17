@@ -44,7 +44,6 @@ from codelab.client.tui.components import (
     ModelSelectorModal,
     PermissionModal,
     PromptInput,
-    QuickActionsBar,
     Sidebar,
     ToolCallCard,
 )
@@ -277,7 +276,6 @@ class TestACPClientAppComposeAndReady:
                 await pilot.pause()
                 assert app.query_one(Sidebar) is not None
                 assert app.query_one(PromptInput) is not None
-                assert app.query_one(QuickActionsBar) is not None
                 deps["coordinator"].initialize.assert_awaited_once()
 
     async def test_mount_main_layout_children_without_layout(self) -> None:
@@ -706,52 +704,6 @@ class TestACPClientAppActions:
                 await pilot.pause()
                 # Проверяем, что cancel_prompt был вызван
                 deps["coordinator"].cancel_prompt.assert_awaited()
-
-
-class TestACPClientAppQuickActions:
-    """Тесты событий QuickActionsBar."""
-
-    async def test_on_quick_actions_bar_new_session(self) -> None:
-        """Запрос новой сессии из панели действий."""
-        with _patched_app() as (app, deps):
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                event = QuickActionsBar.NewSessionRequested()
-                app.on_quick_actions_bar_new_session_requested(event)
-                await pilot.pause()
-                deps["coordinator"].create_session.assert_awaited()
-
-    async def test_on_quick_actions_bar_cancel(self) -> None:
-        """Запрос отмены из панели действий."""
-        with _patched_app() as (app, deps):
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                deps["session_vm"].selected_session_id.value = "sess_1"
-                deps["chat_vm"].is_streaming.value = True
-                event = QuickActionsBar.CancelRequested()
-                app.on_quick_actions_bar_cancel_requested(event)
-                await pilot.pause()
-                await pilot.pause()
-                # Проверяем, что cancel_prompt был вызван
-                deps["coordinator"].cancel_prompt.assert_awaited()
-
-    async def test_on_quick_actions_bar_help(self) -> None:
-        """Запрос справки из панели действий."""
-        with _patched_app() as (app, _deps):
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                event = QuickActionsBar.HelpRequested()
-                app.on_quick_actions_bar_help_requested(event)
-                assert isinstance(app.screen, HelpModal)
-
-    async def test_on_quick_actions_bar_theme_toggle(self) -> None:
-        """Запрос переключения темы из панели действий."""
-        with _patched_app() as (app, _deps):
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                event = QuickActionsBar.ThemeToggleRequested()
-                app.on_quick_actions_bar_theme_toggle_requested(event)
-                assert app._theme_manager.current_theme_name == "dark"
 
 
 class TestACPClientAppPermission:

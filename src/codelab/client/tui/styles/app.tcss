@@ -192,44 +192,128 @@ ToolPanel {
 
 /* --- Prompt Input --- */
 #prompt-input {
+    height: auto;
+    min-height: 9;
+    width: 100%;
+}
+
+#prompt-textarea-container {
     height: 6;
     width: 100%;
+    layout: horizontal;
+}
+
+#prompt-textarea-container.expanded {
+    height: 1fr;
 }
 
 #prompt-textarea {
     width: 1fr;
     height: 100%;
-    background: $surface;
-    border: round $border;
+    background: transparent;
+    border: none;
     color: $foreground;
 }
 
 #prompt-textarea:focus {
-    border: round $border-focus;
-    background: $background;
+    border: none;
+    background: transparent;
 }
 
-PromptInput {
-    background: $background;
+#expand-button {
+    width: 3;
+    height: 1;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#expand-button:hover {
+    color: $foreground;
+}
+
+#prompt-toolbar {
+    height: 3;
+    width: 100%;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+#toolbar-selectors {
+    height: 100%;
+    width: 1fr;
+    layout: horizontal;
+}
+
+#toolbar-actions {
+    height: 100%;
+    width: auto;
+    layout: horizontal;
+}
+
+#add-button {
+    width: 3;
+    height: 100%;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#add-button:hover {
+    color: $foreground;
 }
 
 #submit-button {
-    width: 10;
+    width: 8;
     height: 100%;
     margin-left: 1;
 }
 
 #stop-button {
-    width: 10;
+    width: 8;
     height: 100%;
     margin-left: 1;
+}
+
+PromptInput {
+    background: $panel;
+    border: round $border;
+}
+
+PromptInput:focus-within {
+    border: round $border-focus;
+}
+
+/* --- Inline Selector --- */
+InlineSelector {
+    height: 1;
+    width: auto;
+    min-width: 12;
+    padding: 0 1;
+    background: $surface;
+    color: $foreground;
+    border: round $border;
+    content-align: center middle;
+}
+
+InlineSelector:hover {
+    background: $panel;
+    border: round $border-focus;
+}
+
+InlineSelector.-active {
+    border: round $primary;
 }
 
 /* --- Dock Region (OpenCode-style) --- */
 #dock-region {
     height: auto;
-    min-height: 6;
-    max-height: 15;
+    min-height: 9;
+    max-height: 50%;
     layout: vertical;
     padding: 0 1;
     background: $panel;
