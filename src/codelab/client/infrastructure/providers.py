@@ -156,7 +156,7 @@ class ClientProvider(Provider):
         Двухфазная инициализация для post-init связывания:
         1. Создаём Coordinator с permission_handler=None
         2. Создаём PermissionHandler
-        3. Устанавливаем _permission_handler в coordinator и transport
+        3. Устанавливаем permission_handler через setter методы
         """
 
         # Фаза 1: Coordinator без PermissionHandler
@@ -172,11 +172,11 @@ class ClientProvider(Provider):
             logger=logger,
         )
 
-        # Связываем coordinator с permission_handler (одностороннее)
+        # Связываем coordinator и transport с permission_handler через setter методы
+        coordinator.set_permission_handler(permission_handler)
         # cast безопасен: единственная реализация TransportService — ACPTransportService
         acp_transport = cast(ACPTransportService, transport)
-        coordinator._permission_handler = permission_handler
-        acp_transport._permission_handler = permission_handler
+        acp_transport.set_permission_handler(permission_handler)
 
         return CoreServices(
             coordinator=coordinator,

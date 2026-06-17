@@ -2,16 +2,14 @@
 
 Содержит:
 - Session - сессия с сервером ACP
-- Message - сообщение протокола
 - Permission - запрос разрешения на действие
-- ToolCall - вызов инструмента агентом
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 
@@ -78,97 +76,6 @@ class Session:
 
 
 @dataclass
-class Message:
-    """Entity для сообщения протокола.
-    
-    Представляет JSON-RPC сообщение с типизацией и metadata.
-    """
-    
-    id: str
-    """Уникальный ID сообщения."""
-    
-    message_type: Literal["request", "response", "notification"]
-    """Тип сообщения: request, response или notification."""
-    
-    method: str | None = None
-    """Метод для request/notification."""
-    
-    params: dict[str, Any] | None = None
-    """Параметры метода."""
-    
-    result: Any = None
-    """Результат успешного выполнения (для response)."""
-    
-    error: dict[str, Any] | None = None
-    """Ошибка выполнения (для response)."""
-    
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-    """Время создания сообщения."""
-    
-    @classmethod
-    def request(
-        cls,
-        method: str,
-        params: dict[str, Any] | None = None,
-    ) -> Message:
-        """Создает request сообщение.
-        
-        Аргументы:
-            method: Метод для вызова
-            params: Параметры метода
-        
-        Возвращает:
-            Message сущность с типом request
-        """
-        return cls(
-            id=str(uuid4()),
-            message_type="request",
-            method=method,
-            params=params,
-        )
-    
-    @classmethod
-    def response(
-        cls,
-        result: Any = None,
-        error: dict[str, Any] | None = None,
-    ) -> Message:
-        """Создает response сообщение.
-        
-        Аргументы:
-            result: Результат успешного выполнения
-            error: Ошибка выполнения
-        
-        Возвращает:
-            Message сущность с типом response
-        """
-        return cls(
-            id=str(uuid4()),
-            message_type="response",
-            result=result,
-            error=error,
-        )
-    
-    @classmethod
-    def notification(cls, method: str, params: dict[str, Any] | None = None) -> Message:
-        """Создает notification сообщение.
-        
-        Аргументы:
-            method: Метод для вызова
-            params: Параметры метода
-        
-        Возвращает:
-            Message сущность с типом notification
-        """
-        return cls(
-            id=str(uuid4()),
-            message_type="notification",
-            method=method,
-            params=params,
-        )
-
-
-@dataclass
 class Permission:
     """Entity для запроса разрешения на действие.
     
@@ -219,70 +126,4 @@ class Permission:
             resource=resource,
             session_id=session_id,
             details=details or {},
-        )
-
-
-@dataclass
-class ToolCall:
-    """Entity для вызова инструмента агентом.
-    
-    Представляет вызов инструмента (tool use) от сервера,
-    который требует выполнения на стороне клиента.
-    """
-    
-    id: str
-    """Уникальный ID вызова инструмента."""
-    
-    tool_name: str
-    """Имя инструмента."""
-    
-    tool_use_id: str
-    """ID tool use из протокола ACP."""
-    
-    input_schema: dict[str, Any]
-    """JSON schema для input инструмента."""
-    
-    input: dict[str, Any]
-    """Параметры вызова инструмента."""
-    
-    session_id: str
-    """ID сессии, для которой вызывается инструмент."""
-    
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    """Время создания вызова."""
-    
-    result: str | None = None
-    """Результат выполнения инструмента."""
-    
-    error: str | None = None
-    """Ошибка при выполнении инструмента."""
-    
-    @classmethod
-    def create(
-        cls,
-        tool_name: str,
-        tool_use_id: str,
-        input_schema: dict[str, Any],
-        input_data: dict[str, Any],
-        session_id: str,
-    ) -> ToolCall:
-        """Фабрика для создания вызова инструмента.
-        
-        Аргументы:
-            tool_name: Имя инструмента
-            tool_use_id: ID из протокола
-            input_schema: JSON schema
-            input_data: Параметры вызова
-            session_id: ID сессии
-        
-        Возвращает:
-            ToolCall сущность
-        """
-        return cls(
-            id=str(uuid4()),
-            tool_name=tool_name,
-            tool_use_id=tool_use_id,
-            input_schema=input_schema,
-            input=input_data,
-            session_id=session_id,
         )

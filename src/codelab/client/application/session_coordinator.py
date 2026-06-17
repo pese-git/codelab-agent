@@ -10,8 +10,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from codelab.client.domain import SessionRepository, TransportService
-from codelab.client.infrastructure.logging_config import get_logger
 from codelab.client.messages import (
     CancelledPermissionOutcome,
     PermissionOption,
@@ -54,7 +55,7 @@ class SessionCoordinator:
         self.transport = transport
         self.session_repo = session_repo
         self._permission_handler = permission_handler
-        self._logger = get_logger("session_coordinator")
+        self._logger = structlog.get_logger("session_coordinator")
 
         # Инициализируем use cases
         self.initialize_use_case = InitializeUseCase(transport)
@@ -62,6 +63,14 @@ class SessionCoordinator:
         self.load_session_use_case = LoadSessionUseCase(transport, session_repo)
         self.send_prompt_use_case = SendPromptUseCase(transport, session_repo)
         self.list_sessions_use_case = ListSessionsUseCase(transport, session_repo)
+
+    def set_permission_handler(self, handler: PermissionHandler) -> None:
+        """Установить PermissionHandler для обработки permission requests.
+
+        Args:
+            handler: PermissionHandler instance
+        """
+        self._permission_handler = handler
 
     async def initialize(self) -> dict[str, Any]:
         """Инициализирует соединение с сервером.

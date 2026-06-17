@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
+from textual.types import AnimationLevel, EasingFunction
 from textual.widgets import Static
 
 from codelab.client.messages import PermissionOption, PermissionToolCall
@@ -23,6 +24,8 @@ from codelab.client.tui.components.message_bubble import MessageBubble, MessageR
 from codelab.client.tui.components.spinner import LoadingIndicator
 
 if TYPE_CHECKING:
+    from textual.types import CallbackType
+
     from codelab.client.presentation.chat_view_model import ChatViewModel
     from codelab.client.presentation.permission_view_model import PermissionViewModel
     from codelab.client.tui.components.chat_view_permission_manager import (
@@ -384,11 +387,33 @@ class ChatView(VerticalScroll):
         if self._permission_manager is not None:
             self._permission_manager.hide_permission_request()
 
-    def scroll_end(self, *, animate: bool = False) -> None:
+    def scroll_end(
+        self,
+        *,
+        animate: bool = True,
+        speed: float | None = None,
+        duration: float | None = None,
+        easing: EasingFunction | str | None = None,
+        force: bool = False,
+        on_complete: CallbackType | None = None,
+        level: AnimationLevel = "basic",
+        immediate: bool = False,
+        x_axis: bool = True,
+        y_axis: bool = True,
+    ) -> None:
         """Прокрутить чат к концу (к последнему сообщению).
 
         Args:
             animate: Анимировать прокрутку
+            speed: Скорость анимации
+            duration: Длительность анимации
+            easing: Функция плавности
+            force: Принудительная прокрутка
+            on_complete: Callback по завершении
+            level: Уровень анимации
+            immediate: Немедленная прокрутка
+            x_axis: Прокрутка по X
+            y_axis: Прокрутка по Y
         """
         self._logger.info(
             "scroll_end_called",
@@ -396,4 +421,15 @@ class ChatView(VerticalScroll):
             scroll_y=self.scroll_y,
             max_scroll_y=self.max_scroll_y,
         )
-        super().scroll_end(animate=animate)
+        super().scroll_end(
+            animate=animate,
+            speed=speed,
+            duration=duration,
+            easing=easing,
+            force=force,
+            on_complete=on_complete,
+            level=level,
+            immediate=immediate,
+            x_axis=x_axis,
+            y_axis=y_axis,
+        )

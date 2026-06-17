@@ -470,6 +470,14 @@ class ACPTransportService(TransportService):
             callback_name=getattr(callback, "__name__", "unknown"),
         )
 
+    def set_permission_handler(self, handler: PermissionHandler) -> None:
+        """Установить PermissionHandler для обработки permission requests.
+
+        Args:
+            handler: PermissionHandler instance
+        """
+        self._permission_handler = handler
+
     def is_initialized(self) -> bool:
         """Проверяет, была ли выполнена инициализация.
 

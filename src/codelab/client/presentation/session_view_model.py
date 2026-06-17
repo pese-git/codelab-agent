@@ -7,10 +7,36 @@
 - Обработку событий жизненного цикла сессий
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 from codelab.client.presentation.base_view_model import BaseViewModel
 from codelab.client.presentation.observable import Observable, ObservableCommand
+
+
+@dataclass
+class SessionResult:
+    """Результат создания сессии для UI."""
+
+    id: str
+    session_id: str
+    sessionId: str
+    title: str
+    server_capabilities: dict[str, Any]
+    is_authenticated: bool
+
+    @classmethod
+    def from_dict(cls, session_data: dict[str, Any]) -> "SessionResult":
+        """Создать SessionResult из словаря."""
+        session_id = session_data.get("session_id") or ""
+        return cls(
+            id=session_id,
+            session_id=session_id,
+            sessionId=session_id,
+            title=f"Session {session_id[-8:]}" if session_id else "New Session",
+            server_capabilities=session_data.get("server_capabilities", {}),
+            is_authenticated=session_data.get("is_authenticated", False),
+        )
 
 
 class SessionViewModel(BaseViewModel):
@@ -150,20 +176,7 @@ class SessionViewModel(BaseViewModel):
                 host, port, cwd=cwd, mcp_servers=mcp_servers, **create_kwargs
             )
 
-            # coordinator.create_session возвращает dict, преобразуем в объект для совместимости
-            # Создаем простой объект для хранения результата сессии
-            class SessionResult:
-                def __init__(self, session_data: dict[str, Any]) -> None:
-                    session_id = session_data.get("session_id")
-                    self.id = session_id
-                    self.session_id = session_id
-                    self.sessionId = session_id  # camelCase для совместимости
-                    # title используется для отображения в UI (sidebar)
-                    self.title = f"Session {session_id[-8:]}" if session_id else "New Session"
-                    self.server_capabilities = session_data.get("server_capabilities", {})
-                    self.is_authenticated = session_data.get("is_authenticated", False)
-
-            session = SessionResult(result)
+            session = SessionResult.from_dict(result)
 
             # Добавить новую сессию в список
             sessions = self.sessions.value + [session]
