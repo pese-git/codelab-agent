@@ -166,6 +166,12 @@ ChatView {
     layout: vertical;
 }
 
+#permission_container {
+    width: 1fr;
+    height: auto;
+    layout: vertical;
+}
+
 /* --- Plan Panel --- */
 #plan-panel {
     height: 8;

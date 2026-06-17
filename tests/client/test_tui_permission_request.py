@@ -394,7 +394,7 @@ def test_chat_view_permission_manager_creates_permission_request_widget(
 ) -> None:
     """Проверить что при REQUEST типе создается PermissionRequest виджет."""
     mock_chat_view = MagicMock()
-    mock_chat_view._content_container = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
 
     manager = ChatViewPermissionManager(
         chat_view=mock_chat_view,
@@ -414,8 +414,8 @@ def test_chat_view_permission_manager_creates_permission_request_widget(
     assert manager._current_widget is not None
     assert isinstance(manager._current_widget, PermissionRequest)
 
-    # Проверяем что виджет смонтирован
-    mock_chat_view._content_container.mount.assert_called_once()
+    # Проверяем что виджет смонтирован в permission_container
+    mock_chat_view._permission_container.mount.assert_called_once()
 
 
 def test_chat_view_permission_manager_creates_inline_widget(
@@ -429,7 +429,7 @@ def test_chat_view_permission_manager_creates_inline_widget(
     )
 
     mock_chat_view = MagicMock()
-    mock_chat_view._content_container = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
 
     manager = ChatViewPermissionManager(
         chat_view=mock_chat_view,
@@ -457,7 +457,7 @@ def test_chat_view_permission_manager_auto_deny_parameter(
 ) -> None:
     """Проверить что auto_deny_seconds передается в PermissionRequest."""
     mock_chat_view = MagicMock()
-    mock_chat_view._content_container = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
 
     manager = ChatViewPermissionManager(
         chat_view=mock_chat_view,
@@ -487,7 +487,7 @@ def test_chat_view_permission_manager_hide_clears_widget(
 ) -> None:
     """Проверить что hide_permission_request очищает виджет."""
     mock_chat_view = MagicMock()
-    mock_chat_view._content_container = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
 
     manager = ChatViewPermissionManager(
         chat_view=mock_chat_view,
@@ -519,7 +519,7 @@ def test_chat_view_permission_manager_visibility_observer(
 ) -> None:
     """Проверить что при изменении is_visible в ViewModel виджет скрывается."""
     mock_chat_view = MagicMock()
-    mock_chat_view._content_container = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
 
     manager = ChatViewPermissionManager(
         chat_view=mock_chat_view,

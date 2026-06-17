@@ -92,6 +92,9 @@ class ChatView(VerticalScroll):
         # Создаем контейнер для динамического добавления виджетов
         self._content_container = Container(id="chat_content")
         yield self._content_container
+        # Контейнер для permission widget (не очищается при _update_display)
+        self._permission_container = Container(id="permission_container")
+        yield self._permission_container
         # Индикатор загрузки показывается когда агент обрабатывает запрос
         self._loading_indicator = LoadingIndicator(
             text="Агент думает...",
@@ -127,20 +130,6 @@ class ChatView(VerticalScroll):
         Args:
             is_streaming: True если идет streaming, False иначе
         """
-        # Обновляем видимость индикатора загрузки
-        # Скрываем если permission widget виден (иначе он закрывает виджет)
-        if self._loading_indicator is not None:
-            permission_widget_visible = (
-                self._permission_manager is not None
-                and self._permission_manager.is_widget_visible()
-            )
-            self._loading_indicator.visible = is_streaming and not permission_widget_visible
-            self._logger.info(
-                "loading_indicator_visibility_changed",
-                is_streaming=is_streaming,
-                permission_widget_visible=permission_widget_visible,
-                loading_visible=self._loading_indicator.visible,
-            )
         self._update_display()
 
     def _on_streaming_text_changed(self, text: str) -> None:
@@ -157,25 +146,16 @@ class ChatView(VerticalScroll):
         self._update_display()
 
     def _update_display(self) -> None:
-        """Обновить отображение чата на основе текущего состояния."""
+        """Обновить отображение чата на основе текущего состояния.
+        
+        Очищает контент и пересоздает сообщения/streaming/tool calls.
+        Permission widget находится в отдельном контейнере и не затрагивается.
+        """
         if self.chat_vm is None or not self._mounted or self._content_container is None:
             return
 
-        # Сохраняем permission widget если он есть
-        permission_widget = None
-        if self._permission_manager and self._permission_manager.is_widget_visible():
-            permission_widget = self._permission_manager._current_widget
-
-        # Очищаем старый контент (счетчик не сбрасываем, чтобы ID оставались уникальными)
+        # Очищаем весь контент
         self._content_container.query("*").remove()
-
-        # Восстанавливаем permission widget если он был
-        if permission_widget is not None:
-            self._content_container.mount(permission_widget)
-            self._logger.info(
-                "permission_widget_restored_after_update_display",
-                widget_type=type(permission_widget).__name__,
-            )
 
         # Отображаем сообщения
         messages = self.chat_vm.messages.value
@@ -191,8 +171,19 @@ class ChatView(VerticalScroll):
         for tool_call in tool_calls:
             self._render_tool_call(tool_call)
 
-        # Скроллируем вниз
-        self.scroll_end()
+        # Обновляем видимость индикатора загрузки
+        # Скрываем если permission widget виден (иначе он перекрывает виджет)
+        if self._loading_indicator is not None:
+            permission_widget_visible = (
+                self._permission_manager is not None
+                and self._permission_manager.is_widget_visible()
+            )
+            self._loading_indicator.visible = (
+                self.chat_vm.is_streaming.value and not permission_widget_visible
+            )
+
+        # Скроллируем вниз после пересчета layout
+        self.call_after_refresh(self.scroll_end)
 
     def _render_message(self, message: Any) -> None:
         """Отобразить одно сообщение через MessageBubble.

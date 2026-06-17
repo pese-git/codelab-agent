@@ -386,3 +386,89 @@ class TestChatView:
             await pilot.app.mount(chat_view)
 
             chat_view.hide_permission_request()
+
+    async def test_permission_widget_is_last_child_after_update_display(self) -> None:
+        """Permission widget находится в отдельном контейнере и не удаляется при _update_display."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            permission_vm = PermissionViewModel()
+            chat_view = ChatView(chat_vm, permission_vm=permission_vm)
+            await pilot.app.mount(chat_view)
+
+            # Добавляем сообщения
+            chat_vm.messages.value = [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ]
+            
+            # Ждем обновления UI
+            await pilot.pause()
+
+            # Показываем permission widget
+            tool_call = PermissionToolCall(toolCallId="call_1", title="Run")
+            options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
+            callback = MagicMock()
+            chat_view.show_permission_request("req_1", tool_call, options, callback)
+            
+            # Ждем обновления UI
+            await pilot.pause()
+
+            # Проверяем что permission widget есть в permission_container
+            assert chat_view._permission_manager is not None
+            assert chat_view._permission_manager.is_widget_visible()
+            
+            permission_children = list(chat_view._permission_container.children)
+            assert len(permission_children) == 1
+            perm_widget_type = type(permission_children[0]).__name__
+            assert perm_widget_type in ("PermissionRequest", "InlinePermissionWidget")
+
+            # Вызываем _update_display (симулируя изменение observable)
+            chat_view._update_display()
+            
+            # Ждем обновления UI
+            await pilot.pause()
+
+            # Проверяем что permission widget всё ещё в permission_container
+            permission_children_after = list(chat_view._permission_container.children)
+            assert len(permission_children_after) == 1
+            perm_widget_type_after = type(permission_children_after[0]).__name__
+            assert perm_widget_type_after in ("PermissionRequest", "InlinePermissionWidget")
+            
+            # Проверяем что контент в основном контейнере обновился
+            content_children = list(chat_view._content_container.children)
+            assert len(content_children) == 2  # 2 сообщения
+
+    async def test_loading_indicator_hidden_when_permission_widget_visible(self) -> None:
+        """Индикатор загрузки скрыт когда виден permission widget."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            permission_vm = PermissionViewModel()
+            chat_view = ChatView(chat_vm, permission_vm=permission_vm)
+            await pilot.app.mount(chat_view)
+
+            # Включаем streaming (индикатор должен показаться)
+            chat_vm.is_streaming.value = True
+            await pilot.pause()
+            assert chat_view._loading_indicator.visible is True
+
+            # Показываем permission widget
+            tool_call = PermissionToolCall(toolCallId="call_1", title="Run")
+            options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
+            callback = MagicMock()
+            chat_view.show_permission_request("req_1", tool_call, options, callback)
+            await pilot.pause()
+
+            # Вызываем _update_display для обновления видимости индикатора
+            chat_view._update_display()
+            await pilot.pause()
+
+            # Индикатор загрузки должен быть скрыт
+            assert chat_view._loading_indicator.visible is False
