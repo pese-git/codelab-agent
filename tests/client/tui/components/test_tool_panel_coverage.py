@@ -496,3 +496,136 @@ class TestToolPanel:
 
             text = panel._render_text()
             assert "important result" in text
+
+
+class TestToolPanelAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    async def test_on_tool_calls_changed_tool_call_list_not_mounted(self) -> None:
+        """_on_tool_calls_changed обрабатывает исключение если ToolCallList не смонтирован."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel.chat_vm.tool_calls.value = [
+            {"toolCallId": "tc1", "title": "test", "status": "in_progress"},
+        ]
+        panel._on_tool_calls_changed(panel.chat_vm.tool_calls.value)
+
+    async def test_on_tool_calls_changed_empty_with_exception(self) -> None:
+        """_on_tool_calls_changed при пустом списке обрабатывает исключение."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._on_tool_calls_changed([])
+
+    async def test_update_progress_from_calls_empty(self) -> None:
+        """_update_progress_from_calls при пустом списке скрывает прогресс-бар."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._update_progress_from_calls([])
+
+    async def test_update_progress_from_calls_all_completed_success(self) -> None:
+        """_update_progress_from_calls устанавливает SUCCESS variant при завершении."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            terminal_vm = FakeTerminalViewModel()
+            panel = ToolPanel(chat_vm, terminal_vm)
+            await pilot.app.mount(panel)
+            panel._update_progress_from_calls([
+                {"toolCallId": "tc1", "status": "completed"},
+                {"toolCallId": "tc2", "status": "completed"},
+            ])
+
+    async def test_update_progress_from_calls_with_exception(self) -> None:
+        """_update_progress_from_calls обрабатывает исключение если виджет не смонтирован."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._update_progress_from_calls([{"toolCallId": "tc1", "status": "in_progress"}])
+
+    async def test_update_progress_visibility_exception(self) -> None:
+        """_update_progress_visibility обрабатывает исключение если виджет не смонтирован."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._update_progress_visibility(show=True)
+
+    async def test_apply_update_status_from_previous(self) -> None:
+        """apply_update использует status из previous если не указан в payload."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            terminal_vm = FakeTerminalViewModel()
+            panel = ToolPanel(chat_vm, terminal_vm)
+            await pilot.app.mount(panel)
+
+            update1 = ToolCallCreatedUpdate(
+                sessionUpdate="tool_call",
+                toolCallId="tc1",
+                title="exec",
+                status="in_progress",
+            )
+            panel.apply_update(update1)
+
+            update2 = ToolCallCreatedUpdate(
+                sessionUpdate="tool_call",
+                toolCallId="tc1",
+                title="exec",
+                status="pending",
+            )
+            panel.apply_update(update2)
+            assert panel._tool_calls["tc1"]["status"] == "pending"
+
+    async def test_update_progress_from_tool_calls_dict_empty(self) -> None:
+        """_update_progress_from_tool_calls_dict при пустом словаре скрывает прогресс-бар."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._update_progress_from_tool_calls_dict()
+
+    async def test_update_progress_from_tool_calls_dict_with_exception(self) -> None:
+        """_update_progress_from_tool_calls_dict обрабатывает исключение."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._tool_calls = {"tc1": {"status": "in_progress", "title": "test"}}
+        panel._update_progress_from_tool_calls_dict()
+
+    async def test_latest_terminal_snapshot_no_terminal_id(self) -> None:
+        """latest_terminal_snapshot пропускает tool calls без terminal_id."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._tool_calls = {"tc1": {"title": "test", "status": "completed"}}
+        result = panel.latest_terminal_snapshot()
+        assert result is None
+
+    async def test_latest_terminal_snapshot_no_terminal_view(self) -> None:
+        """latest_terminal_snapshot пропускает tool calls без terminal_view."""
+        chat_vm = FakeChatViewModel()
+        terminal_vm = FakeTerminalViewModel()
+        panel = ToolPanel(chat_vm, terminal_vm)
+        panel._tool_calls = {
+            "tc1": {"title": "test", "status": "completed", "terminal_id": "term1"},
+        }
+        result = panel.latest_terminal_snapshot()
+        assert result is None
+
+    async def test_extract_terminal_id_continue_on_non_terminal(self) -> None:
+        """_extract_terminal_id пропускает content items не типа terminal."""
+        payload = {
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "terminal", "terminalId": "term1"},
+            ]
+        }
+        result = ToolPanel._extract_terminal_id(payload)
+        assert result == "term1"

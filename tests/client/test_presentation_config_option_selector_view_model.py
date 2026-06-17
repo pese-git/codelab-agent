@@ -263,3 +263,68 @@ class TestStrategySelectorViewModel:
 
         assert vm.config_id == "_active_strategy"
         assert vm.title == "Стратегия"
+
+
+class TestConfigOptionSelectorAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    def test_update_current_value(self) -> None:
+        """update_current_value обновляет current_value."""
+        coordinator = MagicMock()
+        vm = ConfigOptionSelectorViewModel(
+            coordinator=coordinator,
+            config_id="test",
+            title="Test",
+        )
+        vm.update_current_value("new_value")
+        assert vm.current_value.value == "new_value"
+
+    @pytest.mark.asyncio
+    async def test_open_modal(self) -> None:
+        """_open_modal устанавливает is_modal_open=True."""
+        coordinator = MagicMock()
+        vm = ConfigOptionSelectorViewModel(
+            coordinator=coordinator,
+            config_id="test",
+            title="Test",
+        )
+        await vm._open_modal()
+        assert vm.is_modal_open.value is True
+
+    @pytest.mark.asyncio
+    async def test_close_modal(self) -> None:
+        """_close_modal устанавливает is_modal_open=False."""
+        coordinator = MagicMock()
+        vm = ConfigOptionSelectorViewModel(
+            coordinator=coordinator,
+            config_id="test",
+            title="Test",
+        )
+        vm.is_modal_open.value = True
+        await vm._close_modal()
+        assert vm.is_modal_open.value is False
+
+    def test_parse_options_non_dict(self) -> None:
+        """_parse_options пропускает non-dict элементы."""
+        raw_options = ["not a dict", 123, None]
+        options = ConfigOptionSelectorViewModel._parse_options(raw_options)
+        assert len(options) == 0
+
+    def test_parse_options_empty_value(self) -> None:
+        """_parse_options пропускает options с пустым value."""
+        raw_options = [{"value": "", "name": "Empty"}]
+        options = ConfigOptionSelectorViewModel._parse_options(raw_options)
+        assert len(options) == 0
+
+    def test_parse_options_with_pricing(self) -> None:
+        """_parse_options извлекает pricing из option."""
+        raw_options = [
+            {
+                "value": "gpt-4",
+                "name": "GPT-4",
+                "pricing": {"input": 0.03, "output": 0.06},
+            },
+        ]
+        options = ConfigOptionSelectorViewModel._parse_options(raw_options)
+        assert len(options) == 1
+        assert options[0].extra["pricing"] == {"input": 0.03, "output": 0.06}

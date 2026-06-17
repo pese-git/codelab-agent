@@ -166,3 +166,99 @@ class TestCompactionTrigger:
         result, changed, reason = await compactor.compact_if_needed(history)
         assert changed is True
         assert reason == "pruned_only"
+
+
+class TestContextCompactorAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    def test_estimate_tokens_with_tool_calls(self, compactor):
+        """_estimate_tokens учитывает tool_calls."""
+        from codelab.server.llm.models import LLMToolCall
+
+        messages = [
+            LLMMessage(
+                role="assistant",
+                content="Hello",
+                tool_calls=[
+                    LLMToolCall(id="tc1", name="read_file", arguments={"path": "test.py"}),
+                ],
+            ),
+        ]
+        tokens = compactor._estimate_tokens(messages)
+        assert tokens > 0
+
+    @pytest.mark.asyncio
+    async def test_prune_old_tool_outputs_short_history(self, compactor):
+        """_prune_old_tool_outputs при короткой истории возвращает копию."""
+        history = [
+            LLMMessage(role="user", content="Hello"),
+            LLMMessage(role="assistant", content="Hi"),
+        ]
+        result = compactor._prune_old_tool_outputs(history)
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_summarize_conversation_short_history(self, compactor):
+        """_summarize_conversation при короткой истории возвращает копию."""
+        history = [
+            LLMMessage(role="user", content="Hello"),
+            LLMMessage(role="assistant", content="Hi"),
+        ]
+        result = await compactor._summarize_conversation(history)
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_summarize_conversation_empty_middle(self, compactor):
+        """_summarize_conversation при empty middle возвращает историю."""
+        history = [
+            LLMMessage(role="system", content="System"),
+            LLMMessage(role="user", content="First"),
+            LLMMessage(role="assistant", content="Second"),
+            LLMMessage(role="user", content="Third"),
+            LLMMessage(role="assistant", content="Fourth"),
+            LLMMessage(role="user", content="Fifth"),
+        ]
+        result = await compactor._summarize_conversation(history)
+        assert len(result) == 5
+
+    @pytest.mark.asyncio
+    async def test_summarize_conversation_without_llm(self, compactor):
+        """_summarize_conversation без LLM удаляет середину."""
+        compactor_no_llm = ContextCompactor(
+            llm=None,
+            max_context_tokens=1000,
+            reserved_tokens=200,
+        )
+        history = [
+            LLMMessage(role="system", content="System"),
+            LLMMessage(role="user", content="First"),
+            LLMMessage(role="assistant", content="Middle " * 100),
+            LLMMessage(role="user", content="Middle 2 " * 100),
+            LLMMessage(role="user", content="Recent"),
+            LLMMessage(role="assistant", content="Response"),
+            LLMMessage(role="user", content="Latest"),
+        ]
+        result = await compactor_no_llm._summarize_conversation(history)
+        assert len(result) < len(history)
+
+    @pytest.mark.asyncio
+    async def test_summarize_conversation_exception(self):
+        """_summarize_conversation при ошибке LLM использует pruned history."""
+        llm = MagicMock()
+        llm.create_completion = AsyncMock(side_effect=RuntimeError("LLM error"))
+        compactor = ContextCompactor(
+            llm=llm,
+            max_context_tokens=1000,
+            reserved_tokens=200,
+        )
+        history = [
+            LLMMessage(role="system", content="System"),
+            LLMMessage(role="user", content="First"),
+            LLMMessage(role="assistant", content="Middle " * 100),
+            LLMMessage(role="user", content="Middle 2 " * 100),
+            LLMMessage(role="user", content="Recent"),
+            LLMMessage(role="assistant", content="Response"),
+            LLMMessage(role="user", content="Latest"),
+        ]
+        result = await compactor._summarize_conversation(history)
+        assert len(result) < len(history)

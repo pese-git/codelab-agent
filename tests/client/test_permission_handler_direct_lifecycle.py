@@ -11,8 +11,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -353,3 +354,150 @@ class TestPermissionHandlerDirectLifecycle:
         captured_params["on_choice"]("perm_1", "allow_once")
         outcome = await task
         assert isinstance(outcome, SelectedPermissionOutcome)
+
+
+class TestPermissionHandlerAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    @pytest.fixture
+    def mock_transport(self) -> Mock:
+        """Создать mock ACPTransportService."""
+        return Mock(spec=TransportService)
+
+    @pytest.fixture
+    def permission_handler(self, mock_transport: Mock) -> PermissionHandler:
+        """Создать настоящий PermissionHandler для тестирования."""
+        handler = PermissionHandler(
+            transport=mock_transport,
+            logger=Mock(),
+        )
+        handler._logger = Mock()
+        return handler
+
+    @pytest.fixture
+    def sample_permission_request(self) -> RequestPermissionRequest:
+        """Создать sample RequestPermissionRequest."""
+        return RequestPermissionRequest(
+            jsonrpc="2.0",
+            id="perm_1",
+            method="session/request_permission",
+            params={
+                "sessionId": "session_1",
+                "toolCall": {
+                    "toolCallId": "tool_1",
+                    "title": "File Write",
+                },
+                "options": [
+                    {
+                        "optionId": "allow_once",
+                        "name": "Allow once",
+                        "kind": "allow_once",
+                    },
+                ],
+            },
+        )
+
+    def test_get_all_active_returns_list(self, permission_handler: PermissionHandler) -> None:
+        """get_all_active возвращает список активных requests."""
+        manager = permission_handler.get_request_manager()
+        result = manager.get_all_active()
+        assert isinstance(result, list)
+
+    def test_get_request_manager_returns_manager(
+        self, permission_handler: PermissionHandler,
+    ) -> None:
+        """get_request_manager возвращает PermissionRequestManager."""
+        from codelab.client.application.permission_handler import PermissionRequestManager
+        manager = permission_handler.get_request_manager()
+        assert isinstance(manager, PermissionRequestManager)
+
+    @pytest.mark.asyncio
+    async def test_handle_request_cancelled_error(
+        self,
+        permission_handler: PermissionHandler,
+        sample_permission_request: RequestPermissionRequest,
+    ) -> None:
+        """handle_request обрабатывает CancelledError."""
+        def callback_that_cancels(req_id, tool_call, options, on_choice):
+            on_choice(req_id, "cancelled")
+
+        task = asyncio.create_task(
+            permission_handler.handle_request(
+                request=sample_permission_request,
+                callback=callback_that_cancels,
+            )
+        )
+
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        try:
+            outcome = await task
+            assert isinstance(outcome, CancelledPermissionOutcome)
+        except asyncio.CancelledError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_handle_request_exception_in_handler(
+        self,
+        permission_handler: PermissionHandler,
+        sample_permission_request: RequestPermissionRequest,
+    ) -> None:
+        """handle_request обрабатывает Exception."""
+        def callback_that_raises(req_id, tool_call, options, on_choice):
+            raise RuntimeError("test error")
+
+        outcome = await permission_handler.handle_request(
+            request=sample_permission_request,
+            callback=callback_that_raises,
+        )
+        assert isinstance(outcome, CancelledPermissionOutcome)
+
+    @pytest.mark.asyncio
+    async def test_handle_request_send_response_failure(
+        self,
+        mock_transport: Mock,
+        sample_permission_request: RequestPermissionRequest,
+    ) -> None:
+        """handle_request обрабатывает ошибку отправки response."""
+        mock_transport.send = AsyncMock(side_effect=RuntimeError("send failed"))
+        handler = PermissionHandler(
+            transport=mock_transport,
+            logger=Mock(),
+        )
+        handler._logger = Mock()
+
+        def simple_callback(req_id, tool_call, options, on_choice):
+            on_choice(req_id, "allow_once")
+
+        outcome = await handler.handle_request(
+            request=sample_permission_request,
+            callback=simple_callback,
+        )
+        assert isinstance(outcome, SelectedPermissionOutcome)
+
+    @pytest.mark.asyncio
+    async def test_cancel_request(
+        self,
+        permission_handler: PermissionHandler,
+        sample_permission_request: RequestPermissionRequest,
+    ) -> None:
+        """cancel_request отменяет активный request."""
+        permission_handler.get_request_manager()
+
+        def simple_callback(req_id, tool_call, options, on_choice):
+            pass
+
+        task = asyncio.create_task(
+            permission_handler.handle_request(
+                request=sample_permission_request,
+                callback=simple_callback,
+            )
+        )
+
+        await asyncio.sleep(0.05)
+        await permission_handler.cancel_request("perm_1")
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

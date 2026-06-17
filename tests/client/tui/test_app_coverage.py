@@ -916,3 +916,252 @@ class TestRunTuiApp:
             mock_resolve.assert_called_once()
             mock_app_class.assert_called_once()
             mock_app.run.assert_called_once()
+
+
+class TestACPClientAppAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    def test_init_config_option_event_import_error(self) -> None:
+        """ImportError ConfigOptionUpdatedEvent не прерывает инициализацию."""
+        with (
+            patch("codelab.client.tui.app.create_client_container") as mock_create,
+            patch("codelab.client.tui.app.MCPConfigLoader"),
+            patch("codelab.client.tui.app.TUIConfigStore"),
+            patch("codelab.client.tui.app.ThemeManager"),
+        ):
+            ui_vm = MagicMock()
+            ui_vm.on_event = MagicMock(side_effect=ImportError("no event"))
+            ui_vm.sidebar_tab = MagicMock()
+            ui_vm.files_expanded = MagicMock()
+
+            container = MagicMock()
+            container.get = MagicMock(return_value=ui_vm)
+            mock_create.return_value = container
+
+            app = ACPClientApp(host="127.0.0.1", port=8765)
+            assert app._ui_vm is ui_vm
+
+    async def test_on_ready_navigation_manager_error(self) -> None:
+        """Ошибка инициализации NavigationManager не прерывает on_ready."""
+        with _patched_app() as (app, _deps):
+            with patch(
+                "codelab.client.tui.app.NavigationManager",
+                side_effect=RuntimeError("fail"),
+            ):
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    assert app._navigation_manager is None
+
+    async def test_sidebar_state_changed_file_tree_not_found(self) -> None:
+        """Исключение при поиске FileTree не прерывает _on_sidebar_state_changed."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with patch.object(app, "query_one", side_effect=RuntimeError("not found")):
+                    app._on_sidebar_state_changed(None)
+
+    async def test_cancel_prompt_already_executing(self) -> None:
+        """cancel_prompt пропускает отмену если уже выполняется."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                deps["session_vm"].selected_session_id.value = "sess_1"
+                deps["chat_vm"].is_streaming.value = True
+                deps["chat_vm"].cancel_prompt_cmd.is_executing.value = True
+                app.action_cancel_prompt()
+                await pilot.pause()
+                deps["coordinator"].cancel_prompt.assert_not_awaited()
+
+    async def test_toggle_sidebar_exception(self) -> None:
+        """Ошибка toggle_sidebar логируется и не прерывает приложение."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with patch.object(app, "query_one", side_effect=RuntimeError("fail")):
+                    app.action_toggle_sidebar()
+
+    async def test_open_help_with_sidebar_focused(self) -> None:
+        """action_open_help с Sidebar в фокусе устанавливает context='sidebar'."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                sidebar = app.query_one(Sidebar)
+                mock_focused = MagicMock(return_value=sidebar)
+                with patch.object(type(app), "focused", mock_focused):
+                    app.action_open_help()
+                    await pilot.pause()
+
+    async def test_open_help_with_prompt_input_focused(self) -> None:
+        """action_open_help с PromptInput в фокусе устанавливает context='prompt-input'."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                prompt_input = app.query_one(PromptInput)
+                mock_focused = MagicMock(return_value=prompt_input)
+                with patch.object(type(app), "focused", mock_focused):
+                    app.action_open_help()
+                    await pilot.pause()
+
+    async def test_toggle_theme_light_to_dark(self) -> None:
+        """action_toggle_theme переключает light -> dark."""
+        with _patched_app(theme="light") as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._theme_manager.current_theme_name == "light"
+                app.action_toggle_theme()
+                assert app._theme_manager.current_theme_name == "dark"
+                deps["config_store"].save.assert_called()
+
+    async def test_toggle_theme_icon_update_error(self) -> None:
+        """Ошибка обновления theme icon не прерывает toggle_theme."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with patch.object(app, "query_one", side_effect=RuntimeError("fail")):
+                    app.action_toggle_theme()
+
+    async def test_select_model_callback_selected(self) -> None:
+        """on_model_selected callback с value логирует выбор."""
+        with _patched_app() as (app, deps):
+            deps["session_vm"].selected_session_id.value = "sess_1"
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_select_model()
+                await pilot.pause()
+                modal = app.screen
+                assert isinstance(modal, ModelSelectorModal)
+                with patch.object(app, "run_worker"):
+                    modal.dismiss("openai/gpt-4o")
+                    await pilot.pause()
+                    await pilot.pause()
+
+    async def test_select_model_callback_cancelled(self) -> None:
+        """on_model_selected callback с None не запускает worker."""
+        with _patched_app() as (app, deps):
+            deps["session_vm"].selected_session_id.value = "sess_1"
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_select_model()
+                await pilot.pause()
+                modal = app.screen
+                assert isinstance(modal, ModelSelectorModal)
+                with patch.object(app, "run_worker") as mock_worker:
+                    modal.dismiss(None)
+                    await pilot.pause()
+                    mock_worker.assert_not_called()
+
+    async def test_open_config_selector_no_session(self) -> None:
+        """_open_config_option_selector без сессии показывает предупреждение."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                deps["session_vm"].selected_session_id.value = None
+                app._open_config_option_selector(deps["mode_selector_vm"], "mode")
+
+    async def test_config_option_callback_selected(self) -> None:
+        """on_option_selected callback с value логирует выбор."""
+        with _patched_app() as (app, deps):
+            deps["session_vm"].selected_session_id.value = "sess_1"
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_select_mode()
+                await pilot.pause()
+                from codelab.client.tui.components import ConfigOptionSelectorModal
+                modal = app.screen
+                assert isinstance(modal, ConfigOptionSelectorModal)
+                with patch.object(app, "run_worker"):
+                    modal.dismiss("code")
+                    await pilot.pause()
+                    await pilot.pause()
+
+    async def test_config_option_callback_cancelled(self) -> None:
+        """on_option_selected callback с None не запускает worker."""
+        with _patched_app() as (app, deps):
+            deps["session_vm"].selected_session_id.value = "sess_1"
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_select_mode()
+                await pilot.pause()
+                from codelab.client.tui.components import ConfigOptionSelectorModal
+                modal = app.screen
+                assert isinstance(modal, ConfigOptionSelectorModal)
+                with patch.object(app, "run_worker") as mock_worker:
+                    modal.dismiss(None)
+                    await pilot.pause()
+                    mock_worker.assert_not_called()
+
+    async def test_action_next_session_no_selection(self) -> None:
+        """action_next_session без выбора не вызывает switch_session."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                sidebar = app.query_one(Sidebar)
+                with patch.object(sidebar, "get_selected_session_id", return_value=None):
+                    with patch.object(app, "run_worker") as mock_worker:
+                        app.action_next_session()
+                        await pilot.pause()
+                        mock_worker.assert_not_called()
+
+    async def test_action_previous_session_no_selection(self) -> None:
+        """action_previous_session без выбора не вызывает switch_session."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                sidebar = app.query_one(Sidebar)
+                with patch.object(sidebar, "get_selected_session_id", return_value=None):
+                    with patch.object(app, "run_worker") as mock_worker:
+                        app.action_previous_session()
+                        await pilot.pause()
+                        mock_worker.assert_not_called()
+
+    async def test_on_selected_session_changed_with_none(self) -> None:
+        """_on_selected_session_changed с None не загружает историю."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app._on_selected_session_changed(None)
+                await pilot.pause()
+                deps["coordinator"].load_session.assert_not_awaited()
+
+    async def test_permission_modal_on_choice_error(self) -> None:
+        """Ошибка в on_choice callback логируется."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app._chat_view = None
+                tool_call = PermissionToolCall(toolCallId="call_1", title="Run")
+                options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
+
+                def failing_callback(req_id, tc, opts, on_choice):
+                    on_choice(req_id, "invalid_option")
+
+                app.show_permission_modal("req_1", tool_call, options, failing_callback)
+                await pilot.pause()
+
+    async def test_tool_call_card_selected_with_objects(self) -> None:
+        """on_tool_call_card_selected с объектами вместо dict."""
+        with _patched_app() as (app, deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+
+                class MockToolCall:
+                    toolCallId = "call_1"
+                    parameters = {"path": "test.py", "content": "x = 1"}
+
+                deps["chat_vm"].tool_calls.value = [MockToolCall()]
+                card = ToolCallCard(
+                    tool_call_id="call_1",
+                    tool_name="write_file",
+                    parameters={"path": "test.py", "content": "x = 1"},
+                )
+                event = ToolCallCard.Selected(card)
+                app.on_tool_call_card_selected(event)
+                assert isinstance(app.screen, FileChangePreviewModal)
+
+    async def test_unmount_container_close_error(self) -> None:
+        """Ошибка закрытия DI контейнера логируется."""
+        with _patched_app() as (app, deps):
+            deps["container"].close = MagicMock(side_effect=RuntimeError("fail"))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+            deps["transport"].disconnect.assert_awaited_once()

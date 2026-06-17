@@ -288,3 +288,67 @@ class TestLoadAll:
 
         # Project MD — высший приоритет
         assert result["coder"].model == "project-md-model"
+
+
+class TestAgentConfigLoaderAdditionalCoverage:
+    """Дополнительные тесты для непокрытых строк."""
+
+    def test_load_toml_agents_exception(self, temp_dir):
+        """_load_toml_agents обрабатывает исключения при парсинге."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        project_toml = {
+            "agents": {
+                "definitions": {
+                    "bad_agent": "not a dict",
+                }
+            }
+        }
+        result = loader.load_all(project_toml=project_toml)
+        assert "bad_agent" not in result
+
+    def test_load_markdown_dir_exception(self, temp_dir):
+        """_load_markdown_dir обрабатывает исключения при парсинге."""
+        agents_dir = temp_dir / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "bad.md").write_text("invalid content without frontmatter")
+
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        result = loader.load_all()
+        assert "bad" in result
+
+    def test_parse_yaml_simple_empty_lines(self, temp_dir):
+        """_parse_yaml_simple пропускает пустые строки и комментарии."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        text = """
+# Comment
+key1: value1
+
+key2: value2
+"""
+        result = loader._parse_yaml_simple(text)
+        assert result["key1"] == "value1"
+        assert result["key2"] == "value2"
+
+    def test_parse_value_empty(self, temp_dir):
+        """_parse_value возвращает пустую строку для пустого value."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        result = loader._parse_value("")
+        assert result == ""
+
+    def test_parse_value_inline_list(self, temp_dir):
+        """_parse_value парсит inline list."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        result = loader._parse_value("[a, b, c]")
+        assert result == ["a", "b", "c"]
+
+    def test_parse_value_quoted_string(self, temp_dir):
+        """_parse_value парсит quoted string."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        result = loader._parse_value('"hello"')
+        assert result == "hello"
+
+    def test_parse_value_null(self, temp_dir):
+        """_parse_value парсит null."""
+        loader = AgentConfigLoader(project_config_dir=temp_dir)
+        result = loader._parse_value("null")
+        assert result is None

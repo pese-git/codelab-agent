@@ -5,6 +5,7 @@ LLMAdapter делает ровно ОДИН вызов LLM провайдера 
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -442,3 +443,68 @@ class TestEventBusIntegration:
 
         m = metrics.get_metrics("s1")
         assert m.agent_responses == 1
+
+
+class TestCancelMethods:
+    """Тесты для методов cancel() и cancel_prompt()."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_active_tasks(self, adapter, mock_llm_provider):
+        """cancel() отменяет все активные задачи."""
+        async def slow_completion(request):
+            await asyncio.sleep(10)
+            return CompletionResponse(text="done")
+
+        mock_llm_provider.create_completion = slow_completion
+
+        task1 = asyncio.create_task(
+            adapter.call(
+                messages=[LLMMessage(role="user", content="test1")],
+                tools=[],
+            )
+        )
+        task2 = asyncio.create_task(
+            adapter.call(
+                messages=[LLMMessage(role="user", content="test2")],
+                tools=[],
+            )
+        )
+
+        await asyncio.sleep(0.01)
+        assert len(adapter._active_tasks) == 2
+
+        await adapter.cancel()
+
+        assert len(adapter._active_tasks) == 0
+
+        task1.cancel()
+        task2.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task1
+        with contextlib.suppress(asyncio.CancelledError):
+            await task2
+
+    @pytest.mark.asyncio
+    async def test_cancel_prompt_by_session_id(self, adapter, mock_llm_provider):
+        """cancel_prompt() отменяет задачу по session_id."""
+        async def slow_completion(request):
+            await asyncio.sleep(10)
+            return CompletionResponse(text="done")
+
+        mock_llm_provider.create_completion = slow_completion
+
+        task = asyncio.create_task(
+            adapter.call(
+                messages=[LLMMessage(role="user", content="test")],
+                tools=[],
+            )
+        )
+
+        await asyncio.sleep(0.01)
+        assert len(adapter._active_tasks) == 1
+
+        await adapter.cancel_prompt("sess_1")
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
