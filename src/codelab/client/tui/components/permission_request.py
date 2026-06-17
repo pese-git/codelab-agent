@@ -280,6 +280,12 @@ class PermissionRequest(Static):
     
     def on_mount(self) -> None:
         """Запускает таймер автоотклонения при монтировании и добавляет кнопки в ActionBar."""
+        from textual import log
+        log(
+            f"permission_request_mounted: request_id={self._request_id}, "
+            f"permission_type={self._permission_type}, resource={self._resource}"
+        )
+        
         # Добавляем кнопки в ActionBar
         if self._action_bar:
             # Кнопка Allow (primary)

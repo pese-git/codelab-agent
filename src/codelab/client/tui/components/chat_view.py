@@ -368,3 +368,17 @@ class ChatView(VerticalScroll):
         """
         if self._permission_manager is not None:
             self._permission_manager.hide_permission_request()
+
+    def scroll_end(self, *, animate: bool = False) -> None:
+        """Прокрутить чат к концу (к последнему сообщению).
+
+        Args:
+            animate: Анимировать прокрутку
+        """
+        self._logger.debug(
+            "scroll_end_called",
+            animate=animate,
+            scroll_y=self.scroll_y,
+            max_scroll_y=self.max_scroll_y,
+        )
+        super().scroll_end(animate=animate)

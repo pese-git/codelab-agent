@@ -122,8 +122,19 @@ class ChatViewPermissionManager:
             on_choice: Callback при выборе (request_id, option_id)
             auto_deny_seconds: Время до автоотклонения (только для REQUEST)
         """
+        self._logger.info(
+            "show_permission_request_start",
+            request_id=request_id,
+            tool_call_kind=tool_call.kind,
+            tool_call_title=tool_call.title,
+            options_count=len(options),
+            widget_type=self.widget_type.value,
+            has_existing_widget=self._current_widget is not None,
+        )
+
         # Если виджет уже показан, скрыть его перед созданием нового
         if self._current_widget is not None:
+            self._logger.info("hiding_existing_permission_widget_before_showing_new")
             self.hide_permission_request()
 
         # Создать виджет в зависимости от типа
@@ -131,6 +142,12 @@ class ChatViewPermissionManager:
             # Определяем тип разрешения из tool_call.kind
             kind = tool_call.kind or "unknown"
             permission_type = self._get_permission_type(kind)
+            
+            self._logger.info(
+                "creating_permission_request_widget",
+                permission_type=permission_type,
+                resource=tool_call.title or "",
+            )
             
             self._current_widget = PermissionRequest(
                 permission_vm=self.permission_vm,
@@ -144,6 +161,7 @@ class ChatViewPermissionManager:
             )
         else:
             # Создать InlinePermissionWidget (INLINE по умолчанию для обратной совместимости)
+            self._logger.info("creating_inline_permission_widget")
             self._current_widget = InlinePermissionWidget(
                 permission_vm=self.permission_vm,
                 request_id=request_id,
@@ -154,6 +172,11 @@ class ChatViewPermissionManager:
 
         # Монтировать в контейнер ChatView если он доступен
         if self.chat_view._content_container is not None:
+            self._logger.info(
+                "mounting_permission_widget_to_container",
+                container_id=self.chat_view._content_container.id,
+                widget_type=type(self._current_widget).__name__,
+            )
             self.chat_view._content_container.mount(self._current_widget)
             # Автоскролл к виджету для видимости
             self.chat_view.scroll_end()
@@ -162,11 +185,13 @@ class ChatViewPermissionManager:
                 request_id=request_id,
                 tool_call_kind=tool_call.kind,
                 widget_type=self.widget_type.value,
+                scroll_end_called=True,
             )
         else:
             self._logger.error(
                 "chat_view_content_container_not_available",
                 request_id=request_id,
+                chat_view_id=self.chat_view.id,
             )
     
     def _get_permission_type(self, kind: str) -> PermissionType:
@@ -185,18 +210,30 @@ class ChatViewPermissionManager:
 
         Удаляет текущий виджет из DOM и очищает ссылку.
         """
+        self._logger.info(
+            "hide_permission_request_called",
+            has_widget=self._current_widget is not None,
+            widget_type=type(self._current_widget).__name__ if self._current_widget else None,
+        )
         if self._current_widget is not None:
             try:
                 self._current_widget.remove()
+                self._logger.info(
+                    "permission_widget_removed_from_dom",
+                    widget_type=type(self._current_widget).__name__,
+                )
             except Exception as e:
                 # Виджет уже удален или произошла ошибка
                 self._logger.warning(
                     "failed_to_remove_permission_widget",
                     error=str(e),
+                    error_type=type(e).__name__,
                 )
             finally:
                 self._current_widget = None
             self._logger.info("permission_widget_hidden")
+        else:
+            self._logger.debug("hide_permission_request_no_widget_to_hide")
 
     def is_widget_visible(self) -> bool:
         """Проверить видимость встроенного виджета.
@@ -214,5 +251,10 @@ class ChatViewPermissionManager:
         Args:
             is_visible: Новое значение видимости
         """
+        self._logger.info(
+            "on_visibility_changed",
+            is_visible=is_visible,
+            has_widget=self._current_widget is not None,
+        )
         if not is_visible:
             self.hide_permission_request()
