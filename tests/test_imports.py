@@ -17,17 +17,15 @@ def test_import_shared_content():
     assert ImageContent is not None
 
 
-@pytest.mark.skip(reason="Требует aiohttp - рефакторинг в процессе")
 def test_import_server():
     """Проверка импорта server."""
-    from codelab.server import ACPProtocol
+    from codelab.server.protocol import ACPProtocol
     assert ACPProtocol is not None
 
 
-@pytest.mark.skip(reason="Требует исправления импортов - рефакторинг в процессе")
 def test_import_client():
     """Проверка импорта client."""
-    from codelab.client import ACPClientApp
+    from codelab.client.tui.app import ACPClientApp
     assert ACPClientApp is not None
 
 
