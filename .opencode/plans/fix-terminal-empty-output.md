@@ -13,7 +13,7 @@ Race condition в `TerminalExecutor`:
 ## Решение
 
 ### 1. Добавить поле `read_task` в `TerminalSession`
-**Файл:** `codelab/src/codelab/client/infrastructure/services/terminal_executor.py:47-70`
+**Файл:** `src/codelab/client/infrastructure/services/terminal_executor.py:47-70`
 
 Добавить в dataclass:
 ```python
@@ -21,7 +21,7 @@ read_task: asyncio.Task[None] | None = None
 ```
 
 ### 2. Сохранять задачу в сессию в `create_terminal`
-**Файл:** `codelab/src/codelab/client/infrastructure/services/terminal_executor.py:139-140`
+**Файл:** `src/codelab/client/infrastructure/services/terminal_executor.py:139-140`
 
 Заменить:
 ```python
@@ -33,7 +33,7 @@ session.read_task = asyncio.create_task(self._read_output(session))
 ```
 
 ### 3. Обновить `wait_for_exit` чтобы ждать завершения read_task
-**Файл:** `codelab/src/codelab/client/infrastructure/services/terminal_executor.py:242-279`
+**Файл:** `src/codelab/client/infrastructure/services/terminal_executor.py:242-279`
 
 После `await session.process.wait()` добавить ожидание read_task:
 ```python
@@ -63,7 +63,7 @@ return exit_code
 ```
 
 ### 4. Добавить логирование размера output в `handle_wait_for_exit`
-**Файл:** `codelab/src/codelab/client/infrastructure/handlers/terminal_handler.py:203-215`
+**Файл:** `src/codelab/client/infrastructure/handlers/terminal_handler.py:203-215`
 
 Добавить логирование:
 ```python

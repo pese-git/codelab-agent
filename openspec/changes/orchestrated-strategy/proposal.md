@@ -37,14 +37,14 @@
 ## Impact
 
 **Новые файлы:**
-- `codelab/src/codelab/server/agent/strategies/models.py` — RouteDecision
-- `codelab/src/codelab/server/agent/strategies/token_slicer.py` — TokenSlicer
-- `codelab/src/codelab/server/agent/core/context_manager.py` — HybridContextManager
-- `codelab/src/codelab/server/agent/strategies/orchestrated.py` — OrchestratedStrategy
+- `src/codelab/server/agent/strategies/models.py` — RouteDecision
+- `src/codelab/server/agent/strategies/token_slicer.py` — TokenSlicer
+- `src/codelab/server/agent/core/context_manager.py` — HybridContextManager
+- `src/codelab/server/agent/strategies/orchestrated.py` — OrchestratedStrategy
 
 **Изменяемые файлы:**
-- `codelab/src/codelab/server/agent/strategies/descriptor.py` — ORCHESTRATED_STRATEGY_DESCRIPTOR
-- `codelab/src/codelab/server/agent/config/models.py` — mode=orchestrator валидация
-- `codelab/src/codelab/server/di.py` — провайдеры для новых компонентов
+- `src/codelab/server/agent/strategies/descriptor.py` — ORCHESTRATED_STRATEGY_DESCRIPTOR
+- `src/codelab/server/agent/config/models.py` — mode=orchestrator валидация
+- `src/codelab/server/di.py` — провайдеры для новых компонентов
 
 **Зависимости:** Зависит от event-bus, llm-adapter, agent-registry, observability, single-strategy, strategy-dispatcher.

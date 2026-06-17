@@ -98,7 +98,7 @@ env = [
 
 ### Задача 1: MCPConfigLoader
 
-**Новый файл:** `codelab/src/codelab/client/infrastructure/mcp_config_loader.py`
+**Новый файл:** `src/codelab/client/infrastructure/mcp_config_loader.py`
 
 **Ответственность:**
 - Чтение TOML chain (аналогично `TUIConfigStore._load_from_toml_chain()`)
@@ -133,7 +133,7 @@ class MCPConfigLoader:
 
 ### Задача 2: ClientConfig
 
-**Файл:** `codelab/src/codelab/client/infrastructure/client_config.py`
+**Файл:** `src/codelab/client/infrastructure/client_config.py`
 
 **Изменения:**
 - Добавить поле `mcp_servers: list[dict[str, Any]] = field(default_factory=list)` в `ClientConfig`
@@ -142,7 +142,7 @@ class MCPConfigLoader:
 
 ### Задача 3: container_factory
 
-**Файл:** `codelab/src/codelab/client/infrastructure/container_factory.py`
+**Файл:** `src/codelab/client/infrastructure/container_factory.py`
 
 **Изменения:**
 - Добавить параметр `mcp_servers: list[dict[str, Any]] | None = None` в `create_client_container()`
@@ -152,7 +152,7 @@ class MCPConfigLoader:
 
 ### Задача 4: CreateSessionRequest
 
-**Файл:** `codelab/src/codelab/client/application/dto.py`
+**Файл:** `src/codelab/client/application/dto.py`
 
 **Изменения:**
 - Добавить поле `mcp_servers: list[dict[str, Any]] | None = None` в `CreateSessionRequest` (аналогично `LoadSessionRequest`)
@@ -161,7 +161,7 @@ class MCPConfigLoader:
 
 ### Задача 5: CreateSessionUseCase
 
-**Файл:** `codelab/src/codelab/client/application/use_cases.py`
+**Файл:** `src/codelab/client/application/use_cases.py`
 
 **Изменения:**
 - В `execute()` добавить передачу `mcpServers` в параметры `session/new`
@@ -171,7 +171,7 @@ class MCPConfigLoader:
 
 ### Задача 6: SessionCoordinator.create_session()
 
-**Файл:** `codelab/src/codelab/client/application/session_coordinator.py`
+**Файл:** `src/codelab/client/application/session_coordinator.py`
 
 **Изменения:**
 - Добавить параметр `mcp_servers: list[dict[str, Any]] | None = None` в `create_session()`
@@ -181,7 +181,7 @@ class MCPConfigLoader:
 
 ### Задача 7: TUI App Integration
 
-**Файл:** `codelab/src/codelab/client/tui/app.py`
+**Файл:** `src/codelab/client/tui/app.py`
 
 **Изменения:**
 - В `on_mount()` или при инициализации:
@@ -208,7 +208,7 @@ class MCPConfigLoader:
 
 ### Задача 9: Тесты MCPConfigLoader
 
-**Новый файл:** `codelab/tests/client/infrastructure/test_mcp_config_loader.py`
+**Новый файл:** `tests/client/infrastructure/test_mcp_config_loader.py`
 
 **Тестовые сценарии:**
 1. Загрузка MCP серверов из TOML файла
@@ -223,9 +223,9 @@ class MCPConfigLoader:
 ### Задача 10: Интеграционные тесты
 
 **Файлы:**
-- `codelab/tests/client/tui/test_config.py` — обновить
-- `codelab/tests/client/application/test_session_coordinator.py` — обновить
-- `codelab/tests/client/application/test_use_cases.py` — обновить
+- `tests/client/tui/test_config.py` — обновить
+- `tests/client/application/test_session_coordinator.py` — обновить
+- `tests/client/application/test_use_cases.py` — обновить
 
 **Тестовые сценарии:**
 1. TUI App → MCPConfigLoader → SessionCoordinator → MCP серверы

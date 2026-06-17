@@ -81,4 +81,4 @@ use_event_bus = false  # по умолчанию — legacy путь
 | `doc/architecture/MULTIAGENT_TECHNICAL_SPECIFICATION.md` | §3.4: LLMAdapter spec |
 | `doc/architecture/MULTIAGENT_TECHNICAL_SPECIFICATION.md` | §2.2: Layer boundaries |
 | `openspec/changes/archive/2026-06-08-multiagent-llm-adapter/tasks.md` | Задача 1.4 (ошибка формулировки) |
-| `codelab/src/codelab/server/agent/llm_adapter.py` | LLMAdapter.call() (эталон single call) |
+| `src/codelab/server/agent/llm_adapter.py` | LLMAdapter.call() (эталон single call) |

@@ -4,7 +4,7 @@
 
 ## Контекст проекта
 
-* Единый Python-проект `codelab/`, объединяющий сервер и клиент ACP.
+* Единый Python-проект, объединяющий сервер и клиент ACP.
 * Менеджер окружения и запуск команд: `uv`.
 * Базовые проверки запускаются через `Makefile` из корня репозитория.
 * Основной язык документации: русский.
@@ -127,7 +127,6 @@ make check
 Либо локально:
 
 ```bash
-cd codelab
 uv run ruff check .
 uv run ty check
 uv run python -m pytest
@@ -162,8 +161,8 @@ uv run python -m pytest
 ## Структура проекта
 
 ```
-codelab/src/codelab/  shared/  server/  client/  cli.py
-codelab/tests/        server/  client/
+src/codelab/  shared/  server/  client/  cli.py
+tests/        server/  client/
 ```
 
 Для поиска реализации использовать навигацию по коду, а не этот документ как индекс файлов.
@@ -172,7 +171,7 @@ codelab/tests/        server/  client/
 
 ## Документация
 
-При изменении поведения: обновлять `README.md`, `codelab/README.md`.
+При изменении поведения: обновлять `README.md`.
 При изменении архитектуры: обновлять документацию, диаграммы, схемы. Синхронизировать с реализацией.
 Все диаграммы — Mermaid.
 

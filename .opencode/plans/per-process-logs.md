@@ -23,7 +23,7 @@ Zed и другие редакторы запускают `codelab serve --stdio
 
 ## Изменения
 
-### 1. `codelab/src/codelab/shared/logging.py`
+### 1. `src/codelab/shared/logging.py`
 
 **Изменить:**
 - В `setup_logging()` при `log_file="default"` использовать `codelab-{pid}.log` вместо `codelab.log`
@@ -34,7 +34,7 @@ Zed и другие редакторы запускают `codelab serve --stdio
 - Функцию `reset_logging()` для тестов
 - Процессор `_add_pid` для добавления PID в каждую запись
 
-### 2. `codelab/src/codelab/server/transport/stdio_runner.py`
+### 2. `src/codelab/server/transport/stdio_runner.py`
 
 **Удалить:**
 - `_LOCK_FILE`, `_lock_file_handle`
@@ -46,13 +46,13 @@ Zed и другие редакторы запускают `codelab serve --stdio
 - Простую инициализацию без lock механизма
 - `_PID_FILE` можно удалить (не нужен)
 
-### 3. `codelab/tests/client/test_logging.py`
+### 3. `tests/client/test_logging.py`
 
 **Обновить:**
 - Тесты на `log_file="default"` должны проверять что файл создаётся с PID в имени
 - Убрать тесты на lock механизм
 
-### 4. `codelab/tests/server/test_stdio_transport_e2e.py`
+### 4. `tests/server/test_stdio_transport_e2e.py`
 
 **Удалить:**
 - `test_lock_file_functions`
