@@ -34,10 +34,9 @@ class TestInlineSelectorInit:
     """Тесты инициализации InlineSelector."""
 
     def test_display_text_includes_label_and_value(self) -> None:
-        """Отображаемый текст содержит label и значение."""
+        """Отображаемый текст содержит значение."""
         selector, _, _, _ = _make_selector(label="Model", current_value="gpt-4o")
         rendered = str(selector.render())
-        assert "Model" in rendered
         assert "gpt-4o" in rendered
 
     def test_display_text_includes_dropdown_indicator(self) -> None:

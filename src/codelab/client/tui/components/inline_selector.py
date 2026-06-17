@@ -96,7 +96,7 @@ class InlineSelector(Static):
     def _update_display(self) -> None:
         """Обновляет отображаемый текст."""
         current = self._get_label_fn()
-        self.update(f"{self._label}: {current} ▾")
+        self.update(f"{current} ▾")
 
     def _on_value_changed(self, _value: Any) -> None:
         """Обработчик изменения Observable значения."""
