@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from textual.app import App
 
 from codelab.client.messages import PermissionOption
 from codelab.client.presentation.permission_view_model import PermissionViewModel
 from codelab.client.tui.components.action_button import ActionButton
-from codelab.client.tui.components.permission_badge import PermissionBadge
 from codelab.client.tui.components.permission_request import (
     PERMISSION_DESCRIPTIONS,
     PERMISSION_ICONS,
@@ -187,7 +185,7 @@ class TestPermissionRequestAutoDeny:
             pass
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             vm = create_view_model()
             widget = PermissionRequest(
                 permission_vm=vm,
@@ -225,7 +223,7 @@ class TestPermissionRequestAutoDeny:
             pass
 
         app = TestApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             vm = create_view_model()
             widget = PermissionRequest(
                 permission_vm=vm,

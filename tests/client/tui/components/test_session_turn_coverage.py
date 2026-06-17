@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from textual.app import App
 
 from codelab.client.tui.components.session_turn import (

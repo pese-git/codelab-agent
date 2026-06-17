@@ -8,7 +8,8 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+import contextlib
+from unittest.mock import patch
 
 from textual.app import App
 
@@ -182,10 +183,8 @@ class TestToastMountAndDismiss:
             with patch.object(toast, "dismiss") as dismiss_mock:
                 await toast.on_click()
 
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
             assert task.cancelled()
             dismiss_mock.assert_called_once()

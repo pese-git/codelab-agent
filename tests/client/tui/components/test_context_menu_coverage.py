@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from textual.app import App
@@ -45,7 +45,8 @@ class TestMenuDataClasses:
 
     def test_menu_item_full(self) -> None:
         """MenuItem сохраняет все переданные значения."""
-        action = lambda: None
+        def action():
+            return None
         item = MenuItem(
             id="test",
             label="Test",

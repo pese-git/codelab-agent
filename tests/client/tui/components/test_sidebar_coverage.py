@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from textual.app import App
 from textual import events
+from textual.app import App
 
 from codelab.client.presentation.observable import Observable
 from codelab.client.presentation.ui_view_model import SidebarTab

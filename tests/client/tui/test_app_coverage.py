@@ -14,12 +14,10 @@ import os
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from textual.app import App
 
 from codelab.client.application.session_coordinator import SessionCoordinator
 from codelab.client.domain.services import TransportService
@@ -50,8 +48,8 @@ from codelab.client.tui.components import (
     Sidebar,
     ToolCallCard,
 )
-from codelab.client.tui.components.command_palette import Command, CommandCategory
-from codelab.client.tui.config import TUIConfig, TUITheme
+from codelab.client.tui.components.command_palette import Command
+from codelab.client.tui.config import TUIConfig
 
 
 @contextmanager
@@ -615,9 +613,9 @@ class TestACPClientAppActions:
                 await pilot.pause()
                 app.action_command_palette()
                 await pilot.pause()
-                command = Command(id="test", name="Test", action="open_help")
+                Command(id="test", name="Test", action="open_help")
                 # Проверяем, что dismiss вызывается с командой
-                with patch.object(app.screen, "dismiss") as mock_dismiss:
+                with patch.object(app.screen, "dismiss"):
                     app.screen.action_select()
                     # dismiss должен быть вызван с командой
 
