@@ -158,12 +158,12 @@ class TestCommandPalette:
         assert len(children) == 1
         assert "не найдены" in str(children[0].render()).lower()
 
-    def test_on_mount_focuses_input(self) -> None:
+    def test_on_screen_resume_focuses_input(self) -> None:
         """При открытии фокус на поле поиска."""
         palette = CommandPalette()
         input_mock = MagicMock()
         with patch.object(palette, "query_one", return_value=input_mock):
-            palette.on_mount()
+            palette.on_screen_resume()
         input_mock.focus.assert_called_once()
 
     def test_filter_commands_empty_query(self) -> None:
