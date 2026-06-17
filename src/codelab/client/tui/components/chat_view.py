@@ -375,7 +375,7 @@ class ChatView(VerticalScroll):
         Args:
             animate: Анимировать прокрутку
         """
-        self._logger.debug(
+        self._logger.info(
             "scroll_end_called",
             animate=animate,
             scroll_y=self.scroll_y,

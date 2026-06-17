@@ -178,8 +178,23 @@ class ChatViewPermissionManager:
                 widget_type=type(self._current_widget).__name__,
             )
             self.chat_view._content_container.mount(self._current_widget)
+            
             # Автоскролл к виджету для видимости
-            self.chat_view.scroll_end()
+            self._logger.info(
+                "calling_scroll_end_before_permission_widget",
+                chat_view_scroll_y=self.chat_view.scroll_y,
+                chat_view_max_scroll_y=self.chat_view.max_scroll_y,
+            )
+            try:
+                self.chat_view.scroll_end()
+                self._logger.info("scroll_end_completed_successfully")
+            except Exception as e:
+                self._logger.error(
+                    "scroll_end_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+            
             self._logger.info(
                 "permission_widget_mounted",
                 request_id=request_id,
