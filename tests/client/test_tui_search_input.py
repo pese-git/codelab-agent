@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
+from textual.app import App
+from textual.widgets import Input
 
 from codelab.client.tui.components.search_input import SearchInput
 
@@ -199,56 +200,141 @@ class TestSearchInputMethods:
 class TestSearchInputIntegration:
     """Интеграционные тесты (требуют Textual App контекста)."""
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для compose()")
-    def test_compose_creates_structure(self) -> None:
+    async def test_compose_creates_structure(self) -> None:
         """compose() создаёт правильную структуру виджетов."""
-        search = SearchInput()
-        children = list(search.compose())
 
-        # Должен быть Horizontal контейнер с Label, Input и Button
-        assert len(children) == 1  # Horizontal container
+        class TestApp(App):
+            pass
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для query_one()")
-    def test_input_property_returns_input(self) -> None:
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput()
+            await pilot.app.mount(search)
+            await pilot.pause()
+
+            # Проверяем наличие основных компонентов
+            input_widget = search.query_one(".search-field", Input)
+            assert input_widget is not None
+
+            clear_button = search.query_one(".clear-button")
+            assert clear_button is not None
+
+            search_icon = search.query_one(".search-icon")
+            assert search_icon is not None
+
+    async def test_input_property_returns_input(self) -> None:
         """input property возвращает Input виджет."""
-        search = SearchInput()
-        input_widget = search.input
 
-        assert input_widget is not None
+        class TestApp(App):
+            pass
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для query_one()")
-    def test_clear_resets_state(self) -> None:
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput()
+            await pilot.app.mount(search)
+            await pilot.pause()
+
+            input_widget = search.input
+            assert input_widget is not None
+            assert isinstance(input_widget, Input)
+
+    async def test_clear_resets_state(self) -> None:
         """clear() сбрасывает состояние поля поиска."""
-        search = SearchInput()
-        search.value = "test"
 
-        search.clear()
+        class TestApp(App):
+            pass
 
-        assert search.value == ""
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput()
+            await pilot.app.mount(search)
+            await pilot.pause()
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для query_one()")
-    def test_set_value_updates_input(self) -> None:
+            # Устанавливаем значение
+            search.set_value("test")
+            await pilot.pause()
+            assert search.value == "test"
+
+            # Очищаем
+            search.clear()
+            await pilot.pause()
+
+            assert search.value == ""
+            assert search.input.value == ""
+
+    async def test_set_value_updates_input(self) -> None:
         """set_value() устанавливает значение и обновляет input."""
-        search = SearchInput()
 
-        search.set_value("new text")
+        class TestApp(App):
+            pass
 
-        assert search.value == "new text"
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput()
+            await pilot.app.mount(search)
+            await pilot.pause()
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для on_input_changed()")
-    def test_on_input_changed_triggers_debounce(self) -> None:
+            search.set_value("new text")
+            await pilot.pause()
+
+            assert search.value == "new text"
+            assert search.input.value == "new text"
+
+    async def test_on_input_changed_triggers_debounce(self) -> None:
         """Изменение ввода запускает debounce."""
-        _search = SearchInput(debounce=0.3)
 
-        # Симуляция события Input.Changed
-        # Требует полноценного App контекста
-        assert _search is not None  # Placeholder для пропущенного теста
+        class TestApp(App):
+            pass
 
-    @pytest.mark.skip(reason="Требует Textual App контекста для полного теста")
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput(debounce=0.1)
+            await pilot.app.mount(search)
+            await pilot.pause()
+
+            # Имитируем изменение ввода
+            search.input.value = "test query"
+            await pilot.pause()
+
+            # Проверяем, что debounce задача создана
+            assert search._debounce_task is not None
+
+            # Ждем завершения debounce
+            await asyncio.sleep(0.15)
+            await pilot.pause()
+
+            # Проверяем, что значение обновилось
+            assert search.value == "test query"
+
     async def test_debounce_delays_search_event(self) -> None:
         """Debounce задерживает отправку события SearchChanged."""
-        _search = SearchInput(debounce=0.1)
 
-        # Симуляция быстрого ввода и проверка задержки
-        # Требует Textual App для async контекста
-        assert _search is not None  # Placeholder для пропущенного теста
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            search = SearchInput(debounce=0.2)
+            await pilot.app.mount(search)
+            await pilot.pause()
+
+            # Быстро меняем значение несколько раз
+            search.input.value = "a"
+            await pilot.pause()
+            first_task = search._debounce_task
+
+            # Сразу меняем снова
+            search.input.value = "ab"
+            await pilot.pause()
+            second_task = search._debounce_task
+
+            # Первая задача должна быть отменена
+            assert first_task != second_task
+            assert first_task.cancelled()
+
+            # Ждем завершения debounce
+            await asyncio.sleep(0.25)
+            await pilot.pause()
+
+            # Должно установиться последнее значение
+            assert search.value == "ab"
