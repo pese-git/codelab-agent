@@ -128,8 +128,19 @@ class ChatView(VerticalScroll):
             is_streaming: True если идет streaming, False иначе
         """
         # Обновляем видимость индикатора загрузки
+        # Скрываем если permission widget виден (иначе он закрывает виджет)
         if self._loading_indicator is not None:
-            self._loading_indicator.visible = is_streaming
+            permission_widget_visible = (
+                self._permission_manager is not None
+                and self._permission_manager.is_widget_visible()
+            )
+            self._loading_indicator.visible = is_streaming and not permission_widget_visible
+            self._logger.info(
+                "loading_indicator_visibility_changed",
+                is_streaming=is_streaming,
+                permission_widget_visible=permission_widget_visible,
+                loading_visible=self._loading_indicator.visible,
+            )
         self._update_display()
 
     def _on_streaming_text_changed(self, text: str) -> None:
@@ -150,8 +161,21 @@ class ChatView(VerticalScroll):
         if self.chat_vm is None or not self._mounted or self._content_container is None:
             return
 
+        # Сохраняем permission widget если он есть
+        permission_widget = None
+        if self._permission_manager and self._permission_manager.is_widget_visible():
+            permission_widget = self._permission_manager._current_widget
+
         # Очищаем старый контент (счетчик не сбрасываем, чтобы ID оставались уникальными)
         self._content_container.query("*").remove()
+
+        # Восстанавливаем permission widget если он был
+        if permission_widget is not None:
+            self._content_container.mount(permission_widget)
+            self._logger.info(
+                "permission_widget_restored_after_update_display",
+                widget_type=type(permission_widget).__name__,
+            )
 
         # Отображаем сообщения
         messages = self.chat_vm.messages.value
