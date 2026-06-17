@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
+from textual.app import App
 
 from codelab.client.tui.components.prompt_input import PromptInput
 
@@ -29,58 +29,85 @@ def test_prompt_input_supports_up_down_history_bindings() -> None:
     assert "ctrl+down" in bindings
 
 
-@pytest.mark.skip(reason="Требует Textual App контекста для работы с text property")
-def test_prompt_input_history_navigation_restores_draft(
+async def test_prompt_input_history_navigation_restores_draft(
     mock_chat_view_model: ChatViewModel,
 ) -> None:
-    prompt_input = PromptInput(mock_chat_view_model)
-    prompt_input.set_active_session("sess_1")
-    prompt_input.remember_prompt("first")
-    prompt_input.remember_prompt("second")
+    """Навигация по истории восстанавливает черновик."""
 
-    prompt_input.text = "draft"
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "second"
+    class TestApp(App):
+        pass
 
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "first"
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt_input = PromptInput(mock_chat_view_model)
+        await pilot.app.mount(prompt_input)
+        await pilot.pause()
 
-    prompt_input.action_history_next()
-    assert prompt_input.text == "second"
+        prompt_input.set_active_session("sess_1")
+        prompt_input.remember_prompt("first")
+        prompt_input.remember_prompt("second")
 
-    prompt_input.action_history_next()
-    assert prompt_input.text == "draft"
+        prompt_input.text = "draft"
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "second"
+
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "first"
+
+        prompt_input.action_history_next()
+        assert prompt_input.text == "second"
+
+        prompt_input.action_history_next()
+        assert prompt_input.text == "draft"
 
 
-@pytest.mark.skip(reason="Требует Textual App контекста для работы с text property")
-def test_prompt_input_history_is_isolated_by_session(
+async def test_prompt_input_history_is_isolated_by_session(
     mock_chat_view_model: ChatViewModel,
 ) -> None:
-    prompt_input = PromptInput(mock_chat_view_model)
-    prompt_input.set_active_session("sess_1")
-    prompt_input.remember_prompt("one")
+    """История промптов изолирована по сессиям."""
 
-    prompt_input.set_active_session("sess_2")
-    prompt_input.remember_prompt("two")
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "two"
+    class TestApp(App):
+        pass
 
-    prompt_input.set_active_session("sess_1")
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "one"
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt_input = PromptInput(mock_chat_view_model)
+        await pilot.app.mount(prompt_input)
+        await pilot.pause()
+
+        prompt_input.set_active_session("sess_1")
+        prompt_input.remember_prompt("one")
+
+        prompt_input.set_active_session("sess_2")
+        prompt_input.remember_prompt("two")
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "two"
+
+        prompt_input.set_active_session("sess_1")
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "one"
 
 
-@pytest.mark.skip(reason="Требует Textual App контекста для работы с text property")
-def test_prompt_input_skips_consecutive_duplicates(
+async def test_prompt_input_skips_consecutive_duplicates(
     mock_chat_view_model: ChatViewModel,
 ) -> None:
-    prompt_input = PromptInput(mock_chat_view_model)
-    prompt_input.set_active_session("sess_1")
-    prompt_input.remember_prompt("same")
-    prompt_input.remember_prompt("same")
+    """Последовательные дубликаты пропускаются в истории."""
 
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "same"
+    class TestApp(App):
+        pass
 
-    prompt_input.action_history_previous()
-    assert prompt_input.text == "same"
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt_input = PromptInput(mock_chat_view_model)
+        await pilot.app.mount(prompt_input)
+        await pilot.pause()
+
+        prompt_input.set_active_session("sess_1")
+        prompt_input.remember_prompt("same")
+        prompt_input.remember_prompt("same")
+
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "same"
+
+        prompt_input.action_history_previous()
+        assert prompt_input.text == "same"
