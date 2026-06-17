@@ -180,27 +180,21 @@ class ChatViewPermissionManager:
             self.chat_view._content_container.mount(self._current_widget)
             
             # Автоскролл к виджету для видимости
+            # Важно: вызываем scroll_end() после refresh, чтобы Textual успел
+            # пересчитать layout после монтирования виджета
             self._logger.info(
-                "calling_scroll_end_before_permission_widget",
+                "scheduling_scroll_end_after_refresh",
                 chat_view_scroll_y=self.chat_view.scroll_y,
                 chat_view_max_scroll_y=self.chat_view.max_scroll_y,
             )
-            try:
-                self.chat_view.scroll_end()
-                self._logger.info("scroll_end_completed_successfully")
-            except Exception as e:
-                self._logger.error(
-                    "scroll_end_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
+            self.chat_view.call_after_refresh(self.chat_view.scroll_end)
             
             self._logger.info(
                 "permission_widget_mounted",
                 request_id=request_id,
                 tool_call_kind=tool_call.kind,
                 widget_type=self.widget_type.value,
-                scroll_end_called=True,
+                scroll_end_scheduled=True,
             )
         else:
             self._logger.error(
