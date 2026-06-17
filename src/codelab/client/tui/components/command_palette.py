@@ -494,7 +494,7 @@ class CommandPalette(ModalScreen[Command | None]):
                 yield CommandItem(cmd, selected=is_selected, id=f"cmd-{cmd.id}")
                 current_index += 1
 
-    def on_mount(self) -> None:
+    def on_screen_resume(self) -> None:
         """Фокусируемся на поле поиска при открытии."""
         search_input = self.query_one("#command-search", Input)
         search_input.focus()

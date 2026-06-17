@@ -299,7 +299,7 @@ class PermissionRequest(Static):
             )
             
             # Кнопка Always Allow (если есть такая опция)
-            if any(opt.kind == "always" for opt in self._options):
+            if any(opt.kind == "allow_always" for opt in self._options):
                 self._action_bar.add_action(
                     "Always",
                     variant="secondary",

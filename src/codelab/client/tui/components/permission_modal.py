@@ -216,7 +216,7 @@ class PermissionModal(ModalScreen[str | None]):
         self.permission_vm.hide()
         self.dismiss(option_id)
 
-    def on_mount(self) -> None:
+    def on_screen_resume(self) -> None:
         """Ставит фокус на безопасный вариант выбора при открытии модала."""
 
         default_button_id = self._default_focus_button_id()

@@ -95,7 +95,7 @@ class Tab(Static):
         display: block;
     }
 
-    Tab:not(.-closable) .tab-close {
+    Tab .tab-close {
         display: none;
     }
     """
