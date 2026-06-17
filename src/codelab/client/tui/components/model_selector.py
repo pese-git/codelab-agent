@@ -294,7 +294,7 @@ class ModelSelectorModal(ModalScreen[str | None]):
                 model,
                 selected=is_selected,
                 is_current=is_current,
-                id=f"model-{model.value.replace('/', '_')}",
+                id=f"model-{model.value.replace('/', '_').replace('.', '_')}",
             )
 
     def on_mount(self) -> None:
