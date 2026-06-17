@@ -131,6 +131,22 @@ class ACPMessage(BaseModel):
         return cls(id=request_id, result=result)
 
     @classmethod
+    def error_response(
+        cls,
+        request_id: JsonRpcId | None,
+        *,
+        code: int,
+        message: str,
+    ) -> ACPMessage:
+        """Создает error response для входящего JSON-RPC запроса.
+
+        Пример использования:
+            ACPMessage.error_response("rpc_1", code=-32000, message="Not found")
+        """
+
+        return cls(id=request_id, error=JsonRpcError(code=code, message=message))
+
+    @classmethod
     def from_json(cls, raw: str) -> ACPMessage:
         """Десериализует JSON-строку в типизированный `ACPMessage`.
 
