@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from textual.app import App
 
 from codelab.client.infrastructure.events.bus import EventBus
 from codelab.client.presentation.chat_view_model import ChatViewModel
@@ -41,30 +42,51 @@ def test_prompt_input_is_enabled_by_default(prompt_input: PromptInput) -> None:
     assert prompt_input.disabled is False
 
 
-@pytest.mark.skip(reason="Требует Textual App контекста для подписки на Observable")
-def test_prompt_input_disables_when_streaming(
-    prompt_input: PromptInput,
+async def test_prompt_input_disables_when_streaming(
     chat_view_model: ChatViewModel,
 ) -> None:
     """Проверить что PromptInput отключается при streaming."""
-    chat_view_model.is_streaming.value = True
-    
-    assert prompt_input.disabled is True
+
+    class TestApp(App):
+        pass
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt_input = PromptInput(chat_view_model)
+        await pilot.app.mount(prompt_input)
+        await pilot.pause()
+
+        chat_view_model.is_streaming.value = True
+        await pilot.pause()
+
+        assert prompt_input._text_area is not None
+        assert prompt_input._text_area.disabled is True
 
 
-@pytest.mark.skip(reason="Требует Textual App контекста для подписки на Observable")
-def test_prompt_input_enables_when_streaming_done(
-    prompt_input: PromptInput,
+async def test_prompt_input_enables_when_streaming_done(
     chat_view_model: ChatViewModel,
 ) -> None:
     """Проверить что PromptInput включается когда streaming заканчивается."""
-    # Сначала включить streaming
-    chat_view_model.is_streaming.value = True
-    assert prompt_input.disabled is True
-    
-    # Потом отключить
-    chat_view_model.is_streaming.value = False
-    assert prompt_input.disabled is False
+
+    class TestApp(App):
+        pass
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt_input = PromptInput(chat_view_model)
+        await pilot.app.mount(prompt_input)
+        await pilot.pause()
+
+        # Сначала включить streaming
+        chat_view_model.is_streaming.value = True
+        await pilot.pause()
+        assert prompt_input._text_area is not None
+        assert prompt_input._text_area.disabled is True
+
+        # Потом отключить
+        chat_view_model.is_streaming.value = False
+        await pilot.pause()
+        assert prompt_input._text_area.disabled is False
 
 
 
