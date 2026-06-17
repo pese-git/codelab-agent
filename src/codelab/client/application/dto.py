@@ -8,8 +8,20 @@ DTOs используются для:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+
+# Type aliases для callback функций
+UpdateCallback = Callable[[dict[str, Any]], None]
+FsReadCallback = Callable[[str], str | Awaitable[str]]
+FsWriteCallback = Callable[[str, str], None | Awaitable[None]]
+TerminalCreateCallback = Callable[[str], str | Awaitable[str]]
+TerminalOutputCallback = Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]]
+TerminalWaitResult = tuple[int | None, str | None]
+TerminalWaitCallback = Callable[[str], TerminalWaitResult | Awaitable[TerminalWaitResult]]
+TerminalReleaseCallback = Callable[[str], None | Awaitable[None]]
+TerminalKillCallback = Callable[[str], bool | Awaitable[bool]]
 
 
 @dataclass
@@ -128,28 +140,28 @@ class PromptCallbacks:
     которые возникают во время выполнения prompt.
     """
 
-    on_update: Any | None = None
+    on_update: UpdateCallback | None = None
     """Callback при получении обновления сессии."""
 
-    on_fs_read: Any | None = None
+    on_fs_read: FsReadCallback | None = None
     """Callback при чтении файла."""
 
-    on_fs_write: Any | None = None
+    on_fs_write: FsWriteCallback | None = None
     """Callback при записи файла."""
 
-    on_terminal_create: Any | None = None
+    on_terminal_create: TerminalCreateCallback | None = None
     """Callback при создании терминала."""
 
-    on_terminal_output: Any | None = None
+    on_terminal_output: TerminalOutputCallback | None = None
     """Callback при получении вывода терминала."""
 
-    on_terminal_wait_for_exit: Any | None = None
+    on_terminal_wait_for_exit: TerminalWaitCallback | None = None
     """Callback при ожидании выхода терминала."""
 
-    on_terminal_release: Any | None = None
+    on_terminal_release: TerminalReleaseCallback | None = None
     """Callback при освобождении терминала."""
 
-    on_terminal_kill: Any | None = None
+    on_terminal_kill: TerminalKillCallback | None = None
     """Callback при завершении терминала."""
 
 

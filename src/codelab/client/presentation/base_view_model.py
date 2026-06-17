@@ -8,17 +8,24 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 if TYPE_CHECKING:
     from codelab.client.domain.events import DomainEvent
+    from codelab.client.infrastructure.events.bus import EventBus
 
-# Типы для событий (из Phase 3)
+# Тип события (из Phase 3)
 try:
     from codelab.client.domain.events import DomainEvent
 except ImportError:
     # Fallback если domain модуль еще не доступен
     DomainEvent: Any = Any
 
-import structlog
+# Импортируем EventBus для runtime использования
+try:
+    from codelab.client.infrastructure.events.bus import EventBus
+except ImportError:
+    EventBus: Any = Any  # type: ignore[no-redef]
 
 
 class BaseViewModel:
@@ -42,7 +49,11 @@ class BaseViewModel:
         ...         self.data.value = event.data
     """
 
-    def __init__(self, event_bus: Any | None = None, logger: Any | None = None) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus | None = None,
+        logger: structlog.stdlib.BoundLogger | None = None,
+    ) -> None:
         """Инициализировать ViewModel.
 
         Args:
