@@ -821,3 +821,28 @@ async def _wait_for_response_id(
                 return m
         await asyncio.sleep(0.01)
     raise TimeoutError(f"No message with id={target_id} sent within {timeout}s")
+
+
+class TestStdioServerTransportRun:
+    """Тесты для run() — основной цикл чтения stdin.
+
+    Примечание: run() требует реального stdin для connect_read_pipe,
+    поэтому тестируется через интеграционные тесты в TestStdioReceiveLoopIntegration.
+    """
+
+
+class TestStdioServerTransportSendErrorHandling:
+    """Тесты для обработки ошибок в send()."""
+
+    @pytest.mark.asyncio
+    async def test_send_handles_generic_exception(self) -> None:
+        """send() обрабатывает общие исключения."""
+        transport = StdioServerTransport()
+
+        message = ACPMessage(jsonrpc="2.0", id="1", method="test")
+
+        with patch.object(sys.stdout.buffer, "write", side_effect=RuntimeError("boom")), \
+             patch("codelab.server.transport.stdio.logger"):
+            await transport.send(message)
+
+        assert transport._closed is False

@@ -125,3 +125,190 @@ class TestMessageParserClassification:
         parser = MessageParser()
         message = ACPMessage.response("1", {"status": "ok"})
         assert parser.classify_message(message) == "response"
+
+
+class TestMessageParserParseResults:
+    """Тесты парсинга специфичных результатов."""
+
+    def test_parse_initialize_result_success(self) -> None:
+        """Проверяет успешный парсинг initialize result."""
+        parser = MessageParser()
+        message = ACPMessage(
+            id="1",
+            result={
+                "protocolVersion": 1,
+                "agentCapabilities": {},
+                "authMethods": [],
+            },
+        )
+        result = parser.parse_initialize_result(message)
+
+        assert result.protocolVersion == 1
+        assert result.agentCapabilities is not None
+
+    def test_parse_initialize_result_error(self) -> None:
+        """Проверяет что ошибка парсинга initialize выбрасывает ValueError."""
+        parser = MessageParser()
+        message = ACPMessage(id="1", result={"invalid": "data"})
+
+        with pytest.raises(ValueError, match="Failed to parse initialize"):
+            parser.parse_initialize_result(message)
+
+    def test_parse_authenticate_result_success(self) -> None:
+        """Проверяет успешный парсинг authenticate result."""
+        parser = MessageParser()
+        message = ACPMessage(id="1", result={"authenticated": True})
+        result = parser.parse_authenticate_result(message)
+
+        assert result.authenticated is True
+
+    def test_parse_session_setup_result_success(self) -> None:
+        """Проверяет успешный парсинг session setup result."""
+        parser = MessageParser()
+        message = ACPMessage(
+            id="1",
+            result={
+                "configOptions": [],
+                "modes": {"availableModes": [], "currentModeId": "ask"},
+            },
+        )
+        result = parser.parse_session_setup_result(message, method_name="session/new")
+
+        assert result is not None
+
+    def test_parse_session_setup_result_error(self) -> None:
+        """Проверяет что ошибка парсинга session setup выбрасывает ValueError."""
+        parser = MessageParser()
+        message = ACPMessage(id="1", result={"invalid": "data"})
+
+        with pytest.raises(ValueError, match="Failed to parse session setup"):
+            parser.parse_session_setup_result(message)
+
+    def test_parse_session_list_result_success(self) -> None:
+        """Проверяет успешный парсинг session list result."""
+        parser = MessageParser()
+        message = ACPMessage(
+            id="1",
+            result={
+                "sessions": [
+                    {"sessionId": "sess_1", "cwd": "/tmp", "title": "Test"},
+                ],
+            },
+        )
+        result = parser.parse_session_list_result(message)
+
+        assert len(result.sessions) == 1
+        assert result.sessions[0].sessionId == "sess_1"
+
+    def test_parse_session_list_result_error(self) -> None:
+        """Проверяет что ошибка парсинга session list выбрасывает ValueError."""
+        parser = MessageParser()
+        message = ACPMessage(id="1", result={"invalid": "data"})
+
+        with pytest.raises(ValueError, match="Failed to parse session list"):
+            parser.parse_session_list_result(message)
+
+    def test_parse_prompt_result_success(self) -> None:
+        """Проверяет успешный парсинг prompt result."""
+        parser = MessageParser()
+        message = ACPMessage(
+            id="1",
+            result={
+                "stopReason": "end_turn",
+                "content": [{"type": "text", "text": "Response"}],
+            },
+        )
+        result = parser.parse_prompt_result(message)
+
+        assert result.stopReason == "end_turn"
+
+    def test_parse_prompt_result_error(self) -> None:
+        """Проверяет что ошибка парсинга prompt выбрасывает ValueError."""
+        parser = MessageParser()
+        message = ACPMessage(id="1", result={"invalid": "data"})
+
+        with pytest.raises(ValueError, match="Failed to parse prompt"):
+            parser.parse_prompt_result(message)
+
+    def test_parse_session_update_success(self) -> None:
+        """Проверяет успешный парсинг session update."""
+        parser = MessageParser()
+        update_dict = {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "sess_1",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "Hello"},
+                },
+            },
+        }
+        result = parser.parse_session_update(update_dict)
+
+        assert result is not None
+
+    def test_parse_session_update_error(self) -> None:
+        """Проверяет что ошибка парсинга session update выбрасывает ValueError."""
+        parser = MessageParser()
+        # SessionUpdateNotification требует определённые поля
+        update_dict = {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {"invalid": "data"},
+        }
+
+        with pytest.raises(ValueError, match="Failed to parse session update"):
+            parser.parse_session_update(update_dict)
+
+    def test_parse_permission_request_not_permission(self) -> None:
+        """Проверяет что не-permission запрос возвращает None."""
+        parser = MessageParser()
+        message_dict = {
+            "jsonrpc": "2.0",
+            "id": "1",
+            "method": "initialize",
+            "params": {},
+        }
+        result = parser.parse_permission_request(message_dict)
+
+        assert result is None
+
+
+class TestMessageParserEdgeCases:
+    """Тесты граничных случаев."""
+
+    def test_parse_json_empty_string(self) -> None:
+        """Проверяет парсинг пустой строки."""
+        parser = MessageParser()
+        with pytest.raises(ValueError):
+            parser.parse_json("")
+
+    def test_parse_json_with_unicode(self) -> None:
+        """Проверяет парсинг JSON с unicode."""
+        parser = MessageParser()
+        json_str = '{"jsonrpc": "2.0", "id": "1", "result": {"message": "Привет"}}'
+        message = parser.parse_json(json_str)
+
+        assert message.result["message"] == "Привет"
+
+    def test_parse_dict_with_none_values(self) -> None:
+        """Проверяет парсинг dict с None значениями."""
+        parser = MessageParser()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": None,
+            "error": None,
+        }
+        message = parser.parse_dict(payload)
+
+        assert message.result is None
+        assert message.error is None
+
+    def test_classify_message_with_error(self) -> None:
+        """Проверяет классификацию сообщения с error."""
+        parser = MessageParser()
+        from codelab.client.messages import JsonRpcError
+        message = ACPMessage(id="1", error=JsonRpcError(code=-32600, message="Invalid Request"))
+        assert parser.classify_message(message) == "response"
