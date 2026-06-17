@@ -65,9 +65,9 @@ class TestInlineSelectorObservable:
         selector, observable, get_label_fn, _ = _make_selector(
             current_value="gpt-4o",
         )
+        # Подписка уже создана в __init__
         get_label_fn.return_value = "claude-sonnet"
-        selector._update_display()
-        get_label_fn.assert_called()
+        observable.value = "claude-sonnet"
         assert "claude-sonnet" in selector.content
 
     def test_no_update_when_value_unchanged(self) -> None:
@@ -113,16 +113,14 @@ class TestInlineSelectorOpenSelector:
 class TestInlineSelectorMountUnmount:
     """Тесты монтирования и размонтирования."""
 
-    def test_mount_subscribes_to_observable(self) -> None:
-        """При монтировании виджет подписывается на Observable."""
+    def test_init_subscribes_to_observable(self) -> None:
+        """При инициализации виджет подписывается на Observable."""
         selector, observable, _, _ = _make_selector()
-        selector.on_mount()
         assert selector._unsubscribe is not None
 
     def test_unmount_unsubscribes(self) -> None:
         """При размонтировании виджет отписывается от Observable."""
         selector, _, _, _ = _make_selector()
-        selector.on_mount()
         assert selector._unsubscribe is not None
         selector.on_unmount()
         assert selector._unsubscribe is None

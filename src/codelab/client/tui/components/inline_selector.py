@@ -86,6 +86,11 @@ class InlineSelector(Static):
         self._open_callback = open_callback
         self._hotkey = hotkey
         self._unsubscribe: Callable[[], None] | None = None
+
+        # Подписываемся сразу в __init__, чтобы получать обновления
+        if self._observable is not None:
+            self._unsubscribe = self._observable.subscribe(self._on_value_changed)
+
         self._update_display()
 
     def _update_display(self) -> None:
@@ -98,9 +103,8 @@ class InlineSelector(Static):
         self._update_display()
 
     def on_mount(self) -> None:
-        """Подписывается на Observable при монтировании."""
-        if self._observable is not None:
-            self._unsubscribe = self._observable.subscribe(self._on_value_changed)
+        """Обновляет отображение после монтирования (на случай задержки рендера)."""
+        self._update_display()
 
     def on_unmount(self) -> None:
         """Отписывается от Observable при размонтировании."""
