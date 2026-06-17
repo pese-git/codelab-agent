@@ -9,16 +9,16 @@ CodeLab реализует клиент-серверную архитектур�
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
-        TUI[TUI Components<br/>45+ widgets]
+        TUI["TUI Components<br/>45+ widgets"]
         VM[14 ViewModels]
         UC[Use Cases]
-        TS[ACPTransportService<br/>WebSocket / stdio]
+        TS["ACPTransportService<br/>WebSocket / stdio"]
         BgLoop[BackgroundReceiveLoop]
     end
     
     subgraph Transport["Транспорт"]
-        WS[WebSocket<br/>JSON-RPC 2.0]
-        STDIO[stdio<br/>stdin/stdout]
+        WS["WebSocket<br/>JSON-RPC 2.0"]
+        STDIO["stdio<br/>stdin/stdout"]
     end
     
     subgraph Server["Сервер (Dishka DI)"]
@@ -28,11 +28,11 @@ graph TB
         EE[ExecutionEngine]
         TR[ToolRegistry]
         MCP[MCPManager]
-        Storage[(SessionStorage<br/>LRU Cache)]
+        Storage["SessionStorage<br/>LRU Cache"]
     end
     
     subgraph External["Внешние системы"]
-        LLM[LLM Providers<br/>OpenAI/Anthropic/OpenRouter/Zen/Go/Ollama/LMStudio/Mock]
+        LLM["LLM Providers<br/>OpenAI/Anthropic/OpenRouter/Zen/Go/Ollama/LMStudio/Mock"]
         FS[File System]
         TERM[Terminal]
     end
@@ -101,7 +101,7 @@ graph TB
     end
     
     subgraph Domain["Domain Layer"]
-        Entities[Session, Message]
+        Entities["Session, Message"]
         Repos[Repositories]
         Events[16 Domain Events]
     end
@@ -135,8 +135,8 @@ graph TB
     end
     
     subgraph Protocol["Protocol Layer"]
-        AP[ACPProtocol<br/>REQUEST scope]
-        PO[PromptOrchestrator<br/>APP scope]
+        AP["ACPProtocol<br/>REQUEST scope"]
+        PO["PromptOrchestrator<br/>APP scope"]
     end
     
     subgraph Pipeline["Pipeline (7 стадий)"]
@@ -163,7 +163,7 @@ graph TB
         AO[AgentOrchestrator]
         EE[ExecutionEngine]
         AL[AgentLoop]
-        LLM[LLM Registry<br/>8+ Providers]
+        LLM["LLM Registry<br/>8+ Providers"]
     end
     
     subgraph Tools["Tools Layer"]
@@ -181,7 +181,7 @@ graph TB
     end
     
     subgraph Storage["Storage Layer"]
-        SS[SessionStorage<br/>LRU Cache]
+        SS["SessionStorage<br/>LRU Cache"]
         GPS[GlobalPolicyStorage]
     end
     
@@ -490,29 +490,29 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    START([session/prompt]) --> HIST[Подготовить историю сообщений]
-    HIST --> TOOLS[Получить список инструментов]
-    TOOLS --> MAP1[acp_name_to_llm_name()\n/ → _]
-    MAP1 --> CANCEL{Отмена\nзапрошена?}
+    START([session/prompt]) --> HIST["Подготовить историю сообщений"]
+    HIST --> TOOLS["Получить список инструментов"]
+    TOOLS --> MAP1["acp_name_to_llm_name()<br/>/ → _"]
+    MAP1 --> CANCEL{"Отмена<br/>запрошена?"}
     CANCEL -->|Да| CANCELLED([stop_reason = cancelled])
-    CANCEL -->|Нет| LLM[Вызов LLM API]
-    LLM --> PARSE[Разобрать ответ]
-    PARSE --> HAS_TOOLS{Есть\ntool calls?}
+    CANCEL -->|Нет| LLM["Вызов LLM API"]
+    LLM --> PARSE["Разобрать ответ"]
+    PARSE --> HAS_TOOLS{"Есть<br/>tool calls?"}
 
     HAS_TOOLS -->|Нет| END_TURN([stop_reason = end_turn])
 
-    HAS_TOOLS -->|Да| FOREACH[Для каждого tool call]
-    FOREACH --> MAP2[llm_name_to_acp_name()\n_ → /]
-    MAP2 --> POLICY{Политика}
-    POLICY -->|allow| EXEC[Выполнить инструмент]
-    POLICY -->|ask| PERM([Запросить разрешение\nПайплайн приостановлен])
-    POLICY -->|reject| FAIL[Пометить failed]
+    HAS_TOOLS -->|Да| FOREACH["Для каждого tool call"]
+    FOREACH --> MAP2["llm_name_to_acp_name()<br/>_ → /"]
+    MAP2 --> POLICY{"Политика"}
+    POLICY -->|allow| EXEC["Выполнить инструмент"]
+    POLICY -->|ask| PERM(["Запросить разрешение<br/>Пайплайн приостановлен"])
+    POLICY -->|reject| FAIL["Пометить failed"]
 
-    EXEC --> RESULT[ToolResult]
+    EXEC --> RESULT["ToolResult"]
     FAIL --> RESULT
-    RESULT --> MORE{Ещё\ntool calls?}
+    RESULT --> MORE{"Ещё<br/>tool calls?"}
     MORE -->|Да| FOREACH
-    MORE -->|Нет| MAXITER{Макс.\nитераций?}
+    MORE -->|Нет| MAXITER{"Макс.<br/>итераций?"}
     MAXITER -->|Да| MAX([stop_reason = max_turn_requests])
     MAXITER -->|Нет| CANCEL
 ```
@@ -582,10 +582,10 @@ flowchart LR
         Tool[Tool Call] --> Check{Check Policy}
         Check -->|Auto-Allow| Execute[Execute]
         Check -->|Auto-Deny| Skip[Skip]
-        Check -->|Ask| Request[Request<br/>Permission]
+        Check -->|Ask|         Request["Request<br/>Permission"]
         Request --> User{User}
         User -->|Allow| Execute
-        User -->|Allow All| Policy[Update<br/>Policy]
+        User -->|Allow All|         Policy["Update<br/>Policy"]
         Policy --> Execute
         User -->|Deny| Skip
     end

@@ -15,8 +15,8 @@ graph TB
     end
     
     subgraph Protocol["Protocol Layer"]
-        AP[ACPProtocol<br/>REQUEST scope]
-        PO[PromptOrchestrator<br/>APP scope]
+        AP["ACPProtocol<br/>REQUEST scope"]
+        PO["PromptOrchestrator<br/>APP scope"]
     end
     
     subgraph Pipeline["Pipeline (7 стадий)"]

@@ -12,11 +12,11 @@
 
 ```bash
 # Терминал 1: Сервер
-cd acp-protocol/codelab
+cd codelab-agent/codelab
 OPENAI_API_KEY=sk-... CODELAB_LLM_PROVIDER=openai uv run codelab serve
 
 # Терминал 2: Клиент
-cd acp-protocol/codelab
+cd codelab-agent/codelab
 uv run codelab connect
 ```
 

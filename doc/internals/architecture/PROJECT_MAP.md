@@ -23,7 +23,7 @@
 ## Общая структура
 
 ```
-acp-protocol/
+codelab-agent/
 ├── codelab/                          # Основной Python-пакет
 │   ├── src/codelab/
 │   │   ├── shared/                   # Общие модули (server + client)

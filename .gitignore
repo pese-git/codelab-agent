@@ -11,7 +11,7 @@ __pycache__/
 .zed/
 .codegraph/
 opencode/
-
+website/
 
 # --- OpenCode & AI Configs ---
 # Блокируем локальные файлы конфигурации с секретами

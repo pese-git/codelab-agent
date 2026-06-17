@@ -15,7 +15,7 @@ graph TB
     
     subgraph Presentation["Presentation Layer"]
         VM[14 ViewModels]
-        Obs[Observable<T>]
+        Obs["Observable&lt;T&gt;"]
     end
     
     subgraph Application["Application Layer"]
@@ -31,7 +31,7 @@ graph TB
     end
     
     subgraph Domain["Domain Layer"]
-        Entities[Session, Message]
+        Entities["Session, Message"]
         Repos[Repository interfaces]
     end
     

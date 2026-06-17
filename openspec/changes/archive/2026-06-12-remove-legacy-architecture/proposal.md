@@ -45,7 +45,7 @@ Legacy код создаёт:
 #### Modified Capabilities
 - `llm-loop-stage`: Убран fallback на legacy path, только `StrategyDispatcher`
 - `prompt-orchestrator`: Убран `agent_orchestrator` параметр
-- `acp-protocol`: Убран `agent_orchestrator` параметр, добавлен `model_resolver`
+- `codelab-agent`: Убран `agent_orchestrator` параметр, добавлен `model_resolver`
 - `di-container`: Убран `AgentProvider`, добавлен `ModelResolver`
 
 ## Impact
