@@ -94,7 +94,7 @@ class ChatViewModel(BaseViewModel):
         self._fs_executor = fs_executor
         self._terminal_executor = terminal_executor
         self._plan_vm = plan_vm
-        
+
         # Новые компоненты декомпозиции
         self._session_update_dispatcher = session_update_dispatcher
         self._chat_persistence = chat_persistence
@@ -179,67 +179,12 @@ class ChatViewModel(BaseViewModel):
         self._set_last_stop_reason(session_id, None)
 
         try:
-            # Build terminal lifecycle callbacks.
-            # Если доступен TerminalCallbackExecutor, используем его.
-            # Иначе используем старый TerminalExecutor (обратная совместимость).
+            # Build terminal lifecycle callbacks backed by the async executor.
+            # Results are cached by terminal_id so the multi-step protocol
+            # (create → output → wait_for_exit → release) maps onto a single
+            # blocking execute() call made on terminal/create.
             terminal_callbacks: dict[str, Any] = {}
-            
-            if self._terminal_callback_executor is not None:
-                # Новый путь: через TerminalCallbackExecutor
-                _executor = self._terminal_callback_executor
-
-                async def _on_terminal_create_new(command: str) -> str:
-                    terminal_id, error = await _executor.create_terminal(command)
-                    if error:
-                        self.logger.warning("terminal_create_error", error=error)
-                        return ""
-                    return terminal_id or ""
-
-                async def _on_terminal_output_new(terminal_id: str) -> dict[str, Any]:
-                    output, error = await _executor.get_output(terminal_id)
-                    if error:
-                        self.logger.warning(
-                            "terminal_output_error", terminal_id=terminal_id, error=error
-                        )
-                        return {"output": "", "isComplete": True, "exitCode": None}
-                    return output or {"output": "", "isComplete": True, "exitCode": None}
-
-                async def _on_terminal_wait_new(
-                    terminal_id: str,
-                ) -> tuple[int | None, str | None]:
-                    result, error = await _executor.wait_for_exit(terminal_id)
-                    if error:
-                        self.logger.warning(
-                            "terminal_wait_error", terminal_id=terminal_id, error=error
-                        )
-                        return (None, error)
-                    return result or (None, None)
-
-                async def _on_terminal_release_new(terminal_id: str) -> None:
-                    error = await _executor.release_terminal(terminal_id)
-                    if error:
-                        self.logger.warning(
-                            "terminal_release_error", terminal_id=terminal_id, error=error
-                        )
-
-                async def _on_terminal_kill_new(terminal_id: str) -> bool:
-                    success, error = await _executor.kill_terminal(terminal_id)
-                    if error:
-                        self.logger.warning(
-                            "terminal_kill_error", terminal_id=terminal_id, error=error
-                        )
-                    return success
-
-                terminal_callbacks = {
-                    "on_terminal_create": _on_terminal_create_new,
-                    "on_terminal_output": _on_terminal_output_new,
-                    "on_terminal_wait_for_exit": _on_terminal_wait_new,
-                    "on_terminal_release": _on_terminal_release_new,
-                    "on_terminal_kill": _on_terminal_kill_new,
-                }
-            
-            elif self._terminal_executor is not None:
-                # Старый путь: через TerminalExecutor (обратная совместимость)
+            if self._terminal_executor is not None:
                 _results: dict[str, dict[str, Any]] = {}
                 _executor = self._terminal_executor
 
@@ -334,7 +279,7 @@ class ChatViewModel(BaseViewModel):
         """
         if self._session_update_dispatcher is not None:
             # Новый путь: через dispatcher
-            self._handle_session_update_dispatched(update_data)
+            self.handle_session_update_dispatched(update_data)
         else:
             # Старый путь: обратная совместимость
             self._handle_session_update_legacy(update_data)
@@ -430,7 +375,7 @@ class ChatViewModel(BaseViewModel):
                         status=tool_status,
                         kind=tool_kind,
                     )
-                    
+
                     # Добавляем tool call в состояние сессии
                     state = self._get_or_create_session_state(target_session_id)
                     tool_call_dict = {
@@ -446,9 +391,9 @@ class ChatViewModel(BaseViewModel):
                     ]
                     if tool_call_id not in [tc.get("toolCallId") for tc in state.tool_calls]:
                         state.tool_calls.append(tool_call_dict)
-                    
+
                     self._session_states[target_session_id] = state
-                    
+
                     # Синхронизируем с UI если это активная сессия
                     if self._active_session_id == target_session_id:
                         self.tool_calls.value = list(state.tool_calls)
@@ -464,7 +409,7 @@ class ChatViewModel(BaseViewModel):
                         tool_call_id=tool_call_id,
                         has_result=bool(result),
                     )
-            
+
             # Обработка tool_call_update - обновление статуса существующего tool call
             elif session_update_type == "tool_call_update":
                 tool_call_id = update.get("toolCallId")
@@ -478,7 +423,7 @@ class ChatViewModel(BaseViewModel):
                         tool_call_id=tool_call_id,
                         new_status=tool_status,
                     )
-                    
+
                     # Обновляем статус существующего tool call в состоянии
                     # ВАЖНО: создаем новые копии словарей, чтобы Observable
                     # обнаружил изменение (сравнение по значению, а не ссылке)
@@ -693,9 +638,7 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_executor_not_initialized", path=path)
                 return ""
 
-            content = await asyncio.to_thread(
-                self._fs_executor.read_text_file_sync, path
-            )
+            content = await asyncio.to_thread(self._fs_executor.read_text_file_sync, path)
             self.logger.debug("fs_read_success", path=path, content_size=len(content))
             return content
         except Exception as e:
@@ -735,9 +678,7 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_executor_not_initialized", path=path)
                 return False
 
-            await asyncio.to_thread(
-                self._fs_executor.write_text_file_sync, path, content
-            )
+            await asyncio.to_thread(self._fs_executor.write_text_file_sync, path, content)
             self.logger.debug("fs_write_success", path=path, content_size=len(content))
             return True
         except Exception as e:
@@ -931,10 +872,12 @@ class ChatViewModel(BaseViewModel):
             # Агрегируем последовательные chunks одного типа в одно сообщение
             if current_role != last_role and last_role is not None:
                 # Роль изменилась — сохраняем предыдущее сообщение
-                rebuilt_messages.append({
-                    "role": last_role,
-                    "content": "".join(current_text_parts),
-                })
+                rebuilt_messages.append(
+                    {
+                        "role": last_role,
+                        "content": "".join(current_text_parts),
+                    }
+                )
                 current_text_parts = []
 
             last_role = current_role
@@ -949,10 +892,12 @@ class ChatViewModel(BaseViewModel):
 
         # Сохраняем последнее сообщение (если есть)
         if last_role is not None and current_text_parts:
-            rebuilt_messages.append({
-                "role": last_role,
-                "content": "".join(current_text_parts),
-            })
+            rebuilt_messages.append(
+                {
+                    "role": last_role,
+                    "content": "".join(current_text_parts),
+                }
+            )
             self.logger.info(
                 "restore_added_final_message",
                 role=last_role,
@@ -1398,9 +1343,7 @@ class ChatViewModel(BaseViewModel):
         if self._active_session_id == session_id:
             self.messages.value = list(messages)
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         """Синхронизировать tool calls с UI (ChatUpdateSink).
 
         Args:
@@ -1410,9 +1353,7 @@ class ChatViewModel(BaseViewModel):
         if self._active_session_id == session_id:
             self.tool_calls.value = list(tool_calls)
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         """Синхронизировать streaming текст с UI (ChatUpdateSink).
 
         Args:
