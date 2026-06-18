@@ -240,3 +240,91 @@ class FileChatPersistence:
                 error=str(e),
             )
             return []
+
+    def load_messages_sync(self, session_id: str) -> list[dict[str, str]]:
+        """Синхронная загрузка сообщений (для sync контекста).
+
+        Используется в _get_or_create_session_state который вызывается
+        из sync методов ChatViewModel.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список сообщений или пустой список если файл не существует
+        """
+        file_path = self._get_file_path(session_id)
+
+        try:
+            data = self._read_json_sync(file_path)
+            messages = data.get("messages", [])
+
+            # Валидация структуры
+            if not isinstance(messages, list):
+                self._logger.warning(
+                    "invalid_messages_structure_sync",
+                    session_id=session_id,
+                    messages_type=type(messages).__name__,
+                )
+                return []
+
+            # Фильтрация валидных сообщений
+            valid_messages = [
+                msg
+                for msg in messages
+                if isinstance(msg, dict)
+                and isinstance(msg.get("role"), str)
+                and isinstance(msg.get("content"), str)
+            ]
+
+            return valid_messages
+
+        except Exception as e:
+            self._logger.error(
+                "load_messages_sync_failed",
+                session_id=session_id,
+                error=str(e),
+            )
+            return []
+
+    def load_replay_updates_sync(self, session_id: str) -> list[dict[str, Any]]:
+        """Синхронная загрузка replay updates (для sync контекста).
+
+        Используется в _get_or_create_session_state который вызывается
+        из sync методов ChatViewModel.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список replay updates или пустой список если файл не существует
+        """
+        file_path = self._get_file_path(session_id)
+
+        try:
+            data = self._read_json_sync(file_path)
+            replay_updates = data.get("replay_updates", [])
+
+            # Валидация структуры
+            if not isinstance(replay_updates, list):
+                self._logger.warning(
+                    "invalid_replay_updates_structure_sync",
+                    session_id=session_id,
+                    updates_type=type(replay_updates).__name__,
+                )
+                return []
+
+            # Фильтрация валидных updates
+            valid_updates = [
+                update for update in replay_updates if isinstance(update, dict)
+            ]
+
+            return valid_updates
+
+        except Exception as e:
+            self._logger.error(
+                "load_replay_updates_sync_failed",
+                session_id=session_id,
+                error=str(e),
+            )
+            return []

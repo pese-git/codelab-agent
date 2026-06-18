@@ -8,6 +8,19 @@ from unittest.mock import Mock
 import pytest
 
 from codelab.client.infrastructure.events.bus import EventBus
+from codelab.client.presentation.chat.dispatcher.session_update_dispatcher import (
+    SessionUpdateDispatcher,
+)
+from codelab.client.presentation.chat.handlers.config_option_handler import (
+    ConfigOptionHandler,
+)
+from codelab.client.presentation.chat.handlers.message_chunk_handler import (
+    MessageChunkHandler,
+)
+from codelab.client.presentation.chat.handlers.plan_update_handler import (
+    PlanUpdateHandler,
+)
+from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
 from codelab.client.presentation.chat_view_model import ChatViewModel
 
 
@@ -29,7 +42,23 @@ def mock_terminal_executor():
 
 
 @pytest.fixture
-def chat_view_model(tmp_path, mock_fs_executor, mock_terminal_executor) -> ChatViewModel:
+def session_update_dispatcher() -> SessionUpdateDispatcher:
+    """Создает SessionUpdateDispatcher с тестовыми handlers."""
+    return SessionUpdateDispatcher(
+        message_chunk_handler=MessageChunkHandler(),
+        tool_call_handler=ToolCallHandler(),
+        plan_update_handler=PlanUpdateHandler(),
+        config_option_handler=ConfigOptionHandler(),
+    )
+
+
+@pytest.fixture
+def chat_view_model(
+    tmp_path,
+    mock_fs_executor,
+    mock_terminal_executor,
+    session_update_dispatcher: SessionUpdateDispatcher,
+) -> ChatViewModel:
     """Создает ChatViewModel для тестов."""
 
     return ChatViewModel(
@@ -39,6 +68,7 @@ def chat_view_model(tmp_path, mock_fs_executor, mock_terminal_executor) -> ChatV
         history_dir=tmp_path / "history",
         fs_executor=mock_fs_executor,
         terminal_executor=mock_terminal_executor,
+        session_update_dispatcher=session_update_dispatcher,
     )
 
 
@@ -160,7 +190,9 @@ def test_user_message_chunk_added_to_history(chat_view_model: ChatViewModel) -> 
     assert chat_view_model.messages.value[0]["content"] == "user question"
 
 
-def test_user_message_chunk_persisted_to_storage(tmp_path) -> None:
+def test_user_message_chunk_persisted_to_storage(
+    tmp_path, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """user_message_chunk сохраняется в локальное хранилище."""
 
     history_dir = tmp_path / "history"
@@ -169,6 +201,7 @@ def test_user_message_chunk_persisted_to_storage(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
 
     chat_view_model.set_active_session("sess_user_persist")
@@ -190,6 +223,7 @@ def test_user_message_chunk_persisted_to_storage(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     second_vm.set_active_session("sess_user_persist")
 
@@ -198,7 +232,9 @@ def test_user_message_chunk_persisted_to_storage(tmp_path) -> None:
     assert second_vm.messages.value[0]["content"] == "save me"
 
 
-def test_chat_history_is_persisted_to_local_storage(tmp_path) -> None:
+def test_chat_history_is_persisted_to_local_storage(
+    tmp_path, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """История сообщений сохраняется и восстанавливается из локального storage."""
 
     history_dir = tmp_path / "history"
@@ -208,6 +244,7 @@ def test_chat_history_is_persisted_to_local_storage(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     first_vm.set_active_session("sess_local")
     first_vm.add_message("user", "persist me")
@@ -217,13 +254,16 @@ def test_chat_history_is_persisted_to_local_storage(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     second_vm.set_active_session("sess_local")
 
     assert second_vm.messages.value == [{"role": "user", "content": "persist me"}]
 
 
-def test_chat_history_uses_env_dir_when_history_dir_not_passed(tmp_path, monkeypatch) -> None:
+def test_chat_history_uses_env_dir_when_history_dir_not_passed(
+    tmp_path, monkeypatch, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """При отсутствии history_dir используется путь из ACP_CLIENT_HISTORY_DIR."""
 
     env_history_dir = tmp_path / "history_from_env"
@@ -233,13 +273,16 @@ def test_chat_history_uses_env_dir_when_history_dir_not_passed(tmp_path, monkeyp
         coordinator=None,
         event_bus=EventBus(),
         logger=None,
+        session_update_dispatcher=session_update_dispatcher,
     )
     vm.add_message("user", "saved via env", session_id="sess_env")
 
     assert (env_history_dir / "sess_env.json").exists()
 
 
-def test_chat_history_explicit_dir_has_priority_over_env(tmp_path, monkeypatch) -> None:
+def test_chat_history_explicit_dir_has_priority_over_env(
+    tmp_path, monkeypatch, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """Явный history_dir имеет приоритет над ACP_CLIENT_HISTORY_DIR."""
 
     env_history_dir = tmp_path / "history_from_env"
@@ -251,6 +294,7 @@ def test_chat_history_explicit_dir_has_priority_over_env(tmp_path, monkeypatch) 
         event_bus=EventBus(),
         logger=None,
         history_dir=explicit_history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     vm.add_message("user", "saved via explicit", session_id="sess_explicit_priority")
 
@@ -258,7 +302,9 @@ def test_chat_history_explicit_dir_has_priority_over_env(tmp_path, monkeypatch) 
     assert not (env_history_dir / "sess_explicit_priority.json").exists()
 
 
-def test_chat_history_falls_back_to_default_dir_when_env_missing(tmp_path, monkeypatch) -> None:
+def test_chat_history_falls_back_to_default_dir_when_env_missing(
+    tmp_path, monkeypatch, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """Без history_dir и CODELAB_CLIENT_HISTORY_DIR используется ~/.codelab/data/history."""
 
     monkeypatch.delenv("CODELAB_CLIENT_HISTORY_DIR", raising=False)
@@ -268,6 +314,7 @@ def test_chat_history_falls_back_to_default_dir_when_env_missing(tmp_path, monke
         coordinator=None,
         event_bus=EventBus(),
         logger=None,
+        session_update_dispatcher=session_update_dispatcher,
     )
     vm.add_message("user", "saved via default", session_id="sess_default")
 
@@ -275,7 +322,9 @@ def test_chat_history_falls_back_to_default_dir_when_env_missing(tmp_path, monke
     assert (default_history_dir / "sess_default.json").exists()
 
 
-def test_message_with_explicit_session_id_is_persisted(tmp_path) -> None:
+def test_message_with_explicit_session_id_is_persisted(
+    tmp_path, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """Сообщение с explicit session_id сразу сохраняется в локальный storage."""
 
     history_dir = tmp_path / "history"
@@ -285,6 +334,7 @@ def test_message_with_explicit_session_id_is_persisted(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     first_vm.set_active_session("sess_explicit")
     first_vm.add_message("user", "save immediately", session_id="sess_explicit")
@@ -294,13 +344,16 @@ def test_message_with_explicit_session_id_is_persisted(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     second_vm.set_active_session("sess_explicit")
 
     assert second_vm.messages.value == [{"role": "user", "content": "save immediately"}]
 
 
-def test_restore_session_persists_all_replay_updates(tmp_path) -> None:
+def test_restore_session_persists_all_replay_updates(
+    tmp_path, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """В локальном кэше сохраняются все replay-события, кроме message chunks.
     
     Message chunks пересобираются в messages, поэтому не дублируются в replay_updates.
@@ -314,6 +367,7 @@ def test_restore_session_persists_all_replay_updates(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     vm.set_active_session("sess_events")
 
@@ -511,8 +565,9 @@ def test_handle_terminal_execute_error(
     assert "Execution error" in result.get("error", "")
 
 
-def test_restore_session_populates_model_list(chat_view_model: ChatViewModel) -> None:
+async def test_restore_session_populates_model_list(chat_view_model: ChatViewModel) -> None:
     """Replay updates восстанавливают список моделей из config_option_update."""
+    import asyncio
     
     config_updated_events = []
     
@@ -556,6 +611,9 @@ def test_restore_session_populates_model_list(chat_view_model: ChatViewModel) ->
     
     chat_view_model.restore_session_from_replay("sess_with_models", replay_updates)
     
+    # Ждём обработки asyncio.ensure_future
+    await asyncio.sleep(0)
+    
     assert len(config_updated_events) == 1
     assert config_updated_events[0].session_id == "sess_with_models"
     assert len(config_updated_events[0].config_options) == 1
@@ -588,7 +646,9 @@ def test_restore_session_restores_tool_calls(chat_view_model: ChatViewModel) -> 
     assert chat_view_model.tool_calls.value[0]["title"] == "Read file"
 
 
-def test_restore_session_does_not_duplicate_replay_updates(tmp_path) -> None:
+def test_restore_session_does_not_duplicate_replay_updates(
+    tmp_path, session_update_dispatcher: SessionUpdateDispatcher
+) -> None:
     """Replay updates не дублируются при восстановлении сессии."""
     
     history_dir = tmp_path / "history"
@@ -597,6 +657,7 @@ def test_restore_session_does_not_duplicate_replay_updates(tmp_path) -> None:
         event_bus=EventBus(),
         logger=None,
         history_dir=history_dir,
+        session_update_dispatcher=session_update_dispatcher,
     )
     vm.set_active_session("sess_no_dupes")
     
