@@ -1,6 +1,5 @@
 """Тесты импортов основных модулей codelab."""
 
-import pytest
 
 
 def test_import_shared_messages():

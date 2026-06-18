@@ -687,6 +687,7 @@ class TestPermissionHandling:
         """При отсутствии handler permission request игнорируется."""
         service = _create_service()
         service._logger = MagicMock()  # noqa: SLF001
+        service.send = AsyncMock()  # noqa: SLF001
 
         await service._handle_permission_request_with_handler(
             {
@@ -701,9 +702,13 @@ class TestPermissionHandling:
             }
         )
 
-        service._logger.debug.assert_any_call(  # noqa: SLF001
+        service._logger.warning.assert_any_call(  # noqa: SLF001
             "permission_handler_not_configured_skipping"
         )
+        # Проверяем что отправлен cancel response
+        service.send.assert_awaited_once()  # noqa: SLF001
+        payload = service.send.call_args[0][0]  # noqa: SLF001
+        assert payload["result"]["outcome"] == "cancelled"
 
     @pytest.mark.asyncio
     async def test_handle_permission_request_exception_sends_error(self) -> None:

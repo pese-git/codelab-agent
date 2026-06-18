@@ -44,6 +44,39 @@ class UseCase(ABC):
         ...
 
 
+class TransportAwareUseCase(UseCase):
+    """Базовый класс для use cases, требующих транспорт.
+
+    Предоставляет общие методы для проверки готовности транспорта
+    и обработки ошибок.
+    """
+
+    def __init__(self, transport: TransportService) -> None:
+        """Инициализирует use case с транспортом.
+
+        Args:
+            transport: TransportService для коммуникации
+        """
+        self._transport = transport
+        self._logger = structlog.get_logger(self.__class__.__name__)
+
+    def _ensure_transport_ready(self) -> None:
+        """Проверяет готовность транспорта к работе.
+
+        Raises:
+            RuntimeError: Если транспорт не инициализирован или не подключён
+        """
+        if not self._transport.is_initialized():
+            error_msg = "Transport not initialized. Call InitializeUseCase first."
+            self._logger.error("transport_not_initialized")
+            raise RuntimeError(error_msg)
+
+        if not self._transport.is_connected():
+            error_msg = "Transport not connected."
+            self._logger.error("transport_not_connected")
+            raise RuntimeError(error_msg)
+
+
 class InitializeUseCase(UseCase):
     """Use Case для инициализации соединения с сервером.
 
@@ -156,7 +189,7 @@ class InitializeUseCase(UseCase):
             raise RuntimeError(error_msg) from e
 
 
-class CreateSessionUseCase(UseCase):
+class CreateSessionUseCase(TransportAwareUseCase):
     """Use Case для создания новой сессии.
 
     Создает новую сессию на сервере и сохраняет её в repository.
@@ -173,9 +206,8 @@ class CreateSessionUseCase(UseCase):
             transport: TransportService для коммуникации
             session_repo: SessionRepository для сохранения
         """
-        self._transport = transport
+        super().__init__(transport)
         self._session_repo = session_repo
-        self._logger = structlog.get_logger("create_session_use_case")
 
     async def execute(self, request: CreateSessionRequest) -> CreateSessionResponse:
         """Создает новую сессию.
@@ -205,17 +237,8 @@ class CreateSessionUseCase(UseCase):
         try:
             from codelab.client.messages import ACPMessage
 
-            # Проверка инициализации транспорта
-            if not self._transport.is_initialized():
-                error_msg = "Transport not initialized. Call InitializeUseCase first."
-                self._logger.error("transport_not_initialized")
-                raise RuntimeError(error_msg)
-
-            # Проверка соединения
-            if not self._transport.is_connected():
-                error_msg = "Transport not connected."
-                self._logger.error("transport_not_connected")
-                raise RuntimeError(error_msg)
+            # Проверка готовности транспорта
+            self._ensure_transport_ready()
 
             # Получить сохраненные capabilities из transport service
             server_capabilities = self._transport.get_server_capabilities()
@@ -323,7 +346,7 @@ class CreateSessionUseCase(UseCase):
             raise RuntimeError(error_msg) from e
 
 
-class LoadSessionUseCase(UseCase):
+class LoadSessionUseCase(TransportAwareUseCase):
     """Use Case для загрузки существующей сессии.
 
     Загружает сессию из repository и восстанавливает её состояние.
@@ -340,9 +363,8 @@ class LoadSessionUseCase(UseCase):
             transport: TransportService для коммуникации
             session_repo: SessionRepository для загрузки
         """
-        self._transport = transport
+        super().__init__(transport)
         self._session_repo = session_repo
-        self._logger = structlog.get_logger("load_session_use_case")
 
     async def execute(self, request: LoadSessionRequest) -> LoadSessionResponse:
         """Загружает существующую сессию.
@@ -358,15 +380,8 @@ class LoadSessionUseCase(UseCase):
         """
         self._logger.info("loading_session", session_id=request.session_id)
 
-        # Проверяем готовность транспорта так же, как в create/send сценариях.
-        if not self._transport.is_initialized():
-            error_msg = "Transport not initialized. Call InitializeUseCase first."
-            self._logger.error("transport_not_initialized")
-            raise RuntimeError(error_msg)
-        if not self._transport.is_connected():
-            error_msg = "Transport not connected."
-            self._logger.error("transport_not_connected")
-            raise RuntimeError(error_msg)
+        # Проверяем готовность транспорта
+        self._ensure_transport_ready()
 
         # Сначала пытаемся взять локальную копию, но допускаем cold-start без репозитория.
         session = await self._session_repo.load(request.session_id)
@@ -535,7 +550,7 @@ class SendPromptUseCase(UseCase):
 
             # Подготовляем callbacks для транспорта
             # Обработка permission requests происходит асинхронно через PermissionHandler
-            transport_callbacks = {
+            transport_callbacks: dict[str, Any] = {
                 "on_update": handle_update,
             }
 
@@ -632,7 +647,7 @@ class SendPromptUseCase(UseCase):
             raise RuntimeError(error_msg) from e
 
 
-class ListSessionsUseCase(UseCase):
+class ListSessionsUseCase(TransportAwareUseCase):
     """Use Case для получения списка доступных сессий.
 
     Запрашивает список сессий у ACP-сервера и синхронизирует локальный repository.
@@ -649,9 +664,8 @@ class ListSessionsUseCase(UseCase):
             transport: TransportService для коммуникации
             session_repo: SessionRepository для доступа
         """
-        self._transport = transport
+        super().__init__(transport)
         self._session_repo = session_repo
-        self._logger = structlog.get_logger("list_sessions_use_case")
 
     async def execute(self) -> ListSessionsResponse:
         """Получает список сессий.
@@ -661,14 +675,8 @@ class ListSessionsUseCase(UseCase):
         """
         self._logger.info("listing_sessions")
 
-        if not self._transport.is_initialized():
-            error_msg = "Transport not initialized. Call InitializeUseCase first."
-            self._logger.error("transport_not_initialized")
-            raise RuntimeError(error_msg)
-        if not self._transport.is_connected():
-            error_msg = "Transport not connected."
-            self._logger.error("transport_not_connected")
-            raise RuntimeError(error_msg)
+        # Проверяем готовность транспорта
+        self._ensure_transport_ready()
 
         response_data = await self._transport.request_with_callbacks(
             method="session/list",

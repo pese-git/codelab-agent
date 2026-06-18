@@ -7,6 +7,11 @@
 ## [Unreleased]
 
 ### Fixed
+- **Зависание второго permission request**: Исправлена проблема при которой второй permission request не отображался после одобрения первого, что приводило к зависанию сессии на 5 минут до timeout.
+  - Корневая причина: `permission_task` пересоздавался локально в `_wait_for_response_with_events`, но не отменялся при выходе из метода. Осиротевший task оставался в event loop и потреблял сообщения из `permission_queue`, мешая обработке следующих permission requests.
+  - Решение: добавлена отмена `permission_task` перед возвратом response и при исключениях, вынесено создание task в метод `_create_permission_task` для централизованного логирования lifecycle.
+  - Добавлены 4 новых теста: `test_multiple_permission_requests_in_sequence`, `test_permission_request_during_notification_processing`, `test_permission_task_recreated_immediately`, `test_permission_task_cancelled_on_response`.
+
 - **Stdio transport deadlock в bypass mode**: `session/prompt` теперь выполняется в фоновой задаче (`asyncio.create_task`), чтобы receive-loop мог продолжать читать stdin и маршрутизировать client RPC responses (например, ответы на `fs/read_text_file`). Раньше transport loop блокировался на `await on_message()` и не читал stdin → deadlock на 44+ секунд.
   - `StdioServerTransport` принимает callbacks для интеграции с `ACPProtocol` без прямой зависимости
   - Полный паритет с `WebSocketTransport`: deferred prompt completion, session/cancel отмена, cleanup при disconnect

@@ -145,9 +145,15 @@ class RoutingQueues:
             message: Запрос разрешения (session/request_permission)
         """
         await self._permission_queue.put(message)
-        self._logger.debug(
+        params = message.get("params")
+        session_id = (
+            params.get("sessionId") if isinstance(params, dict) else None
+        )
+        self._logger.info(
             "permission_request_queued",
+            request_id=message.get("id"),
             method=message.get("method"),
+            session_id=session_id,
         )
 
     async def cleanup_response_queue(self, request_id: JsonRpcId) -> None:

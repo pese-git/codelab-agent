@@ -10,11 +10,11 @@
 graph TB
     subgraph TUI["TUI Layer"]
         App[ACPClientApp]
-        Components[45 компонентов]
+        Components[46 компонентов]
     end
     
     subgraph Presentation["Presentation Layer"]
-        VM[14 ViewModels]
+        VM[13 ViewModels]
         Obs["Observable&lt;T&gt;"]
     end
     
@@ -58,7 +58,7 @@ container = create_client_container(
 
 **Провайдеры:**
 - `ClientProvider` — инфраструктурные сервисы (транспорт, репозитории, обработчики)
-- `ViewModelProvider` — 14 ViewModels
+- `ViewModelProvider` — 13 ViewModels
 
 **Разрешение циклической зависимости:** `SessionCoordinator ↔ PermissionHandler` разрешается через двухфазную инициализацию в `CoreServices`.
 

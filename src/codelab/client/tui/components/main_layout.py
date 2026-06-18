@@ -141,11 +141,11 @@ class MainLayout(Container):
         background: $background;
     }
     
-    /* Dock Region - область для PromptInput и QuickActionsBar (как в OpenCode) */
+    /* Dock Region - область для PromptInput (как в OpenCode) */
     MainLayout > #main-column > #dock-region {
         height: auto;
-        min-height: 6;
-        max-height: 15;
+        min-height: 9;
+        max-height: 50%;
         background: $background;
     }
     

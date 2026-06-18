@@ -8,14 +8,11 @@
 """
 
 import asyncio
-import json
-import os
-import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from codelab.client.presentation.base_view_model import BaseViewModel
+from codelab.client.presentation.chat.chat_session_state import ChatSessionState
 from codelab.client.presentation.observable import Observable, ObservableCommand
 
 
@@ -28,19 +25,6 @@ class PermissionRequest:
     action: str
     resource: str
     description: str = ""
-
-
-@dataclass
-class ChatSessionState:
-    """Состояние чата, привязанное к конкретной сессии."""
-
-    messages: list[Any]
-    tool_calls: list[Any]
-    pending_permissions: list[Any]
-    streaming_text: str
-    is_streaming: bool
-    last_stop_reason: str | None
-    replay_updates: list[dict[str, Any]]
 
 
 class ChatViewModel(BaseViewModel):
@@ -75,10 +59,12 @@ class ChatViewModel(BaseViewModel):
         coordinator: Any,  # SessionCoordinator
         event_bus: Any | None = None,
         logger: Any | None = None,
-        history_dir: Path | str | None = None,
-        fs_executor: Any | None = None,  # FileSystemExecutor
-        terminal_executor: Any | None = None,  # TerminalExecutor
         plan_vm: Any | None = None,  # PlanViewModel для обработки plan updates
+        # Компоненты декомпозиции
+        session_update_dispatcher: Any | None = None,  # SessionUpdateDispatcher
+        chat_persistence: Any | None = None,  # ChatPersistencePort
+        fs_callback_executor: Any | None = None,  # FsCallbackExecutor
+        terminal_callback_executor: Any | None = None,  # TerminalCallbackExecutor
     ) -> None:
         """Инициализировать ChatViewModel.
 
@@ -86,40 +72,21 @@ class ChatViewModel(BaseViewModel):
             coordinator: SessionCoordinator для работы с prompt-turn
             event_bus: EventBus для публикации/подписки на события
             logger: Logger для логирования
-            history_dir: Директория локального persistence истории
-                (приоритет: history_dir -> CODELAB_CLIENT_HISTORY_DIR -> ~/.codelab/data/history)
-            fs_executor: FileSystemExecutor для обработки fs/* callbacks (синхронно)
-            terminal_executor: TerminalExecutor для обработки terminal/* callbacks (синхронно)
             plan_vm: PlanViewModel для обработки plan updates из session/update
+            session_update_dispatcher: SessionUpdateDispatcher для маршрутизации обновлений
+            chat_persistence: ChatPersistencePort для сохранения истории
+            fs_callback_executor: FsCallbackExecutor для async-safe FS операций
+            terminal_callback_executor: TerminalCallbackExecutor для управления терминалами
         """
         super().__init__(event_bus, logger)
         self.coordinator = coordinator
-        self._fs_executor = fs_executor
-        self._terminal_executor = terminal_executor
         self._plan_vm = plan_vm
 
-        # Локальный storage истории нужен для восстановления UI без network roundtrip.
-        # Порядок приоритета: явный аргумент -> переменная окружения -> путь по умолчанию.
-        env_history_dir = os.getenv("CODELAB_CLIENT_HISTORY_DIR")
-        if history_dir is not None:
-            resolved_history_dir = Path(history_dir)
-        elif env_history_dir:
-            resolved_history_dir = Path(env_history_dir)
-        else:
-            resolved_history_dir = Path.home() / ".codelab" / "data" / "history"
-        self._history_dir = resolved_history_dir
-        try:
-            self._history_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.info(
-                "chat_history_storage_initialized",
-                history_dir=str(self._history_dir.resolve()),
-            )
-        except OSError as error:
-            self.logger.warning(
-                "chat_history_dir_unavailable",
-                history_dir=str(self._history_dir),
-                error=str(error),
-            )
+        # Компоненты декомпозиции
+        self._session_update_dispatcher = session_update_dispatcher
+        self._chat_persistence = chat_persistence
+        self._fs_callback_executor = fs_callback_executor
+        self._terminal_callback_executor = terminal_callback_executor
 
         # Observable свойства
         self.messages: Observable[list[Any]] = Observable([])
@@ -132,6 +99,10 @@ class ChatViewModel(BaseViewModel):
         # Активная сессия и кэш UI-состояния по session_id.
         self._active_session_id: str | None = None
         self._session_states: dict[str, ChatSessionState] = {}
+
+        # Debounce для persistence - группирует сохранения при streaming
+        self._pending_saves: dict[str, asyncio.Task[None]] = {}
+        self._save_debounce_ms = 100  # Задержка перед сохранением
 
         # Observable команды
         self.send_prompt_cmd = ObservableCommand(self._send_prompt)
@@ -176,44 +147,45 @@ class ChatViewModel(BaseViewModel):
         self._set_last_stop_reason(session_id, None)
 
         try:
-            # Build terminal lifecycle callbacks backed by the async executor.
-            # Results are cached by terminal_id so the multi-step protocol
-            # (create → output → wait_for_exit → release) maps onto a single
-            # blocking execute() call made on terminal/create.
             terminal_callbacks: dict[str, Any] = {}
-            if self._terminal_executor is not None:
-                _results: dict[str, dict[str, Any]] = {}
-                _executor = self._terminal_executor
+            if self._terminal_callback_executor is not None:
+                _executor = self._terminal_callback_executor
 
                 async def _on_terminal_create(command: str) -> str:
-                    tid = str(uuid.uuid4())
-                    # Use async create_terminal + wait_for_exit to avoid blocking event loop
-                    terminal_id = await _executor.create_terminal(command)
-                    exit_code = await _executor.wait_for_exit(terminal_id)
-                    output, _, _ = await _executor.get_output(terminal_id)
-                    await _executor.release_terminal(terminal_id)
-                    _results[tid] = {"output": output, "exit_code": exit_code}
-                    return tid
+                    terminal_id, error = await _executor.create_terminal(command)
+                    if error:
+                        raise RuntimeError(f"Terminal creation failed: {error}")
+                    return terminal_id
 
                 async def _on_terminal_output(terminal_id: str) -> dict[str, Any]:
-                    r = _results.get(terminal_id, {})
+                    output_data, error = await _executor.get_output(terminal_id)
+                    if error:
+                        return {"output": "", "isComplete": True, "exitCode": None}
+                    output = ""
+                    if isinstance(output_data, dict):
+                        output = output_data.get("output", "")
+                    elif isinstance(output_data, str):
+                        output = output_data
                     return {
-                        "output": r.get("output", ""),
+                        "output": output,
                         "isComplete": True,
-                        "exitCode": r.get("exit_code"),
+                        "exitCode": None,
                     }
 
                 async def _on_terminal_wait_for_exit(
                     terminal_id: str,
                 ) -> tuple[int | None, str | None]:
-                    r = _results.get(terminal_id, {})
-                    return (r.get("exit_code"), r.get("output", ""))
+                    result, error = await _executor.wait_for_exit(terminal_id)
+                    if error or result is None:
+                        return (None, error or "")
+                    return result
 
                 async def _on_terminal_release(terminal_id: str) -> None:
-                    _results.pop(terminal_id, None)
+                    await _executor.release_terminal(terminal_id)
 
                 async def _on_terminal_kill(terminal_id: str) -> bool:
-                    return _results.pop(terminal_id, None) is not None
+                    success, _ = await _executor.kill_terminal(terminal_id)
+                    return success
 
                 terminal_callbacks = {
                     "on_terminal_create": _on_terminal_create,
@@ -244,7 +216,7 @@ class ChatViewModel(BaseViewModel):
                 session_state.streaming_text = ""
                 session_state.is_streaming = False
                 self._session_states[session_id] = session_state
-                self._persist_messages_to_local_storage(
+                self._persist_messages(
                     session_id,
                     session_state.messages,
                     replay_updates=session_state.replay_updates,
@@ -268,229 +240,12 @@ class ChatViewModel(BaseViewModel):
     def _handle_session_update(self, update_data: dict[str, Any]) -> None:
         """Обработать session/update от сервера.
 
-        Обрабатывает различные типы обновлений сессии:
-        - agent_message_chunk: добавляет текст ответа агента к streaming_text
-        - user_message_chunk: обрабатывает фрагменты сообщений пользователя
-        - session_info_update: обновляет информацию о сессии
-        - и другие типы согласно протоколу ACP
+        Делегирует обработку SessionUpdateDispatcher.
 
         Args:
             update_data: Данные обновления сессии от сервера
         """
-        try:
-            params = update_data.get("params", {})
-            update = params.get("update", {})
-            session_update_type = update.get("sessionUpdate")
-            session_id = params.get("sessionId")
-            target_session_id = (
-                session_id if isinstance(session_id, str) else self._active_session_id
-            )
-
-            # Кэшируем все session/update события, чтобы можно было восстановить
-            # состояние ChatView даже для типов обновлений, которые не рендерим как сообщения.
-            if target_session_id is not None:
-                state = self._get_or_create_session_state(target_session_id)
-                state.replay_updates.append(update_data)
-                self._session_states[target_session_id] = state
-                self._persist_messages_to_local_storage(
-                    target_session_id,
-                    state.messages,
-                    replay_updates=state.replay_updates,
-                )
-
-            self.logger.debug(
-                "session_update_received",
-                update_type=session_update_type,
-                update=update,
-            )
-
-            # Обработка agent_message_chunk - добавляем текст ответа агента
-            if session_update_type == "agent_message_chunk":
-                content = update.get("content", {})
-                text = content.get("text", "")
-
-                if text:
-                    # Добавляем текст в состояние той сессии, откуда пришёл update.
-                    if target_session_id is not None:
-                        self._append_streaming_text_to_session(target_session_id, text)
-
-                    self.logger.debug("agent_message_chunk_processed", text_length=len(text))
-
-            # Обработка user_message_chunk - добавляем сообщения пользователя в историю
-            elif session_update_type == "user_message_chunk":
-                content = update.get("content", {})
-                text = content.get("text", "")
-
-                if text and target_session_id is not None:
-                    # Добавляем сообщение пользователя в состояние сессии.
-                    state = self._get_or_create_session_state(target_session_id)
-                    state.messages.append({"role": "user", "content": text})
-                    self._session_states[target_session_id] = state
-
-                    # Синхронизируем с UI если это активная сессия.
-                    if self._active_session_id == target_session_id:
-                        self.messages.value = list(state.messages)
-
-                    # Сохраняем в локальное хранилище.
-                    self._persist_messages_to_local_storage(
-                        target_session_id,
-                        state.messages,
-                        replay_updates=state.replay_updates,
-                    )
-
-                    self.logger.debug("user_message_chunk_processed", text_length=len(text))
-
-            # Обработка tool_call - отслеживание статуса выполнения инструмента
-            elif session_update_type == "tool_call":
-                tool_call_id = update.get("toolCallId")
-                tool_title = update.get("title")
-                tool_status = update.get("status")
-                tool_kind = update.get("kind")
-
-                if target_session_id is not None and tool_call_id:
-                    self.logger.info(
-                        "tool_call_status_changed",
-                        session_id=target_session_id,
-                        tool_call_id=tool_call_id,
-                        tool_name=tool_title,
-                        status=tool_status,
-                        kind=tool_kind,
-                    )
-                    
-                    # Добавляем tool call в состояние сессии
-                    state = self._get_or_create_session_state(target_session_id)
-                    tool_call_dict = {
-                        "toolCallId": tool_call_id,
-                        "title": tool_title,
-                        "kind": tool_kind,
-                        "status": tool_status,
-                    }
-                    # Обновляем existing tool call или добавляем новый
-                    state.tool_calls = [
-                        tc if tc.get("toolCallId") != tool_call_id else tool_call_dict
-                        for tc in state.tool_calls
-                    ]
-                    if tool_call_id not in [tc.get("toolCallId") for tc in state.tool_calls]:
-                        state.tool_calls.append(tool_call_dict)
-                    
-                    self._session_states[target_session_id] = state
-                    
-                    # Синхронизируем с UI если это активная сессия
-                    if self._active_session_id == target_session_id:
-                        self.tool_calls.value = list(state.tool_calls)
-
-            elif session_update_type == "tool_call_result":
-                tool_call_id = update.get("toolCallId")
-                result = update.get("result")
-
-                if target_session_id is not None and tool_call_id:
-                    self.logger.info(
-                        "tool_call_result_received",
-                        session_id=target_session_id,
-                        tool_call_id=tool_call_id,
-                        has_result=bool(result),
-                    )
-            
-            # Обработка tool_call_update - обновление статуса существующего tool call
-            elif session_update_type == "tool_call_update":
-                tool_call_id = update.get("toolCallId")
-                tool_status = update.get("status")
-                tool_title = update.get("title")
-
-                if target_session_id is not None and tool_call_id:
-                    self.logger.info(
-                        "tool_call_status_update",
-                        session_id=target_session_id,
-                        tool_call_id=tool_call_id,
-                        new_status=tool_status,
-                    )
-                    
-                    # Обновляем статус существующего tool call в состоянии
-                    # ВАЖНО: создаем новые копии словарей, чтобы Observable
-                    # обнаружил изменение (сравнение по значению, а не ссылке)
-                    state = self._get_or_create_session_state(target_session_id)
-                    updated_tool_calls = []
-                    for tc in state.tool_calls:
-                        if tc.get("toolCallId") == tool_call_id:
-                            # Создаём новый словарь с обновлёнными полями
-                            updated_tc = {**tc}
-                            if tool_status:
-                                updated_tc["status"] = tool_status
-                            if tool_title:
-                                updated_tc["title"] = tool_title
-                            updated_tool_calls.append(updated_tc)
-                        else:
-                            updated_tool_calls.append(tc)
-                    state.tool_calls = updated_tool_calls
-                    self._session_states[target_session_id] = state
-
-                    # Синхронизируем с UI если это активная сессия
-                    if self._active_session_id == target_session_id:
-                        self.tool_calls.value = updated_tool_calls
-
-            # Обработка plan - обновление плана агента через PlanViewModel
-            elif session_update_type == "plan":
-                entries = update.get("entries", [])
-                self.logger.info(
-                    "plan_session_update_received",
-                    session_id=target_session_id,
-                    entries_count=len(entries),
-                    has_plan_vm=self._plan_vm is not None,
-                    raw_entries=entries[:2] if entries else None,  # First 2 for debug
-                )
-
-                if self._plan_vm is not None and entries:
-                    # Форматируем план для отображения в UI
-                    plan_lines = ["План:"]
-                    for entry in entries:
-                        content = entry.get("content", "")
-                        priority = entry.get("priority", "medium")
-                        status = entry.get("status", "pending")
-                        plan_lines.append(f"- [{status}] ({priority}) {content}")
-                    plan_text = "\n".join(plan_lines)
-                    self._plan_vm.set_plan(plan_text)
-
-                    self.logger.info(
-                        "plan_update_received",
-                        session_id=target_session_id,
-                        entries_count=len(entries),
-                    )
-
-            # Обработка config_option_update - обновление конфигурации сессии
-            elif session_update_type == "config_option_update":
-                config_options = update.get("configOptions", [])
-                self.logger.info(
-                    "config_option_update_received",
-                    session_id=target_session_id,
-                    config_options_count=len(config_options),
-                )
-
-                # Публикуем событие для обновления ModelSelectorViewModel
-                if target_session_id is not None and config_options:
-                    try:
-                        from datetime import datetime
-
-                        from codelab.client.domain.events import ConfigOptionUpdatedEvent
-
-                        self.publish_event(
-                            ConfigOptionUpdatedEvent(
-                                aggregate_id=target_session_id,
-                                occurred_at=datetime.now(),
-                                session_id=target_session_id,
-                                config_options=config_options,
-                            )
-                        )
-                    except ImportError:
-                        self.logger.debug(
-                            "ConfigOptionUpdatedEvent not available, skipping event publish"
-                        )
-
-        except Exception as e:
-            self.logger.error(
-                "Error handling session update",
-                error=str(e),
-                update_data=update_data,
-            )
+        self.handle_session_update_dispatched(update_data)
 
     async def _cancel_prompt(self, session_id: str) -> None:
         """Отменить текущий prompt.
@@ -590,9 +345,6 @@ class ChatViewModel(BaseViewModel):
     async def _handle_fs_read(self, path: str) -> str:
         """Обработать fs/read_text_file от агента (async).
 
-        Использует asyncio.to_thread для выполнения sync операции
-        без блокировки event loop (критично для stdio режима).
-
         Args:
             path: Путь к файлу для чтения
 
@@ -605,26 +357,22 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_read_no_active_session", path=path)
                 return ""
 
-            # Проверяем наличие executor'а перед использованием
-            if self._fs_executor is None:
-                self.logger.warning("fs_executor_not_initialized", path=path)
+            if self._fs_callback_executor is None:
+                self.logger.warning("fs_callback_executor_not_initialized", path=path)
                 return ""
 
-            # Выполняем в thread pool чтобы не блокировать event loop
-            content = await asyncio.to_thread(
-                self._fs_executor.read_text_file_sync, path
-            )
-            self.logger.debug("fs_read_success", path=path, content_size=len(content))
-            return content
+            content, error = await self._fs_callback_executor.read_file(path)
+            if error:
+                self.logger.warning("fs_read_error", path=path, error=error)
+                return ""
+            self.logger.debug("fs_read_success", path=path, content_size=len(content or ""))
+            return content or ""
         except Exception as e:
             self.logger.error("fs_read_error", path=path, error=str(e))
             return ""
 
     async def _handle_fs_write(self, path: str, content: str) -> bool:
         """Обработать fs/write_text_file от агента (async).
-
-        Использует asyncio.to_thread для выполнения sync операции
-        без блокировки event loop (критично для stdio режима).
 
         Args:
             path: Путь к файлу для записи
@@ -639,59 +387,19 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_write_no_active_session", path=path)
                 return False
 
-            # Проверяем наличие executor'а перед использованием
-            if self._fs_executor is None:
-                self.logger.warning("fs_executor_not_initialized", path=path)
+            if self._fs_callback_executor is None:
+                self.logger.warning("fs_callback_executor_not_initialized", path=path)
                 return False
 
-            # Выполняем в thread pool чтобы не блокировать event loop
-            await asyncio.to_thread(
-                self._fs_executor.write_text_file_sync, path, content
-            )
+            success, error = await self._fs_callback_executor.write_file(path, content)
+            if error:
+                self.logger.warning("fs_write_error", path=path, error=error)
+                return False
             self.logger.debug("fs_write_success", path=path, content_size=len(content))
-            return True
+            return success
         except Exception as e:
             self.logger.error("fs_write_error", path=path, error=str(e))
             return False
-
-    def _handle_terminal_execute(self, command: str, cwd: str | None = None) -> dict[str, Any]:
-        """Обработать terminal/execute от агента (синхронный).
-
-        Используется синхронный метод TerminalExecutor напрямую.
-
-        Args:
-            command: Команда для выполнения
-            cwd: Рабочая директория (опционально)
-
-        Returns:
-            Словарь с результатом выполнения (success, output, exit_code)
-        """
-        try:
-            session_id = self._active_session_id
-            if not session_id:
-                self.logger.warning("terminal_execute_no_active_session", command=command)
-                return {"success": False, "error": "No active session"}
-
-            # Проверяем наличие executor'а перед использованием
-            if self._terminal_executor is None:
-                self.logger.warning("terminal_executor_not_initialized", command=command)
-                return {
-                    "success": False,
-                    "error": "Terminal executor not initialized",
-                }
-
-            # Используем синхронный метод executor напрямую
-            result = self._terminal_executor.execute(command, cwd=cwd)
-            self.logger.debug(
-                "terminal_execute_result",
-                command=command,
-                exit_code=result.get("exit_code"),
-                success=result.get("success"),
-            )
-            return result
-        except Exception as e:
-            self.logger.error("terminal_execute_error", command=command, error=str(e))
-            return {"success": False, "error": str(e)}
 
     def add_message(self, role: str, content: str, session_id: str | None = None) -> None:
         """Добавить сообщение в чат.
@@ -705,7 +413,7 @@ class ChatViewModel(BaseViewModel):
             state = self._get_or_create_session_state(session_id)
             state.messages.append({"role": role, "content": content})
             self._session_states[session_id] = state
-            self._persist_messages_to_local_storage(
+            self._persist_messages(
                 session_id,
                 state.messages,
                 replay_updates=state.replay_updates,
@@ -841,10 +549,12 @@ class ChatViewModel(BaseViewModel):
             # Агрегируем последовательные chunks одного типа в одно сообщение
             if current_role != last_role and last_role is not None:
                 # Роль изменилась — сохраняем предыдущее сообщение
-                rebuilt_messages.append({
-                    "role": last_role,
-                    "content": "".join(current_text_parts),
-                })
+                rebuilt_messages.append(
+                    {
+                        "role": last_role,
+                        "content": "".join(current_text_parts),
+                    }
+                )
                 current_text_parts = []
 
             last_role = current_role
@@ -859,10 +569,12 @@ class ChatViewModel(BaseViewModel):
 
         # Сохраняем последнее сообщение (если есть)
         if last_role is not None and current_text_parts:
-            rebuilt_messages.append({
-                "role": last_role,
-                "content": "".join(current_text_parts),
-            })
+            rebuilt_messages.append(
+                {
+                    "role": last_role,
+                    "content": "".join(current_text_parts),
+                }
+            )
             self.logger.info(
                 "restore_added_final_message",
                 role=last_role,
@@ -924,7 +636,7 @@ class ChatViewModel(BaseViewModel):
             replay_updates=replay_updates,
         )
         self._session_states[self._active_session_id] = state
-        self._persist_messages_to_local_storage(
+        self._persist_messages(
             self._active_session_id,
             state.messages,
             replay_updates=state.replay_updates,
@@ -937,8 +649,8 @@ class ChatViewModel(BaseViewModel):
         if state is not None:
             return state
 
-        persisted_messages = self._load_messages_from_local_storage(session_id)
-        persisted_replay_updates = self._load_replay_updates_from_local_storage(session_id)
+        persisted_messages = self._load_messages(session_id)
+        persisted_replay_updates = self._load_replay_updates(session_id)
         if persisted_replay_updates:
             persisted_messages = self._rebuild_messages_from_replay(
                 session_id,
@@ -957,101 +669,123 @@ class ChatViewModel(BaseViewModel):
         self._session_states[session_id] = state
         return state
 
-    def _history_file_path(self, session_id: str) -> Path:
-        """Возвращает путь JSON-файла истории для указанной сессии."""
-
-        safe_session_id = session_id.replace("/", "_").replace("\\", "_")
-        return self._history_dir / f"{safe_session_id}.json"
-
-    def _persist_messages_to_local_storage(
+    def _persist_messages(
         self,
         session_id: str,
         messages: list[Any],
         replay_updates: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Сохраняет сообщения сессии в локальный JSON storage."""
+        """Сохраняет сообщения через ChatPersistencePort с debounce.
 
-        serializable_messages = [
-            message
-            for message in messages
-            if isinstance(message, dict)
-            and isinstance(message.get("role"), str)
-            and isinstance(message.get("content"), str)
-        ]
-        file_path = self._history_file_path(session_id)
-        payload: dict[str, Any] = {"messages": serializable_messages}
-        if replay_updates is not None:
-            payload["replay_updates"] = [
-                update for update in replay_updates if isinstance(update, dict)
+        При частых вызовах (например, при streaming) группирует сохранения
+        чтобы снизить нагрузку на I/O. Реальное сохранение происходит через
+        _save_debounce_ms миллисекунд после последнего вызова.
+
+        Args:
+            session_id: ID сессии
+            messages: Список сообщений для сохранения
+            replay_updates: Опциональные replay updates
+        """
+        if self._chat_persistence is None:
+            return
+
+        # Отменяем предыдущий pending save для этой сессии если есть
+        if session_id in self._pending_saves:
+            self._pending_saves[session_id].cancel()
+
+        # Планируем новое сохранение с задержкой
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(
+                self._debounced_save(session_id, messages, replay_updates)
+            )
+            self._pending_saves[session_id] = task
+        except RuntimeError:
+            # Нет running event loop - сохраняем синхронно через legacy fallback
+            pass
+
+    async def _debounced_save(
+        self,
+        session_id: str,
+        messages: list[Any],
+        replay_updates: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Отложенное сохранение с debounce.
+
+        Args:
+            session_id: ID сессии
+            messages: Список сообщений для сохранения
+            replay_updates: Опциональные replay updates
+        """
+        try:
+            # Ждем перед сохранением
+            await asyncio.sleep(self._save_debounce_ms / 1000.0)
+
+            # Проверяем что задача не была отменена
+            if self._chat_persistence is None:
+                return
+
+            serializable_messages = [
+                message
+                for message in messages
+                if isinstance(message, dict)
+                and isinstance(message.get("role"), str)
+                and isinstance(message.get("content"), str)
             ]
-        try:
-            file_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except OSError as error:
-            self.logger.warning(
-                "chat_history_save_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
+            serializable_updates = (
+                [u for u in replay_updates if isinstance(u, dict)]
+                if replay_updates is not None
+                else None
             )
 
-    def _load_messages_from_local_storage(self, session_id: str) -> list[dict[str, str]]:
-        """Загружает сообщения сессии из локального JSON storage."""
-
-        file_path = self._history_file_path(session_id)
-        if not file_path.exists():
-            return []
-
-        try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            self.logger.warning(
-                "chat_history_load_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
+            await self._chat_persistence.save_messages(
+                session_id,
+                serializable_messages,
+                replay_updates=serializable_updates,
             )
+        except asyncio.CancelledError:
+            # Задача была отменена новым вызовом - это нормально
+            pass
+        finally:
+            # Удаляем задачу из pending
+            self._pending_saves.pop(session_id, None)
+
+    async def flush_pending_saves(self) -> None:
+        """Принудительно выполняет все отложенные сохранения.
+
+        Используется перед закрытием приложения или при необходимости
+        гарантировать что все данные сохранены.
+        """
+        if self._pending_saves:
+            # Ждем завершения всех pending saves
+            await asyncio.gather(*self._pending_saves.values(), return_exceptions=True)
+            self._pending_saves.clear()
+
+    def _load_messages(self, session_id: str) -> list[dict[str, str]]:
+        """Загружает сообщения через ChatPersistencePort.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список сообщений или пустой список
+        """
+        if self._chat_persistence is None:
             return []
+        return self._chat_persistence.load_messages_sync(session_id)
 
-        raw_messages = payload.get("messages") if isinstance(payload, dict) else None
-        if not isinstance(raw_messages, list):
+    def _load_replay_updates(self, session_id: str) -> list[dict[str, Any]]:
+        """Загружает replay updates через ChatPersistencePort.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список replay updates или пустой список
+        """
+        if self._chat_persistence is None:
             return []
-
-        normalized_messages: list[dict[str, str]] = []
-        for message in raw_messages:
-            if not isinstance(message, dict):
-                continue
-            role = message.get("role")
-            content = message.get("content")
-            if isinstance(role, str) and isinstance(content, str):
-                normalized_messages.append({"role": role, "content": content})
-        return normalized_messages
-
-    def _load_replay_updates_from_local_storage(self, session_id: str) -> list[dict[str, Any]]:
-        """Загружает replay updates сессии из локального JSON storage."""
-
-        file_path = self._history_file_path(session_id)
-        if not file_path.exists():
-            return []
-
-        try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            self.logger.warning(
-                "chat_history_load_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
-            )
-            return []
-
-        raw_replay_updates = payload.get("replay_updates") if isinstance(payload, dict) else None
-        if not isinstance(raw_replay_updates, list):
-            return []
-
-        return [update for update in raw_replay_updates if isinstance(update, dict)]
+        return self._chat_persistence.load_replay_updates_sync(session_id)
 
     def _rebuild_messages_from_replay(
         self,
@@ -1083,18 +817,6 @@ class ChatViewModel(BaseViewModel):
                 rebuilt_messages.append({"role": "assistant", "content": text})
 
         return rebuilt_messages
-
-    def _append_streaming_text_to_session(self, session_id: str, text: str) -> None:
-        """Добавляет streaming chunk в состояние указанной сессии."""
-
-        state = self._get_or_create_session_state(session_id)
-        state.streaming_text += text
-        state.is_streaming = True
-        self._session_states[session_id] = state
-
-        if self._active_session_id == session_id:
-            self.streaming_text.value = state.streaming_text
-            self.is_streaming.value = True
 
     def _set_streaming_state(
         self, session_id: str, *, is_streaming: bool, clear_text: bool
@@ -1171,7 +893,7 @@ class ChatViewModel(BaseViewModel):
         if streaming_text:
             state.messages.append({"role": "assistant", "content": streaming_text})
             self._session_states[session_id] = state
-            self._persist_messages_to_local_storage(
+            self._persist_messages(
                 session_id,
                 state.messages,
                 replay_updates=state.replay_updates,
@@ -1227,3 +949,98 @@ class ChatViewModel(BaseViewModel):
             error_message=error_msg,
             error_type=getattr(event, "error_type", "unknown"),
         )
+
+    # =========================================================================
+    # Интеграция с новыми компонентами декомпозиции
+    # =========================================================================
+
+    def handle_session_update_dispatched(self, update_data: dict[str, Any]) -> None:
+        """Обработать session/update через SessionUpdateDispatcher.
+
+        Делегирует обработку обновлений соответствующим handler'ам.
+        Handler'ы синхронизируют Observable через ChatUpdateSink.
+
+        Args:
+            update_data: Данные обновления от сервера
+        """
+        if self._session_update_dispatcher is None:
+            self.logger.warning(
+                "session_update_dispatcher_not_available",
+                update_data=update_data,
+            )
+            return
+
+        # Извлекаем session_id из update_data
+        params = update_data.get("params", {})
+        session_id = params.get("sessionId", self._active_session_id)
+
+        if not isinstance(session_id, str):
+            self.logger.warning(
+                "handle_session_update_dispatched_missing_session_id",
+                update_data=update_data,
+            )
+            return
+
+        # Получаем или создаём состояние сессии
+        state = self._get_or_create_session_state(session_id)
+
+        # Добавляем replay update для восстановления состояния
+        state.replay_updates.append(update_data)
+        self._session_states[session_id] = state
+
+        # Сохраняем в persistence
+        self._persist_messages(
+            session_id,
+            state.messages,
+            replay_updates=state.replay_updates,
+        )
+
+        # Создаём контекст для dispatcher
+        from codelab.client.presentation.chat.context import ChatUpdateContext
+
+        context = ChatUpdateContext(
+            session_id=session_id,
+            state=state,
+            sink=self,  # ChatViewModel реализует ChatUpdateSink
+            plan_vm=self._plan_vm,
+            event_bus=self.event_bus,
+            _logger=self.logger,
+        )
+
+        # Диспетчеризация обновления
+        # Handler'ы синхронизируют Observable через context.sink
+        self._session_update_dispatcher.dispatch_with_context(update_data, context)
+
+    # Реализация ChatUpdateSink для интеграции с handler'ами
+
+    def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
+        """Синхронизировать сообщения с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            messages: Обновлённый список сообщений
+        """
+        if self._active_session_id == session_id:
+            self.messages.value = list(messages)
+
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
+        """Синхронизировать tool calls с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            tool_calls: Обновлённый список tool calls
+        """
+        if self._active_session_id == session_id:
+            self.tool_calls.value = list(tool_calls)
+
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
+        """Синхронизировать streaming текст с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            text: Текущий streaming текст
+            is_streaming: Флаг активной потоковой передачи
+        """
+        if self._active_session_id == session_id:
+            self.streaming_text.value = text
+            self.is_streaming.value = is_streaming

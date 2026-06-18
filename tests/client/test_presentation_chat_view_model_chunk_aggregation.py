@@ -2,9 +2,42 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
+from codelab.client.presentation.chat.dispatcher.session_update_dispatcher import (
+    SessionUpdateDispatcher,
+)
+from codelab.client.presentation.chat.handlers.config_option_handler import (
+    ConfigOptionHandler,
+)
+from codelab.client.presentation.chat.handlers.message_chunk_handler import (
+    MessageChunkHandler,
+)
+from codelab.client.presentation.chat.handlers.plan_update_handler import (
+    PlanUpdateHandler,
+)
+from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
 from codelab.client.presentation.chat_view_model import ChatViewModel
+
+
+def _create_chat_view_model() -> ChatViewModel:
+    """Создает ChatViewModel с необходимыми зависимостями."""
+    dispatcher = SessionUpdateDispatcher(
+        message_chunk_handler=MessageChunkHandler(),
+        tool_call_handler=ToolCallHandler(),
+        plan_update_handler=PlanUpdateHandler(),
+        config_option_handler=ConfigOptionHandler(),
+    )
+    persistence = Mock()
+    persistence.save_messages = AsyncMock()
+    persistence.load_messages_sync = Mock(return_value=[])
+    persistence.load_replay_updates_sync = Mock(return_value=[])
+    return ChatViewModel(
+        coordinator=MagicMock(),
+        event_bus=MagicMock(),
+        session_update_dispatcher=dispatcher,
+        chat_persistence=persistence,
+    )
 
 
 class TestChunkAggregation:
@@ -13,9 +46,7 @@ class TestChunkAggregation:
     def test_aggregates_sequential_user_chunks(self) -> None:
         """Последовательные user_message_chunk агрегируются в одно сообщение."""
         # Arrange
-        coordinator = MagicMock()
-        event_bus = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
         
         replay_updates = [
@@ -51,9 +82,7 @@ class TestChunkAggregation:
     def test_aggregates_sequential_agent_chunks(self) -> None:
         """Последовательные agent_message_chunk агрегируются в одно сообщение."""
         # Arrange
-        coordinator = MagicMock()
-        event_bus = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
         
         replay_updates = [
@@ -89,9 +118,7 @@ class TestChunkAggregation:
     def test_separates_different_roles(self) -> None:
         """Сообщения разных ролей не агрегируются вместе."""
         # Arrange
-        coordinator = MagicMock()
-        event_bus = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
         
         replay_updates = [
@@ -129,9 +156,7 @@ class TestChunkAggregation:
     def test_aggregates_streaming_response(self) -> None:
         """Streaming response (множество маленьких chunks) агрегируется в одно сообщение."""
         # Arrange
-        coordinator = MagicMock()
-        event_bus = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
         
         # Имитация streaming: много маленьких chunks
@@ -161,9 +186,7 @@ class TestChunkAggregation:
     def test_complex_conversation_flow(self) -> None:
         """Сложный диалог с чередованием ролей агрегируется корректно."""
         # Arrange
-        coordinator = MagicMock()
-        event_bus = MagicMock()
-        vm = ChatViewModel(coordinator=coordinator, event_bus=event_bus)
+        vm = _create_chat_view_model()
         vm._active_session_id = "s"
         
         replay_updates = [

@@ -71,6 +71,7 @@ class InlinePermissionWidget(Static):
         tool_call: PermissionToolCall,
         options: list[PermissionOption],
         on_choice: Callable[[str | int, str], None],
+        id: str | None = None,  # noqa: A002
     ) -> None:
         """Инициализирует встроенный виджет разрешения.
 
@@ -80,8 +81,9 @@ class InlinePermissionWidget(Static):
             tool_call: Информация о tool call (kind, title)
             options: Доступные опции для выбора
             on_choice: Callback при выборе (request_id, option_id)
+            id: ID виджета (по умолчанию формируется из request_id)
         """
-        super().__init__(id=f"permission_widget_{request_id}")
+        super().__init__(id=id or f"permission_widget_{request_id}")
         self.permission_vm = permission_vm
         self._request_id = request_id
         self._tool_call = tool_call
