@@ -193,7 +193,7 @@ flowchart LR
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/client/
+src/codelab/client/
 ├── domain/
 │   ├── entities.py          # Session, Message
 │   ├── repositories.py      # Интерфейсы репозиториев
@@ -278,7 +278,7 @@ flowchart LR
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/
+src/codelab/server/
 ├── messages.py              # ACPMessage, JsonRpcError
 ├── transport/
 │   └── base.py              # Transport ABC
@@ -338,7 +338,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/protocol/
+src/codelab/server/protocol/
 ├── core.py                  # ACPProtocol
 ├── state.py                 # SessionState, ToolCallState, ActiveTurnState, etc.
 ├── session_factory.py       # Фабрика сессий
@@ -452,7 +452,7 @@ flowchart TB
 
 **Ключевые файлы (НОВЫЕ):**
 ```
-codelab/src/codelab/server/agent/
+src/codelab/server/agent/
 ├── core/
 │   ├── agent.py              # Agent Protocol (единый контракт)
 │   ├── result.py             # AgentResult (text, tool_calls, usage, agent_name)
@@ -529,7 +529,7 @@ flowchart TB
 
 **Ключевые файлы (НОВЫЕ):**
 ```
-codelab/src/codelab/server/observability/
+src/codelab/server/observability/
 ├── tracer.py                 # Tracer, Span, SpanContext
 ├── timeline.py               # EventTimeline, TimelineEvent
 ├── factory.py                # ObservabilityFactory
@@ -539,7 +539,7 @@ codelab/src/codelab/server/observability/
 ├── export.py                 # JSON export
 └── comparative.py            # ComparativeReport
 
-codelab/src/codelab/server/metrics/
+src/codelab/server/metrics/
 ├── tracker.py                # MetricsTracker (context manager)
 ├── subscribers.py            # MetricsSubscriber
 └── (shared/metrics/)
@@ -605,7 +605,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/llm/
+src/codelab/server/llm/
 ├── base.py                   # LLMProvider ABC, LLMConfig, LLMCapabilities
 ├── models.py                 # CompletionRequest/Response, LLMMessage, ModelInfo, etc.
 ├── registry.py               # LLMProviderRegistry
@@ -674,7 +674,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/tools/
+src/codelab/server/tools/
 ├── base.py                   # ToolDefinition, ToolExecutionResult, ToolRegistry ABC
 ├── registry.py               # SimpleToolRegistry
 ├── mapping.py                # acp_name_to_llm_name, llm_name_to_acp_name
@@ -736,14 +736,14 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/storage/
+src/codelab/server/storage/
 ├── base.py                   # SessionStorage ABC
 ├── memory.py                 # InMemoryStorage
 ├── json_file.py              # JsonFileStorage
 ├── cached.py                 # CachedSessionStorage
 └── global_policy_storage.py  # GlobalPolicyStorage
 
-codelab/src/codelab/server/agent/config/
+src/codelab/server/agent/config/
 ├── loader.py                 # AgentConfigLoader (4 источника)
 ├── resolver.py               # AgentConfigResolver
 └── models.py                 # AgentMarkdownConfig, AgentTOMLConfig
@@ -787,12 +787,12 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/client_rpc/
+src/codelab/server/client_rpc/
 ├── service.py                # ClientRPCService
 ├── models.py                 # ClientRPCRequest/Response
 └── exceptions.py             # ClientRPCError, TimeoutError, CancelError
 
-codelab/src/codelab/server/rpc_holder.py  # ClientRPCServiceHolder
+src/codelab/server/rpc_holder.py  # ClientRPCServiceHolder
 ```
 
 #### 2.3.8. MCP Layer
@@ -811,7 +811,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/mcp/
+src/codelab/server/mcp/
 ├── manager.py                # MCPManager
 └── client.py                 # MCPClient
 ```
@@ -861,7 +861,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-codelab/src/codelab/server/di.py  # Все провайдеры + make_container()
+src/codelab/server/di.py  # Все провайдеры + make_container()
 ```
 
 ---
@@ -1226,7 +1226,7 @@ flowchart TB
 
 Каждый Markdown файл содержит YAML frontmatter с метаданными агента (name, model, system_prompt, tools) и тело документа как описание/инструкции.
 
-codelab/src/codelab/server/storage/
+src/codelab/server/storage/
 ├── base.py                     # SessionStorage ABC
 ├── memory.py                   # InMemoryStorage
 ├── json_file.py                # JsonFileStorage
@@ -1321,7 +1321,7 @@ SessionMetrics (NEW)
 ## 10. File Structure Summary
 
 ```
-codelab/src/codelab/
+src/codelab/
 ├── shared/
 │   ├── messages.py                     # ACPMessage, JsonRpcError
 │   ├── logging.py                      # structlog setup

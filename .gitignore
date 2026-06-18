@@ -34,5 +34,5 @@ opencode_debug.log
 .DS_Store
 Thumbs.db
 
-codelab/.coverage
-codelab/coverage.json
+.coverage
+coverage.json

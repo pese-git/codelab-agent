@@ -37,13 +37,13 @@
 ## Impact
 
 **Новые файлы:**
-- `codelab/src/codelab/server/agent/strategies/models.py` — TaskInvocation, TaskResult
-- `codelab/src/codelab/server/agent/strategies/task_permissions.py` — TaskPermissions
-- `codelab/src/codelab/server/agent/strategies/hierarchical.py` — HierarchicalStrategy
+- `src/codelab/server/agent/strategies/models.py` — TaskInvocation, TaskResult
+- `src/codelab/server/agent/strategies/task_permissions.py` — TaskPermissions
+- `src/codelab/server/agent/strategies/hierarchical.py` — HierarchicalStrategy
 
 **Изменяемые файлы:**
-- `codelab/src/codelab/server/agent/strategies/descriptor.py` — HIERARCHICAL_STRATEGY_DESCRIPTOR
-- `codelab/src/codelab/server/protocol/handlers/permissions.py` — task permissions resolution
-- `codelab/src/codelab/server/agent/strategies/mcp_context.py` — MCP propagation в child sessions
+- `src/codelab/server/agent/strategies/descriptor.py` — HIERARCHICAL_STRATEGY_DESCRIPTOR
+- `src/codelab/server/protocol/handlers/permissions.py` — task permissions resolution
+- `src/codelab/server/agent/strategies/mcp_context.py` — MCP propagation в child sessions
 
 **Зависимости:** Зависит от event-bus, llm-adapter, agent-registry, observability, orchestrated-strategy (TokenSlicer, HybridContextManager).

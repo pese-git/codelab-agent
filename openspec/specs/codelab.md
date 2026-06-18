@@ -813,7 +813,7 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-    Root["codelab/tests/"]
+    Root["tests/"]
 
     subgraph Common["Общие"]
         C1["__init__.py"]

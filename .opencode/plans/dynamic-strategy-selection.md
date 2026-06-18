@@ -26,7 +26,7 @@
 
 ### 1. Переименовать `AgentsConfig.mode` → `AgentsConfig.strategy`
 
-**Файл:** `codelab/src/codelab/server/config.py`
+**Файл:** `src/codelab/server/config.py`
 
 **Изменения:**
 ```python
@@ -48,7 +48,7 @@ class AgentsConfig(BaseModel):
 
 ### 2. Обновить ACPProtocol — configOptions вместо modes
 
-**Файл:** `codelab/src/codelab/server/protocol/core.py`
+**Файл:** `src/codelab/server/protocol/core.py`
 
 **Изменения:**
 
@@ -139,7 +139,7 @@ class ACPProtocol:
 
 ### 3. Обновить StrategyDispatcher
 
-**Файл:** `codelab/src/codelab/server/agent/strategies/dispatcher.py`
+**Файл:** `src/codelab/server/agent/strategies/dispatcher.py`
 
 **Изменения:**
 
@@ -215,7 +215,7 @@ class StrategyDispatcher:
 
 ### 4. Обновить SingleStrategy
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/strategies/single_strategy.py`
+**Файл:** `src/codelab/server/protocol/handlers/strategies/single_strategy.py`
 
 **Изменения:**
 
@@ -263,7 +263,7 @@ class SingleStrategy:
 
 ### 5. Обновить DI провайдеры
 
-**Файл:** `codelab/src/codelab/server/di.py`
+**Файл:** `src/codelab/server/di.py`
 
 **Изменения:**
 
@@ -305,7 +305,7 @@ class RequestProvider(Provider):
 
 ### 6. Обновить LLMLoopStage
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/pipeline/stages/llm_loop.py`
+**Файл:** `src/codelab/server/protocol/handlers/pipeline/stages/llm_loop.py`
 
 **Изменения:**
 
@@ -339,7 +339,7 @@ class LLMLoopStage(PromptStage):
 
 ### 7. Добавить slash command `/strategy`
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/slash_commands/builtin/strategy.py` (новый файл)
+**Файл:** `src/codelab/server/protocol/handlers/slash_commands/builtin/strategy.py` (новый файл)
 
 ```python
 """Handler для команды /strategy."""
@@ -452,7 +452,7 @@ class SlashCommandsProvider(Provider):
 
 ### 8. Обновить session.py — configOptions вместо modes
 
-**Файл:** `codelab/src/codelab/server/protocol/handlers/session.py`
+**Файл:** `src/codelab/server/protocol/handlers/session.py`
 
 **Изменения:**
 
