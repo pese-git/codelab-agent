@@ -1318,7 +1318,7 @@ class ChatViewModel(BaseViewModel):
             sink=self,  # ChatViewModel реализует ChatUpdateSink
             plan_vm=self._plan_vm,
             event_bus=self.event_bus,
-            logger=self.logger,
+            _logger=self.logger,
         )
 
         # Диспетчеризация обновления

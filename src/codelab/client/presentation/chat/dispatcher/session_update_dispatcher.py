@@ -106,7 +106,7 @@ class SessionUpdateDispatcher:
             sink=None,
             plan_vm=None,
             event_bus=None,
-            logger=self._logger,
+            _logger=self._logger,
         )
 
         # Ищем подходящий обработчик
