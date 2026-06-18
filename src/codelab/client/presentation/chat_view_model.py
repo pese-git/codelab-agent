@@ -8,11 +8,7 @@
 """
 
 import asyncio
-import json
-import os
-import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from codelab.client.presentation.base_view_model import BaseViewModel
@@ -63,11 +59,8 @@ class ChatViewModel(BaseViewModel):
         coordinator: Any,  # SessionCoordinator
         event_bus: Any | None = None,
         logger: Any | None = None,
-        history_dir: Path | str | None = None,
-        fs_executor: Any | None = None,  # FileSystemExecutor
-        terminal_executor: Any | None = None,  # TerminalExecutor
         plan_vm: Any | None = None,  # PlanViewModel для обработки plan updates
-        # Новые компоненты декомпозиции (опциональные для обратной совместимости)
+        # Компоненты декомпозиции
         session_update_dispatcher: Any | None = None,  # SessionUpdateDispatcher
         chat_persistence: Any | None = None,  # ChatPersistencePort
         fs_callback_executor: Any | None = None,  # FsCallbackExecutor
@@ -79,10 +72,6 @@ class ChatViewModel(BaseViewModel):
             coordinator: SessionCoordinator для работы с prompt-turn
             event_bus: EventBus для публикации/подписки на события
             logger: Logger для логирования
-            history_dir: Директория локального persistence истории
-                (приоритет: history_dir -> CODELAB_CLIENT_HISTORY_DIR -> ~/.codelab/data/history)
-            fs_executor: FileSystemExecutor для обработки fs/* callbacks (синхронно)
-            terminal_executor: TerminalExecutor для обработки terminal/* callbacks (синхронно)
             plan_vm: PlanViewModel для обработки plan updates из session/update
             session_update_dispatcher: SessionUpdateDispatcher для маршрутизации обновлений
             chat_persistence: ChatPersistencePort для сохранения истории
@@ -91,38 +80,13 @@ class ChatViewModel(BaseViewModel):
         """
         super().__init__(event_bus, logger)
         self.coordinator = coordinator
-        self._fs_executor = fs_executor
-        self._terminal_executor = terminal_executor
         self._plan_vm = plan_vm
 
-        # Новые компоненты декомпозиции
+        # Компоненты декомпозиции
         self._session_update_dispatcher = session_update_dispatcher
         self._chat_persistence = chat_persistence
         self._fs_callback_executor = fs_callback_executor
         self._terminal_callback_executor = terminal_callback_executor
-
-        # Локальный storage истории нужен для восстановления UI без network roundtrip.
-        # Порядок приоритета: явный аргумент -> переменная окружения -> путь по умолчанию.
-        env_history_dir = os.getenv("CODELAB_CLIENT_HISTORY_DIR")
-        if history_dir is not None:
-            resolved_history_dir = Path(history_dir)
-        elif env_history_dir:
-            resolved_history_dir = Path(env_history_dir)
-        else:
-            resolved_history_dir = Path.home() / ".codelab" / "data" / "history"
-        self._history_dir = resolved_history_dir
-        try:
-            self._history_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.info(
-                "chat_history_storage_initialized",
-                history_dir=str(self._history_dir.resolve()),
-            )
-        except OSError as error:
-            self.logger.warning(
-                "chat_history_dir_unavailable",
-                history_dir=str(self._history_dir),
-                error=str(error),
-            )
 
         # Observable свойства
         self.messages: Observable[list[Any]] = Observable([])
@@ -225,46 +189,6 @@ class ChatViewModel(BaseViewModel):
                     "on_terminal_wait_for_exit": _on_terminal_wait_for_exit,
                     "on_terminal_release": _on_terminal_release,
                     "on_terminal_kill": _on_terminal_kill,
-                }
-            elif self._terminal_executor is not None:
-                _results: dict[str, dict[str, Any]] = {}
-                _executor = self._terminal_executor
-
-                async def _on_terminal_create_legacy(command: str) -> str:
-                    tid = str(uuid.uuid4())
-                    terminal_id = await _executor.create_terminal(command)
-                    exit_code = await _executor.wait_for_exit(terminal_id)
-                    output, _, _ = await _executor.get_output(terminal_id)
-                    await _executor.release_terminal(terminal_id)
-                    _results[tid] = {"output": output, "exit_code": exit_code}
-                    return tid
-
-                async def _on_terminal_output_legacy(terminal_id: str) -> dict[str, Any]:
-                    r = _results.get(terminal_id, {})
-                    return {
-                        "output": r.get("output", ""),
-                        "isComplete": True,
-                        "exitCode": r.get("exit_code"),
-                    }
-
-                async def _on_terminal_wait_for_exit_legacy(
-                    terminal_id: str,
-                ) -> tuple[int | None, str | None]:
-                    r = _results.get(terminal_id, {})
-                    return (r.get("exit_code"), r.get("output", ""))
-
-                async def _on_terminal_release_legacy(terminal_id: str) -> None:
-                    _results.pop(terminal_id, None)
-
-                async def _on_terminal_kill_legacy(terminal_id: str) -> bool:
-                    return _results.pop(terminal_id, None) is not None
-
-                terminal_callbacks = {
-                    "on_terminal_create": _on_terminal_create_legacy,
-                    "on_terminal_output": _on_terminal_output_legacy,
-                    "on_terminal_wait_for_exit": _on_terminal_wait_for_exit_legacy,
-                    "on_terminal_release": _on_terminal_release_legacy,
-                    "on_terminal_kill": _on_terminal_kill_legacy,
                 }
 
             # Отправить prompt через coordinator с callback для обработки обновлений
@@ -417,9 +341,6 @@ class ChatViewModel(BaseViewModel):
     async def _handle_fs_read(self, path: str) -> str:
         """Обработать fs/read_text_file от агента (async).
 
-        Если доступен FsCallbackExecutor, использует его.
-        Иначе использует старый FileSystemExecutor (обратная совместимость).
-
         Args:
             path: Путь к файлу для чтения
 
@@ -432,32 +353,22 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_read_no_active_session", path=path)
                 return ""
 
-            # Новый путь: через FsCallbackExecutor
-            if self._fs_callback_executor is not None:
-                content, error = await self._fs_callback_executor.read_file(path)
-                if error:
-                    self.logger.warning("fs_read_error", path=path, error=error)
-                    return ""
-                self.logger.debug("fs_read_success", path=path, content_size=len(content or ""))
-                return content or ""
-
-            # Старый путь: через FileSystemExecutor (обратная совместимость)
-            if self._fs_executor is None:
-                self.logger.warning("fs_executor_not_initialized", path=path)
+            if self._fs_callback_executor is None:
+                self.logger.warning("fs_callback_executor_not_initialized", path=path)
                 return ""
 
-            content = await asyncio.to_thread(self._fs_executor.read_text_file_sync, path)
-            self.logger.debug("fs_read_success", path=path, content_size=len(content))
-            return content
+            content, error = await self._fs_callback_executor.read_file(path)
+            if error:
+                self.logger.warning("fs_read_error", path=path, error=error)
+                return ""
+            self.logger.debug("fs_read_success", path=path, content_size=len(content or ""))
+            return content or ""
         except Exception as e:
             self.logger.error("fs_read_error", path=path, error=str(e))
             return ""
 
     async def _handle_fs_write(self, path: str, content: str) -> bool:
         """Обработать fs/write_text_file от агента (async).
-
-        Если доступен FsCallbackExecutor, использует его.
-        Иначе использует старый FileSystemExecutor (обратная совместимость).
 
         Args:
             path: Путь к файлу для записи
@@ -472,65 +383,19 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_write_no_active_session", path=path)
                 return False
 
-            # Новый путь: через FsCallbackExecutor
-            if self._fs_callback_executor is not None:
-                success, error = await self._fs_callback_executor.write_file(path, content)
-                if error:
-                    self.logger.warning("fs_write_error", path=path, error=error)
-                    return False
-                self.logger.debug("fs_write_success", path=path, content_size=len(content))
-                return success
-
-            # Старый путь: через FileSystemExecutor (обратная совместимость)
-            if self._fs_executor is None:
-                self.logger.warning("fs_executor_not_initialized", path=path)
+            if self._fs_callback_executor is None:
+                self.logger.warning("fs_callback_executor_not_initialized", path=path)
                 return False
 
-            await asyncio.to_thread(self._fs_executor.write_text_file_sync, path, content)
+            success, error = await self._fs_callback_executor.write_file(path, content)
+            if error:
+                self.logger.warning("fs_write_error", path=path, error=error)
+                return False
             self.logger.debug("fs_write_success", path=path, content_size=len(content))
-            return True
+            return success
         except Exception as e:
             self.logger.error("fs_write_error", path=path, error=str(e))
             return False
-
-    def _handle_terminal_execute(self, command: str, cwd: str | None = None) -> dict[str, Any]:
-        """Обработать terminal/execute от агента (синхронный).
-
-        Используется синхронный метод TerminalExecutor напрямую.
-
-        Args:
-            command: Команда для выполнения
-            cwd: Рабочая директория (опционально)
-
-        Returns:
-            Словарь с результатом выполнения (success, output, exit_code)
-        """
-        try:
-            session_id = self._active_session_id
-            if not session_id:
-                self.logger.warning("terminal_execute_no_active_session", command=command)
-                return {"success": False, "error": "No active session"}
-
-            # Проверяем наличие executor'а перед использованием
-            if self._terminal_executor is None:
-                self.logger.warning("terminal_executor_not_initialized", command=command)
-                return {
-                    "success": False,
-                    "error": "Terminal executor not initialized",
-                }
-
-            # Используем синхронный метод executor напрямую
-            result = self._terminal_executor.execute(command, cwd=cwd)
-            self.logger.debug(
-                "terminal_execute_result",
-                command=command,
-                exit_code=result.get("exit_code"),
-                success=result.get("success"),
-            )
-            return result
-        except Exception as e:
-            self.logger.error("terminal_execute_error", command=command, error=str(e))
-            return {"success": False, "error": str(e)}
 
     def add_message(self, role: str, content: str, session_id: str | None = None) -> None:
         """Добавить сообщение в чат.
@@ -809,77 +674,15 @@ class ChatViewModel(BaseViewModel):
         """Сохраняет сообщения через ChatPersistencePort.
 
         Использует fire-and-forget pattern для async save.
-        Если persistence не предоставлен, сохраняет в legacy storage.
 
         Args:
             session_id: ID сессии
             messages: Список сообщений для сохранения
             replay_updates: Опциональные replay updates
         """
-        if self._chat_persistence is not None:
-            serializable_messages = [
-                message
-                for message in messages
-                if isinstance(message, dict)
-                and isinstance(message.get("role"), str)
-                and isinstance(message.get("content"), str)
-            ]
-            serializable_updates = (
-                [u for u in replay_updates if isinstance(u, dict)]
-                if replay_updates is not None
-                else None
-            )
-            asyncio.create_task(
-                self._chat_persistence.save_messages(
-                    session_id,
-                    serializable_messages,
-                    replay_updates=serializable_updates,
-                )
-            )
-        else:
-            self._persist_messages_legacy(session_id, messages, replay_updates)
+        if self._chat_persistence is None:
+            return
 
-    def _load_messages(self, session_id: str) -> list[dict[str, str]]:
-        """Загружает сообщения через ChatPersistencePort или legacy.
-
-        Args:
-            session_id: ID сессии
-
-        Returns:
-            Список сообщений или пустой список
-        """
-        if self._chat_persistence is not None:
-            return self._chat_persistence.load_messages_sync(session_id)
-        return self._load_messages_legacy(session_id)
-
-    def _load_replay_updates(self, session_id: str) -> list[dict[str, Any]]:
-        """Загружает replay updates через ChatPersistencePort или legacy.
-
-        Args:
-            session_id: ID сессии
-
-        Returns:
-            Список replay updates или пустой список
-        """
-        if self._chat_persistence is not None:
-            return self._chat_persistence.load_replay_updates_sync(session_id)
-        return self._load_replay_updates_legacy(session_id)
-
-    def _history_file_path(self, session_id: str) -> Path:
-        """Возвращает путь JSON-файла истории для указанной сессии.
-
-        Используется только для legacy persistence fallback.
-        """
-        safe_session_id = session_id.replace("/", "_").replace("\\", "_")
-        return self._history_dir / f"{safe_session_id}.json"
-
-    def _persist_messages_legacy(
-        self,
-        session_id: str,
-        messages: list[Any],
-        replay_updates: list[dict[str, Any]] | None = None,
-    ) -> None:
-        """Legacy persistence: сохраняет сообщения в локальный JSON storage."""
         serializable_messages = [
             message
             for message in messages
@@ -887,78 +690,49 @@ class ChatViewModel(BaseViewModel):
             and isinstance(message.get("role"), str)
             and isinstance(message.get("content"), str)
         ]
-        file_path = self._history_file_path(session_id)
-        payload: dict[str, Any] = {"messages": serializable_messages}
-        if replay_updates is not None:
-            payload["replay_updates"] = [
-                update for update in replay_updates if isinstance(update, dict)
-            ]
+        serializable_updates = (
+            [u for u in replay_updates if isinstance(u, dict)]
+            if replay_updates is not None
+            else None
+        )
         try:
-            file_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._chat_persistence.save_messages(
+                    session_id,
+                    serializable_messages,
+                    replay_updates=serializable_updates,
+                )
             )
-        except OSError as error:
-            self.logger.warning(
-                "chat_history_save_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
-            )
+        except RuntimeError:
+            # Нет running event loop - пропускаем сохранение
+            pass
 
-    def _load_messages_legacy(self, session_id: str) -> list[dict[str, str]]:
-        """Legacy persistence: загружает сообщения из локального JSON storage."""
-        file_path = self._history_file_path(session_id)
-        if not file_path.exists():
+    def _load_messages(self, session_id: str) -> list[dict[str, str]]:
+        """Загружает сообщения через ChatPersistencePort.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список сообщений или пустой список
+        """
+        if self._chat_persistence is None:
             return []
+        return self._chat_persistence.load_messages_sync(session_id)
 
-        try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            self.logger.warning(
-                "chat_history_load_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
-            )
+    def _load_replay_updates(self, session_id: str) -> list[dict[str, Any]]:
+        """Загружает replay updates через ChatPersistencePort.
+
+        Args:
+            session_id: ID сессии
+
+        Returns:
+            Список replay updates или пустой список
+        """
+        if self._chat_persistence is None:
             return []
-
-        raw_messages = payload.get("messages") if isinstance(payload, dict) else None
-        if not isinstance(raw_messages, list):
-            return []
-
-        normalized_messages: list[dict[str, str]] = []
-        for message in raw_messages:
-            if not isinstance(message, dict):
-                continue
-            role = message.get("role")
-            content = message.get("content")
-            if isinstance(role, str) and isinstance(content, str):
-                normalized_messages.append({"role": role, "content": content})
-        return normalized_messages
-
-    def _load_replay_updates_legacy(self, session_id: str) -> list[dict[str, Any]]:
-        """Legacy persistence: загружает replay updates из локального JSON storage."""
-        file_path = self._history_file_path(session_id)
-        if not file_path.exists():
-            return []
-
-        try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            self.logger.warning(
-                "chat_history_load_failed",
-                session_id=session_id,
-                path=str(file_path),
-                error=str(error),
-            )
-            return []
-
-        raw_replay_updates = payload.get("replay_updates") if isinstance(payload, dict) else None
-        if not isinstance(raw_replay_updates, list):
-            return []
-
-        return [update for update in raw_replay_updates if isinstance(update, dict)]
+        return self._chat_persistence.load_replay_updates_sync(session_id)
 
     def _rebuild_messages_from_replay(
         self,
@@ -990,18 +764,6 @@ class ChatViewModel(BaseViewModel):
                 rebuilt_messages.append({"role": "assistant", "content": text})
 
         return rebuilt_messages
-
-    def _append_streaming_text_to_session(self, session_id: str, text: str) -> None:
-        """Добавляет streaming chunk в состояние указанной сессии."""
-
-        state = self._get_or_create_session_state(session_id)
-        state.streaming_text += text
-        state.is_streaming = True
-        self._session_states[session_id] = state
-
-        if self._active_session_id == session_id:
-            self.streaming_text.value = state.streaming_text
-            self.is_streaming.value = True
 
     def _set_streaming_state(
         self, session_id: str, *, is_streaming: bool, clear_text: bool

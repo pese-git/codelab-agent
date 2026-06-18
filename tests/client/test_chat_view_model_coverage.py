@@ -2,18 +2,16 @@
 
 Покрывают непротестированные ветки `src/codelab/client/presentation/chat_view_model.py`:
 инициализацию, отправку prompt, обработку session/update, команды,
-работу с локальным хранилищем и event-обработчики.
+работу с persistence и event-обработчики.
 """
 
 from __future__ import annotations
 
 import asyncio
 import builtins
-import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -48,26 +46,6 @@ def coordinator() -> AsyncMock:
 
 
 @pytest.fixture
-def fs_executor() -> Mock:
-    """Создает mock файлового executor."""
-    executor = Mock()
-    executor.read_text_file_sync = Mock(return_value="file content")
-    executor.write_text_file_sync = Mock(return_value=True)
-    return executor
-
-
-@pytest.fixture
-def terminal_executor() -> AsyncMock:
-    """Создает async mock терминального executor."""
-    executor = AsyncMock()
-    executor.create_terminal.return_value = "term_1"
-    executor.wait_for_exit.return_value = 0
-    executor.get_output.return_value = ("output", "", "")
-    executor.execute.return_value = {"success": True, "output": "out", "exit_code": 0}
-    return executor
-
-
-@pytest.fixture
 def session_update_dispatcher() -> SessionUpdateDispatcher:
     """Создает SessionUpdateDispatcher с тестовыми handlers."""
     return SessionUpdateDispatcher(
@@ -79,45 +57,35 @@ def session_update_dispatcher() -> SessionUpdateDispatcher:
 
 
 @pytest.fixture
+def chat_persistence() -> Mock:
+    """Создает mock ChatPersistencePort."""
+    persistence = Mock()
+    persistence.save_messages = AsyncMock()
+    persistence.load_messages_sync = Mock(return_value=[])
+    persistence.load_replay_updates_sync = Mock(return_value=[])
+    return persistence
+
+
+@pytest.fixture
 def chat_view_model(
-    tmp_path: Path,
     coordinator: AsyncMock,
-    fs_executor: Mock,
-    terminal_executor: AsyncMock,
     session_update_dispatcher: SessionUpdateDispatcher,
+    chat_persistence: Mock,
 ) -> ChatViewModel:
     """Создает ChatViewModel с тестовыми зависимостями."""
     return ChatViewModel(
         coordinator=coordinator,
         event_bus=EventBus(),
         logger=None,
-        history_dir=tmp_path / "history",
-        fs_executor=fs_executor,
-        terminal_executor=terminal_executor,
         session_update_dispatcher=session_update_dispatcher,
+        chat_persistence=chat_persistence,
     )
 
 
 class TestInitialization:
     """Тесты инициализации ChatViewModel."""
 
-    def test_history_dir_unavailable_logs_warning(self, tmp_path: Path) -> None:
-        """При недоступности директории истории логируется предупреждение."""
-        history_file = tmp_path / "history"
-        history_file.write_text("not a directory")
-        logger = MagicMock()
-
-        ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=MagicMock(),
-            logger=logger,
-            history_dir=history_file,
-        )
-
-        logger.warning.assert_called_once()
-        assert logger.warning.call_args.args[0] == "chat_history_dir_unavailable"
-
-    def test_domain_events_import_error_skips_subscription(self, tmp_path: Path) -> None:
+    def test_domain_events_import_error_skips_subscription(self) -> None:
         """При недоступности модуля событий подписки пропускаются."""
         real_import = builtins.__import__
 
@@ -127,13 +95,17 @@ class TestInitialization:
             return real_import(name, *args, **kwargs)
 
         logger = MagicMock()
-        with patch.object(builtins, "__import__", fake_import):
+        import builtins as _builtins
+        original_import = _builtins.__import__
+        try:
+            _builtins.__import__ = fake_import
             ChatViewModel(
                 coordinator=MagicMock(),
                 event_bus=MagicMock(),
                 logger=logger,
-                history_dir=tmp_path / "history",
             )
+        finally:
+            _builtins.__import__ = original_import
 
         logger.debug.assert_any_call(
             "DomainEvents not available, skipping event subscriptions"
@@ -210,16 +182,14 @@ class TestSendPrompt:
 
     async def test_send_prompt_without_terminal_executor(
         self,
-        tmp_path: Path,
         coordinator: AsyncMock,
         session_update_dispatcher: SessionUpdateDispatcher,
     ) -> None:
-        """Без terminal_executor callback'и терминала не передаются."""
+        """Без terminal_callback_executor callback'и терминала не передаются."""
         vm = ChatViewModel(
             coordinator=coordinator,
             event_bus=EventBus(),
             logger=None,
-            history_dir=tmp_path / "history",
             session_update_dispatcher=session_update_dispatcher,
         )
         coordinator.send_prompt.return_value = None
@@ -371,7 +341,6 @@ class TestSessionUpdate:
 
     def test_plan_update_with_plan_vm(
         self,
-        tmp_path: Path,
         session_update_dispatcher: SessionUpdateDispatcher,
     ) -> None:
         """plan update форматирует план и передает PlanViewModel."""
@@ -380,7 +349,6 @@ class TestSessionUpdate:
             coordinator=MagicMock(),
             event_bus=EventBus(),
             logger=None,
-            history_dir=tmp_path / "history",
             plan_vm=plan_vm,
             session_update_dispatcher=session_update_dispatcher,
         )
@@ -591,56 +559,6 @@ class TestCommands:
         assert chat_view_model.last_stop_reason.value is None
 
 
-class TestFileSystemAndTerminal:
-    """Тесты callback'ов fs и terminal."""
-
-    async def test_handle_fs_read_without_executor(self, tmp_path: Path) -> None:
-        """Чтение файла без fs_executor возвращает пустую строку."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-            fs_executor=None,
-        )
-        vm.set_active_session("s")
-
-        content = await vm._handle_fs_read("file.txt")
-
-        assert content == ""
-
-    async def test_handle_fs_write_without_executor(self, tmp_path: Path) -> None:
-        """Запись файла без fs_executor возвращает False."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-            fs_executor=None,
-        )
-        vm.set_active_session("s")
-
-        success = await vm._handle_fs_write("file.txt", "data")
-
-        assert success is False
-
-    def test_handle_terminal_execute_without_executor(self, tmp_path: Path) -> None:
-        """Выполнение команды без terminal_executor возвращает ошибку."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-            terminal_executor=None,
-        )
-        vm.set_active_session("s")
-
-        result = vm._handle_terminal_execute("ls")
-
-        assert result["success"] is False
-        assert "Terminal executor not initialized" in result["error"]
-
-
 class TestHelpers:
     """Тесты вспомогательных методов."""
 
@@ -743,125 +661,8 @@ class TestRestoreSession:
         assert chat_view_model.messages.value == []
 
 
-class TestLocalStorage:
-    """Тесты локального хранилища истории."""
-
-    def test_persist_messages_oserror(self, tmp_path: Path) -> None:
-        """Ошибка записи истории логируется."""
-        real_write_text = Path.write_text
-
-        def fake_write_text(self: Path, *args: Any, **kwargs: Any) -> None:
-            if "persist_error" in str(self):
-                raise OSError("write failed")
-            return real_write_text(self, *args, **kwargs)
-
-        logger = MagicMock()
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=logger,
-            history_dir=tmp_path / "history",
-        )
-
-        with patch.object(Path, "write_text", fake_write_text):
-            vm.add_message("user", "hi", session_id="persist_error")
-
-        logger.warning.assert_called_once()
-        assert logger.warning.call_args.args[0] == "chat_history_save_failed"
-
-    def test_load_messages_oserror(self, tmp_path: Path) -> None:
-        """Ошибка чтения файла сообщений возвращает пустой список."""
-        real_read_text = Path.read_text
-
-        def fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
-            if "load_error" in str(self):
-                raise OSError("read failed")
-            return real_read_text(self, *args, **kwargs)
-
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("load_error_s")
-        file_path.write_text("{}")
-
-        with patch.object(Path, "read_text", fake_read_text):
-            assert vm._load_messages_legacy("load_error_s") == []
-
-    def test_load_messages_json_decode_error(self, tmp_path: Path) -> None:
-        """Невалидный JSON при загрузке сообщений возвращает пустой список."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("s")
-        file_path.write_text("not-json")
-
-        assert vm._load_messages_legacy("s") == []
-
-    def test_load_messages_not_list(self, tmp_path: Path) -> None:
-        """Если messages не список, возвращается пустой список."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("s")
-        file_path.write_text(json.dumps({"messages": "bad"}))
-
-        assert vm._load_messages_legacy("s") == []
-
-    def test_load_messages_message_not_dict(self, tmp_path: Path) -> None:
-        """Некорректные элементы messages фильтруются."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("s")
-        file_path.write_text(json.dumps({"messages": ["bad"]}))
-
-        assert vm._load_messages_legacy("s") == []
-
-    def test_load_replay_updates_oserror(self, tmp_path: Path) -> None:
-        """Ошибка чтения replay updates возвращает пустой список."""
-        real_read_text = Path.read_text
-
-        def fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
-            if "replay_error" in str(self):
-                raise OSError("read failed")
-            return real_read_text(self, *args, **kwargs)
-
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("replay_error_s")
-        file_path.write_text("{}")
-
-        with patch.object(Path, "read_text", fake_read_text):
-            assert vm._load_replay_updates_legacy("replay_error_s") == []
-
-    def test_load_replay_updates_not_list(self, tmp_path: Path) -> None:
-        """Если replay_updates не список, возвращается пустой список."""
-        vm = ChatViewModel(
-            coordinator=MagicMock(),
-            event_bus=EventBus(),
-            logger=None,
-            history_dir=tmp_path / "history",
-        )
-        file_path = vm._history_file_path("s")
-        file_path.write_text(json.dumps({"replay_updates": "bad"}))
-
-        assert vm._load_replay_updates_legacy("s") == []
+class TestRebuildMessages:
+    """Тесты восстановления сообщений из replay updates."""
 
     def test_rebuild_messages_skips_wrong_session(self, chat_view_model: ChatViewModel) -> None:
         """_rebuild_messages_from_replay игнорирует updates другой сессии."""
@@ -966,17 +767,6 @@ class TestStreamingState:
 
         assert chat_view_model.last_stop_reason.value == "tool_use"
 
-    def test_append_streaming_text_to_session_active(
-        self,
-        chat_view_model: ChatViewModel,
-    ) -> None:
-        """append_streaming_text_to_session обновляет UI для активной сессии."""
-        chat_view_model.set_active_session("s")
-        chat_view_model._append_streaming_text_to_session("s", "chunk")
-
-        assert chat_view_model.streaming_text.value == "chunk"
-        assert chat_view_model.is_streaming.value is True
-
 
 class TestEventHandlers:
     """Тесты обработчиков доменных событий."""
@@ -1000,7 +790,13 @@ class TestEventHandlers:
     def test_handle_prompt_completed(self, chat_view_model: ChatViewModel) -> None:
         """PromptCompletedEvent сохраняет ответ и сбрасывает streaming."""
         chat_view_model.set_active_session("s")
-        chat_view_model._append_streaming_text_to_session("s", "response")
+        # Устанавливаем streaming_text через state
+        state = chat_view_model._get_or_create_session_state("s")
+        state.streaming_text = "response"
+        state.is_streaming = True
+        chat_view_model._session_states["s"] = state
+        chat_view_model.streaming_text.value = "response"
+        chat_view_model.is_streaming.value = True
         event = PromptCompletedEvent(
             aggregate_id="s",
             occurred_at=datetime.now(),

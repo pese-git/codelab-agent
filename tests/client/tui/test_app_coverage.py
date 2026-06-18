@@ -15,13 +15,26 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
 from codelab.client.application.session_coordinator import SessionCoordinator
 from codelab.client.domain.services import TransportService
 from codelab.client.messages import PermissionOption, PermissionToolCall
+from codelab.client.presentation.chat.dispatcher.session_update_dispatcher import (
+    SessionUpdateDispatcher,
+)
+from codelab.client.presentation.chat.handlers.config_option_handler import (
+    ConfigOptionHandler,
+)
+from codelab.client.presentation.chat.handlers.message_chunk_handler import (
+    MessageChunkHandler,
+)
+from codelab.client.presentation.chat.handlers.plan_update_handler import (
+    PlanUpdateHandler,
+)
+from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.config_option_selector_view_model import (
     AgentSelectorViewModel,
@@ -117,10 +130,23 @@ def _patched_app(
 
         ui_vm = UIViewModel(event_bus=event_bus)
         session_vm = SessionViewModel(coordinator, event_bus=event_bus)
+
+        dispatcher = SessionUpdateDispatcher(
+            message_chunk_handler=MessageChunkHandler(),
+            tool_call_handler=ToolCallHandler(),
+            plan_update_handler=PlanUpdateHandler(),
+            config_option_handler=ConfigOptionHandler(),
+        )
+        persistence = Mock()
+        persistence.save_messages = AsyncMock()
+        persistence.load_messages_sync = Mock(return_value=[])
+        persistence.load_replay_updates_sync = Mock(return_value=[])
+
         chat_vm = ChatViewModel(
             coordinator,
             event_bus=event_bus,
-            history_dir=resolved_history_dir,
+            session_update_dispatcher=dispatcher,
+            chat_persistence=persistence,
         )
         plan_vm = PlanViewModel(event_bus=event_bus)
         filesystem_vm = FileSystemViewModel(event_bus=event_bus)

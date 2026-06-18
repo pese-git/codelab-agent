@@ -17,9 +17,6 @@ from dishka import Provider, Scope, provide
 from codelab.client.application.session_coordinator import SessionCoordinator
 from codelab.client.infrastructure.client_config import ClientConfig
 from codelab.client.infrastructure.events.bus import EventBus
-from codelab.client.infrastructure.services.file_system_executor import (
-    FileSystemExecutor,
-)
 from codelab.client.infrastructure.services.terminal_executor import (
     TerminalExecutor,
 )
@@ -248,11 +245,8 @@ class ViewModelProvider(Provider):
         self,
         coordinator: SessionCoordinator,
         event_bus: EventBus,
-        config: ClientConfig,
         logger: structlog.stdlib.BoundLogger,
         plan_vm: PlanViewModel,
-        fs_executor: FileSystemExecutor,
-        terminal_executor: TerminalExecutor,
         session_update_dispatcher: SessionUpdateDispatcher,
         chat_persistence: FileChatPersistence,
         fs_callback_executor: FsCallbackExecutor,
@@ -261,16 +255,12 @@ class ViewModelProvider(Provider):
         """Создаёт ChatViewModel для управления чатом.
 
         Зависит от PlanViewModel для обработки plan updates.
-        Executors всегда регистрируются в ClientProvider.
-        Новые компоненты декомпозиции регистрируются в этом провайдере.
+        Компоненты декомпозиции регистрируются в этом провайдере.
         """
         return ChatViewModel(
             coordinator=coordinator,
             event_bus=event_bus,
             logger=logger,
-            history_dir=config.history_dir,
-            fs_executor=fs_executor,
-            terminal_executor=terminal_executor,
             plan_vm=plan_vm,
             session_update_dispatcher=session_update_dispatcher,
             chat_persistence=chat_persistence,
