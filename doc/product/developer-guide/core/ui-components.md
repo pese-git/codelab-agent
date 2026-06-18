@@ -132,6 +132,47 @@ from codelab.client.tui.components import MarkdownViewer
 viewer = MarkdownViewer(content="# Заголовок\n\nТекст с **выделением**")
 ```
 
+### PromptInput
+
+Компонент ввода промпта с inline-селекторами и кнопками Send/Stop:
+
+```python
+from codelab.client.tui.components import PromptInput
+
+prompt_input = PromptInput(
+    chat_vm=chat_view_model,
+    model_selector_vm=model_selector_vm,
+    mode_selector_vm=mode_selector_vm,
+    agent_selector_vm=agent_selector_vm,
+    strategy_selector_vm=strategy_selector_vm,
+    open_model_callback=open_model_modal,
+    open_mode_callback=open_mode_modal,
+    open_agent_callback=open_agent_modal,
+    open_strategy_callback=open_strategy_modal,
+)
+```
+
+**Особенности:**
+- Многострочное поле ввода с placeholder и кнопкой expand
+- Inline-dropdown селекторы для Model, Mode, Agent, Strategy
+- Кнопки Send/Stop для управления prompt turn
+- История промптов по сессиям (Ctrl+Up/Ctrl+Down для навигации)
+- Ctrl+Enter для отправки, Enter для новой строки
+- Автоматическое disable/enable при streaming (подписка на `ChatViewModel.is_streaming`)
+
+**Структура компонента:**
+```
+PromptInput (Vertical)
+├── PromptTextArea (TextArea) — многострочное поле ввода
+└── Horizontal — тулбар с селекторами и кнопками
+    ├── InlineSelector (Model)
+    ├── InlineSelector (Mode)
+    ├── InlineSelector (Agent)
+    ├── InlineSelector (Strategy)
+    ├── Button (Send)
+    └── Button (Stop)
+```
+
 ## Фаза 3: Tool Components
 
 ### ToolCallCard
