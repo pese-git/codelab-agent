@@ -1,0 +1,38 @@
+name: fix-permission-request-hang
+description: Исправление бага при котором второй permission request не отображается после одобрения первого
+status: proposed
+priority: high
+created: 2026-06-18
+author: OpenCode Agent
+
+artifacts:
+  - name: proposal
+    path: proposal.md
+    status: complete
+  - name: design
+    path: design.md
+    status: complete
+  - name: tasks
+    path: tasks.md
+    status: complete
+  - name: specs
+    path: specs/
+    status: complete
+
+specs:
+  - name: permission-processing
+    path: specs/permission-processing.md
+    status: complete
+
+labels:
+  - bug
+  - client
+  - permission
+  - high-priority
+
+estimate: 8h
+
+dependencies: []
+
+related:
+  - client-decomposition

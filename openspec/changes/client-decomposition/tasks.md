@@ -1,3 +1,11 @@
+# Задачи декомпозиции клиента
+
+## Связанные задачи
+
+- [fix-permission-request-hang](../fix-permission-request-hang/) - Исправление бага с зависанием при последовательных permission requests (высокий приоритет)
+
+---
+
 ## 1. Основа (Контракты и Контекст) ✅
 
 - [x] 1.1 Создать структуру директорий `src/codelab/client/presentation/chat/`
