@@ -1,84 +1,100 @@
-## 1. Основа (Контракты и Контекст)
+## 1. Основа (Контракты и Контекст) ✅
 
-- [ ] 1.1 Создать структуру директорий `src/codelab/client/presentation/chat/`
-- [ ] 1.2 Создать `contracts.py` с Protocols `SessionUpdateHandler`, `ChatPersistencePort`, `ChatUpdateSink`
-- [ ] 1.3 Создать `context.py` с dataclass `ChatUpdateContext`
-- [ ] 1.4 Создать `chat_session_state.py` с dataclass `ChatSessionState`
-- [ ] 1.5 Написать unit тесты для поведения Protocol runtime_checkable
-- [ ] 1.6 Написать unit тесты для создания и неизменяемости ChatUpdateContext
-- [ ] 1.7 Запустить `make check` для проверки основы
+- [x] 1.1 Создать структуру директорий `src/codelab/client/presentation/chat/`
+- [x] 1.2 Создать `contracts.py` с Protocols `SessionUpdateHandler`, `ChatPersistencePort`, `ChatUpdateSink`
+- [x] 1.3 Создать `context.py` с dataclass `ChatUpdateContext`
+- [x] 1.4 Создать `chat_session_state.py` с dataclass `ChatSessionState`
+- [x] 1.5 Написать unit тесты для поведения Protocol runtime_checkable
+- [x] 1.6 Написать unit тесты для создания и неизменяемости ChatUpdateContext
+- [x] 1.7 Запустить `make check` для проверки основы
 
-## 2. Слой Сохранения
+**Коммит:** `6e06929` — 32 теста пройдены
 
-- [ ] 2.1 Создать поддиректорию `persistence/` с `__init__.py`
-- [ ] 2.2 Создать `file_chat_persistence.py` с классом `FileChatPersistence`
-- [ ] 2.3 Реализовать `save_messages()` с `asyncio.to_thread()` и кодированием JSON
-- [ ] 2.4 Реализовать `load_messages()` с обработкой ошибок для отсутствующих/повреждённых файлов
-- [ ] 2.5 Реализовать `load_replay_updates()` с обработкой ошибок
-- [ ] 2.6 Реализовать очистку путей (замена `/` и `\` на `_`)
-- [ ] 2.7 Написать unit тесты для случаев успеха и ошибок `save_messages()`
-- [ ] 2.8 Написать unit тесты для случаев успеха и ошибок `load_messages()`
-- [ ] 2.9 Написать unit тесты для случаев успеха и ошибок `load_replay_updates()`
-- [ ] 2.10 Написать unit тесты для очистки путей с различными входными данными
-- [ ] 2.11 Написать интеграционные тесты для полного цикла сохранения (сохранение → загрузка)
-- [ ] 2.12 Запустить `make check` для проверки слоя сохранения
+## 2. Слой Сохранения ✅
 
-## 3. Исполнители Callback'ов
+- [x] 2.1 Создать поддиректорию `persistence/` с `__init__.py`
+- [x] 2.2 Создать `file_chat_persistence.py` с классом `FileChatPersistence`
+- [x] 2.3 Реализовать `save_messages()` с `asyncio.to_thread()` и кодированием JSON
+- [x] 2.4 Реализовать `load_messages()` с обработкой ошибок для отсутствующих/повреждённых файлов
+- [x] 2.5 Реализовать `load_replay_updates()` с обработкой ошибок
+- [x] 2.6 Реализовать очистку путей (замена `/` и `\` на `_`)
+- [x] 2.7 Написать unit тесты для случаев успеха и ошибок `save_messages()`
+- [x] 2.8 Написать unit тесты для случаев успеха и ошибок `load_messages()`
+- [x] 2.9 Написать unit тесты для случаев успеха и ошибок `load_replay_updates()`
+- [x] 2.10 Написать unit тесты для очистки путей с различными входными данными
+- [x] 2.11 Написать интеграционные тесты для полного цикла сохранения (сохранение → загрузка)
+- [x] 2.12 Запустить `make check` для проверки слоя сохранения
 
-- [ ] 3.1 Создать поддиректорию `executors/` с `__init__.py`
-- [ ] 3.2 Создать `fs_callback_executor.py` с классом `FsCallbackExecutor`
-- [ ] 3.3 Реализовать `read_file()` с проверкой sandbox и `asyncio.to_thread()`
-- [ ] 3.4 Реализовать `write_file()` с проверкой sandbox и `asyncio.to_thread()`
-- [ ] 3.5 Реализовать проверку путей для предотвращения атак path traversal
-- [ ] 3.6 Создать `terminal_callback_executor.py` с классом `TerminalCallbackExecutor`
-- [ ] 3.7 Реализовать `create_terminal()` с кэшированием состояния
-- [ ] 3.8 Реализовать `get_output()` с поиском в кэше
-- [ ] 3.9 Реализовать `wait_for_exit()` с обработкой таймаута
-- [ ] 3.10 Реализовать `release_terminal()` с очисткой кэша
-- [ ] 3.11 Реализовать `kill_terminal()` с очисткой кэша
-- [ ] 3.12 Добавить потокобезопасное управление кэшем с `asyncio.Lock`
-- [ ] 3.13 Написать unit тесты для операций чтения/записи `FsCallbackExecutor`
-- [ ] 3.14 Написать unit тесты для проверки sandbox (предотвращение path traversal)
-- [ ] 3.15 Написать unit тесты для методов жизненного цикла `TerminalCallbackExecutor`
-- [ ] 3.16 Написать unit тесты для управления кэшем состояний терминала
-- [ ] 3.17 Запустить `make check` для проверки исполнителей
+**Коммит:** `6e06929` — 16 тестов пройдены
 
-## 4. Обработчики Обновлений Сессии
+## 3. Исполнители Callback'ов ✅
 
-- [ ] 4.1 Создать поддиректорию `handlers/` с `__init__.py`
-- [ ] 4.2 Создать `message_chunk_handler.py` с классом `MessageChunkHandler`
-- [ ] 4.3 Реализовать `can_handle()` для `agent_message_chunk` и `user_message_chunk`
-- [ ] 4.4 Реализовать `handle()` для обновления текста потоковой передачи и сообщений
-- [ ] 4.5 Создать `tool_call_handler.py` с классом `ToolCallHandler`
-- [ ] 4.6 Реализовать `can_handle()` для `tool_call`, `tool_call_update`, `tool_call_result`
-- [ ] 4.7 Реализовать `handle()` для обновления списка вызовов инструментов
-- [ ] 4.8 Создать `plan_update_handler.py` с классом `PlanUpdateHandler`
-- [ ] 4.9 Реализовать `can_handle()` для типа обновления `plan`
-- [ ] 4.10 Реализовать `handle()` для форматирования записей плана и обновления PlanViewModel
-- [ ] 4.11 Создать `config_option_handler.py` с классом `ConfigOptionHandler`
-- [ ] 4.12 Реализовать `can_handle()` для типа обновления `config_option_update`
-- [ ] 4.13 Реализовать `handle()` для публикации `ConfigOptionUpdatedEvent` в EventBus
-- [ ] 4.14 Написать unit тесты для `MessageChunkHandler` с mock контекстом
-- [ ] 4.15 Написать unit тесты для `ToolCallHandler` с mock контекстом
-- [ ] 4.16 Написать unit тесты для `PlanUpdateHandler` с mock контекстом и PlanViewModel
-- [ ] 4.17 Написать unit тесты для `ConfigOptionHandler` с mock контекстом и EventBus
-- [ ] 4.18 Запустить `make check` для проверки обработчиков
+- [x] 3.1 Создать поддиректорию `executors/` с `__init__.py`
+- [x] 3.2 Создать `fs_callback_executor.py` с классом `FsCallbackExecutor`
+- [x] 3.3 Реализовать `read_file()` с проверкой sandbox и `asyncio.to_thread()`
+- [x] 3.4 Реализовать `write_file()` с проверкой sandbox и `asyncio.to_thread()`
+- [x] 3.5 Реализовать проверку путей для предотвращения атак path traversal
+- [x] 3.6 Создать `terminal_callback_executor.py` с классом `TerminalCallbackExecutor`
+- [x] 3.7 Реализовать `create_terminal()` с кэшированием состояния
+- [x] 3.8 Реализовать `get_output()` с поиском в кэше
+- [x] 3.9 Реализовать `wait_for_exit()` с обработкой таймаута
+- [x] 3.10 Реализовать `release_terminal()` с очисткой кэша
+- [x] 3.11 Реализовать `kill_terminal()` с очисткой кэша
+- [x] 3.12 Добавить потокобезопасное управление кэшем с `asyncio.Lock`
+- [x] 3.13 Написать unit тесты для операций чтения/записи `FsCallbackExecutor`
+- [x] 3.14 Написать unit тесты для проверки sandbox (предотвращение path traversal)
+- [x] 3.15 Написать unit тесты для методов жизненного цикла `TerminalCallbackExecutor`
+- [x] 3.16 Написать unit тесты для управления кэшем состояний терминала
+- [x] 3.17 Запустить `make check` для проверки исполнителей
 
-## 5. Диспетчер Обновлений Сессии
+**Коммит:** `6940252` — 34 теста пройдены
 
-- [ ] 5.1 Создать поддиректорию `dispatcher/` с `__init__.py`
-- [ ] 5.2 Создать `session_update_dispatcher.py` с классом `SessionUpdateDispatcher`
-- [ ] 5.3 Реализовать `__init__()` для приёма списка экземпляров `SessionUpdateHandler`
-- [ ] 5.4 Реализовать `dispatch()` для извлечения `update.sessionUpdate` и поиска обработчика
-- [ ] 5.5 Реализовать границу ошибок для перехвата и логирования исключений обработчиков
-- [ ] 5.6 Реализовать логирование для неизвестных типов обновлений
-- [ ] 5.7 Написать unit тесты для диспетчера с mock обработчиками
-- [ ] 5.8 Написать unit тесты для границы ошибок (обработчик вызывает исключение)
-- [ ] 5.9 Написать unit тесты для обработки неизвестного типа обновления
-- [ ] 5.10 Написать интеграционные тесты с реальными обработчиками
-- [ ] 5.11 Запустить `make check` для проверки диспетчера
+## 4. Обработчики Обновлений Сессии ✅
 
-## 6. Рефакторинг ChatViewModel
+- [x] 4.1 Создать поддиректорию `handlers/` с `__init__.py`
+- [x] 4.2 Создать `message_chunk_handler.py` с классом `MessageChunkHandler`
+- [x] 4.3 Реализовать `can_handle()` для `agent_message_chunk` и `user_message_chunk`
+- [x] 4.4 Реализовать `handle()` для обновления текста потоковой передачи и сообщений
+- [x] 4.5 Создать `tool_call_handler.py` с классом `ToolCallHandler`
+- [x] 4.6 Реализовать `can_handle()` для `tool_call`, `tool_call_update`, `tool_call_result`
+- [x] 4.7 Реализовать `handle()` для обновления списка вызовов инструментов
+- [x] 4.8 Создать `plan_update_handler.py` с классом `PlanUpdateHandler`
+- [x] 4.9 Реализовать `can_handle()` для типа обновления `plan`
+- [x] 4.10 Реализовать `handle()` для форматирования записей плана и обновления PlanViewModel
+- [x] 4.11 Создать `config_option_handler.py` с классом `ConfigOptionHandler`
+- [x] 4.12 Реализовать `can_handle()` для типа обновления `config_option_update`
+- [x] 4.13 Реализовать `handle()` для публикации `ConfigOptionUpdatedEvent` в EventBus
+- [x] 4.14 Написать unit тесты для `MessageChunkHandler` с mock контекстом
+- [x] 4.15 Написать unit тесты для `ToolCallHandler` с mock контекстом
+- [x] 4.16 Написать unit тесты для `PlanUpdateHandler` с mock контекстом и PlanViewModel
+- [x] 4.17 Написать unit тесты для `ConfigOptionHandler` с mock контекстом и EventBus
+- [x] 4.18 Запустить `make check` для проверки обработчиков
+
+**Коммит:** `2357d44` — 23 теста пройдены
+
+## 5. Диспетчер Обновлений Сессии ✅
+
+- [x] 5.1 Создать поддиректорию `dispatcher/` с `__init__.py`
+- [x] 5.2 Создать `session_update_dispatcher.py` с классом `SessionUpdateDispatcher`
+- [x] 5.3 Реализовать `__init__()` для приёма списка экземпляров `SessionUpdateHandler`
+- [x] 5.4 Реализовать `dispatch()` для извлечения `update.sessionUpdate` и поиска обработчика
+- [x] 5.5 Реализовать границу ошибок для перехвата и логирования исключений обработчиков
+- [x] 5.6 Реализовать логирование для неизвестных типов обновлений
+- [x] 5.7 Написать unit тесты для диспетчера с mock обработчиками
+- [x] 5.8 Написать unit тесты для границы ошибок (обработчик вызывает исключение)
+- [x] 5.9 Написать unit тесты для обработки неизвестного типа обновления
+- [x] 5.10 Написать интеграционные тесты с реальными обработчиками
+- [x] 5.11 Запустить `make check` для проверки диспетчера
+
+**Коммит:** `d5b7e66` — 10 тестов пройдены
+
+## 6. Рефакторинг ChatViewModel ⏸️ (ОТЛОЖЕНО)
+
+> **Статус:** Отложено для отдельной задачи
+> 
+> **Причина:** ChatViewModel (1244 строки) требует осторожного рефакторинга с сохранением обратной совместимости. Все компоненты для интеграции готовы (Группы 1-5).
+> 
+> **Документ задачи:** [`TASK-chat-viewmodel-refactor.md`](./TASK-chat-viewmodel-refactor.md)
 
 - [ ] 6.1 Обновить `chat_view_model.py` для приёма `SessionUpdateDispatcher`, `ChatPersistencePort`, `FsCallbackExecutor`, `TerminalCallbackExecutor` в конструкторе
 - [ ] 6.2 Реализовать интерфейс `ChatUpdateSink` в `ChatViewModel` (sync_messages, sync_tool_calls, sync_streaming)
