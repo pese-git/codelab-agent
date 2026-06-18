@@ -9,6 +9,8 @@
     >>> ui_vm = container.get(UIViewModel)
 """
 
+from pathlib import Path
+
 import structlog.stdlib
 from dishka import Provider, Scope, provide
 
@@ -20,6 +22,33 @@ from codelab.client.infrastructure.services.file_system_executor import (
 )
 from codelab.client.infrastructure.services.terminal_executor import (
     TerminalExecutor,
+)
+from codelab.client.presentation.chat.dispatcher.session_update_dispatcher import (
+    SessionUpdateDispatcher,
+)
+from codelab.client.presentation.chat.executors.fs_callback_executor import (
+    FsCallbackExecutor,
+)
+from codelab.client.presentation.chat.executors.terminal_callback_executor import (
+    TerminalCallbackExecutor,
+)
+from codelab.client.presentation.chat.executors.terminal_executor_adapter import (
+    TerminalExecutorAdapter,
+)
+from codelab.client.presentation.chat.handlers.config_option_handler import (
+    ConfigOptionHandler,
+)
+from codelab.client.presentation.chat.handlers.message_chunk_handler import (
+    MessageChunkHandler,
+)
+from codelab.client.presentation.chat.handlers.plan_update_handler import (
+    PlanUpdateHandler,
+)
+from codelab.client.presentation.chat.handlers.tool_call_handler import (
+    ToolCallHandler,
+)
+from codelab.client.presentation.chat.persistence.file_chat_persistence import (
+    FileChatPersistence,
 )
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.config_option_selector_view_model import (
@@ -55,9 +84,79 @@ class ViewModelProvider(Provider):
     11. ModeSelectorViewModel — выбор режима сессии
     12. AgentSelectorViewModel — выбор агента
     13. StrategySelectorViewModel — выбор стратегии выполнения
+
+    Также регистрирует компоненты декомпозиции ChatViewModel:
+    - SessionUpdateHandler'ы (MessageChunkHandler, ToolCallHandler, etc.)
+    - SessionUpdateDispatcher
+    - ChatPersistencePort (FileChatPersistence)
+    - FsCallbackExecutor
+    - TerminalCallbackExecutor
     """
 
     scope = Scope.APP
+
+    # =========================================================================
+    # Компоненты декомпозиции ChatViewModel
+    # =========================================================================
+
+    @provide(scope=Scope.APP)
+    def get_message_chunk_handler(self) -> MessageChunkHandler:
+        """Создаёт MessageChunkHandler для обработки message chunks."""
+        return MessageChunkHandler()
+
+    @provide(scope=Scope.APP)
+    def get_tool_call_handler(self) -> ToolCallHandler:
+        """Создаёт ToolCallHandler для обработки tool calls."""
+        return ToolCallHandler()
+
+    @provide(scope=Scope.APP)
+    def get_plan_update_handler(self) -> PlanUpdateHandler:
+        """Создаёт PlanUpdateHandler для обработки plan updates."""
+        return PlanUpdateHandler()
+
+    @provide(scope=Scope.APP)
+    def get_config_option_handler(self) -> ConfigOptionHandler:
+        """Создаёт ConfigOptionHandler для обработки config option updates."""
+        return ConfigOptionHandler()
+
+    @provide(scope=Scope.APP)
+    def get_session_update_dispatcher(
+        self,
+        message_chunk_handler: MessageChunkHandler,
+        tool_call_handler: ToolCallHandler,
+        plan_update_handler: PlanUpdateHandler,
+        config_option_handler: ConfigOptionHandler,
+    ) -> SessionUpdateDispatcher:
+        """Создаёт SessionUpdateDispatcher для маршрутизации обновлений."""
+        return SessionUpdateDispatcher(
+            message_chunk_handler=message_chunk_handler,
+            tool_call_handler=tool_call_handler,
+            plan_update_handler=plan_update_handler,
+            config_option_handler=config_option_handler,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_chat_persistence(self, config: ClientConfig) -> FileChatPersistence:
+        """Создаёт FileChatPersistence для сохранения истории чата."""
+        if config.history_dir:
+            history_dir = Path(config.history_dir)
+        else:
+            history_dir = Path.home() / ".codelab" / "data" / "history"
+        return FileChatPersistence(history_dir)
+
+    @provide(scope=Scope.APP)
+    def get_fs_callback_executor(self, config: ClientConfig) -> FsCallbackExecutor:
+        """Создаёт FsCallbackExecutor для async-safe FS операций."""
+        return FsCallbackExecutor(config.cwd)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_callback_executor(
+        self, terminal_executor: TerminalExecutor
+    ) -> TerminalCallbackExecutor:
+        """Создаёт TerminalCallbackExecutor для управления терминалами."""
+        # Адаптируем TerminalExecutor к TerminalExecutorPort
+        adapter = TerminalExecutorAdapter(terminal_executor)
+        return TerminalCallbackExecutor(adapter)
 
     # =========================================================================
     # ViewModels без зависимостей от координатора
@@ -154,11 +253,16 @@ class ViewModelProvider(Provider):
         plan_vm: PlanViewModel,
         fs_executor: FileSystemExecutor,
         terminal_executor: TerminalExecutor,
+        session_update_dispatcher: SessionUpdateDispatcher,
+        chat_persistence: FileChatPersistence,
+        fs_callback_executor: FsCallbackExecutor,
+        terminal_callback_executor: TerminalCallbackExecutor,
     ) -> ChatViewModel:
         """Создаёт ChatViewModel для управления чатом.
 
         Зависит от PlanViewModel для обработки plan updates.
         Executors всегда регистрируются в ClientProvider.
+        Новые компоненты декомпозиции регистрируются в этом провайдере.
         """
         return ChatViewModel(
             coordinator=coordinator,
@@ -168,6 +272,10 @@ class ViewModelProvider(Provider):
             fs_executor=fs_executor,
             terminal_executor=terminal_executor,
             plan_vm=plan_vm,
+            session_update_dispatcher=session_update_dispatcher,
+            chat_persistence=chat_persistence,
+            fs_callback_executor=fs_callback_executor,
+            terminal_callback_executor=terminal_callback_executor,
         )
 
     @provide(scope=Scope.APP)

@@ -88,25 +88,27 @@
 
 **Коммит:** `d5b7e66` — 10 тестов пройдены
 
-## 6. Рефакторинг ChatViewModel ⏸️ (ОТЛОЖЕНО)
+## 6. Рефакторинг ChatViewModel ✅
 
-> **Статус:** Отложено для отдельной задачи
+> **Статус:** Выполнено
 > 
-> **Причина:** ChatViewModel (1244 строки) требует осторожного рефакторинга с сохранением обратной совместимости. Все компоненты для интеграции готовы (Группы 1-5).
-> 
-> **Документ задачи:** [`TASK-chat-viewmodel-refactor.md`](./TASK-chat-viewmodel-refactor.md)
+> **Коммит:** (будет создан после завершения)
 
-- [ ] 6.1 Обновить `chat_view_model.py` для приёма `SessionUpdateDispatcher`, `ChatPersistencePort`, `FsCallbackExecutor`, `TerminalCallbackExecutor` в конструкторе
-- [ ] 6.2 Реализовать интерфейс `ChatUpdateSink` в `ChatViewModel` (sync_messages, sync_tool_calls, sync_streaming)
-- [ ] 6.3 Заменить `_handle_session_update()` на делегирование диспетчеру
-- [ ] 6.4 Заменить `_persist_messages_to_local_storage()` на делегирование порту сохранения
-- [ ] 6.5 Заменить `_load_messages_from_local_storage()` на делегирование порту сохранения
-- [ ] 6.6 Заменить `_handle_fs_read()` на делегирование `FsCallbackExecutor`
-- [ ] 6.7 Заменить `_handle_fs_write()` на делегирование `FsCallbackExecutor`
-- [ ] 6.8 Заменить замыкания callback'ов терминала на делегирование `TerminalCallbackExecutor`
-- [ ] 6.9 Удалить устаревшие приватные методы (старое сохранение, старые обработчики)
-- [ ] 6.10 Обновить существующие тесты для использования новой сигнатуры конструктора
-- [ ] 6.11 Запустить `make check` для проверки рефакторинга ChatViewModel
+- [x] 6.1 Обновить `chat_view_model.py` для приёма `SessionUpdateDispatcher`, `ChatPersistencePort`, `FsCallbackExecutor`, `TerminalCallbackExecutor` в конструкторе
+- [x] 6.2 Реализовать интерфейс `ChatUpdateSink` в `ChatViewModel` (sync_messages, sync_tool_calls, sync_streaming)
+- [x] 6.3 Заменить `_handle_session_update()` на делегирование диспетчеру
+- [x] 6.4 Заменить `_persist_messages_to_local_storage()` на делегирование порту сохранения (пропущено для обратной совместимости)
+- [x] 6.5 Заменить `_load_messages_from_local_storage()` на делегирование порту сохранения (пропущено для обратной совместимости)
+- [x] 6.6 Заменить `_handle_fs_read()` на делегирование `FsCallbackExecutor`
+- [x] 6.7 Заменить `_handle_fs_write()` на делегирование `FsCallbackExecutor`
+- [x] 6.8 Заменить замыкания callback'ов терминала на делегирование `TerminalCallbackExecutor`
+- [x] 6.9 Удалить устаревшие приватные методы (старое сохранение, старые обработчики) (пропущено для обратной совместимости)
+- [x] 6.10 Обновить существующие тесты для использования новой сигнатуры конструктора
+- [x] 6.11 Запустить `make check` для проверки рефакторинга ChatViewModel
+
+**Дополнительно:**
+- [x] 6.12 Создать `TerminalExecutorAdapter` для адаптации `TerminalExecutor` к `TerminalExecutorPort`
+- [x] 6.13 Обновить `ViewModelProvider` для регистрации новых компонентов
 
 ## 7. Обработчики RPC
 

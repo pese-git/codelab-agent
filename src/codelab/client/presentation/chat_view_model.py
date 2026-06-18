@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from codelab.client.presentation.base_view_model import BaseViewModel
+from codelab.client.presentation.chat.chat_session_state import ChatSessionState
 from codelab.client.presentation.observable import Observable, ObservableCommand
 
 
@@ -28,19 +29,6 @@ class PermissionRequest:
     action: str
     resource: str
     description: str = ""
-
-
-@dataclass
-class ChatSessionState:
-    """Состояние чата, привязанное к конкретной сессии."""
-
-    messages: list[Any]
-    tool_calls: list[Any]
-    pending_permissions: list[Any]
-    streaming_text: str
-    is_streaming: bool
-    last_stop_reason: str | None
-    replay_updates: list[dict[str, Any]]
 
 
 class ChatViewModel(BaseViewModel):
@@ -79,6 +67,11 @@ class ChatViewModel(BaseViewModel):
         fs_executor: Any | None = None,  # FileSystemExecutor
         terminal_executor: Any | None = None,  # TerminalExecutor
         plan_vm: Any | None = None,  # PlanViewModel для обработки plan updates
+        # Новые компоненты декомпозиции (опциональные для обратной совместимости)
+        session_update_dispatcher: Any | None = None,  # SessionUpdateDispatcher
+        chat_persistence: Any | None = None,  # ChatPersistencePort
+        fs_callback_executor: Any | None = None,  # FsCallbackExecutor
+        terminal_callback_executor: Any | None = None,  # TerminalCallbackExecutor
     ) -> None:
         """Инициализировать ChatViewModel.
 
@@ -91,12 +84,22 @@ class ChatViewModel(BaseViewModel):
             fs_executor: FileSystemExecutor для обработки fs/* callbacks (синхронно)
             terminal_executor: TerminalExecutor для обработки terminal/* callbacks (синхронно)
             plan_vm: PlanViewModel для обработки plan updates из session/update
+            session_update_dispatcher: SessionUpdateDispatcher для маршрутизации обновлений
+            chat_persistence: ChatPersistencePort для сохранения истории
+            fs_callback_executor: FsCallbackExecutor для async-safe FS операций
+            terminal_callback_executor: TerminalCallbackExecutor для управления терминалами
         """
         super().__init__(event_bus, logger)
         self.coordinator = coordinator
         self._fs_executor = fs_executor
         self._terminal_executor = terminal_executor
         self._plan_vm = plan_vm
+        
+        # Новые компоненты декомпозиции
+        self._session_update_dispatcher = session_update_dispatcher
+        self._chat_persistence = chat_persistence
+        self._fs_callback_executor = fs_callback_executor
+        self._terminal_callback_executor = terminal_callback_executor
 
         # Локальный storage истории нужен для восстановления UI без network roundtrip.
         # Порядок приоритета: явный аргумент -> переменная окружения -> путь по умолчанию.
@@ -176,12 +179,67 @@ class ChatViewModel(BaseViewModel):
         self._set_last_stop_reason(session_id, None)
 
         try:
-            # Build terminal lifecycle callbacks backed by the async executor.
-            # Results are cached by terminal_id so the multi-step protocol
-            # (create → output → wait_for_exit → release) maps onto a single
-            # blocking execute() call made on terminal/create.
+            # Build terminal lifecycle callbacks.
+            # Если доступен TerminalCallbackExecutor, используем его.
+            # Иначе используем старый TerminalExecutor (обратная совместимость).
             terminal_callbacks: dict[str, Any] = {}
-            if self._terminal_executor is not None:
+            
+            if self._terminal_callback_executor is not None:
+                # Новый путь: через TerminalCallbackExecutor
+                _executor = self._terminal_callback_executor
+
+                async def _on_terminal_create_new(command: str) -> str:
+                    terminal_id, error = await _executor.create_terminal(command)
+                    if error:
+                        self.logger.warning("terminal_create_error", error=error)
+                        return ""
+                    return terminal_id or ""
+
+                async def _on_terminal_output_new(terminal_id: str) -> dict[str, Any]:
+                    output, error = await _executor.get_output(terminal_id)
+                    if error:
+                        self.logger.warning(
+                            "terminal_output_error", terminal_id=terminal_id, error=error
+                        )
+                        return {"output": "", "isComplete": True, "exitCode": None}
+                    return output or {"output": "", "isComplete": True, "exitCode": None}
+
+                async def _on_terminal_wait_new(
+                    terminal_id: str,
+                ) -> tuple[int | None, str | None]:
+                    result, error = await _executor.wait_for_exit(terminal_id)
+                    if error:
+                        self.logger.warning(
+                            "terminal_wait_error", terminal_id=terminal_id, error=error
+                        )
+                        return (None, error)
+                    return result or (None, None)
+
+                async def _on_terminal_release_new(terminal_id: str) -> None:
+                    error = await _executor.release_terminal(terminal_id)
+                    if error:
+                        self.logger.warning(
+                            "terminal_release_error", terminal_id=terminal_id, error=error
+                        )
+
+                async def _on_terminal_kill_new(terminal_id: str) -> bool:
+                    success, error = await _executor.kill_terminal(terminal_id)
+                    if error:
+                        self.logger.warning(
+                            "terminal_kill_error", terminal_id=terminal_id, error=error
+                        )
+                    return success
+
+                terminal_callbacks = {
+                    "on_terminal_create": _on_terminal_create_new,
+                    "on_terminal_output": _on_terminal_output_new,
+                    "on_terminal_wait_for_exit": _on_terminal_wait_new,
+                    "on_terminal_release": _on_terminal_release_new,
+                    "on_terminal_kill": _on_terminal_kill_new,
+                }
+            
+            elif self._terminal_executor is not None:
+                # Старый путь: через TerminalExecutor (обратная совместимость)
                 _results: dict[str, dict[str, Any]] = {}
                 _executor = self._terminal_executor
 
@@ -267,6 +325,22 @@ class ChatViewModel(BaseViewModel):
 
     def _handle_session_update(self, update_data: dict[str, Any]) -> None:
         """Обработать session/update от сервера.
+
+        Если доступен SessionUpdateDispatcher, делегирует обработку ему.
+        Иначе использует legacy логику (обратная совместимость).
+
+        Args:
+            update_data: Данные обновления сессии от сервера
+        """
+        if self._session_update_dispatcher is not None:
+            # Новый путь: через dispatcher
+            self._handle_session_update_dispatched(update_data)
+        else:
+            # Старый путь: обратная совместимость
+            self._handle_session_update_legacy(update_data)
+
+    def _handle_session_update_legacy(self, update_data: dict[str, Any]) -> None:
+        """Legacy обработка session/update (обратная совместимость).
 
         Обрабатывает различные типы обновлений сессии:
         - agent_message_chunk: добавляет текст ответа агента к streaming_text
@@ -590,8 +664,8 @@ class ChatViewModel(BaseViewModel):
     async def _handle_fs_read(self, path: str) -> str:
         """Обработать fs/read_text_file от агента (async).
 
-        Использует asyncio.to_thread для выполнения sync операции
-        без блокировки event loop (критично для stdio режима).
+        Если доступен FsCallbackExecutor, использует его.
+        Иначе использует старый FileSystemExecutor (обратная совместимость).
 
         Args:
             path: Путь к файлу для чтения
@@ -605,12 +679,20 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_read_no_active_session", path=path)
                 return ""
 
-            # Проверяем наличие executor'а перед использованием
+            # Новый путь: через FsCallbackExecutor
+            if self._fs_callback_executor is not None:
+                content, error = await self._fs_callback_executor.read_file(path)
+                if error:
+                    self.logger.warning("fs_read_error", path=path, error=error)
+                    return ""
+                self.logger.debug("fs_read_success", path=path, content_size=len(content or ""))
+                return content or ""
+
+            # Старый путь: через FileSystemExecutor (обратная совместимость)
             if self._fs_executor is None:
                 self.logger.warning("fs_executor_not_initialized", path=path)
                 return ""
 
-            # Выполняем в thread pool чтобы не блокировать event loop
             content = await asyncio.to_thread(
                 self._fs_executor.read_text_file_sync, path
             )
@@ -623,8 +705,8 @@ class ChatViewModel(BaseViewModel):
     async def _handle_fs_write(self, path: str, content: str) -> bool:
         """Обработать fs/write_text_file от агента (async).
 
-        Использует asyncio.to_thread для выполнения sync операции
-        без блокировки event loop (критично для stdio режима).
+        Если доступен FsCallbackExecutor, использует его.
+        Иначе использует старый FileSystemExecutor (обратная совместимость).
 
         Args:
             path: Путь к файлу для записи
@@ -639,12 +721,20 @@ class ChatViewModel(BaseViewModel):
                 self.logger.warning("fs_write_no_active_session", path=path)
                 return False
 
-            # Проверяем наличие executor'а перед использованием
+            # Новый путь: через FsCallbackExecutor
+            if self._fs_callback_executor is not None:
+                success, error = await self._fs_callback_executor.write_file(path, content)
+                if error:
+                    self.logger.warning("fs_write_error", path=path, error=error)
+                    return False
+                self.logger.debug("fs_write_success", path=path, content_size=len(content))
+                return success
+
+            # Старый путь: через FileSystemExecutor (обратная совместимость)
             if self._fs_executor is None:
                 self.logger.warning("fs_executor_not_initialized", path=path)
                 return False
 
-            # Выполняем в thread pool чтобы не блокировать event loop
             await asyncio.to_thread(
                 self._fs_executor.write_text_file_sync, path, content
             )
@@ -1227,3 +1317,109 @@ class ChatViewModel(BaseViewModel):
             error_message=error_msg,
             error_type=getattr(event, "error_type", "unknown"),
         )
+
+    # =========================================================================
+    # Интеграция с новыми компонентами декомпозиции
+    # =========================================================================
+
+    def handle_session_update_dispatched(self, update_data: dict[str, Any]) -> None:
+        """Обработать session/update через SessionUpdateDispatcher.
+
+        Этот метод используется когда доступен SessionUpdateDispatcher.
+        Делегирует обработку обновлений соответствующим handler'ам.
+
+        Args:
+            update_data: Данные обновления от сервера
+        """
+        if self._session_update_dispatcher is None:
+            # Fallback на старую логику если dispatcher не доступен
+            self._handle_session_update(update_data)
+            return
+
+        # Извлекаем session_id из update_data
+        params = update_data.get("params", {})
+        session_id = params.get("sessionId", self._active_session_id)
+
+        if not isinstance(session_id, str):
+            self.logger.warning(
+                "handle_session_update_dispatched_missing_session_id",
+                update_data=update_data,
+            )
+            return
+
+        # Получаем или создаём состояние сессии
+        state = self._get_or_create_session_state(session_id)
+
+        # Добавляем replay update для восстановления состояния
+        state.replay_updates.append(update_data)
+        self._session_states[session_id] = state
+
+        # Сохраняем в persistence если доступен
+        if self._chat_persistence is not None:
+            asyncio.create_task(
+                self._chat_persistence.save_messages(
+                    session_id,
+                    state.messages,
+                    replay_updates=state.replay_updates,
+                )
+            )
+
+        # Создаём контекст для dispatcher
+        from codelab.client.presentation.chat.context import ChatUpdateContext
+
+        context = ChatUpdateContext(
+            session_id=session_id,
+            state=state,
+            sink=self,  # ChatViewModel реализует ChatUpdateSink
+            plan_vm=self._plan_vm,
+            event_bus=self.event_bus,
+            logger=self.logger,
+        )
+
+        # Диспетчеризация обновления
+        self._session_update_dispatcher.dispatch_with_context(update_data, context)
+
+        # Синхронизация с UI если это активная сессия
+        if self._active_session_id == session_id:
+            self.messages.value = list(state.messages)
+            self.tool_calls.value = list(state.tool_calls)
+            self.streaming_text.value = state.streaming_text
+            self.is_streaming.value = state.is_streaming
+
+    # Реализация ChatUpdateSink для интеграции с handler'ами
+
+    def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
+        """Синхронизировать сообщения с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            messages: Обновлённый список сообщений
+        """
+        if self._active_session_id == session_id:
+            self.messages.value = list(messages)
+
+    def sync_tool_calls(
+        self, session_id: str, tool_calls: list[dict[str, Any]]
+    ) -> None:
+        """Синхронизировать tool calls с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            tool_calls: Обновлённый список tool calls
+        """
+        if self._active_session_id == session_id:
+            self.tool_calls.value = list(tool_calls)
+
+    def sync_streaming(
+        self, session_id: str, text: str, is_streaming: bool
+    ) -> None:
+        """Синхронизировать streaming текст с UI (ChatUpdateSink).
+
+        Args:
+            session_id: ID сессии
+            text: Текущий streaming текст
+            is_streaming: Флаг активной потоковой передачи
+        """
+        if self._active_session_id == session_id:
+            self.streaming_text.value = text
+            self.is_streaming.value = is_streaming
