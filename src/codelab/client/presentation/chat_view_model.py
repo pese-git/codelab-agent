@@ -100,6 +100,10 @@ class ChatViewModel(BaseViewModel):
         self._active_session_id: str | None = None
         self._session_states: dict[str, ChatSessionState] = {}
 
+        # Debounce для persistence - группирует сохранения при streaming
+        self._pending_saves: dict[str, asyncio.Task[None]] = {}
+        self._save_debounce_ms = 100  # Задержка перед сохранением
+
         # Observable команды
         self.send_prompt_cmd = ObservableCommand(self._send_prompt)
         self.cancel_prompt_cmd = ObservableCommand(self._cancel_prompt)
@@ -671,9 +675,11 @@ class ChatViewModel(BaseViewModel):
         messages: list[Any],
         replay_updates: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Сохраняет сообщения через ChatPersistencePort.
+        """Сохраняет сообщения через ChatPersistencePort с debounce.
 
-        Использует fire-and-forget pattern для async save.
+        При частых вызовах (например, при streaming) группирует сохранения
+        чтобы снизить нагрузку на I/O. Реальное сохранение происходит через
+        _save_debounce_ms миллисекунд после последнего вызова.
 
         Args:
             session_id: ID сессии
@@ -683,30 +689,77 @@ class ChatViewModel(BaseViewModel):
         if self._chat_persistence is None:
             return
 
-        serializable_messages = [
-            message
-            for message in messages
-            if isinstance(message, dict)
-            and isinstance(message.get("role"), str)
-            and isinstance(message.get("content"), str)
-        ]
-        serializable_updates = (
-            [u for u in replay_updates if isinstance(u, dict)]
-            if replay_updates is not None
-            else None
-        )
+        # Отменяем предыдущий pending save для этой сессии если есть
+        if session_id in self._pending_saves:
+            self._pending_saves[session_id].cancel()
+
+        # Планируем новое сохранение с задержкой
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(
-                self._chat_persistence.save_messages(
-                    session_id,
-                    serializable_messages,
-                    replay_updates=serializable_updates,
-                )
+            task = loop.create_task(
+                self._debounced_save(session_id, messages, replay_updates)
             )
+            self._pending_saves[session_id] = task
         except RuntimeError:
-            # Нет running event loop - пропускаем сохранение
+            # Нет running event loop - сохраняем синхронно через legacy fallback
             pass
+
+    async def _debounced_save(
+        self,
+        session_id: str,
+        messages: list[Any],
+        replay_updates: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Отложенное сохранение с debounce.
+
+        Args:
+            session_id: ID сессии
+            messages: Список сообщений для сохранения
+            replay_updates: Опциональные replay updates
+        """
+        try:
+            # Ждем перед сохранением
+            await asyncio.sleep(self._save_debounce_ms / 1000.0)
+
+            # Проверяем что задача не была отменена
+            if self._chat_persistence is None:
+                return
+
+            serializable_messages = [
+                message
+                for message in messages
+                if isinstance(message, dict)
+                and isinstance(message.get("role"), str)
+                and isinstance(message.get("content"), str)
+            ]
+            serializable_updates = (
+                [u for u in replay_updates if isinstance(u, dict)]
+                if replay_updates is not None
+                else None
+            )
+
+            await self._chat_persistence.save_messages(
+                session_id,
+                serializable_messages,
+                replay_updates=serializable_updates,
+            )
+        except asyncio.CancelledError:
+            # Задача была отменена новым вызовом - это нормально
+            pass
+        finally:
+            # Удаляем задачу из pending
+            self._pending_saves.pop(session_id, None)
+
+    async def flush_pending_saves(self) -> None:
+        """Принудительно выполняет все отложенные сохранения.
+
+        Используется перед закрытием приложения или при необходимости
+        гарантировать что все данные сохранены.
+        """
+        if self._pending_saves:
+            # Ждем завершения всех pending saves
+            await asyncio.gather(*self._pending_saves.values(), return_exceptions=True)
+            self._pending_saves.clear()
 
     def _load_messages(self, session_id: str) -> list[dict[str, str]]:
         """Загружает сообщения через ChatPersistencePort.

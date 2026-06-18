@@ -64,6 +64,23 @@ class SessionUpdateDispatcher:
             plan_update_handler,
             config_option_handler,
         ]
+        # Оптимизация: dict для O(1) поиска handler'а по update_type
+        self._handler_map: dict[str, Any] = {}
+        for handler in self._handlers:
+            # Регистрируем все типы которые может обрабатывать handler
+            # Используем can_handle для определения поддерживаемых типов
+            for update_type in [
+                "agent_message_chunk",
+                "user_message_chunk",
+                "tool_call",
+                "tool_call_update",
+                "tool_call_result",
+                "plan",
+                "config_option_update",
+            ]:
+                if handler.can_handle(update_type):
+                    self._handler_map[update_type] = handler
+        
         self._logger = structlog.get_logger("session_update_dispatcher")
 
     def dispatch(
@@ -109,28 +126,28 @@ class SessionUpdateDispatcher:
             _logger=self._logger,
         )
 
-        # Ищем подходящий обработчик
-        for handler in self._handlers:
-            if handler.can_handle(update_type):
-                try:
-                    handler.handle(update_data, context)
-                    self._logger.debug(
-                        "update_handled",
-                        session_id=session_id,
-                        update_type=update_type,
-                        handler=handler.__class__.__name__,
-                    )
-                    return
-                except Exception as e:
-                    self._logger.error(
-                        "handler_error",
-                        session_id=session_id,
-                        update_type=update_type,
-                        handler=handler.__class__.__name__,
-                        error=str(e),
-                        exc_info=True,
-                    )
-                    return
+        # O(1) поиск handler'а через dict
+        handler = self._handler_map.get(update_type)
+        if handler:
+            try:
+                handler.handle(update_data, context)
+                self._logger.debug(
+                    "update_handled",
+                    session_id=session_id,
+                    update_type=update_type,
+                    handler=handler.__class__.__name__,
+                )
+                return
+            except Exception as e:
+                self._logger.error(
+                    "handler_error",
+                    session_id=session_id,
+                    update_type=update_type,
+                    handler=handler.__class__.__name__,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return
 
         # Если обработчик не найден, логируем warning
         self._logger.warning(
@@ -171,28 +188,28 @@ class SessionUpdateDispatcher:
             update_type=update_type,
         )
 
-        # Ищем подходящий обработчик
-        for handler in self._handlers:
-            if handler.can_handle(update_type):
-                try:
-                    handler.handle(update_data, context)
-                    self._logger.debug(
-                        "update_handled_with_context",
-                        session_id=context.session_id,
-                        update_type=update_type,
-                        handler=handler.__class__.__name__,
-                    )
-                    return
-                except Exception as e:
-                    self._logger.error(
-                        "handler_error_with_context",
-                        session_id=context.session_id,
-                        update_type=update_type,
-                        handler=handler.__class__.__name__,
-                        error=str(e),
-                        exc_info=True,
-                    )
-                    return
+        # O(1) поиск handler'а через dict
+        handler = self._handler_map.get(update_type)
+        if handler:
+            try:
+                handler.handle(update_data, context)
+                self._logger.debug(
+                    "update_handled_with_context",
+                    session_id=context.session_id,
+                    update_type=update_type,
+                    handler=handler.__class__.__name__,
+                )
+                return
+            except Exception as e:
+                self._logger.error(
+                    "handler_error_with_context",
+                    session_id=context.session_id,
+                    update_type=update_type,
+                    handler=handler.__class__.__name__,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return
 
         # Если обработчик не найден, логируем warning
         self._logger.warning(
