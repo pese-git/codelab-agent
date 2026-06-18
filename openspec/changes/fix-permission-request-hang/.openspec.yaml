@@ -1,6 +1,6 @@
 name: fix-permission-request-hang
 description: Исправление бага при котором второй permission request не отображается после одобрения первого
-status: proposed
+status: implemented
 priority: high
 created: 2026-06-18
 author: OpenCode Agent
