@@ -36,6 +36,9 @@ from codelab.client.messages import ACPMessage, RequestPermissionRequest
 
 if TYPE_CHECKING:
     from codelab.client.application.permission_handler import PermissionHandler
+    from codelab.client.infrastructure.services.acp_transport.client_rpc_dispatcher import (
+        ClientRpcDispatcher,
+    )
 
 
 async def _call_callback(
@@ -72,6 +75,7 @@ class ACPTransportService(TransportService):
         transport: Transport,
         parser: MessageParser | None = None,
         permission_handler: PermissionHandler | None = None,
+        rpc_dispatcher: ClientRpcDispatcher | None = None,
     ) -> None:
         """Инициализирует сервис.
 
@@ -79,10 +83,12 @@ class ACPTransportService(TransportService):
             transport: Реализация транспорта (WebSocket или stdio).
             parser: MessageParser для парсинга ответов (опционально).
             permission_handler: PermissionHandler для обработки permission requests (опционально).
+            rpc_dispatcher: ClientRpcDispatcher для обработки входящих RPC (опционально).
         """
         self._transport = transport
         self.parser = parser or MessageParser()
         self._permission_handler = permission_handler
+        self._rpc_dispatcher = rpc_dispatcher
         # Callback для отображения permission modal в UI
         # Будет установлен через set_permission_callback из TUI App
         # Сигнатура: (request_id, tool_call, options, on_choice) -> None
@@ -1033,6 +1039,21 @@ class ACPTransportService(TransportService):
             rpc_id=rpc_id,
             rpc_method=rpc_method,
         )
+
+        if self._rpc_dispatcher is not None:
+            result = await self._rpc_dispatcher.dispatch(rpc_method, rpc_id, rpc_params)
+            if "error" in result:
+                error_info = result["error"]
+                await self.send(
+                    ACPMessage.error_response(
+                        rpc_id,
+                        code=error_info.get("code", -32603),
+                        message=error_info.get("message", "Unknown error"),
+                    ).to_dict()
+                )
+            else:
+                await self.send(ACPMessage.response(rpc_id, result).to_dict())
+            return
 
         handlers: dict[str, Callable[[], Any]] = {
             "fs/read_text_file": lambda: self._handle_fs_read(

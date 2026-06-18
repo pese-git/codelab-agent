@@ -29,6 +29,31 @@ from codelab.client.infrastructure.events.bus import EventBus
 from codelab.client.infrastructure.handlers.file_system_handler import FileSystemHandler
 from codelab.client.infrastructure.handlers.terminal_handler import TerminalHandler
 from codelab.client.infrastructure.repositories import InMemorySessionRepository
+from codelab.client.infrastructure.services.acp_transport.client_rpc_dispatcher import (
+    ClientRpcDispatcher,
+)
+from codelab.client.infrastructure.services.acp_transport.contracts import RpcHandler
+from codelab.client.infrastructure.services.acp_transport.handlers.fs_read_handler import (
+    FsReadHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.fs_write_handler import (
+    FsWriteHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.terminal_create_handler import (
+    TerminalCreateHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.terminal_kill_handler import (
+    TerminalKillHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.terminal_output_handler import (
+    TerminalOutputHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.terminal_release_handler import (
+    TerminalReleaseHandler,
+)
+from codelab.client.infrastructure.services.acp_transport.handlers.terminal_wait_handler import (
+    TerminalWaitHandler,
+)
 from codelab.client.infrastructure.services.acp_transport_service import (
     ACPTransportService,
     create_websocket_transport_service,
@@ -36,6 +61,15 @@ from codelab.client.infrastructure.services.acp_transport_service import (
 from codelab.client.infrastructure.services.file_system_executor import FileSystemExecutor
 from codelab.client.infrastructure.services.terminal_executor import TerminalExecutor
 from codelab.client.infrastructure.stdio_transport import StdioClientTransport
+from codelab.client.presentation.chat.executors.fs_callback_executor import (
+    FsCallbackExecutor,
+)
+from codelab.client.presentation.chat.executors.terminal_callback_executor import (
+    TerminalCallbackExecutor,
+)
+from codelab.client.presentation.chat.executors.terminal_executor_adapter import (
+    TerminalExecutorAdapter,
+)
 
 
 @dataclass
@@ -79,7 +113,11 @@ class ClientProvider(Provider):
         return EventBus()
 
     @provide(scope=Scope.APP)
-    def get_transport(self, config: ClientConfig) -> TransportService:
+    def get_transport(
+        self,
+        config: ClientConfig,
+        rpc_dispatcher: ClientRpcDispatcher,
+    ) -> TransportService:
         """Создаёт ACPTransportService с правильным транспортом.
 
         Если config.transport_mode == "stdio" — использует StdioClientTransport.
@@ -92,12 +130,14 @@ class ClientProvider(Provider):
                 cwd=str(config.cwd),
                 receive_timeout=config.receive_timeout,
             )
-            return ACPTransportService(transport=transport)
+            return ACPTransportService(transport=transport, rpc_dispatcher=rpc_dispatcher)
         else:
-            return create_websocket_transport_service(
+            service = create_websocket_transport_service(
                 host=config.host,
                 port=config.port,
             )
+            service._rpc_dispatcher = rpc_dispatcher
+            return service
 
     @provide(scope=Scope.APP)
     def get_session_repo(self) -> SessionRepository:
@@ -135,6 +175,95 @@ class ClientProvider(Provider):
     ) -> TerminalHandler:
         """Создаёт TerminalHandler поверх TerminalExecutor."""
         return TerminalHandler(terminal_executor)
+
+    # =========================================================================
+    # RPC обработчики и диспетчер
+    # =========================================================================
+
+    @provide(scope=Scope.APP)
+    def get_fs_callback_executor_for_rpc(self, config: ClientConfig) -> FsCallbackExecutor:
+        """Создаёт FsCallbackExecutor для RPC обработчиков."""
+        return FsCallbackExecutor(config.cwd)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_callback_executor_for_rpc(
+        self, terminal_executor: TerminalExecutor
+    ) -> TerminalCallbackExecutor:
+        """Создаёт TerminalCallbackExecutor для RPC обработчиков."""
+        adapter = TerminalExecutorAdapter(terminal_executor)
+        return TerminalCallbackExecutor(adapter)
+
+    @provide(scope=Scope.APP)
+    def get_fs_read_handler(
+        self, fs_executor: FsCallbackExecutor
+    ) -> FsReadHandler:
+        """Создаёт FsReadHandler для обработки fs/read_text_file."""
+        return FsReadHandler(fs_executor)
+
+    @provide(scope=Scope.APP)
+    def get_fs_write_handler(
+        self, fs_executor: FsCallbackExecutor
+    ) -> FsWriteHandler:
+        """Создаёт FsWriteHandler для обработки fs/write_text_file."""
+        return FsWriteHandler(fs_executor)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_create_handler(
+        self, terminal_executor: TerminalCallbackExecutor
+    ) -> TerminalCreateHandler:
+        """Создаёт TerminalCreateHandler для обработки terminal/create."""
+        return TerminalCreateHandler(terminal_executor)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_output_handler(
+        self, terminal_executor: TerminalCallbackExecutor
+    ) -> TerminalOutputHandler:
+        """Создаёт TerminalOutputHandler для обработки terminal/output."""
+        return TerminalOutputHandler(terminal_executor)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_wait_handler(
+        self, terminal_executor: TerminalCallbackExecutor
+    ) -> TerminalWaitHandler:
+        """Создаёт TerminalWaitHandler для обработки terminal/wait_for_exit."""
+        return TerminalWaitHandler(terminal_executor)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_release_handler(
+        self, terminal_executor: TerminalCallbackExecutor
+    ) -> TerminalReleaseHandler:
+        """Создаёт TerminalReleaseHandler для обработки terminal/release."""
+        return TerminalReleaseHandler(terminal_executor)
+
+    @provide(scope=Scope.APP)
+    def get_terminal_kill_handler(
+        self, terminal_executor: TerminalCallbackExecutor
+    ) -> TerminalKillHandler:
+        """Создаёт TerminalKillHandler для обработки terminal/kill."""
+        return TerminalKillHandler(terminal_executor)
+
+    @provide(scope=Scope.APP)
+    def get_client_rpc_dispatcher(
+        self,
+        fs_read_handler: FsReadHandler,
+        fs_write_handler: FsWriteHandler,
+        terminal_create_handler: TerminalCreateHandler,
+        terminal_output_handler: TerminalOutputHandler,
+        terminal_wait_handler: TerminalWaitHandler,
+        terminal_release_handler: TerminalReleaseHandler,
+        terminal_kill_handler: TerminalKillHandler,
+    ) -> ClientRpcDispatcher:
+        """Создаёт ClientRpcDispatcher со всеми зарегистрированными обработчиками."""
+        handlers: list[RpcHandler] = [
+            fs_read_handler,
+            fs_write_handler,
+            terminal_create_handler,
+            terminal_output_handler,
+            terminal_wait_handler,
+            terminal_release_handler,
+            terminal_kill_handler,
+        ]
+        return ClientRpcDispatcher(handlers)
 
     # =========================================================================
     # Разрешение циклической зависимости Coordinator ↔ PermissionHandler
