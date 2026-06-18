@@ -28,7 +28,7 @@ class ChatUpdateContext:
     Содержит всё необходимое для handler'а:
     - session_id: ID текущей сессии
     - state: ChatSessionState (может модифицироваться handler'ом)
-    - sink: ChatUpdateSink для синхронизации Observable с UI
+    - sink: ChatUpdateSink для синхронизации Observable с UI (опционально)
     - plan_vm: PlanViewModel для обработки plan updates (опционально)
     - event_bus: EventBus для публикации событий (опционально)
     - logger: Logger для логирования (опционально)
@@ -43,8 +43,8 @@ class ChatUpdateContext:
     state: ChatSessionState
     """Состояние чата. Handler'ы могут модифицировать это поле."""
 
-    sink: ChatUpdateSink
-    """Sink для синхронизации Observable с UI. Не должен изменяться."""
+    sink: ChatUpdateSink | None = None
+    """Sink для синхронизации Observable с UI. Опционально."""
 
     plan_vm: PlanViewModel | None = None
     """PlanViewModel для обработки plan updates. Опционально."""

@@ -65,11 +65,12 @@ class MessageChunkHandler:
             context: Контекст с состоянием
         """
         context.state.append_streaming_text(text)
-        context.sink.sync_streaming(
-            context.session_id,
-            context.state.streaming_text,
-            context.state.is_streaming,
-        )
+        if context.sink is not None:
+            context.sink.sync_streaming(
+                context.session_id,
+                context.state.streaming_text,
+                context.state.is_streaming,
+            )
 
         context.logger.debug(
             "agent_message_chunk_processed",
@@ -88,7 +89,8 @@ class MessageChunkHandler:
             context: Контекст с состоянием
         """
         context.state.add_message("user", text)
-        context.sink.sync_messages(context.session_id, context.state.messages)
+        if context.sink is not None:
+            context.sink.sync_messages(context.session_id, context.state.messages)
 
         context.logger.debug(
             "user_message_chunk_processed",

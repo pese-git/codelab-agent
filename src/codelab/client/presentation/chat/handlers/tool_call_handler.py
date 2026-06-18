@@ -80,7 +80,8 @@ class ToolCallHandler:
         }
 
         context.state.add_tool_call(tool_call)
-        context.sink.sync_tool_calls(context.session_id, context.state.tool_calls)
+        if context.sink is not None:
+            context.sink.sync_tool_calls(context.session_id, context.state.tool_calls)
 
         context.logger.info(
             "tool_call_created",
@@ -120,7 +121,8 @@ class ToolCallHandler:
 
         if updates:
             context.state.update_tool_call(tool_call_id, **updates)
-            context.sink.sync_tool_calls(context.session_id, context.state.tool_calls)
+            if context.sink is not None:
+                context.sink.sync_tool_calls(context.session_id, context.state.tool_calls)
 
         context.logger.info(
             "tool_call_updated",
