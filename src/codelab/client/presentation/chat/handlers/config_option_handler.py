@@ -74,7 +74,14 @@ class ConfigOptionHandler:
             # EventBus.publish может быть async, поэтому используем ensure_future
             import asyncio
 
-            asyncio.ensure_future(context.event_bus.publish(event))
+            try:
+                # Проверяем наличие running event loop
+                loop = asyncio.get_running_loop()
+                # Если loop есть, создаем task
+                loop.create_task(context.event_bus.publish(event))
+            except RuntimeError:
+                # Если loop нет (например, в тестах), создаем новый
+                asyncio.run(context.event_bus.publish(event))
 
             context.logger.info(
                 "config_option_event_published",
