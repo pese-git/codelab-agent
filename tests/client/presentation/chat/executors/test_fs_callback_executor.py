@@ -183,3 +183,94 @@ class TestFsCallbackExecutor:
         read_content, read_error = await executor.read_file("roundtrip.txt")
         assert read_content == content
         assert read_error is None
+
+    @pytest.mark.asyncio
+    async def test_read_file_permission_error(
+        self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """read_file должен обрабатывать PermissionError."""
+        # Создаём тестовый файл
+        test_file = executor._base_path / "test.txt"
+        test_file.write_text("Hello, World!", encoding="utf-8")
+
+        # Патчим _read_file_sync чтобы он вызывал PermissionError
+        def mock_read_file_sync(path: Path) -> str:
+            raise PermissionError("Permission denied")
+
+        monkeypatch.setattr(executor, "_read_file_sync", mock_read_file_sync)
+
+        content, error = await executor.read_file("test.txt")
+
+        assert content is None
+        assert error is not None
+        assert "permission denied" in error.lower()
+
+    @pytest.mark.asyncio
+    async def test_read_file_generic_exception(
+        self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """read_file должен обрабатывать общие исключения."""
+        # Создаём тестовый файл
+        test_file = executor._base_path / "test.txt"
+        test_file.write_text("Hello, World!", encoding="utf-8")
+
+        # Патчим _read_file_sync чтобы он вызывал общее исключение
+        def mock_read_file_sync(path: Path) -> str:
+            raise RuntimeError("Unexpected error")
+
+        monkeypatch.setattr(executor, "_read_file_sync", mock_read_file_sync)
+
+        content, error = await executor.read_file("test.txt")
+
+        assert content is None
+        assert error is not None
+        assert "failed to read file" in error.lower()
+
+    @pytest.mark.asyncio
+    async def test_write_file_permission_error(
+        self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """write_file должен обрабатывать PermissionError."""
+        # Патчим _write_file_sync чтобы он вызывал PermissionError
+        def mock_write_file_sync(path: Path, content: str) -> None:
+            raise PermissionError("Permission denied")
+
+        monkeypatch.setattr(executor, "_write_file_sync", mock_write_file_sync)
+
+        success, error = await executor.write_file("test.txt", "content")
+
+        assert success is False
+        assert error is not None
+        assert "permission denied" in error.lower()
+
+    @pytest.mark.asyncio
+    async def test_write_file_is_directory_error(
+        self, executor: FsCallbackExecutor
+    ) -> None:
+        """write_file должен возвращать ошибку если путь является директорией."""
+        # Создаём поддиректорию
+        subdir = executor._base_path / "subdir"
+        subdir.mkdir()
+
+        success, error = await executor.write_file("subdir", "content")
+
+        assert success is False
+        assert error is not None
+        assert "directory" in error.lower()
+
+    @pytest.mark.asyncio
+    async def test_write_file_generic_exception(
+        self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """write_file должен обрабатывать общие исключения."""
+        # Патчим _write_file_sync чтобы он вызывал общее исключение
+        def mock_write_file_sync(path: Path, content: str) -> None:
+            raise RuntimeError("Unexpected error")
+
+        monkeypatch.setattr(executor, "_write_file_sync", mock_write_file_sync)
+
+        success, error = await executor.write_file("test.txt", "content")
+
+        assert success is False
+        assert error is not None
+        assert "failed to write file" in error.lower()

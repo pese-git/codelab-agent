@@ -342,3 +342,108 @@ class TestSessionUpdateDispatcher:
             dispatcher.dispatch_with_context(update_data, context)
 
         assert context.state.streaming_text == "Hello World"
+
+    def test_dispatch_without_context_agent_message(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        session_state: ChatSessionState,
+    ) -> None:
+        """Метод dispatch должен работать без контекста."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "Hello"},
+                },
+            }
+        }
+
+        dispatcher.dispatch(update_data, session_state, "test-session")
+
+        assert session_state.streaming_text == "Hello"
+
+    def test_dispatch_without_context_tool_call(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        session_state: ChatSessionState,
+    ) -> None:
+        """Метод dispatch должен маршрутизировать tool_call."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "tc-1",
+                    "title": "Read file",
+                    "status": "pending",
+                },
+            }
+        }
+
+        dispatcher.dispatch(update_data, session_state, "test-session")
+
+        assert len(session_state.tool_calls) == 1
+        assert session_state.tool_calls[0]["toolCallId"] == "tc-1"
+
+    def test_dispatch_without_context_missing_update_type(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        session_state: ChatSessionState,
+    ) -> None:
+        """Метод dispatch должен логировать warning если update_type отсутствует."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {},
+            }
+        }
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch(update_data, session_state, "test-session")
+
+    def test_dispatch_without_context_unknown_update_type(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        session_state: ChatSessionState,
+    ) -> None:
+        """Метод dispatch должен логировать warning для неизвестного типа."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "unknown_type",
+                },
+            }
+        }
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch(update_data, session_state, "test-session")
+
+    def test_dispatch_without_context_handler_exception(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        session_state: ChatSessionState,
+    ) -> None:
+        """Метод dispatch должен перехватывать исключения в обработчиках."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "Hello"},
+                },
+            }
+        }
+
+        # Патчим handler чтобы он вызывал исключение
+        original_handle = dispatcher._handlers[0].handle
+        def failing_handle(*args: Any, **kwargs: Any) -> None:
+            raise ValueError("Test error")
+        dispatcher._handlers[0].handle = failing_handle
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch(update_data, session_state, "test-session")
+
+        # Восстанавливаем оригинальный handler
+        dispatcher._handlers[0].handle = original_handle
