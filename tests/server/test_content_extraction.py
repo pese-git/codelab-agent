@@ -16,8 +16,7 @@ class TestContentExtractor:
         extractor = ContentExtractor()
         result = ToolExecutionResult(
             success=True,
-            output="test",
-            content=[{"type": "text", "text": "Hello World"}]
+            output="Hello World",
         )
 
         extracted = await extractor.extract_from_result("tc1", result)
@@ -35,19 +34,18 @@ class TestContentExtractor:
         result = ToolExecutionResult(
             success=True,
             output="File modified",
-            content=[{
-                "type": "diff",
+            metadata={
+                "diff": "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new",
                 "path": "file.py",
-                "diff": "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new"
-            }]
+            },
         )
 
         extracted = await extractor.extract_from_result("tc2", result)
 
         assert extracted.has_content is True
-        assert len(extracted.content_items) == 1
-        assert extracted.content_items[0]["type"] == "diff"
-        assert extracted.content_items[0]["path"] == "file.py"
+        assert len(extracted.content_items) == 2
+        assert extracted.content_items[1]["type"] == "diff"
+        assert extracted.content_items[1]["path"] == "file.py"
 
     @pytest.mark.asyncio
     async def test_extract_with_multiple_content_items(self):
@@ -55,17 +53,13 @@ class TestContentExtractor:
         extractor = ContentExtractor()
         result = ToolExecutionResult(
             success=True,
-            output="Multiple",
-            content=[
-                {"type": "text", "text": "First"},
-                {"type": "text", "text": "Second"}
-            ]
+            output="First",
         )
 
         extracted = await extractor.extract_from_result("tc3", result)
 
         assert extracted.has_content is True
-        assert len(extracted.content_items) == 2
+        assert len(extracted.content_items) == 1
 
     @pytest.mark.asyncio
     async def test_extract_without_content_creates_fallback_from_output(self):
@@ -78,7 +72,7 @@ class TestContentExtractor:
 
         extracted = await extractor.extract_from_result("tc4", result)
 
-        assert extracted.has_content is False
+        assert extracted.has_content is True
         assert len(extracted.content_items) == 1
         assert extracted.content_items[0]["type"] == "text"
         assert extracted.content_items[0]["text"] == "Plain output text"
@@ -94,7 +88,7 @@ class TestContentExtractor:
 
         extracted = await extractor.extract_from_result("tc5", result)
 
-        assert extracted.has_content is False
+        assert extracted.has_content is True
         assert len(extracted.content_items) == 1
         assert extracted.content_items[0]["type"] == "text"
         assert "Execution error" in extracted.content_items[0]["text"]
@@ -107,7 +101,7 @@ class TestContentExtractor:
 
         extracted = await extractor.extract_from_result("tc6", result)
 
-        assert extracted.has_content is False
+        assert extracted.has_content is True
         assert len(extracted.content_items) == 1
         assert extracted.content_items[0]["type"] == "text"
         assert extracted.content_items[0]["text"] == ""
@@ -121,16 +115,14 @@ class TestContentExtractor:
                 "tc1",
                 ToolExecutionResult(
                     success=True,
-                    output="1",
-                    content=[{"type": "text", "text": "A"}]
+                    output="A",
                 )
             ),
             (
                 "tc2",
                 ToolExecutionResult(
                     success=True,
-                    output="2",
-                    content=[{"type": "text", "text": "B"}]
+                    output="B",
                 )
             ),
             ("tc3", ToolExecutionResult(success=True, output="3"))
@@ -144,7 +136,7 @@ class TestContentExtractor:
         assert extracted[1].tool_call_id == "tc2"
         assert extracted[1].has_content is True
         assert extracted[2].tool_call_id == "tc3"
-        assert extracted[2].has_content is False
+        assert extracted[2].has_content is True
 
     @pytest.mark.asyncio
     async def test_extract_batch_empty_list(self):
@@ -163,21 +155,12 @@ class TestContentExtractor:
         result = ToolExecutionResult(
             success=True,
             output="test",
-            content=[{
-                "type": "image",
-                "data": "base64encodeddata",
-                "format": "png",
-                "width": 100,
-                "height": 200
-            }]
         )
 
         extracted = await extractor.extract_from_result("tc7", result)
 
-        assert extracted.content_items[0]["data"] == "base64encodeddata"
-        assert extracted.content_items[0]["format"] == "png"
-        assert extracted.content_items[0]["width"] == 100
-        assert extracted.content_items[0]["height"] == 200
+        assert extracted.content_items[0]["type"] == "text"
+        assert extracted.content_items[0]["text"] == "test"
 
 
 class TestContentValidator:
@@ -426,11 +409,10 @@ class TestPromptOrchestratorContentIntegration:
         result = ToolExecutionResult(
             success=True,
             output="test",
-            content=[]
         )
 
         extracted = await extractor.extract_from_result("tc1", result)
 
-        # Пустой список content = fallback
-        assert extracted.has_content is False
+        # output produces text content via mapper
+        assert extracted.has_content is True
         assert len(extracted.content_items) == 1

@@ -152,11 +152,8 @@ class TestTerminalExecutorWaitForExitSignal:
 
         assert result.success is False
         assert result.metadata["signal"] == "SIGTERM"
-        assert any(
-            "signal SIGTERM" in item["text"]
-            for item in result.content
-            if item["type"] == "text"
-        )
+        assert result.raw_output["signal"] == "SIGTERM"
+        assert result.output == "killed"
 
 
 class TestTerminalExecutorReleaseErrors:

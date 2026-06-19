@@ -20,10 +20,12 @@ from ..models import AvailableCommand, HistoryMessage, PlanStep
 
 
 class SessionState(BaseModel):
-    """Состояние ACP-сессии, хранимое в памяти сервера.
+    """ACP Protocol Model — контракт сессии согласно ACP 03-Session Setup.
 
-    Объект содержит контекст работы сессии, историю, конфигурацию и состояние
-    инструментальных вызовов.
+    Wire format для хранения состояния сессии в storage.
+
+    НЕ является domain моделью. Для бизнес-логики использовать domain Session.
+    Конвертация через SessionMapper.
 
     Пример использования:
         state = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
@@ -32,7 +34,7 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=3)
+    schema_version: int = Field(default=4)
 
     session_id: str
     cwd: str
@@ -133,6 +135,14 @@ class SessionState(BaseModel):
             data.setdefault("task_result", None)
             data.setdefault("sliced_summary", None)
             data["schema_version"] = 3
+            version = 3
+
+        # v3 → v4: domain model separation (no structural changes, just version bump)
+        # This version introduces domain layer separation but maintains backward compatibility
+        # with existing SessionState structure. Migration is handled by SessionMapper.
+        if version < 4:
+            data["schema_version"] = 4
+            version = 4
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})
@@ -148,10 +158,13 @@ class SessionState(BaseModel):
 
 
 class ToolCallState(BaseModel):
-    """Состояние одного tool call внутри prompt-turn.
+    """ACP Protocol Model — контракт tool call согласно ACP 08-Tool Calls.
 
-    Используется для управления жизненным циклом `pending -> in_progress -> ...`
-    и генерации корректных `tool_call_update` уведомлений.
+    Wire format для session/update notification с sessionUpdate="tool_call"
+    и sessionUpdate="tool_call_update".
+
+    НЕ является domain моделью. Для бизнес-логики использовать domain ToolCall.
+    Конвертация через ToolCallMapper.
 
     Пример использования:
         call = ToolCallState("call_001", "Demo", "other", "pending")
@@ -176,6 +189,12 @@ class ToolCallState(BaseModel):
     # Идентификатор tool_call из LLM ответа (для связки в истории диалога).
     # Может отличаться от tool_call_id, который генерируется нами.
     tool_call_id_from_llm: str | None = None
+    # Затронутые файлы (ACP locations).
+    locations: list[dict[str, Any]] = Field(default_factory=list)
+    # Исходные аргументы инструмента (ACP rawInput).
+    raw_input: dict[str, Any] = Field(default_factory=dict)
+    # Исходный результат выполнения (ACP rawOutput).
+    raw_output: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActiveTurnState(BaseModel):

@@ -20,7 +20,13 @@ class MessageContent(BaseModel):
 
 
 class HistoryMessage(BaseModel):
-    """Сообщение в истории сессии."""
+    """ACP Protocol Model — контракт сообщения истории согласно ACP 05-Prompt Turn.
+
+    Wire format для хранения истории сообщений в SessionState.
+
+    НЕ является domain моделью. Для бизнес-логики использовать domain ConversationMessage.
+    Конвертация через HistoryMapper.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -28,6 +34,7 @@ class HistoryMessage(BaseModel):
     content: list[MessageContent] | str | list[dict[str, Any]] | None = None
     text: str | None = None
     timestamp: str | None = None
+    tool_call_id: str | None = None
 
 
 # Модели для команд (available_commands)
@@ -74,7 +81,13 @@ class AvailableCommand(BaseModel):
 
 # Модели для плана агента (latest_plan)
 class PlanStep(BaseModel):
-    """Шаг в плане агента."""
+    """ACP Protocol Model — контракт шага плана согласно ACP 11-Agent Plan.
+
+    Wire format для хранения плана в SessionState и отправки в session/update.
+
+    НЕ является domain моделью. Для бизнес-логики использовать domain PlanEntry.
+    Конвертация через PlanMapper.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -94,24 +107,6 @@ class AgentPlan(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
 
-
-# Модели для tool calls
-class ToolCallParameter(BaseModel):
-    """Параметр вызова инструмента."""
-
-    name: str
-    value: Any
-
-
-class ToolCall(BaseModel):
-    """Вызов инструмента агентом."""
-
-    id: str
-    name: str
-    parameters: list[ToolCallParameter] = Field(default_factory=list)
-    status: Literal["pending", "approved", "denied", "completed", "failed"] = "pending"
-    result: Any = None
-    error: str | None = None
 
 
 # Модели для разрешений (permissions)
