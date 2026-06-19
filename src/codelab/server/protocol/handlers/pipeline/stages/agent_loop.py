@@ -201,6 +201,19 @@ class AgentLoop:
                 )
                 # Продолжаем выполнение — notification всё равно в списке
 
+    def set_notification_callback(
+        self, callback: Callable[[ACPMessage], Awaitable[None]] | None
+    ) -> None:
+        """Обновить callback для немедленной отправки notifications.
+
+        Используется когда AgentLoop переиспользуется между вызовами
+        (например, в execute_pending_tool после permission approval).
+
+        Args:
+            callback: Новый callback или None для отключения immediate delivery.
+        """
+        self._notification_callback = callback
+
     async def run(
         self,
         session: SessionState,

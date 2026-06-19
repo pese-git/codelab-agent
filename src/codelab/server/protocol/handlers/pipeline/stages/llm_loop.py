@@ -301,6 +301,14 @@ class LLMLoopStage(PromptStage):
                 global_policy_manager=self._global_policy_manager,
                 notification_callback=notification_callback,
             )
+        else:
+            # Обновить callback в существующем AgentLoop для немедленной отправки notifications
+            if notification_callback is not None:
+                self._agent_loop.set_notification_callback(notification_callback)
+                logger.debug(
+                    "updated notification_callback in existing AgentLoop",
+                    session_id=session_id,
+                )
 
         # Использовать AgentLoop.resume_after_permission
         result = await self._agent_loop.resume_after_permission(

@@ -965,3 +965,131 @@ class TestAgentLoopBypassMode:
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "File not found, sorry"
         mock_strategy.continue_execution.assert_called_once()
+
+
+class TestAgentLoopNotificationCallback:
+    """Тесты для immediate notification delivery через callback."""
+
+    def test_set_notification_callback_updates_callback(self, mock_strategy, mock_dependencies):
+        """set_notification_callback обновляет callback в AgentLoop."""
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        
+        # Изначально callback равен None
+        assert loop._notification_callback is None
+        
+        # Устанавливаем callback
+        async def mock_callback(msg):
+            pass
+        
+        loop.set_notification_callback(mock_callback)
+        assert loop._notification_callback is mock_callback
+        
+        # Можно установить None
+        loop.set_notification_callback(None)
+        assert loop._notification_callback is None
+
+    @pytest.mark.asyncio
+    async def test_notification_callback_called_for_tool_call(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Callback вызывается для tool call notification."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "fs_read_text_file"
+        mock_tool_call.arguments = {"path": "test.txt"}
+
+        response = MagicMock(spec=AgentResponse)
+        response.text = "Reading file..."
+        response.tool_calls = [mock_tool_call]
+
+        mock_strategy.execute.return_value = response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "read"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.output = "File content"
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        # Создаём callback и передаём в AgentLoop
+        sent_notifications = []
+        async def mock_callback(msg):
+            sent_notifications.append(msg)
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=mock_callback,
+        )
+        
+        # Запускаем loop с tool call
+        await loop.run(mock_session, "test_session", "Read file")
+        
+        # Проверяем что callback был вызван для tool call notification
+        assert len(sent_notifications) > 0, "Callback должен быть вызван хотя бы один раз"
+
+    @pytest.mark.asyncio
+    async def test_notification_callback_error_does_not_break_loop(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Ошибка в callback не прерывает AgentLoop."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "fs_read_text_file"
+        mock_tool_call.arguments = {"path": "test.txt"}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = "Reading file..."
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Done reading"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "read"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        h.build_tool_update_notification.return_value = MagicMock()
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.output = "File content"
+        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
+
+        # Создаём callback который всегда падает
+        async def failing_callback(msg):
+            raise RuntimeError("Callback failed!")
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=failing_callback,
+        )
+        
+        # Loop должен завершиться успешно несмотря на ошибку в callback
+        result = await loop.run(mock_session, "test_session", "Read file")
+        
+        assert result.stop_reason == StopReason.END_TURN
+        assert result.text == "Done reading"
