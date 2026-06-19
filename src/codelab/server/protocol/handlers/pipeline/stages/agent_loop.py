@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -129,6 +130,7 @@ class AgentLoop:
         system_prompt_builder: SystemPromptBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         max_turn_requests: int = 10,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> None:
         """Инициализация AgentLoop.
 
@@ -146,6 +148,9 @@ class AgentLoop:
             system_prompt_builder: Билдер system prompt (config + MCP info).
             global_policy_manager: Менеджер глобальных политик (опционально).
             max_turn_requests: Максимальное количество запросов к LLM в turn.
+            notification_callback: Опциональный callback для немедленной отправки notifications.
+                Если задан, notifications отправляются сразу при создании. Если None,
+                notifications только накапливаются в списке для backward compatibility.
         """
         self._strategy = strategy
         self._tool_registry = tool_registry
@@ -160,6 +165,73 @@ class AgentLoop:
         self._system_prompt_builder = system_prompt_builder
         self._global_policy_manager = global_policy_manager
         self._max_turn_requests = max_turn_requests
+        self._notification_callback = notification_callback
+
+    # ── Immediate Notification Delivery ─────────────────────────────────────────
+    #
+    # Согласно ACP спецификации (05-Prompt Turn.md:169, 08-Tool Calls.md:11),
+    # tool calls и их статусы должны репортиться "immediately" для "real-time
+    # progress". Особенно критично для terminal embedding (10-Terminal.md:140),
+    # где клиент должен отображать "live output as it's generated".
+    #
+    # Реализация: callback pattern для немедленной отправки через transport,
+    # аналогично тому как protocol._send_callback используется для background tasks.
+    #
+    # Backward compatibility: notifications по-прежнему накапливаются в списке.
+    # ──────────────────────────────────────────────────────────────────────────────
+
+    async def _send_notification_immediately(self, notification: ACPMessage) -> bool:
+        """Отправить notification немедленно через callback если он задан.
+
+        Args:
+            notification: Notification для отправки.
+
+        Returns:
+            True если notification успешно отправлен через callback.
+            False если callback не задан или упал с ошибкой.
+        """
+        if self._notification_callback is not None:
+            try:
+                logger.info(
+                    "sending_notification_via_callback",
+                    method=notification.method,
+                    is_notification=notification.is_notification,
+                    has_callback=True,
+                )
+                await self._notification_callback(notification)
+                logger.info(
+                    "notification_sent_via_callback",
+                    method=notification.method,
+                )
+                return True
+            except Exception as e:
+                logger.warning(
+                    "notification_callback_failed",
+                    notification_method=notification.method,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return False
+        else:
+            logger.info(
+                "notification_not_sent_no_callback",
+                method=notification.method,
+                has_callback=False,
+            )
+            return False
+
+    def set_notification_callback(
+        self, callback: Callable[[ACPMessage], Awaitable[None]] | None
+    ) -> None:
+        """Обновить callback для немедленной отправки notifications.
+
+        Используется когда AgentLoop переиспользуется между вызовами
+        (например, в execute_pending_tool после permission approval).
+
+        Args:
+            callback: Новый callback или None для отключения immediate delivery.
+        """
+        self._notification_callback = callback
 
     async def run(
         self,
@@ -216,7 +288,9 @@ class AgentLoop:
                     iteration=iteration,
                     error=str(e),
                 )
-                notifications.append(self._build_error_notification(session_id, str(e)))
+                error_notification = self._build_error_notification(session_id, str(e))
+                if not await self._send_notification_immediately(error_notification):
+                    notifications.append(error_notification)
                 return AgentLoopResult(
                     notifications=notifications,
                     stop_reason=StopReason.END_TURN,
@@ -252,7 +326,8 @@ class AgentLoop:
                 final_text = agent_text
                 self._state_manager.add_assistant_message(session, agent_text)
                 notification = self._build_agent_response_notification(session_id, agent_text)
-                notifications.append(notification)
+                if not await self._send_notification_immediately(notification):
+                    notifications.append(notification)
                 # Сохранить в events_history для replay при session/load
                 self._replay_manager.save_agent_message_chunk(
                     session,
@@ -265,9 +340,11 @@ class AgentLoop:
                 validated_plan = self._plan_builder.validate_plan_entries(plan)
                 if validated_plan:
                     session.latest_plan = list(validated_plan)
-                    notifications.append(
-                        self._plan_builder.build_plan_notification(session_id, validated_plan)
+                    plan_notification = self._plan_builder.build_plan_notification(
+                        session_id, validated_plan
                     )
+                    if not await self._send_notification_immediately(plan_notification):
+                        notifications.append(plan_notification)
                     self._replay_manager.save_plan(session, validated_plan)
 
             # Нет tool_calls → завершить
@@ -361,7 +438,8 @@ class AgentLoop:
 
         Flow:
         1. Выполнить pending tool
-        2. Продолжить цикл через run()
+        2. Отправить notification клиенту с content
+        3. Продолжить цикл через run()
 
         Args:
             session: Состояние сессии.
@@ -398,6 +476,38 @@ class AgentLoop:
                 notifications=notifications,
                 stop_reason=StopReason.END_TURN,
             )
+
+        # Отправить notification клиенту с content (terminal embedding и т.д.)
+        status = "completed" if tool_result.success else "failed"
+        notification = self._tool_call_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=tool_result.content,
+        )
+        if not await self._send_notification_immediately(notification):
+            notifications.append(notification)
+
+        logger.info(
+            "resume_after_permission: notification built with content",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            has_content=tool_result.content is not None,
+            content_types=(
+                [item.get("type") for item in tool_result.content]
+                if tool_result.content
+                else []
+            ),
+        )
+
+        # Сохранить в replay для восстановления при session/load
+        self._replay_manager.save_tool_call_update(
+            session=session,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=tool_result.content,
+        )
 
         # Продолжить цикл (tool_results уже в session.history)
         loop_result = await self.run(
@@ -506,14 +616,14 @@ class AgentLoop:
                 tool_call_id_from_llm=tool_call_id_from_llm,
             )
 
-            notifications.append(
-                self._tool_call_handler.build_tool_call_notification(
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    title=acp_tool_name,
-                    kind=tool_kind,
-                )
+            tool_call_notification = self._tool_call_handler.build_tool_call_notification(
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                title=acp_tool_name,
+                kind=tool_kind,
             )
+            if not await self._send_notification_immediately(tool_call_notification):
+                notifications.append(tool_call_notification)
 
             self._replay_manager.save_tool_call(
                 session=session,
@@ -555,6 +665,9 @@ class AgentLoop:
                         tool_kind,
                     )
                     notifications.append(permission_msg)
+                    # НЕ отправляем permission request через immediate callback.
+                    # Он будет отправлен через стандартный механизм outcome.notifications
+                    # чтобы избежать дублирования и корректной обработки ответа.
 
                     if session.active_turn:
                         session.active_turn.phase = "awaiting_permission"
@@ -577,14 +690,14 @@ class AgentLoop:
                 rejection_content = [
                     {"type": "content", "content": {"type": "text", "text": rejection_msg}}
                 ]
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status="failed",
-                        content=rejection_content,
-                    )
+                rejection_notification = self._tool_call_handler.build_tool_update_notification(
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    status="failed",
+                    content=rejection_content,
                 )
+                if not await self._send_notification_immediately(rejection_notification):
+                    notifications.append(rejection_notification)
                 self._replay_manager.save_tool_call_update(
                     session=session,
                     tool_call_id=tool_call_id,
@@ -606,13 +719,13 @@ class AgentLoop:
                 self._tool_call_handler.update_tool_call_status(
                     session, tool_call_id, "in_progress"
                 )
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status="in_progress",
-                    )
+                in_progress_notification = self._tool_call_handler.build_tool_update_notification(
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    status="in_progress",
                 )
+                if not await self._send_notification_immediately(in_progress_notification):
+                    notifications.append(in_progress_notification)
                 self._replay_manager.save_tool_call_update(
                     session=session,
                     tool_call_id=tool_call_id,
@@ -668,20 +781,27 @@ class AgentLoop:
                     self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
                     status = "failed"
 
-                notification_content = None
-                if result.success and result.output:
-                    notification_content = [
-                        {"type": "content", "content": {"type": "text", "text": result.output}}
-                    ]
-
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status=status,
-                        content=notification_content,
+                # notification_content: приоритет extracted content > text fallback
+                # extracted_content.content_items уже в формате ToolCallContent
+                # (благодаря ToolResultMapper.to_acp_content())
+                notification_content = (
+                    extracted_content.content_items
+                    if extracted_content.content_items
+                    else (
+                        [{"type": "content", "content": {"type": "text", "text": result.output}}]
+                        if result.success and result.output
+                        else None
                     )
                 )
+
+                tool_update_notification = self._tool_call_handler.build_tool_update_notification(
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    status=status,
+                    content=notification_content,
+                )
+                if not await self._send_notification_immediately(tool_update_notification):
+                    notifications.append(tool_update_notification)
                 self._replay_manager.save_tool_call_update(
                     session=session,
                     tool_call_id=tool_call_id,
@@ -719,11 +839,11 @@ class AgentLoop:
                     )
                     if plan_entries:
                         session.latest_plan = list(plan_entries)
-                        notifications.append(
-                            self._plan_builder.build_plan_notification(
-                                session_id, plan_entries
-                            )
+                        plan_notification = self._plan_builder.build_plan_notification(
+                            session_id, plan_entries
                         )
+                        if not await self._send_notification_immediately(plan_notification):
+                            notifications.append(plan_notification)
                         self._replay_manager.save_plan(session, plan_entries)
                         logger.debug(
                             "plan notification sent from update_plan tool",
@@ -842,18 +962,20 @@ class AgentLoop:
             provider = cast(Literal["openai", "anthropic"], provider_raw)
             self._content_formatter.format_for_llm(extracted_content, provider=provider)
 
+            # notification_content: приоритет extracted content > text fallback
+            notification_content = (
+                extracted_content.content_items
+                if extracted_content.content_items
+                else (
+                    [{"type": "content", "content": {"type": "text", "text": result.output}}]
+                    if result.success and result.output
+                    else None
+                )
+            )
+
             if result.success:
-                completed_content = [
-                    {
-                        "type": "content",
-                        "content": {
-                            "type": "text",
-                            "text": result.output or "Tool executed successfully",
-                        },
-                    }
-                ]
                 self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "completed", content=completed_content
+                    session, tool_call_id, "completed", content=notification_content
                 )
                 # Добавляем tool result в историю для LLM
                 self._add_tool_result_to_history(
@@ -864,6 +986,7 @@ class AgentLoop:
                     tool_name=tool_name,
                     success=True,
                     output=result.output,
+                    content=extracted_content.content_items,
                 )
             else:
                 error_content = [

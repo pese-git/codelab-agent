@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -137,6 +138,7 @@ class PromptOrchestrator:
         storage: SessionStorage,
         mcp_manager: Any | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> ProtocolOutcome:
         """Обрабатывает session/prompt request.
 
@@ -155,6 +157,7 @@ class PromptOrchestrator:
             storage: Хранилище сессий
             mcp_manager: MCP manager для сессии (из runtime registry)
             mcp_prompt_handlers: Обработчики MCP prompts (из runtime registry)
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             ProtocolOutcome с notifications и response
@@ -189,6 +192,8 @@ class PromptOrchestrator:
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
+        if notification_callback is not None:
+            context.meta["notification_callback"] = notification_callback
 
         result = await self._pipeline.run(context)
 
@@ -396,6 +401,7 @@ class PromptOrchestrator:
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
         return await self._llm_loop_stage.execute_pending_tool(
@@ -403,6 +409,7 @@ class PromptOrchestrator:
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
+            notification_callback=notification_callback,
         )
 
 

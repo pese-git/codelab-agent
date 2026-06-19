@@ -17,10 +17,12 @@ Responsibilities:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
@@ -116,7 +118,11 @@ class LLMLoopStage(PromptStage):
             tracer_enabled=tracer is not None,
         )
 
-    def _get_or_create_agent_loop(self, context: PromptContext) -> AgentLoop:
+    def _get_or_create_agent_loop(
+        self,
+        context: PromptContext,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+    ) -> AgentLoop:
         """Лениво создать AgentLoop с нужной стратегией.
 
         Стратегия выбирается один раз и фиксируется через set_current_strategy,
@@ -124,6 +130,7 @@ class LLMLoopStage(PromptStage):
 
         Args:
             context: Контекст pipeline (session, meta).
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             AgentLoop с нужной стратегией.
@@ -132,6 +139,11 @@ class LLMLoopStage(PromptStage):
             ValueError: Если стратегия не доступна.
         """
         if self._agent_loop is not None:
+            logger.info(
+                "reusing_existing_agentLoop",
+                session_id=context.session_id,
+                has_callback=notification_callback is not None,
+            )
             return self._agent_loop
 
         if self._strategy_dispatcher is None:
@@ -166,6 +178,11 @@ class LLMLoopStage(PromptStage):
             self._strategy_dispatcher.set_current_strategy(strategy_name)
             self._strategy_selected = True
 
+        logger.info(
+            "creating_new_AgentLoop",
+            session_id=context.session_id,
+            has_callback=notification_callback is not None,
+        )
         self._agent_loop = AgentLoop(
             strategy=self._strategy_dispatcher,
             tool_registry=self._tool_registry,
@@ -179,6 +196,7 @@ class LLMLoopStage(PromptStage):
             plan_builder=self._plan_builder,
             system_prompt_builder=self._system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
+            notification_callback=notification_callback,
         )
         return self._agent_loop
 
@@ -213,7 +231,10 @@ class LLMLoopStage(PromptStage):
                 self._state_manager.add_assistant_message(context.session, ack_text)
             return context
 
-        agent_loop = self._get_or_create_agent_loop(context)
+        agent_loop = self._get_or_create_agent_loop(
+            context,
+            notification_callback=context.meta.get("notification_callback"),
+        )
         mcp_manager = self._get_mcp_manager(context)
 
         result = await agent_loop.run(
@@ -238,6 +259,7 @@ class LLMLoopStage(PromptStage):
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
@@ -249,12 +271,18 @@ class LLMLoopStage(PromptStage):
             session_id: ID сессии.
             tool_call_id: ID tool call для выполнения.
             mcp_manager: MCP manager для tool execution.
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             LLMLoopResult с результатами выполнения.
         """
         # Переиспользовать существующий AgentLoop или создать новый с правильной стратегией
         if self._agent_loop is None:
+            logger.info(
+                "creating new AgentLoop with callback",
+                session_id=session_id,
+                has_callback=notification_callback is not None,
+            )
             # Fallback: создать AgentLoop с правильной стратегией
             strategy: LLMCallStrategy
             if self._strategy_dispatcher is not None:
@@ -286,7 +314,21 @@ class LLMLoopStage(PromptStage):
                 plan_builder=self._plan_builder,
                 system_prompt_builder=self._system_prompt_builder,
                 global_policy_manager=self._global_policy_manager,
+                notification_callback=notification_callback,
             )
+        else:
+            # Обновить callback в существующем AgentLoop для немедленной отправки notifications
+            if notification_callback is not None:
+                self._agent_loop.set_notification_callback(notification_callback)
+                logger.info(
+                    "updated notification_callback in existing AgentLoop",
+                    session_id=session_id,
+                )
+            else:
+                logger.warning(
+                    "notification_callback is None in execute_pending_tool",
+                    session_id=session_id,
+                )
 
         # Использовать AgentLoop.resume_after_permission
         result = await self._agent_loop.resume_after_permission(
