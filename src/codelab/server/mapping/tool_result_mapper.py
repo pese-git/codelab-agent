@@ -18,12 +18,6 @@ class ToolResultMapper:
         blocks: list[dict[str, Any]] = []
         if result.output:
             blocks.append({"type": "text", "text": result.output})
-        if result.metadata and result.metadata.get("diff"):
-            blocks.append({
-                "type": "diff",
-                "path": result.metadata.get("path", ""),
-                "diff": result.metadata["diff"],
-            })
         return blocks
 
     @staticmethod

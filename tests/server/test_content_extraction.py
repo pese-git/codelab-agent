@@ -28,26 +28,6 @@ class TestContentExtractor:
         assert extracted.content_items[0]["text"] == "Hello World"
 
     @pytest.mark.asyncio
-    async def test_extract_with_diff_content(self):
-        """Извлечение diff content из result."""
-        extractor = ContentExtractor()
-        result = ToolExecutionResult(
-            success=True,
-            output="File modified",
-            metadata={
-                "diff": "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new",
-                "path": "file.py",
-            },
-        )
-
-        extracted = await extractor.extract_from_result("tc2", result)
-
-        assert extracted.has_content is True
-        assert len(extracted.content_items) == 2
-        assert extracted.content_items[1]["type"] == "diff"
-        assert extracted.content_items[1]["path"] == "file.py"
-
-    @pytest.mark.asyncio
     async def test_extract_with_multiple_content_items(self):
         """Извлечение нескольких content items из result."""
         extractor = ContentExtractor()
