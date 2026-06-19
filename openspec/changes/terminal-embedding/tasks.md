@@ -3,55 +3,55 @@
 ## Фаза 1: Серверная часть (низкий риск)
 
 ### 1.1 Обновление ContentValidator
-- [ ] 1.1.1 Добавить `"terminal"` в `SUPPORTED_TYPES` в `server/protocol/content/validator.py`
-- [ ] 1.1.2 Добавить `"content"` в `SUPPORTED_TYPES` (обёртка для ContentBlock)
-- [ ] 1.1.3 Добавить `"terminal": {"type", "terminalId"}` в `REQUIRED_FIELDS`
-- [ ] 1.1.4 Добавить `"content": {"type", "content"}` в `REQUIRED_FIELDS`
-- [ ] 1.1.5 Написать unit тест: terminal тип проходит валидацию
-- [ ] 1.1.6 Написать unit тест: terminal без terminalId не проходит валидацию
-- [ ] 1.1.7 Написать unit тест: content тип проходит валидацию
+- [x] 1.1.1 Добавить `"terminal"` в `SUPPORTED_TYPES` в `server/protocol/content/validator.py`
+- [x] 1.1.2 Добавить `"content"` в `SUPPORTED_TYPES` (обёртка для ContentBlock)
+- [x] 1.1.3 Добавить `"terminal": {"type", "terminalId"}` в `REQUIRED_FIELDS`
+- [x] 1.1.4 Добавить `"content": {"type", "content"}` в `REQUIRED_FIELDS`
+- [x] 1.1.5 Написать unit тест: terminal тип проходит валидацию
+- [x] 1.1.6 Написать unit тест: terminal без terminalId не проходит валидацию
+- [x] 1.1.7 Написать unit тест: content тип проходит валидацию
 
 ### 1.2 Обновление ToolExecutionResult и ToolResultMapper
-- [ ] 1.2.1 Добавить поле `content: list[dict[str, Any]] | None = None` в `ToolExecutionResult` (`server/tools/base.py`)
-- [ ] 1.2.2 Обновить `ToolResultMapper.to_acp_content()` — проверять `result.content` перед fallback (`server/mapping/tool_result_mapper.py`)
-- [ ] 1.2.3 Написать unit тест: `to_acp_content()` возвращает `result.content` если задан
-- [ ] 1.2.4 Написать unit тест: `to_acp_content()` fallback на text если content не задан
+- [x] 1.2.1 Добавить поле `content: list[dict[str, Any]] | None = None` в `ToolExecutionResult` (`server/tools/base.py`)
+- [x] 1.2.2 Обновить `ToolResultMapper.to_acp_content()` — проверять `result.content` перед fallback (`server/mapping/tool_result_mapper.py`)
+- [x] 1.2.3 Написать unit тест: `to_acp_content()` возвращает `result.content` если задан
+- [x] 1.2.4 Написать unit тест: `to_acp_content()` fallback на text если content не задан
 
 ### 1.3 Обновление TerminalToolExecutor
-- [ ] 1.3.1 Обновить `execute_create()` в `server/tools/executors/terminal_executor.py`
-- [ ] 1.3.2 Добавить `{"type": "terminal", "terminalId": terminal_id}` в content_items
-- [ ] 1.3.3 Обернуть text content в `{"type": "content", "content": {...}}`
-- [ ] 1.3.4 Передать `content=content_items` в `ToolExecutionResult`
-- [ ] 1.3.5 Написать unit тест: execute_create возвращает terminal content
-- [ ] 1.3.6 Написать unit тест: terminal content содержит terminalId
+- [x] 1.3.1 Обновить `execute_create()` в `server/tools/executors/terminal_executor.py`
+- [x] 1.3.2 Добавить `{"type": "terminal", "terminalId": terminal_id}` в content_items
+- [x] 1.3.3 Обернуть text content в `{"type": "content", "content": {...}}`
+- [x] 1.3.4 Передать `content=content_items` в `ToolExecutionResult`
+- [x] 1.3.5 Написать unit тест: execute_create возвращает terminal content
+- [x] 1.3.6 Написать unit тест: terminal content содержит terminalId
 
 ### 1.4 Обновление AgentLoop
-- [ ] 1.4.1 Обновить `server/protocol/handlers/pipeline/stages/agent_loop.py`
-- [ ] 1.4.2 Изменить логику формирования `notification_content` (строки 671-675)
-- [ ] 1.4.3 Приоритет: `extracted_content.content_items` > text fallback
-- [ ] 1.4.4 Написать unit тест: передаёт extracted content в notification
-- [ ] 1.4.5 Написать unit тест: fallback на text если content пустой
+- [x] 1.4.1 Обновить `server/protocol/handlers/pipeline/stages/agent_loop.py`
+- [x] 1.4.2 Изменить логику формирования `notification_content` (строки 671-675)
+- [x] 1.4.3 Приоритет: `extracted_content.content_items` > text fallback
+- [x] 1.4.4 Написать unit тест: передаёт extracted content в notification
+- [x] 1.4.5 Написать unit тест: fallback на text если content пустой
 
 ## Фаза 2: Клиентская часть (низкий риск)
 
 ### 2.1 Обновление ToolCallHandler
-- [ ] 2.1.1 Обновить `_handle_tool_call_created()` в `client/presentation/chat/handlers/tool_call_handler.py`
-- [ ] 2.1.2 Добавить сохранение `content` из `update.get("content")`
-- [ ] 2.1.3 Обновить `_handle_tool_call_updated()`
-- [ ] 2.1.4 Добавить обновление `content` если присутствует
-- [ ] 2.1.5 Написать unit тест: сохранение content при создании
-- [ ] 2.1.6 Написать unit тест: обновление content при обновлении
+- [x] 2.1.1 Обновить `_handle_tool_call_created()` в `client/presentation/chat/handlers/tool_call_handler.py`
+- [x] 2.1.2 Добавить сохранение `content` из `update.get("content")`
+- [x] 2.1.3 Обновить `_handle_tool_call_updated()`
+- [x] 2.1.4 Добавить обновление `content` если присутствует
+- [x] 2.1.5 Написать unit тест: сохранение content при создании
+- [x] 2.1.6 Написать unit тест: обновление content при обновлении
 
 ## Фаза 3: Интеграционные тесты (низкий риск)
 
 ### 3.1 E2E тесты
-- [ ] 3.1.1 Написать integration тест: LLM вызывает terminal tool → клиент получает terminal content
-- [ ] 3.1.2 Проверить что slash-команды (`/term-run`) продолжают работать
-- [ ] 3.1.3 Запустить `make check` (lint + typecheck + tests)
+- [x] 3.1.1 Написать integration тест: LLM вызывает terminal tool → клиент получает terminal content
+- [x] 3.1.2 Проверить что slash-команды (`/term-run`) продолжают работать
+- [x] 3.1.3 Запустить `make check` (lint + typecheck + tests)
 
 ### 3.2 Документация
-- [ ] 3.2.1 Обновить docstrings в изменённых файлах
-- [ ] 3.2.2 Добавить примеры использования terminal embedding
+- [x] 3.2.1 Обновить docstrings в изменённых файлах
+- [x] 3.2.2 Добавить примеры использования terminal embedding
 
 ## Оценка объёма
 

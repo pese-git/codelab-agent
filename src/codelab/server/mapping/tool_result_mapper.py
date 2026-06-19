@@ -14,7 +14,20 @@ class ToolResultMapper:
 
     @staticmethod
     def to_acp_content(result: ToolExecutionResult) -> list[dict[str, Any]]:
-        """Конвертировать domain ToolExecutionResult в ACP content blocks."""
+        """Конвертировать domain ToolExecutionResult в ACP ToolCallContent blocks.
+
+        Если executor задал поле result.content (ToolCallContent items),
+        возвращает его as-is. Иначе — fallback на конвертацию output в text block.
+
+        Args:
+            result: Результат выполнения инструмента.
+
+        Returns:
+            Список ToolCallContent items для ACP.
+        """
+        if result.content is not None:
+            return result.content
+
         blocks: list[dict[str, Any]] = []
         if result.output:
             blocks.append({"type": "text", "text": result.output})

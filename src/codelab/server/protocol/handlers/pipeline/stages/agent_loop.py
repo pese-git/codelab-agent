@@ -668,11 +668,18 @@ class AgentLoop:
                     self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
                     status = "failed"
 
-                notification_content = None
-                if result.success and result.output:
-                    notification_content = [
-                        {"type": "content", "content": {"type": "text", "text": result.output}}
-                    ]
+                # notification_content: приоритет extracted content > text fallback
+                # extracted_content.content_items уже в формате ToolCallContent
+                # (благодаря ToolResultMapper.to_acp_content())
+                notification_content = (
+                    extracted_content.content_items
+                    if extracted_content.content_items
+                    else (
+                        [{"type": "content", "content": {"type": "text", "text": result.output}}]
+                        if result.success and result.output
+                        else None
+                    )
+                )
 
                 notifications.append(
                     self._tool_call_handler.build_tool_update_notification(

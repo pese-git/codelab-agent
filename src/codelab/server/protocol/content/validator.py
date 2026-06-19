@@ -11,7 +11,16 @@ class ContentValidator:
     """Валидирует content items согласно ACP Content Types спецификации."""
 
     # Поддерживаемые типы content согласно спецификации
-    SUPPORTED_TYPES = {"text", "diff", "image", "audio", "embedded", "resource_link"}
+    SUPPORTED_TYPES = {
+        "text",
+        "diff",
+        "image",
+        "audio",
+        "embedded",
+        "resource_link",
+        "terminal",  # ACP ToolCallContent: embedding terminal в tool calls
+        "content",  # ACP ToolCallContent: обёртка для стандартных ContentBlock
+    }
 
     # Обязательные поля для каждого типа
     REQUIRED_FIELDS = {
@@ -20,7 +29,9 @@ class ContentValidator:
         "image": {"type", "data", "format"},
         "audio": {"type", "data", "format"},
         "embedded": {"type", "content"},
-        "resource_link": {"type", "uri"}
+        "resource_link": {"type", "uri"},
+        "terminal": {"type", "terminalId"},  # ACP ToolCallContent.terminal
+        "content": {"type", "content"},  # ACP ToolCallContent.content
     }
 
     def validate_content_item(self, item: dict[str, Any]) -> tuple[bool, str | None]:

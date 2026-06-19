@@ -143,6 +143,23 @@ class TerminalToolExecutor(ToolExecutor):
                 },
             )
             
+            # Формируем ToolCallContent items для ACP (10-Terminal.md: Embedding in Tool Calls)
+            # Terminal content идёт первым — клиент может сразу начать отображение
+            # Text content (обёрнутый в content wrapper) — fallback для LLM
+            content_items = [
+                {
+                    "type": "terminal",
+                    "terminalId": terminal_id,
+                },
+                {
+                    "type": "content",
+                    "content": {
+                        "type": "text",
+                        "text": f"Terminal {terminal_id} created for command: {command}",
+                    },
+                },
+            ]
+            
             return ToolExecutionResult(
                 success=True,
                 output=f"Терминал создан с ID: {terminal_id}",
@@ -153,6 +170,7 @@ class TerminalToolExecutor(ToolExecutor):
                 raw_output={
                     "terminal_id": terminal_id,
                 },
+                content=content_items,
             )
             
         except Exception as e:
