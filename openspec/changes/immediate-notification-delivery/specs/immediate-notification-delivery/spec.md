@@ -252,3 +252,28 @@ assert latency_ms < 100, f"Terminal notification latency {latency_ms}ms > 100ms"
 - Без callback notifications накапливаются как раньше
 - Batch mode отправки работает если callback не задан
 - Публичные контракты не изменяются
+
+### Требование: WebSocket transport использует handle_and_process для permission response
+
+WebSocket transport ДОЛЖЕН использовать `handle_and_process` вместо `handle_client_response` для обработки permission response от клиента:
+```python
+# Response от клиента (Agent→Client RPC)
+if method_name is None and acp_request.id is not None:
+    outcome = await protocol.handle_and_process(acp_request)
+```
+
+Это обеспечивает запуск фоновых задач для pending tool execution через `asyncio.create_task`.
+
+### Требование: Детальное логирование для диагностики
+
+Система ДОЛЖНА предоставлять детальное логирование для диагностики:
+- WebSocket transport: логирование установки callback, отправки messages, обработки permission response
+- AgentLoop: логирование отправки notifications через callback, ошибок callback
+- LLMLoopStage: логирование создания/переиспользования AgentLoop, обновления callback
+
+### Требование: Устранение дублирования notifications
+
+Система ДОЛЖНА устранять дублирование notifications:
+- Notifications отправляются только через callback, не через batch отправку
+- `_execute_tool_in_background()` НЕ отправляет notifications через `_send_message`
+- Если callback недоступен, notifications добавляются в список для backward compatibility
