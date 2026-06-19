@@ -320,6 +320,7 @@ class ToolResult(BaseModel):
             tool_name="fs/read_text_file",
             success=True,
             output="File contents here...",
+            content=[{"type": "terminal", "terminalId": "term_123"}],
         )
     """
 
@@ -328,6 +329,7 @@ class ToolResult(BaseModel):
     success: bool
     output: str | None = None
     error: str | None = None
+    content: list[dict[str, Any]] | None = None
 
 
 class LLMLoopResult(BaseModel):

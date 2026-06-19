@@ -361,7 +361,8 @@ class AgentLoop:
 
         Flow:
         1. Выполнить pending tool
-        2. Продолжить цикл через run()
+        2. Отправить notification клиенту с content
+        3. Продолжить цикл через run()
 
         Args:
             session: Состояние сессии.
@@ -398,6 +399,24 @@ class AgentLoop:
                 notifications=notifications,
                 stop_reason=StopReason.END_TURN,
             )
+
+        # Отправить notification клиенту с content (terminal embedding и т.д.)
+        status = "completed" if tool_result.success else "failed"
+        notification = self._tool_call_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=tool_result.content,
+        )
+        notifications.append(notification)
+
+        # Сохранить в replay для восстановления при session/load
+        self._replay_manager.save_tool_call_update(
+            session=session,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=tool_result.content,
+        )
 
         # Продолжить цикл (tool_results уже в session.history)
         loop_result = await self.run(
@@ -849,18 +868,20 @@ class AgentLoop:
             provider = cast(Literal["openai", "anthropic"], provider_raw)
             self._content_formatter.format_for_llm(extracted_content, provider=provider)
 
+            # notification_content: приоритет extracted content > text fallback
+            notification_content = (
+                extracted_content.content_items
+                if extracted_content.content_items
+                else (
+                    [{"type": "content", "content": {"type": "text", "text": result.output}}]
+                    if result.success and result.output
+                    else None
+                )
+            )
+
             if result.success:
-                completed_content = [
-                    {
-                        "type": "content",
-                        "content": {
-                            "type": "text",
-                            "text": result.output or "Tool executed successfully",
-                        },
-                    }
-                ]
                 self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "completed", content=completed_content
+                    session, tool_call_id, "completed", content=notification_content
                 )
                 # Добавляем tool result в историю для LLM
                 self._add_tool_result_to_history(
@@ -871,6 +892,7 @@ class AgentLoop:
                     tool_name=tool_name,
                     success=True,
                     output=result.output,
+                    content=extracted_content.content_items,
                 )
             else:
                 error_content = [
