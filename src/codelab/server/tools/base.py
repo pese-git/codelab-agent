@@ -5,6 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from codelab.server.domain.value_objects import FileLocation
+
 
 @dataclass
 class ToolDefinition:
@@ -20,30 +22,25 @@ class ToolDefinition:
 @dataclass
 class ToolExecutionResult:
     """Результат выполнения инструмента.
-    
+
+    Domain model — не содержит ACP-specific content.
+    Для конвертации в ACP format использовать ToolResultMapper.
+
     Атрибуты:
         success: Успешно ли выполнен инструмент
         output: Текстовый вывод инструмента (опционально)
         error: Сообщение об ошибке при неудачном выполнении (опционально)
         metadata: Дополнительные метаданные для специфичных инструментов (опционально)
-        content: Структурированный content для отправки клиенту и LLM согласно ACP Content Types
-    
-    Примеры использования metadata:
-        - terminal_id для terminal/create: {"terminal_id": "term_xyz789"}
-        - diff для fs/write_text_file: {"diff": "--- old\\n+++ new\\n..."}
-        - file_size для fs/read_text_file: {"file_size": 1024, "lines": 50}
-    
-    Примеры использования content:
-        - text content: [{"type": "text", "text": "..."}]
-        - diff content: [{"type": "diff", "path": "file.py", "diff": "..."}]
-        - image content: [{"type": "image", "data": "...", "format": "png"}]
+        locations: Затронутые файлы (domain model)
+        raw_output: Исходный результат выполнения для ACP rawOutput
     """
 
     success: bool
     output: str | None = None
     error: str | None = None
     metadata: dict[str, Any] | None = None
-    content: list[dict[str, Any]] = field(default_factory=list)
+    locations: list[FileLocation] = field(default_factory=list)
+    raw_output: dict[str, Any] = field(default_factory=dict)
 
 
 class ToolRegistry(ABC):

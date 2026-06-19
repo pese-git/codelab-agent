@@ -78,6 +78,8 @@ mindmap
           domain
           application
           infrastructure
+            services
+              follow_along.py
           presentation
           tui
         server
@@ -92,6 +94,21 @@ mindmap
           messages.py
           models.py
           exceptions.py
+          domain
+            value_objects.py
+            tool_call.py
+            conversation.py
+            prompt.py
+            plan.py
+            session.py
+          mapping
+            tool_call_mapper.py
+            history_mapper.py
+            prompt_mapper.py
+            plan_mapper.py
+            session_mapper.py
+            tool_result_mapper.py
+            llm_response_mapper.py
           protocol
             core.py
             state.py
@@ -112,6 +129,7 @@ mindmap
       tests
         client
         server
+          domain
         conftest.py
         test_cli.py
     doc
@@ -167,6 +185,41 @@ mindmap
 | `ACPMessage` | `shared/messages.py` | Универсальная JSON-RPC 2.0 модель |
 | `shared/logging.py` | `logging.py` | Настройка structlog с ротацией файлов |
 | `TextContent`, `ImageContent`, `AudioContent`, `EmbeddedContent`, `ResourceLinkContent` | `shared/content/` | ACP Content Types |
+
+### 4.4 Domain Layer (server/domain)
+
+Серверный Domain Layer содержит бизнес-сущности, отделённые от ACP Protocol Models.
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `ToolCall`, `ToolResult` | `domain/tool_call.py` | Domain модель вызова инструмента с `locations`, `raw_output` |
+| `ConversationMessage`, `MessageContent`, `Resource`, `Image` | `domain/conversation.py` | Domain модель сообщения истории |
+| `UserPrompt` | `domain/prompt.py` | Domain модель промпта пользователя с `has_multimodal`, `get_text_preview()` |
+| `PlanEntry` | `domain/plan.py` | Domain модель шага плана (content, priority, status) |
+| `Session`, `SessionConfig`, `ConversationHistory`, `ToolCallRegistry`, `PermissionState`, `AgentPlan`, `MultiAgentState` | `domain/session.py` | Session aggregate root и value objects |
+| `FileLocation`, `SessionId`, `ToolCallStatus`, `MessageRole`, `PlanPriority`, `PlanStatus` | `domain/value_objects.py` | Value objects и enums |
+
+### 4.5 Mapping Layer (server/mapping)
+
+Mapping Layer обеспечивает конвертацию между Domain и Protocol слоями.
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `ToolCallMapper` | `mapping/tool_call_mapper.py` | `ToolCall` ↔ `ToolCallState` |
+| `HistoryMapper` | `mapping/history_mapper.py` | `ConversationMessage` ↔ `HistoryMessage` |
+| `PromptMapper` | `mapping/prompt_mapper.py` | `UserPrompt` ↔ ACP ContentBlocks |
+| `PlanMapper` | `mapping/plan_mapper.py` | `PlanEntry` ↔ `PlanStep` |
+| `SessionMapper` | `mapping/session_mapper.py` | `Session` ↔ `SessionState` |
+| `ToolResultMapper` | `mapping/tool_result_mapper.py` | `ToolExecutionResult` → ACP content |
+| `LLMResponseMapper` | `mapping/llm_response_mapper.py` | `LLMToolCall` → `ToolCall` |
+
+### 4.6 Follow-along сервис (client)
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `FollowAlongService` | `client/infrastructure/services/follow_along.py` | Автоматическое открытие файлов при tool call updates |
+| `FileOpener` Protocol | `follow_along.py` | Абстракция для открытия файлов в IDE |
+| `StubFileOpener` | `follow_along.py` | Тестовая реализация FileOpener |
 
 ## 5. Потоки данных
 

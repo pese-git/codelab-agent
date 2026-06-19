@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from codelab.client.domain import Permission, Session
+from codelab.client.domain import ClientCapabilities, Permission, Session
 
 
 class TestSession:
@@ -15,13 +15,14 @@ class TestSession:
         session = Session.create(
             server_host="127.0.0.1",
             server_port=8765,
-            client_capabilities={"fs": {"readTextFile": True}},
+            client_capabilities={"fs_read": True},
             server_capabilities={"tools": ["read", "write"]},
         )
         
         assert session.server_host == "127.0.0.1"
         assert session.server_port == 8765
-        assert session.client_capabilities == {"fs": {"readTextFile": True}}
+        assert isinstance(session.client_capabilities, ClientCapabilities)
+        assert session.client_capabilities.fs_read is True
         assert session.server_capabilities == {"tools": ["read", "write"]}
         assert session.is_authenticated is False
     

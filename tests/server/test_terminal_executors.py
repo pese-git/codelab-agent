@@ -370,10 +370,9 @@ class TestTerminalExecutorWaitForExitFlow:
         )
 
         # Assert
-        assert len(result.content) == 1
-        assert result.content[0]["type"] == "text"
-        assert "exited with code 42" in result.content[0]["text"]
-        assert "test output" in result.content[0]["text"]
+        assert result.raw_output["exit_code"] == 42
+        assert result.raw_output["output"] == "test output"
+        assert "test output" in result.output
 
     @pytest.mark.asyncio
     async def test_wait_for_exit_content_includes_signal_message(
@@ -398,9 +397,9 @@ class TestTerminalExecutorWaitForExitFlow:
         )
 
         # Assert
-        assert len(result.content) == 1
-        assert result.content[0]["type"] == "text"
-        assert "exited with signal SIGKILL" in result.content[0]["text"]
+        assert result.raw_output["signal"] == "SIGKILL"
+        assert result.raw_output["output"] == "killed output"
+        assert "killed output" in result.output
 
     @pytest.mark.asyncio
     async def test_wait_for_exit_terminal_id_passed_correctly(

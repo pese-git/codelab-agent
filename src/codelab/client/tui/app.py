@@ -487,13 +487,20 @@ class ACPClientApp(App[None]):
     def action_new_session(self) -> None:
         """Создает новую сессию по горячей клавише Ctrl+N."""
         self._app_logger.info("new_session_requested", cwd=self._cwd)
-        # Передаем cwd и MCP серверы при создании новой сессии
+        # Передаем cwd, MCP серверы и client_capabilities при создании новой сессии
+        # TUI клиент поддерживает файловые операции и терминал
+        client_capabilities = {
+            "fs_read": True,
+            "fs_write": True,
+            "terminal": True,
+        }
         self.run_worker(
             self._session_vm.create_session_cmd.execute(
                 self._host,
                 self._port,
                 cwd=self._cwd,
                 mcp_servers=self._mcp_servers,
+                client_capabilities=client_capabilities,
             ),
             exclusive=False,
         )

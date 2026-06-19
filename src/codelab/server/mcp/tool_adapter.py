@@ -248,13 +248,13 @@ class MCPToolAdapter:
                     return ToolExecutionResult(
                         success=False,
                         error=text_output or "MCP tool returned error",
-                        content=acp_content,
+                        raw_output={"content": acp_content},
                     )
                 
                 return ToolExecutionResult(
                     success=True,
                     output=text_output,
-                    content=acp_content,
+                    raw_output={"content": acp_content},
                 )
                 
             except MCPToolCallError as e:
