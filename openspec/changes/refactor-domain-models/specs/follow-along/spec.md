@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Требование: FileOpener Protocol
+### Requirement: FileOpener Protocol
 
 Система ДОЛЖНА предоставлять `FileOpener` Protocol в `client/infrastructure/services/follow_along.py`:
 ```python
@@ -10,17 +10,17 @@ class FileOpener(Protocol):
     async def open(self, path: str, line: int | None = None) -> None: ...
 ```
 
-### Требование: StubFileOpener
+### Requirement: StubFileOpener
 
 Система ДОЛЖНА предоставлять `StubFileOpener` для тестов — реализация `FileOpener`, которая логирует вызовы без реального открытия файлов.
 
-### Требование: FollowAlongService
+### Requirement: FollowAlongService
 
 Система ДОЛЖНА предоставлять `FollowAlongService` в `client/infrastructure/services/follow_along.py`:
 - `__init__(file_opener: FileOpener, enabled: bool = True)` — инициализация
 - `async on_tool_call_updated(tool_call: dict[str, Any]) -> None` — обработка обновления tool call
 
-### Требование: FollowAlongService поведение
+### Requirement: FollowAlongService поведение
 
 `FollowAlongService.on_tool_call_updated()` ДОЛЖЕН:
 1. Проверить `enabled` флаг — если False, вернуть немедленно
@@ -29,13 +29,13 @@ class FileOpener(Protocol):
 4. Взять первую локацию: `locations[0]`
 5. Вызвать `file_opener.open(path, line)`
 
-### Требование: FollowAlongService интеграция в ToolCallHandler
+### Requirement: FollowAlongService интеграция в ToolCallHandler
 
 Клиентский `ToolCallHandler` ДОЛЖЕН:
 1. Принимать опциональный `follow_along: FollowAlongService | None` в конструктор
 2. В `_handle_tool_call_updated()` после обновления состояния вызывать `follow_along.on_tool_call_updated()` если сервис доступен
 
-### Требование: ToolCallHandler сохраняет locations
+### Requirement: ToolCallHandler сохраняет locations
 
 `ToolCallHandler._handle_tool_call_created()` ДОЛЖЕН сохранять `locations` из update:
 ```python
@@ -50,7 +50,7 @@ tool_call = {
 }
 ```
 
-### Требование: ToolCallHandler обновляет locations
+### Requirement: ToolCallHandler обновляет locations
 
 `ToolCallHandler._handle_tool_call_updated()` ДОЛЖЕН обновлять `locations` и `rawOutput`:
 ```python
@@ -65,14 +65,14 @@ if raw_output := update.get("rawOutput"):
     updates["rawOutput"] = raw_output
 ```
 
-### Требование: Feature flag не нужен
+### Requirement: Feature flag не нужен
 
 Follow-along НЕ ДОЛЖЕН требовать feature flag:
 - Это стандартная функция IDE
 - Если tool call не имеет `locations` — follow-along не срабатывает
 - Нет риска поломки существующего функционала
 
-### Требование: FollowAlongService unit тесты
+### Requirement: FollowAlongService unit тесты
 
 Система ДОЛЖНА предоставлять unit тесты для `FollowAlongService`:
 - Тест: `enabled=False` — не вызывает file_opener
@@ -80,7 +80,7 @@ Follow-along НЕ ДОЛЖЕН требовать feature flag:
 - Тест: `locations` содержит один элемент — вызывает `open(path, line)`
 - Тест: `locations` содержит несколько элементов — вызывает `open()` для первого
 
-### Требование: ToolCallHandler integration тесты
+### Requirement: ToolCallHandler integration тесты
 
 Система ДОЛЖНА предоставлять integration тесты:
 - Тест: tool_call update с locations вызывает follow_along

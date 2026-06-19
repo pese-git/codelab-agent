@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Требование: Domain ClientCapabilities
+### Requirement: Domain ClientCapabilities
 
 Система ДОЛЖНА предоставлять `ClientCapabilities` как frozen dataclass:
 - `fs_read: bool` — поддержка чтения файлов
@@ -11,7 +11,7 @@
 - `image_prompts: bool` — поддержка изображений в промптах
 - `embedded_context: bool` — поддержка встроенного контекста
 
-### Требование: ClientCapabilities Business Logic
+### Requirement: ClientCapabilities Business Logic
 
 `ClientCapabilities` ДОЛЖНЫ предоставлять:
 - `supports_fs` property — поддержка файловой системы
@@ -19,11 +19,11 @@
 - `can_write_files()` — проверка записи файлов
 - `supports_multimodal()` — поддержка мультимодального контента
 
-### Требование: Типизированная Session.capabilities
+### Requirement: Типизированная Session.capabilities
 
 Система ДОЛЖНА обновить `Session` entity:
 - `capabilities: ClientCapabilities` — типизированная модель вместо `dict[str, Any]`
 
-### Требование: Миграция ClientCapabilities
+### Requirement: Миграция ClientCapabilities
 
 Система ДОЛЖНА мигрировать все использования `client_capabilities: dict` на `ClientCapabilities`.

@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Требование: Domain ToolCall
+### Requirement: Domain ToolCall
 
 Система ДОЛЖНА предоставлять `ToolCall` как frozen dataclass в domain layer:
 - `id: str` — уникальный идентификатор
@@ -13,7 +13,7 @@
 - `locations: list[FileLocation]` — затронутые файлы
 - `raw_output: dict[str, Any]` — исходный результат выполнения
 
-### Требование: ToolCallStatus Domain Enum
+### Requirement: ToolCallStatus Domain Enum
 
 Система ДОЛЖНА предоставлять domain enum `ToolCallStatus`:
 - `PENDING` — ожидает выполнения
@@ -21,7 +21,7 @@
 - `COMPLETED` — завершён успешно
 - `FAILED` — завершён с ошибкой
 
-### Требование: ToolCallState ACP Protocol Model
+### Requirement: ToolCallState ACP Protocol Model
 
 Система ДОЛЖНА обновить `ToolCallState` как ACP Protocol Model:
 - `toolCallId: str` — ACP идентификатор
@@ -33,7 +33,7 @@
 - `rawInput: dict[str, Any] | None` — исходные аргументы
 - `rawOutput: dict[str, Any] | None` — исходный результат
 
-### Требование: ToolCallState Docstring
+### Requirement: ToolCallState Docstring
 
 `ToolCallState` ДОЛЖЕН иметь docstring с пометкой:
 ```python
@@ -47,54 +47,54 @@ Wire format для session/update notification с sessionUpdate="tool_call"
 """
 ```
 
-### Требование: ToolCallMapper
+### Requirement: ToolCallMapper
 
 Система ДОЛЖНА предоставлять `ToolCallMapper` с методами:
 - `to_protocol(domain: ToolCall) -> ToolCallState` — конвертировать domain в protocol
 - `to_domain(protocol: ToolCallState) -> ToolCall` — конвертировать protocol в domain
 
-### Требование: ToolCallMapper rawInput
+### Requirement: ToolCallMapper rawInput
 
 `ToolCallMapper.to_protocol()` ДОЛЖЕН маппить:
 - `domain.arguments` → `ToolCallState.rawInput`
 
-### Требование: ToolCallMapper rawOutput
+### Requirement: ToolCallMapper rawOutput
 
 `ToolCallMapper.to_protocol()` ДОЛЖЕН маппить:
 - `domain.raw_output` → `ToolCallState.rawOutput`
 
-### Требование: ToolCallMapper locations
+### Requirement: ToolCallMapper locations
 
 `ToolCallMapper.to_protocol()` ДОЛЖЕН маппить:
 - `domain.locations` (list[FileLocation]) → `ToolCallState.locations` (list[dict])
 - Формат: `[{"path": "...", "line": ...}, ...]`
 
-### Требование: ToolCallHandler create_tool_call с locations
+### Requirement: ToolCallHandler create_tool_call с locations
 
 `ToolCallHandler.create_tool_call()` ДОЛЖЕН принимать параметр `locations: list[FileLocation] | None` и сохранять его в `ToolCallState`.
 
-### Требование: ToolCallHandler build_tool_call_notification с rawInput
+### Requirement: ToolCallHandler build_tool_call_notification с rawInput
 
 `ToolCallHandler.build_tool_call_notification()` ДОЛЖЕН принимать параметр `raw_input: dict[str, Any] | None` и включать его в notification как `rawInput`.
 
-### Требование: ToolCallHandler build_tool_update_notification с rawOutput
+### Requirement: ToolCallHandler build_tool_update_notification с rawOutput
 
 `ToolCallHandler.build_tool_update_notification()` ДОЛЖЕН принимать параметры:
 - `locations: list[FileLocation] | None` — включать как `locations`
 - `raw_output: dict[str, Any] | None` — включать как `rawOutput`
 
-### Требование: AgentLoop передаёт locations из ToolExecutionResult
+### Requirement: AgentLoop передаёт locations из ToolExecutionResult
 
 `AgentLoop` ДОЛЖЕН после выполнения tool передавать `result.locations` в `build_tool_update_notification()`.
 
-### Требование: AgentLoop передаёт rawInput из tool_arguments
+### Requirement: AgentLoop передаёт rawInput из tool_arguments
 
 `AgentLoop` ДОЛЖЕН при создании tool call передавать `tool_arguments` как `raw_input` в `build_tool_call_notification()`.
 
-### Требование: Удаление мёртвого кода
+### Requirement: Удаление мёртвого кода
 
 Система ДОЛЖНА удалить `ToolCall` из `server/models.py` (не используется).
 
-### Требование: Миграция ToolCallState
+### Requirement: Миграция ToolCallState
 
 Система ДОЛЖНА обновить `ToolCallState` с новыми полями `locations`, `rawInput`, `rawOutput`.

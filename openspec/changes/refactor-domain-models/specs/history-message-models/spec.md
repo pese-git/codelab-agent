@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Требование: Domain ConversationMessage
+### Requirement: Domain ConversationMessage
 
 Система ДОЛЖНА предоставлять `ConversationMessage` как frozen dataclass:
 - `role: MessageRole` — роль (USER, ASSISTANT, SYSTEM, TOOL)
@@ -11,14 +11,14 @@
 - `tool_calls: list[ToolCall]` — tool calls (для ASSISTANT)
 - `tool_call_id: str | None` — ID tool call (для TOOL)
 
-### Требование: Domain MessageContent
+### Requirement: Domain MessageContent
 
 Система ДОЛЖНА предоставлять `MessageContent` как frozen dataclass:
 - `text: str` — текстовое содержимое
 - `resources: list[Resource]` — встроенные ресурсы
 - `images: list[Image]` — изображения
 
-### Требование: MessageRole Domain Enum
+### Requirement: MessageRole Domain Enum
 
 Система ДОЛЖНА предоставлять domain enum `MessageRole`:
 - `USER` — сообщение пользователя
@@ -26,7 +26,7 @@
 - `SYSTEM` — системное сообщение
 - `TOOL` — результат tool call
 
-### Требование: HistoryMessage ACP Protocol Model
+### Requirement: HistoryMessage ACP Protocol Model
 
 Система ДОЛЖНА обновить `HistoryMessage` как ACP Protocol Model:
 - `role: str` — роль (ACP format)
@@ -35,7 +35,7 @@
 - `tool_calls: list[ToolCallState] | None` — tool calls
 - `tool_call_id: str | None` — ID tool call
 
-### Требование: HistoryMessage Docstring
+### Requirement: HistoryMessage Docstring
 
 `HistoryMessage` ДОЛЖЕН иметь docstring с пометкой:
 ```python
@@ -48,12 +48,12 @@ Wire format для хранения истории сообщений в Session
 """
 ```
 
-### Требование: HistoryMapper
+### Requirement: HistoryMapper
 
 Система ДОЛЖНА предоставлять `HistoryMapper` с методами:
 - `to_protocol(domain: ConversationMessage) -> HistoryMessage`
 - `to_domain(protocol: HistoryMessage) -> ConversationMessage`
 
-### Требование: Замена union типов
+### Requirement: Замена union типов
 
 Система ДОЛЖНА убрать union типы из `HistoryMessage.content` через маппинг с domain моделью.
