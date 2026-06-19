@@ -223,11 +223,12 @@ class WebSocketTransport:
 
                             # Response от клиента (Agent→Client RPC)
                             if method_name is None and acp_request.id is not None:
-                                self._conn_logger.debug(
-                                    "response received, routing to handle_client_response",
+                                self._conn_logger.info(
+                                    "response received, routing to handle_and_process",
                                     request_id=request_id,
                                 )
-                                outcome = await protocol.handle_client_response(acp_request)
+                                # Используем handle_and_process для запуска фоновых задач
+                                outcome = await protocol.handle_and_process(acp_request)
                             else:
                                 outcome = await handler(acp_request)
 
