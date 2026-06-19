@@ -137,6 +137,22 @@ class ToolPanel(Vertical):
         Args:
             tool_calls: Новый список tool calls
         """
+        # Обрабатываем каждый tool call через apply_update для извлечения terminal content
+        for tc in tool_calls:
+            if isinstance(tc, dict):
+                # Преобразуем словарь в ToolCallUpdate для обработки
+                from codelab.client.messages import ToolCallCreatedUpdate, ToolCallStateUpdate
+                
+                session_update_type = tc.get("sessionUpdate", "tool_call_update")
+                try:
+                    if session_update_type == "tool_call":
+                        update = ToolCallCreatedUpdate.model_validate(tc)
+                    else:
+                        update = ToolCallStateUpdate.model_validate(tc)
+                    self.apply_update(update)
+                except Exception:
+                    pass  # Не удалось преобразовать, пропускаем
+        
         # Маппинг статусов протокола на внутренние статусы ToolCallCard
         status_map = {
             "in_progress": "running",

@@ -634,6 +634,12 @@ class ACPProtocol:
             )
 
             # Отправляем все accumulated notifications
+            logger.info(
+                "sending notifications after permission approval",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                notifications_count=len(llm_result.notifications),
+            )
             for notification in llm_result.notifications:
                 await self._send_message(notification)
 

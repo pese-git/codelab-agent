@@ -168,6 +168,12 @@ class ToolCallHandler:
             session_id=context.session_id,
             tool_call_id=tool_call_id,
             updates=updates,
+            has_content=content is not None,
+            content_types=(
+                [item.get("type") for item in content]
+                if content
+                else []
+            ),
         )
 
     def _handle_tool_call_result(

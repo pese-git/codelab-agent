@@ -410,6 +410,19 @@ class AgentLoop:
         )
         notifications.append(notification)
 
+        logger.info(
+            "resume_after_permission: notification built with content",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            has_content=tool_result.content is not None,
+            content_types=(
+                [item.get("type") for item in tool_result.content]
+                if tool_result.content
+                else []
+            ),
+        )
+
         # Сохранить в replay для восстановления при session/load
         self._replay_manager.save_tool_call_update(
             session=session,
