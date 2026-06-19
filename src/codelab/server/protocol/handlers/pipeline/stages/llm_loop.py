@@ -139,6 +139,11 @@ class LLMLoopStage(PromptStage):
             ValueError: Если стратегия не доступна.
         """
         if self._agent_loop is not None:
+            logger.info(
+                "reusing_existing_agentLoop",
+                session_id=context.session_id,
+                has_callback=notification_callback is not None,
+            )
             return self._agent_loop
 
         if self._strategy_dispatcher is None:
@@ -173,6 +178,11 @@ class LLMLoopStage(PromptStage):
             self._strategy_dispatcher.set_current_strategy(strategy_name)
             self._strategy_selected = True
 
+        logger.info(
+            "creating_new_AgentLoop",
+            session_id=context.session_id,
+            has_callback=notification_callback is not None,
+        )
         self._agent_loop = AgentLoop(
             strategy=self._strategy_dispatcher,
             tool_registry=self._tool_registry,

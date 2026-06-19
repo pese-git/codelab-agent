@@ -192,7 +192,17 @@ class AgentLoop:
         """
         if self._notification_callback is not None:
             try:
+                logger.info(
+                    "sending_notification_via_callback",
+                    method=notification.method,
+                    is_notification=notification.is_notification,
+                    has_callback=True,
+                )
                 await self._notification_callback(notification)
+                logger.info(
+                    "notification_sent_via_callback",
+                    method=notification.method,
+                )
                 return True
             except Exception as e:
                 logger.warning(
@@ -202,7 +212,13 @@ class AgentLoop:
                     exc_info=True,
                 )
                 return False
-        return False
+        else:
+            logger.info(
+                "notification_not_sent_no_callback",
+                method=notification.method,
+                has_callback=False,
+            )
+            return False
 
     def set_notification_callback(
         self, callback: Callable[[ACPMessage], Awaitable[None]] | None
