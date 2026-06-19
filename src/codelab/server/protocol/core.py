@@ -1690,6 +1690,7 @@ class ACPProtocol:
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
+            notification_callback=self._send_message,
         )
 
         # Сохраняем сессию — критично для permission flow, т.к.

@@ -14,11 +14,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from codelab.client.messages import ToolCallStateUpdate
 from codelab.client.presentation.chat.chat_session_state import ChatSessionState
 from codelab.client.presentation.chat.context import ChatUpdateContext
 from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
 from codelab.client.tui.components.tool_panel import ToolPanel
-from codelab.client.messages import ToolCallStateUpdate
 
 
 @pytest.fixture
@@ -169,7 +169,6 @@ class TestTerminalEmbeddingUIIntegration:
         )
 
         # Создаём mock ToolPanel для тестирования apply_update
-        mock_chat_vm = MagicMock()
         mock_terminal_vm = MagicMock()
         
         # Создаём ToolPanel без монтирования

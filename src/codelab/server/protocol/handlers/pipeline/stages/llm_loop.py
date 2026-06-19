@@ -17,10 +17,12 @@ Responsibilities:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
@@ -238,6 +240,7 @@ class LLMLoopStage(PromptStage):
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
@@ -249,6 +252,7 @@ class LLMLoopStage(PromptStage):
             session_id: ID сессии.
             tool_call_id: ID tool call для выполнения.
             mcp_manager: MCP manager для tool execution.
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             LLMLoopResult с результатами выполнения.
@@ -286,6 +290,7 @@ class LLMLoopStage(PromptStage):
                 plan_builder=self._plan_builder,
                 system_prompt_builder=self._system_prompt_builder,
                 global_policy_manager=self._global_policy_manager,
+                notification_callback=notification_callback,
             )
 
         # Использовать AgentLoop.resume_after_permission

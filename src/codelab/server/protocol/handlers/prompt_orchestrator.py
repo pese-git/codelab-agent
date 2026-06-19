@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -396,6 +397,7 @@ class PromptOrchestrator:
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
         return await self._llm_loop_stage.execute_pending_tool(
@@ -403,6 +405,7 @@ class PromptOrchestrator:
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
+            notification_callback=notification_callback,
         )
 
 
