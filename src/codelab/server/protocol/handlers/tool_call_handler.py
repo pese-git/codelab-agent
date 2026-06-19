@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ...domain.value_objects import FileLocation
 from ...messages import ACPMessage
 from ..state import SessionState, ToolCallState
 
@@ -86,6 +87,7 @@ class ToolCallHandler:
         tool_name: str | None = None,
         tool_arguments: dict[str, Any] | None = None,
         tool_call_id_from_llm: str | None = None,
+        locations: list[FileLocation] | None = None,
     ) -> str:
         """Создает новый tool call, возвращает его ID.
 
@@ -100,6 +102,7 @@ class ToolCallHandler:
             tool_name: Имя инструмента в реестре для отложенного выполнения
             tool_arguments: Аргументы для выполнения инструмента
             tool_call_id_from_llm: ID tool call из ответа LLM (для связки в истории)
+            locations: Опциональные file locations
 
         Returns:
             ID вида "call_NNN" (e.g., "call_001", "call_002")
@@ -107,6 +110,11 @@ class ToolCallHandler:
         # Локально монотонный ID делает тесты предсказуемыми и читабельными
         session.tool_call_counter += 1
         tool_call_id = f"call_{session.tool_call_counter:03d}"
+        loc_dicts = (
+            [{"path": loc.path, "line": loc.line} for loc in locations]
+            if locations
+            else []
+        )
         session.tool_calls[tool_call_id] = ToolCallState(
             tool_call_id=tool_call_id,
             title=title,
@@ -115,6 +123,8 @@ class ToolCallHandler:
             tool_name=tool_name,
             tool_arguments=tool_arguments or {},
             tool_call_id_from_llm=tool_call_id_from_llm,
+            locations=loc_dicts,
+            raw_input=tool_arguments or {},
         )
         return tool_call_id
 
@@ -161,6 +171,7 @@ class ToolCallHandler:
         title: str,
         kind: str,
         locations: list[dict[str, str]] | None = None,
+        raw_input: dict[str, Any] | None = None,
     ) -> ACPMessage:
         """Строит tool_call notification для отправки клиенту.
 
@@ -173,6 +184,7 @@ class ToolCallHandler:
             title: Название для UI
             kind: Категория tool
             locations: Опциональные locations (e.g., file paths)
+            raw_input: Опциональные исходные аргументы (ACP rawInput)
 
         Returns:
             ACPMessage типа notification с sessionUpdate="tool_call"
@@ -186,6 +198,8 @@ class ToolCallHandler:
         }
         if locations is not None:
             update_dict["locations"] = locations
+        if raw_input is not None:
+            update_dict["rawInput"] = raw_input
 
         return ACPMessage.notification(
             "session/update",
@@ -201,6 +215,8 @@ class ToolCallHandler:
         tool_call_id: str,
         status: str,
         content: list[dict[str, Any]] | None = None,
+        locations: list[dict[str, Any]] | None = None,
+        raw_output: dict[str, Any] | None = None,
     ) -> ACPMessage:
         """Строит tool_call_update notification для отправки клиенту.
 
@@ -212,6 +228,8 @@ class ToolCallHandler:
             tool_call_id: ID tool call'а
             status: Новый статус (in_progress, completed, cancelled, failed)
             content: Опциональный контент (результаты tool call)
+            locations: Опциональные file locations
+            raw_output: Опциональный исходный результат (ACP rawOutput)
 
         Returns:
             ACPMessage типа notification с sessionUpdate="tool_call_update"
@@ -223,6 +241,10 @@ class ToolCallHandler:
         }
         if content is not None:
             update_dict["content"] = content
+        if locations is not None:
+            update_dict["locations"] = locations
+        if raw_output is not None:
+            update_dict["rawOutput"] = raw_output
 
         return ACPMessage.notification(
             "session/update",

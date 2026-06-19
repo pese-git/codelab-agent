@@ -1,4 +1,4 @@
-"""Тесты миграции SessionState v1 → v3.
+"""Тесты миграции SessionState v1 → v4.
 
 Проверяют корректность миграции старых файлов сессий с добавлением
 multi-agent полей (active_strategy, active_agents, session_metrics и др.).
@@ -12,11 +12,11 @@ from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.protocol.state import SessionState
 
 
-class TestSessionStateMigrationV1toV3:
+class TestSessionStateMigrationV1toV4:
     """Тесты миграции полей multi-agent."""
 
-    def test_migration_v1_to_v3_adds_all_fields(self) -> None:
-        """v1 → v3: все multi-agent поля добавляются с defaults."""
+    def test_migration_v1_to_v4_adds_all_fields(self) -> None:
+        """v1 → v4: все multi-agent поля добавляются с defaults."""
         old_data = {
             "schema_version": 1,
             "session_id": "test-session",
@@ -28,7 +28,7 @@ class TestSessionStateMigrationV1toV3:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 3
+        assert session.schema_version == 4
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -39,8 +39,8 @@ class TestSessionStateMigrationV1toV3:
         assert session.task_result is None
         assert session.sliced_summary is None
 
-    def test_migration_v0_to_v3(self) -> None:
-        """v0 → v3: все поля (v1 + v3) добавляются с defaults."""
+    def test_migration_v0_to_v4(self) -> None:
+        """v0 → v4: все поля (v1 + v3) добавляются с defaults."""
         old_data = {
             "session_id": "test-session",
             "cwd": "/tmp",
@@ -48,7 +48,7 @@ class TestSessionStateMigrationV1toV3:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 3
+        assert session.schema_version == 4
         assert session.events_history == []
         assert session.config_values == {}
         assert session.active_strategy == "single"
@@ -59,6 +59,7 @@ class TestSessionStateMigrationV1toV3:
         """Новые поля имеют правильные значения по умолчанию."""
         session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
 
+        assert session.schema_version == 4
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -134,7 +135,7 @@ class TestSessionStateMigrationV1toV3:
         assert session.permission_policy == {"execute": "allow_always"}
 
         # Новые поля добавлены
-        assert session.schema_version == 3
+        assert session.schema_version == 4
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -188,10 +189,10 @@ class TestSessionStateMigrationV1toV3:
         assert len(session.events_history) == 1
 
     def test_schema_version_updated_after_migration(self) -> None:
-        """После миграции schema_version равен 3."""
+        """После миграции schema_version равен 4."""
         # v0
         session_v0 = SessionState(session_id="test", cwd="/tmp")
-        assert session_v0.schema_version == 3
+        assert session_v0.schema_version == 4
 
         # v1
         session_v1 = SessionState(
@@ -200,13 +201,22 @@ class TestSessionStateMigrationV1toV3:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v1.schema_version == 3
+        assert session_v1.schema_version == 4
 
-        # v3 (текущая)
+        # v3
         session_v3 = SessionState(
             schema_version=3,
             session_id="test",
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v3.schema_version == 3
+        assert session_v3.schema_version == 4
+
+        # v4 (текущая)
+        session_v4 = SessionState(
+            schema_version=4,
+            session_id="test",
+            cwd="/tmp",
+            mcp_servers=[],
+        )
+        assert session_v4.schema_version == 4

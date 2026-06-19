@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import difflib
 from typing import Any
 
 import structlog
@@ -22,7 +21,7 @@ class FileSystemToolExecutor(ToolExecutor):
     
     Поддерживает:
     - fs/read_text_file (с line и limit)
-    - fs/write_text_file (с diff tracking)
+    - fs/write_text_file (создание и обновление файлов)
     
     Интегрирует проверку разрешений и логирование.
     """
@@ -128,18 +127,9 @@ class FileSystemToolExecutor(ToolExecutor):
                 },
             )
             
-            # Сгенерировать content для отправки клиенту и LLM согласно ACP Content Types
-            content_items = [
-                {
-                    "type": "text",
-                    "text": f"File: {path}\n\n{content}"
-                }
-            ]
-            
             return ToolExecutionResult(
                 success=True,
                 output=content,
-                content=content_items,
             )
             
         except ClientRPCResponseError as e:
@@ -176,7 +166,9 @@ class FileSystemToolExecutor(ToolExecutor):
         path: str,
         content: str,
     ) -> ToolExecutionResult:
-        """Запись текстового файла с diff tracking через ClientRPC.
+        """Запись текстового файла через ClientRPC.
+        
+        Создает файл если он не существует (согласно ACP протоколу).
         
         Args:
             session: Состояние сессии.
@@ -184,7 +176,7 @@ class FileSystemToolExecutor(ToolExecutor):
             content: Содержимое для записи.
             
         Returns:
-            ToolExecutionResult с diff в metadata.
+            ToolExecutionResult с результатом записи.
         """
         try:
             logger.debug(
@@ -199,23 +191,6 @@ class FileSystemToolExecutor(ToolExecutor):
             # Примечание: Проверка разрешений выполняется в
             # PromptOrchestrator._decide_tool_execution() перед вызовом executor.
             # Здесь мы только выполняем операцию.
-            
-            # Попытка прочитать старое содержимое для diff
-            old_content = await self._bridge.read_file(
-                session=session,
-                path=path,
-            )
-            
-            # Генерировать diff если удалось прочитать старое содержимое
-            diff_text = None
-            if old_content is not None:
-                diff_lines = difflib.unified_diff(
-                    old_content.splitlines(keepends=True),
-                    content.splitlines(keepends=True),
-                    fromfile=f"a/{path}",
-                    tofile=f"b/{path}",
-                )
-                diff_text = "".join(diff_lines)
             
             # Вызов ClientRPC для записи
             success = await self._bridge.write_file(
@@ -239,30 +214,12 @@ class FileSystemToolExecutor(ToolExecutor):
                 },
             )
             
-            # Сгенерировать content для отправки клиенту и LLM согласно ACP Content Types
-            content_items = [
-                {
-                    "type": "text",
-                    "text": f"Successfully wrote {len(content)} bytes to {path}"
-                }
-            ]
-            
-            # Добавить diff content если доступен
-            if diff_text:
-                content_items.append({
-                    "type": "diff",
-                    "path": str(path),
-                    "diff": diff_text
-                })
-            
             return ToolExecutionResult(
                 success=True,
                 output=f"Файл {path} успешно записан",
                 metadata={
-                    "diff": diff_text,
                     "bytes": len(content),
                 },
-                content=content_items,
             )
             
         except ClientRPCResponseError as e:

@@ -143,14 +143,6 @@ class TerminalToolExecutor(ToolExecutor):
                 },
             )
             
-            # Сгенерировать content для отправки клиенту и LLM согласно ACP Content Types
-            content_items = [
-                {
-                    "type": "text",
-                    "text": f"Terminal {terminal_id} created for command: {command}"
-                }
-            ]
-            
             return ToolExecutionResult(
                 success=True,
                 output=f"Терминал создан с ID: {terminal_id}",
@@ -158,7 +150,9 @@ class TerminalToolExecutor(ToolExecutor):
                     "terminal_id": terminal_id,
                     "command": command,
                 },
-                content=content_items,
+                raw_output={
+                    "terminal_id": terminal_id,
+                },
             )
             
         except Exception as e:
@@ -227,16 +221,6 @@ class TerminalToolExecutor(ToolExecutor):
                             "exit_code": exit_code,
                         },
                     )
-                    if signal:
-                        exit_message = f"Terminal {terminal_id} exited with signal {signal}"
-                    else:
-                        exit_message = f"Terminal {terminal_id} exited with code {exit_code}"
-                    content_items = [
-                        {
-                            "type": "text",
-                            "text": f"{exit_message}\n\nOutput:\n{output}",
-                        }
-                    ]
                     return ToolExecutionResult(
                         success=(exit_code == 0) if exit_code is not None else False,
                         output=output,
@@ -245,7 +229,11 @@ class TerminalToolExecutor(ToolExecutor):
                             "exit_code": exit_code,
                             "signal": signal,
                         },
-                        content=content_items,
+                        raw_output={
+                            "exit_code": exit_code,
+                            "signal": signal,
+                            "output": output,
+                        },
                     )
             
             # 2. Если ещё не завершён — ждём через wait_for_exit
@@ -283,17 +271,6 @@ class TerminalToolExecutor(ToolExecutor):
                 },
             )
             
-            # Сгенерировать content для отправки клиенту и LLM
-            exit_message = f"Terminal {terminal_id} exited with code {resolved_exit_code}"
-            if signal:
-                exit_message = f"Terminal {terminal_id} exited with signal {signal}"
-            content_items = [
-                {
-                    "type": "text",
-                    "text": f"{exit_message}\n\nOutput:\n{output}",
-                }
-            ]
-            
             return ToolExecutionResult(
                 success=resolved_exit_code == 0,
                 output=output,
@@ -302,7 +279,11 @@ class TerminalToolExecutor(ToolExecutor):
                     "exit_code": resolved_exit_code,
                     "signal": signal,
                 },
-                content=content_items,
+                raw_output={
+                    "exit_code": resolved_exit_code,
+                    "signal": signal,
+                    "output": output,
+                },
             )
             
         except Exception as e:

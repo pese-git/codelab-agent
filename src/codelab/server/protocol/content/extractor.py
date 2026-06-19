@@ -5,6 +5,7 @@ from typing import Any
 
 import structlog
 
+from codelab.server.mapping.tool_result_mapper import ToolResultMapper
 from codelab.server.tools.base import ToolExecutionResult
 
 logger = structlog.get_logger(__name__)
@@ -42,22 +43,20 @@ class ContentExtractor:
         Returns:
             ExtractedContent с content items
         """
+        content_items = ToolResultMapper.to_acp_content(result)
+        if not content_items:
+            content_items = self._create_fallback_content(result)
+
         logger.debug(
             "extracting_content_from_result",
             tool_call_id=tool_call_id,
-            has_content=bool(result.content)
+            has_content=bool(content_items)
         )
-
-        # Если content пустой, создать fallback text content из output
-        if not result.content:
-            content_items = self._create_fallback_content(result)
-        else:
-            content_items = result.content
 
         return ExtractedContent(
             tool_call_id=tool_call_id,
             content_items=content_items,
-            has_content=bool(result.content)
+            has_content=bool(content_items)
         )
 
     def _create_fallback_content(
@@ -73,7 +72,6 @@ class ContentExtractor:
         Returns:
             Список с одним text content элементом
         """
-        # Для старых executors без content поддержки
         text_content = result.output or (result.error if not result.success else "")
         return [
             {

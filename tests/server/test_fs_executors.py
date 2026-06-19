@@ -261,32 +261,6 @@ class TestFileSystemExecutorWrite:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_write_with_diff(
-        self,
-        executor: FileSystemToolExecutor,
-        session: SessionState,
-    ) -> None:
-        """Проверка metadata.diff при записи."""
-        # Arrange
-        old_content = "Old content"
-        new_content = "New content"
-        executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore
-        executor._bridge.read_file = AsyncMock(return_value=old_content)  # type: ignore
-        
-        # Act
-        result = await executor.execute_write(
-            session=session,
-            path="/tmp/file.txt",
-            content=new_content,
-        )
-        
-        # Assert
-        assert result.success is True
-        assert result.metadata is not None
-        assert "diff" in result.metadata
-        assert isinstance(result.metadata["diff"], str)
-
-    @pytest.mark.asyncio
     async def test_execute_write_permission_denied(
         self,
         executor: FileSystemToolExecutor,
@@ -338,7 +312,6 @@ class TestFileSystemExecutorWrite:
     ) -> None:
         """Сообщение ClientRPCResponseError при записи доходит до LLM."""
         # Arrange
-        executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
         executor._bridge.write_file = AsyncMock(  # type: ignore
             side_effect=ClientRPCResponseError(
                 code=-32000,
@@ -546,10 +519,9 @@ class TestFileSystemExecutorToolExecutionResult:
         executor: FileSystemToolExecutor,
         session: SessionState,
     ) -> None:
-        """Результат write содержит metadata с diff."""
+        """Результат write содержит metadata с bytes."""
         # Arrange
         executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore
-        executor._bridge.read_file = AsyncMock(return_value="old\ncontent")  # type: ignore
         
         # Act
         result = await executor.execute_write(
@@ -562,3 +534,5 @@ class TestFileSystemExecutorToolExecutionResult:
         assert result.success is True
         assert result.metadata is not None
         assert isinstance(result.metadata, dict)
+        assert "bytes" in result.metadata
+        assert result.metadata["bytes"] == len("new\ncontent")
