@@ -68,9 +68,9 @@
 - `update_tool_call(tool_call_id, result)` — обновить tool call
 - `set_permission_policy(kind, policy)` — установить политику разрешений
 
-### Требование: SessionStateDTO для сериализации
+### Требование: SessionState ACP Protocol Model для сериализации
 
-Система ДОЛЖНА предоставлять `SessionStateDTO` как тонкий Pydantic DTO для сериализации:
+Система ДОЛЖНА предоставлять `SessionState` как ACP Protocol Model для сериализации:
 - Содержит только данные, не бизнес-логику
 - Поддерживает миграцию schema_version
 - Маппится в domain `Session` через `SessionMapper`
@@ -78,5 +78,5 @@
 ### Требование: SessionMapper
 
 Система ДОЛЖНА предоставлять `SessionMapper` с методами:
-- `to_dto(session: Session) -> SessionStateDTO` — конвертировать domain в DTO
-- `to_domain(dto: SessionStateDTO) -> Session` — конвертировать DTO в domain
+- `to_protocol(session: Session) -> SessionState` — конвертировать domain в protocol
+- `to_domain(protocol: SessionState) -> Session` — конвертировать protocol в domain

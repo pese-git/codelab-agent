@@ -1,5 +1,31 @@
 # Design: Рефакторизация доменных моделей
 
+## Именование слоёв
+
+В проекте используются три уровня моделей:
+
+| Слой | Название | Пример | Назначение |
+|------|----------|--------|------------|
+| **Domain** | Domain Model | `ToolCall`, `Session` | Бизнес-сущности с логикой (frozen dataclass) |
+| **Protocol** | ACP Protocol Model | `ToolCallState`, `SessionState` | Контракты ACP протокола (Pydantic) |
+| **Mapping** | Mapper | `ToolCallMapper`, `SessionMapper` | Конвертеры между слоями |
+
+**Важно:** Protocol модели — это НЕ DTO. Это контракты ACP протокола, которые:
+- Определяют wire format для `session/update`, `session/new`, etc.
+- Содержат валидацию через Pydantic
+- Поддерживают сериализацию/десиализацию
+- Соответствуют ACP спецификации (08-Tool Calls, 03-Session Setup, etc.)
+
+### Таблица соответствия
+
+| Domain Model | ACP Protocol Model | Маппер | ACP Spec |
+|--------------|-------------------|--------|----------|
+| `ToolCall` | `ToolCallState` | `ToolCallMapper` | 08-Tool Calls |
+| `ConversationMessage` | `HistoryMessage` | `HistoryMapper` | 05-Prompt Turn |
+| `PlanEntry` | `PlanStep` | `PlanMapper` | 11-Agent Plan |
+| `UserPrompt` | `ContentBlock` | `PromptMapper` | 06-Content |
+| `Session` | `SessionState` | `SessionMapper` | 03-Session Setup |
+
 ## Архитектурные решения
 
 ### Решение 1: Domain Layer в server
@@ -19,11 +45,9 @@ server/
 │   ├── plan.py                # PlanEntry
 │   └── value_objects.py       # SessionId, FileLocation, etc.
 ├── protocol/
-│   ├── state.py               # РЕФАКТОРИНГ: тонкие DTO
-│   └── dto/                   # НОВЫЙ: Transport DTO
-│       ├── session_dto.py
-│       ├── tool_call_dto.py
-│       └── history_dto.py
+│   ├── state.py               # РЕФАКТОРИНГ: ACP Protocol Models (SessionState, ToolCallState)
+│   ├── content/               # ContentValidator, ContentExtractor
+│   └── handlers/              # ToolCallHandler, PromptOrchestrator
 └── mapping/                   # НОВЫЙ: Mapping Layer
     ├── session_mapper.py
     ├── tool_call_mapper.py
@@ -32,7 +56,7 @@ server/
 
 **Обоснование:**
 - SRP: каждый слой отвечает за свою абстракцию
-- DIP: domain не зависит от transport
+- DIP: domain не зависит от protocol
 - Testability: domain модели тестируются изолированно
 
 **Альтернативы:**
@@ -60,23 +84,30 @@ class ToolCall:
     def is_terminal(self) -> bool:
         return self.status in (ToolCallStatus.COMPLETED, ToolCallStatus.FAILED)
 
-# Transport Layer (server/protocol/dto/tool_call_dto.py)
-class ToolCallDTO(BaseModel):
-    """DTO для ACP wire format."""
+# ACP Protocol Model (server/protocol/state.py)
+class ToolCallState(BaseModel):
+    """ACP Protocol Model — контракт tool call согласно ACP 08-Tool Calls.
+    
+    Wire format для session/update notification с sessionUpdate="tool_call"
+    и sessionUpdate="tool_call_update".
+    
+    НЕ является domain моделью. Для бизнес-логики использовать domain ToolCall.
+    Конвертация через ToolCallMapper.
+    """
     toolCallId: str
     title: str
     kind: ToolKind
     status: ToolCallStatus
     content: list[dict[str, Any]] | None = None
-    locations: list[ToolCallLocationDTO] | None = None
+    locations: list[ToolCallLocation] | None = None
     rawInput: dict[str, Any] | None = None
     rawOutput: dict[str, Any] | None = None
 
 # Mapping Layer (server/mapping/tool_call_mapper.py)
 class ToolCallMapper:
     @staticmethod
-    def to_dto(domain: ToolCall) -> ToolCallDTO:
-        return ToolCallDTO(
+    def to_protocol(domain: ToolCall) -> ToolCallState:
+        return ToolCallState(
             toolCallId=domain.id,
             title=domain.tool_name,
             kind=ToolKind.from_tool_name(domain.tool_name),
@@ -86,23 +117,23 @@ class ToolCallMapper:
         )
     
     @staticmethod
-    def to_domain(dto: ToolCallDTO) -> ToolCall:
+    def to_domain(protocol: ToolCallState) -> ToolCall:
         return ToolCall(
-            id=dto.toolCallId,
-            tool_name=dto.title,
-            arguments=dto.rawInput or {},
-            status=ToolCallStatus.from_acp_status(dto.status),
+            id=protocol.toolCallId,
+            tool_name=protocol.title,
+            arguments=protocol.rawInput or {},
+            status=ToolCallStatus.from_acp_status(protocol.status),
         )
 ```
 
 **Обоснование:**
 - Устраняет дублирование
-- Domain модель стабильна, DTO может меняться с ACP spec
+- Domain модель стабильна, Protocol модель может меняться с ACP spec
 - Маппинг явный и тестируемый
 
 **Миграция:**
-1. Создать domain `ToolCall` и `ToolCallDTO`
-2. Заменить `ToolCallState` на `ToolCallDTO` в `SessionState`
+1. Создать domain `ToolCall`
+2. Обновить `ToolCallState` (ACP Protocol Model) с новыми полями
 3. Обновить handlers для использования маппера
 4. Удалить мёртвый `ToolCall` из `models.py`
 
@@ -130,35 +161,41 @@ class ConversationMessage:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None  # для role=TOOL
 
-# Transport Layer (server/protocol/dto/history_dto.py)
-class HistoryMessageDTO(BaseModel):
-    """DTO для ACP wire format."""
+# ACP Protocol Model (server/protocol/state.py)
+class HistoryMessage(BaseModel):
+    """ACP Protocol Model — контракт сообщения истории согласно ACP 05-Prompt Turn.
+    
+    Wire format для хранения истории сообщений в SessionState.
+    
+    НЕ является domain моделью. Для бизнес-логики использовать domain ConversationMessage.
+    Конвертация через HistoryMapper.
+    """
     role: str
-    content: list[ContentBlockDTO] | str
+    content: list[ContentBlock] | str
     timestamp: str | None = None
-    tool_calls: list[ToolCallDTO] | None = None
+    tool_calls: list[ToolCallState] | None = None
     tool_call_id: str | None = None
 
 # Mapping Layer
 class HistoryMapper:
     @staticmethod
-    def to_dto(domain: ConversationMessage) -> HistoryMessageDTO:
-        return HistoryMessageDTO(
+    def to_protocol(domain: ConversationMessage) -> HistoryMessage:
+        return HistoryMessage(
             role=domain.role.value,
-            content=ContentBlockMapper.to_dto_list(domain.content),
+            content=ContentBlockMapper.to_protocol_list(domain.content),
             timestamp=domain.timestamp.isoformat(),
-            tool_calls=[ToolCallMapper.to_dto(tc) for tc in domain.tool_calls],
+            tool_calls=[ToolCallMapper.to_protocol(tc) for tc in domain.tool_calls],
             tool_call_id=domain.tool_call_id,
         )
     
     @staticmethod
-    def to_domain(dto: HistoryMessageDTO) -> ConversationMessage:
+    def to_domain(protocol: HistoryMessage) -> ConversationMessage:
         return ConversationMessage(
-            role=MessageRole(dto.role),
-            content=ContentBlockMapper.to_domain(dto.content),
-            timestamp=datetime.fromisoformat(dto.timestamp) if dto.timestamp else datetime.now(),
-            tool_calls=[ToolCallMapper.to_domain(tc) for tc in (dto.tool_calls or [])],
-            tool_call_id=dto.tool_call_id,
+            role=MessageRole(protocol.role),
+            content=ContentBlockMapper.to_domain(protocol.content),
+            timestamp=datetime.fromisoformat(protocol.timestamp) if protocol.timestamp else datetime.now(),
+            tool_calls=[ToolCallMapper.to_domain(tc) for tc in (protocol.tool_calls or [])],
+            tool_call_id=protocol.tool_call_id,
         )
 ```
 
@@ -239,40 +276,45 @@ class MultiAgentState:
     child_session_ids: list[str]
     is_child_session: bool
 
-# Transport Layer (server/protocol/dto/session_dto.py)
-class SessionStateDTO(BaseModel):
-    """Тонкий DTO для сериализации."""
+# ACP Protocol Model (server/protocol/state.py)
+class SessionState(BaseModel):
+    """ACP Protocol Model — контракт сессии согласно ACP 03-Session Setup.
+    
+    Wire format для хранения состояния сессии в storage.
+    
+    НЕ является domain моделью. Для бизнес-логики использовать domain Session.
+    Конвертация через SessionMapper.
+    """
     session_id: str
-    config: SessionConfigDTO
-    history: list[HistoryMessageDTO]
-    tool_calls: dict[str, ToolCallDTO]
-    permissions: PermissionStateDTO
-    plan: AgentPlanDTO
-    multi_agent: MultiAgentStateDTO
+    config: SessionConfig
+    history: list[HistoryMessage]
+    tool_calls: dict[str, ToolCallState]
+    permissions: PermissionState
+    plan: AgentPlan
+    multi_agent: MultiAgentState
     schema_version: int = 4
 
 # Mapping Layer
 class SessionMapper:
     @staticmethod
-    def to_dto(domain: Session) -> SessionStateDTO: ...
+    def to_protocol(domain: Session) -> SessionState: ...
     
     @staticmethod
-    def to_domain(dto: SessionStateDTO) -> Session: ...
+    def to_domain(protocol: SessionState) -> Session: ...
 ```
 
 **Обоснование:**
 - SRP: каждый агрегат отвечает за свою область
 - Инкапсуляция: бизнес-логика в агрегатах
 - Тестируемость: каждый агрегат тестируется отдельно
-- Эволюционируемость: можно менять DTO независимо от domain
+- Эволюционируемость: можно менять Protocol модели независимо от domain
 
 **Миграция:**
 1. Создать domain агрегаты
-2. Создать DTO
+2. Обновить `SessionState` (ACP Protocol Model) с новой структурой
 3. Создать мапперы
-4. Заменить `SessionState` на `SessionStateDTO` в storage
-5. Обновить handlers для работы с domain `Session`
-6. Миграция storage format (schema_version: 4)
+4. Обновить handlers для работы с domain `Session`
+5. Миграция storage format (schema_version: 4)
 
 ### Решение 5: Domain AgentContext
 
@@ -487,7 +529,9 @@ class Session:
 **Новая версия:** schema_version = 4
 
 ```python
-class SessionStateDTO(BaseModel):
+class SessionState(BaseModel):
+    """ACP Protocol Model — контракт сессии согласно ACP 03-Session Setup."""
+    
     @model_validator(mode="before")
     @classmethod
     def migrate_schema(cls, data: dict) -> dict:

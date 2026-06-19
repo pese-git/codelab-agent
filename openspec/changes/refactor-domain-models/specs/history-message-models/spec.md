@@ -26,21 +26,34 @@
 - `SYSTEM` — системное сообщение
 - `TOOL` — результат tool call
 
-### Требование: HistoryMessageDTO для ACP
+### Требование: HistoryMessage ACP Protocol Model
 
-Система ДОЛЖНА предоставлять `HistoryMessageDTO` как Pydantic модель:
+Система ДОЛЖНА обновить `HistoryMessage` как ACP Protocol Model:
 - `role: str` — роль (ACP format)
-- `content: list[ContentBlockDTO] | str` — содержимое
+- `content: list[ContentBlock] | str` — содержимое
 - `timestamp: str | None` — время создания (ISO format)
-- `tool_calls: list[ToolCallDTO] | None` — tool calls
+- `tool_calls: list[ToolCallState] | None` — tool calls
 - `tool_call_id: str | None` — ID tool call
+
+### Требование: HistoryMessage Docstring
+
+`HistoryMessage` ДОЛЖЕН иметь docstring с пометкой:
+```python
+"""ACP Protocol Model — контракт сообщения истории согласно ACP 05-Prompt Turn.
+
+Wire format для хранения истории сообщений в SessionState.
+
+НЕ является domain моделью. Для бизнес-логики использовать domain ConversationMessage.
+Конвертация через HistoryMapper.
+"""
+```
 
 ### Требование: HistoryMapper
 
 Система ДОЛЖНА предоставлять `HistoryMapper` с методами:
-- `to_dto(domain: ConversationMessage) -> HistoryMessageDTO`
-- `to_domain(dto: HistoryMessageDTO) -> ConversationMessage`
+- `to_protocol(domain: ConversationMessage) -> HistoryMessage`
+- `to_domain(protocol: HistoryMessage) -> ConversationMessage`
 
-### Требование: Замена HistoryMessage
+### Требование: Замена union типов
 
-Система ДОЛЖНА заменить `HistoryMessage` на `HistoryMessageDTO` в `SessionState`.
+Система ДОЛЖНА убрать union типы из `HistoryMessage.content` через маппинг с domain моделью.

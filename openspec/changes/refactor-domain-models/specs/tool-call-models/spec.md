@@ -19,23 +19,37 @@
 - `COMPLETED` — завершён успешно
 - `FAILED` — завершён с ошибкой
 
-### Требование: ToolCallDTO для ACP
+### Требование: ToolCallState ACP Protocol Model
 
-Система ДОЛЖНА предоставлять `ToolCallDTO` как Pydantic модель в protocol layer:
+Система ДОЛЖНА обновить `ToolCallState` как ACP Protocol Model:
 - `toolCallId: str` — ACP идентификатор
 - `title: str` — заголовок для UI
 - `kind: ToolKind` — категория инструмента (read, edit, execute, etc.)
 - `status: ToolCallStatus` — статус (ACP format)
 - `content: list[dict[str, Any]] | None` — контент результата
-- `locations: list[ToolCallLocationDTO] | None` — затронутые файлы
+- `locations: list[ToolCallLocation] | None` — затронутые файлы
 - `rawInput: dict[str, Any] | None` — исходные аргументы
 - `rawOutput: dict[str, Any] | None` — исходный результат
+
+### Требование: ToolCallState Docstring
+
+`ToolCallState` ДОЛЖЕН иметь docstring с пометкой:
+```python
+"""ACP Protocol Model — контракт tool call согласно ACP 08-Tool Calls.
+
+Wire format для session/update notification с sessionUpdate="tool_call"
+и sessionUpdate="tool_call_update".
+
+НЕ является domain моделью. Для бизнес-логики использовать domain ToolCall.
+Конвертация через ToolCallMapper.
+"""
+```
 
 ### Требование: ToolCallMapper
 
 Система ДОЛЖНА предоставлять `ToolCallMapper` с методами:
-- `to_dto(domain: ToolCall) -> ToolCallDTO` — конвертировать domain в DTO
-- `to_domain(dto: ToolCallDTO) -> ToolCall` — конвертировать DTO в domain
+- `to_protocol(domain: ToolCall) -> ToolCallState` — конвертировать domain в protocol
+- `to_domain(protocol: ToolCallState) -> ToolCall` — конвертировать protocol в domain
 
 ### Требование: Удаление мёртвого кода
 
@@ -43,4 +57,4 @@
 
 ### Требование: Миграция ToolCallState
 
-Система ДОЛЖНА заменить `ToolCallState` на `ToolCallDTO` в `SessionState`.
+Система ДОЛЖНА обновить `ToolCallState` с новыми полями `locations`, `rawInput`, `rawOutput`.
