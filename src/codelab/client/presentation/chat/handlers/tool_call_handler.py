@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codelab.client.presentation.chat.context import ChatUpdateContext
+
+if TYPE_CHECKING:
+    from codelab.client.infrastructure.services.follow_along import FollowAlongService
 
 
 class ToolCallHandler:
@@ -20,7 +23,16 @@ class ToolCallHandler:
     - Добавляет новые tool calls
     - Обновляет статусы существующих
     - Логирует результаты
+    - Интегрируется с FollowAlongService для автоматического открытия файлов
     """
+
+    def __init__(self, follow_along: FollowAlongService | None = None) -> None:
+        """Инициализировать ToolCallHandler.
+
+        Args:
+            follow_along: Опциональный сервис для автоматического открытия файлов
+        """
+        self._follow_along = follow_along
 
     def can_handle(self, update_type: str) -> bool:
         """Проверяет, может ли handler обработать этот тип update.
@@ -71,6 +83,9 @@ class ToolCallHandler:
         title = update.get("title", "")
         status = update.get("status", "pending")
         kind = update.get("kind")
+        locations = update.get("locations")
+        raw_input = update.get("rawInput")
+        raw_output = update.get("rawOutput")
 
         tool_call = {
             "toolCallId": tool_call_id,
@@ -78,6 +93,12 @@ class ToolCallHandler:
             "status": status,
             "kind": kind,
         }
+        if locations is not None:
+            tool_call["locations"] = locations
+        if raw_input is not None:
+            tool_call["rawInput"] = raw_input
+        if raw_output is not None:
+            tool_call["rawOutput"] = raw_output
 
         context.state.add_tool_call(tool_call)
         if context.sink is not None:
@@ -104,6 +125,8 @@ class ToolCallHandler:
         tool_call_id = update.get("toolCallId")
         status = update.get("status")
         title = update.get("title")
+        locations = update.get("locations")
+        raw_output = update.get("rawOutput")
 
         if not tool_call_id:
             context.logger.warning(
@@ -118,11 +141,21 @@ class ToolCallHandler:
             updates["status"] = status
         if title:
             updates["title"] = title
+        if locations is not None:
+            updates["locations"] = locations
+        if raw_output is not None:
+            updates["rawOutput"] = raw_output
 
         if updates:
             context.state.update_tool_call(tool_call_id, **updates)
             if context.sink is not None:
                 context.sink.sync_tool_calls(context.session_id, context.state.tool_calls)
+
+        # Вызываем follow-along сервис если доступен
+        if self._follow_along is not None:
+            # Создаем asyncio task для async вызова
+            import asyncio
+            asyncio.create_task(self._follow_along.on_tool_call_updated(update))
 
         context.logger.info(
             "tool_call_updated",

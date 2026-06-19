@@ -5,15 +5,16 @@
 1. [Введение](#введение)
 2. [Обзор системы](#обзор-системы)
 3. [Архитектура на уровне компонентов](#архитектура-на-уровне-компонентов)
-4. [Потоки данных](#потоки-данных)
-5. [Транспортный слой](#транспортный-слой)
-6. [Двухуровневая история в codelab.server](#двухуровневая-история)
-7. [Background Receive Loop в codelab.client](#background-receive-loop)
-8. [MCP Integration](#mcp-integration)
-9. [Observability Layer](#observability-layer)
-10. [LLM Call Strategies](#llm-call-strategies)
-11. [Критические архитектурные решения](#критические-архитектурные-решения)
-12. [Расширение и интеграция](#расширение-и-интеграция)
+4. [Domain и Mapping слои в codelab.server](#domain-и-mapping-слои)
+5. [Потоки данных](#потоки-данных)
+6. [Транспортный слой](#транспортный-слой)
+7. [Двухуровневая история в codelab.server](#двухуровневая-история)
+8. [Background Receive Loop в codelab.client](#background-receive-loop)
+9. [MCP Integration](#mcp-integration)
+10. [Observability Layer](#observability-layer)
+11. [LLM Call Strategies](#llm-call-strategies)
+12. [Критические архитектурные решения](#критические-архитектурные-решения)
+13. [Расширение и интеграция](#расширение-и-интеграция)
 
 ---
 
@@ -103,6 +104,212 @@ graph TB
 | **Tracer** | Observability | Distributed tracing | [`src/codelab/server/observability/tracer.py`](src/codelab/server/observability/tracer.py) |
 | **MetricsTracker** | Observability | Metrics collection + auto-log | [`src/codelab/server/observability/metrics_tracker.py`](src/codelab/server/observability/metrics_tracker.py) |
 | **EventTimeline** | Observability | Хронология событий | [`src/codelab/server/observability/event_timeline.py`](src/codelab/server/observability/event_timeline.py) |
+
+---
+
+## Domain и Mapping слои
+
+### Обзор
+
+Серверная часть (`codelab.server`) реализует **трёхслойную архитектуру** для разделения бизнес-логики и протокольных моделей:
+
+```mermaid
+graph TB
+    subgraph Domain["Domain Layer (server/domain)"]
+        direction TB
+        Entities["Entities<br/>ToolCall, ConversationMessage, UserPrompt, PlanEntry"]
+        ValueObjects["Value Objects<br/>FileLocation, SessionId"]
+        Enums["Enums<br/>ToolCallStatus, MessageRole, PlanPriority, PlanStatus"]
+        Aggregates["Aggregates<br/>Session, SessionConfig, ConversationHistory, ToolCallRegistry, PermissionState, AgentPlan, MultiAgentState"]
+    end
+    
+    subgraph Mapping["Mapping Layer (server/mapping)"]
+        direction TB
+        ToolCallMapper["ToolCallMapper<br/>ToolCall ↔ ToolCallState"]
+        HistoryMapper["HistoryMapper<br/>ConversationMessage ↔ HistoryMessage"]
+        PromptMapper["PromptMapper<br/>UserPrompt ↔ ContentBlock"]
+        PlanMapper["PlanMapper<br/>PlanEntry ↔ PlanStep"]
+        SessionMapper["SessionMapper<br/>Session ↔ SessionState"]
+        ToolResultMapper["ToolResultMapper<br/>ToolExecutionResult → ACP content"]
+        LLMResponseMapper["LLMResponseMapper<br/>LLMToolCall → ToolCall"]
+    end
+    
+    subgraph Protocol["Protocol Layer (server/protocol)"]
+        direction TB
+        ProtocolModels["ACP Protocol Models<br/>ToolCallState, HistoryMessage, SessionState, PlanStep"]
+    end
+    
+    Domain <-->|to_protocol / to_domain| Mapping
+    Mapping <-->|convert| Protocol
+    
+    style Domain fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Mapping fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style Protocol fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+```
+
+### Принципы разделения
+
+| Слой | Назначение | Примеры | Зависимости |
+|------|------------|---------|-------------|
+| **Domain** | Бизнес-сущности с логикой | `ToolCall`, `Session`, `PlanEntry` | Не зависит от protocol/infrastructure |
+| **Protocol** | ACP wire format (Pydantic) | `ToolCallState`, `SessionState` | Сериализация/десериализация |
+| **Mapping** | Конвертеры между слоями | `ToolCallMapper`, `SessionMapper` | Зависит от domain и protocol |
+
+### Domain модели
+
+#### ToolCall и ToolResult
+
+```python
+# Domain model (server/domain/tool_call.py)
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    status: ToolCallStatus  # PENDING, RUNNING, COMPLETED, FAILED
+    result: ToolResult | None
+    locations: list[FileLocation]
+    raw_output: dict[str, Any]
+    
+    @property
+    def is_terminal(self) -> bool: ...
+
+@dataclass(frozen=True)
+class ToolResult:
+    locations: list[FileLocation]
+    raw_output: dict[str, Any]
+```
+
+#### ConversationMessage и MessageContent
+
+```python
+# Domain model (server/domain/conversation.py)
+@dataclass(frozen=True)
+class ConversationMessage:
+    role: MessageRole  # USER, ASSISTANT, SYSTEM, TOOL
+    content: MessageContent
+    timestamp: datetime
+    tool_calls: list[ToolCall]
+    tool_call_id: str | None
+
+@dataclass(frozen=True)
+class MessageContent:
+    text: str
+    resources: list[Resource]
+    images: list[Image]
+```
+
+#### Session Aggregate
+
+```python
+# Aggregate root (server/domain/session.py)
+@dataclass
+class Session:
+    id: SessionId
+    config: SessionConfig
+    history: ConversationHistory
+    tool_calls: ToolCallRegistry
+    permissions: PermissionState
+    plan: AgentPlan
+    multi_agent: MultiAgentState
+    
+    # Business logic methods
+    def add_message(self, message: ConversationMessage) -> None: ...
+    def create_tool_call(self, tool_name: str, arguments: dict) -> ToolCall: ...
+    def update_tool_call(self, tool_call_id: str, **kwargs) -> None: ...
+    def set_permission_policy(self, kind: str, policy: str) -> None: ...
+```
+
+### Mapping layer
+
+Mapper'ы обеспечивают двустороннюю конвертацию между domain и protocol моделями:
+
+```python
+# Пример: ToolCallMapper (server/mapping/tool_call_mapper.py)
+class ToolCallMapper:
+    @staticmethod
+    def to_protocol(domain: ToolCall) -> ToolCallState:
+        """Domain → Protocol (для отправки клиенту)"""
+        return ToolCallState(
+            tool_call_id=domain.id,
+            title=domain.tool_name,
+            status=domain.status.value,
+            raw_input=domain.arguments,
+            raw_output=domain.raw_output,
+            locations=[{"path": loc.path, "line": loc.line} for loc in domain.locations],
+        )
+    
+    @staticmethod
+    def to_domain(protocol: ToolCallState) -> ToolCall:
+        """Protocol → Domain (для бизнес-логики)"""
+        return ToolCall(
+            id=protocol.tool_call_id,
+            tool_name=protocol.title,
+            status=ToolCallStatus(protocol.status),
+            arguments=dict(protocol.raw_input),
+            raw_output=dict(protocol.raw_output),
+            locations=[FileLocation(path=loc["path"], line=loc.get("line")) 
+                       for loc in protocol.locations],
+        )
+```
+
+### Таблица соответствия моделей
+
+| Domain Model | ACP Protocol Model | Mapper | ACP Spec |
+|--------------|-------------------|--------|----------|
+| `ToolCall` | `ToolCallState` | `ToolCallMapper` | 08-Tool Calls |
+| `ConversationMessage` | `HistoryMessage` | `HistoryMapper` | 05-Prompt Turn |
+| `PlanEntry` | `PlanStep` | `PlanMapper` | 11-Agent Plan |
+| `UserPrompt` | `ContentBlock` | `PromptMapper` | 06-Content |
+| `Session` | `SessionState` | `SessionMapper` | 03-Session Setup |
+
+### ToolExecutionResult
+
+`ToolExecutionResult` (server/tools/base.py) — domain модель результата выполнения инструмента:
+
+```python
+@dataclass
+class ToolExecutionResult:
+    success: bool
+    output: str | None
+    error: str | None
+    metadata: dict[str, Any] | None
+    locations: list[FileLocation]  # Затронутые файлы
+    raw_output: dict[str, Any]     # Исходный результат для ACP rawOutput
+```
+
+**Примеры использования:**
+
+| Tool | `locations` | `raw_output` |
+|------|-------------|--------------|
+| `fs/read_text_file` | `[FileLocation(path, line)]` | `{"content": "...", "bytes_read": 1024}` |
+| `fs/write_text_file` | `[FileLocation(path)]` | `{"bytes_written": 512, "diff": "..."}` |
+| `terminal/create` | `[]` | `{"terminal_id": "term_xyz"}` |
+| `terminal/wait_for_exit` | `[]` | `{"exit_code": 0, "signal": null, "output": "..."}` |
+| MCP tools | `[]` | `{"result": {...}}` |
+
+### Follow-along сервис
+
+Клиентский `FollowAlongService` (client/infrastructure/services/follow_along.py) автоматически открывает файлы в IDE при обновлении tool calls:
+
+```mermaid
+sequenceDiagram
+    participant Server
+    participant Client as ToolCallHandler
+    participant FollowAlong as FollowAlongService
+    participant IDE as FileOpener
+    
+    Server->>Client: tool_call_update с locations
+    Client->>Client: Обновляет состояние tool call
+    Client->>FollowAlong: on_tool_call_updated(tool_call)
+    FollowAlong->>FollowAlong: Проверяет enabled и locations
+    FollowAlong->>IDE: open(path, line) для первого location
+```
+
+**Ключевые особенности:**
+- `FileOpener` Protocol — абстракция для открытия файлов в IDE
+- `StubFileOpener` — реализация для тестов
+- Feature flag не нужен — если locations пуст, follow-along не срабатывает
 
 ---
 
