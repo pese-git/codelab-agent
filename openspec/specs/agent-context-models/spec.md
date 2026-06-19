@@ -1,7 +1,8 @@
-# Spec: agent-context-models
+# agent-context-models Specification
 
-## MODIFIED Requirements
-
+## Purpose
+TBD - created by archiving change refactor-domain-models. Update Purpose after archive.
+## Requirements
 ### Requirement: Domain UserPrompt
 
 Система SHALL предоставлять `UserPrompt` как frozen dataclass:
@@ -61,3 +62,4 @@
 #### Scenario: Миграция кодовой базы
 - **WHEN** код использует `AgentContext.prompt`
 - **THEN** используется тип `UserPrompt` вместо `list[dict]`
+

@@ -1,7 +1,8 @@
-# Spec: session-state (Delta)
+# session-state Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change refactor-domain-models. Update Purpose after archive.
+## Requirements
 ### Requirement: SessionState как ACP Protocol Model
 
 Система SHALL обновить `SessionState` как ACP Protocol Model:
@@ -78,3 +79,4 @@ Wire format для хранения состояния сессии в storage.
 #### Scenario: JsonFileStorage с миграцией
 - **WHEN** загружается файл с старой версией SessionState
 - **THEN** применяется миграция при десериализации
+
