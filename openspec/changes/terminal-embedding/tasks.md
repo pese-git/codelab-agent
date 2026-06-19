@@ -4,23 +4,33 @@
 
 ### 1.1 Обновление ContentValidator
 - [ ] 1.1.1 Добавить `"terminal"` в `SUPPORTED_TYPES` в `server/protocol/content/validator.py`
-- [ ] 1.1.2 Добавить `"terminal": {"type", "terminalId"}` в `REQUIRED_FIELDS`
-- [ ] 1.1.3 Написать unit тест: terminal тип проходит валидацию
-- [ ] 1.1.4 Написать unit тест: terminal без terminalId не проходит валидацию
+- [ ] 1.1.2 Добавить `"content"` в `SUPPORTED_TYPES` (обёртка для ContentBlock)
+- [ ] 1.1.3 Добавить `"terminal": {"type", "terminalId"}` в `REQUIRED_FIELDS`
+- [ ] 1.1.4 Добавить `"content": {"type", "content"}` в `REQUIRED_FIELDS`
+- [ ] 1.1.5 Написать unit тест: terminal тип проходит валидацию
+- [ ] 1.1.6 Написать unit тест: terminal без terminalId не проходит валидацию
+- [ ] 1.1.7 Написать unit тест: content тип проходит валидацию
 
-### 1.2 Обновление TerminalToolExecutor
-- [ ] 1.2.1 Обновить `execute_create()` в `server/tools/executors/terminal_executor.py`
-- [ ] 1.2.2 Добавить `{"type": "terminal", "terminalId": terminal_id}` в content_items
-- [ ] 1.2.3 Оставить text content как fallback для LLM
-- [ ] 1.2.4 Написать unit тест: execute_create возвращает terminal content
-- [ ] 1.2.5 Написать unit тест: terminal content содержит terminalId
+### 1.2 Обновление ToolExecutionResult и ToolResultMapper
+- [ ] 1.2.1 Добавить поле `content: list[dict[str, Any]] | None = None` в `ToolExecutionResult` (`server/tools/base.py`)
+- [ ] 1.2.2 Обновить `ToolResultMapper.to_acp_content()` — проверять `result.content` перед fallback (`server/mapping/tool_result_mapper.py`)
+- [ ] 1.2.3 Написать unit тест: `to_acp_content()` возвращает `result.content` если задан
+- [ ] 1.2.4 Написать unit тест: `to_acp_content()` fallback на text если content не задан
 
-### 1.3 Обновление AgentLoop
-- [ ] 1.3.1 Обновить `server/protocol/handlers/pipeline/stages/agent_loop.py`
-- [ ] 1.3.2 Изменить логику формирования `notification_content`
-- [ ] 1.3.3 Приоритет: `extracted_content.content_items` > text fallback
-- [ ] 1.3.4 Написать unit тест: передаёт extracted content в notification
-- [ ] 1.3.5 Написать unit тест: fallback на text если content пустой
+### 1.3 Обновление TerminalToolExecutor
+- [ ] 1.3.1 Обновить `execute_create()` в `server/tools/executors/terminal_executor.py`
+- [ ] 1.3.2 Добавить `{"type": "terminal", "terminalId": terminal_id}` в content_items
+- [ ] 1.3.3 Обернуть text content в `{"type": "content", "content": {...}}`
+- [ ] 1.3.4 Передать `content=content_items` в `ToolExecutionResult`
+- [ ] 1.3.5 Написать unit тест: execute_create возвращает terminal content
+- [ ] 1.3.6 Написать unit тест: terminal content содержит terminalId
+
+### 1.4 Обновление AgentLoop
+- [ ] 1.4.1 Обновить `server/protocol/handlers/pipeline/stages/agent_loop.py`
+- [ ] 1.4.2 Изменить логику формирования `notification_content` (строки 671-675)
+- [ ] 1.4.3 Приоритет: `extracted_content.content_items` > text fallback
+- [ ] 1.4.4 Написать unit тест: передаёт extracted content в notification
+- [ ] 1.4.5 Написать unit тест: fallback на text если content пустой
 
 ## Фаза 2: Клиентская часть (низкий риск)
 
@@ -47,22 +57,25 @@
 
 | Фаза | Новых файлов | Изменённых файлов | Тестов | Риск |
 |------|--------------|-------------------|--------|------|
-| Фаза 1 | 0 | 3 | 10 | Низкий |
-| Фаза 2 | 0 | 1 | 5 | Низкий |
+| Фаза 1 | 0 | 5 | 15 | Низкий |
+| Фаза 2 | 0 | 1 | 4 | Низкий |
 | Фаза 3 | 0 | 0 | 5 | Низкий |
-| **Итого** | **0** | **4** | **20** | - |
+| **Итого** | **0** | **6** | **24** | - |
 
 ## Зависимости между фазами
 
 ```
-Фаза 1.1 → Фаза 1.2 → Фаза 1.3
+Фаза 1.1 → Фаза 1.4
+Фаза 1.2 → Фаза 1.3 → Фаза 1.4
 Фаза 1 → Фаза 2
 Фаза 2 → Фаза 3
 ```
 
 ## Рекомендации по выполнению
 
-1. **Фаза 1** должна быть выполнена полностью перед Фазой 2
-2. **Фаза 2** может быть выполнена параллельно с Фазой 1.3
-3. **Фаза 3** выполняется после завершения Фаз 1 и 2
-4. Каждая задача должна завершаться прогоном соответствующих тестов
+1. **Фаза 1.1 и 1.2** могут быть выполнены параллельно
+2. **Фаза 1.3** зависит от 1.2 (нужно поле `content` в `ToolExecutionResult`)
+3. **Фаза 1.4** зависит от 1.1 и 1.3
+4. **Фаза 2** может быть выполнена параллельно с Фазой 1.4
+5. **Фаза 3** выполняется после завершения Фаз 1 и 2
+6. Каждая задача должна завершаться прогоном соответствующих тестов
