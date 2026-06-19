@@ -118,7 +118,11 @@ class LLMLoopStage(PromptStage):
             tracer_enabled=tracer is not None,
         )
 
-    def _get_or_create_agent_loop(self, context: PromptContext) -> AgentLoop:
+    def _get_or_create_agent_loop(
+        self,
+        context: PromptContext,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+    ) -> AgentLoop:
         """Лениво создать AgentLoop с нужной стратегией.
 
         Стратегия выбирается один раз и фиксируется через set_current_strategy,
@@ -126,6 +130,7 @@ class LLMLoopStage(PromptStage):
 
         Args:
             context: Контекст pipeline (session, meta).
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             AgentLoop с нужной стратегией.
@@ -181,6 +186,7 @@ class LLMLoopStage(PromptStage):
             plan_builder=self._plan_builder,
             system_prompt_builder=self._system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
+            notification_callback=notification_callback,
         )
         return self._agent_loop
 
@@ -215,7 +221,10 @@ class LLMLoopStage(PromptStage):
                 self._state_manager.add_assistant_message(context.session, ack_text)
             return context
 
-        agent_loop = self._get_or_create_agent_loop(context)
+        agent_loop = self._get_or_create_agent_loop(
+            context,
+            notification_callback=context.meta.get("notification_callback"),
+        )
         mcp_manager = self._get_mcp_manager(context)
 
         result = await agent_loop.run(

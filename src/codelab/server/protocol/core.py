@@ -1193,6 +1193,7 @@ class ACPProtocol:
             storage=self._storage,
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
+            notification_callback=self._send_message,
         )
 
         # Сохраняем сессию (критично для permission flow)

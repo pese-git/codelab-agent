@@ -138,6 +138,7 @@ class PromptOrchestrator:
         storage: SessionStorage,
         mcp_manager: Any | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> ProtocolOutcome:
         """Обрабатывает session/prompt request.
 
@@ -156,6 +157,7 @@ class PromptOrchestrator:
             storage: Хранилище сессий
             mcp_manager: MCP manager для сессии (из runtime registry)
             mcp_prompt_handlers: Обработчики MCP prompts (из runtime registry)
+            notification_callback: Опциональный callback для немедленной отправки notifications.
 
         Returns:
             ProtocolOutcome с notifications и response
@@ -190,6 +192,8 @@ class PromptOrchestrator:
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
+        if notification_callback is not None:
+            context.meta["notification_callback"] = notification_callback
 
         result = await self._pipeline.run(context)
 
