@@ -631,7 +631,9 @@ class AgentLoop:
                         tool_kind,
                     )
                     notifications.append(permission_msg)
-                    await self._send_notification_immediately(permission_msg)
+                    # НЕ отправляем permission request через immediate callback.
+                    # Он будет отправлен через стандартный механизм outcome.notifications
+                    # чтобы избежать дублирования и корректной обработки ответа.
 
                     if session.active_turn:
                         session.active_turn.phase = "awaiting_permission"
