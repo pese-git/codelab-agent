@@ -125,10 +125,10 @@
 - [x] 5.1.4 Обновить docstrings в `PromptOrchestrator.execute_pending_tool()` с описанием callback
 
 ### 5.2 README обновление
-- [ ] 5.2.1 Добавить секцию "Real-time Notifications" в README.md
-- [ ] 5.2.2 Описать архитектуру immediate delivery
-- [ ] 5.2.3 Добавить диаграмму sequence для terminal embedding flow
-- [ ] 5.2.4 Упомянуть backward compatibility
+- [x] 5.2.1 Добавить секцию "Real-time Notifications" в README.md
+- [x] 5.2.2 Описать архитектуру immediate delivery
+- [x] 5.2.3 Добавить диаграмму sequence для terminal embedding flow
+- [x] 5.2.4 Упомянуть backward compatibility
 
 ## Фаза 6: Проверка перед merge (низкий риск)
 
@@ -201,10 +201,10 @@
 
 ## Критерии приёмки
 
-- [ ] Notification с terminal content доставляется клиенту в течение 100ms после создания
-- [ ] Terminal embedding работает в UI: пользователь видит live output
-- [ ] Существующие тесты проходят без изменений
-- [ ] Новые тесты покрывают immediate delivery
-- [ ] `make check` проходит (lint + typecheck + tests)
-- [ ] Документация обновлена
-- [ ] Backward compatibility сохранена
+- [x] Notification с terminal content доставляется клиенту в течение 100ms после создания
+- [x] Terminal embedding работает в UI: пользователь видит live output
+- [x] Существующие тесты проходят без изменений
+- [x] Новые тесты покрывают immediate delivery
+- [x] `make check` проходит (lint + typecheck + tests)
+- [x] Документация обновлена
+- [x] Backward compatibility сохранена
