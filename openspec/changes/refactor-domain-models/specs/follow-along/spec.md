@@ -1,6 +1,6 @@
 # Spec: follow-along
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: FileOpener Protocol
 

@@ -1,6 +1,6 @@
 # Spec: client-capabilities
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Domain ClientCapabilities
 

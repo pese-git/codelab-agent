@@ -1,6 +1,6 @@
 # Spec: tool-execution-result-models
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Domain FileLocation
 

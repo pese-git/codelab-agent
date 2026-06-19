@@ -1,6 +1,6 @@
 # Spec: session-aggregate
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Aggregate Root Session
 

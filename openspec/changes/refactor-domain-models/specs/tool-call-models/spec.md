@@ -1,6 +1,6 @@
 # Spec: tool-call-models
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Domain ToolCall
 

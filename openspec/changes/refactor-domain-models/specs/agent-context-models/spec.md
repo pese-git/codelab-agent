@@ -1,6 +1,6 @@
 # Spec: agent-context-models
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Domain UserPrompt
 

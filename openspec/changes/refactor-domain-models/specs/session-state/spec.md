@@ -1,6 +1,6 @@
 # Spec: session-state (Delta)
 
-## МОДИФИЦИРОВАННЫЕ Требования
+## MODIFIED Requirements
 
 ### Требование: SessionState как ACP Protocol Model
 

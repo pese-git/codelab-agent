@@ -1,6 +1,6 @@
 # Spec: agent-message-contracts (Delta)
 
-## МОДИФИЦИРОВАННЫЕ Требования
+## MODIFIED Requirements
 
 ### Требование: Устранение дублирования ToolCall
 

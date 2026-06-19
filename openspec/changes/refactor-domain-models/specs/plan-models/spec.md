@@ -1,6 +1,6 @@
 # Spec: plan-models
 
-## ДОБАВЛЕННЫЕ Требования
+## ADDED Requirements
 
 ### Требование: Domain PlanEntry
 
