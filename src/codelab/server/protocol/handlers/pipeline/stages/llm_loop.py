@@ -268,6 +268,11 @@ class LLMLoopStage(PromptStage):
         """
         # Переиспользовать существующий AgentLoop или создать новый с правильной стратегией
         if self._agent_loop is None:
+            logger.info(
+                "creating new AgentLoop with callback",
+                session_id=session_id,
+                has_callback=notification_callback is not None,
+            )
             # Fallback: создать AgentLoop с правильной стратегией
             strategy: LLMCallStrategy
             if self._strategy_dispatcher is not None:
@@ -305,8 +310,13 @@ class LLMLoopStage(PromptStage):
             # Обновить callback в существующем AgentLoop для немедленной отправки notifications
             if notification_callback is not None:
                 self._agent_loop.set_notification_callback(notification_callback)
-                logger.debug(
+                logger.info(
                     "updated notification_callback in existing AgentLoop",
+                    session_id=session_id,
+                )
+            else:
+                logger.warning(
+                    "notification_callback is None in execute_pending_tool",
                     session_id=session_id,
                 )
 

@@ -189,9 +189,23 @@ class AgentLoop:
         Args:
             notification: Notification для отправки.
         """
+        import time
+        
         if self._notification_callback is not None:
             try:
+                start_time = time.time()
+                logger.info(
+                    "sending notification immediately via callback",
+                    method=notification.method,
+                    is_request=notification.is_request,
+                )
                 await self._notification_callback(notification)
+                latency_ms = (time.time() - start_time) * 1000
+                logger.info(
+                    "notification sent via callback",
+                    method=notification.method,
+                    latency_ms=round(latency_ms, 2),
+                )
             except Exception as e:
                 logger.warning(
                     "notification_callback_failed",
@@ -200,6 +214,11 @@ class AgentLoop:
                     exc_info=True,
                 )
                 # Продолжаем выполнение — notification всё равно в списке
+        else:
+            logger.debug(
+                "notification_callback is None, skipping immediate send",
+                method=notification.method,
+            )
 
     def set_notification_callback(
         self, callback: Callable[[ACPMessage], Awaitable[None]] | None

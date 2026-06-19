@@ -633,15 +633,14 @@ class ACPProtocol:
                 tool_call_id=tool_call_id,
             )
 
-            # Отправляем все accumulated notifications
+            # Notifications уже отправлены через callback в AgentLoop
+            # (immediate delivery). Batch отправка не нужна.
             logger.info(
-                "sending notifications after permission approval",
+                "notifications sent via immediate delivery callback",
                 session_id=session_id,
                 tool_call_id=tool_call_id,
                 notifications_count=len(llm_result.notifications),
             )
-            for notification in llm_result.notifications:
-                await self._send_message(notification)
 
             # Сессия уже сохранена в execute_pending_tool() —
             # там save_session вызывается после orchestrator.execute_pending_tool(),
