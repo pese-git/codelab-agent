@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
+from textual.types import AnimationLevel, EasingFunction
 from textual.widgets import Static
 
 from codelab.client.messages import PermissionOption, PermissionToolCall
@@ -23,6 +24,8 @@ from codelab.client.tui.components.message_bubble import MessageBubble, MessageR
 from codelab.client.tui.components.spinner import LoadingIndicator
 
 if TYPE_CHECKING:
+    from textual.types import CallbackType
+
     from codelab.client.presentation.chat_view_model import ChatViewModel
     from codelab.client.presentation.permission_view_model import PermissionViewModel
     from codelab.client.tui.components.chat_view_permission_manager import (
@@ -92,6 +95,9 @@ class ChatView(VerticalScroll):
         # Создаем контейнер для динамического добавления виджетов
         self._content_container = Container(id="chat_content")
         yield self._content_container
+        # Контейнер для permission widget (не очищается при _update_display)
+        self._permission_container = Container(id="permission_container")
+        yield self._permission_container
         # Индикатор загрузки показывается когда агент обрабатывает запрос
         self._loading_indicator = LoadingIndicator(
             text="Агент думает...",
@@ -127,9 +133,6 @@ class ChatView(VerticalScroll):
         Args:
             is_streaming: True если идет streaming, False иначе
         """
-        # Обновляем видимость индикатора загрузки
-        if self._loading_indicator is not None:
-            self._loading_indicator.visible = is_streaming
         self._update_display()
 
     def _on_streaming_text_changed(self, text: str) -> None:
@@ -146,11 +149,15 @@ class ChatView(VerticalScroll):
         self._update_display()
 
     def _update_display(self) -> None:
-        """Обновить отображение чата на основе текущего состояния."""
+        """Обновить отображение чата на основе текущего состояния.
+        
+        Очищает контент и пересоздает сообщения/streaming/tool calls.
+        Permission widget находится в отдельном контейнере и не затрагивается.
+        """
         if self.chat_vm is None or not self._mounted or self._content_container is None:
             return
 
-        # Очищаем старый контент (счетчик не сбрасываем, чтобы ID оставались уникальными)
+        # Очищаем весь контент
         self._content_container.query("*").remove()
 
         # Отображаем сообщения
@@ -167,8 +174,19 @@ class ChatView(VerticalScroll):
         for tool_call in tool_calls:
             self._render_tool_call(tool_call)
 
-        # Скроллируем вниз
-        self.scroll_end()
+        # Обновляем видимость индикатора загрузки
+        # Скрываем если permission widget виден (иначе он перекрывает виджет)
+        if self._loading_indicator is not None:
+            permission_widget_visible = (
+                self._permission_manager is not None
+                and self._permission_manager.is_widget_visible()
+            )
+            self._loading_indicator.visible = (
+                self.chat_vm.is_streaming.value and not permission_widget_visible
+            )
+
+        # Скроллируем вниз после пересчета layout
+        self.call_after_refresh(self.scroll_end)
 
     def _render_message(self, message: Any) -> None:
         """Отобразить одно сообщение через MessageBubble.
@@ -368,3 +386,50 @@ class ChatView(VerticalScroll):
         """
         if self._permission_manager is not None:
             self._permission_manager.hide_permission_request()
+
+    def scroll_end(
+        self,
+        *,
+        animate: bool = True,
+        speed: float | None = None,
+        duration: float | None = None,
+        easing: EasingFunction | str | None = None,
+        force: bool = False,
+        on_complete: CallbackType | None = None,
+        level: AnimationLevel = "basic",
+        immediate: bool = False,
+        x_axis: bool = True,
+        y_axis: bool = True,
+    ) -> None:
+        """Прокрутить чат к концу (к последнему сообщению).
+
+        Args:
+            animate: Анимировать прокрутку
+            speed: Скорость анимации
+            duration: Длительность анимации
+            easing: Функция плавности
+            force: Принудительная прокрутка
+            on_complete: Callback по завершении
+            level: Уровень анимации
+            immediate: Немедленная прокрутка
+            x_axis: Прокрутка по X
+            y_axis: Прокрутка по Y
+        """
+        self._logger.info(
+            "scroll_end_called",
+            animate=animate,
+            scroll_y=self.scroll_y,
+            max_scroll_y=self.max_scroll_y,
+        )
+        super().scroll_end(
+            animate=animate,
+            speed=speed,
+            duration=duration,
+            easing=easing,
+            force=force,
+            on_complete=on_complete,
+            level=level,
+            immediate=immediate,
+            x_axis=x_axis,
+            y_axis=y_axis,
+        )

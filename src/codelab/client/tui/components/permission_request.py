@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
+import structlog
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.message import Message
@@ -210,6 +211,7 @@ class PermissionRequest(Static):
         self._options = options or []
         self._on_choice = on_choice
         self._auto_deny_seconds = auto_deny_seconds
+        self._logger = structlog.get_logger("permission_request")
         
         # Кэш опций по ID
         self._option_by_id = {opt.optionId: opt for opt in self._options}
@@ -280,6 +282,12 @@ class PermissionRequest(Static):
     
     def on_mount(self) -> None:
         """Запускает таймер автоотклонения при монтировании и добавляет кнопки в ActionBar."""
+        from textual import log
+        log(
+            f"permission_request_mounted: request_id={self._request_id}, "
+            f"permission_type={self._permission_type}, resource={self._resource}"
+        )
+        
         # Добавляем кнопки в ActionBar
         if self._action_bar:
             # Кнопка Allow (primary)
@@ -412,7 +420,18 @@ class PermissionRequest(Static):
         self.post_message(self.Choice(self._request_id, option_id, self))
         
         # Скрываем через ViewModel
+        self._logger.info(
+            "permission_request_selecting_option",
+            request_id=self._request_id,
+            option_id=option_id,
+            calling_vm_hide=True,
+        )
         self.permission_vm.hide()
+        self._logger.info(
+            "permission_request_vm_hide_called",
+            request_id=self._request_id,
+            is_visible_after=self.permission_vm.is_visible.value,
+        )
     
     def allow(self) -> None:
         """Программно выбрать Allow."""

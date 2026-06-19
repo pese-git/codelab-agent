@@ -36,6 +36,9 @@ from codelab.client.messages import ACPMessage, RequestPermissionRequest
 
 if TYPE_CHECKING:
     from codelab.client.application.permission_handler import PermissionHandler
+    from codelab.client.infrastructure.services.acp_transport.client_rpc_dispatcher import (
+        ClientRpcDispatcher,
+    )
 
 
 async def _call_callback(
@@ -72,6 +75,7 @@ class ACPTransportService(TransportService):
         transport: Transport,
         parser: MessageParser | None = None,
         permission_handler: PermissionHandler | None = None,
+        rpc_dispatcher: ClientRpcDispatcher | None = None,
     ) -> None:
         """Инициализирует сервис.
 
@@ -79,10 +83,12 @@ class ACPTransportService(TransportService):
             transport: Реализация транспорта (WebSocket или stdio).
             parser: MessageParser для парсинга ответов (опционально).
             permission_handler: PermissionHandler для обработки permission requests (опционально).
+            rpc_dispatcher: ClientRpcDispatcher для обработки входящих RPC (опционально).
         """
         self._transport = transport
         self.parser = parser or MessageParser()
         self._permission_handler = permission_handler
+        self._rpc_dispatcher = rpc_dispatcher
         # Callback для отображения permission modal в UI
         # Будет установлен через set_permission_callback из TUI App
         # Сигнатура: (request_id, tool_call, options, on_choice) -> None
@@ -470,6 +476,14 @@ class ACPTransportService(TransportService):
             callback_name=getattr(callback, "__name__", "unknown"),
         )
 
+    def set_permission_handler(self, handler: PermissionHandler) -> None:
+        """Установить PermissionHandler для обработки permission requests.
+
+        Args:
+            handler: PermissionHandler instance
+        """
+        self._permission_handler = handler
+
     def is_initialized(self) -> bool:
         """Проверяет, была ли выполнена инициализация.
 
@@ -602,6 +616,22 @@ class ACPTransportService(TransportService):
         )
         return response_data
 
+    def _create_permission_task(self) -> asyncio.Task[dict[str, Any]]:
+        """Создаёт новый permission task для ожидания permission request.
+
+        Централизованный метод для создания permission task с логированием.
+        Используется для гарантии что новый task создаётся сразу после обработки
+        предыдущего permission request, минимизируя race conditions.
+        """
+        if self._queues is None:
+            msg = "Cannot create permission task: routing queues not initialized"
+            self._logger.error("create_permission_task_failed", error=msg)
+            raise RuntimeError(msg)
+
+        task = asyncio.create_task(self._queues.permission_queue.get())
+        self._logger.info("permission_task_created")
+        return task
+
     async def _wait_for_response_with_events(
         self,
         response_task: asyncio.Task[dict[str, Any]],
@@ -619,58 +649,103 @@ class ACPTransportService(TransportService):
         on_terminal_kill: Callable[[str], Any] | None,
     ) -> dict[str, Any]:
         """Основной цикл ожидания ответа с обработкой permission и notifications."""
-        while True:
-            notification_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(
-                asyncio.wait_for(
-                    self._queues.notification_queue.get(),
-                    timeout=0.1,
-                )
-            )
-
-            tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [response_task, notification_task]
-            if permission_task is not None:
-                tasks_to_wait.append(permission_task)
-
-            done, pending = await asyncio.wait(
-                tasks_to_wait,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if notification_task in pending:
-                notification_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                    await notification_task
-
-            if permission_task is not None and permission_task in done:
-                self._handle_permission_task(
-                    permission_task, method=method, request_id=request_id,
-                )
-                permission_task = asyncio.create_task(
-                    self._queues.permission_queue.get()
+        self._logger.info(
+            "wait_for_response_with_events_start",
+            method=method,
+            request_id=request_id,
+            has_permission_task=permission_task is not None,
+        )
+        try:
+            while True:
+                notification_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(
+                    asyncio.wait_for(
+                        self._queues.notification_queue.get(),
+                        timeout=0.1,
+                    )
                 )
 
-            if notification_task in done:
-                await self._handle_notification_task(
-                    notification_task,
+                tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [
+                    response_task, notification_task,
+                ]
+                if permission_task is not None:
+                    tasks_to_wait.append(permission_task)
+
+                done, pending = await asyncio.wait(
+                    tasks_to_wait,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if notification_task in pending:
+                    notification_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                        await notification_task
+
+                if permission_task is not None and permission_task in done:
+                    self._logger.info(
+                        "permission_task_completed_in_wait_loop",
+                        method=method,
+                        request_id=request_id,
+                    )
+                    self._handle_permission_task(
+                        permission_task, method=method, request_id=request_id,
+                    )
+                    # Сразу создаём новый permission task для ожидания следующего request.
+                    # Это критично для предотвращения race condition: если второй permission
+                    # request придёт в очередь до создания нового task, он может быть потерян.
+                    permission_task = self._create_permission_task()
+                    self._logger.info(
+                        "new_permission_task_created_after_handling",
+                        method=method,
+                        request_id=request_id,
+                    )
+
+                if notification_task in done:
+                    await self._handle_notification_task(
+                        notification_task,
+                        method=method,
+                        request_id=request_id,
+                        on_update=on_update,
+                        on_fs_read=on_fs_read,
+                        on_fs_write=on_fs_write,
+                        on_terminal_create=on_terminal_create,
+                        on_terminal_output=on_terminal_output,
+                        on_terminal_wait=on_terminal_wait,
+                        on_terminal_release=on_terminal_release,
+                        on_terminal_kill=on_terminal_kill,
+                    )
+
+                if response_task in done:
+                    # Отменяем permission_task перед возвратом чтобы предотвратить
+                    # появление осиротевших tasks, которые потребляют сообщения из
+                    # permission_queue и мешают обработке следующих permission requests.
+                    if permission_task is not None and not permission_task.done():
+                        self._logger.info(
+                            "cancelling_orphaned_permission_task",
+                            method=method,
+                            request_id=request_id,
+                        )
+                        permission_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await permission_task
+                    return await self._process_response(
+                        response_task,
+                        method=method,
+                        request_id=request_id,
+                        on_update=on_update,
+                    )
+        except Exception:
+            # При любом исключении отменяем permission_task чтобы не оставить
+            # осиротевший task, потребляющий сообщения из permission_queue.
+            if permission_task is not None and not permission_task.done():
+                self._logger.warning(
+                    "cancelling_permission_task_on_error",
                     method=method,
                     request_id=request_id,
-                    on_update=on_update,
-                    on_fs_read=on_fs_read,
-                    on_fs_write=on_fs_write,
-                    on_terminal_create=on_terminal_create,
-                    on_terminal_output=on_terminal_output,
-                    on_terminal_wait=on_terminal_wait,
-                    on_terminal_release=on_terminal_release,
-                    on_terminal_kill=on_terminal_kill,
                 )
-
-            if response_task in done:
-                return await self._process_response(
-                    response_task,
-                    method=method,
-                    request_id=request_id,
-                    on_update=on_update,
-                )
+                permission_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await permission_task
+            raise
 
     def _handle_permission_task(
         self,
@@ -680,13 +755,21 @@ class ACPTransportService(TransportService):
         request_id: str | int,
     ) -> None:
         """Обрабатывает завершённый permission task (синхронная часть)."""
+        self._logger.info(
+            "handle_permission_task_called",
+            method=method,
+            request_id=request_id,
+            task_done=permission_task.done(),
+            task_cancelled=permission_task.cancelled(),
+        )
         try:
             permission_data = permission_task.result()
-            self._logger.debug(
+            self._logger.info(
                 "tool_lifecycle_permission_request_received",
                 method=method,
                 request_id=request_id,
                 permission_id=permission_data.get("id"),
+                permission_method=permission_data.get("method"),
             )
         except Exception as e:
             self._logger.warning(
@@ -694,10 +777,17 @@ class ACPTransportService(TransportService):
                 method=method,
                 request_id=request_id,
                 error=str(e),
+                error_type=type(e).__name__,
             )
             return
 
         # Запускаем async обработку отдельно чтобы не блокировать
+        self._logger.info(
+            "permission_task_async_handling_started",
+            method=method,
+            request_id=request_id,
+            permission_id=permission_data.get("id"),
+        )
         asyncio.ensure_future(
             self._handle_permission_request_with_handler(permission_data)
         )
@@ -832,9 +922,7 @@ class ACPTransportService(TransportService):
                 )
                 permission_task: asyncio.Task[dict[str, Any]] | None = None
                 if should_listen_notifications:
-                    permission_task = asyncio.create_task(
-                        self._queues.permission_queue.get()
-                    )
+                    permission_task = self._create_permission_task()
 
                 try:
                     return await self._wait_for_response_with_events(
@@ -890,8 +978,30 @@ class ACPTransportService(TransportService):
         Args:
             message: JSON-RPC сообщение с permission request
         """
+        self._logger.info(
+            "handle_permission_request_with_handler_called",
+            message_id=message.get("id"),
+            method=message.get("method"),
+            has_permission_handler=self._permission_handler is not None,
+            has_permission_callback=self._permission_callback is not None,
+        )
+
         if self._permission_handler is None:
-            self._logger.debug("permission_handler_not_configured_skipping")
+            self._logger.warning("permission_handler_not_configured_skipping")
+            # Отправить cancel response чтобы сервер не завис
+            try:
+                cancel_response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {"outcome": "cancelled"},
+                }
+                await self.send(cancel_response)
+                self._logger.debug("cancel_response_sent_for_missing_handler")
+            except Exception as send_error:
+                self._logger.error(
+                    "failed_to_send_cancel_response",
+                    error=str(send_error),
+                )
             return
 
         try:
@@ -984,6 +1094,21 @@ class ACPTransportService(TransportService):
             rpc_id=rpc_id,
             rpc_method=rpc_method,
         )
+
+        if self._rpc_dispatcher is not None:
+            result = await self._rpc_dispatcher.dispatch(rpc_method, rpc_id, rpc_params)
+            if "error" in result:
+                error_info = result["error"]
+                await self.send(
+                    ACPMessage.error_response(
+                        rpc_id,
+                        code=error_info.get("code", -32603),
+                        message=error_info.get("message", "Unknown error"),
+                    ).to_dict()
+                )
+            else:
+                await self.send(ACPMessage.response(rpc_id, result).to_dict())
+            return
 
         handlers: dict[str, Callable[[], Any]] = {
             "fs/read_text_file": lambda: self._handle_fs_read(

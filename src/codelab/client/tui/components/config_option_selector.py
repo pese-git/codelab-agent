@@ -282,7 +282,7 @@ class ConfigOptionSelectorModal(ModalScreen[str | None]):
             is_selected = i == self._selected_index
             is_current = option.value == current_value
             # Безопасный ID: заменяем специальные символы
-            safe_value = option.value.replace("/", "_").replace("-", "_")
+            safe_value = option.value.replace("/", "_").replace("-", "_").replace(".", "_")
             yield ConfigOptionItem(
                 option,
                 selected=is_selected,

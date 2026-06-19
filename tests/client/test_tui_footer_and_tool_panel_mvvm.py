@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from textual.app import App
 
 from codelab.client.infrastructure.events.bus import EventBus
+from codelab.client.presentation.chat.dispatcher.session_update_dispatcher import (
+    SessionUpdateDispatcher,
+)
+from codelab.client.presentation.chat.handlers.config_option_handler import (
+    ConfigOptionHandler,
+)
+from codelab.client.presentation.chat.handlers.message_chunk_handler import (
+    MessageChunkHandler,
+)
+from codelab.client.presentation.chat.handlers.plan_update_handler import (
+    PlanUpdateHandler,
+)
+from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.ui_view_model import ConnectionStatus, UIViewModel
 from codelab.client.tui.components.footer import FooterBar
@@ -33,10 +47,41 @@ def ui_view_model(event_bus: EventBus) -> UIViewModel:
 
 
 @pytest.fixture
-def chat_view_model(event_bus: EventBus) -> ChatViewModel:
+def session_update_dispatcher() -> SessionUpdateDispatcher:
+    """Создает SessionUpdateDispatcher с тестовыми handlers."""
+    return SessionUpdateDispatcher(
+        message_chunk_handler=MessageChunkHandler(),
+        tool_call_handler=ToolCallHandler(),
+        plan_update_handler=PlanUpdateHandler(),
+        config_option_handler=ConfigOptionHandler(),
+    )
+
+
+@pytest.fixture
+def chat_persistence() -> Mock:
+    """Создает mock ChatPersistencePort."""
+    persistence = Mock()
+    persistence.save_messages = AsyncMock()
+    persistence.load_messages_sync = Mock(return_value=[])
+    persistence.load_replay_updates_sync = Mock(return_value=[])
+    return persistence
+
+
+@pytest.fixture
+def chat_view_model(
+    event_bus: EventBus,
+    session_update_dispatcher: SessionUpdateDispatcher,
+    chat_persistence: Mock,
+) -> ChatViewModel:
     """Создать ChatViewModel для тестов."""
     coordinator = None
-    return ChatViewModel(coordinator=coordinator, event_bus=event_bus, logger=None)
+    return ChatViewModel(
+        coordinator=coordinator,
+        event_bus=event_bus,
+        logger=None,
+        session_update_dispatcher=session_update_dispatcher,
+        chat_persistence=chat_persistence,
+    )
 
 
 @pytest.fixture

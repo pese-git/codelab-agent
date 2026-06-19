@@ -10,12 +10,11 @@
 
 # Основные модули клиента
 from codelab.client.application.state_machine import StateTransitionError, UIState
-from codelab.client.domain.entities import Message, Session
+from codelab.client.domain.entities import Session
 from codelab.client.infrastructure.transport import Transport, WebSocketTransport
 
 __all__ = [
     # Domain
-    "Message",
     "Session",
     # Application
     "UIState",

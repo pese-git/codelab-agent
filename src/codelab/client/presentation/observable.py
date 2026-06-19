@@ -79,11 +79,10 @@ class Observable[T]:
         Обработка ошибок в observers — они не должны останавливать
         цепочку уведомлений других observers.
         """
-        for observer in self._observers:
+        for observer in list(self._observers):
             try:
                 observer(self._value)
             except Exception as e:
-                # Используем getattr для получения имени, так как callable могут не иметь __name__
                 observer_name = getattr(observer, '__name__', repr(observer))
                 logger.exception(
                     "Error in observable observer",

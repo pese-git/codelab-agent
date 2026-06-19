@@ -56,6 +56,7 @@ from .footer import AgentStatus, FooterBar
 from .header import HeaderBar
 from .help_modal import HelpModal
 from .inline_permission_widget import InlinePermissionWidget
+from .inline_selector import InlineSelector
 from .keyboard_manager import (
     CATEGORY_NAMES,
     DEFAULT_BINDINGS,
@@ -210,6 +211,7 @@ __all__ = [
     "ModelSelectorModal",
     "ModelItem",
     "ConfigOptionSelectorModal",
+    "InlineSelector",
     "StatusLine",
     "CompactStatusLine",
     "StatusMode",

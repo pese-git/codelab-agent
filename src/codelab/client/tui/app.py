@@ -56,7 +56,6 @@ from .components import (
     PermissionModal,
     PlanPanel,
     PromptInput,
-    QuickActionsBar,
     Sidebar,
     ToastContainer,
     ToolCallCard,
@@ -350,11 +349,22 @@ class ACPClientApp(App[None]):
             content_area.mount(PlanPanel(self._plan_vm))
             self._app_logger.debug("content_area_components_mounted")
         
-        # Монтируем PromptInput и QuickActionsBar в dock-region (OpenCode-style)
+        # Монтируем PromptInput в dock-region (OpenCode-style)
         dock_region = self._main_layout.dock_region
         if dock_region is not None:
-            dock_region.mount(PromptInput(self._chat_vm))
-            dock_region.mount(QuickActionsBar(self._ui_vm, theme_manager=self._theme_manager))
+            dock_region.mount(
+                PromptInput(
+                    chat_vm=self._chat_vm,
+                    model_selector_vm=self._model_selector_vm,
+                    mode_selector_vm=self._mode_selector_vm,
+                    agent_selector_vm=self._agent_selector_vm,
+                    strategy_selector_vm=self._strategy_selector_vm,
+                    open_model_callback=self.action_select_model,
+                    open_mode_callback=self.action_select_mode,
+                    open_agent_callback=self.action_select_agent,
+                    open_strategy_callback=self.action_select_strategy,
+                )
+            )
             self._app_logger.debug("dock_region_components_mounted")
         
         # Монтируем ToolPanel в right-panel-column
@@ -591,14 +601,7 @@ class ACPClientApp(App[None]):
         config = self._config_store.load()
         config.theme = cast(TUITheme, self._theme_manager.current_theme_name)
         self._config_store.save(config)
-        
-        # Обновляем иконку в QuickActionsBar
-        try:
-            quick_actions = self.query_one(QuickActionsBar)
-            quick_actions.update_theme_icon()
-        except Exception as e:
-            self._app_logger.debug("failed_to_update_theme_icon", error=str(e))
-        
+
         self._app_logger.debug(
             "theme_toggled",
             new_theme=self._theme_manager.current_theme_name,
@@ -750,36 +753,8 @@ class ACPClientApp(App[None]):
         )
 
     # =========================================================================
-    # Обработчики QuickActionsBar
+    # Обработчики PromptInput
     # =========================================================================
-
-    def on_quick_actions_bar_new_session_requested(
-        self, event: QuickActionsBar.NewSessionRequested
-    ) -> None:
-        """Обработчик запроса создания новой сессии из QuickActionsBar."""
-        self._app_logger.info("quick_actions_new_session_requested")
-        self.action_new_session()
-
-    def on_quick_actions_bar_cancel_requested(
-        self, event: QuickActionsBar.CancelRequested
-    ) -> None:
-        """Обработчик запроса отмены из QuickActionsBar."""
-        self._app_logger.info("quick_actions_cancel_requested")
-        self.action_cancel_prompt()
-
-    def on_quick_actions_bar_help_requested(
-        self, event: QuickActionsBar.HelpRequested
-    ) -> None:
-        """Обработчик запроса справки из QuickActionsBar."""
-        self._app_logger.info("quick_actions_help_requested")
-        self.action_open_help()
-
-    def on_quick_actions_bar_theme_toggle_requested(
-        self, event: QuickActionsBar.ThemeToggleRequested
-    ) -> None:
-        """Обработчик запроса переключения темы из QuickActionsBar."""
-        self._app_logger.info("quick_actions_theme_toggle_requested")
-        self.action_toggle_theme()
 
     def on_prompt_input_cancelled(self, event: PromptInput.Cancelled) -> None:
         """Обработка нажатия кнопки Stop в PromptInput."""

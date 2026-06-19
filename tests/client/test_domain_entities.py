@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from codelab.client.domain import Message, Permission, Session, ToolCall
+from codelab.client.domain import Permission, Session
 
 
 class TestSession:
@@ -50,39 +50,6 @@ class TestSession:
         assert isinstance(session.created_at, datetime)
 
 
-class TestMessage:
-    """Тесты для Message entity."""
-    
-    def test_message_request(self) -> None:
-        """Тест создания request сообщения."""
-        msg = Message.request("initialize", {"capabilities": {}})
-        
-        assert msg.message_type == "request"
-        assert msg.method == "initialize"
-        assert msg.params == {"capabilities": {}}
-        assert msg.result is None
-        assert msg.error is None
-    
-    def test_message_response(self) -> None:
-        """Тест создания response сообщения."""
-        result = {"sessionId": "123"}
-        msg = Message.response(result=result)
-        
-        assert msg.message_type == "response"
-        assert msg.result == result
-        assert msg.error is None
-        assert msg.method is None
-    
-    def test_message_notification(self) -> None:
-        """Тест создания notification сообщения."""
-        msg = Message.notification("session/update", {"status": "active"})
-        
-        assert msg.message_type == "notification"
-        assert msg.method == "session/update"
-        assert msg.params == {"status": "active"}
-        assert msg.result is None
-
-
 class TestPermission:
     """Тесты для Permission entity."""
     
@@ -110,37 +77,3 @@ class TestPermission:
         )
         
         assert perm.details == {}
-
-
-class TestToolCall:
-    """Тесты для ToolCall entity."""
-    
-    def test_tool_call_create(self) -> None:
-        """Тест создания вызова инструмента."""
-        tool_call = ToolCall.create(
-            tool_name="python_repl",
-            tool_use_id="tool-use-123",
-            input_schema={"type": "object"},
-            input_data={"code": "print('hello')"},
-            session_id="session-123",
-        )
-        
-        assert tool_call.tool_name == "python_repl"
-        assert tool_call.tool_use_id == "tool-use-123"
-        assert tool_call.input == {"code": "print('hello')"}
-        assert tool_call.session_id == "session-123"
-        assert tool_call.result is None
-        assert tool_call.error is None
-    
-    def test_tool_call_with_result(self) -> None:
-        """Тест что результат может быть установлен после создания."""
-        tool_call = ToolCall.create(
-            tool_name="python_repl",
-            tool_use_id="tool-use-123",
-            input_schema={},
-            input_data={},
-            session_id="session-123",
-        )
-        
-        tool_call.result = "hello"
-        assert tool_call.result == "hello"
