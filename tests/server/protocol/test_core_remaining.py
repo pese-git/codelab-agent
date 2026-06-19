@@ -60,7 +60,12 @@ class TestExecuteToolInBackground:
     """Тесты для _execute_tool_in_background."""
 
     async def test_sends_notifications_and_turn_completion(self) -> None:
-        """Успешный фоновый запуск отправляет notifications и завершает turn."""
+        """Успешный фоновый запуск отправляет turn completion.
+        
+        Note: Notifications теперь отправляются через immediate delivery callback
+        в AgentLoop, а не через batch отправку в _execute_tool_in_background.
+        Поэтому _send_message вызывается только для completion.
+        """
         protocol = ACPProtocol()
         notification = ACPMessage.notification("session/update", {})
         completion = ACPMessage.response("req_1", {"stopReason": "end_turn"})
@@ -77,8 +82,9 @@ class TestExecuteToolInBackground:
                         tool_call_id="call_1",
                     )
 
-        assert send.await_count == 2
-        send.assert_any_await(notification)
+        # Notifications отправляются через callback в AgentLoop,
+        # поэтому _send_message вызывается только для completion
+        assert send.await_count == 1
         send.assert_any_await(completion)
 
     async def test_returns_early_when_pending_permission(self) -> None:
