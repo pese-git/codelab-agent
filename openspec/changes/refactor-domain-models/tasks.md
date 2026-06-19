@@ -30,7 +30,7 @@
 
 ### 2.1 Создание domain ToolCall
 - [ ] 2.1.1 Создать `server/domain/tool_call.py` с `ToolCall` frozen dataclass
-- [ ] 2.1.2 Создать `ToolResult` frozen dataclass
+- [ ] 2.1.2 Создать `ToolResult` frozen dataclass с полями `locations`, `raw_output`
 - [ ] 2.1.3 Добавить property `is_terminal`
 - [ ] 2.1.4 Написать unit тесты для `ToolCall` и `ToolResult`
 
@@ -42,15 +42,21 @@
 ### 2.3 Создание ToolCallMapper
 - [ ] 2.3.1 Создать `server/mapping/__init__.py`
 - [ ] 2.3.2 Создать `server/mapping/tool_call_mapper.py`
-- [ ] 2.3.3 Реализовать `to_protocol()` метод
-- [ ] 2.3.4 Реализовать `to_domain()` метод
+- [ ] 2.3.3 Реализовать `to_protocol()` — маппить `arguments` → `rawInput`, `raw_output` → `rawOutput`, `locations` → `locations`
+- [ ] 2.3.4 Реализовать `to_domain()` — обратный маппинг
 - [ ] 2.3.5 Написать unit тесты для маппера
 
-### 2.4 Миграция ToolCallState
-- [ ] 2.4.1 Обновить `ToolCallHandler` для работы с маппером
-- [ ] 2.4.2 Обновить `AgentLoop` для работы с маппером
-- [ ] 2.4.3 Обновить `ReplayManager` для работы с маппером
-- [ ] 2.4.4 Написать интеграционные тесты
+### 2.4 Миграция ToolCallHandler
+- [ ] 2.4.1 Обновить `create_tool_call()` — принимать `locations: list[FileLocation] | None`
+- [ ] 2.4.2 Обновить `build_tool_call_notification()` — принимать `raw_input: dict | None`, включать как `rawInput`
+- [ ] 2.4.3 Обновить `build_tool_update_notification()` — принимать `locations`, `raw_output`, включать в notification
+- [ ] 2.4.4 Написать unit тесты для обновлённых методов
+
+### 2.5 Миграция AgentLoop
+- [ ] 2.5.1 Обновить создание tool call — передавать `tool_arguments` как `raw_input` в notification
+- [ ] 2.5.2 Обновить после выполнения tool — передавать `result.locations` в `build_tool_update_notification()`
+- [ ] 2.5.3 Обновить `ReplayManager` для работы с маппером
+- [ ] 2.5.4 Написать интеграционные тесты
 
 ## Фаза 3: Разделение HistoryMessage (средний риск)
 
@@ -138,8 +144,9 @@
 ### 6.1 Обновление ToolExecutionResult
 - [ ] 6.1.1 Убрать `content: list[dict[str, Any]]` из `ToolExecutionResult`
 - [ ] 6.1.2 Добавить `locations: list[FileLocation]`
-- [ ] 6.1.3 Обновить docstring
-- [ ] 6.1.4 Написать unit тесты
+- [ ] 6.1.3 Добавить `raw_output: dict[str, Any]`
+- [ ] 6.1.4 Обновить docstring
+- [ ] 6.1.5 Написать unit тесты
 
 ### 6.2 Создание ToolResultMapper
 - [ ] 6.2.1 Создать `server/mapping/tool_result_mapper.py`
@@ -147,12 +154,27 @@
 - [ ] 6.2.3 Реализовать `from_tool_result()` метод
 - [ ] 6.2.4 Написать unit тесты
 
-### 6.3 Миграция executors
-- [ ] 6.3.1 Обновить `FileSystemToolExecutor` для использования `FileLocation`
-- [ ] 6.3.2 Обновить `TerminalToolExecutor` для использования `FileLocation`
-- [ ] 6.3.3 Обновить `MCPToolExecutor` для использования `FileLocation`
-- [ ] 6.3.4 Обновить `ContentExtractor` для использования маппера
-- [ ] 6.3.5 Написать интеграционные тесты
+### 6.3 Миграция FileSystemToolExecutor
+- [ ] 6.3.1 `execute_read()` — возвращать `locations=[FileLocation(path, line)]`
+- [ ] 6.3.2 `execute_read()` — возвращать `raw_output={"content": content, "bytes_read": len(content)}`
+- [ ] 6.3.3 `execute_write()` — возвращать `locations=[FileLocation(path)]`
+- [ ] 6.3.4 `execute_write()` — возвращать `raw_output={"bytes_written": len(content), "diff": diff_text}`
+- [ ] 6.3.5 Написать unit тесты
+
+### 6.4 Миграция TerminalToolExecutor
+- [ ] 6.4.1 `execute_create()` — возвращать `locations=[]`
+- [ ] 6.4.2 `execute_create()` — возвращать `raw_output={"terminal_id": terminal_id}`
+- [ ] 6.4.3 `execute_wait_for_exit()` — возвращать `raw_output={"exit_code": ..., "signal": ..., "output": ...}`
+- [ ] 6.4.4 Написать unit тесты
+
+### 6.5 Миграция MCPToolExecutor
+- [ ] 6.5.1 `execute()` — возвращать `locations=[]` (MCP tools не имеют file locations)
+- [ ] 6.5.2 `execute()` — возвращать `raw_output={"result": result}` (сырой результат от MCP)
+- [ ] 6.5.3 Написать unit тесты
+
+### 6.6 Миграция ContentExtractor
+- [ ] 6.6.1 Обновить `ContentExtractor` для использования `ToolResultMapper`
+- [ ] 6.6.2 Написать интеграционные тесты
 
 ## Фаза 7: Разделение SessionState (высокий риск)
 
@@ -216,19 +238,48 @@
 - [ ] 8.3.3 Проверить производительность (нет деградации)
 - [ ] 8.3.4 Проверить покрытие тестами (>80%)
 
+## Фаза 9: Клиентская часть + Follow-along (низкий риск)
+
+### 9.1 Обновление ToolCallHandler (клиент)
+- [ ] 9.1.1 `_handle_tool_call_created()` — сохранять `locations`, `rawInput`, `rawOutput`
+- [ ] 9.1.2 `_handle_tool_call_updated()` — обновлять `locations`, `rawOutput`
+- [ ] 9.1.3 Написать unit тесты
+
+### 9.2 Создание FileOpener Protocol
+- [ ] 9.2.1 Создать `client/infrastructure/services/follow_along.py`
+- [ ] 9.2.2 Определить `FileOpener` Protocol с методом `open(path, line)`
+- [ ] 9.2.3 Реализовать `StubFileOpener` для тестов
+- [ ] 9.2.4 Написать unit тесты
+
+### 9.3 Создание FollowAlongService
+- [ ] 9.3.1 Реализовать `FollowAlongService` с методом `on_tool_call_updated()`
+- [ ] 9.3.2 Логика: проверить `enabled`, извлечь `locations[0]`, вызвать `file_opener.open()`
+- [ ] 9.3.3 Написать unit тесты: enabled=False, locations пуст, locations с одним элементом, locations с несколькими элементами
+
+### 9.4 Интеграция FollowAlongService в ToolCallHandler
+- [ ] 9.4.1 Добавить опциональный параметр `follow_along: FollowAlongService | None` в конструктор
+- [ ] 9.4.2 В `_handle_tool_call_updated()` вызывать `follow_along.on_tool_call_updated()` если сервис доступен
+- [ ] 9.4.3 Написать integration тесты
+
+### 9.5 Финальная проверка follow-along
+- [ ] 9.5.1 Запустить `make check` (lint + typecheck + tests)
+- [ ] 9.5.2 Проверить что follow-along не ломает существующий функционал
+- [ ] 9.5.3 Проверить что feature flag не нужен
+
 ## Оценка объёма
 
 | Фаза | Новых файлов | Изменённых файлов | Тестов | Риск |
 |------|--------------|-------------------|--------|------|
 | Фаза 1 | 3 | 5 | 15 | Низкий |
-| Фаза 2 | 2 | 6 | 15 | Средний |
+| Фаза 2 | 2 | 8 | 20 | Средний |
 | Фаза 3 | 2 | 6 | 15 | Средний |
 | Фаза 4 | 3 | 10 | 20 | Средний |
 | Фаза 5 | 2 | 5 | 10 | Низкий |
-| Фаза 6 | 2 | 6 | 15 | Низкий |
+| Фаза 6 | 2 | 8 | 20 | Низкий |
 | Фаза 7 | 8 | 25 | 40 | Высокий |
 | Фаза 8 | 0 | 5 | 30 | Низкий |
-| **Итого** | **22** | **68** | **160** | - |
+| Фаза 9 | 2 | 3 | 15 | Низкий |
+| **Итого** | **24** | **75** | **185** | - |
 
 ## Зависимости между фазами
 
@@ -239,6 +290,7 @@
 Фаза 1 → Фаза 6
 Фаза 2, 3, 5, 6 → Фаза 7
 Фаза 7 → Фаза 8
+Фаза 2 → Фаза 9 (follow-along зависит от ToolCall с locations)
 ```
 
 ## Рекомендации по выполнению
@@ -246,5 +298,6 @@
 1. **Фазы 1-6** можно выполнять параллельно (независимые изменения)
 2. **Фаза 7** требует завершения фаз 2, 3, 5, 6
 3. **Фаза 8** выполняется после завершения всех предыдущих фаз
-4. Каждая фаза должна завершаться полным прогоном тестов
-5. Рекомендуется создавать отдельный PR для каждой фазы
+4. **Фаза 9** может выполняться после Фазы 2 (независима от Фаз 3-7)
+5. Каждая фаза должна завершаться полным прогоном тестов
+6. Рекомендуется создавать отдельный PR для каждой фазы

@@ -509,6 +509,100 @@ class Session:
         return self.capabilities.supports_fs
 ```
 
+### Решение 9: Tool Execution Result с raw_output и locations
+
+**Проблема:** `ToolExecutionResult` не содержит полей для ACP `rawOutput` и `locations`.
+
+**Решение:**
+
+```python
+# Domain Layer (server/tools/base.py)
+@dataclass
+class ToolExecutionResult:
+    success: bool
+    output: str | None = None
+    error: str | None = None
+    metadata: dict[str, Any] | None = None
+    content: list[dict[str, Any]] = field(default_factory=list)
+    locations: list[FileLocation] = field(default_factory=list)  # NEW
+    raw_output: dict[str, Any] = field(default_factory=dict)     # NEW
+```
+
+**raw_output для каждого типа tool:**
+
+| Tool | `raw_output` |
+|------|--------------|
+| `fs/read_text_file` | `{"content": "...", "bytes_read": 1024}` |
+| `fs/write_text_file` | `{"bytes_written": 512, "diff": "..."}` |
+| `terminal/create` | `{"terminal_id": "term_xyz"}` |
+| `terminal/wait_for_exit` | `{"exit_code": 0, "signal": null, "output": "..."}` |
+| `MCP tools` | `{"result": {...}}` |
+
+**locations для каждого типа tool:**
+
+| Tool | `locations` |
+|------|-------------|
+| `fs/read_text_file` | `[FileLocation(path, line)]` |
+| `fs/write_text_file` | `[FileLocation(path)]` |
+| `terminal/*` | `[]` (нет file locations) |
+| `MCP tools` | `[]` (внешние ресурсы, не файлы IDE) |
+
+**Обоснование:**
+- `raw_output` — ACP-специфичный вывод для клиента (согласно ACP 08-Tool Calls)
+- `metadata` — внутренние данные для отладки (не для клиента)
+- MCP tools не возвращают `locations` — работают с внешними ресурсами
+
+### Решение 10: Follow-Along сервис
+
+**Проблема:** Клиент не имеет механизма для автоматического открытия файлов при tool calls.
+
+**Решение:**
+
+```python
+# Client Layer (client/infrastructure/services/follow_along.py)
+class FileOpener(Protocol):
+    async def open(self, path: str, line: int | None = None) -> None: ...
+
+class FollowAlongService:
+    def __init__(self, file_opener: FileOpener, enabled: bool = True):
+        self._file_opener = file_opener
+        self._enabled = enabled
+    
+    async def on_tool_call_updated(self, tool_call: dict[str, Any]) -> None:
+        if not self._enabled:
+            return
+        locations = tool_call.get("locations", [])
+        if not locations:
+            return
+        first = locations[0]
+        await self._file_opener.open(
+            path=first["path"],
+            line=first.get("line"),
+        )
+```
+
+**Интеграция в ToolCallHandler:**
+```python
+class ToolCallHandler:
+    def __init__(self, follow_along: FollowAlongService | None = None):
+        self._follow_along = follow_along
+    
+    def _handle_tool_call_updated(self, update, context):
+        # ... обновление состояния ...
+        if self._follow_along and locations:
+            await self._follow_along.on_tool_call_updated(tool_call)
+```
+
+**Feature flag НЕ нужен:**
+- Follow-along — стандартная функция IDE
+- Если tool call не имеет `locations` — follow-along не срабатывает
+- Нет риска поломки существующего функционала
+
+**Обоснование:**
+- Observer Pattern — реагирует на обновления tool calls
+- DIP — зависит от `FileOpener` Protocol, не от конкретной реализации
+- Testability — `StubFileOpener` для тестов
+
 ## Зависимости между решениями
 
 ```
