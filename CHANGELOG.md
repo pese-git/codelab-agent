@@ -6,6 +6,47 @@
 
 ## [Unreleased]
 
+### Added
+- **Audio валидация в prompt (ACP compliance)**: Добавлена валидация audio контента согласно ACP спецификации
+  - Константа `MAX_AUDIO_DATA_SIZE` (25 MB) для ограничения размера audio данных
+  - Валидация обязательных полей: `data` (str) и `mimeType` (str)
+  - Проверка размера данных с возвратом стандартизированной ошибки
+  - 4 новых теста для audio валидации
+  - Коммит: `25a5bb4`
+
+- **TUI виджеты для multimodal контента (P1)**: Placeholder виджеты для отображения изображений и аудио в терминале
+  - `ImageContentWidget` — отображает информацию об изображении (MIME type, размер, URI)
+  - `AudioContentWidget` — отображает информацию об аудио (MIME type, размер)
+  - Обновлён `MessageBubble` для поддержки `content_blocks` с multimodal контентом
+  - Метод `_render_content_blocks()` для рендеринга различных типов контента
+  - 12 новых тестов для виджетов
+  - Коммит: `ac97070`
+
+- **Terminal output truncation с character boundary (ACP compliance)**: Корректная обрезка terminal output согласно ACP спецификации
+  - Функция `truncate_to_byte_limit()` для безопасной обрезки на границе UTF-8 символа
+  - Поле `was_truncated` в `TerminalSession` для отслеживания факта обрезки
+  - Обновлена сигнатура `get_output()` — возвращает tuple из 4 элементов
+  - `TerminalCallbackExecutor.get_output()` формирует ACP-compliant response с `truncated` флагом
+  - Влияние на LLM: добавление "Output was truncated." в completion_text
+  - 7 новых тестов для truncation функции
+  - Коммит: `57dcd82`
+
+### Fixed
+- **Diff content ACP compliance**: Приведён формат diff content в соответствие со спецификацией ACP 08-Tool Calls.md
+  - `validator.py`: REQUIRED_FIELDS для diff теперь требует `newText` вместо `diff`
+  - `formatter.py`: использует `oldText`/`newText` для форматирования вместо `diff`
+  - Добавлено `oldText` как опциональное поле в `sanitize_content_item()`
+  - Обновлены 3 тестовых файла
+  - Коммит: `c5f4423`
+
+### Removed
+- **Legacy TerminalHandler**: Удалён устаревший handler из `infrastructure/handlers/`
+  - Не использовался в `ClientRpcDispatcher` (актуальный диспетчер)
+  - Возвращал неправильный формат response (плоский `exitCode` вместо `exitStatus` объекта)
+  - Был заменён на `TerminalOutputHandler` из `acp_transport/handlers/`
+  - Удалено 640 строк кода
+  - Коммит: `182511e`
+
 ### Fixed
 - **Зависание второго permission request**: Исправлена проблема при которой второй permission request не отображался после одобрения первого, что приводило к зависанию сессии на 5 минут до timeout.
   - Корневая причина: `permission_task` пересоздавался локально в `_wait_for_response_with_events`, но не отменялся при выходе из метода. Осиротевший task оставался в event loop и потреблял сообщения из `permission_queue`, мешая обработке следующих permission requests.
