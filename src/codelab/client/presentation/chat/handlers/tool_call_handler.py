@@ -86,6 +86,7 @@ class ToolCallHandler:
         locations = update.get("locations")
         raw_input = update.get("rawInput")
         raw_output = update.get("rawOutput")
+        content = update.get("content")
 
         tool_call = {
             "toolCallId": tool_call_id,
@@ -99,6 +100,8 @@ class ToolCallHandler:
             tool_call["rawInput"] = raw_input
         if raw_output is not None:
             tool_call["rawOutput"] = raw_output
+        if content is not None:
+            tool_call["content"] = content
 
         context.state.add_tool_call(tool_call)
         if context.sink is not None:
@@ -127,6 +130,7 @@ class ToolCallHandler:
         title = update.get("title")
         locations = update.get("locations")
         raw_output = update.get("rawOutput")
+        content = update.get("content")
 
         if not tool_call_id:
             context.logger.warning(
@@ -145,6 +149,8 @@ class ToolCallHandler:
             updates["locations"] = locations
         if raw_output is not None:
             updates["rawOutput"] = raw_output
+        if content is not None:
+            updates["content"] = content
 
         if updates:
             context.state.update_tool_call(tool_call_id, **updates)
@@ -162,6 +168,12 @@ class ToolCallHandler:
             session_id=context.session_id,
             tool_call_id=tool_call_id,
             updates=updates,
+            has_content=content is not None,
+            content_types=(
+                [item.get("type") for item in content]
+                if content
+                else []
+            ),
         )
 
     def _handle_tool_call_result(

@@ -131,6 +131,10 @@ class WebSocketTransport:
 
             # Настраиваем send_callback для отправки сообщений из фоновых задач
             protocol._send_callback = self._send_protocol_message
+            self._conn_logger.info(
+                "send_callback_configured",
+                callback_type="self._send_protocol_message",
+            )
 
             # Если on_message не передан, используем protocol.handle_and_process
             handler = on_message if on_message is not None else protocol.handle_and_process
@@ -219,11 +223,12 @@ class WebSocketTransport:
 
                             # Response от клиента (Agent→Client RPC)
                             if method_name is None and acp_request.id is not None:
-                                self._conn_logger.debug(
-                                    "response received, routing to handle_client_response",
+                                self._conn_logger.info(
+                                    "response received, routing to handle_and_process",
                                     request_id=request_id,
                                 )
-                                outcome = await protocol.handle_client_response(acp_request)
+                                # Используем handle_and_process для запуска фоновых задач
+                                outcome = await protocol.handle_and_process(acp_request)
                             else:
                                 outcome = await handler(acp_request)
 
@@ -372,18 +377,28 @@ class WebSocketTransport:
         """
         # Trace logging для сообщений из фоновых задач
         message_json = message.to_json()
-        self._conn_logger.debug(
+        self._conn_logger.info(
             "protocol_message_from_background",
             direction="out",
             trace_type="message_trace",
             payload_type="protocol_message",
             method=message.method,
+            is_notification=message.is_notification,
             payload=message_json,
         )
 
         async with self._ws_send_lock:
             if not self._ws.closed:
                 await self._ws.send_str(message_json)
+                self._conn_logger.info(
+                    "protocol_message_sent",
+                    method=message.method,
+                )
+            else:
+                self._conn_logger.warning(
+                    "protocol_message_not_sent_ws_closed",
+                    method=message.method,
+                )
 
     async def _send_outcome(
         self,
@@ -397,7 +412,7 @@ class WebSocketTransport:
         notifications_count = len(outcome.notifications)
         followups_count = len(outcome.followup_responses)
 
-        self._conn_logger.debug(
+        self._conn_logger.info(
             "outcome_sending",
             direction="out",
             trace_type="message_trace",
@@ -410,22 +425,28 @@ class WebSocketTransport:
 
         async with self._ws_send_lock:
             if self._ws.closed:
+                self._conn_logger.warning(
+                    "outcome_not_sent_ws_closed",
+                    request_id=request_id,
+                    notifications_count=notifications_count,
+                )
                 return
 
-            for notification in outcome.notifications:
+            for idx, notification in enumerate(outcome.notifications):
                 notification_json = notification.to_json()
                 await self._ws.send_str(notification_json)
-                self._conn_logger.debug(
-                    "notification sent",
+                self._conn_logger.info(
+                    "notification_sent",
                     method=notification.method,
+                    notification_index=idx,
                     payload=_truncate_payload(notification_json),
                 )
 
             if outcome.response is not None:
                 response_json = outcome.response.to_json()
                 await self._ws.send_str(response_json)
-                self._conn_logger.debug(
-                    "response sent",
+                self._conn_logger.info(
+                    "response_sent",
                     request_id=request_id,
                     has_error=outcome.response.error is not None,
                     payload=_truncate_payload(response_json),
@@ -434,8 +455,8 @@ class WebSocketTransport:
             for followup_response in outcome.followup_responses:
                 followup_json = followup_response.to_json()
                 await self._ws.send_str(followup_json)
-                self._conn_logger.debug(
-                    "followup response sent",
+                self._conn_logger.info(
+                    "followup_response_sent",
                     request_id=followup_response.id,
                     payload=_truncate_payload(followup_json),
                 )
@@ -489,13 +510,21 @@ class WebSocketTransport:
         protocol: ACPProtocol,
     ) -> None:
         """Выполняет `session/prompt` в фоне, не блокируя receive-loop."""
+        self._conn_logger.info(
+            "prompt_request_background_start",
+            method=method_name,
+            request_id=request_id,
+            session_id=session_id,
+        )
         try:
             outcome = await handler(acp_request)
             self._conn_logger.info(
-                "request received",
+                "prompt_request_background_completed",
                 method=method_name,
                 request_id=request_id,
                 session_id=session_id,
+                notifications_count=len(outcome.notifications),
+                has_response=outcome.response is not None,
             )
             await self._finalize_outcome_and_send(
                 method_name=method_name,

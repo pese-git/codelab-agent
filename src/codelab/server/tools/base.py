@@ -33,6 +33,9 @@ class ToolExecutionResult:
         metadata: Дополнительные метаданные для специфичных инструментов (опционально)
         locations: Затронутые файлы (domain model)
         raw_output: Исходный результат выполнения для ACP rawOutput
+        content: Готовые ToolCallContent items для ACP (опционально).
+            Если задан, используется ToolResultMapper.to_acp_content() as-is.
+            Формат соответствует ACP ToolCallContent union (terminal, content, diff).
     """
 
     success: bool
@@ -41,6 +44,7 @@ class ToolExecutionResult:
     metadata: dict[str, Any] | None = None
     locations: list[FileLocation] = field(default_factory=list)
     raw_output: dict[str, Any] = field(default_factory=dict)
+    content: list[dict[str, Any]] | None = None
 
 
 class ToolRegistry(ABC):
