@@ -1,14 +1,39 @@
-"""Обработчики методов аутентификации.
+"""Обработчики методов аутентификации и handshake.
 
-Содержит логику обработки методов authenticate и related.
+Содержит логику обработки методов initialize, authenticate и related.
+Включает PromptCapabilityProfile — единый источник истины для объявления
+возможностей промпта (image, audio, embeddedContext) в handshake.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from ...messages import ACPMessage, JsonRpcId
 from ..state import ClientRuntimeCapabilities
+
+
+@dataclass(frozen=True)
+class PromptCapabilityProfile:
+    """Профиль возможностей промпта, объявляемых в handshake.
+
+    Атрибуты:
+        image: Поддержка изображений.
+        audio: Поддержка аудио (отложена).
+        embedded_context: Поддержка встроенных ресурсов.
+    """
+
+    image: bool = False
+    audio: bool = False
+    embedded_context: bool = False
+
+
+_PROMPT_CAPABILITIES = PromptCapabilityProfile(
+    image=True,
+    audio=False,
+    embedded_context=True,
+)
 
 
 def initialize(
@@ -70,9 +95,9 @@ def initialize(
             "loadSession": True,
             "mcpCapabilities": {"http": mcp_http_enabled, "sse": mcp_sse_enabled},
             "promptCapabilities": {
-                "image": False,
-                "audio": False,
-                "embeddedContext": False,
+                "image": _PROMPT_CAPABILITIES.image,
+                "audio": _PROMPT_CAPABILITIES.audio,
+                "embeddedContext": _PROMPT_CAPABILITIES.embedded_context,
             },
             "sessionCapabilities": {},
         },

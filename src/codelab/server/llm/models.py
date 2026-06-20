@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from codelab.server.llm.content_parts import ContentPart
 
 
 class StopReason(StrEnum):
@@ -48,14 +51,14 @@ class LLMMessage:
 
     Поддерживает формат OpenAI и Anthropic:
     - role: "system", "user", "assistant", "tool"
-    - content: текстовое содержимое
+    - content: текстовое содержимое или список ContentPart для мультимодальных сообщений
     - tool_calls: список вызовов инструментов (для assistant)
     - tool_call_id: ID вызова инструмента (для tool)
     - name: имя инструмента (для tool)
     """
 
     role: str  # "system", "user", "assistant", "tool"
-    content: str | None = None
+    content: str | list[ContentPart] | None = None
     tool_calls: list[LLMToolCall] | None = None  # Для assistant messages
     tool_call_id: str | None = None  # Для tool messages
     name: str | None = None  # Для tool messages

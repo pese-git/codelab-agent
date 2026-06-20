@@ -106,7 +106,7 @@ class TestOpenAICompatibleProviderProperties:
         assert caps.supports_tools is True
         assert caps.supports_streaming is True
         assert caps.supports_function_calling is True
-        assert caps.supports_vision is False
+        assert caps.supports_vision is True
         assert caps.supports_system_prompt is True
 
 

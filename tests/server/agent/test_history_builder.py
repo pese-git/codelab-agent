@@ -35,7 +35,10 @@ class TestHistoryBuilderConversion:
             }
         ]
         messages = builder.build(history)
-        assert messages[0].content == "Hello"
+        assert isinstance(messages[0].content, list)
+        assert len(messages[0].content) == 2
+        assert messages[0].content[0].type == "text"
+        assert messages[0].content[1].type == "image"
 
     def test_assistant_message(self, builder):
         history = [{"role": "assistant", "text": "Response"}]
