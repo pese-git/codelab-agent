@@ -76,7 +76,7 @@ class OpenAICompatibleProvider(LLMProvider):
             supports_tools=True,
             supports_streaming=True,
             supports_function_calling=True,
-            supports_vision=False,
+            supports_vision=True,
             supports_system_prompt=True,
         )
 
@@ -219,7 +219,12 @@ class OpenAICompatibleProvider(LLMProvider):
             openai_msg: dict[str, Any] = {"role": msg.role}
 
             if msg.content is not None:
-                openai_msg["content"] = msg.content
+                if isinstance(msg.content, list):
+                    openai_msg["content"] = self._convert_content_parts_to_openai(
+                        msg.content
+                    )
+                else:
+                    openai_msg["content"] = msg.content
 
             if msg.role == "assistant" and msg.tool_calls:
                 openai_msg["tool_calls"] = [
@@ -243,6 +248,34 @@ class OpenAICompatibleProvider(LLMProvider):
             openai_messages.append(openai_msg)
 
         return openai_messages
+
+    def _convert_content_parts_to_openai(
+        self,
+        parts: list[Any],
+    ) -> list[dict[str, Any]]:
+        """Конвертировать ContentPart-ы в формат OpenAI content."""
+        result: list[dict[str, Any]] = []
+        for part in parts:
+            converted = self._content_part_to_openai(part)
+            if converted is not None:
+                result.append(converted)
+        return result
+
+    def _content_part_to_openai(self, part: Any) -> dict[str, Any] | None:
+        """Конвертировать один ContentPart в формат OpenAI."""
+        if part.type == "text":
+            return {"type": "text", "text": part.text or ""}
+        if part.type == "image":
+            if not self.capabilities.supports_vision:
+                logger.warning("provider does not support vision, skipping image")
+                return None
+            data = part.data or ""
+            mime_type = part.mime_type or "image/png"
+            return {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{data}"},
+            }
+        return None
 
     def _parse_completion(
         self,

@@ -35,6 +35,9 @@ logger = structlog.get_logger()
 # Максимальная длина текста одного промпт-блока (символов)
 MAX_PROMPT_TEXT_LENGTH = 100_000
 
+# Максимальный размер данных image в base64 (20 МБ)
+MAX_IMAGE_DATA_SIZE = 20 * 1024 * 1024
+
 
 def complete_active_turn(
     session: SessionState,
@@ -76,7 +79,7 @@ def validate_prompt_content(
 ) -> ACPMessage | None:
     """Проверяет корректность ContentBlock-массива для `session/prompt`.
 
-    Поддерживаются типы `text` и `resource_link`.
+    Поддерживаются типы `text`, `resource_link`, `image` и `resource`.
     При ошибке возвращается `ACPMessage.error_response`, иначе `None`.
 
     Пример использования:
@@ -117,6 +120,40 @@ def validate_prompt_content(
                     request_id,
                     code=-32602,
                     message="Invalid params: resource_link requires uri and name",
+                )
+            continue
+        if block_type == "image":
+            data = block.get("data")
+            mime_type = block.get("mimeType")
+            if not isinstance(data, str) or not isinstance(mime_type, str):
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message="Invalid params: image requires data (str) and mimeType (str)",
+                )
+            if len(data) > MAX_IMAGE_DATA_SIZE:
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message=(
+                        f"Invalid params: image data too large: {len(data)} bytes "
+                        f"(max {MAX_IMAGE_DATA_SIZE})"
+                    ),
+                )
+            continue
+        if block_type == "resource":
+            resource = block.get("resource")
+            if not isinstance(resource, dict):
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message="Invalid params: resource requires resource object",
+                )
+            if not isinstance(resource.get("uri"), str):
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message="Invalid params: resource requires resource.uri (str)",
                 )
             continue
         return ACPMessage.error_response(

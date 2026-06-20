@@ -6,7 +6,6 @@
 - Tracer span для каждого LLM вызова
 - ОДИН вызов LLM (single call pattern) — цикл tool-calling в LLMLoopStage
 - Отмену через asyncio.Task tracking
-- Tool name mapping (acp_name_to_llm_name)
 - Plan extraction из ответа LLM
 
 Архитектурное решение:
@@ -39,7 +38,6 @@ from codelab.server.llm.models import (
     StopReason,
 )
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
-from codelab.server.tools.mapping import acp_name_to_llm_name
 
 if TYPE_CHECKING:
     from codelab.server.agent.event_bus.bus import AgentEventBus
@@ -182,13 +180,8 @@ class LLMAdapter:
         temperature = config.get("temperature", 0.7)
         max_tokens = config.get("max_tokens", 8192)
 
-        # Конвертируем имена инструментов для LLM
+        # Конвертируем инструменты в формат OpenAI API
         llm_tools = self._tool_registry.to_llm_tools(tools)
-        for tool in llm_tools:
-            if "function" in tool and "name" in tool["function"]:
-                tool["function"]["name"] = acp_name_to_llm_name(
-                    tool["function"]["name"]
-                )
 
         request = CompletionRequest(
             model=model,

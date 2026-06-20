@@ -149,16 +149,22 @@ class SimpleToolRegistry(ToolRegistry):
         return tools
 
     def to_llm_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
-        """Преобразовать определения инструментов для LLM.
+        """Преобразовать определения инструментов для OpenAI API.
 
         Применяет маппинг имён: ACP имена (с `/`) конвертируются
         в LLM-совместимые имена (с `_`).
+
+        Формат соответствует OpenAI API:
+        {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
         """
         return [
             {
-                "name": acp_name_to_llm_name(tool.name),
-                "description": tool.description,
-                "parameters": tool.parameters,
+                "type": "function",
+                "function": {
+                    "name": acp_name_to_llm_name(tool.name),
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
             }
             for tool in tools
         ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from codelab.server.llm.content_parts import ContentPart
 from codelab.server.messages import ACPMessage, JsonRpcId
 from codelab.server.protocol.state import SessionState
 
@@ -19,6 +20,9 @@ class PromptContext:
     request_id: JsonRpcId | None
     params: dict[str, Any]
     raw_text: str
+
+    # Мультимодальное содержимое (ContentPart-ы, маппенные из ACP блоков)
+    content_parts: list[ContentPart] = field(default_factory=list)
 
     # Результаты, накапливаемые по ходу pipeline
     notifications: list[ACPMessage] = field(default_factory=list)

@@ -17,6 +17,7 @@ class ContentValidator:
         "image",
         "audio",
         "embedded",
+        "resource",
         "resource_link",
         "terminal",  # ACP ToolCallContent: embedding terminal в tool calls
         "content",  # ACP ToolCallContent: обёртка для стандартных ContentBlock
@@ -26,9 +27,10 @@ class ContentValidator:
     REQUIRED_FIELDS = {
         "text": {"type", "text"},
         "diff": {"type", "path", "diff"},
-        "image": {"type", "data", "format"},
+        "image": {"type", "data", "mimeType"},
         "audio": {"type", "data", "format"},
         "embedded": {"type", "content"},
+        "resource": {"type", "resource"},
         "resource_link": {"type", "uri"},
         "terminal": {"type", "terminalId"},  # ACP ToolCallContent.terminal
         "content": {"type", "content"},  # ACP ToolCallContent.content

@@ -62,6 +62,7 @@ class ExecutionEngine:
         prompt: str,
         system_prompt: str | None = None,
         mcp_manager: Any | None = None,
+        content_parts: list[Any] | None = None,
     ) -> AgentContext:
         """Собрать AgentContext из сессии и промпта.
 
@@ -74,6 +75,7 @@ class ExecutionEngine:
             prompt: Текст промпта пользователя.
             system_prompt: Системный промпт.
             mcp_manager: MCP manager для получения MCP инструментов.
+            content_parts: Мультимодальные части содержимого (опционально).
 
         Returns:
             AgentContext для вызова LLM.
@@ -102,15 +104,36 @@ class ExecutionEngine:
         # Это обеспечивает единый путь для всех стратегий (SRP, Open/Closed)
         history, _, _ = await self.ensure_context_fits(history)
 
+        # Формируем prompt блоки
+        if content_parts:
+            prompt_blocks = [
+                self._content_part_to_dict(part) for part in content_parts
+            ]
+        else:
+            prompt_blocks = [{"type": "text", "text": prompt}]
+
         return AgentContext(
             session_id=session.session_id,
             session=session,
-            prompt=[{"type": "text", "text": prompt}],
+            prompt=prompt_blocks,
             conversation_history=history,
             available_tools=available_tools,
             config=session.config_values,
             model=session.config_values.get("model", ""),
         )
+
+    @staticmethod
+    def _content_part_to_dict(part: Any) -> dict[str, Any]:
+        """Конвертировать ContentPart в dict для AgentContext.prompt."""
+        if part.type == "text":
+            return {"type": "text", "text": part.text or ""}
+        if part.type == "image":
+            return {
+                "type": "image",
+                "data": part.data or "",
+                "mime_type": part.mime_type or "",
+            }
+        return {"type": "text", "text": ""}
 
     async def build_continuation_context(
         self,

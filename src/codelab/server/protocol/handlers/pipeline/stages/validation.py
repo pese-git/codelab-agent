@@ -26,8 +26,10 @@ class ValidationStage(PromptStage):
             context.should_stop = True
             return context
 
-        # Проверить текст промпта
-        if not context.raw_text.strip():
+        has_text = bool(context.raw_text.strip())
+        has_multimodal = any(p.is_multimodal for p in context.content_parts)
+
+        if not has_text and not has_multimodal:
             context.error_response = ACPMessage.error_response(
                 context.request_id, code=-32602, message="Empty prompt"
             )
