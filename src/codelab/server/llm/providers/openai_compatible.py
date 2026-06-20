@@ -37,6 +37,13 @@ from codelab.server.llm.models import (
 logger = structlog.get_logger()
 
 
+def _extract_audio_format(mime_type: str) -> str:
+    """Извлечь формат из MIME типа (audio/wav → wav)."""
+    if "/" in mime_type:
+        return mime_type.split("/", 1)[1]
+    return mime_type
+
+
 class OpenAICompatibleProvider(LLMProvider):
     """Базовый класс для всех OpenAI-compatible провайдеров.
 
@@ -77,6 +84,7 @@ class OpenAICompatibleProvider(LLMProvider):
             supports_streaming=True,
             supports_function_calling=True,
             supports_vision=True,
+            supports_audio=True,
             supports_system_prompt=True,
         )
 
@@ -274,6 +282,19 @@ class OpenAICompatibleProvider(LLMProvider):
             return {
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime_type};base64,{data}"},
+            }
+        if part.type == "audio":
+            if not self.capabilities.supports_audio:
+                logger.warning("provider does not support audio, skipping audio")
+                return None
+            mime_type = part.mime_type or "audio/wav"
+            fmt = _extract_audio_format(mime_type)
+            return {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": part.data or "",
+                    "format": fmt,
+                },
             }
         return None
 

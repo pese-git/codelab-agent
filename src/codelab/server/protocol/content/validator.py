@@ -28,7 +28,7 @@ class ContentValidator:
         "text": {"type", "text"},
         "diff": {"type", "path", "diff"},
         "image": {"type", "data", "mimeType"},
-        "audio": {"type", "data", "format"},
+        "audio": {"type", "data", "mimeType"},
         "embedded": {"type", "content"},
         "resource": {"type", "resource"},
         "resource_link": {"type", "uri"},
@@ -120,5 +120,7 @@ class ContentValidator:
             allowed.add("annotations")
         elif content_type == "image":
             allowed.update({"width", "height", "alt_text"})
+        elif content_type == "audio":
+            allowed.add("annotations")
 
         return {k: v for k, v in item.items() if k in allowed}

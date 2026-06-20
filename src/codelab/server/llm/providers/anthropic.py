@@ -55,6 +55,7 @@ class AnthropicProvider(LLMProvider):
             supports_streaming=True,
             supports_function_calling=True,
             supports_vision=True,
+            supports_audio=True,
             supports_system_prompt=True,
             max_context_window=200000,
         )
@@ -251,6 +252,18 @@ class AnthropicProvider(LLMProvider):
                 "source": {
                     "type": "base64",
                     "media_type": part.mime_type or "image/png",
+                    "data": part.data or "",
+                },
+            }
+        if part.type == "audio":
+            if not self.capabilities.supports_audio:
+                logger.warning("provider does not support audio, skipping audio")
+                return None
+            return {
+                "type": "audio",
+                "source": {
+                    "type": "base64",
+                    "media_type": part.mime_type or "audio/wav",
                     "data": part.data or "",
                 },
             }

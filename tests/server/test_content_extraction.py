@@ -196,7 +196,7 @@ class TestContentValidator:
     def test_validate_audio_content_valid(self):
         """Валидация валидного audio content."""
         validator = ContentValidator()
-        item = {"type": "audio", "data": "base64...", "format": "mp3"}
+        item = {"type": "audio", "data": "base64...", "mimeType": "audio/mp3"}
 
         is_valid, error = validator.validate_content_item(item)
 

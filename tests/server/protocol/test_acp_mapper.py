@@ -52,8 +52,17 @@ class TestACPContentMapper:
         assert result[1].data == "abc"
 
     def test_map_unknown_type_returns_empty(self) -> None:
-        result = self.mapper.map_blocks([{"type": "audio", "data": "xyz"}])
+        result = self.mapper.map_blocks([{"type": "unknown_xyz", "data": "xyz"}])
         assert result == []
+
+    def test_map_audio_block(self) -> None:
+        result = self.mapper.map_blocks([
+            {"type": "audio", "data": "xyz", "mimeType": "audio/wav"},
+        ])
+        assert len(result) == 1
+        assert result[0].type == "audio"
+        assert result[0].data == "xyz"
+        assert result[0].mime_type == "audio/wav"
 
     def test_map_empty_blocks(self) -> None:
         result = self.mapper.map_blocks([])
