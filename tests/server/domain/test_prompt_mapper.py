@@ -33,7 +33,7 @@ class TestPromptMapperFromAcpBlocks:
 
     def test_with_image(self) -> None:
         blocks = [
-            {"type": "image", "data": "base64data", "format": "png"},
+            {"type": "image", "data": "base64data", "mimeType": "image/png"},
         ]
         prompt = PromptMapper.from_acp_blocks(blocks)
         assert len(prompt.images) == 1
@@ -61,7 +61,7 @@ class TestPromptMapperToAcpBlocks:
         assert blocks[1]["type"] == "resource"
 
     def test_with_image(self) -> None:
-        prompt = UserPrompt(images=[Image(data="base64", format="png")])
+        prompt = UserPrompt(images=[Image(data="base64", mime_type="image/png")])
         blocks = PromptMapper.to_acp_blocks(prompt)
         assert len(blocks) == 1
         assert blocks[0]["type"] == "image"
@@ -77,7 +77,7 @@ class TestPromptMapperRoundTrip:
         original = UserPrompt(
             text="hello world",
             resources=[Resource(uri="file:///tmp", name="test")],
-            images=[Image(data="base64", format="png")],
+            images=[Image(data="base64", mime_type="image/png")],
         )
         blocks = PromptMapper.to_acp_blocks(original)
         restored = PromptMapper.from_acp_blocks(blocks)
