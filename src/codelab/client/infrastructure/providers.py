@@ -27,7 +27,6 @@ from codelab.client.domain.services import TransportService
 from codelab.client.infrastructure.client_config import ClientConfig
 from codelab.client.infrastructure.events.bus import EventBus
 from codelab.client.infrastructure.handlers.file_system_handler import FileSystemHandler
-from codelab.client.infrastructure.handlers.terminal_handler import TerminalHandler
 from codelab.client.infrastructure.repositories import InMemorySessionRepository
 from codelab.client.infrastructure.services.acp_transport.client_rpc_dispatcher import (
     ClientRpcDispatcher,
@@ -92,7 +91,7 @@ class ClientProvider(Provider):
     2. ACPTransportService — WebSocket транспорт
     3. InMemorySessionRepository — хранилище сессий
     4. FileSystemExecutor + FileSystemHandler — файловые операции
-    5. TerminalExecutor + TerminalHandler — терминальные операции
+    5. TerminalExecutor — терминальные операции
     6. CoreServices (Coordinator + PermissionHandler) — оркестрация
     """
 
@@ -168,13 +167,6 @@ class ClientProvider(Provider):
     def get_terminal_executor(self) -> TerminalExecutor:
         """Создаёт TerminalExecutor для выполнения команд."""
         return TerminalExecutor()
-
-    @provide(scope=Scope.APP)
-    def get_terminal_handler(
-        self, terminal_executor: TerminalExecutor
-    ) -> TerminalHandler:
-        """Создаёт TerminalHandler поверх TerminalExecutor."""
-        return TerminalHandler(terminal_executor)
 
     # =========================================================================
     # RPC обработчики и диспетчер
