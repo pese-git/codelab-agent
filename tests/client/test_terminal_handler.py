@@ -107,7 +107,7 @@ class TestTerminalHandlerOutput:
         self, handler: TerminalHandler, executor_mock: AsyncMock
     ) -> None:
         """Тест успешного получения output."""
-        executor_mock.get_output.return_value = ("Hello, World!\n", True, 0)
+        executor_mock.get_output.return_value = ("Hello, World!\n", True, 0, False)
         params = {"sessionId": "sess_123", "terminalId": "term_abc"}
 
         result = await handler.handle_output(params)
@@ -116,6 +116,7 @@ class TestTerminalHandlerOutput:
             "output": "Hello, World!\n",
             "isComplete": True,
             "exitCode": 0,
+            "truncated": False,
         }
         executor_mock.get_output.assert_called_once_with("term_abc")
 
@@ -123,7 +124,7 @@ class TestTerminalHandlerOutput:
         self, handler: TerminalHandler, executor_mock: AsyncMock
     ) -> None:
         """Тест output из работающего процесса."""
-        executor_mock.get_output.return_value = ("Some output", False, None)
+        executor_mock.get_output.return_value = ("Some output", False, None, False)
         params = {"sessionId": "sess_123", "terminalId": "term_abc"}
 
         result = await handler.handle_output(params)
@@ -132,6 +133,7 @@ class TestTerminalHandlerOutput:
             "output": "Some output",
             "isComplete": False,
             "exitCode": None,
+            "truncated": False,
         }
 
     async def test_handle_output_missing_id(
@@ -164,7 +166,7 @@ class TestTerminalHandlerWaitForExit:
     ) -> None:
         """Тест успешного ожидания завершения."""
         executor_mock.wait_for_exit.return_value = 0
-        executor_mock.get_output.return_value = ("output text", True, 0)
+        executor_mock.get_output.return_value = ("output text", True, 0, False)
         params = {"sessionId": "sess_123", "terminalId": "term_abc"}
 
         result = await handler.handle_wait_for_exit(params)
@@ -177,7 +179,7 @@ class TestTerminalHandlerWaitForExit:
     ) -> None:
         """Тест ожидания с non-zero exit code."""
         executor_mock.wait_for_exit.return_value = 1
-        executor_mock.get_output.return_value = ("error output", True, 1)
+        executor_mock.get_output.return_value = ("error output", True, 1, False)
         params = {"sessionId": "sess_123", "terminalId": "term_abc"}
 
         result = await handler.handle_wait_for_exit(params)

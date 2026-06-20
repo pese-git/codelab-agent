@@ -148,7 +148,9 @@ class TerminalHandler:
         )
 
         try:
-            output, is_complete, exit_code = await self.executor.get_output(terminal_id)
+            output, is_complete, exit_code, truncated = await self.executor.get_output(
+                terminal_id
+            )
 
             logger.debug(
                 "agent_terminal_output_success",
@@ -156,11 +158,13 @@ class TerminalHandler:
                 terminal_id=terminal_id,
                 output_size=len(output),
                 is_complete=is_complete,
+                truncated=truncated,
             )
             return {
                 "output": output,
                 "isComplete": is_complete,
                 "exitCode": exit_code,
+                "truncated": truncated,
             }
         except ValueError as e:
             logger.error(
@@ -204,7 +208,7 @@ class TerminalHandler:
             exit_code = await self.executor.wait_for_exit(terminal_id)
             
             # Получаем output терминала
-            output, _, _ = await self.executor.get_output(terminal_id)
+            output, _, _, _ = await self.executor.get_output(terminal_id)
 
             logger.info(
                 "agent_terminal_wait_success",

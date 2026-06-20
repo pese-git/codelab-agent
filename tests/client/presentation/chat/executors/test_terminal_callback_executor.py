@@ -16,7 +16,7 @@ class MockTerminalExecutor:
 
     def __init__(self) -> None:
         self.create_terminal = AsyncMock(return_value="real-terminal-1")
-        self.get_output = AsyncMock(return_value={"output": "test output", "exitCode": 0})
+        self.get_output = AsyncMock(return_value=("test output", True, 0, False))
         self.wait_for_exit = AsyncMock(return_value=(0, "final output"))
         self.release_terminal = AsyncMock()
         self.kill_terminal = AsyncMock(return_value=True)
@@ -94,6 +94,7 @@ class TestTerminalCallbackExecutor:
         assert output is not None
         assert error is None
         assert output["output"] == "test output"
+        assert output["truncated"] is False
 
     @pytest.mark.asyncio
     async def test_get_output_not_found(
