@@ -304,7 +304,7 @@ class TestToolNameMapping:
             {
                 "type": "function",
                 "function": {
-                    "name": "fs/read_file",
+                    "name": "fs_read_file",
                     "description": "Read file",
                     "parameters": {},
                 },
@@ -323,7 +323,7 @@ class TestToolNameMapping:
             ],
         )
 
-        # Проверяем что имя было замаплено
+        # Проверяем что имя было замаплено (to_llm_tools уже возвращает замапленное имя)
         call_args = mock_llm_provider.create_completion.call_args
         request = call_args[0][0]
         assert request.tools is not None
