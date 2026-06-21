@@ -54,7 +54,8 @@ class TestContentFormatter:
                 {
                     "type": "diff",
                     "path": "file.py",
-                    "diff": "-old line\n+new line",
+                    "oldText": "old line",
+                    "newText": "new line",
                 }
             ],
             has_content=True,
@@ -64,9 +65,8 @@ class TestContentFormatter:
 
         assert result["role"] == "tool"
         assert "file.py" in result["content"]
-        assert "diff" in result["content"].lower()
-        assert "-old line" in result["content"]
-        assert "+new line" in result["content"]
+        assert "old line" in result["content"]
+        assert "new line" in result["content"]
 
     def test_format_image_for_openai(self, formatter: ContentFormatter) -> None:
         """Форматирование image content для OpenAI."""
@@ -194,7 +194,8 @@ class TestContentFormatter:
                 {
                     "type": "diff",
                     "path": "main.py",
-                    "diff": "-print('old')\n+print('new')",
+                    "oldText": "print('old')",
+                    "newText": "print('new')",
                 }
             ],
             has_content=True,
@@ -205,7 +206,8 @@ class TestContentFormatter:
         assert result["role"] == "user"
         content_text = result["content"][0]["content"]
         assert "main.py" in content_text
-        assert "diff" in content_text.lower()
+        assert "print('old')" in content_text
+        assert "print('new')" in content_text
 
     def test_format_image_for_anthropic(self, formatter: ContentFormatter) -> None:
         """Форматирование image content для Anthropic."""
@@ -297,7 +299,8 @@ class TestContentFormatter:
                 {
                     "type": "diff",
                     "path": "file.txt",
-                    "diff": "-old\n+new",
+                    "oldText": "old",
+                    "newText": "new",
                 },
                 {"type": "text", "text": "End"},
             ],
@@ -490,7 +493,8 @@ class TestContentFormatter:
 
     def test_format_large_diff_content(self, formatter: ContentFormatter) -> None:
         """Форматирование большого diff."""
-        large_diff = "\n".join([f"-line {i}\n+line {i+1}" for i in range(100)])
+        large_old = "\n".join([f"line {i}" for i in range(100)])
+        large_new = "\n".join([f"line {i+1}" for i in range(100)])
 
         extracted = ExtractedContent(
             tool_call_id="tc1",
@@ -498,7 +502,8 @@ class TestContentFormatter:
                 {
                     "type": "diff",
                     "path": "large_file.py",
-                    "diff": large_diff,
+                    "oldText": large_old,
+                    "newText": large_new,
                 }
             ],
             has_content=True,

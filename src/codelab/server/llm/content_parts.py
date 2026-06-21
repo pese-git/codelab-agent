@@ -15,13 +15,13 @@ class ContentPart:
     """Часть содержимого промпта.
 
     Атрибуты:
-        type: Тип содержимого ("text" или "image").
+        type: Тип содержимого ("text", "image" или "audio").
         text: Текстовое содержимое (для type="text").
-        data: Base64 данные (для type="image").
-        mime_type: MIME-тип (для type="image").
+        data: Base64 данные (для type="image" или type="audio").
+        mime_type: MIME-тип (для type="image" или type="audio").
     """
 
-    type: Literal["text", "image"]
+    type: Literal["text", "image", "audio"]
     text: str | None = None
     data: str | None = None
     mime_type: str | None = None
@@ -35,6 +35,11 @@ class ContentPart:
     def make_image(data: str, mime_type: str) -> ContentPart:
         """Создать часть содержимого изображения."""
         return ContentPart(type="image", data=data, mime_type=mime_type)
+
+    @staticmethod
+    def make_audio(data: str, mime_type: str) -> ContentPart:
+        """Создать часть содержимого аудио."""
+        return ContentPart(type="audio", data=data, mime_type=mime_type)
 
     @property
     def is_multimodal(self) -> bool:

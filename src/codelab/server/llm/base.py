@@ -47,6 +47,7 @@ class LLMCapabilities:
         supports_streaming: Поддерживает ли streaming completion
         supports_function_calling: Поддерживает ли function calling
         supports_vision: Поддерживает ли изображения
+        supports_audio: Поддерживает ли аудио
         supports_system_prompt: Поддерживает ли system prompt
         max_context_window: Максимальный размер контекста (токены)
         max_output_tokens: Максимальное количество выходных токенов
@@ -56,6 +57,7 @@ class LLMCapabilities:
     supports_streaming: bool = True
     supports_function_calling: bool = True
     supports_vision: bool = False
+    supports_audio: bool = False
     supports_system_prompt: bool = True
     max_context_window: int | None = None
     max_output_tokens: int | None = None

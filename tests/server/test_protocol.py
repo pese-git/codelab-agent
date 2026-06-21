@@ -1011,7 +1011,7 @@ async def test_prompt_rejects_unsupported_content_type() -> None:
             "session/prompt",
             {
                 "sessionId": created_id,
-                "prompt": [{"type": "audio", "data": "abc"}],
+                "prompt": [{"type": "video", "data": "abc"}],
             },
         )
     )

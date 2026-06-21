@@ -26,9 +26,9 @@ class ContentValidator:
     # Обязательные поля для каждого типа
     REQUIRED_FIELDS = {
         "text": {"type", "text"},
-        "diff": {"type", "path", "diff"},
+        "diff": {"type", "path", "newText"},
         "image": {"type", "data", "mimeType"},
-        "audio": {"type", "data", "format"},
+        "audio": {"type", "data", "mimeType"},
         "embedded": {"type", "content"},
         "resource": {"type", "resource"},
         "resource_link": {"type", "uri"},
@@ -118,7 +118,11 @@ class ContentValidator:
         allowed = required.copy()
         if content_type == "text":
             allowed.add("annotations")
+        elif content_type == "diff":
+            allowed.add("oldText")
         elif content_type == "image":
             allowed.update({"width", "height", "alt_text"})
+        elif content_type == "audio":
+            allowed.add("annotations")
 
         return {k: v for k, v in item.items() if k in allowed}

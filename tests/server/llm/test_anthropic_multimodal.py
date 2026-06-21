@@ -25,6 +25,15 @@ class TestAnthropicContentPartFormatting:
         assert result["source"]["media_type"] == "image/png"
         assert result["source"]["data"] == "abc"
 
+    def test_audio_part_formatting(self) -> None:
+        part = ContentPart.make_audio(data="abc", mime_type="audio/wav")
+        result = self.provider._content_part_to_anthropic(part)
+        assert result is not None
+        assert result["type"] == "audio"
+        assert result["source"]["type"] == "base64"
+        assert result["source"]["media_type"] == "audio/wav"
+        assert result["source"]["data"] == "abc"
+
     def test_mixed_content_formatting(self) -> None:
         messages = [
             LLMMessage(
@@ -45,3 +54,6 @@ class TestAnthropicContentPartFormatting:
 
     def test_vision_capability(self) -> None:
         assert self.provider.capabilities.supports_vision is True
+
+    def test_audio_capability(self) -> None:
+        assert self.provider.capabilities.supports_audio is True

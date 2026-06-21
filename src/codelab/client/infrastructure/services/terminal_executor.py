@@ -8,12 +8,13 @@
 - Убийство процесса
 - Освобождение ресурсов
 - Синхронное выполнение команд для callbacks
+- Truncation output с сохранением character boundary (ACP спецификация)
 
 Пример использования:
     executor = TerminalExecutor()
     # Асинхронно
     terminal_id = await executor.create_terminal("python", ["-m", "pytest"], cwd="/project")
-    output, is_complete, exit_code = await executor.get_output(terminal_id)
+    output, is_complete, exit_code, truncated = await executor.get_output(terminal_id)
     exit_code = await executor.wait_for_exit(terminal_id)
     await executor.release_terminal(terminal_id)
     # Синхронно
@@ -33,6 +34,34 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger("terminal_executor")
+
+
+def truncate_to_byte_limit(text: str, byte_limit: int) -> tuple[str, bool]:
+    """Обрезать текст до byte_limit байт на character boundary.
+
+    Согласно ACP спецификации, truncation должен происходить на границе
+    символа UTF-8, чтобы сохранить валидность строки.
+
+    Args:
+        text: Текст для обрезки
+        byte_limit: Максимальное количество байт
+
+    Returns:
+        Tuple (truncated_text, was_truncated):
+            - truncated_text: Обрезанный текст
+            - was_truncated: True если текст был обрезан
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= byte_limit:
+        return text, False
+
+    # Обрезать с начала, сохраняя последние byte_limit байт
+    truncated_bytes = encoded[-byte_limit:]
+
+    # Декодировать, игнорируя неполные символы в начале
+    truncated_text = truncated_bytes.decode("utf-8", errors="ignore")
+
+    return truncated_text, True
 
 
 class TerminalState(Enum):
@@ -57,6 +86,7 @@ class TerminalSession:
         output_buffer: Буфер вывода процесса
         exit_code: Код выхода (если завершился)
         output_byte_limit: Лимит байт output (опционально)
+        was_truncated: Был ли output обрезан из-за лимита
     """
 
     terminal_id: str
@@ -67,6 +97,7 @@ class TerminalSession:
     output_buffer: list[str] = field(default_factory=list)
     exit_code: int | None = None
     output_byte_limit: int | None = None
+    was_truncated: bool = False
 
 
 class TerminalExecutor:
@@ -191,17 +222,15 @@ class TerminalExecutor:
                 decoded = line.decode("utf-8", errors="replace")
                 session.output_buffer.append(decoded)
 
-                # Проверить лимит байт
-                if session.output_byte_limit:
-                    total_bytes = sum(len(line.encode()) for line in session.output_buffer)
-                    if total_bytes > session.output_byte_limit:
-                        # Обрезать старые строки
-                        while (
-                            total_bytes > session.output_byte_limit
-                            and session.output_buffer
-                        ):
-                            removed = session.output_buffer.pop(0)
-                            total_bytes -= len(removed.encode())
+                # Применить лимит байт при необходимости
+                if session.output_byte_limit is not None:
+                    combined = "".join(session.output_buffer)
+                    truncated, was_truncated = truncate_to_byte_limit(
+                        combined, session.output_byte_limit
+                    )
+                    if was_truncated:
+                        session.was_truncated = True
+                        session.output_buffer = [truncated]
 
             # Процесс завершился
             await session.process.wait()
@@ -222,7 +251,7 @@ class TerminalExecutor:
                 error=str(e),
             )
 
-    async def get_output(self, terminal_id: str) -> tuple[str, bool, int | None]:
+    async def get_output(self, terminal_id: str) -> tuple[str, bool, int | None, bool]:
         """Получить output терминала.
 
         Возвращает текущий output буфер и информацию о завершении.
@@ -231,10 +260,11 @@ class TerminalExecutor:
             terminal_id: ID терминала
 
         Returns:
-            Tuple (output_text, is_complete, exit_code)
+            Tuple (output_text, is_complete, exit_code, truncated)
                 - output_text: Полный output с начала или после обрезки
                 - is_complete: Завершился ли процесс
                 - exit_code: Код выхода (или None если еще работает)
+                - truncated: Был ли output обрезан из-за лимита
 
         Raises:
             ValueError: Терминал не найден
@@ -246,15 +276,17 @@ class TerminalExecutor:
 
         output = "".join(session.output_buffer)
         is_complete = session.state == TerminalState.EXITED
+        truncated = session.was_truncated
 
         logger.debug(
             "terminal_output_retrieved",
             terminal_id=terminal_id,
             output_size=len(output),
             is_complete=is_complete,
+            truncated=truncated,
         )
 
-        return output, is_complete, session.exit_code
+        return output, is_complete, session.exit_code, truncated
 
     async def wait_for_exit(self, terminal_id: str) -> int:
         """Дождаться завершения терминала.

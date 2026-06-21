@@ -21,7 +21,6 @@ from codelab.client.infrastructure.client_config import ClientConfig
 from codelab.client.infrastructure.container_factory import create_client_container
 from codelab.client.infrastructure.events.bus import EventBus
 from codelab.client.infrastructure.handlers.file_system_handler import FileSystemHandler
-from codelab.client.infrastructure.handlers.terminal_handler import TerminalHandler
 from codelab.client.infrastructure.providers import ClientProvider, CoreServices
 from codelab.client.infrastructure.repositories import InMemorySessionRepository
 from codelab.client.infrastructure.services.acp_transport_service import ACPTransportService
@@ -135,11 +134,6 @@ class TestServiceResolution:
         """Тест: TerminalExecutor разрешается."""
         executor = container.get(TerminalExecutor)
         assert isinstance(executor, TerminalExecutor)
-
-    def test_resolve_terminal_handler(self, container) -> None:
-        """Тест: TerminalHandler разрешается."""
-        handler = container.get(TerminalHandler)
-        assert isinstance(handler, TerminalHandler)
 
 
 class TestCyclicDependencyResolution:

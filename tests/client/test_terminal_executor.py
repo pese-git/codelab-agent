@@ -117,11 +117,12 @@ class TestTerminalExecutorOutput:
         # Дать процессу время на завершение
         await asyncio.sleep(0.2)
 
-        output, is_complete, exit_code = await executor.get_output(terminal_id)
+        output, is_complete, exit_code, truncated = await executor.get_output(terminal_id)
 
         assert "Hello" in output
         assert is_complete  # echo завершается сразу
         assert exit_code == 0
+        assert not truncated  # echo "Hello, World!" не превышает лимит
 
     async def test_get_output_not_found(
         self, executor: TerminalExecutor
@@ -137,8 +138,8 @@ class TestTerminalExecutorOutput:
         terminal_id = await executor.create_terminal("echo", ["test"])
         await asyncio.sleep(0.2)
 
-        output1, _, _ = await executor.get_output(terminal_id)
-        output2, _, _ = await executor.get_output(terminal_id)
+        output1, _, _, _ = await executor.get_output(terminal_id)
+        output2, _, _, _ = await executor.get_output(terminal_id)
 
         # Оба вызова должны вернуть одинаковый output
         assert output1 == output2
@@ -186,7 +187,7 @@ class TestTerminalExecutorKill:
 
         assert success is True
         # Проверить что процесс действительно завершен
-        output, is_complete, _ = await executor.get_output(terminal_id)
+        output, is_complete, _, _ = await executor.get_output(terminal_id)
         assert is_complete
 
     async def test_kill_terminal_not_found(
