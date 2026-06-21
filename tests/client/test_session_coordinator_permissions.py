@@ -15,7 +15,6 @@ import pytest
 
 from codelab.client.application.permission_handler import (
     PermissionHandler,
-    PermissionRequest,
     PermissionRequestManager,
 )
 from codelab.client.application.session_coordinator import SessionCoordinator
@@ -173,43 +172,6 @@ class TestSessionCoordinatorPermissions:
             assert len(call_args[0][2]) == 2  # options
 
         await test_flow()
-
-    @pytest.mark.asyncio
-    @pytest.mark.asyncio
-    async def test_request_permission_timeout(
-        self,
-        coordinator_with_handler: SessionCoordinator,
-        mock_permission_handler: Mock,
-        sample_permission_request: RequestPermissionRequest,
-    ) -> None:
-        """request_permission возвращает CancelledOutcome при timeout."""
-        manager = PermissionRequestManager()
-        mock_permission_handler.get_request_manager.return_value = manager
-        callback = Mock()
-
-        # Модифицировать запрос с очень коротким timeout
-        modified_request = sample_permission_request.model_copy()
-
-        async def test_with_short_timeout() -> None:
-            # Patch create_request чтобы установить очень короткий timeout
-            original_create = manager.create_request
-
-            def patched_create(*args, **kwargs) -> PermissionRequest:
-                kwargs["timeout"] = 0.05  # 50ms
-                return original_create(*args, **kwargs)
-
-            manager.create_request = patched_create  # type: ignore[method-assign]
-
-            outcome = await coordinator_with_handler.request_permission(
-                request=modified_request,
-                callback=callback,
-            )
-
-            # После timeout должно вернуть cancelled
-            assert isinstance(outcome, CancelledPermissionOutcome)
-            assert outcome.outcome == "cancelled"
-
-        await test_with_short_timeout()
 
     @pytest.mark.asyncio
     @pytest.mark.asyncio

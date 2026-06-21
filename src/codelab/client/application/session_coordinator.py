@@ -224,13 +224,13 @@ class SessionCoordinator:
             # Получить request manager из permission handler
             request_manager = self._permission_handler.get_request_manager()
 
-            # Создать PermissionRequest через manager с timeout 5 минут
+            # Создать PermissionRequest через manager
+            # Request ждёт ответа пользователя бесконечно
             perm_request = request_manager.create_request(
                 request_id=request.id,
                 session_id=request.params.sessionId,
                 tool_call=request.params.toolCall,
                 options=request.params.options,
-                timeout=300.0,  # 5 минут
             )
 
             self._logger.info(
@@ -251,7 +251,7 @@ class SessionCoordinator:
             )
             callback(request.id, request.params.toolCall, request.params.options)
 
-            # Дождаться результата выбора пользователя или timeout
+            # Дождаться результата выбора пользователя
             self._logger.debug(
                 "waiting_for_user_permission_choice",
                 request_id=request.id,
@@ -269,13 +269,6 @@ class SessionCoordinator:
             )
 
             return outcome
-
-        except TimeoutError:
-            self._logger.warning(
-                "permission_request_timeout",
-                request_id=request.id,
-            )
-            return CancelledPermissionOutcome(outcome="cancelled")
 
         except Exception as e:
             self._logger.error(

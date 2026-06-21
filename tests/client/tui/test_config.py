@@ -194,14 +194,13 @@ class TestResolveTUIConnection:
 
         store = TUIConfigStore(file_path=json_path)
         with patch("codelab.client.tui.config.TUIConfigStore", return_value=store):
-            host, port, theme, timeout = resolve_tui_connection(
+            host, port, theme = resolve_tui_connection(
                 host="192.168.1.1", port=9000, theme="dark"
             )
 
         assert host == "192.168.1.1"
         assert port == 9000
         assert theme == "dark"
-        assert timeout == 300.0  # default
 
     def test_resolve_with_env_theme(self, tmp_path: Path) -> None:
         """Env theme используется когда CLI theme нет."""
@@ -213,10 +212,9 @@ class TestResolveTUIConnection:
             patch("codelab.client.tui.config.TUIConfigStore", return_value=store),
             patch.dict(os.environ, {"CODELAB_THEME": "dark"}),
         ):
-            host, port, theme, timeout = resolve_tui_connection(host=None, port=None)
+            host, port, theme = resolve_tui_connection(host=None, port=None)
 
         assert theme == "dark"
-        assert timeout == 300.0  # default
 
     def test_resolve_fallback_to_json_config(self, tmp_path: Path) -> None:
         """Fallback на JSON конфиг когда нет CLI/env."""
@@ -225,48 +223,11 @@ class TestResolveTUIConnection:
 
         store = TUIConfigStore(file_path=json_path)
         with patch("codelab.client.tui.config.TUIConfigStore", return_value=store):
-            host, port, theme, timeout = resolve_tui_connection(host=None, port=None)
+            host, port, theme = resolve_tui_connection(host=None, port=None)
 
         assert host == "10.0.0.1"
         assert port == 8080
         assert theme == "dark"
-        assert timeout == 300.0  # default
-
-    def test_resolve_with_cli_timeout(self, tmp_path: Path) -> None:
-        """CLI timeout имеет приоритет."""
-        json_path = tmp_path / "tui_config.json"
-        json_path.write_text(json.dumps({"receive_timeout": 60}))
-
-        store = TUIConfigStore(file_path=json_path)
-        with patch("codelab.client.tui.config.TUIConfigStore", return_value=store):
-            host, port, theme, timeout = resolve_tui_connection(receive_timeout=120.0)
-
-        assert timeout == 120.0
-
-    def test_resolve_with_env_timeout(self, tmp_path: Path) -> None:
-        """Env timeout используется когда CLI timeout нет."""
-        json_path = tmp_path / "tui_config.json"
-        json_path.write_text(json.dumps({"receive_timeout": 60}))
-
-        store = TUIConfigStore(file_path=json_path)
-        with (
-            patch("codelab.client.tui.config.TUIConfigStore", return_value=store),
-            patch.dict(os.environ, {"CODELAB_RECEIVE_TIMEOUT": "90"}),
-        ):
-            host, port, theme, timeout = resolve_tui_connection()
-
-        assert timeout == 90.0
-
-    def test_resolve_timeout_from_json_config(self, tmp_path: Path) -> None:
-        """Timeout загружается из JSON конфига."""
-        json_path = tmp_path / "tui_config.json"
-        json_path.write_text(json.dumps({"receive_timeout": 90.0}))
-
-        store = TUIConfigStore(file_path=json_path)
-        with patch("codelab.client.tui.config.TUIConfigStore", return_value=store):
-            host, port, theme, timeout = resolve_tui_connection()
-
-        assert timeout == 90.0
 
 
 class TestThemeTogglePersistence:

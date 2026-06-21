@@ -116,7 +116,6 @@ class ACPClientApp(App[None]):
         stdio_command: str | None = None,
         stdio_args: list[str] | None = None,
         theme: str | None = None,
-        receive_timeout: float = 60.0,
     ) -> None:
         """Инициализирует приложение с Clean Architecture.
 
@@ -131,7 +130,6 @@ class ACPClientApp(App[None]):
             stdio_command: Команда для запуска агента (для stdio режима)
             stdio_args: Аргументы команды (для stdio режима)
             theme: Тема интерфейса ("light" или "dark", если None — из конфига)
-            receive_timeout: Таймаут ожидания сообщения от сервера (секунды)
         """
         super().__init__()
         self._host = host
@@ -195,7 +193,6 @@ class ACPClientApp(App[None]):
                 stdio_command=stdio_command,
                 stdio_args=stdio_args,
                 mcp_servers=self._mcp_servers,
-                receive_timeout=receive_timeout,
             )
             self._app_logger.info("di_container_built_successfully", cwd=cwd)
         except Exception as e:
@@ -1075,7 +1072,6 @@ def run_tui_app(
     stdio_command: str | None = None,
     stdio_args: list[str] | None = None,
     theme: str | None = None,
-    receive_timeout: float | None = None,
 ) -> None:
     """Запускает TUI приложение с параметрами подключения и рабочей директории.
 
@@ -1088,11 +1084,9 @@ def run_tui_app(
         stdio_command: Команда для запуска агента (для stdio режима)
         stdio_args: Аргументы команды (для stdio режима)
         theme: Тема интерфейса ("light" или "dark", если None — из конфига)
-        receive_timeout: Таймаут ожидания сообщения от сервера (секунды)
     """
-    resolved_host, resolved_port, resolved_theme, resolved_timeout = resolve_tui_connection(
+    resolved_host, resolved_port, resolved_theme = resolve_tui_connection(
         host=host, port=port, theme=cast(TUITheme, theme) if theme in ("light", "dark") else None,
-        receive_timeout=receive_timeout,
     )
     app = ACPClientApp(
         host=resolved_host,
@@ -1103,6 +1097,5 @@ def run_tui_app(
         stdio_command=stdio_command,
         stdio_args=stdio_args,
         theme=resolved_theme,
-        receive_timeout=resolved_timeout,
     )
     app.run()
