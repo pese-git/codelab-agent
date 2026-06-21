@@ -116,10 +116,85 @@ class LoadSessionResponse:
 
 
 @dataclass
+class ImageContent:
+    """DTO для изображения в prompt.
+
+    Согласно ACP спецификации (06-Content.md).
+    """
+
+    data: str
+    """Base64-encoded image data."""
+
+    mime_type: str
+    """MIME type изображения (image/png, image/jpeg, image/gif, image/webp)."""
+
+    uri: str | None = None
+    """Опциональный URI источника изображения."""
+
+
+@dataclass
+class AudioContent:
+    """DTO для аудио в prompt.
+
+    Согласно ACP спецификации (06-Content.md).
+    """
+
+    data: str
+    """Base64-encoded audio data."""
+
+    mime_type: str
+    """MIME type аудио (audio/wav, audio/mp3)."""
+
+
+@dataclass
+class ResourceContent:
+    """DTO для embedded resource в prompt.
+
+    Согласно ACP спецификации (06-Content.md).
+    """
+
+    uri: str
+    """URI ресурса."""
+
+    text: str | None = None
+    """Текстовое содержимое ресурса."""
+
+    blob: str | None = None
+    """Base64-encoded binary data (если не text)."""
+
+    mime_type: str | None = None
+    """MIME type ресурса."""
+
+
+@dataclass
+class ResourceLinkContent:
+    """DTO для ссылки на ресурс в prompt.
+
+    Согласно ACP спецификации (06-Content.md).
+    """
+
+    uri: str
+    """URI ресурса."""
+
+    name: str
+    """Человекочитаемое имя ресурса."""
+
+    mime_type: str | None = None
+    """MIME type ресурса."""
+
+    description: str | None = None
+    """Описание содержимого ресурса."""
+
+    size: int | None = None
+    """Размер ресурса в байтах."""
+
+
+@dataclass
 class SendPromptRequest:
     """Request DTO для отправки prompt в сессию.
 
     Содержит параметры prompt и callbacks для обработки событий.
+    Поддерживает мультимодальный контент согласно ACP спецификации.
     """
 
     session_id: str
@@ -127,6 +202,18 @@ class SendPromptRequest:
 
     prompt_text: str
     """Текст prompt."""
+
+    images: list[ImageContent] | None = None
+    """Список изображений для отправки (требует promptCapabilities.image)."""
+
+    audio: list[AudioContent] | None = None
+    """Список аудио для отправки (требует promptCapabilities.audio)."""
+
+    resources: list[ResourceContent] | None = None
+    """Список embedded resources (требует promptCapabilities.embeddedContext)."""
+
+    resource_links: list[ResourceLinkContent] | None = None
+    """Список ссылок на ресурсы (поддерживается всегда)."""
 
     callbacks: PromptCallbacks | None = None
     """Callbacks для обработки событий во время выполнения."""

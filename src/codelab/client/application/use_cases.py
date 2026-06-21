@@ -481,15 +481,21 @@ class SendPromptUseCase(UseCase):
 
         Полный процесс:
         1. Проверка сессии в repository
-        2. Отправка session/prompt запроса с вложенными файлами
-        3. Обработка промежуточных событий (session/update, permission, и т.д.)
-        4. Получение финального результата
-        5. Сохранение обновлений сессии
+        2. Формирование content blocks (текст + мультимодальный контент)
+        3. Проверка promptCapabilities агента
+        4. Отправка session/prompt запроса
+        5. Обработка промежуточных событий (session/update, permission, и т.д.)
+        6. Получение финального результата
+        7. Сохранение обновлений сессии
 
         Аргументы:
             request: SendPromptRequest с:
                 - session_id: ID активной сессии
                 - prompt_text: Текст запроса
+                - images: Список изображений (опционально)
+                - audio: Список аудио (опционально)
+                - resources: Список embedded resources (опционально)
+                - resource_links: Список ссылок на ресурсы (опционально)
                 - callbacks: Callbacks для обработки событий
 
         Возвращает:
@@ -499,13 +505,17 @@ class SendPromptUseCase(UseCase):
                 - updates: Список обновлений, полученных во время выполнения
 
         Raises:
-            ValueError: Если сессия не найдена
+            ValueError: Если сессия не найдена или capabilities не поддерживаются
             RuntimeError: При ошибке транспорта или протокола
         """
         self._logger.info(
             "sending_prompt",
             session_id=request.session_id,
             prompt_length=len(request.prompt_text),
+            has_images=bool(request.images),
+            has_audio=bool(request.audio),
+            has_resources=bool(request.resources),
+            has_resource_links=bool(request.resource_links),
         )
 
         try:
@@ -515,6 +525,9 @@ class SendPromptUseCase(UseCase):
                 self._logger.error("session_not_found", session_id=request.session_id)
                 msg = f"Session {request.session_id} not found"
                 raise ValueError(msg)
+
+            # Формируем content blocks для prompt
+            prompt_content = self._build_prompt_content(request, session)
 
             # Сохраняем полученные обновления для возврата в response
             collected_updates: list[dict[str, Any]] = []
@@ -582,7 +595,7 @@ class SendPromptUseCase(UseCase):
                     method="session/prompt",
                     params={
                         "sessionId": request.session_id,
-                        "prompt": [{"type": "text", "text": request.prompt_text}],
+                        "prompt": prompt_content,
                     },
                     **transport_callbacks,
                 )
@@ -624,7 +637,7 @@ class SendPromptUseCase(UseCase):
             )
 
         except ValueError as e:
-            # Ошибка валидации (не найдена сессия)
+            # Ошибка валидации (не найдена сессия или capabilities)
             self._logger.error("send_prompt_validation_error", error=str(e))
             raise
         except RuntimeError as e:
@@ -645,6 +658,135 @@ class SendPromptUseCase(UseCase):
             error_msg = f"Failed to send prompt: {e}"
             self._logger.error("send_prompt_unexpected_error", error=str(e))
             raise RuntimeError(error_msg) from e
+
+    def _build_prompt_content(
+        self,
+        request: SendPromptRequest,
+        session: Any,
+    ) -> list[dict[str, Any]]:
+        """Формирует массив content blocks для prompt.
+
+        Проверяет promptCapabilities агента и формирует content blocks
+        согласно ACP спецификации (06-Content.md).
+
+        Args:
+            request: SendPromptRequest с контентом
+            session: Session entity с server_capabilities
+
+        Returns:
+            Список content blocks для отправки в session/prompt
+
+        Raises:
+            ValueError: Если мультимодальный контент запрошен, но не поддерживается
+        """
+        content_blocks: list[dict[str, Any]] = []
+
+        # Получаем prompt capabilities агента
+        prompt_capabilities = self._get_prompt_capabilities(session)
+
+        # 1. Текстовый контент (всегда поддерживается)
+        if request.prompt_text:
+            content_blocks.append({
+                "type": "text",
+                "text": request.prompt_text,
+            })
+
+        # 2. Изображения (требует promptCapabilities.image)
+        if request.images:
+            if not prompt_capabilities.get("image", False):
+                self._logger.warning(
+                    "image_not_supported_by_agent",
+                    session_id=request.session_id,
+                )
+                raise ValueError(
+                    "Agent does not support image content (promptCapabilities.image is false)"
+                )
+            for img in request.images:
+                block: dict[str, Any] = {
+                    "type": "image",
+                    "data": img.data,
+                    "mimeType": img.mime_type,
+                }
+                if img.uri:
+                    block["uri"] = img.uri
+                content_blocks.append(block)
+
+        # 3. Аудио (требует promptCapabilities.audio)
+        if request.audio:
+            if not prompt_capabilities.get("audio", False):
+                self._logger.warning(
+                    "audio_not_supported_by_agent",
+                    session_id=request.session_id,
+                )
+                raise ValueError(
+                    "Agent does not support audio content (promptCapabilities.audio is false)"
+                )
+            for aud in request.audio:
+                content_blocks.append({
+                    "type": "audio",
+                    "data": aud.data,
+                    "mimeType": aud.mime_type,
+                })
+
+        # 4. Embedded resources (требует promptCapabilities.embeddedContext)
+        if request.resources:
+            if not prompt_capabilities.get("embeddedContext", False):
+                self._logger.warning(
+                    "embedded_resource_not_supported_by_agent",
+                    session_id=request.session_id,
+                )
+                raise ValueError(
+                    "Agent does not support embedded resources "
+                    "(promptCapabilities.embeddedContext is false)"
+                )
+            for res in request.resources:
+                resource_data: dict[str, Any] = {"uri": res.uri}
+                if res.text is not None:
+                    resource_data["text"] = res.text
+                if res.blob is not None:
+                    resource_data["blob"] = res.blob
+                if res.mime_type:
+                    resource_data["mimeType"] = res.mime_type
+                content_blocks.append({
+                    "type": "resource",
+                    "resource": resource_data,
+                })
+
+        # 5. Resource links (всегда поддерживается согласно ACP baseline)
+        if request.resource_links:
+            for link in request.resource_links:
+                link_data: dict[str, Any] = {
+                    "type": "resource_link",
+                    "uri": link.uri,
+                    "name": link.name,
+                }
+                if link.mime_type:
+                    link_data["mimeType"] = link.mime_type
+                if link.description:
+                    link_data["description"] = link.description
+                if link.size is not None:
+                    link_data["size"] = link.size
+                content_blocks.append(link_data)
+
+        self._logger.debug(
+            "prompt_content_built",
+            session_id=request.session_id,
+            content_types=[b["type"] for b in content_blocks],
+        )
+
+        return content_blocks
+
+    def _get_prompt_capabilities(self, session: Any) -> dict[str, Any]:
+        """Извлекает promptCapabilities из server_capabilities сессии.
+
+        Args:
+            session: Session entity с server_capabilities
+
+        Returns:
+            Dict с promptCapabilities (image, audio, embeddedContext)
+        """
+        server_capabilities = getattr(session, "server_capabilities", None) or {}
+        return server_capabilities.get("promptCapabilities", {})
 
 
 class ListSessionsUseCase(TransportAwareUseCase):

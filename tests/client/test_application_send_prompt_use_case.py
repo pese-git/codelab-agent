@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from codelab.client.application.dto import PromptCallbacks, SendPromptRequest
+from codelab.client.application.dto import (
+    AudioContent,
+    ImageContent,
+    PromptCallbacks,
+    ResourceContent,
+    ResourceLinkContent,
+    SendPromptRequest,
+)
 from codelab.client.application.use_cases import SendPromptUseCase
 from codelab.client.domain import Session
 
@@ -383,3 +390,352 @@ class TestSendPromptUseCase:
 
         with pytest.raises(TimeoutError):
             await use_case.execute(request)
+
+
+class TestSendPromptUseCaseMultimodal:
+    """Проверки отправки мультимодального контента."""
+
+    @pytest.mark.asyncio
+    async def test_execute_sends_image_when_supported(self) -> None:
+        """UseCase отправляет изображение когда агент поддерживает image."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"image": True},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="What is in this image?",
+            images=[
+                ImageContent(
+                    data="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                    mime_type="image/png",
+                ),
+            ],
+        )
+        await use_case.execute(request)
+
+        # Проверяем что prompt содержит image content block
+        call_args = transport.request_with_callbacks.call_args
+        prompt_content = call_args.kwargs["params"]["prompt"]
+        assert len(prompt_content) == 2
+        assert prompt_content[0]["type"] == "text"
+        assert prompt_content[1]["type"] == "image"
+        assert prompt_content[1]["mimeType"] == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_when_image_not_supported(self) -> None:
+        """UseCase поднимает ошибку когда агент не поддерживает image."""
+        transport = AsyncMock()
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"image": False},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="What is in this image?",
+            images=[
+                ImageContent(data="base64data", mime_type="image/png"),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="does not support image"):
+            await use_case.execute(request)
+
+    @pytest.mark.asyncio
+    async def test_execute_sends_audio_when_supported(self) -> None:
+        """UseCase отправляет аудио когда агент поддерживает audio."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"audio": True},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Transcribe this audio",
+            audio=[
+                AudioContent(data="base64audiodata", mime_type="audio/wav"),
+            ],
+        )
+        await use_case.execute(request)
+
+        call_args = transport.request_with_callbacks.call_args
+        prompt_content = call_args.kwargs["params"]["prompt"]
+        assert len(prompt_content) == 2
+        assert prompt_content[1]["type"] == "audio"
+        assert prompt_content[1]["mimeType"] == "audio/wav"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_when_audio_not_supported(self) -> None:
+        """UseCase поднимает ошибку когда агент не поддерживает audio."""
+        transport = AsyncMock()
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"audio": False},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Transcribe this",
+            audio=[AudioContent(data="data", mime_type="audio/wav")],
+        )
+
+        with pytest.raises(ValueError, match="does not support audio"):
+            await use_case.execute(request)
+
+    @pytest.mark.asyncio
+    async def test_execute_sends_resource_when_supported(self) -> None:
+        """UseCase отправляет embedded resource когда агент поддерживает embeddedContext."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"embeddedContext": True},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Analyze this code",
+            resources=[
+                ResourceContent(
+                    uri="file:///path/to/code.py",
+                    text="def hello(): print('Hello')",
+                    mime_type="text/x-python",
+                ),
+            ],
+        )
+        await use_case.execute(request)
+
+        call_args = transport.request_with_callbacks.call_args
+        prompt_content = call_args.kwargs["params"]["prompt"]
+        assert len(prompt_content) == 2
+        assert prompt_content[1]["type"] == "resource"
+        assert prompt_content[1]["resource"]["uri"] == "file:///path/to/code.py"
+        assert prompt_content[1]["resource"]["text"] == "def hello(): print('Hello')"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_when_resource_not_supported(self) -> None:
+        """UseCase поднимает ошибку когда агент не поддерживает embeddedContext."""
+        transport = AsyncMock()
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {"embeddedContext": False},
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Analyze this",
+            resources=[
+                ResourceContent(uri="file:///path/to/file", text="content"),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="does not support embedded resources"):
+            await use_case.execute(request)
+
+    @pytest.mark.asyncio
+    async def test_execute_sends_resource_link_always(self) -> None:
+        """UseCase отправляет resource_link без проверки capabilities (baseline)."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        # Нет promptCapabilities - resource_link всё равно должен работать
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={},
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Look at this file",
+            resource_links=[
+                ResourceLinkContent(
+                    uri="file:///path/to/document.pdf",
+                    name="document.pdf",
+                    mime_type="application/pdf",
+                    size=1024,
+                ),
+            ],
+        )
+        await use_case.execute(request)
+
+        call_args = transport.request_with_callbacks.call_args
+        prompt_content = call_args.kwargs["params"]["prompt"]
+        assert len(prompt_content) == 2
+        assert prompt_content[1]["type"] == "resource_link"
+        assert prompt_content[1]["uri"] == "file:///path/to/document.pdf"
+        assert prompt_content[1]["name"] == "document.pdf"
+
+    @pytest.mark.asyncio
+    async def test_execute_sends_multimodal_prompt(self) -> None:
+        """UseCase отправляет промпт с несколькими типами контента."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities={
+                "promptCapabilities": {
+                    "image": True,
+                    "audio": True,
+                    "embeddedContext": True,
+                },
+            },
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Analyze all of this",
+            images=[ImageContent(data="img_data", mime_type="image/png")],
+            audio=[AudioContent(data="audio_data", mime_type="audio/wav")],
+            resources=[ResourceContent(uri="file:///code.py", text="code")],
+            resource_links=[ResourceLinkContent(uri="file:///doc.pdf", name="doc.pdf")],
+        )
+        await use_case.execute(request)
+
+        call_args = transport.request_with_callbacks.call_args
+        prompt_content = call_args.kwargs["params"]["prompt"]
+        # text + image + audio + resource + resource_link
+        assert len(prompt_content) == 5
+        types = [item["type"] for item in prompt_content]
+        assert "text" in types
+        assert "image" in types
+        assert "audio" in types
+        assert "resource" in types
+        assert "resource_link" in types
+
+    @pytest.mark.asyncio
+    async def test_execute_handles_missing_capabilities_gracefully(self) -> None:
+        """UseCase работает когда server_capabilities отсутствует."""
+        transport = AsyncMock()
+        transport.request_with_callbacks = AsyncMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "prompt_req",
+            "result": {"stopReason": "end_turn"},
+        })
+
+        # session без server_capabilities
+        session = Session.create(
+            server_host="127.0.0.1",
+            server_port=8765,
+            client_capabilities={},
+            server_capabilities=None,
+            session_id="sess_123",
+        )
+        session_repo = AsyncMock()
+        session_repo.load = AsyncMock(return_value=session)
+        session_repo.save = AsyncMock()
+
+        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
+
+        # Только текст - должно работать
+        request = SendPromptRequest(
+            session_id="sess_123",
+            prompt_text="Hello",
+        )
+        response = await use_case.execute(request)
+        assert response.session_id == "sess_123"

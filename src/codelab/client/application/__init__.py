@@ -10,10 +10,14 @@ Application слой зависит от Domain слоя,
 """
 
 from .dto import (
+    AudioContent,
     CreateSessionRequest,
     CreateSessionResponse,
+    ImageContent,
     LoadSessionRequest,
     LoadSessionResponse,
+    ResourceContent,
+    ResourceLinkContent,
     SendPromptRequest,
     SendPromptResponse,
 )
@@ -34,6 +38,11 @@ __all__ = [
     "LoadSessionResponse",
     "SendPromptRequest",
     "SendPromptResponse",
+    # Multimodal content DTOs
+    "ImageContent",
+    "AudioContent",
+    "ResourceContent",
+    "ResourceLinkContent",
     # Use Cases
     "CreateSessionUseCase",
     "LoadSessionUseCase",
