@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from ..llm.registry import LLMProviderRegistry
     from ..llm.resolver import ModelResolver
     from ..tools.base import ToolRegistry
+    from .commands import CommandRegistry
     from .handlers.config_option_builder import ConfigOptionBuilder
     from .handlers.global_policy_manager import GlobalPolicyManager
     from .handlers.prompt_orchestrator import PromptOrchestrator
@@ -114,6 +115,7 @@ class ACPProtocol:
         command_registry: Any | None = None,
         model_resolver: ModelResolver | None = None,
         llm_adapter: LLMAdapter | None = None,
+        method_registry: CommandRegistry | None = None,
     ) -> None:
         """Инициализирует протокол и хранилище сессий.
 
@@ -139,6 +141,8 @@ class ACPProtocol:
                 available_commands (опционально).
             model_resolver: Резолвер моделей для dynamic model selection (опционально).
             llm_adapter: Адаптер LLM для cancellation и других операций (опционально).
+            method_registry: Реестр обработчиков ACP-методов (Command Pattern).
+                Если не передан, создается по умолчанию (опционально).
         """
 
         # Инициализировать хранилище (по умолчанию InMemoryStorage)
@@ -189,19 +193,35 @@ class ACPProtocol:
         # не входит в SessionState, пересоздаётся при каждом запуске
         self._pending_registry = PendingRequestRegistry()
 
-        # Реестр обработчиков методов — заменяет цепочку if method == "..."
-        self._handlers: dict[str, MethodHandler] = {
-            "initialize": self._handle_initialize,
-            "authenticate": self._handle_authenticate,
-            "session/new": self._handle_session_new,
-            "session/load": self._handle_session_load,
-            "session/list": self._handle_session_list,
-            "session/prompt": self._handle_session_prompt,
-            "session/cancel": self._handle_session_cancel,
-            "session/request_permission_response": self._handle_permission_response_method,
-            "session/set_config_option": self._handle_set_config_option,
-            "session/set_mode": self._handle_set_mode,
-        }
+        # Реестр обработчиков методов (Command Pattern)
+        # Если method_registry передан, используем его; иначе создаем по умолчанию
+        if method_registry is not None:
+            self._method_registry = method_registry
+            # Для обратной совместимости также заполняем _handlers
+            self._handlers: dict[str, MethodHandler] = {
+                method: handler.handle
+                for method, handler in [
+                    (m, method_registry.get(m))
+                    for m in method_registry.list_methods()
+                ]
+                if handler is not None
+            }
+        else:
+            # Создаем registry по умолчанию с делегированием к _handle_* методам
+            self._method_registry = self._create_default_method_registry()
+            # Для обратной совместимости сохраняем старый _handlers
+            self._handlers = {
+                "initialize": self._handle_initialize,
+                "authenticate": self._handle_authenticate,
+                "session/new": self._handle_session_new,
+                "session/load": self._handle_session_load,
+                "session/list": self._handle_session_list,
+                "session/prompt": self._handle_session_prompt,
+                "session/cancel": self._handle_session_cancel,
+                "session/request_permission_response": self._handle_permission_response_method,
+                "session/set_config_option": self._handle_set_config_option,
+                "session/set_mode": self._handle_set_mode,
+            }
 
         # Middleware для сквозной логики (логирование, метрики, auth-check)
         self._middleware: list[MiddlewareFn] = middleware or []
@@ -340,6 +360,125 @@ class ACPProtocol:
         specs["_agent"] = self._build_agent_config_spec()
         specs["_active_strategy"] = self._build_active_strategy_config_spec()
         return specs
+
+    def _create_default_method_registry(self) -> CommandRegistry:
+        """Создает CommandRegistry с обработчиками по умолчанию.
+
+        Создает registry с command handlers, которые делегируют выполнение
+        к существующим _handle_* методам для обратной совместимости.
+
+        Returns:
+            CommandRegistry с зарегистрированными обработчиками.
+        """
+        # Локальный импорт для избежания circular imports
+        from .commands import CommandRegistry
+
+        registry = CommandRegistry()
+
+        # Создаем wrapper-ы для существующих handlers
+        class _InitializeWrapper:
+            method_name = "initialize"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_initialize(message)
+
+        class _AuthenticateWrapper:
+            method_name = "authenticate"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_authenticate(message)
+
+        class _SessionNewWrapper:
+            method_name = "session/new"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_session_new(message)
+
+        class _SessionLoadWrapper:
+            method_name = "session/load"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_session_load(message)
+
+        class _SessionListWrapper:
+            method_name = "session/list"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_session_list(message)
+
+        class _SessionPromptWrapper:
+            method_name = "session/prompt"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_session_prompt(message)
+
+        class _SessionCancelWrapper:
+            method_name = "session/cancel"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_session_cancel(message)
+
+        class _PermissionResponseWrapper:
+            method_name = "session/request_permission_response"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_permission_response_method(message)
+
+        class _SetConfigOptionWrapper:
+            method_name = "session/set_config_option"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_set_config_option(message)
+
+        class _SetModeWrapper:
+            method_name = "session/set_mode"
+
+            def __init__(self, protocol: ACPProtocol) -> None:
+                self._protocol = protocol
+
+            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+                return await self._protocol._handle_set_mode(message)
+
+        # Регистрируем все wrapper-ы
+        registry.register(_InitializeWrapper(self))
+        registry.register(_AuthenticateWrapper(self))
+        registry.register(_SessionNewWrapper(self))
+        registry.register(_SessionLoadWrapper(self))
+        registry.register(_SessionListWrapper(self))
+        registry.register(_SessionPromptWrapper(self))
+        registry.register(_SessionCancelWrapper(self))
+        registry.register(_PermissionResponseWrapper(self))
+        registry.register(_SetConfigOptionWrapper(self))
+        registry.register(_SetModeWrapper(self))
+
+        return registry
 
     def _build_active_strategy_config_spec(self) -> dict[str, Any]:
         """Построить config spec для _active_strategy из StrategyRegistry.
@@ -538,6 +677,7 @@ class ACPProtocol:
         """Маршрутизирует входящее сообщение по методу через реестр обработчиков.
 
         Метод является основной точкой входа для HTTP/WS транспорта.
+        Использует CommandRegistry для поиска обработчиков (Command Pattern).
 
         Пример использования:
             outcome = protocol.handle(ACPMessage.request("session/list", {}))
@@ -552,20 +692,29 @@ class ACPProtocol:
             return await self.handle_client_response(message)
 
         method = message.method
-        handler = self._handlers.get(method)
-
-        if handler is None:
-            # Уведомления — игнорируем без ошибки
-            if message.is_notification:
-                return ProtocolOutcome()
-            return ProtocolOutcome(
-                response=ACPMessage.error_response(
-                    message.id, code=-32601, message=f"Method not found: {method}"
+        
+        # Используем CommandRegistry для поиска обработчика
+        command_handler = self._method_registry.get(method)
+        
+        if command_handler is None:
+            # Fallback на старый _handlers для обратной совместимости
+            handler = self._handlers.get(method)
+            if handler is None:
+                # Уведомления — игнорируем без ошибки
+                if message.is_notification:
+                    return ProtocolOutcome()
+                return ProtocolOutcome(
+                    response=ACPMessage.error_response(
+                        message.id, code=-32601, message=f"Method not found: {method}"
+                    )
                 )
-            )
+            # Используем старый handler
+            wrapped: MethodHandler = handler
+        else:
+            # Используем CommandHandler из registry
+            wrapped = command_handler.handle
 
         # Применить middleware в обратном порядке (onion pattern)
-        wrapped: MethodHandler = handler
         for mw in reversed(self._middleware):
             # Создаём замыкание для корректного захвата переменных
             next_handler = wrapped
