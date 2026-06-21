@@ -6,16 +6,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from codelab.client.application.dto import (
+from codelab.client.application.dto import PromptCallbacks, SendPromptRequest
+from codelab.client.application.use_cases import SendPromptUseCase
+from codelab.client.domain import (
     AudioContent,
     ImageContent,
-    PromptCallbacks,
     ResourceContent,
     ResourceLinkContent,
-    SendPromptRequest,
+    Session,
 )
-from codelab.client.application.use_cases import SendPromptUseCase
-from codelab.client.domain import Session
 
 
 class TestSendPromptUseCase:
@@ -610,7 +609,7 @@ class TestSendPromptUseCaseMultimodal:
             ],
         )
 
-        with pytest.raises(ValueError, match="does not support embedded resources"):
+        with pytest.raises(ValueError, match="does not support resource"):
             await use_case.execute(request)
 
     @pytest.mark.asyncio

@@ -4,6 +4,9 @@ DTOs используются для:
 - Передачи данных между Application и Presentation слоями
 - Типизации параметров use cases
 - Валидации входных данных
+
+Content models (ImageContent, AudioContent и т.д.) импортируются из domain слоя,
+так как они являются domain-концептами согласно ACP спецификации.
 """
 
 from __future__ import annotations
@@ -11,6 +14,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+
+# Импортируем domain модели для мультимодального контента
+# Это domain-концепты, не DTO, но они используются в SendPromptRequest
+from ..domain.content_blocks import (
+    AudioContent,
+    ImageContent,
+    ResourceContent,
+    ResourceLinkContent,
+)
 
 # Type aliases для callback функций
 UpdateCallback = Callable[[dict[str, Any]], None]
@@ -116,85 +128,14 @@ class LoadSessionResponse:
 
 
 @dataclass
-class ImageContent:
-    """DTO для изображения в prompt.
-
-    Согласно ACP спецификации (06-Content.md).
-    """
-
-    data: str
-    """Base64-encoded image data."""
-
-    mime_type: str
-    """MIME type изображения (image/png, image/jpeg, image/gif, image/webp)."""
-
-    uri: str | None = None
-    """Опциональный URI источника изображения."""
-
-
-@dataclass
-class AudioContent:
-    """DTO для аудио в prompt.
-
-    Согласно ACP спецификации (06-Content.md).
-    """
-
-    data: str
-    """Base64-encoded audio data."""
-
-    mime_type: str
-    """MIME type аудио (audio/wav, audio/mp3)."""
-
-
-@dataclass
-class ResourceContent:
-    """DTO для embedded resource в prompt.
-
-    Согласно ACP спецификации (06-Content.md).
-    """
-
-    uri: str
-    """URI ресурса."""
-
-    text: str | None = None
-    """Текстовое содержимое ресурса."""
-
-    blob: str | None = None
-    """Base64-encoded binary data (если не text)."""
-
-    mime_type: str | None = None
-    """MIME type ресурса."""
-
-
-@dataclass
-class ResourceLinkContent:
-    """DTO для ссылки на ресурс в prompt.
-
-    Согласно ACP спецификации (06-Content.md).
-    """
-
-    uri: str
-    """URI ресурса."""
-
-    name: str
-    """Человекочитаемое имя ресурса."""
-
-    mime_type: str | None = None
-    """MIME type ресурса."""
-
-    description: str | None = None
-    """Описание содержимого ресурса."""
-
-    size: int | None = None
-    """Размер ресурса в байтах."""
-
-
-@dataclass
 class SendPromptRequest:
     """Request DTO для отправки prompt в сессию.
 
     Содержит параметры prompt и callbacks для обработки событий.
     Поддерживает мультимодальный контент согласно ACP спецификации.
+
+    Content models (ImageContent, AudioContent и т.д.) являются domain-концептами
+    и импортируются из domain слоя.
     """
 
     session_id: str
