@@ -47,7 +47,6 @@ class PermissionRequest:
     - Информация о tool call (что требуется разрешить)
     - Доступные опции (Allow, Reject и их вариации)
     - Future для ожидания выбора пользователя
-    - Timeout задача для автоматической отмены
 
     Пример использования:
         request = PermissionRequest(
@@ -73,9 +72,6 @@ class PermissionRequest:
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),  # noqa: UP017
     )
-
-    # Управление timeout задачей (не сохраняется, управляется временем жизни)
-    timeout_task: asyncio.Task[None] | None = field(default=None, init=False)
 
     # Logger для этого запроса
     _logger: Any = field(
@@ -159,7 +155,7 @@ class PermissionRequestManager:
     """Реестр и управление всеми активными permission requests.
 
     Отслеживает все pending requests по их ID и предоставляет методы для:
-    - Создания новых requests с автоматическим timeout
+    - Создания новых requests
     - Поиска request по ID
     - Удаления completed requests
     - Отмены requests по инициативе сервера
@@ -168,13 +164,12 @@ class PermissionRequestManager:
     Пример использования:
         manager = PermissionRequestManager()
         
-        # Создание нового запроса с timeout 300 сек
+        # Создание нового запроса
         request = manager.create_request(
             request_id="perm_1",
             session_id="sess_1",
             tool_call=tool_call_data,
             options=option_list,
-            timeout=300,
         )
         
         # Ожидание результата
@@ -195,16 +190,19 @@ class PermissionRequestManager:
         session_id: str,
         tool_call: PermissionToolCall,
         options: list[PermissionOption],
-        timeout: float = 300.0,
     ) -> PermissionRequest:
-        """Создать и зарегистрировать новый permission request с timeout.
+        """Создать и зарегистрировать новый permission request.
+
+        Request ждёт ответа пользователя бесконечно. Отмена возможна только через:
+        - Явный ответ пользователя (Allow/Deny)
+        - session/cancel от сервера
+        - Закрытие соединения
 
         Args:
             request_id: ID от сервера (для маршрутизации response)
             session_id: ID сессии, к которой относится запрос
             tool_call: Информация о tool call, требующем разрешение
             options: Список доступных опций для выбора пользователю
-            timeout: Timeout в секундах (по умолчанию 300)
 
         Returns:
             PermissionRequest готовый к использованию
@@ -215,7 +213,6 @@ class PermissionRequestManager:
                 session_id="sess_1",
                 tool_call=PermissionToolCall(...),
                 options=[PermissionOption(...)],
-                timeout=300,
             )
         """
         request = PermissionRequest(
@@ -224,10 +221,6 @@ class PermissionRequestManager:
             tool_call=tool_call,
             options=options,
         )
-
-        # Запланировать timeout задачу
-        timeout_task = asyncio.create_task(self._timeout_handler(request_id, timeout))
-        request.timeout_task = timeout_task
 
         # Зарегистрировать в реестре
         self._requests[request_id] = request
@@ -240,41 +233,6 @@ class PermissionRequestManager:
         )
 
         return request
-
-    async def _timeout_handler(self, request_id: JsonRpcId, timeout_seconds: float) -> None:
-        """Обработчик timeout для permission request.
-
-        Через timeout_seconds секунд разрешает Future с cancelled outcome
-        и удаляет запрос из реестра.
-
-        Args:
-            request_id: ID запроса для timeout обработки
-            timeout_seconds: Время ожидания в секундах
-        """
-        try:
-            await asyncio.sleep(timeout_seconds)
-
-            # Timeout истек - получить и разрешить request
-            request = self._requests.get(request_id)
-            if request:
-                self._logger.warning(
-                    "permission_request_timeout_expired",
-                    request_id=request_id,
-                    session_id=request.session_id,
-                    tool_call_id=request.tool_call.toolCallId,
-                    timeout_seconds=timeout_seconds,
-                    created_at=request.created_at.isoformat(),
-                )
-                request.resolve_with_cancellation()
-                self.remove_request(request_id)
-
-        except asyncio.CancelledError:
-            # Timeout задача была отменена (request разрешился раньше)
-            self._logger.debug(
-                "permission_timeout_task_cancelled_early",
-                request_id=request_id,
-            )
-            pass
 
     def get_request(self, request_id: JsonRpcId) -> PermissionRequest | None:
         """Получить request по ID.
@@ -293,7 +251,7 @@ class PermissionRequestManager:
         return self._requests.get(request_id)
 
     def remove_request(self, request_id: JsonRpcId) -> None:
-        """Удалить request из реестра и отменить его timeout задачу.
+        """Удалить request из реестра.
 
         Args:
             request_id: ID запроса
@@ -302,12 +260,6 @@ class PermissionRequestManager:
             manager.remove_request("perm_1")
         """
         if request_id in self._requests:
-            request = self._requests[request_id]
-
-            # Отменить timeout задачу
-            if request.timeout_task:
-                request.timeout_task.cancel()
-
             # Удалить из реестра
             del self._requests[request_id]
 

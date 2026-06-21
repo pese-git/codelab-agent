@@ -41,7 +41,6 @@ class StdioClientTransport:
         command: str,
         args: list[str],
         cwd: str | None = None,
-        receive_timeout: float = 300.0,
     ) -> None:
         """Инициализирует stdio транспорт.
 
@@ -49,13 +48,10 @@ class StdioClientTransport:
             command: Команда для запуска агента (напр. "codelab").
             args: Аргументы командной строки (напр. ["serve", "--stdio"]).
             cwd: Рабочая директория для subprocess.
-            receive_timeout: Таймаут ожидания сообщения от сервера в секундах.
-                Default 300.0 — покрывает длительные LLM запросы и idle периоды.
         """
         self._command = command
         self._args = args
         self._cwd = cwd
-        self._receive_timeout = receive_timeout
         self._process: asyncio.subprocess.Process | None = None
         self._stdout_queue: asyncio.Queue[str] = asyncio.Queue()
         self._stdout_task: asyncio.Task[None] | None = None
@@ -193,10 +189,11 @@ class StdioClientTransport:
     async def receive_text(self) -> str:
         """Получает строку (JSON-RPC) из stdout subprocess.
 
-        Блокирует до получения сообщения из очереди.
+        Блокирует до получения сообщения от subprocess.
+        При закрытии stdout subprocess'ом возвращает пустую строку (sentinel).
 
         Returns:
-            JSON-строка от сервера.
+            JSON-строка от сервера, или пустая строка при EOF.
 
         Raises:
             RuntimeError: Если subprocess завершился или транспорт закрыт.
@@ -210,21 +207,22 @@ class StdioClientTransport:
             raise RuntimeError(msg)
 
         try:
-            message = await asyncio.wait_for(
-                self._stdout_queue.get(),
-                timeout=self._receive_timeout,
-            )
+            message = await self._stdout_queue.get()
+            if not message:
+                # Sentinel от _stdout_reader — subprocess закрыл stdout
+                returncode = (
+                    self._process.returncode if self._process is not None else None
+                )
+                if returncode is not None:
+                    msg = f"Subprocess exited with code {returncode}"
+                    self._logger.error("subprocess exited", returncode=returncode)
+                    raise RuntimeError(msg)
+                raise RuntimeError("Subprocess stdout closed unexpectedly")
             self._logger.debug("message received", length=len(message))
             return message
-        except TimeoutError:
-            msg = (
-                f"Timeout ({self._receive_timeout}s) waiting for message from subprocess. "
-                "This may indicate the agent is processing a long-running operation "
-                "or the connection is stalled."
-            )
-            self._logger.warning("receive_timeout", timeout_seconds=self._receive_timeout)
-            raise RuntimeError(msg) from None
         except asyncio.CancelledError:
+            raise
+        except RuntimeError:
             raise
         except Exception as e:
             msg = f"Failed to receive message: {e}"
@@ -251,6 +249,7 @@ class StdioClientTransport:
         """Фоновая задача чтения stdout subprocess.
 
         Читает строки построчно и кладёт в очередь для receive_text().
+        При EOF кладёт пустую строку (sentinel) для пробуждения receive_text().
         """
         if self._process is None or self._process.stdout is None:
             return
@@ -261,6 +260,7 @@ class StdioClientTransport:
                 if not line:
                     # EOF — subprocess закрыл stdout
                     self._logger.debug("stdout EOF")
+                    await self._stdout_queue.put("")
                     break
 
                 text = line.decode("utf-8").strip()

@@ -34,7 +34,6 @@ def create_client_container(
     stdio_command: str | None = None,
     stdio_args: list[str] | None = None,
     mcp_servers: list[dict[str, Any]] | None = None,
-    receive_timeout: float = 300.0,
 ) -> Container:
     """Создаёт и конфигурирует DI-контейнер для клиента.
 
@@ -51,7 +50,6 @@ def create_client_container(
         stdio_command: Команда для запуска агента (для stdio режима)
         stdio_args: Аргументы команды (для stdio режима)
         mcp_servers: Конфигурация MCP серверов из TOML файлов
-        receive_timeout: Таймаут ожидания сообщения от сервера (секунды)
 
     Returns:
         Готовый dishka Container
@@ -86,7 +84,6 @@ def create_client_container(
             stdio_command=stdio_command,
             stdio_args=stdio_args or [],
             mcp_servers=mcp_servers or [],
-            receive_timeout=receive_timeout,
         )
 
         container = make_container(

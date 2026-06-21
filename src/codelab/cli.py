@@ -464,7 +464,6 @@ def run_connect(args: argparse.Namespace) -> None:
     use_stdio = getattr(args, "stdio", False)
     agent_command = getattr(args, "agent_command", None)
     theme = getattr(args, "theme", None)
-    receive_timeout = getattr(args, "receive_timeout", None)
 
     if use_stdio:
         logger.info(
@@ -485,11 +484,10 @@ def run_connect(args: argparse.Namespace) -> None:
             stdio_command=stdio_args_list[0],
             stdio_args=[str(arg) for arg in stdio_args_list[1:]],
             theme=theme,
-            receive_timeout=receive_timeout,
         )
     else:
         logger.info("starting_connect_mode", host=host, port=port)
-        _run_tui_app(host=host, port=port, cwd=cwd, theme=theme, receive_timeout=receive_timeout)
+        _run_tui_app(host=host, port=port, cwd=cwd, theme=theme)
 
 
 def _run_tui_app(
@@ -501,7 +499,6 @@ def _run_tui_app(
     stdio_command: str | None = None,
     stdio_args: list[str] | None = None,
     theme: str | None = None,
-    receive_timeout: float | None = None,
 ) -> None:
     """Запускает TUI приложение.
 
@@ -513,7 +510,6 @@ def _run_tui_app(
         stdio_command: Команда для запуска агента (для stdio режима)
         stdio_args: Аргументы команды (для stdio режима)
         theme: Тема интерфейса ("light" или "dark")
-        receive_timeout: Таймаут ожидания ответа от сервера в секундах
     """
     from codelab.client.tui.app import run_tui_app
 
@@ -527,7 +523,6 @@ def _run_tui_app(
         stdio_command=stdio_command,
         stdio_args=stdio_args,
         theme=theme,
-        receive_timeout=receive_timeout,
     )
 
     logger.info("tui_exited")

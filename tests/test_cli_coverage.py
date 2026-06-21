@@ -169,7 +169,6 @@ class TestRunConnect:
             stdio=False,
             agent_command=None,
             theme="dark",
-            receive_timeout=120.0,
         )
 
         run_connect(args)
@@ -180,7 +179,6 @@ class TestRunConnect:
         # websocket режим не передаёт transport_mode явно, используется default
         assert "stdio_command" not in captured
         assert captured["theme"] == "dark"
-        assert captured["receive_timeout"] == 120.0
 
     def test_stdio_mode_appends_stdio_flag(self, monkeypatch: MonkeyPatch) -> None:
         """Stdio режим добавляет --stdio к команде агента."""
@@ -196,7 +194,6 @@ class TestRunConnect:
             stdio=True,
             agent_command="python -m codelab.cli serve",
             theme=None,
-            receive_timeout=None,
         )
 
         run_connect(args)
@@ -451,7 +448,6 @@ class TestRunTuiApp:
             stdio_command="python",
             stdio_args=["-m", "agent"],
             theme="light",
-            receive_timeout=30.0,
         )
 
         assert captured["host"] == "127.0.0.1"
@@ -461,7 +457,6 @@ class TestRunTuiApp:
         assert captured["stdio_command"] == "python"
         assert captured["stdio_args"] == ["-m", "agent"]
         assert captured["theme"] == "light"
-        assert captured["receive_timeout"] == 30.0
 
     def test_default_transport_mode(self, monkeypatch: MonkeyPatch) -> None:
         """По умолчанию используется websocket транспорт."""

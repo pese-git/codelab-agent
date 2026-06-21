@@ -127,7 +127,6 @@ class ClientProvider(Provider):
                 command=config.stdio_command or "codelab",
                 args=config.stdio_args or ["serve", "--stdio"],
                 cwd=str(config.cwd),
-                receive_timeout=config.receive_timeout,
             )
             return ACPTransportService(transport=transport, rpc_dispatcher=rpc_dispatcher)
         else:
