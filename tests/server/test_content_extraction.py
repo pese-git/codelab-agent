@@ -184,7 +184,7 @@ class TestContentValidator:
         item = {
             "type": "image",
             "data": "base64...",
-            "format": "png",
+            "mimeType": "image/png",
             "width": 100,
             "height": 200
         }
@@ -264,14 +264,14 @@ class TestContentValidator:
         assert "diff" in error
 
     def test_validate_missing_required_field_image(self):
-        """Валидация image без format поля."""
+        """Валидация image без mimeType поля."""
         validator = ContentValidator()
         item = {"type": "image", "data": "..."}
 
         is_valid, error = validator.validate_content_item(item)
 
         assert is_valid is False
-        assert "format" in error
+        assert "mimeType" in error
 
     def test_validate_content_list_all_valid(self):
         """Валидация списка с валидными content items."""
@@ -279,7 +279,7 @@ class TestContentValidator:
         items = [
             {"type": "text", "text": "A"},
             {"type": "diff", "path": "f.py", "diff": "..."},
-            {"type": "image", "data": "...", "format": "png"}
+            {"type": "image", "data": "...", "mimeType": "image/png"}
         ]
 
         all_valid, errors = validator.validate_content_list(items)

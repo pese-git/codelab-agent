@@ -40,6 +40,10 @@ logger = structlog.get_logger()
 # Небольшая задержка для окна между outcome без response и возможным session/cancel
 _DEFERRED_PROMPT_GUARD_DELAY = 0.05
 
+# Максимальный размер сообщения для stdio транспорта (25 MB).
+# Покрывает максимальный размер image (20 MB base64) + JSON overhead.
+MAX_STDIO_MESSAGE_SIZE = 25 * 1024 * 1024
+
 
 # Типы callbacks для интеграции с протоколом (без прямой зависимости от ACPProtocol)
 ShouldAutoCompleteCallback = Callable[[str], Awaitable[bool]]
@@ -134,7 +138,7 @@ class StdioServerTransport:
         sys.stdout.reconfigure(line_buffering=True)
 
         # Создаём StreamReader для stdin
-        self._stdin_reader = asyncio.StreamReader()
+        self._stdin_reader = asyncio.StreamReader(limit=MAX_STDIO_MESSAGE_SIZE)
         protocol = asyncio.StreamReaderProtocol(self._stdin_reader)
         await asyncio.get_running_loop().connect_read_pipe(lambda: protocol, sys.stdin.buffer)
 
@@ -145,7 +149,24 @@ class StdioServerTransport:
 
         try:
             while not self._closed:
-                line = await self._stdin_reader.readline()
+                try:
+                    line = await self._stdin_reader.readline()
+                except ValueError as exc:
+                    # StreamReader.readline() raises ValueError when the line
+                    # exceeds the buffer limit (MAX_STDIO_MESSAGE_SIZE).
+                    logger.error(
+                        "stdin message too large",
+                        max_size_bytes=MAX_STDIO_MESSAGE_SIZE,
+                        error=str(exc),
+                    )
+                    error_response = ACPMessage.error_response(
+                        None,
+                        code=-32700,
+                        message="Message too large",
+                        data=f"Message exceeds maximum size of {MAX_STDIO_MESSAGE_SIZE} bytes",
+                    )
+                    await self.send(error_response)
+                    break
 
                 if not line:
                     # EOF — stdin закрыт

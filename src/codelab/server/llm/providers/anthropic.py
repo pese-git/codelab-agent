@@ -166,7 +166,9 @@ class AnthropicProvider(LLMProvider):
         """
         for msg in messages:
             if msg.role == "system":
-                return msg.content or ""
+                if isinstance(msg.content, str):
+                    return msg.content
+                return ""
         return None
 
     def _convert_to_anthropic_format(
@@ -192,7 +194,10 @@ class AnthropicProvider(LLMProvider):
             if msg.role == "assistant" and msg.tool_calls:
                 content: list[dict[str, Any]] = []
                 if msg.content:
-                    content.append({"type": "text", "text": msg.content})
+                    if isinstance(msg.content, list):
+                        content.extend(self._convert_content_parts_to_anthropic(msg.content))
+                    else:
+                        content.append({"type": "text", "text": msg.content})
 
                 for tc in msg.tool_calls:
                     content.append({
@@ -210,11 +215,46 @@ class AnthropicProvider(LLMProvider):
                     "content": msg.content or "",
                 }]
             else:
-                anthropic_msg["content"] = msg.content or ""
+                if isinstance(msg.content, list):
+                    anthropic_msg["content"] = self._convert_content_parts_to_anthropic(
+                        msg.content
+                    )
+                else:
+                    anthropic_msg["content"] = msg.content or ""
 
             anthropic_messages.append(anthropic_msg)
 
         return anthropic_messages
+
+    def _convert_content_parts_to_anthropic(
+        self,
+        parts: list[Any],
+    ) -> list[dict[str, Any]]:
+        """Конвертировать ContentPart-ы в формат Anthropic content."""
+        result: list[dict[str, Any]] = []
+        for part in parts:
+            converted = self._content_part_to_anthropic(part)
+            if converted is not None:
+                result.append(converted)
+        return result
+
+    def _content_part_to_anthropic(self, part: Any) -> dict[str, Any] | None:
+        """Конвертировать один ContentPart в формат Anthropic."""
+        if part.type == "text":
+            return {"type": "text", "text": part.text or ""}
+        if part.type == "image":
+            if not self.capabilities.supports_vision:
+                logger.warning("provider does not support vision, skipping image")
+                return None
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": part.mime_type or "image/png",
+                    "data": part.data or "",
+                },
+            }
+        return None
 
     def _convert_tools_for_anthropic(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Преобразовать инструменты в формат Anthropic.

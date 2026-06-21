@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall
+from codelab.server.protocol.content.acp_mapper import ACPContentMapper
 
 if TYPE_CHECKING:
     pass
@@ -54,6 +56,7 @@ class HistoryBuilder:
     ) -> list[LLMMessage]:
         """Конвертировать записи истории в LLMMessage."""
         messages: list[LLMMessage] = []
+        mapper = ACPContentMapper()
 
         for entry in history:
             entry_dict: dict[str, Any]
@@ -110,14 +113,31 @@ class HistoryBuilder:
 
             # Обычные сообщения (user / assistant без tool_calls)
             content = entry_dict.get("text", "") or entry_dict.get("content", "")
-            # content может быть list[dict] (prompt blocks) — конвертируем в str
+            # content может быть list[dict] (prompt blocks) — конвертируем
             if isinstance(content, list):
-                content = " ".join(
-                    block.get("text", "")
-                    for block in content
-                    if isinstance(block, dict) and block.get("type") == "text"
-                )
+                content = self._convert_content_blocks(content, mapper)
             if content:
-                messages.append(LLMMessage(role=role, content=str(content)))
+                messages.append(LLMMessage(role=role, content=content))  # type: ignore[arg-type]
 
         return messages
+
+    def _convert_content_blocks(
+        self,
+        blocks: list[dict[str, Any]],
+        mapper: ACPContentMapper,
+    ) -> str | list[ContentPart]:
+        """Конвертировать блоки содержимого.
+
+        Если есть мультимодальные блоки — вернуть list[ContentPart].
+        Если только текст — схлопнуть в строку (обратная совместимость).
+        """
+        parts = mapper.map_blocks(blocks)
+        if not parts:
+            return ""
+
+        has_multimodal = any(p.is_multimodal for p in parts)
+        if has_multimodal:
+            return parts
+
+        # Только текст — схлопнуть в строку
+        return " ".join(p.text for p in parts if p.text)
