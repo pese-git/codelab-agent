@@ -10,6 +10,7 @@ __pycache__/
 .vscode/
 .zed/
 .codegraph/
+.cocoindex_code/
 opencode/
 website/
 
@@ -36,3 +37,5 @@ Thumbs.db
 
 .coverage
 coverage.json
+# CocoIndex Code (ccc)
+/.cocoindex_code/
