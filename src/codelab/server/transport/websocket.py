@@ -312,6 +312,19 @@ class WebSocketTransport:
                         cancelled_turns_count=cancelled_turns_count,
                     )
 
+                # Flush observability data при disconnect
+                try:
+                    from codelab.server.di import ObservabilityFlushManager
+
+                    flush_manager = await self._app_container.get(ObservabilityFlushManager)
+                    await flush_manager.flush_all()
+                    self._conn_logger.debug("observability data flushed on disconnect")
+                except Exception as e:
+                    self._conn_logger.warning(
+                        "failed to flush observability data on disconnect",
+                        error=str(e),
+                    )
+
                 # Отменяем pending ClientRPC requests
                 if client_rpc_service is not None:
                     cancelled_rpc_count = client_rpc_service.cancel_all_pending_requests(

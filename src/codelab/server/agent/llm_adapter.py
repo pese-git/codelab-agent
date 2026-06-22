@@ -89,6 +89,7 @@ class LLMAdapter:
         tools: list[ToolDefinition],
         config: dict[str, Any] | None = None,
         parent_span: SpanContext | None = None,
+        session_id: str = "",
     ) -> AgentResult:
         """Выполнить ОДИН вызов LLM провайдера.
 
@@ -100,6 +101,7 @@ class LLMAdapter:
             tools: Доступные инструменты
             config: Конфигурация (model, temperature, max_tokens, etc.)
             parent_span: Родительский span для tracing
+            session_id: ID сессии для tracing
 
         Returns:
             AgentResult с текстом, tool_calls, usage, stop_reason
@@ -113,6 +115,7 @@ class LLMAdapter:
             span = self._tracer.start_span(
                 "llm_call",
                 parent=parent_span,
+                session_id=session_id,
             )
 
         start_time = time.time()
@@ -288,6 +291,7 @@ class LLMAdapter:
             tools=request.tools,
             config={},
             parent_span=parent_span,
+            session_id=request.session_id,
         )
 
         return AgentResponse(

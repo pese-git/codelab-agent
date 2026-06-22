@@ -126,6 +126,7 @@ class SingleStrategy:
             span = self.tracer.start_span(
                 "single_strategy",
                 parent=parent_span,
+                session_id=session.session_id,
             )
 
         # Собираем контекст (async — включает ContextCompactor)
@@ -203,6 +204,7 @@ class SingleStrategy:
             span = self.tracer.start_span(
                 "single_strategy_continue",
                 parent=parent_span,
+                session_id=session.session_id,
             )
 
         context = await self.execution_engine.build_continuation_context(
