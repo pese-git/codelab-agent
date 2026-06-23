@@ -15,7 +15,14 @@ from typing import Any
 
 import structlog
 
-from codelab.client.domain import Session, SessionRepository, TransportService
+from codelab.client.domain import (
+    ContentBuilder,
+    PromptCapabilities,
+    Session,
+    SessionRepository,
+    TransportService,
+    UnsupportedContentError,
+)
 
 from .dto import (
     CreateSessionRequest,
@@ -458,98 +465,116 @@ class LoadSessionUseCase(TransportAwareUseCase):
 class SendPromptUseCase(UseCase):
     """Use Case для отправки prompt в активную сессию.
 
-    Отправляет prompt на сервер и обрабатывает ответ.
+    Отвечает за оркестрацию процесса отправки prompt:
+    1. Загрузка сессии из repository
+    2. Делегирование построения content blocks в ContentBuilder (domain service)
+    3. Отправка запроса через TransportService
+    4. Обработка ответов и callbacks
+
+    Бизнес-логика валидации capabilities и формирования content blocks
+    инкапсулирована в ContentBuilder (domain layer), что соответствует
+    принципам Clean Architecture и Single Responsibility.
     """
 
     def __init__(
         self,
         transport: TransportService,
         session_repo: SessionRepository,
+        content_builder: ContentBuilder | None = None,
     ) -> None:
         """Инициализирует use case.
 
-        Аргументы:
-            transport: TransportService для коммуникации
-            session_repo: SessionRepository для доступа к сессии
+        Args:
+            transport: TransportService для коммуникации.
+            session_repo: SessionRepository для доступа к сессии.
+            content_builder: ContentBuilder для построения content blocks.
+                Если None, создается новый экземпляр.
         """
         self._transport = transport
         self._session_repo = session_repo
+        self._content_builder = content_builder or ContentBuilder()
         self._logger = structlog.get_logger("send_prompt_use_case")
 
     async def execute(self, request: SendPromptRequest) -> SendPromptResponse:
         """Отправляет prompt в сессию с обработкой событий.
 
-        Полный процесс:
-        1. Проверка сессии в repository
-        2. Отправка session/prompt запроса с вложенными файлами
-        3. Обработка промежуточных событий (session/update, permission, и т.д.)
-        4. Получение финального результата
-        5. Сохранение обновлений сессии
+        Оркестрирует процесс отправки prompt:
+        1. Загрузка сессии из repository
+        2. Извлечение prompt capabilities из сессии
+        3. Делегирование построения content blocks в ContentBuilder
+        4. Отправка запроса через transport
+        5. Обработка callbacks и сохранение обновлений
 
-        Аргументы:
-            request: SendPromptRequest с:
-                - session_id: ID активной сессии
-                - prompt_text: Текст запроса
-                - callbacks: Callbacks для обработки событий
+        Args:
+            request: SendPromptRequest с параметрами prompt.
 
-        Возвращает:
-            SendPromptResponse с:
-                - session_id: ID сессии
-                - prompt_result: Финальный результат выполнения
-                - updates: Список обновлений, полученных во время выполнения
+        Returns:
+            SendPromptResponse с результатом выполнения.
 
         Raises:
-            ValueError: Если сессия не найдена
-            RuntimeError: При ошибке транспорта или протокола
+            ValueError: Если сессия не найдена или capabilities не поддерживаются.
+            RuntimeError: При ошибке транспорта или протокола.
         """
         self._logger.info(
             "sending_prompt",
             session_id=request.session_id,
             prompt_length=len(request.prompt_text),
+            has_images=bool(request.images),
+            has_audio=bool(request.audio),
+            has_resources=bool(request.resources),
+            has_resource_links=bool(request.resource_links),
         )
 
         try:
-            # Проверяем что сессия существует
+            # Загружаем сессию из repository
             session = await self._session_repo.load(request.session_id)
             if session is None:
                 self._logger.error("session_not_found", session_id=request.session_id)
                 msg = f"Session {request.session_id} not found"
                 raise ValueError(msg)
 
-            # Сохраняем полученные обновления для возврата в response
+            # Извлекаем prompt capabilities из сессии (domain model)
+            capabilities = PromptCapabilities.from_server_capabilities(
+                session.server_capabilities
+            )
+
+            # Делегируем построение content blocks в domain service
+            # ContentBuilder проверяет capabilities и формирует content blocks
+            content_blocks = self._content_builder.build_prompt_content(
+                text=request.prompt_text,
+                capabilities=capabilities,
+                images=request.images,
+                audio=request.audio,
+                resources=request.resources,
+                resource_links=request.resource_links,
+            )
+
+            # Преобразуем domain модели в dict для ACP протокола
+            prompt_content = self._content_builder.to_dicts(content_blocks)
+
+            self._logger.debug(
+                "prompt_content_built",
+                session_id=request.session_id,
+                content_types=[block.type_name for block in content_blocks],
+            )
+
+            # Подготавливаем callbacks для транспорта
             collected_updates: list[dict[str, Any]] = []
 
-            # Обработчик для session/update - собираем обновления
             def handle_update(update_data: dict[str, Any]) -> None:
                 """Обработчик обновлений сессии."""
                 self._logger.debug("session_update_received", update_data=update_data)
                 collected_updates.append(update_data)
 
-                # DEBUG: Проверяем наличие callback
-                self._logger.debug(
-                    "handle_update - checking callbacks",
-                    has_request_callbacks=request.callbacks is not None,
-                    has_on_update=bool(request.callbacks and request.callbacks.on_update),
-                )
-
-                # Передаем в пользовательский callback если есть
                 if request.callbacks and request.callbacks.on_update:
                     try:
-                        self._logger.debug("handle_update - calling user callback")
                         request.callbacks.on_update(update_data)
                     except Exception as e:
                         self._logger.warning(
                             "user_update_callback_error",
                             error=str(e),
                         )
-                else:
-                    self._logger.warning(
-                        "handle_update - NO USER CALLBACK REGISTERED",
-                        has_callbacks=request.callbacks is not None,
-                    )
 
-            # Подготовляем callbacks для транспорта
-            # Обработка permission requests происходит асинхронно через PermissionHandler
             transport_callbacks: dict[str, Any] = {
                 "on_update": handle_update,
             }
@@ -575,14 +600,13 @@ class SendPromptUseCase(UseCase):
                 if request.callbacks.on_terminal_kill:
                     transport_callbacks["on_terminal_kill"] = request.callbacks.on_terminal_kill
 
-            # Отправляем prompt через transport с обработкой callbacks
-            # Согласно протоколу ACP, prompt должен быть массивом content items
+            # Отправляем prompt через transport
             try:
                 prompt_response = await self._transport.request_with_callbacks(
                     method="session/prompt",
                     params={
                         "sessionId": request.session_id,
-                        "prompt": [{"type": "text", "text": request.prompt_text}],
+                        "prompt": prompt_content,
                     },
                     **transport_callbacks,
                 )
@@ -608,7 +632,7 @@ class SendPromptUseCase(UseCase):
             prompt_result = response.result or {}
 
             # Обновляем сессию в repository
-            session.is_authenticated = True  # После успешного prompt считаем аутентифицированной
+            session.is_authenticated = True
             await self._session_repo.save(session)
 
             self._logger.info(
@@ -623,25 +647,27 @@ class SendPromptUseCase(UseCase):
                 updates=collected_updates,
             )
 
+        except UnsupportedContentError as e:
+            # Domain exception - агент не поддерживает тип контента
+            self._logger.warning(
+                "unsupported_content_type",
+                session_id=request.session_id,
+                content_type=e.content_type,
+            )
+            raise ValueError(str(e)) from e
         except ValueError as e:
-            # Ошибка валидации (не найдена сессия)
             self._logger.error("send_prompt_validation_error", error=str(e))
             raise
         except RuntimeError as e:
-            # Ошибка транспорта или протокола
             self._logger.error("send_prompt_runtime_error", error=str(e))
             raise
         except (asyncio.CancelledError, TimeoutError) as e:
-            # Операция отменена (приложение закрывается) или таймаут.
-            # В Python 3.11+ при отмене вложенного wait_for, CancelledError
-            # может преобразовываться в TimeoutError.
             self._logger.info(
                 "send_prompt_cancelled_or_timeout",
                 error_type=type(e).__name__,
             )
             raise
         except Exception as e:
-            # Неожиданные ошибки
             error_msg = f"Failed to send prompt: {e}"
             self._logger.error("send_prompt_unexpected_error", error=str(e))
             raise RuntimeError(error_msg) from e

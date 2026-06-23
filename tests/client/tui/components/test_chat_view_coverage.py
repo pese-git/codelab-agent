@@ -442,6 +442,50 @@ class TestChatView:
             content_children = list(chat_view._content_container.children)
             assert len(content_children) == 2  # 2 сообщения
 
+    async def test_render_tool_call_with_markup_content(self) -> None:
+        """Tool call с markdown-контентом не должен падать с MarkupError."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            chat_view = ChatView(chat_vm)
+            await pilot.app.mount(chat_view)
+
+            # Tool call с markdown-ссылками, которые ломают markup parser
+            tool_call_with_markup = {
+                "toolCallId": "call_001",
+                "title": "fs/read_text_file",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "См. [Документация](doc/readme.md) и [Установка](doc/install.md)"
+                    }
+                ]
+            }
+
+            # Не должно выбросить MarkupError
+            chat_view._render_tool_call(tool_call_with_markup)
+
+    async def test_render_streaming_text_with_markup_content(self) -> None:
+        """Streaming текст с markup-подобными символами не должен падать."""
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            chat_vm = FakeChatViewModel()
+            chat_view = ChatView(chat_vm)
+            await pilot.app.mount(chat_view)
+
+            # Текст с markup-подобными символами
+            text_with_markup = "CODELAB_LLM_MODEL=gemma4:e2b [Настройка](doc/setup.md)"
+
+            # Не должно выбросить MarkupError
+            chat_view._render_streaming_text(text_with_markup)
+
     async def test_loading_indicator_hidden_when_permission_widget_visible(self) -> None:
         """Индикатор загрузки скрыт когда виден permission widget."""
         class TestApp(App):

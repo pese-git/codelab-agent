@@ -7,8 +7,20 @@
 
 Application слой зависит от Domain слоя,
 но не зависит от Infrastructure и Presentation слоев.
+
+Content models (ImageContent, AudioContent и т.д.) являются domain-концептами
+и импортируются из domain слоя.
 """
 
+# Re-export domain models для удобства использования из presentation слоя
+# Эти модели являются domain-концептами, но используются в SendPromptRequest
+from ..domain.content_blocks import (
+    AudioContent,
+    ContentBlock,
+    ImageContent,
+    ResourceContent,
+    ResourceLinkContent,
+)
 from .dto import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -34,6 +46,12 @@ __all__ = [
     "LoadSessionResponse",
     "SendPromptRequest",
     "SendPromptResponse",
+    # Content models (re-exported from domain)
+    "ContentBlock",
+    "ImageContent",
+    "AudioContent",
+    "ResourceContent",
+    "ResourceLinkContent",
     # Use Cases
     "CreateSessionUseCase",
     "LoadSessionUseCase",
