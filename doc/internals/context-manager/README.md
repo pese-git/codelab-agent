@@ -49,6 +49,32 @@
 
 ## Ключевые концепции
 
+### Единый ContextManager
+
+**Ключевой принцип:** Один ContextManager — единая точка управления контекстом для всех стратегий.
+
+**Три группы методов:**
+
+| Группа | Метод | Назначение | Кто использует |
+|--------|-------|------------|----------------|
+| **1. Сбор контекста** | `build_context()` | Анализ задачи + поиск файлов + бюджетирование | ВСЕ стратегии |
+| **2. Компакция** | `ensure_context_fits()` | Сжатие истории (Prune + Summarize) | ВСЕ стратегии |
+| **3. Мультиагентные** | `process_subagent_response()` | Суммаризация ответов + child sessions | Только мультиагентные |
+
+**Что поглощает ContextManager:**
+- `HybridContextManager` — упраздняется
+- `ContextCompactor` — становится внутренним компонентом
+- `TokenSlicer` — становится внутренним компонентом
+
+### Интеграция со стратегиями
+
+| Стратегия | build_context() | process_subagent_response() | ensure_context_fits() |
+|-----------|-----------------|----------------------------|----------------------|
+| **SingleStrategy** | ✅ | ❌ | ✅ |
+| **OrchestratedStrategy** | ✅ | ✅ | ✅ |
+| **ChoreographyStrategy** | ✅ | ✅ (winner) | ❌ |
+| **HierarchicalStrategy** | ✅ | ✅ | ✅ |
+
 ### Два уровня абстракции
 
 ```
@@ -58,13 +84,22 @@
 │  • fs/write_text_file                       │
 │  • terminal/*                               │
 └─────────────────────────────────────────────┘
-                    ↓
+                     ↓
 ┌─────────────────────────────────────────────┐
-│  Runtime services (НЕ видит LLM)            │
+│  ContextManager (единая точка входа)        │
+│                                             │
+│  Группа 1: Сбор контекста                   │
 │  • TaskAnalyzer                             │
 │  • ContextGatherer                          │
 │  • DependencyGraph                          │
 │  • TokenBudgetManager                       │
+│                                             │
+│  Группа 2: Компакция                        │
+│  • ContextCompactor (внутренний)            │
+│                                             │
+│  Группа 3: Мультиагентные                   │
+│  • TokenSlicer (внутренний)                 │
+│  • ChildSessionManager (внутренний)         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -95,7 +130,38 @@ MVP — это не упрощённая архитектура, а **полна
 
 ## Основные сущности
 
-### TaskAnalyzer
+### ContextManager (единая точка входа)
+
+**Цель:** Единое управление контекстом для всех стратегий.
+
+**Три группы методов:**
+
+```python
+class ContextManager:
+    # Группа 1: Сбор контекста (ВСЕ стратегии)
+    async def build_context(self, session, task) -> list[LLMMessage]:
+        """Анализ задачи + поиск файлов + бюджетирование"""
+        ...
+    
+    # Группа 2: Компакция (ВСЕ стратегии)
+    async def ensure_context_fits(self, history) -> list[LLMMessage]:
+        """Сжатие истории (Prune + Summarize)"""
+        ...
+    
+    # Группа 3: Мультиагентные (только Orchestrated/Choreography/Hierarchical)
+    async def process_subagent_response(self, response, session) -> SlicedResult:
+        """Суммаризация ответов + child sessions"""
+        ...
+```
+
+**Что поглощает:**
+- `HybridContextManager` — упраздняется
+- `ContextCompactor` — становится внутренним компонентом
+- `TokenSlicer` — становится внутренним компонентом
+
+---
+
+### TaskAnalyzer (внутренний компонент)
 
 **Цель:** Анализ задачи пользователя
 
@@ -110,7 +176,7 @@ profile = await analyzer.analyze("Добавь email validation")
 
 ---
 
-### ContextGatherer
+### ContextGatherer (внутренний компонент)
 
 **Цель:** Сбор контекста на основе TaskProfile
 
@@ -124,7 +190,7 @@ context = await gatherer.gather_context(task, profile, session)
 
 ---
 
-### DependencyGraph
+### DependencyGraph (внутренний компонент)
 
 **Цель:** Понимание связей между файлами
 
@@ -135,23 +201,12 @@ deps = graph.get_dependencies("auth.controller.ts")
 
 ---
 
-### TokenBudgetManager
+### TokenBudgetManager (внутренний компонент)
 
 **Цель:** Управление token budget
 
 ```python
 bounded = budget.bound_content(large_content, max_tokens=8000)
-```
-
----
-
-### ContextManager
-
-**Цель:** Интеграция всех компонентов
-
-```python
-messages = await manager.build_context(session, task)
-# → list[LLMMessage] с готовым контекстом
 ```
 
 ---

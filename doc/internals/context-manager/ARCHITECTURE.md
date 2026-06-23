@@ -324,6 +324,86 @@ class ContextGatherer:
 
 ## Архитектура
 
+### Единый ContextManager
+
+**Ключевой принцип:** Один ContextManager — единая точка управления контекстом для всех стратегий (Single, Orchestrated, Choreography, Hierarchical).
+
+**Почему один, а не два:**
+- ❌ Два менеджера (ContextManager + HybridContextManager) — нарушение SRP, дублирование логики, путаница
+- ✅ Один ContextManager с разными методами для разных сценариев — чистая архитектура
+
+**Что происходит с существующими компонентами:**
+- `HybridContextManager` — **упраздняется**, его логика поглощается ContextManager
+- `ContextCompactor` — становится **внутренним компонентом** ContextManager
+- `TokenSlicer` — становится **внутренним компонентом** ContextManager
+
+### Три группы методов ContextManager
+
+```python
+class ContextManager:
+    """Единое управление контекстом для всех стратегий."""
+
+    # === Группа 1: Сбор контекста (ДО LLM call) ===
+    # Используется ВСЕМИ стратегиями
+
+    async def build_context(
+        self,
+        session: SessionState,
+        task: str | None = None,
+    ) -> list[LLMMessage]:
+        """Собрать контекст для LLM call.
+        
+        Pipeline:
+        1. TaskAnalyzer — анализ задачи
+        2. ContextGatherer — поиск и чтение файлов
+        3. DependencyGraph — граф зависимостей
+        4. TokenBudgetManager — бюджетирование
+        """
+        ...
+
+    # === Группа 2: Компакция (все стратегии) ===
+    # Используется ВСЕМИ стратегиями
+
+    async def ensure_context_fits(
+        self,
+        history: list[LLMMessage],
+    ) -> list[LLMMessage]:
+        """Сжать историю если превышает лимит.
+        
+        Внутренние компоненты:
+        - ContextCompactor (Prune + LLM Summarize)
+        """
+        ...
+
+    # === Группа 3: Мультиагентные (ТОЛЬКО для Orchestrated/Choreography/Hierarchical) ===
+    # SingleStrategy НЕ вызывает
+
+    async def process_subagent_response(
+        self,
+        response: AgentResponse,
+        parent_session: SessionState,
+    ) -> SlicedResult:
+        """Обработать ответ субагента.
+        
+        Pipeline:
+        1. TokenSlicer — суммаризация ответа
+        2. ChildSessionManager — создание child session
+        3. Связывание parent ↔ child
+        """
+        ...
+```
+
+### Как стратегии используют ContextManager
+
+| Стратегия | Методы ContextManager |
+|-----------|----------------------|
+| **SingleStrategy** | `build_context()` + `ensure_context_fits()` |
+| **OrchestratedStrategy** | `build_context()` + `process_subagent_response()` + `ensure_context_fits()` |
+| **ChoreographyStrategy** | `build_context()` + `process_subagent_response()` (для winner) |
+| **HierarchicalStrategy** | `build_context()` + `process_subagent_response()` + `ensure_context_fits()` |
+
+**Один компонент. Один интерфейс. Разные методы для разных сценариев.**
+
 ### Высокоуровневая схема
 
 ```mermaid
@@ -332,17 +412,28 @@ graph TB
         Task[Задача]
     end
 
-    subgraph Pipeline["Pipeline"]
-        TaskAnalysis[TaskAnalysisStage]
-        LLMLoop[LLMLoopStage]
+    subgraph Strategies["Стратегии"]
+        Single[SingleStrategy]
+        Orchestrated[OrchestratedStrategy]
+        Choreography[ChoreographyStrategy]
+        Hierarchical[HierarchicalStrategy]
     end
 
-    subgraph ContextManager["Context Manager (Runtime Services)"]
-        TA[TaskAnalyzer]
-        CG[ContextGatherer]
-        DG[DependencyGraph]
-        TB[TokenBudgetManager]
-        CM[ContextManager]
+    subgraph ContextManager["ContextManager (Единая точка входа)"]
+        direction TB
+        subgraph "Группа 1: Сбор контекста"
+            TA[TaskAnalyzer]
+            CG[ContextGatherer]
+            DG[DependencyGraph]
+            TB[TokenBudgetManager]
+        end
+        subgraph "Группа 2: Компакция"
+            CC[ContextCompactor]
+        end
+        subgraph "Группа 3: Мультиагентные"
+            TS[TokenSlicer]
+            CSM[ChildSessionManager]
+        end
     end
 
     subgraph ACPTtools["ACP Tools (User-visible)"]
@@ -351,24 +442,30 @@ graph TB
         Terminal[terminal/create]
     end
 
-    Task --> TaskAnalysis
-    TaskAnalysis --> TA
+    Task --> Single
+    Task --> Orchestrated
+    Task --> Choreography
+    Task --> Hierarchical
+
+    Single -->|"build_context()"| ContextManager
+    Orchestrated -->|"build_context() + process_subagent_response()"| ContextManager
+    Choreography -->|"build_context() + process_subagent_response()"| ContextManager
+    Hierarchical -->|"build_context() + process_subagent_response()"| ContextManager
+
     TA --> CG
     CG --> DG
     CG --> TB
-    CG --> CM
-    CM --> LLMLoop
     
     CG --> FS_Read
     CG --> Terminal
     
-    LLMLoop --> FS_Read
-    LLMLoop --> FS_Write
-    LLMLoop --> Terminal
+    Single --> FS_Read
+    Single --> FS_Write
+    Single --> Terminal
 
-    style ContextManager fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style ContextManager fill:#e1f5ff,stroke:#01579b,stroke-width:3px
     style ACPTtools fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style Pipeline fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Strategies fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
 ```
 
 ### Поток данных
@@ -423,25 +520,44 @@ sequenceDiagram
 ### Разделение ответственности
 
 ```mermaid
-graph LR
+graph TB
     subgraph "User-visible (LLM видит)"
         A1[fs/read_text_file]
         A2[fs/write_text_file]
         A3[terminal/*]
     end
 
-    subgraph "Runtime Services (LLM НЕ видит)"
-        R1[TaskAnalyzer]
-        R2[ContextGatherer]
-        R3[DependencyGraph]
-        R4[TokenBudgetManager]
-        R5[SubagentManager]
+    subgraph "ContextManager — Единая точка входа"
+        direction TB
+        
+        subgraph "Группа 1: Сбор контекста (build_context)"
+            R1[TaskAnalyzer]
+            R2[ContextGatherer]
+            R3[DependencyGraph]
+            R4[TokenBudgetManager]
+        end
+        
+        subgraph "Группа 2: Компакция (ensure_context_fits)"
+            R6[ContextCompactor]
+        end
+        
+        subgraph "Группа 3: Мультиагентные (process_subagent_response)"
+            R7[TokenSlicer]
+            R8[ChildSessionManager]
+        end
+        
+        subgraph "Группа 4: Эволюция (Phase 2-6)"
+            R9[ContextRegistry]
+            R10[ContextSnapshot]
+            R11[ContextEpoch]
+        end
     end
 
-    subgraph "Extensions (поэтапное включение)"
-        E1[ContextSnapshot]
-        E2[ContextEpoch]
-        E3[ContextRegistry]
+    subgraph "Стратегии"
+        S1[SingleStrategy]
+        S2[OrchestratedStrategy]
+        S3[ChoreographyStrategy]
+        S4[HierarchicalStrategy]
     end
 
     A1 -.-> R2
@@ -450,6 +566,277 @@ graph LR
     R1 --> R2
     R2 --> R3
     R2 --> R4
+    
+    S1 -->|"build_context + ensure_context_fits"| R2
+    S2 -->|"build_context + process_subagent_response"| R2
+    S3 -->|"build_context + process_subagent_response"| R2
+    S4 -->|"build_context + process_subagent_response"| R2
+    
+    S2 -->|"ensure_context_fits"| R6
+    S4 -->|"ensure_context_fits"| R6
+    
+    S2 -->|"process_subagent_response"| R7
+    S3 -->|"process_subagent_response"| R7
+    S4 -->|"process_subagent_response"| R7
+
+    style ContextManager fill:#e1f5ff,stroke:#01579b,stroke-width:3px
+```
+
+**Ключевые принципы:**
+
+1. **Один ContextManager** — единая точка входа для всех стратегий
+2. **Три группы методов** — для разных сценариев (сбор, компакция, мультиагентные)
+3. **HybridContextManager упразднён** — его логика поглощена ContextManager
+4. **ContextCompactor** — внутренний компонент, не отдельная сущность
+5. **Стратегии выбирают методы** — в зависимости от своих потребностей
+
+---
+
+## Совместимость с мультиагентными стратегиями
+
+### Единый ContextManager для всех стратегий
+
+Context Manager и мультиагентные стратегии работают на **разных уровнях** и используют **один компонент**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Уровень 1: ContextManager.build_context() (ДО LLM call)    │
+│                                                              │
+│  • TaskAnalyzer — анализ задачи                             │
+│  • ContextGatherer — поиск и чтение файлов                  │
+│  • DependencyGraph — граф зависимостей                      │
+│  • TokenBudgetManager — бюджетирование                      │
+│                                                              │
+│  Результат: list[LLMMessage] для LLM                        │
+│  Используется: ВСЕМИ стратегиями                            │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Уровень 2: Strategy (выполнение)                           │
+│                                                              │
+│  • SingleStrategy — один агент                              │
+│  • OrchestratedStrategy — маршрутизация                     │
+│  • ChoreographyStrategy — параллельное выполнение           │
+│  • HierarchicalStrategy — делегирование                     │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Уровень 3: ContextManager.process_subagent_response()      │
+│           (ПОСЛЕ sub-agent response)                        │
+│                                                              │
+│  • TokenSlicer — суммаризация ответов                       │
+│  • ChildSessionManager — создание child sessions            │
+│                                                              │
+│  Результат: SlicedResult для parent context                 │
+│  Используется: ТОЛЬКО мультиагентными стратегиями           │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Уровень 4: ContextManager.ensure_context_fits()            │
+│           (Компакция истории)                               │
+│                                                              │
+│  • ContextCompactor — Prune + LLM Summarize                 │
+│                                                              │
+│  Результат: Сжатая история                                  │
+│  Используется: ВСЕМИ стратегиями                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Как каждая стратегия использует ContextManager
+
+#### SingleStrategy
+
+```python
+class SingleStrategy:
+    async def execute(self, session, prompt):
+        # Шаг 1: Сбор контекста
+        context = await self.context_manager.build_context(session, prompt)
+        
+        # Шаг 2: LLM call
+        response = await self.llm.call(context)
+        
+        # Шаг 3: Компакция если нужно
+        history = await self.context_manager.ensure_context_fits(session.history)
+        
+        return response
+```
+
+**Использует:** `build_context()` + `ensure_context_fits()`
+
+---
+
+#### OrchestratedStrategy
+
+```python
+class OrchestratedStrategy:
+    async def execute(self, session, prompt):
+        # Шаг 1: Сбор контекста для Orchestrator
+        context = await self.context_manager.build_context(session, prompt)
+        
+        # Шаг 2: Orchestrator делает RouteDecision
+        decision = await self.orchestrator.decide(context)
+        
+        # Шаг 3: Вызов sub-agent
+        response = await self.event_bus.send_request(decision)
+        
+        # Шаг 4: Обработка ответа sub-agent
+        result = await self.context_manager.process_subagent_response(
+            response, session
+        )
+        
+        # Шаг 5: Компакция
+        history = await self.context_manager.ensure_context_fits(session.history)
+        
+        return result
+```
+
+**Использует:** `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
+
+---
+
+#### ChoreographyStrategy
+
+```python
+class ChoreographyStrategy:
+    async def execute(self, session, prompt):
+        # Шаг 1: Сбор общего контекста для broadcast
+        shared_context = await self.context_manager.build_context(session, prompt)
+        
+        # Шаг 2: Broadcast всем агентам
+        broadcast = ContextBroadcast(context=shared_context, ...)
+        answers = await self.event_bus.broadcast(broadcast)
+        
+        # Шаг 3: Conflict Resolution
+        winner = self.resolve_conflict(answers)
+        
+        # Шаг 4: Обработка ответа winner
+        result = await self.context_manager.process_subagent_response(
+            winner.output, session
+        )
+        
+        return result
+```
+
+**Использует:** `build_context()` + `process_subagent_response()` (для winner)
+
+---
+
+#### HierarchicalStrategy
+
+```python
+class HierarchicalStrategy:
+    async def execute(self, session, prompt):
+        # Шаг 1: Сбор контекста для Primary
+        context = await self.context_manager.build_context(session, prompt)
+        
+        # Шаг 2: Primary LLM решает делегировать
+        decision = await self.primary_llm.decide(context)
+        
+        if decision.should_delegate:
+            # Шаг 3: Вызов sub-agent
+            response = await self.event_bus.send_request(decision)
+            
+            # Шаг 4: Обработка ответа sub-agent
+            result = await self.context_manager.process_subagent_response(
+                response, session
+            )
+            
+            # Шаг 5: Компакция
+            history = await self.context_manager.ensure_context_fits(session.history)
+            
+            return result
+        else:
+            # Primary отвечает сам
+            return await self.llm.call(context)
+```
+
+**Использует:** `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
+
+---
+
+### Сводная таблица совместимости
+
+| Стратегия | build_context() | process_subagent_response() | ensure_context_fits() | Совместимость |
+|-----------|-----------------|----------------------------|----------------------|---------------|
+| **SingleStrategy** | ✅ | ❌ | ✅ | Полная |
+| **OrchestratedStrategy** | ✅ | ✅ | ✅ | Полная |
+| **ChoreographyStrategy** | ✅ | ✅ (winner) | ❌ | Полная |
+| **HierarchicalStrategy** | ✅ | ✅ | ✅ | Полная |
+
+### Конфигурация для мультиагентных стратегий
+
+```toml
+# codelab.toml
+[context_manager]
+enabled = true
+
+# Включить Context Manager для sub-agents
+# Если true — каждый sub-agent получает свой контекст
+# Если false — sub-agent получает только task_payload
+enable_for_subagents = false
+
+[context_manager.budget]
+max_tokens = 128000
+system_context_ratio = 0.20
+conversation_history_ratio = 0.50
+tool_outputs_ratio = 0.20
+response_buffer_ratio = 0.10
+
+[context_manager.gatherer]
+max_files_to_read = 20
+search_max_results = 100
+```
+
+### Миграция: упразднение HybridContextManager
+
+**Было (до Context Manager):**
+
+```python
+# src/codelab/server/agent/core/context_manager.py
+class HybridContextManager:
+    _slicer: TokenSlicer
+    _compactor: ContextCompactor
+    _storage: SessionStorage
+    
+    async def process_subagent_response(self, response, session):
+        # TokenSlicer + Child Session
+        ...
+    
+    async def ensure_context_fits(self, history):
+        # ContextCompactor
+        ...
+```
+
+**Стало (после Context Manager):**
+
+```python
+# src/codelab/server/context/manager.py
+class ContextManager:
+    # Внутренние компоненты
+    _task_analyzer: TaskAnalyzer
+    _gatherer: ContextGatherer
+    _budget: TokenBudgetManager
+    _compactor: ContextCompactor  # Поглощён из HybridContextManager
+    _slicer: TokenSlicer  # Поглощён из HybridContextManager
+    _child_session_manager: ChildSessionManager  # Поглощён из HybridContextManager
+    
+    # Группа 1: Сбор контекста
+    async def build_context(self, session, task):
+        ...
+    
+    # Группа 2: Компакция (из HybridContextManager.ensure_context_fits)
+    async def ensure_context_fits(self, history):
+        return await self._compactor.compact_if_needed(history)
+    
+    # Группа 3: Мультиагентные (из HybridContextManager.process_subagent_response)
+    async def process_subagent_response(self, response, session):
+        # TokenSlicer + Child Session
+        sliced = await self._slicer.slice(response)
+        child_session = await self._child_session_manager.create(session, response)
+        return SlicedResult(summary=sliced.summary, child_session_id=child_session.id)
+```
+
+**HybridContextManager удаляется из кодовой базы.**
     R5 --> R2
     
     E1 -.-> R2
@@ -895,53 +1282,78 @@ if was_compacted:
 
 ### ContextManager
 
-**Цель:** Центральный компонент управления контекстом. Интегрирует все Runtime Services.
+**Цель:** Единая точка управления контекстом для всех стратегий.
+
+**Ключевой принцип:** Один ContextManager — три группы методов для разных сценариев.
+
+**Что поглощает:**
+- `HybridContextManager` — упраздняется, его логика становится частью ContextManager
+- `ContextCompactor` — становится внутренним компонентом
+- `TokenSlicer` — становится внутренним компонентом
 
 **Назначение:**
-- Интегрировать TaskAnalyzer, ContextGatherer, TokenBudgetManager
-- Собирать контекст для LLM
-- Управлять Context Sources (Phase 2+)
-- Управлять Context Epochs (Phase 3+)
+- **Группа 1:** Сбор контекста для LLM (build_context)
+- **Группа 2:** Компакция истории (ensure_context_fits)
+- **Группа 3:** Обработка ответов субагентов (process_subagent_response)
+- **Группа 4:** Эволюция (ContextRegistry, ContextSnapshot, ContextEpoch — Phase 2+)
 
 **Как использовать:**
 
 ```python
 class ContextManager:
-    """Центральный компонент управления контекстом"""
+    """Единая точка управления контекстом для всех стратегий."""
     
     def __init__(
         self,
+        # Группа 1: Сбор контекста
         task_analyzer: TaskAnalyzer,
         gatherer: ContextGatherer,
         budget: TokenBudgetManager,
-        registry: ContextRegistry | None = None,  # Phase 2+
-        snapshot: ContextSnapshot | None = None,  # Phase 2
-        epoch: ContextEpoch | None = None,  # Phase 3
-        subagent: SubagentManager | None = None,  # Phase 6
+        
+        # Группа 2: Компакция (поглощено из HybridContextManager)
+        compactor: ContextCompactor,
+        
+        # Группа 3: Мультиагентные (поглощено из HybridContextManager)
+        slicer: TokenSlicer,
+        child_session_manager: ChildSessionManager,
+        
+        # Группа 4: Эволюция (Phase 2+)
+        registry: ContextRegistry | None = None,
+        snapshot: ContextSnapshot | None = None,
+        epoch: ContextEpoch | None = None,
     ):
+        # Группа 1
         self.task_analyzer = task_analyzer
         self.gatherer = gatherer
         self.budget = budget
+        
+        # Группа 2
+        self.compactor = compactor
+        
+        # Группа 3
+        self.slicer = slicer
+        self.child_session_manager = child_session_manager
+        
+        # Группа 4
         self.registry = registry
         self.snapshot = snapshot
         self.epoch = epoch
-        self.subagent = subagent
+    
+    # === Группа 1: Сбор контекста (ДО LLM call) ===
+    # Используется ВСЕМИ стратегиями
     
     async def build_context(
         self,
         session: SessionState,
         task: str | None = None,
     ) -> list[LLMMessage]:
-        """
-        Собрать контекст для LLM.
-        
-        Это главный метод, который вызывает Pipeline.
+        """Собрать контекст для LLM call.
         
         Pipeline:
-        1. Analyze task (если есть)
-        2. Gather context (если есть задача)
-        3. Apply token budget
-        4. Build messages
+        1. TaskAnalyzer — анализ задачи
+        2. ContextGatherer — поиск и чтение файлов
+        3. DependencyGraph — граф зависимостей
+        4. TokenBudgetManager — бюджетирование
         """
         messages = []
         
@@ -956,20 +1368,17 @@ class ContextManager:
         
         # 2. Task analysis + context gathering
         if task:
-            # Analyze task
             profile = await self.task_analyzer.analyze(
                 task=task,
                 project_context=system_context
             )
             
-            # Gather context
             gathered = await self.gatherer.gather_context(
                 task=task,
                 profile=profile,
                 session=session
             )
             
-            # Add gathered files to context (с token budget)
             for file_path, content in gathered.file_contents.items():
                 bounded_content = self.budget.bound_content(
                     content,
@@ -981,30 +1390,106 @@ class ContextManager:
                 ))
         
         return messages
+    
+    # === Группа 2: Компакция (все стратегии) ===
+    # Используется ВСЕМИ стратегиями
+    
+    async def ensure_context_fits(
+        self,
+        history: list[LLMMessage],
+    ) -> list[LLMMessage]:
+        """Сжать историю если превышает лимит.
+        
+        Поглощено из HybridContextManager.ensure_context_fits().
+        Использует внутренний ContextCompactor.
+        """
+        return await self.compactor.compact_if_needed(history)
+    
+    # === Группа 3: Мультиагентные (ТОЛЬКО для Orchestrated/Choreography/Hierarchical) ===
+    # SingleStrategy НЕ вызывает
+    
+    async def process_subagent_response(
+        self,
+        response: AgentResponse,
+        parent_session: SessionState,
+    ) -> SlicedResult:
+        """Обработать ответ субагента.
+        
+        Поглощено из HybridContextManager.process_subagent_response().
+        
+        Pipeline:
+        1. TokenSlicer — суммаризация ответа
+        2. ChildSessionManager — создание child session
+        3. Связывание parent ↔ child
+        """
+        # 1. Суммаризация ответа
+        sliced = await self.slicer.slice(response)
+        
+        # 2. Создание child session
+        child_session = await self.child_session_manager.create(
+            parent_session=parent_session,
+            response=response
+        )
+        
+        # 3. Связывание
+        await self.child_session_manager.link(
+            parent_session=parent_session,
+            child_session=child_session
+        )
+        
+        return SlicedResult(
+            summary=sliced.summary,
+            child_session_id=child_session.id,
+            metrics=sliced.metrics
+        )
 ```
 
-**Пример:**
+**Пример использования для разных стратегий:**
 
 ```python
+# Инициализация
 manager = ContextManager(
     task_analyzer=analyzer,
     gatherer=gatherer,
-    budget=budget
+    budget=budget,
+    compactor=compactor,
+    slicer=slicer,
+    child_session_manager=child_session_manager
 )
 
-# Собрать контекст для задачи
-messages = await manager.build_context(
-    session=session,
-    task="Добавь email validation"
-)
+# SingleStrategy
+class SingleStrategy:
+    async def execute(self, session, prompt):
+        # Группа 1: Сбор контекста
+        context = await manager.build_context(session, prompt)
+        
+        # LLM call
+        response = await self.llm.call(context)
+        
+        # Группа 2: Компакция
+        history = await manager.ensure_context_fits(session.history)
+        
+        return response
 
-# Результат: список LLMMessage с готовым контекстом
-# [
-#   LLMMessage(role="system", content="Working directory: /project"),
-#   LLMMessage(role="system", content="[File: auth.dto.ts]\n..."),
-#   LLMMessage(role="system", content="[File: auth.service.ts]\n..."),
-#   ...
-# ]
+# OrchestratedStrategy
+class OrchestratedStrategy:
+    async def execute(self, session, prompt):
+        # Группа 1: Сбор контекста
+        context = await manager.build_context(session, prompt)
+        
+        # Orchestrator decision
+        decision = await self.orchestrator.decide(context)
+        
+        # Sub-agent call
+        response = await self.event_bus.send_request(decision)
+        
+        # Группа 3: Обработка ответа sub-agent
+        result = await manager.process_subagent_response(response, session)
+        
+        # Группа 2: Компакция
+        history = await manager.ensure_context_fits(session.history)
+        
+        return result
 ```
 
 ---
