@@ -405,7 +405,7 @@ sequenceDiagram
 |-----------|------------|--------|
 | `ContextEpoch` | Immutable baseline + updates | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextepoch) |
 | `ContextCompactor` | Сжатие контекста | ✅ Существует |
-| `ConversationSummarizer` | Суммаризация диалога | ❌ Нужно добавить |
+| `ConversationSummarizer` | Суммаризация диалога | ✅ [Документация](./CONTEXT_LIFECYCLE.md#conversationsummarizer) |
 
 #### Memory
 

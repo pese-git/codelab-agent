@@ -13,6 +13,7 @@
 - [ContextSnapshot](#contextsnapshot)
 - [ContextEpoch](#contextepoch)
 - [ContextReconciliation](#contextreconciliation)
+- [ConversationSummarizer](#conversationsummarizer)
 - [Интеграция с ContextManager](#интеграция-с-contextmanager)
 - [Roadmap реализации](#roadmap-реализации)
 
@@ -20,7 +21,7 @@
 
 ## Обзор
 
-Context Lifecycle отвечает за **управление жизненным циклом контекста**: регистрация источников, отслеживание изменений, immutable baseline, mid-conversation updates.
+Context Lifecycle отвечает за **управление жизненным циклом контекста**: регистрация источников, отслеживание изменений, immutable baseline, mid-conversation updates, суммаризация диалога.
 
 **Компоненты:**
 - `ContextRegistry` — реестр источников контекста
@@ -31,6 +32,7 @@ Context Lifecycle отвечает за **управление жизненны�
 - `ContextSnapshot` — отслеживание изменений
 - `ContextEpoch` — immutable baseline + updates
 - `ContextReconciliation` — согласование изменений
+- `ConversationSummarizer` — суммаризация диалога при compaction
 
 **Место в архитектуре:**
 
@@ -45,6 +47,7 @@ Context Lifecycle отвечает за **управление жизненны�
 │  └─ ContextSnapshot       ← Context Lifecycle                │
 │  └─ ContextEpoch          ← Context Lifecycle                │
 │  └─ ContextReconciliation ← Context Lifecycle                │
+│  └─ ConversationSummarizer← Context Lifecycle                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -744,6 +747,363 @@ class ContextManager:
 
 ---
 
+## ConversationSummarizer
+
+### Назначение
+
+Суммаризация диалога при compaction истории. Когда история становится слишком длинной, ConversationSummarizer сжимает старые сообщения в краткое резюме, сохраняя ключевую информацию.
+
+**Зачем нужно:**
+- Длинные диалоги превышают контекстное окно LLM
+- Простое удаление сообщений теряет важную информацию
+- Суммаризация сохраняет ключевые решения и контекст
+- Позволяет работать с длинными сессиями
+
+**Отличие от ContextCompactor:**
+- `ContextCompactor` — низкоуровневый компонент (prune tool outputs, summarize middle)
+- `ConversationSummarizer` — высокоуровневый компонент (интеллектуальная суммаризация с сохранением ключевых решений)
+
+### Интерфейс
+
+```python
+@dataclass
+class SummaryResult:
+    """Результат суммаризации."""
+    summary: str
+    original_message_count: int
+    summarized_message_count: int
+    key_decisions: list[str]
+    key_context: list[str]
+    tokens_saved: int
+
+class ConversationSummarizer:
+    """
+    Суммаризация диалога при compaction.
+    
+    Использует LLM для создания краткого резюме, сохраняющего:
+    - Ключевые решения
+    - Важный контекст
+    - Текущее состояние задачи
+    """
+    
+    def __init__(
+        self,
+        llm: LLMProvider,
+        model: str = "openai/gpt-4o-mini",
+    ):
+        self.llm = llm
+        self.model = model
+    
+    async def summarize(
+        self,
+        messages: list[LLMMessage],
+        preserve_recent: int = 5,
+    ) -> SummaryResult:
+        """
+        Суммаризировать старые сообщения.
+        
+        Args:
+            messages: Полная история сообщений
+            preserve_recent: Количество последних сообщений для сохранения
+        
+        Returns:
+            SummaryResult с резюме и метаданными
+        """
+        if len(messages) <= preserve_recent:
+            return SummaryResult(
+                summary="",
+                original_message_count=len(messages),
+                summarized_message_count=0,
+                key_decisions=[],
+                key_context=[],
+                tokens_saved=0
+            )
+        
+        # Разделить на старые и новые
+        to_summarize = messages[:-preserve_recent]
+        to_preserve = messages[-preserve_recent:]
+        
+        # Суммаризировать старые
+        summary = await self._generate_summary(to_summarize)
+        
+        # Извлечь ключевые решения
+        key_decisions = await self._extract_key_decisions(to_summarize)
+        
+        # Извлечь ключевой контекст
+        key_context = await self._extract_key_context(to_summarize)
+        
+        # Подсчитать сэкономленные токены
+        original_tokens = self._estimate_tokens(to_summarize)
+        summary_tokens = self._estimate_tokens_text(summary)
+        tokens_saved = original_tokens - summary_tokens
+        
+        return SummaryResult(
+            summary=summary,
+            original_message_count=len(to_summarize),
+            summarized_message_count=len(to_summarize),
+            key_decisions=key_decisions,
+            key_context=key_context,
+            tokens_saved=tokens_saved
+        )
+    
+    async def _generate_summary(
+        self,
+        messages: list[LLMMessage]
+    ) -> str:
+        """Сгенерировать резюме диалога."""
+        # Форматировать сообщения для LLM
+        conversation_text = self._format_messages(messages)
+        
+        prompt = f"""
+Summarize the following conversation concisely.
+
+Preserve:
+- Key decisions made
+- Important context about the task
+- Current state of the work
+- Files that were modified
+- Errors encountered and how they were resolved
+
+Keep the summary under 500 words.
+
+Conversation:
+{conversation_text}
+
+Provide a concise summary:
+"""
+        
+        response = await self.llm.create_completion(
+            CompletionRequest(
+                model=self.model,
+                messages=[LLMMessage(role="user", content=prompt)],
+                max_tokens=1000,
+                temperature=0.0,
+            )
+        )
+        
+        return response.text
+    
+    async def _extract_key_decisions(
+        self,
+        messages: list[LLMMessage]
+    ) -> list[str]:
+        """Извлечь ключевые решения из диалога."""
+        conversation_text = self._format_messages(messages)
+        
+        prompt = f"""
+Extract key decisions from this conversation.
+
+Return a list of decisions made, one per line.
+If no decisions were made, return an empty list.
+
+Conversation:
+{conversation_text}
+
+Key decisions:
+"""
+        
+        response = await self.llm.create_completion(
+            CompletionRequest(
+                model=self.model,
+                messages=[LLMMessage(role="user", content=prompt)],
+                max_tokens=500,
+                temperature=0.0,
+            )
+        )
+        
+        decisions = [
+            line.strip()
+            for line in response.text.strip().split('\n')
+            if line.strip() and line.strip().startswith('-')
+        ]
+        
+        return [d.lstrip('- ').strip() for d in decisions]
+    
+    async def _extract_key_context(
+        self,
+        messages: list[LLMMessage]
+    ) -> list[str]:
+        """Извлечь ключевой контекст из диалога."""
+        conversation_text = self._format_messages(messages)
+        
+        prompt = f"""
+Extract key context from this conversation.
+
+Return a list of important context items, one per line.
+Include: files mentioned, technologies used, task description.
+If no important context, return an empty list.
+
+Conversation:
+{conversation_text}
+
+Key context:
+"""
+        
+        response = await self.llm.create_completion(
+            CompletionRequest(
+                model=self.model,
+                messages=[LLMMessage(role="user", content=prompt)],
+                max_tokens=500,
+                temperature=0.0,
+            )
+        )
+        
+        context_items = [
+            line.strip()
+            for line in response.text.strip().split('\n')
+            if line.strip() and line.strip().startswith('-')
+        ]
+        
+        return [c.lstrip('- ').strip() for c in context_items]
+    
+    def _format_messages(self, messages: list[LLMMessage]) -> str:
+        """Форматировать сообщения для LLM."""
+        parts = []
+        
+        for msg in messages:
+            role = msg.role.upper()
+            content = msg.content or ""
+            
+            # Обрезать длинные сообщения
+            if len(content) > 1000:
+                content = content[:1000] + "... (truncated)"
+            
+            parts.append(f"[{role}]: {content}")
+        
+        return "\n\n".join(parts)
+    
+    def _estimate_tokens(self, messages: list[LLMMessage]) -> int:
+        """Оценить количество токенов в сообщениях."""
+        total = 0
+        for msg in messages:
+            if msg.content:
+                total += len(msg.content) // 4
+        return total
+    
+    def _estimate_tokens_text(self, text: str) -> int:
+        """Оценить количество токенов в тексте."""
+        return len(text) // 4
+    
+    def apply_summary(
+        self,
+        messages: list[LLMMessage],
+        summary_result: SummaryResult,
+    ) -> list[LLMMessage]:
+        """
+        Применить суммаризацию к истории.
+        
+        Заменяет старые сообщения на summary message.
+        """
+        if not summary_result.summary:
+            return messages
+        
+        # Создать summary message
+        summary_msg = LLMMessage(
+            role="system",
+            content=self._format_summary_message(summary_result)
+        )
+        
+        # Сохранить только последние сообщения
+        preserve_recent = 5
+        preserved = messages[-preserve_recent:]
+        
+        return [summary_msg] + preserved
+    
+    def _format_summary_message(self, result: SummaryResult) -> str:
+        """Форматировать summary message для LLM."""
+        parts = [
+            "# Conversation Summary",
+            "",
+            f"Summarized {result.original_message_count} messages.",
+            "",
+            "## Summary",
+            result.summary,
+        ]
+        
+        if result.key_decisions:
+            parts.append("")
+            parts.append("## Key Decisions")
+            for decision in result.key_decisions:
+                parts.append(f"- {decision}")
+        
+        if result.key_context:
+            parts.append("")
+            parts.append("## Key Context")
+            for context in result.key_context:
+                parts.append(f"- {context}")
+        
+        parts.append("")
+        parts.append(f"Tokens saved: {result.tokens_saved}")
+        
+        return "\n".join(parts)
+```
+
+### Пример использования
+
+```python
+summarizer = ConversationSummarizer(llm)
+
+# Длинная история
+messages = [
+    LLMMessage(role="user", content="Добавь email validation"),
+    LLMMessage(role="assistant", content="...", tool_calls=[...]),
+    LLMMessage(role="tool", content="..."),
+    # ... 50+ сообщений ...
+]
+
+# Суммаризировать
+result = await summarizer.summarize(messages, preserve_recent=5)
+
+print(result.summary)
+# "The user requested email validation. We decided to use class-validator..."
+
+print(result.key_decisions)
+# ["Use class-validator for validation", "Add @IsEmail() decorator to UserDTO"]
+
+print(result.key_context)
+# ["TypeScript project with NestJS", "UserDTO in src/auth/dto.ts"]
+
+print(result.tokens_saved)
+# 15000
+
+# Применить суммаризацию
+compacted_messages = summarizer.apply_summary(messages, result)
+# [summary_message, ...last 5 messages...]
+```
+
+### Интеграция с ContextManager
+
+```python
+class ContextManager:
+    def __init__(
+        self,
+        summarizer: ConversationSummarizer | None = None,
+        ...
+    ):
+        self.summarizer = summarizer
+    
+    async def ensure_context_fits(
+        self,
+        history: list[LLMMessage],
+    ) -> list[LLMMessage]:
+        """Сжать историю если превышает лимит."""
+        # Сначала попробовать ContextCompactor (prune tool outputs)
+        history = await self.compactor.compact_if_needed(history)
+        
+        # Если всё ещё много — использовать ConversationSummarizer
+        if self._estimate_tokens(history) > self.max_tokens * 0.9:
+            if self.summarizer:
+                summary_result = await self.summarizer.summarize(history)
+                history = self.summarizer.apply_summary(history, summary_result)
+                
+                # Начать новый epoch после суммаризации
+                await self.start_new_epoch()
+        
+        return history
+```
+
+---
+
 ## Интеграция с ContextManager
 
 ```python
@@ -834,10 +1194,11 @@ class ContextManager:
 - [ ] Реализовать `ContextReconciliation`
 - [ ] Реализовать `ContextManager.reconcile()`
 - [ ] Реализовать `ContextManager.start_new_epoch()`
+- [ ] Реализовать `ConversationSummarizer` с суммаризацией диалога
 - [ ] Интеграция с LLMLoopStage
 - [ ] Integration tests
 
-**Результат:** Immutable baseline с историей изменений.
+**Результат:** Immutable baseline с историей изменений и интеллектуальной суммаризацией.
 
 ---
 
