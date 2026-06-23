@@ -364,8 +364,8 @@ sequenceDiagram
 
 | Компонент | Назначение | Статус |
 |-----------|------------|--------|
-| `ContextSnapshot` | Отслеживание изменений | ✅ Документация |
-| `ContextReconciliation` | Согласование изменений | ✅ Документация |
+| `ContextSnapshot` | Отслеживание изменений | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextsnapshot) |
+| `ContextReconciliation` | Согласование изменений | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextreconciliation) |
 
 #### Project Intelligence
 
@@ -379,9 +379,11 @@ sequenceDiagram
 
 | Компонент | Назначение | Статус |
 |-----------|------------|--------|
-| `InstructionContextSource` | AGENTS.md иерархия | ✅ Документация |
-| `ProjectContextSource` | Структура проекта | ✅ Документация |
-| `EnvironmentContextSource` | Environment variables | ✅ Документация |
+| `ContextRegistry` | Реестр источников | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextregistry) |
+| `ContextSource` | Базовый класс | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextsource) |
+| `InstructionContextSource` | AGENTS.md иерархия | ✅ [Документация](./CONTEXT_LIFECYCLE.md#instructioncontextsource) |
+| `ProjectContextSource` | Структура проекта | ✅ [Документация](./CONTEXT_LIFECYCLE.md#projectcontextsource) |
+| `EnvironmentContextSource` | Environment variables | ✅ [Документация](./CONTEXT_LIFECYCLE.md#environmentcontextsource) |
 
 #### File Intelligence
 
@@ -401,7 +403,7 @@ sequenceDiagram
 
 | Компонент | Назначение | Статус |
 |-----------|------------|--------|
-| `ContextEpoch` | Immutable baseline + updates | ✅ Документация |
+| `ContextEpoch` | Immutable baseline + updates | ✅ [Документация](./CONTEXT_LIFECYCLE.md#contextepoch) |
 | `ContextCompactor` | Сжатие контекста | ✅ Существует |
 | `ConversationSummarizer` | Суммаризация диалога | ❌ Нужно добавить |
 

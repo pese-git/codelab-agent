@@ -1,0 +1,849 @@
+# Context Lifecycle — Жизненный цикл контекста
+
+> Компоненты для управления жизненным циклом контекста: epochs, snapshots, sources
+
+## Оглавление
+
+- [Обзор](#обзор)
+- [ContextRegistry](#contextregistry)
+- [ContextSource](#contextsource)
+- [InstructionContextSource](#instructioncontextsource)
+- [ProjectContextSource](#projectcontextsource)
+- [EnvironmentContextSource](#environmentcontextsource)
+- [ContextSnapshot](#contextsnapshot)
+- [ContextEpoch](#contextepoch)
+- [ContextReconciliation](#contextreconciliation)
+- [Интеграция с ContextManager](#интеграция-с-contextmanager)
+- [Roadmap реализации](#roadmap-реализации)
+
+---
+
+## Обзор
+
+Context Lifecycle отвечает за **управление жизненным циклом контекста**: регистрация источников, отслеживание изменений, immutable baseline, mid-conversation updates.
+
+**Компоненты:**
+- `ContextRegistry` — реестр источников контекста
+- `ContextSource` — базовый класс для источников
+- `InstructionContextSource` — AGENTS.md иерархия
+- `ProjectContextSource` — структура проекта
+- `EnvironmentContextSource` — environment variables
+- `ContextSnapshot` — отслеживание изменений
+- `ContextEpoch` — immutable baseline + updates
+- `ContextReconciliation` — согласование изменений
+
+**Место в архитектуре:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ContextManager                                              │
+│  └─ ContextRegistry       ← Context Lifecycle                │
+│      ├─ InstructionContextSource                             │
+│      ├─ ProjectContextSource                                 │
+│      ├─ EnvironmentContextSource                             │
+│      └─ GitContextSource                                     │
+│  └─ ContextSnapshot       ← Context Lifecycle                │
+│  └─ ContextEpoch          ← Context Lifecycle                │
+│  └─ ContextReconciliation ← Context Lifecycle                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ContextRegistry
+
+### Назначение
+
+Реестр источников контекста: регистрация, получение, рендеринг baseline и updates.
+
+### Интерфейс
+
+```python
+class ContextRegistry:
+    """Реестр источников контекста."""
+    
+    def __init__(self):
+        self._sources: dict[str, ContextSource] = {}
+    
+    def register(self, source: ContextSource) -> None:
+        """Зарегистрировать источник контекста."""
+        self._sources[source.key] = source
+    
+    def get(self, key: str) -> ContextSource | None:
+        """Получить источник по ключу."""
+        return self._sources.get(key)
+    
+    def get_all(self) -> list[ContextSource]:
+        """Получить все источники."""
+        return list(self._sources.values())
+    
+    async def render_baseline(self) -> str:
+        """
+        Рендер baseline контекста.
+        
+        Вызывает render_baseline() для каждого источника.
+        """
+        parts = []
+        
+        for source in self._sources.values():
+            value = await source.load()
+            rendered = source.render_baseline(value)
+            if rendered:
+                parts.append(rendered)
+        
+        return "\n\n".join(parts)
+    
+    async def render_updates(self, changes: dict[str, Any]) -> str:
+        """
+        Рендер updates для mid-conversation messages.
+        
+        Вызывает render_update() для изменённых источников.
+        """
+        parts = []
+        
+        for key, value in changes.items():
+            source = self._sources.get(key)
+            if source:
+                rendered = source.render_update(value)
+                if rendered:
+                    parts.append(rendered)
+        
+        return "\n".join(parts)
+    
+    async def detect_changes(
+        self,
+        snapshot: ContextSnapshot
+    ) -> dict[str, Any]:
+        """
+        Обнаружить изменения в источниках.
+        
+        Сравнивает текущие значения с snapshot.
+        """
+        changes = {}
+        
+        for key, source in self._sources.items():
+            current = await source.load()
+            old = snapshot.get(key)
+            
+            if old is None or source.has_changed(old, current):
+                changes[key] = current
+        
+        return changes
+```
+
+---
+
+## ContextSource
+
+### Назначение
+
+Базовый класс для источников контекста. Каждый источник:
+- Загружает данные
+- Сравнивает изменения
+- Рендерит baseline и updates
+
+### Интерфейс
+
+```python
+class Codec(Generic[T]):
+    """Кодек для сравнения значений."""
+    
+    def equals(self, a: T, b: T) -> bool:
+        """Сравнить два значения."""
+        return a == b
+
+class ContextSource(Generic[T]):
+    """
+    Базовый класс для источников контекста.
+    
+    Типизированный источник с:
+    - loader: загрузка данных
+    - codec: сравнение значений
+    - render_baseline: рендер для начала epoch
+    - render_update: рендер для mid-conversation update
+    - render_removal: рендер для удаления источника
+    """
+    
+    def __init__(
+        self,
+        key: str,
+        loader: Callable[[], Awaitable[T]],
+        codec: Codec[T],
+        render_baseline: Callable[[T], str],
+        render_update: Callable[[T], str],
+        render_removal: Callable[[], str] | None = None,
+    ):
+        self.key = key
+        self.loader = loader
+        self.codec = codec
+        self._render_baseline = render_baseline
+        self._render_update = render_update
+        self._render_removal = render_removal
+    
+    async def load(self) -> T:
+        """Загрузить текущее значение."""
+        return await self.loader()
+    
+    def has_changed(self, old: T, new: T) -> bool:
+        """Проверить изменилось ли значение."""
+        return not self.codec.equals(old, new)
+    
+    def render_baseline(self, value: T) -> str:
+        """Рендер baseline контекста."""
+        return self._render_baseline(value)
+    
+    def render_update(self, value: T) -> str:
+        """Рендер update для mid-conversation message."""
+        return self._render_update(value)
+    
+    def render_removal(self) -> str:
+        """Рендер removal message."""
+        if self._render_removal:
+            return self._render_removal()
+        return f"[{self.key} removed]"
+```
+
+---
+
+## InstructionContextSource
+
+### Назначение
+
+Источник контекста из AGENTS.md файлов: глобальные, проектные, директорные инструкции.
+
+**Иерархия:**
+```
+~/.config/codelab/AGENTS.md      # Global
+./AGENTS.md                       # Project
+./src/AGENTS.md                   # Directory
+./src/auth/AGENTS.md              # Subdirectory
+```
+
+### Интерфейс
+
+```python
+@dataclass
+class InstructionFile:
+    """Файл инструкций."""
+    path: str
+    content: str
+    scope: Literal["global", "project", "directory"]
+
+class InstructionContextSource(ContextSource[list[InstructionFile]]):
+    """Источник контекста из AGENTS.md файлов."""
+    
+    def __init__(self, cwd: str):
+        self.cwd = cwd
+        super().__init__(
+            key="instructions",
+            loader=self.load_instructions,
+            codec=InstructionCodec(),
+            render_baseline=self.render_baseline,
+            render_update=self.render_update
+        )
+    
+    async def load_instructions(self) -> list[InstructionFile]:
+        """Загрузить все AGENTS.md файлы иерархически."""
+        instructions = []
+        
+        # 1. Global instructions
+        global_path = Path.home() / '.config' / 'codelab' / 'AGENTS.md'
+        if global_path.exists():
+            content = await self._read_file(str(global_path))
+            instructions.append(InstructionFile(
+                path=str(global_path),
+                content=content,
+                scope="global"
+            ))
+        
+        # 2. Project и directory instructions (walk up от cwd)
+        current = Path(self.cwd)
+        visited = set()
+        
+        while current not in visited:
+            visited.add(current)
+            
+            agents_md = current / 'AGENTS.md'
+            if agents_md.exists():
+                content = await self._read_file(str(agents_md))
+                
+                # Определить scope
+                if current == Path(self.cwd).root:
+                    scope = "project"
+                else:
+                    scope = "directory"
+                
+                instructions.append(InstructionFile(
+                    path=str(agents_md),
+                    content=content,
+                    scope=scope
+                ))
+            
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        
+        # Reverse чтобы global был первым
+        instructions.reverse()
+        
+        return instructions
+    
+    async def _read_file(self, path: str) -> str:
+        """Прочитать файл."""
+        with open(path, 'r') as f:
+            return f.read()
+    
+    def render_baseline(self, instructions: list[InstructionFile]) -> str:
+        """Рендер baseline контекста."""
+        if not instructions:
+            return ""
+        
+        parts = ["# Instructions\n"]
+        
+        for instr in instructions:
+            scope_label = {
+                "global": "🌍 Global",
+                "project": "📁 Project",
+                "directory": "📂 Directory"
+            }[instr.scope]
+            
+            parts.append(f"## {scope_label}: {instr.path}\n")
+            parts.append(instr.content)
+            parts.append("")
+        
+        return "\n".join(parts)
+    
+    def render_update(self, instructions: list[InstructionFile]) -> str:
+        """Рендер update для mid-conversation message."""
+        paths = [instr.path for instr in instructions]
+        return f"[Instructions updated: {', '.join(paths)}]"
+
+
+class InstructionCodec(Codec[list[InstructionFile]]):
+    """Кодек для сравнения инструкций."""
+    
+    def equals(
+        self,
+        a: list[InstructionFile],
+        b: list[InstructionFile]
+    ) -> bool:
+        """Сравнить два списка инструкций."""
+        if len(a) != len(b):
+            return False
+        
+        for instr_a, instr_b in zip(a, b):
+            if instr_a.path != instr_b.path:
+                return False
+            if instr_a.content != instr_b.content:
+                return False
+        
+        return True
+```
+
+### Пример использования
+
+```python
+source = InstructionContextSource(cwd="/path/to/project")
+instructions = await source.load()
+
+# Результат:
+# [
+#     InstructionFile(path="~/.config/codelab/AGENTS.md", scope="global"),
+#     InstructionFile(path="/path/to/project/AGENTS.md", scope="project"),
+#     InstructionFile(path="/path/to/project/src/AGENTS.md", scope="directory"),
+# ]
+
+baseline = source.render_baseline(instructions)
+print(baseline)
+# # Instructions
+#
+# ## 🌍 Global: ~/.config/codelab/AGENTS.md
+# ...
+#
+# ## 📁 Project: /path/to/project/AGENTS.md
+# ...
+#
+# ## 📂 Directory: /path/to/project/src/AGENTS.md
+# ...
+```
+
+---
+
+## ProjectContextSource
+
+### Назначение
+
+Источник контекста о структуре проекта: язык, фреймворк, зависимости.
+
+### Интерфейс
+
+```python
+@dataclass
+class ProjectMetadata:
+    """Метаданные проекта."""
+    language: str
+    framework: str | None
+    package_manager: str | None
+    dependencies: list[str]
+    entry_points: list[str]
+
+class ProjectContextSource(ContextSource[ProjectMetadata]):
+    """Источник контекста о структуре проекта."""
+    
+    def __init__(self, cwd: str, discovery: ProjectDiscovery):
+        self.cwd = cwd
+        self.discovery = discovery
+        super().__init__(
+            key="project",
+            loader=self.load_metadata,
+            codec=ProjectMetadataCodec(),
+            render_baseline=self.render_baseline,
+            render_update=self.render_update
+        )
+    
+    async def load_metadata(self) -> ProjectMetadata:
+        """Загрузить метаданные проекта."""
+        structure = await self.discovery.discover(self.cwd)
+        
+        return ProjectMetadata(
+            language=structure.language,
+            framework=structure.framework,
+            package_manager=structure.package_manager,
+            dependencies=structure.dependencies,
+            entry_points=structure.entry_points
+        )
+    
+    def render_baseline(self, metadata: ProjectMetadata) -> str:
+        """Рендер baseline контекста."""
+        parts = ["# Project Structure\n"]
+        
+        parts.append(f"- **Language:** {metadata.language}")
+        
+        if metadata.framework:
+            parts.append(f"- **Framework:** {metadata.framework}")
+        
+        if metadata.package_manager:
+            parts.append(f"- **Package Manager:** {metadata.package_manager}")
+        
+        if metadata.dependencies:
+            parts.append(f"- **Dependencies:** {len(metadata.dependencies)} packages")
+        
+        if metadata.entry_points:
+            parts.append(f"- **Entry Points:** {', '.join(metadata.entry_points)}")
+        
+        return "\n".join(parts)
+    
+    def render_update(self, metadata: ProjectMetadata) -> str:
+        """Рендер update."""
+        return f"[Project updated: {metadata.language}, {metadata.framework or 'no framework'}]"
+```
+
+---
+
+## EnvironmentContextSource
+
+### Назначение
+
+Источник контекста из environment variables и конфигурации.
+
+### Интерфейс
+
+```python
+@dataclass
+class EnvironmentConfig:
+    """Конфигурация окружения."""
+    env_vars: dict[str, str]
+    config_files: list[str]
+    runtime: str  # "node", "python", "go", etc.
+
+class EnvironmentContextSource(ContextSource[EnvironmentConfig]):
+    """Источник контекста из environment."""
+    
+    def __init__(self, cwd: str):
+        self.cwd = cwd
+        super().__init__(
+            key="environment",
+            loader=self.load_config,
+            codec=EnvironmentConfigCodec(),
+            render_baseline=self.render_baseline,
+            render_update=self.render_update
+        )
+    
+    async def load_config(self) -> EnvironmentConfig:
+        """Загрузить конфигурацию окружения."""
+        # Получить важные env vars
+        important_vars = ["NODE_ENV", "PYTHON_ENV", "GO_ENV", "DEBUG"]
+        env_vars = {
+            var: os.environ.get(var, "")
+            for var in important_vars
+            if os.environ.get(var)
+        }
+        
+        # Найти config файлы
+        config_files = await self._find_config_files()
+        
+        # Определить runtime
+        runtime = await self._detect_runtime()
+        
+        return EnvironmentConfig(
+            env_vars=env_vars,
+            config_files=config_files,
+            runtime=runtime
+        )
+    
+    async def _find_config_files(self) -> list[str]:
+        """Найти config файлы."""
+        patterns = [
+            "*.env",
+            ".env.*",
+            "config.*",
+            "codelab.toml",
+            "package.json",
+            "pyproject.toml",
+        ]
+        
+        files = []
+        for pattern in patterns:
+            matches = glob.glob(os.path.join(self.cwd, pattern))
+            files.extend(matches)
+        
+        return files
+    
+    async def _detect_runtime(self) -> str:
+        """Определить runtime."""
+        if os.path.exists(os.path.join(self.cwd, "package.json")):
+            return "node"
+        elif os.path.exists(os.path.join(self.cwd, "pyproject.toml")):
+            return "python"
+        elif os.path.exists(os.path.join(self.cwd, "go.mod")):
+            return "go"
+        return "unknown"
+    
+    def render_baseline(self, config: EnvironmentConfig) -> str:
+        """Рендер baseline контекста."""
+        parts = ["# Environment\n"]
+        
+        parts.append(f"- **Runtime:** {config.runtime}")
+        
+        if config.env_vars:
+            parts.append("- **Environment Variables:**")
+            for var, value in config.env_vars.items():
+                parts.append(f"  - {var}={value}")
+        
+        if config.config_files:
+            parts.append(f"- **Config Files:** {', '.join(config.config_files)}")
+        
+        return "\n".join(parts)
+    
+    def render_update(self, config: EnvironmentConfig) -> str:
+        """Рендер update."""
+        return f"[Environment updated: {config.runtime}]"
+```
+
+---
+
+## ContextSnapshot
+
+### Назначение
+
+Отслеживание изменений в источниках контекста. Хранит последние известные значения.
+
+### Интерфейс
+
+```python
+class ContextSnapshot:
+    """Отслеживание изменений в context sources."""
+    
+    def __init__(self):
+        self._values: dict[str, Any] = {}
+    
+    def capture(self) -> dict[str, Any]:
+        """Захватить текущее состояние."""
+        return dict(self._values)
+    
+    def get(self, key: str) -> Any | None:
+        """Получить значение по ключу."""
+        return self._values.get(key)
+    
+    def set(self, key: str, value: Any) -> None:
+        """Установить значение."""
+        self._values[key] = value
+    
+    def apply(self, changes: dict[str, Any]) -> None:
+        """Атомарно применить изменения."""
+        self._values.update(changes)
+    
+    def detect_changes(
+        self,
+        sources: dict[str, ContextSource],
+        current_values: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Обнаружить изменения в sources."""
+        changes = {}
+        
+        for key, source in sources.items():
+            current = current_values.get(key)
+            old = self._values.get(key)
+            
+            if old is None:
+                # Новый source
+                changes[key] = current
+            elif source.has_changed(old, current):
+                # Изменилось значение
+                changes[key] = current
+        
+        return changes
+```
+
+---
+
+## ContextEpoch
+
+### Назначение
+
+Immutable baseline контекста. Epoch — это span, в котором baseline остаётся неизменным. Изменения добавляются как mid-conversation messages.
+
+**Зачем нужно:**
+- Консистентность: LLM работает в рамках одного baseline
+- Кэширование: provider может кэшировать baseline
+- История: mid-conversation messages сохраняют историю изменений
+
+### Интерфейс
+
+```python
+@dataclass
+class ContextEpoch:
+    """
+    Immutable baseline контекста.
+    
+    Epoch = span, в котором Baseline System Context остаётся неизменным.
+    Изменения добавляются как Mid-Conversation System Messages.
+    
+    После compaction начинается новый epoch с новым baseline.
+    """
+    
+    baseline: str  # Полный system context на момент начала epoch
+    snapshot: dict[str, Any]  # Snapshot значений всех sources
+    started_at: datetime
+    mid_conversation_messages: list[str] = field(default_factory=list)
+    
+    def add_mid_conversation_message(self, message: str) -> None:
+        """Добавить mid-conversation system message."""
+        self.mid_conversation_messages.append(message)
+    
+    def get_full_context(self) -> str:
+        """
+        Получить полный контекст: baseline + mid-conversation messages.
+        
+        Пример:
+            baseline: "You are a helpful assistant..."
+            mid_conversation_messages: [
+                "[Instructions updated: AGENTS.md]",
+                "[Project updated: TypeScript, NestJS]"
+            ]
+            
+            Result:
+                You are a helpful assistant...
+                
+                [Instructions updated: AGENTS.md]
+                [Project updated: TypeScript, NestJS]
+        """
+        parts = [self.baseline]
+        parts.extend(self.mid_conversation_messages)
+        return "\n\n".join(parts)
+```
+
+### Пример использования
+
+```python
+# Создать epoch
+epoch = ContextEpoch(
+    baseline="# Instructions\n...",
+    snapshot={"instructions": [...], "project": {...}},
+    started_at=datetime.now()
+)
+
+# Добавить mid-conversation message
+epoch.add_mid_conversation_message("[Instructions updated: AGENTS.md]")
+
+# Получить полный контекст
+full_context = epoch.get_full_context()
+# "# Instructions\n...\n\n[Instructions updated: AGENTS.md]"
+```
+
+---
+
+## ContextReconciliation
+
+### Назначение
+
+Согласование изменений: обнаружение изменений и применение их к контексту.
+
+### Интерфейс
+
+```python
+class ContextReconciliation(Enum):
+    """Результат reconciliation."""
+    UNCHANGED = "unchanged"  # Контекст не изменился
+    UPDATED = "updated"      # Есть изменения, нужно добавить mid-conversation message
+    DEFERRED = "deferred"    # Изменения отложены (не безопасная граница)
+
+class ContextManager:
+    async def reconcile(self) -> ContextReconciliation:
+        """
+        Reconcile context at safe provider-turn boundary.
+        
+        Safe boundary = нет pending tool calls, user input promoted.
+        
+        Returns:
+            UNCHANGED — контекст не изменился
+            UPDATED — есть изменения, нужно добавить mid-conversation message
+            DEFERRED — изменения отложены
+        """
+        if not self.snapshot:
+            return ContextReconciliation.UNCHANGED
+        
+        # Проверить безопасную границу
+        if not self.is_safe_boundary():
+            return ContextReconciliation.DEFERRED
+        
+        # Обнаружить изменения
+        changes = await self.registry.detect_changes(self.snapshot)
+        
+        if not changes:
+            return ContextReconciliation.UNCHANGED
+        
+        # Render update message
+        update_msg = await self.registry.render_updates(changes)
+        
+        # Update snapshot atomically
+        self.snapshot.apply(changes)
+        
+        # Add to epoch if available
+        if self.epoch:
+            self.epoch.add_mid_conversation_message(update_msg)
+        
+        return ContextReconciliation.UPDATED
+    
+    def is_safe_boundary(self) -> bool:
+        """
+        Проверить безопасную границу.
+        
+        Safe boundary:
+        - Нет pending tool calls
+        - User input promoted
+        - Tools settled
+        """
+        return (
+            not self.has_pending_tools() and
+            self.input_promoted() and
+            self.tools_settled()
+        )
+```
+
+---
+
+## Интеграция с ContextManager
+
+```python
+class ContextManager:
+    """Единая точка управления контекстом."""
+    
+    def __init__(
+        self,
+        registry: ContextRegistry,
+        snapshot: ContextSnapshot | None = None,
+        epoch: ContextEpoch | None = None,
+        ...
+    ):
+        self.registry = registry
+        self.snapshot = snapshot
+        self.epoch = epoch
+    
+    async def initialize(self, session: SessionState) -> None:
+        """Инициализация контекста для сессии."""
+        # Регистрация sources
+        self.registry.register(InstructionContextSource(session.cwd))
+        self.registry.register(ProjectContextSource(session.cwd, discovery))
+        self.registry.register(EnvironmentContextSource(session.cwd))
+        
+        # Загрузка initial baseline
+        baseline = await self.registry.render_baseline()
+        
+        if self.snapshot:
+            # Захватить snapshot
+            for source in self.registry.get_all():
+                value = await source.load()
+                self.snapshot.set(source.key, value)
+            
+            # Создать epoch
+            self.epoch = ContextEpoch(
+                baseline=baseline,
+                snapshot=self.snapshot.capture(),
+                started_at=datetime.now()
+            )
+    
+    async def build_context(self, session, task):
+        """Собрать контекст для LLM."""
+        # Получить полный контекст из epoch
+        if self.epoch:
+            context = self.epoch.get_full_context()
+        else:
+            context = await self.registry.render_baseline()
+        
+        return [LLMMessage(role="system", content=context)]
+    
+    async def start_new_epoch(self) -> None:
+        """
+        Начать новый epoch после compaction.
+        
+        Вызывается когда история сжимается.
+        """
+        baseline = await self.registry.render_baseline()
+        
+        if self.snapshot:
+            self.epoch = ContextEpoch(
+                baseline=baseline,
+                snapshot=self.snapshot.capture(),
+                started_at=datetime.now()
+            )
+```
+
+---
+
+## Roadmap реализации
+
+### Phase 2: Snapshot Layer (1 неделя)
+
+**Задачи:**
+- [ ] Реализовать `ContextRegistry` с регистрацией sources
+- [ ] Реализовать `ContextSource` base class
+- [ ] Реализовать `InstructionContextSource` (AGENTS.md иерархия)
+- [ ] Реализовать `ProjectContextSource`
+- [ ] Реализовать `EnvironmentContextSource`
+- [ ] Реализовать `ContextSnapshot` с detect_changes
+- [ ] Unit tests
+
+**Результат:** Базовое отслеживание изменений.
+
+### Phase 3: Epoch Layer (1 неделя)
+
+**Задачи:**
+- [ ] Реализовать `ContextEpoch` с baseline + mid-conversation messages
+- [ ] Реализовать `ContextReconciliation`
+- [ ] Реализовать `ContextManager.reconcile()`
+- [ ] Реализовать `ContextManager.start_new_epoch()`
+- [ ] Интеграция с LLMLoopStage
+- [ ] Integration tests
+
+**Результат:** Immutable baseline с историей изменений.
+
+---
+
+## Дополнительные материалы
+
+- [Context Manager Architecture](../context-manager/ARCHITECTURE.md) — детальная архитектура Context Manager
+- [System Architecture](./SYSTEM_ARCHITECTURE.md) — общая архитектура системы
+- [Memory Layer](./MEMORY_LAYER.md) — память между сессиями
+- [Git Awareness](./GIT_AWARENESS.md) — осведомлённость о Git

@@ -61,9 +61,13 @@
 - **[File Intelligence](../system-architecture/FILE_INTELLIGENCE.md)** — ReadRangeStrategy, LargeFileHandler, ContextPruner
 
 #### Advanced
+- **[Context Lifecycle](../system-architecture/CONTEXT_LIFECYCLE.md)** — ContextRegistry, ContextSource, InstructionContextSource, ContextSnapshot
 - **[Memory Layer](../system-architecture/MEMORY_LAYER.md)** — TaskMemory, SessionMemory, ProjectMemory
 - **[Git Awareness](../system-architecture/GIT_AWARENESS.md)** — GitContextSource, GitDiffAnalyzer, GitStatusProvider
 - **[Verification Layer](../system-architecture/VERIFICATION_LAYER.md)** — TestRunner, BuildVerifier, LintVerifier
+
+#### Production Ready
+- **[Context Epoch](../system-architecture/CONTEXT_LIFECYCLE.md#contextepoch)** — ContextEpoch, ContextReconciliation
 
 #### Claude Code / Cursor Level
 - **[Code Understanding](../system-architecture/CODE_UNDERSTANDING.md)** — CodeIndexer, SymbolIndex, ReferenceIndex, CrossFileAnalyzer
