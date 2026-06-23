@@ -9,6 +9,19 @@
 - **[EXAMPLES.md](./EXAMPLES.md)** — практические примеры использования
 - **[INDEX.md](./INDEX.md)** — навигация по документации
 
+### Общая архитектура системы
+
+Context Manager является частью **полной архитектуры CodeLab Agent**. См. **[System Architecture](../system-architecture/SYSTEM_ARCHITECTURE.md)** для понимания места Context Manager в общей системе.
+
+**Связанные слои:**
+- **[Discovery Layer](../system-architecture/DISCOVERY_LAYER.md)** — ProjectDiscovery, SearchEngine (используются ContextGatherer)
+- **[File Intelligence](../system-architecture/FILE_INTELLIGENCE.md)** — ReadRangeStrategy, LargeFileHandler (используются ContextGatherer)
+- **[Memory Layer](../system-architecture/MEMORY_LAYER.md)** — TaskMemory, SessionMemory, ProjectMemory (интегрируются с ContextManager)
+- **[Git Awareness](../system-architecture/GIT_AWARENESS.md)** — GitContextSource (используется ContextRegistry)
+- **[Code Understanding](../system-architecture/CODE_UNDERSTANDING.md)** — CodeIndexer, SymbolIndex (используются ContextGatherer)
+- **[Planning Engine](../system-architecture/PLANNING_ENGINE.md)** — PlanningEngine (использует ContextManager)
+- **[Verification Layer](../system-architecture/VERIFICATION_LAYER.md)** — TestRunner, BuildVerifier (интегрируются с ExecutionEngine)
+
 ## Оглавление
 
 - [Введение](#введение)

@@ -48,6 +48,34 @@
 
 ---
 
+### 🌐 Общая архитектура системы
+
+Если вы хотите понять полную архитектуру CodeLab Agent:
+
+**[System Architecture](../system-architecture/SYSTEM_ARCHITECTURE.md)** — полная архитектура системы
+
+**Слои системы:**
+
+#### Core (MVP)
+- **[Discovery Layer](../system-architecture/DISCOVERY_LAYER.md)** — ProjectDiscovery, SearchEngine
+- **[File Intelligence](../system-architecture/FILE_INTELLIGENCE.md)** — ReadRangeStrategy, LargeFileHandler, ContextPruner
+
+#### Advanced
+- **[Memory Layer](../system-architecture/MEMORY_LAYER.md)** — TaskMemory, SessionMemory, ProjectMemory
+- **[Git Awareness](../system-architecture/GIT_AWARENESS.md)** — GitContextSource, GitDiffAnalyzer, GitStatusProvider
+- **[Verification Layer](../system-architecture/VERIFICATION_LAYER.md)** — TestRunner, BuildVerifier, LintVerifier
+
+#### Claude Code / Cursor Level
+- **[Code Understanding](../system-architecture/CODE_UNDERSTANDING.md)** — CodeIndexer, SymbolIndex, ReferenceIndex, CrossFileAnalyzer
+- **[Planning Engine](../system-architecture/PLANNING_ENGINE.md)** — PlanningEngine, ModificationPlanner, ChangeImpactAnalyzer
+
+#### Ultimate
+- **[Semantic Layer](../system-architecture/SEMANTIC_LAYER.md)** — VectorIndex, RAGProvider, SemanticSearch
+- **[LSP Integration](../system-architecture/LSP_INTEGRATION.md)** — LSPClient, DefinitionResolver, ReferenceResolver, RenameEngine
+- **[Autonomous Reasoning](../system-architecture/AUTONOMOUS_REASONING.md)** — ReflectionEngine, SelfCritiqueEngine, RepairEngine
+
+---
+
 ## 🎯 Ключевые идеи
 
 ### Единый ContextManager
