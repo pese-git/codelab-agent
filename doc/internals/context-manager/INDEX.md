@@ -61,9 +61,10 @@
 - **[File Intelligence](../system-architecture/FILE_INTELLIGENCE.md)** — ReadRangeStrategy, LargeFileHandler, ContextPruner
 
 #### Advanced
-- **[Context Lifecycle](../system-architecture/CONTEXT_LIFECYCLE.md)** — ContextRegistry, ContextSource, InstructionContextSource, ContextSnapshot
+- **[Context Lifecycle](../system-architecture/CONTEXT_LIFECYCLE.md)** — ContextRegistry, ContextSource, InstructionContextSource, SkillContextSource, ContextSnapshot
 - **[Memory Layer](../system-architecture/MEMORY_LAYER.md)** — TaskMemory, SessionMemory, ProjectMemory
 - **[Git Awareness](../system-architecture/GIT_AWARENESS.md)** — GitContextSource, GitDiffAnalyzer, GitStatusProvider
+- **[Skills System](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md)** — SkillRegistry, SkillContextSource, SkillCatalogBuilder
 - **[Verification Layer](../system-architecture/VERIFICATION_LAYER.md)** — TestRunner, BuildVerifier, LintVerifier
 
 #### Production Ready

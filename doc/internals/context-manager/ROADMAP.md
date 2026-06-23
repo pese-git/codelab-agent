@@ -922,9 +922,10 @@ LLM получает контекст
    - `apply()` — применение изменений
 
 3. **Context Sources:**
-   - `InstructionContextSource` (AGENTS.md иерархия)
-   - `ProjectContextSource` (структура проекта)
-   - `GitContextSource` (git status, branch)
+    - `InstructionContextSource` (AGENTS.md иерархия)
+    - `ProjectContextSource` (структура проекта)
+    - `GitContextSource` (git status, branch)
+    - `SkillContextSource` (каталог skills из SkillRegistry)
 
 4. **ContextManager.reconcile():**
    - Обнаружение изменений

@@ -351,7 +351,40 @@ class SkillDeployer:
     def clear(self) -> None: ...
 ```
 
-### 6.6. Tool Handler: skill/load
+### 6.6. SkillContextSource
+
+Интеграция с Context Manager через Context Lifecycle.
+
+```python
+class SkillContextSource(ContextSource[dict[str, SkillDefinition]]):
+    """Адаптер между SkillRegistry и ContextRegistry."""
+    
+    def __init__(self, skill_registry: SkillRegistry) -> None: ...
+    async def load_skills(self) -> dict[str, SkillDefinition]: ...
+    def render_baseline(self, skills: dict[str, SkillDefinition]) -> str: ...
+    def render_update(self, skills: dict[str, SkillDefinition]) -> str: ...
+```
+
+**Назначение:**
+- Предоставляет каталог доступных skills как источник контекста
+- Рендерит baseline для system prompt
+- Отслеживает изменения skills (новые/удалённые)
+- Генерирует mid-conversation updates
+
+**Архитектурное место:**
+```
+ContextManager
+  └─ ContextRegistry
+      ├─ InstructionContextSource
+      ├─ ProjectContextSource
+      ├─ EnvironmentContextSource
+      ├─ GitContextSource
+      └─ SkillContextSource ← интеграция со SkillRegistry
+```
+
+**Документация:** [Context Lifecycle](../../../../../doc/internals/system-architecture/CONTEXT_LIFECYCLE.md#skillcontextsource)
+
+### 6.7. Tool Handler: skill/load
 
 ```python
 def create_skill_load_handler(

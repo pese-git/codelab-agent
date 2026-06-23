@@ -121,6 +121,12 @@ graph TB
         GSP[GitStatusProvider]
     end
 
+    subgraph "Skills System (Production)"
+        SKR[SkillRegistry]
+        SKC[SkillContextSource]
+        SKD[SkillDeployer]
+    end
+
     subgraph "Verification Layer (Production)"
         TestR[TestRunner]
         BV[BuildVerifier]
@@ -198,6 +204,9 @@ graph TB
     
     RE --> SCE
     SCE --> RPE
+    
+    SKR --> SKC
+    SKC --> CR
 
     style "Runtime Layer (Core)" fill:#e1f5ff,stroke:#01579b,stroke-width:2px
     style "Context Layer (Core)" fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
@@ -206,6 +215,7 @@ graph TB
     style "Project Intelligence (Advanced)" fill:#ffebee,stroke:#c62828,stroke-width:2px
     style "Memory Layer (Production)" fill:#e0f2f1,stroke:#00695c,stroke-width:2px
     style "Git Awareness (Production)" fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+    style "Skills System (Production)" fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
     style "Verification Layer (Production)" fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style "Code Understanding (Claude Code Level)" fill:#fff9c4,stroke:#f57f17,stroke-width:2px
     style "Planning Layer (Claude Code Level)" fill:#fff9c4,stroke:#f57f17,stroke-width:2px
@@ -384,6 +394,7 @@ sequenceDiagram
 | `InstructionContextSource` | AGENTS.md иерархия | ✅ [Документация](./CONTEXT_LIFECYCLE.md#instructioncontextsource) |
 | `ProjectContextSource` | Структура проекта | ✅ [Документация](./CONTEXT_LIFECYCLE.md#projectcontextsource) |
 | `EnvironmentContextSource` | Environment variables | ✅ [Документация](./CONTEXT_LIFECYCLE.md#environmentcontextsource) |
+| `SkillContextSource` | Каталог skills | ✅ [Документация](./CONTEXT_LIFECYCLE.md#skillcontextsource) |
 
 #### File Intelligence
 
@@ -422,6 +433,15 @@ sequenceDiagram
 | `GitContextSource` | Git status, branch | ✅ Упомянут |
 | `GitDiffAnalyzer` | Анализ изменений | ❌ Нужно добавить |
 | `GitStatusProvider` | Git status provider | ❌ Нужно добавить |
+
+#### Skills System
+
+| Компонент | Назначение | Статус |
+|-----------|------------|--------|
+| `SkillRegistry` | Реестр skills | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
+| `SkillContextSource` | Каталог skills как контекст | ✅ [Документация](./CONTEXT_LIFECYCLE.md#skillcontextsource) |
+| `SkillDeployer` | Деплой ресурсов skills | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
+| `SkillCatalogBuilder` | Построение каталога | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
 
 #### Verification
 
@@ -645,6 +665,9 @@ class ContextManager:
 ❌ ConversationSummarizer (нужно добавить)
 ❌ GitContextSource (нужно добавить)
 ❌ GitDiffAnalyzer (нужно добавить)
+❌ SkillRegistry (нужно добавить)
+❌ SkillContextSource (нужно добавить)
+❌ SkillDeployer (нужно добавить)
 ❌ TestRunner (нужно добавить)
 ❌ BuildVerifier (нужно добавить)
 ❌ LintVerifier (нужно добавить)
@@ -652,6 +675,7 @@ class ContextManager:
 
 **Документация:**
 - ❌ [GIT_AWARENESS.md](./GIT_AWARENESS.md) — GitDiffAnalyzer, GitStatusProvider
+- ❌ [Skills System Spec](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) — SkillRegistry, SkillContextSource, SkillDeployer
 - ❌ [VERIFICATION_LAYER.md](./VERIFICATION_LAYER.md) — TestRunner, BuildVerifier, LintVerifier
 - ❌ [MEMORY_LAYER.md](./MEMORY_LAYER.md) — TaskMemory, SessionMemory, ProjectMemory
 
