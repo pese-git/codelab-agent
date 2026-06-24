@@ -44,6 +44,7 @@ src/codelab/server/agent/context/
 ├── # Слой 1: Утилиты (ABC + реализации)
 ├── token_counter.py               # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
 ├── ast_skeletonizer.py            # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+├── file_cache.py                  # FileContentCache(ABC), InMemoryFileCache, SessionFileCacheRegistry
 │
 ├── # Слой 2: Сжатие (ABC + реализация)
 ├── compactor.py                   # ContextCompactor(ABC), DefaultContextCompactor
@@ -54,15 +55,24 @@ src/codelab/server/agent/context/
 ├── manager.py                     # ContextManager(ABC), FederatedContextManager
 └── cache.py                       # ACPCache
 
+src/codelab/server/tools/executors/decorators/
+├── base.py                        # ToolExecutorDecorator (существующий)
+├── cache_invalidation.py          # CacheInvalidationDecorator (NEW)
+└── ...
+
 tests/server/agent/context/
 ├── __init__.py
 ├── test_token_counter.py          # Слой 1
 ├── test_ast_skeletonizer.py       # Слой 1
+├── test_file_cache.py             # Слой 1
 ├── test_compactor.py              # Слой 2
 ├── test_items.py                  # Слой 3
 ├── test_scope.py                  # Слой 3
 ├── test_manager.py                # Слой 3
 └── test_cache.py                  # Слой 3
+
+tests/server/tools/executors/decorators/
+└── test_cache_invalidation.py     # Decorator
 ```
 
 ### 1.3. Минимальный пример
@@ -160,6 +170,9 @@ graph TB
 |------|-----|------------|---------|
 | 1 | `TokenCounter` | `TiktokenCounter`, `ApproximateTokenCounter` | Strategy |
 | 1 | `CodeSkeletonizer` | `PythonASTSkeletonizer` | Strategy |
+| 1 | `FileContentCache` | `InMemoryFileCache` | Repository |
+| 1 | `SessionFileCacheRegistry` | — | Registry |
+| 1 | `CacheInvalidationDecorator` | — | Decorator |
 | 2 | `ContextCompactor` | `DefaultContextCompactor` | Template Method, Composite |
 | 3 | `ContextManager` | `FederatedContextManager` | Mediator, Facade |
 
@@ -486,6 +499,319 @@ class TestTokenCounter:
         content = "x" * 100
         if not counter.has_tiktoken:
             assert counter.count(content) == 25
+```
+
+---
+
+### Шаг 2.5: Слой 1 — FileContentCache и SessionFileCacheRegistry
+
+**Файл:** `src/codelab/server/agent/context/file_cache.py`
+
+```python
+"""FileContentCache — кэш содержимого файлов (Слой 1)."""
+
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from collections import OrderedDict
+
+logger = logging.getLogger(__name__)
+
+
+class FileContentCache(ABC):
+    """Абстракция для кэша содержимого файлов.
+    
+    Паттерн: Repository — инкапсулирует хранение кэшированных данных.
+    """
+    
+    @abstractmethod
+    def get(self, path: str) -> str | None:
+        """Получить содержимое файла из кэша."""
+        ...
+    
+    @abstractmethod
+    def set(self, path: str, content: str) -> None:
+        """Сохранить содержимое файла в кэш."""
+        ...
+    
+    @abstractmethod
+    def invalidate(self, path: str) -> None:
+        """Инвалидировать запись в кэше."""
+        ...
+    
+    @abstractmethod
+    def clear(self) -> None:
+        """Очистить весь кэш."""
+        ...
+
+
+class InMemoryFileCache(FileContentCache):
+    """In-Memory реализация с LRU eviction."""
+    
+    def __init__(self, max_size: int = 1000) -> None:
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._max_size = max_size
+    
+    def get(self, path: str) -> str | None:
+        if path in self._cache:
+            self._cache.move_to_end(path)  # LRU
+            return self._cache[path]
+        return None
+    
+    def set(self, path: str, content: str) -> None:
+        if path in self._cache:
+            self._cache.move_to_end(path)
+        self._cache[path] = content
+        if len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)  # evict oldest
+    
+    def invalidate(self, path: str) -> None:
+        self._cache.pop(path, None)
+    
+    def clear(self) -> None:
+        self._cache.clear()
+
+
+class SessionFileCacheRegistry:
+    """Реестр кэшей файлов по сессиям.
+    
+    Паттерн: Registry (как ToolRegistry, AgentRegistry).
+    Каждая сессия имеет свой изолированный кэш.
+    """
+    
+    def __init__(self, max_cache_size: int = 1000) -> None:
+        self._caches: dict[str, FileContentCache] = {}
+        self._max_cache_size = max_cache_size
+    
+    def get_or_create(self, session_id: str) -> FileContentCache:
+        """Получить или создать кэш для сессии."""
+        if session_id not in self._caches:
+            self._caches[session_id] = InMemoryFileCache(
+                max_size=self._max_cache_size,
+            )
+        return self._caches[session_id]
+    
+    def get(self, session_id: str) -> FileContentCache | None:
+        """Получить кэш сессии (None если не существует)."""
+        return self._caches.get(session_id)
+    
+    def remove(self, session_id: str) -> None:
+        """Удалить кэш сессии (при удалении сессии)."""
+        cache = self._caches.pop(session_id, None)
+        if cache:
+            cache.clear()
+    
+    def clear(self) -> None:
+        """Очистить все кэши (graceful shutdown)."""
+        for cache in self._caches.values():
+            cache.clear()
+        self._caches.clear()
+```
+
+**Тесты:** `tests/server/agent/context/test_file_cache.py`
+
+```python
+import pytest
+from codelab.server.agent.context.file_cache import (
+    FileContentCache,
+    InMemoryFileCache,
+    SessionFileCacheRegistry,
+)
+
+
+class TestInMemoryFileCache:
+    def test_get_miss(self):
+        cache = InMemoryFileCache()
+        assert cache.get("nonexistent.py") is None
+    
+    def test_set_and_get(self):
+        cache = InMemoryFileCache()
+        cache.set("test.py", "content")
+        assert cache.get("test.py") == "content"
+    
+    def test_invalidate(self):
+        cache = InMemoryFileCache()
+        cache.set("test.py", "content")
+        cache.invalidate("test.py")
+        assert cache.get("test.py") is None
+    
+    def test_lru_eviction(self):
+        cache = InMemoryFileCache(max_size=2)
+        cache.set("a.py", "a")
+        cache.set("b.py", "b")
+        cache.set("c.py", "c")  # evicts a.py
+        assert cache.get("a.py") is None
+        assert cache.get("b.py") == "b"
+        assert cache.get("c.py") == "c"
+
+
+class TestSessionFileCacheRegistry:
+    def test_get_or_create(self):
+        registry = SessionFileCacheRegistry()
+        cache = registry.get_or_create("session_1")
+        assert isinstance(cache, FileContentCache)
+    
+    def test_same_session_same_cache(self):
+        registry = SessionFileCacheRegistry()
+        cache1 = registry.get_or_create("session_1")
+        cache2 = registry.get_or_create("session_1")
+        assert cache1 is cache2
+    
+    def test_different_sessions_different_caches(self):
+        registry = SessionFileCacheRegistry()
+        cache1 = registry.get_or_create("session_1")
+        cache2 = registry.get_or_create("session_2")
+        assert cache1 is not cache2
+    
+    def test_remove_session(self):
+        registry = SessionFileCacheRegistry()
+        cache = registry.get_or_create("session_1")
+        cache.set("test.py", "content")
+        registry.remove("session_1")
+        assert registry.get("session_1") is None
+```
+
+---
+
+### Шаг 2.6: CacheInvalidationDecorator (Decorator Pattern)
+
+**Файл:** `src/codelab/server/tools/executors/decorators/cache_invalidation.py`
+
+```python
+"""CacheInvalidationDecorator — инвалидация кэша при записи файлов."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import structlog
+
+from codelab.server.agent.context.file_cache import FileContentCache
+from codelab.server.protocol.state import SessionState
+from codelab.server.tools.base import ToolExecutionResult
+from codelab.server.tools.executors.decorators.base import (
+    ToolExecutorDecorator,
+    ToolExecutorProtocol,
+)
+
+logger = structlog.get_logger()
+
+
+class CacheInvalidationDecorator(ToolExecutorDecorator):
+    """Инвалидация кэша файлов при записи.
+    
+    Паттерн: Decorator (соответствует существующей архитектуре).
+    Отслеживает write-операции и инвалидирует кэш для изменённых файлов.
+    """
+    
+    _WRITE_OPERATIONS = frozenset({"write"})
+    
+    def __init__(
+        self,
+        wrapped: ToolExecutorProtocol,
+        file_cache: FileContentCache,
+    ) -> None:
+        super().__init__(wrapped)
+        self._file_cache = file_cache
+    
+    async def execute(
+        self,
+        session: SessionState,
+        arguments: dict[str, Any],
+    ) -> ToolExecutionResult:
+        result = await self._wrapped.execute(session, arguments)
+        
+        # Инвалидация ТОЛЬКО при успешной записи
+        if result.success and self._is_write_operation(arguments):
+            path = arguments.get("path", "")
+            if path:
+                self._file_cache.invalidate(path)
+                logger.debug(
+                    "file_cache_invalidated",
+                    session_id=session.session_id,
+                    path=path,
+                )
+        
+        return result
+    
+    @staticmethod
+    def _is_write_operation(arguments: dict[str, Any]) -> bool:
+        return arguments.get("operation") in CacheInvalidationDecorator._WRITE_OPERATIONS
+```
+
+**Тесты:** `tests/server/tools/executors/decorators/test_cache_invalidation.py`
+
+```python
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from codelab.server.agent.context.file_cache import InMemoryFileCache
+from codelab.server.tools.base import ToolExecutionResult
+from codelab.server.tools.executors.decorators.cache_invalidation import (
+    CacheInvalidationDecorator,
+)
+
+
+class TestCacheInvalidationDecorator:
+    @pytest.fixture
+    def mock_executor(self):
+        executor = MagicMock()
+        executor.execute = AsyncMock()
+        return executor
+    
+    @pytest.fixture
+    def file_cache(self):
+        return InMemoryFileCache()
+    
+    async def test_write_invalidates_cache(self, mock_executor, file_cache):
+        # Подготовка
+        file_cache.set("test.py", "old content")
+        mock_executor.execute.return_value = ToolExecutionResult(success=True)
+        
+        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
+        
+        # Выполнение
+        result = await decorator.execute(
+            session=MagicMock(),
+            arguments={"operation": "write", "path": "test.py"},
+        )
+        
+        # Проверка
+        assert result.success
+        assert file_cache.get("test.py") is None
+    
+    async def test_read_does_not_invalidate(self, mock_executor, file_cache):
+        # Подготовка
+        file_cache.set("test.py", "content")
+        mock_executor.execute.return_value = ToolExecutionResult(success=True)
+        
+        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
+        
+        # Выполнение
+        await decorator.execute(
+            session=MagicMock(),
+            arguments={"operation": "read", "path": "test.py"},
+        )
+        
+        # Проверка — кэш НЕ инвалидирован
+        assert file_cache.get("test.py") == "content"
+    
+    async def test_failed_write_does_not_invalidate(self, mock_executor, file_cache):
+        # Подготовка
+        file_cache.set("test.py", "content")
+        mock_executor.execute.return_value = ToolExecutionResult(success=False)
+        
+        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
+        
+        # Выполнение
+        await decorator.execute(
+            session=MagicMock(),
+            arguments={"operation": "write", "path": "test.py"},
+        )
+        
+        # Проверка — кэш НЕ инвалидирован (запись не удалась)
+        assert file_cache.get("test.py") == "content"
 ```
 
 ---

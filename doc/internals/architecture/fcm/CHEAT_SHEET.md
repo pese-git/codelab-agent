@@ -1,6 +1,6 @@
 # Federated Context Manager — Cheat Sheet
 
-> Быстрая шпаргалка для разработчиков (v2.0 — слоистая архитектура + ABC)
+> Быстрая шпаргалка для разработчиков (v2.1 — слоистая архитектура + ABC + FileContentCache)
 
 ---
 
@@ -18,6 +18,11 @@ from codelab.server.agent.context.ast_skeletonizer import (
     CodeSkeletonizer,          # ABC
     PythonASTSkeletonizer,     # Реализация
 )
+from codelab.server.agent.context.file_cache import (
+    FileContentCache,          # ABC (Repository)
+    InMemoryFileCache,         # Реализация (LRU)
+    SessionFileCacheRegistry,  # Registry (кэши по сессиям)
+)
 
 # Слой 2: Сжатие
 from codelab.server.agent.context.compactor import (
@@ -32,6 +37,11 @@ from codelab.server.agent.context.manager import (
 )
 from codelab.server.agent.context.items import ContextItem, ContextType
 from codelab.server.agent.context.scope import AgentContextScope
+
+# Decorators
+from codelab.server.tools.executors.decorators.cache_invalidation import (
+    CacheInvalidationDecorator,  # Инвалидация кэша при записи
+)
 ```
 
 ---
@@ -44,6 +54,8 @@ from codelab.server.agent.context.scope import AgentContextScope
 # Слой 1: Утилиты
 token_counter = create_token_counter()  # Factory Method
 skeletonizer = PythonASTSkeletonizer()
+file_cache = InMemoryFileCache(max_size=1000)
+cache_registry = SessionFileCacheRegistry(max_cache_size=1000)
 
 # Слой 2: Сжатие
 compactor = DefaultContextCompactor(
@@ -55,12 +67,48 @@ compactor = DefaultContextCompactor(
 
 # Слой 3: Оркестрация
 fcm = FederatedContextManager(
-    event_bus=event_bus,      # опционально
-    tracer=tracer,            # опционально
     token_counter=token_counter,
     skeletonizer=skeletonizer,
     compactor=compactor,
+    file_cache=file_cache,
 )
+```
+
+### FileContentCache
+
+```python
+# Получить кэш для сессии
+cache = cache_registry.get_or_create(session_id="session_123")
+
+# Кэширование файла
+cache.set("src/db.py", "class Database: ...")
+
+# Получение из кэша
+content = cache.get("src/db.py")  # "class Database: ..." или None
+
+# Инвалидация при записи
+cache.invalidate("src/db.py")
+
+# Очистка кэша сессии
+cache_registry.remove(session_id="session_123")
+```
+
+### CacheInvalidationDecorator
+
+```python
+# Создание chain of decorators (в DI или factory)
+from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
+from codelab.server.tools.executors.decorators.cache_invalidation import CacheInvalidationDecorator
+
+base_executor = FileSystemToolExecutor(bridge, permission_checker)
+executor_with_cache = CacheInvalidationDecorator(base_executor, file_cache=cache)
+
+# Теперь при успешной записи кэш автоматически инвалидируется
+result = await executor_with_cache.execute(
+    session=session,
+    arguments={"operation": "write", "path": "src/db.py", "content": "..."},
+)
+# Кэш для "src/db.py" инвалидирован автоматически
 ```
 
 ### Работа со скоупами

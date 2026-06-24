@@ -182,22 +182,36 @@ graph TB
     subgraph Layer1["Слой 1: Утилиты (Low-level)"]
         TC["TokenCounter<br/>(ABC)"]
         SK["CodeSkeletonizer<br/>(ABC)"]
+        FCC["FileContentCache<br/>(ABC)"]
         
         TCImpl["TiktokenCounter<br/>ApproximateTokenCounter"]
         SKImpl["PythonASTSkeletonizer"]
+        FCCImpl["InMemoryFileCache"]
+        SFCC["SessionFileCacheRegistry"]
         
         TCImpl -.->|"extends"| TC
         SKImpl -.->|"extends"| SK
+        FCCImpl -.->|"extends"| FCC
+        SFCC -->|"управляет"| FCC
+    end
+    
+    subgraph Decorators["ToolExecutor Decorators"]
+        CID["CacheInvalidationDecorator"]
+        CID -->|"использует"| FCC
     end
     
     FCM -->|"использует"| CC
     FCM -->|"использует"| TC
+    FCM -->|"использует"| FCC
     DCC -->|"использует"| TC
     DCC -->|"использует"| SK
+    EE["ExecutionEngine"] -->|"использует"| CC
+    EE -->|"использует"| FCC
     
     style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
     style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+    style Decorators fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
 ```
 
 ### 3.2. Слой 1: Утилиты (Low-level)
@@ -208,11 +222,177 @@ graph TB
 |-----------|-----|------------|---------|
 | `TokenCounter` | Подсчёт токенов | `TiktokenCounter`, `ApproximateTokenCounter` | Strategy |
 | `CodeSkeletonizer` | Сжатие кода | `PythonASTSkeletonizer` | Strategy |
+| `FileContentCache` | Кэш содержимого файлов | `InMemoryFileCache` | Repository |
+| `SessionFileCacheRegistry` | Реестр кэшей по сессиям | — | Registry |
 
 **Принципы:**
 - Не зависят от других слоёв
 - Не знают о скоупах, агентах, истории
 - Тестируются изолированно
+
+#### FileContentCache
+
+Кэш содержимого файлов для предотвращения повторных RPC запросов к клиенту.
+
+```python
+class FileContentCache(ABC):
+    """Абстракция для кэша содержимого файлов.
+    
+    Паттерн: Repository — инкапсулирует хранение кэшированных данных.
+    """
+    
+    @abstractmethod
+    def get(self, path: str) -> str | None: ...
+    
+    @abstractmethod
+    def set(self, path: str, content: str) -> None: ...
+    
+    @abstractmethod
+    def invalidate(self, path: str) -> None: ...
+    
+    @abstractmethod
+    def clear(self) -> None: ...
+
+
+class InMemoryFileCache(FileContentCache):
+    """In-Memory реализация с LRU eviction."""
+    
+    def __init__(self, max_size: int = 1000) -> None:
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._max_size = max_size
+    
+    def get(self, path: str) -> str | None:
+        if path in self._cache:
+            self._cache.move_to_end(path)  # LRU
+            return self._cache[path]
+        return None
+    
+    def set(self, path: str, content: str) -> None:
+        if path in self._cache:
+            self._cache.move_to_end(path)
+        self._cache[path] = content
+        if len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)  # evict oldest
+    
+    def invalidate(self, path: str) -> None:
+        self._cache.pop(path, None)
+    
+    def clear(self) -> None:
+        self._cache.clear()
+```
+
+#### SessionFileCacheRegistry
+
+Реестр кэшей файлов, привязанный к сессиям. Каждая сессия имеет свой изолированный кэш.
+
+```python
+class SessionFileCacheRegistry:
+    """Реестр кэшей файлов по сессиям.
+    
+    Паттерн: Registry (как ToolRegistry, AgentRegistry).
+    
+    Lifecycle:
+    - session/new → get_or_create() → новый кэш
+    - session/delete → remove() → кэш удалён
+    """
+    
+    def __init__(self, max_cache_size: int = 1000) -> None:
+        self._caches: dict[str, FileContentCache] = {}
+        self._max_cache_size = max_cache_size
+    
+    def get_or_create(self, session_id: str) -> FileContentCache:
+        """Получить или создать кэш для сессии."""
+        if session_id not in self._caches:
+            self._caches[session_id] = InMemoryFileCache(
+                max_size=self._max_cache_size,
+            )
+        return self._caches[session_id]
+    
+    def get(self, session_id: str) -> FileContentCache | None:
+        """Получить кэш сессии (None если не существует)."""
+        return self._caches.get(session_id)
+    
+    def remove(self, session_id: str) -> None:
+        """Удалить кэш сессии (при удалении сессии)."""
+        cache = self._caches.pop(session_id, None)
+        if cache:
+            cache.clear()
+    
+    def clear(self) -> None:
+        """Очистить все кэши (graceful shutdown)."""
+        for cache in self._caches.values():
+            cache.clear()
+        self._caches.clear()
+```
+
+#### CacheInvalidationDecorator
+
+Декоратор для `ToolExecutor`, обеспечивающий инвалидацию кэша при записи файлов.
+
+```mermaid
+graph LR
+    subgraph Chain["Chain of Decorators"]
+        Base["FileSystemToolExecutor"]
+        CID["CacheInvalidationDecorator<br/>(NEW)"]
+        Metrics["MetricsDecorator"]
+        Tracing["TracingDecorator"]
+        
+        Base --> CID
+        CID --> Metrics
+        Metrics --> Tracing
+    end
+    
+    style Chain fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+```python
+class CacheInvalidationDecorator(ToolExecutorDecorator):
+    """Инвалидация кэша файлов при записи.
+    
+    Паттерн: Decorator (соответствует существующей архитектуре).
+    Отслеживает write-операции и инвалидирует кэш для изменённых файлов.
+    
+    Отвечает ТОЛЬКО за инвалидацию — не за чтение, не за кэширование.
+    """
+    
+    _WRITE_OPERATIONS = frozenset({"write"})
+    
+    def __init__(
+        self,
+        wrapped: ToolExecutorProtocol,
+        file_cache: FileContentCache,
+    ) -> None:
+        super().__init__(wrapped)
+        self._file_cache = file_cache
+    
+    async def execute(
+        self,
+        session: SessionState,
+        arguments: dict[str, Any],
+    ) -> ToolExecutionResult:
+        result = await self._wrapped.execute(session, arguments)
+        
+        # Инвалидация ТОЛЬКО при успешной записи
+        if result.success and self._is_write_operation(arguments):
+            path = arguments.get("path", "")
+            if path:
+                self._file_cache.invalidate(path)
+        
+        return result
+    
+    @staticmethod
+    def _is_write_operation(arguments: dict[str, Any]) -> bool:
+        return arguments.get("operation") in CacheInvalidationDecorator._WRITE_OPERATIONS
+```
+
+**Почему Decorator?**
+
+| Критерий | Decorator | Прямая модификация Executor |
+|----------|-----------|---------------------------|
+| **SRP** | ✅ Executor не знает о кэше | ❌ Executor зависит от кэша |
+| **OCP** | ✅ Не меняем существующий код | ❌ Меняем существующий код |
+| **Стиль проекта** | ✅ Уже есть 4 декоратора | ❌ Нет такого паттерна |
+| **Тестируемость** | ✅ Изолированный тест | ⚠️ Нужно мокать executor |
 
 ### 3.3. Слой 2: Сжатие (Mid-level)
 
@@ -260,6 +440,7 @@ src/codelab/server/agent/context/
 ├── # Слой 1: Утилиты (ABC + реализации)
 ├── token_counter.py               # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
 ├── ast_skeletonizer.py            # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+├── file_cache.py                  # FileContentCache(ABC), InMemoryFileCache, SessionFileCacheRegistry
 │
 ├── # Слой 2: Сжатие (ABC + реализация)
 ├── compactor.py                   # ContextCompactor(ABC), DefaultContextCompactor
@@ -268,7 +449,15 @@ src/codelab/server/agent/context/
 ├── items.py                       # ContextItem, ContextType (dataclasses)
 ├── scope.py                       # AgentContextScope
 ├── manager.py                     # ContextManager(ABC), FederatedContextManager
-└── cache.py                       # ACPCache
+└── cache.py                       # ACPCache (для FCM — кэш межагентского шеринга)
+
+src/codelab/server/tools/executors/decorators/
+├── base.py                        # ToolExecutorDecorator (существующий)
+├── metrics.py                     # MetricsDecorator (существующий)
+├── timeout.py                     # TimeoutDecorator (существующий)
+├── retry.py                       # RetryDecorator (существующий)
+├── tracing.py                     # TracingDecorator (существующий)
+└── cache_invalidation.py          # CacheInvalidationDecorator (NEW)
 ```
 
 ### 3.6. Почему ABC, а не Protocol?
@@ -406,6 +595,9 @@ def create_token_counter() -> TokenCounter:
 | Паттерн | Слой | Компонент | Назначение |
 |---------|------|-----------|------------|
 | **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` | Семейство алгоритмов |
+| **Repository** | 1 | `FileContentCache` | Инкапсуляция кэша файлов |
+| **Registry** | 1 | `SessionFileCacheRegistry` | Управление кэшами по сессиям |
+| **Decorator** | 1 | `CacheInvalidationDecorator` | Инвалидация кэша при записи |
 | **Template Method** | 2 | `ContextCompactor` | Скелет алгоритма |
 | **Composite** | 2 | `DefaultContextCompactor` | Композиция стратегий |
 | **Mediator** | 3 | `FederatedContextManager` | Координация агентов |

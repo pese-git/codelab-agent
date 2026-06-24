@@ -1,8 +1,13 @@
 # Federated Context Manager — Документация
 
 > **Статус:** Design Document  
-> **Версия:** 2.0  
+> **Версия:** 2.1  
 > **Дата:** 24 июня 2026
+> 
+> **Изменения в v2.1:**
+> - Добавлен `FileContentCache` — кэш содержимого файлов (Слой 1)
+> - Добавлен `SessionFileCacheRegistry` — реестр кэшей по сессиям
+> - Добавлен `CacheInvalidationDecorator` — инвалидация кэша при записи
 > 
 > **Изменения в v2.0:**
 > - Слоистая архитектура (Layer 1/2/3)
@@ -15,7 +20,7 @@
 
 Federated Context Manager (FCM) — компонент для управления контекстом в мультиагентной системе CodeLab. Решает проблемы дублирования RPC запросов, потери контекста при сжатии и отсутствия приоритетов.
 
-## Архитектура (v2.0)
+## Архитектура (v2.1)
 
 ```mermaid
 graph TB
@@ -32,18 +37,28 @@ graph TB
     subgraph Layer1["Слой 1: Утилиты"]
         TC["TokenCounter(ABC)"]
         SK["CodeSkeletonizer(ABC)"]
+        FCC["FileContentCache(ABC)"]
+        SFCC["SessionFileCacheRegistry"]
+    end
+    
+    subgraph Decorators["ToolExecutor Decorators"]
+        CID["CacheInvalidationDecorator"]
     end
     
     FCM -.->|"extends"| CM
     DCC -.->|"extends"| CC
     FCM -->|"использует"| CC
     FCM -->|"использует"| TC
+    FCM -->|"использует"| FCC
     DCC -->|"использует"| TC
     DCC -->|"использует"| SK
+    CID -->|"использует"| FCC
+    SFCC -->|"управляет"| FCC
     
     style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
     style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+    style Decorators fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
 ```
 
 ## Паттерны проектирования
@@ -51,6 +66,9 @@ graph TB
 | Паттерн | Слой | Компонент |
 |---------|------|-----------|
 | **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` |
+| **Repository** | 1 | `FileContentCache` |
+| **Registry** | 1 | `SessionFileCacheRegistry` |
+| **Decorator** | 1 | `CacheInvalidationDecorator` |
 | **Template Method** | 2 | `ContextCompactor` |
 | **Composite** | 2 | `DefaultContextCompactor` |
 | **Mediator** | 3 | `FederatedContextManager` |
@@ -79,12 +97,15 @@ graph TB
 ```python
 from codelab.server.agent.context.token_counter import create_token_counter
 from codelab.server.agent.context.ast_skeletonizer import PythonASTSkeletonizer
+from codelab.server.agent.context.file_cache import InMemoryFileCache, SessionFileCacheRegistry
 from codelab.server.agent.context.compactor import DefaultContextCompactor
 from codelab.server.agent.context.manager import FederatedContextManager
 
 # Слой 1: Утилиты
 token_counter = create_token_counter()
 skeletonizer = PythonASTSkeletonizer()
+cache_registry = SessionFileCacheRegistry()
+file_cache = cache_registry.get_or_create("session_123")
 
 # Слой 2: Сжатие
 compactor = DefaultContextCompactor(
@@ -97,6 +118,7 @@ fcm = FederatedContextManager(
     token_counter=token_counter,
     skeletonizer=skeletonizer,
     compactor=compactor,
+    file_cache=file_cache,
 )
 
 # Использование
@@ -114,6 +136,7 @@ src/codelab/server/agent/context/
 ├── # Слой 1: Утилиты
 ├── token_counter.py          # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
 ├── ast_skeletonizer.py       # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+├── file_cache.py             # FileContentCache(ABC), InMemoryFileCache, SessionFileCacheRegistry
 │
 ├── # Слой 2: Сжатие
 ├── compactor.py              # ContextCompactor(ABC), DefaultContextCompactor
@@ -123,14 +146,19 @@ src/codelab/server/agent/context/
 ├── scope.py                  # AgentContextScope
 ├── manager.py                # ContextManager(ABC), FederatedContextManager
 └── cache.py                  # ACPCache
+
+src/codelab/server/tools/executors/decorators/
+└── cache_invalidation.py     # CacheInvalidationDecorator (NEW)
 ```
 
 ## Путь внедрения
 
-1. **Слой 1 — Утилиты:** `TokenCounter`, `CodeSkeletonizer` (Strategy Pattern)
-2. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
-3. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
-4. **Интеграция:** `ExecutionEngine`, стратегии (Orchestrated, Hierarchical)
+1. **Слой 1 — Утилиты:** `TokenCounter`, `CodeSkeletonizer`, `FileContentCache` (Strategy, Repository)
+2. **Слой 1 — Registry:** `SessionFileCacheRegistry` (Registry)
+3. **Слой 1 — Decorator:** `CacheInvalidationDecorator` (Decorator)
+4. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
+5. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
+6. **Интеграция:** `ExecutionEngine`, стратегии (Orchestrated, Hierarchical)
 
 Подробности в [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md).
 
