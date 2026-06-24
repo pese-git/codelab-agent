@@ -1,9 +1,15 @@
 # Federated Context Manager — Архитектура и интеграция
 
-> **Версия:** 1.0  
+> **Версия:** 2.0  
 > **Дата:** 24 июня 2026  
 > **Статус:** Design Document  
 > **PoC:** См. документ "Техническое задание и Архитектурный дизайн: Федеративный Менеджер Контекста"
+> 
+> **Изменения в v2.0:**
+> - Слоистая архитектура (Layer 1/2/3)
+> - ABC вместо Protocol (соответствие стилю проекта)
+> - Паттерны проектирования: Strategy, Template Method, Composite, Mediator, Factory Method
+> - Перенос `ContextCompactor` в `context/compactor.py`
 
 ---
 
@@ -11,8 +17,8 @@
 
 1. [Введение](#1-введение)
 2. [Обзор проблемы](#2-обзор-проблемы)
-3. [Архитектурные принципы](#3-архитектурные-принципы)
-4. [Общая архитектура](#4-общая-архитектура)
+3. [Слоистая архитектура](#3-слоистая-архитектура)
+4. [Паттерны проектирования](#4-паттерны-проектирования)
 5. [Подсистемы FCM](#5-подсистемы-fcm)
 6. [Интеграция с существующими компонентами](#6-интеграция-с-существующими-компонентами)
 7. [Путь внедрения](#7-путь-внедрения)
@@ -151,91 +157,514 @@ graph TB
 
 ---
 
-## 3. Архитектурные принципы
+## 3. Слоистая архитектура
 
-### 3.1. Принципы проектирования FCM
+### 3.1. Обзор слоёв
 
-| Принцип | Описание | Применение |
-|---------|----------|------------|
-| **Изоляция** | Каждый агент имеет свой скоуп с независимым контекстом | `AgentContextScope` |
-| **Шеринг без копирования** | Данные передаются по ссылке в RAM | `share_item()` |
-| **Приоритизация** | Элементы имеют приоритет (0-10+), критические не вытесняются | `ContextItem.priority` |
-| **Ленивая загрузка** | LLM может запросить полный код через инструмент | `tool_hydrate_context_item` |
-| **Совместимость** | FCM — опциональное расширение, не ломает существующий код | Feature flag |
-
-### 3.2. Ограничения
-
-| Ограничение | Обоснование |
-|-------------|-------------|
-| **In-Memory только** | Соответствует Zero-FS Access принципу ACP |
-| **Python 3.12+** | Использование современных type hints |
-| **Async-first** | Все операции асинхронные для совместимости с EventBus |
-| **Frozen dataclass** | Immutable контракты для безопасности |
-
----
-
-## 4. Общая архитектура
-
-### 4.1. Диаграмма компонентов
+FCM организован в три слоя с чётким разделением ответственностей. Каждый слой зависит только от нижележащих слоёв (Dependency Rule).
 
 ```mermaid
 graph TB
-    subgraph FCM["Federated Context Manager"]
-        direction TB
+    subgraph Layer3["Слой 3: Оркестрация (High-level)"]
+        CM["ContextManager<br/>(ABC)"]
+        FCM["FederatedContextManager<br/>(реализация)"]
         
-        subgraph Core["Ядро"]
-            Manager["FederatedContextManager<br/>(глобальный координатор)"]
-        end
-        
-        subgraph Scopes["Scope Management"]
-            Scope["AgentContextScope<br/>(изолированная область агента)"]
-            Registry["ScopeRegistry<br/>(реестр скоупов)"]
-        end
-        
-        subgraph Items["Context Items"]
-            Item["ContextItem<br/>(единица информации)"]
-            ItemType["ContextType<br/>(file_content, agent_report, ...)"]
-        end
-        
-        subgraph Optimization["Оптимизация"]
-            Skeletonizer["ASTSkeletonizer<br/>(сжатие кода)"]
-            TokenCounter["TokenCounter<br/>(точный подсчёт)"]
-            PriorityScorer["PriorityScorer<br/>(ранжирование)"]
-        end
-        
-        subgraph Bridge["Shared Memory Bridge"]
-            ShareOp["share_item()<br/>(межагентский шеринг)"]
-            Cache["ACPCache<br/>(кэш RPC ответов)"]
-        end
+        FCM -.->|"extends"| CM
     end
     
-    subgraph Integration["Точки интеграции"]
-        Engine["ExecutionEngine"]
-        Compactor["ContextCompactor"]
-        EventBus["AgentEventBus"]
-        Strategies["Стратегии"]
+    subgraph Layer2["Слой 2: Сжатие (Mid-level)"]
+        CC["ContextCompactor<br/>(ABC)"]
+        DCC["DefaultContextCompactor<br/>(реализация)"]
+        
+        DCC -.->|"extends"| CC
     end
     
-    Manager --> Scope
-    Manager --> Item
-    Manager --> ShareOp
-    Scope --> Item
-    Item --> Skeletonizer
-    Item --> TokenCounter
-    Manager --> PriorityScorer
-    Cache --> Manager
+    subgraph Layer1["Слой 1: Утилиты (Low-level)"]
+        TC["TokenCounter<br/>(ABC)"]
+        SK["CodeSkeletonizer<br/>(ABC)"]
+        
+        TCImpl["TiktokenCounter<br/>ApproximateTokenCounter"]
+        SKImpl["PythonASTSkeletonizer"]
+        
+        TCImpl -.->|"extends"| TC
+        SKImpl -.->|"extends"| SK
+    end
     
-    Engine --> Manager
-    Compactor --> Skeletonizer
-    Strategies --> ShareOp
-    EventBus --> Manager
+    FCM -->|"использует"| CC
+    FCM -->|"использует"| TC
+    DCC -->|"использует"| TC
+    DCC -->|"использует"| SK
     
-    style FCM fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style Core fill:#c8e6c9,stroke:#1b5e20
-    style Scopes fill:#a5d6a7,stroke:#388e3c
-    style Items fill:#81c784,stroke:#43a047
-    style Optimization fill:#66bb6a,stroke:#4caf50
-    style Bridge fill:#4caf50,stroke:#2e7d32
+    style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+```
+
+### 3.2. Слой 1: Утилиты (Low-level)
+
+Переиспользуемые компоненты без бизнес-логики.
+
+| Компонент | ABC | Реализации | Паттерн |
+|-----------|-----|------------|---------|
+| `TokenCounter` | Подсчёт токенов | `TiktokenCounter`, `ApproximateTokenCounter` | Strategy |
+| `CodeSkeletonizer` | Сжатие кода | `PythonASTSkeletonizer` | Strategy |
+
+**Принципы:**
+- Не зависят от других слоёв
+- Не знают о скоупах, агентах, истории
+- Тестируются изолированно
+
+### 3.3. Слой 2: Сжатие (Mid-level)
+
+Управление сжатием истории сообщений.
+
+| Компонент | ABC | Реализации | Паттерн |
+|-----------|-----|------------|---------|
+| `ContextCompactor` | Сжатие истории | `DefaultContextCompactor` | Template Method, Composite |
+
+**Фазы сжатия в `DefaultContextCompactor`:**
+1. **Prune** — FIFO удаление старых tool outputs
+2. **Skeletonize** — AST-сжатие кода (NEW)
+3. **Summarize** — LLM-суммаризация
+
+**Принципы:**
+- Зависит только от Слоя 1
+- Не знает о скоупах и агентах
+- Работает с `list[LLMMessage]`
+
+### 3.4. Слой 3: Оркестрация (High-level)
+
+Управление контекстом агентов.
+
+| Компонент | ABC | Реализации | Паттерн |
+|-----------|-----|------------|---------|
+| `ContextManager` | Оркестрация контекста | `FederatedContextManager` | Mediator, Facade |
+
+**Ответственности:**
+- Изолированные скоупы для каждого агента
+- Шеринг данных между агентами
+- Приоритизация элементов
+- ACP-кэш для предотвращения повторных RPC
+
+**Принципы:**
+- Зависит от Слоёв 1 и 2
+- Делегирует сжатие в `ContextCompactor`
+- Координирует взаимодействие агентов
+
+### 3.5. Структура файлов
+
+```
+src/codelab/server/agent/context/
+├── __init__.py                    # Экспорты
+│
+├── # Слой 1: Утилиты (ABC + реализации)
+├── token_counter.py               # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
+├── ast_skeletonizer.py            # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+│
+├── # Слой 2: Сжатие (ABC + реализация)
+├── compactor.py                   # ContextCompactor(ABC), DefaultContextCompactor
+│
+├── # Слой 3: Оркестрация (ABC + реализация)
+├── items.py                       # ContextItem, ContextType (dataclasses)
+├── scope.py                       # AgentContextScope
+├── manager.py                     # ContextManager(ABC), FederatedContextManager
+└── cache.py                       # ACPCache
+```
+
+### 3.6. Почему ABC, а не Protocol?
+
+| Критерий | Protocol | ABC (выбрано) |
+|----------|----------|---------------|
+| **Стиль проекта** | ❌ Не используется | ✅ `SessionStorage(ABC)`, `ToolRegistry` |
+| **Явность** | ❌ Structural typing (duck typing) | ✅ Nominal typing (extends) |
+| **Runtime проверка** | ✅ С `@runtime_checkable` | ✅ Всегда через `isinstance()` |
+| **IDE поддержка** | ✅ Хорошая | ✅ Отличная |
+| **Документация** | ❌ Неявный контракт | ✅ Явный контракт через наследование |
+
+**Решение:** ABC соответствует стилю проекта и обеспечивает явный контракт.
+
+---
+
+## 4. Паттерны проектирования
+
+### 4.1. Strategy (Слой 1)
+
+**Проблема:** Разные способы подсчёта токенов и скелетирования.
+
+**Решение:** Семейство алгоритмов, инкапсулированное в отдельных классах.
+
+```mermaid
+classDiagram
+    class TokenCounter {
+        <<ABC>>
+        +count(content: str) int
+    }
+    
+    class TiktokenCounter {
+        -Encoding _encoding
+        +count(content: str) int
+    }
+    
+    class ApproximateTokenCounter {
+        +count(content: str) int
+    }
+    
+    TokenCounter <|-- TiktokenCounter
+    TokenCounter <|-- ApproximateTokenCounter
+    
+    note for TokenCounter "Strategy Pattern:\nклиент выбирает реализацию"
+```
+
+```python
+# Использование
+counter: TokenCounter = create_token_counter()  # Factory Method
+tokens = counter.count("Hello, world!")
+```
+
+### 4.2. Template Method (Слой 2)
+
+**Проблема:** Алгоритм сжатия имеет фиксированную структуру, но фазы могут варьироваться.
+
+**Решение:** Базовый класс определяет скелет алгоритма, подклассы — детали.
+
+```mermaid
+graph TD
+    subgraph TemplateMethod["Template Method Pattern"]
+        Base["ContextCompactor(ABC)<br/>────────────<br/>compact_if_needed():<br/>  1. _prune()<br/>  2. _skeletonize()<br/>  3. _summarize()"]
+        
+        Impl["DefaultContextCompactor<br/>────────────<br/>Реализует фазы:<br/>  _prune() → FIFO<br/>  _skeletonize() → AST<br/>  _summarize() → LLM"]
+    end
+    
+    Impl -.->|"extends"| Base
+    
+    style TemplateMethod fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+### 4.3. Composite (Слой 2)
+
+**Проблема:** Сжатие — композиция нескольких стратегий.
+
+**Решение:** `DefaultContextCompactor` компонирует `TokenCounter` и `CodeSkeletonizer`.
+
+```mermaid
+graph LR
+    subgraph Composite["Composite Pattern"]
+        Compactor["DefaultContextCompactor"]
+        
+        TC["TokenCounter"]
+        SK["CodeSkeletonizer"]
+        LLM["LLMProvider"]
+        
+        Compactor -->|"использует"| TC
+        Compactor -->|"использует"| SK
+        Compactor -->|"использует"| LLM
+    end
+    
+    style Composite fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+```
+
+### 4.4. Mediator (Слой 3)
+
+**Проблема:** Агенты не должны общаться напрямую.
+
+**Решение:** `FederatedContextManager` — посредник, координирующий взаимодействие.
+
+```mermaid
+graph TB
+    subgraph Mediator["Mediator Pattern"]
+        FCM["FederatedContextManager<br/>(Mediator)"]
+        
+        Search["Search Agent<br/>(Scope)"]
+        Coder["Coder Agent<br/>(Scope)"]
+        Plan["Plan Agent<br/>(Scope)"]
+        
+        Search -->|"share_item()"| FCM
+        FCM -->|"add_to_scope()"| Coder
+        FCM -->|"add_to_scope()"| Plan
+    end
+    
+    style Mediator fill:#fff3e0,stroke:#e65100,stroke-width:2px
+```
+
+### 4.5. Factory Method (Слой 1)
+
+**Проблема:** Создание `TokenCounter` с проверкой доступности tiktoken.
+
+**Решение:** Factory функция выбирает реализацию.
+
+```python
+def create_token_counter() -> TokenCounter:
+    """Factory Method: создать лучший доступный TokenCounter."""
+    try:
+        return TiktokenCounter()
+    except ImportError:
+        return ApproximateTokenCounter()
+```
+
+### 4.6. Сводная таблица паттернов
+
+| Паттерн | Слой | Компонент | Назначение |
+|---------|------|-----------|------------|
+| **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` | Семейство алгоритмов |
+| **Template Method** | 2 | `ContextCompactor` | Скелет алгоритма |
+| **Composite** | 2 | `DefaultContextCompactor` | Композиция стратегий |
+| **Mediator** | 3 | `FederatedContextManager` | Координация агентов |
+| **Facade** | 3 | `FederatedContextManager` | Упрощённый интерфейс |
+| **Factory Method** | 1 | `create_token_counter()` | Создание объектов |
+
+---
+
+## 5. Подсистемы FCM
+
+### 5.1. Слой 1: Утилиты
+
+#### TokenCounter (Strategy Pattern)
+
+**Назначение:** Подсчёт токенов с возможностью выбора реализации.
+
+```mermaid
+classDiagram
+    class TokenCounter {
+        <<ABC>>
+        +count(content: str) int
+        +count_messages(messages: list~LLMMessage~) int
+    }
+    
+    class TiktokenCounter {
+        -Encoding _encoding
+        +count(content: str) int
+    }
+    
+    class ApproximateTokenCounter {
+        +count(content: str) int
+    }
+    
+    TokenCounter <|-- TiktokenCounter
+    TokenCounter <|-- ApproximateTokenCounter
+    
+    note for TokenCounter "Паттерн: Strategy\nКлиент выбирает реализацию"
+```
+
+**Реализации:**
+
+| Класс | Точность | Зависимости | Когда использовать |
+|-------|----------|-------------|-------------------|
+| `TiktokenCounter` | 100% | `tiktoken` | Production |
+| `ApproximateTokenCounter` | ~70-130% | Нет | Fallback, тесты |
+
+```python
+# Использование
+counter: TokenCounter = create_token_counter()  # Factory Method
+tokens = counter.count("Hello, world!")
+```
+
+#### CodeSkeletonizer (Strategy Pattern)
+
+**Назначение:** Сжатие кода до скелета (сигнатуры классов/функций).
+
+```mermaid
+classDiagram
+    class CodeSkeletonizer {
+        <<ABC>>
+        +skeletonize(code: str, file_id: str, language: str) str
+    }
+    
+    class PythonASTSkeletonizer {
+        +skeletonize(code: str, file_id: str, language: str) str
+    }
+    
+    CodeSkeletonizer <|-- PythonASTSkeletonizer
+    
+    note for CodeSkeletonizer "Паттерн: Strategy\nРасширяемо для других языков"
+```
+
+**Пример:**
+
+```python
+# Исходный код: 200 токенов
+code = """
+class DatabaseConnector:
+    def connect(self):
+        print("Connecting...")
+        # 50 строк логики
+        
+    def execute_query(self, query: str) -> dict:
+        if not query:
+            raise ValueError("Empty query")
+        return {"status": "executed"}
+"""
+
+# Скелет: 30 токенов
+skeletonizer = PythonASTSkeletonizer()
+result = skeletonizer.skeletonize(code, "db.py")
+# class DatabaseConnector:
+#     def connect(self): ...
+#     def execute_query(self, query: str) -> dict: ...
+```
+
+### 5.2. Слой 2: Сжатие
+
+#### ContextCompactor (Template Method + Composite)
+
+**Назначение:** Сжатие истории сообщений при превышении лимита.
+
+```mermaid
+classDiagram
+    class ContextCompactor {
+        <<ABC>>
+        +compact_if_needed(history) tuple
+    }
+    
+    class DefaultContextCompactor {
+        -TokenCounter token_counter
+        -CodeSkeletonizer skeletonizer
+        -LLMProvider llm
+        -int max_context_tokens
+        -int reserved_tokens
+        +compact_if_needed(history) tuple
+        -_prune(history) list
+        -_skeletonize(history) list
+        -_summarize(history) list
+    }
+    
+    ContextCompactor <|-- DefaultContextCompactor
+    
+    note for ContextCompactor "Паттерн: Template Method\nФиксированный алгоритм, вариативные фазы"
+```
+
+**Фазы сжатия:**
+
+```mermaid
+graph TD
+    subgraph Phases["Фазы сжатия в DefaultContextCompactor"]
+        Input["history: list~LLMMessage~"]
+        
+        Check{"len(history) <= 5?"}
+        ShortCircuit["Вернуть без изменений"]
+        
+        Estimate["_estimate_tokens()"]
+        WithinLimit{"tokens <= trigger?"}
+        ReturnOk["Вернуть (no compaction)"]
+        
+        Phase1["Фаза 1: _prune()<br/>FIFO удаление tool outputs"]
+        PrunedOk{"tokens <= trigger?"}
+        ReturnPruned["Вернуть (pruned)"]
+        
+        Phase2["Фаза 2: _skeletonize()<br/>AST-сжатие file_content"]
+        SkeletonOk{"tokens <= trigger?"}
+        ReturnSkeleton["Вернуть (skeletonized)"]
+        
+        Phase3["Фаза 3: _summarize()<br/>LLM-суммаризация"]
+        ReturnSummarized["Вернуть (summarized)"]
+    end
+    
+    Input --> Check
+    Check -->|Yes| ShortCircuit
+    Check -->|No| Estimate
+    Estimate --> WithinLimit
+    WithinLimit -->|Yes| ReturnOk
+    WithinLimit -->|No| Phase1
+    Phase1 --> PrunedOk
+    PrunedOk -->|Yes| ReturnPruned
+    PrunedOk -->|No| Phase2
+    Phase2 --> SkeletonOk
+    SkeletonOk -->|Yes| ReturnSkeleton
+    SkeletonOk -->|No| Phase3
+    Phase3 --> ReturnSummarized
+    
+    style Phases fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+### 5.3. Слой 3: Оркестрация
+
+#### ContextManager (Mediator + Facade)
+
+**Назначение:** Управление контекстом агентов — скоупы, шеринг, приоритизация.
+
+```mermaid
+classDiagram
+    class ContextManager {
+        <<ABC>>
+        +create_scope(name, max_tokens) AgentContextScope
+        +add_to_scope(scope, id, type, content, priority)
+        +share_item(source, target, id, priority)
+        +optimize_and_build_payload(scope) list~LLMMessage~
+    }
+    
+    class FederatedContextManager {
+        -dict~str, AgentContextScope~ scopes
+        -AgentEventBus event_bus
+        -Tracer tracer
+        -TokenCounter token_counter
+        -CodeSkeletonizer skeletonizer
+        -ContextCompactor compactor
+        +create_scope(name, max_tokens) AgentContextScope
+        +add_to_scope(scope, id, type, content, priority)
+        +share_item(source, target, id, priority)
+        +optimize_and_build_payload(scope) list~LLMMessage~
+    }
+    
+    ContextManager <|-- FederatedContextManager
+    
+    note for ContextManager "Паттерн: Mediator\nКоординирует взаимодействие агентов"
+```
+
+**Взаимодействие со слоями:**
+
+```mermaid
+graph TB
+    subgraph Layer3["Слой 3: Оркестрация"]
+        FCM["FederatedContextManager"]
+    end
+    
+    subgraph Layer2["Слой 2: Сжатие"]
+        CC["ContextCompactor"]
+    end
+    
+    subgraph Layer1["Слой 1: Утилиты"]
+        TC["TokenCounter"]
+        SK["CodeSkeletonizer"]
+    end
+    
+    FCM -->|"delegate compaction"| CC
+    FCM -->|"count tokens"| TC
+    CC -->|"count tokens"| TC
+    CC -->|"skeletonize code"| SK
+    
+    style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+```
+
+#### ContextItem и AgentContextScope
+
+**ContextItem** — единица информации (frozen dataclass):
+
+```python
+@dataclass(frozen=True)
+class ContextItem:
+    id: str
+    type: ContextType
+    content: str
+    priority: int = 5
+    owner_scope: str = "global"
+    last_accessed: float = field(default_factory=time.time)
+    token_count: int = 0
+```
+
+**AgentContextScope** — изолированная область агента:
+
+```python
+class AgentContextScope:
+    def __init__(self, scope_name: str, max_tokens: int) -> None:
+        self.scope_name = scope_name
+        self.max_tokens = max_tokens
+        self.registry: dict[str, ContextItem] = {}
+    
+    def add(self, item: ContextItem) -> None: ...
+    def get(self, item_id: str) -> ContextItem | None: ...
+    def remove(self, item_id: str) -> None: ...
+    def get_total_tokens(self) -> int: ...
 ```
 
 ### 4.2. Жизненный цикл контекста
@@ -733,66 +1162,59 @@ class ACPCache:
 
 ### 6.1. Интеграция с ExecutionEngine
 
-**Текущая архитектура:**
-
-```mermaid
-graph LR
-    subgraph Current["Текущая ExecutionEngine"]
-        Engine["ExecutionEngine"]
-        Builder["HistoryBuilder"]
-        Compactor["ContextCompactor"]
-        Filter["ToolFilter"]
-        Sanitizer["MessageSanitizer"]
-    end
-    
-    Engine --> Builder
-    Engine --> Compactor
-    Engine --> Filter
-    Engine --> Sanitizer
-    
-    style Current fill:#fff3e0,stroke:#e65100
-```
-
-**Целевая архитектура:**
+**Целевая архитектура (со слоистым FCM):**
 
 ```mermaid
 graph LR
     subgraph Target["ExecutionEngine с FCM"]
         Engine["ExecutionEngine"]
         Builder["HistoryBuilder"]
-        Compactor["ContextCompactor<br/>(расширенный)"]
         Filter["ToolFilter"]
         Sanitizer["MessageSanitizer"]
-        FCM["FederatedContextManager<br/>(опционально)"]
+        
+        subgraph Layer2["Слой 2"]
+            CC["ContextCompactor<br/>(ABC)"]
+        end
+        
+        subgraph Layer3["Слой 3"]
+            CM["ContextManager<br/>(ABC)"]
+        end
     end
     
     Engine --> Builder
-    Engine --> Compactor
     Engine --> Filter
     Engine --> Sanitizer
-    Engine --> FCM
-    
-    Compactor -.->|"Использует<br/>ASTSkeletonizer"| FCM
+    Engine -->|"Single стратегия"| CC
+    Engine -->|"Мультиагент"| CM
+    CM -->|"delegate"| CC
     
     style Target fill:#e8f5e9,stroke:#2e7d32
+    style Layer2 fill:#a5d6a7,stroke:#388e3c
+    style Layer3 fill:#c8e6c9,stroke:#2e7d32
 ```
 
 **Изменения в ExecutionEngine:**
 
 ```python
+from codelab.server.agent.context.compactor import ContextCompactor
+from codelab.server.agent.context.manager import ContextManager
+
+
 class ExecutionEngine:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        compactor: ContextCompactor | None = None,
+        compactor: ContextCompactor | None = None,  # ABC (Слой 2)
         history_builder: HistoryBuilder | None = None,
         tool_filter: ToolFilter | None = None,
         sanitizer: MessageSanitizer | None = None,
         plan_extractor: PlanExtractor | None = None,
-        context_manager: FederatedContextManager | None = None,  # NEW
+        context_manager: ContextManager | None = None,  # ABC (Слой 3)
     ) -> None:
-        # ... существующая инициализация
+        self.tool_registry = tool_registry
+        self.compactor = compactor
         self.context_manager = context_manager
+        # ... остальная инициализация
     
     async def build_context(
         self,
@@ -803,31 +1225,89 @@ class ExecutionEngine:
         content_parts: list[Any] | None = None,
         agent_scope: str | None = None,  # NEW: имя скоупа агента
     ) -> AgentContext:
-        # Если FCM доступен и указан скоуп — использовать его
+        # Путь A: Мультиагентный с ContextManager (Слой 3)
         if self.context_manager and agent_scope:
             messages = await self.context_manager.optimize_and_build_payload(agent_scope)
-            # Конвертация в формат AgentContext
-            ...
+            # ContextManager уже делегировал сжатие в ContextCompactor
         
-        # Иначе: стандартный путь
-        # ... существующая логика
+        # Путь B: Стандартный с ContextCompactor (Слой 2)
+        else:
+            history = self.history_builder.build(session.history)
+            if self.compactor:
+                history, _, _ = await self.compactor.compact_if_needed(history)
+            messages = history
+        
+        # ... остальная логика
 ```
 
-### 6.2. Интеграция с ContextCompactor
+### 6.2. Расширение ContextCompactor (Слой 2)
 
-**Расширение ContextCompactor:**
+**Новая реализация с AST-скелетированием:**
+
+```python
+from codelab.server.agent.context.token_counter import TokenCounter, create_token_counter
+from codelab.server.agent.context.ast_skeletonizer import CodeSkeletonizer, PythonASTSkeletonizer
+
+
+class ContextCompactor(ABC):
+    """Абстракция для сжатия контекста (Слой 2)."""
+    
+    @abstractmethod
+    async def compact_if_needed(
+        self,
+        history: list[LLMMessage],
+    ) -> tuple[list[LLMMessage], bool, str]:
+        ...
+
+
+class DefaultContextCompactor(ContextCompactor):
+    """Стандартная реализация с тремя фазами сжатия."""
+    
+    def __init__(
+        self,
+        llm: LLMProvider | None = None,
+        model: str = "openai/gpt-4o-mini",
+        max_context_tokens: int = 128000,
+        reserved_tokens: int = 4096,
+        token_counter: TokenCounter | None = None,  # Слой 1
+        skeletonizer: CodeSkeletonizer | None = None,  # Слой 1
+    ) -> None:
+        self.llm = llm
+        self.model = model
+        self.max_context_tokens = max_context_tokens
+        self.reserved_tokens = reserved_tokens
+        self.token_counter = token_counter or create_token_counter()
+        self.skeletonizer = skeletonizer or PythonASTSkeletonizer()
+    
+    async def compact_if_needed(
+        self,
+        history: list[LLMMessage],
+    ) -> tuple[list[LLMMessage], bool, str]:
+        # Фаза 1: Prune
+        # Фаза 2: Skeletonize (NEW)
+        # Фаза 3: Summarize
+        ...
+```
+
+**Миграция существующего ContextCompactor:**
 
 ```mermaid
-graph TD
-    subgraph Current["Текущий ContextCompactor"]
-        C1["Фаза 1: Prune<br/>(FIFO удаление tool outputs)"]
-        C2["Фаза 2: Summarize<br/>(LLM суммаризация)"]
+graph LR
+    subgraph Before["До"]
+        Old["server/agent/context_compactor.py<br/>ContextCompactor (class)"]
     end
     
-    subgraph Extended["Расширенный ContextCompactor"]
-        E1["Фаза 1: Prune<br/>(FIFO удаление)"]
-        E2["Фаза 2: Skeletonize<br/>(AST-сжатие)"]
-        E3["Фаза 3: Summarize<br/>(LLM суммаризация)"]
+    subgraph After["После"]
+        New1["server/agent/context/compactor.py<br/>ContextCompactor (ABC)"]
+        New2["server/agent/context/compactor.py<br/>DefaultContextCompactor (impl)"]
+        OldCompat["server/agent/context_compactor.py<br/># DEPRECATED: import from context/"]
+    end
+    
+    Before --> After
+    
+    style Before fill:#ffebee,stroke:#c62828
+    style After fill:#e8f5e9,stroke:#2e7d32
+```
     end
     
     Current --> Extended

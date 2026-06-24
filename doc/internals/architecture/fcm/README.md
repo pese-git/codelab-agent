@@ -1,14 +1,60 @@
 # Federated Context Manager — Документация
 
 > **Статус:** Design Document  
-> **Версия:** 1.0  
+> **Версия:** 2.0  
 > **Дата:** 24 июня 2026
+> 
+> **Изменения в v2.0:**
+> - Слоистая архитектура (Layer 1/2/3)
+> - ABC вместо Protocol (соответствие стилю проекта)
+> - Паттерны проектирования: Strategy, Template Method, Composite, Mediator
 
 ---
 
 ## Обзор
 
 Federated Context Manager (FCM) — компонент для управления контекстом в мультиагентной системе CodeLab. Решает проблемы дублирования RPC запросов, потери контекста при сжатии и отсутствия приоритетов.
+
+## Архитектура (v2.0)
+
+```mermaid
+graph TB
+    subgraph Layer3["Слой 3: Оркестрация"]
+        CM["ContextManager(ABC)"]
+        FCM["FederatedContextManager"]
+    end
+    
+    subgraph Layer2["Слой 2: Сжатие"]
+        CC["ContextCompactor(ABC)"]
+        DCC["DefaultContextCompactor"]
+    end
+    
+    subgraph Layer1["Слой 1: Утилиты"]
+        TC["TokenCounter(ABC)"]
+        SK["CodeSkeletonizer(ABC)"]
+    end
+    
+    FCM -.->|"extends"| CM
+    DCC -.->|"extends"| CC
+    FCM -->|"использует"| CC
+    FCM -->|"использует"| TC
+    DCC -->|"использует"| TC
+    DCC -->|"использует"| SK
+    
+    style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+```
+
+## Паттерны проектирования
+
+| Паттерн | Слой | Компонент |
+|---------|------|-----------|
+| **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` |
+| **Template Method** | 2 | `ContextCompactor` |
+| **Composite** | 2 | `DefaultContextCompactor` |
+| **Mediator** | 3 | `FederatedContextManager` |
+| **Factory Method** | 1 | `create_token_counter()` |
 
 ## Документы
 
@@ -31,55 +77,60 @@ Federated Context Manager (FCM) — компонент для управлени
 ## Быстрый старт
 
 ```python
-from codelab.server.agent.context import FederatedContextManager
+from codelab.server.agent.context.token_counter import create_token_counter
+from codelab.server.agent.context.ast_skeletonizer import PythonASTSkeletonizer
+from codelab.server.agent.context.compactor import DefaultContextCompactor
+from codelab.server.agent.context.manager import FederatedContextManager
 
-# Создание FCM
-fcm = FederatedContextManager()
+# Слой 1: Утилиты
+token_counter = create_token_counter()
+skeletonizer = PythonASTSkeletonizer()
 
-# Создание скоупов
+# Слой 2: Сжатие
+compactor = DefaultContextCompactor(
+    token_counter=token_counter,
+    skeletonizer=skeletonizer,
+)
+
+# Слой 3: Оркестрация
+fcm = FederatedContextManager(
+    token_counter=token_counter,
+    skeletonizer=skeletonizer,
+    compactor=compactor,
+)
+
+# Использование
 await fcm.create_scope("search_agent", max_tokens=4000)
 await fcm.create_scope("coder_agent", max_tokens=16000)
-
-# Добавление данных
 await fcm.add_to_scope("search_agent", "src/db.py", "file_content", code, priority=5)
-
-# Шеринг между агентами
 await fcm.share_item("search_agent", "coder_agent", "src/db.py")
-
-# Получение оптимизированного payload
 payload = await fcm.optimize_and_build_payload("coder_agent")
 ```
 
-## Архитектура
+## Структура файлов
 
-```mermaid
-graph TB
-    subgraph FCM["Federated Context Manager"]
-        Bridge["Shared Memory Bridge"]
-        
-        subgraph Scopes["Изолированные скоупы"]
-            ScopePlan["plan_agent<br/>8000 tokens"]
-            ScopeSearch["search_agent<br/>4000 tokens"]
-            ScopeCoder["coder_agent<br/>16000 tokens"]
-        end
-        
-        Skeletonizer["ASTSkeletonizer"]
-        TokenCounter["TokenCounter"]
-    end
-    
-    Bridge --> Scopes
-    Skeletonizer --> Scopes
-    
-    style FCM fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+```
+src/codelab/server/agent/context/
+├── # Слой 1: Утилиты
+├── token_counter.py          # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
+├── ast_skeletonizer.py       # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+│
+├── # Слой 2: Сжатие
+├── compactor.py              # ContextCompactor(ABC), DefaultContextCompactor
+│
+├── # Слой 3: Оркестрация
+├── items.py                  # ContextItem, ContextType
+├── scope.py                  # AgentContextScope
+├── manager.py                # ContextManager(ABC), FederatedContextManager
+└── cache.py                  # ACPCache
 ```
 
 ## Путь внедрения
 
-1. **Фаза 1:** ASTSkeletonizer — сжатие кода до сигнатур
-2. **Фаза 2:** TokenCounter — точный подсчёт токенов
-3. **Фаза 3:** ContextItem + Scope — базовые структуры
-4. **Фаза 4:** FederatedContextManager — координатор
-5. **Фаза 5:** Интеграция со стратегиями
+1. **Слой 1 — Утилиты:** `TokenCounter`, `CodeSkeletonizer` (Strategy Pattern)
+2. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
+3. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
+4. **Интеграция:** `ExecutionEngine`, стратегии (Orchestrated, Hierarchical)
 
 Подробности в [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md).
 
