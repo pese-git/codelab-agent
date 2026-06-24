@@ -1,8 +1,18 @@
 # Federated Context Manager — Руководство по интеграции
 
-> **Версия:** 2.0  
+> **Версия:** 2.2  
 > **Дата:** 24 июня 2026  
 > **Для кого:** Разработчики, внедряющие FCM в проект
+> 
+> **Изменения в v2.2:**
+> - Единый путь формирования payload через FCM для всех стратегий
+> - `hydrate_from_history()` автоматически в `ExecutionEngine.build_context()`
+> - `ContextCompactor` — отдельный компонент (Слой 2), вызывается через FCM
+> 
+> **Изменения в v2.1:**
+> - Добавлен `FileContentCache` — кэш содержимого файлов (Слой 1)
+> - Добавлен `SessionFileCacheRegistry` — реестр кэшей по сессиям
+> - Добавлен `CacheInvalidationDecorator` — инвалидация кэша при записи
 > 
 > **Изменения в v2.0:**
 > - Слоистая архитектура (Layer 1/2/3)
@@ -15,12 +25,13 @@
 
 1. [Быстрый старт](#1-быстрый-старт)
 2. [Слоистая архитектура](#2-слоистая-архитектура)
-3. [Пошаговое внедрение](#3-пошаговое-внедрение)
-4. [Интеграция с существующим кодом](#4-интеграция-с-существующим-кодом)
-5. [Тестирование](#5-тестирование)
-6. [Отладка и мониторинг](#6-отладка-и-мониторинг)
-7. [Часто задаваемые вопросы](#7-часто-задаваемые-вопросы)
-8. [Чек-лист готовности](#8-чек-лист-готовности)
+3. [Единый путь формирования payload](#3-единый-путь-формирования-payload)
+4. [Пошаговое внедрение](#4-пошаговое-внедрение)
+5. [Интеграция с существующим кодом](#5-интеграция-с-существующим-кодом)
+6. [Тестирование](#6-тестирование)
+7. [Отладка и мониторинг](#7-отладка-и-мониторинг)
+8. [Часто задаваемые вопросы](#8-часто-задаваемые-вопросы)
+9. [Чек-лист готовности](#9-чек-лист-готовности)
 
 ---
 
@@ -178,7 +189,246 @@ graph TB
 
 ---
 
-## 3. Пошаговое внедрение
+## 3. Единый путь формирования payload
+
+### 3.1. Концепция
+
+Все стратегии (Single, Orchestrated, Choreography, Hierarchical) используют **единый путь** через `ExecutionEngine.build_context()` → `FCM`:
+
+```mermaid
+graph TB
+    subgraph Strategies["Стратегии"]
+        Single["SingleStrategy<br/>(scope='single')"]
+        Orch["OrchestratedStrategy<br/>(scope='coder_agent')"]
+        Chor["ChoreographyStrategy"]
+        Hier["HierarchicalStrategy"]
+    end
+    
+    subgraph EE["ExecutionEngine"]
+        BC["build_context()<br/>────────────<br/>Единая точка входа"]
+    end
+    
+    subgraph FCM["FCM"]
+        HS["hydrate_from_history()"]
+        OBP["optimize_and_build_payload()"]
+    end
+    
+    subgraph L2["Слой 2"]
+        CC["ContextCompactor"]
+    end
+    
+    Single --> BC
+    Orch --> BC
+    Chor --> BC
+    Hier --> BC
+    
+    BC --> HS
+    BC --> OBP
+    OBP -->|"delegate"| CC
+    
+    style FCM fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style EE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+### 3.2. SingleStrategy vs Multi-agent
+
+Разница — только в количестве скоупов и логике гидратации:
+
+| Стратегия | agent_scope | Гидратация | Результат |
+|-----------|-------------|------------|-----------|
+| **SingleStrategy** | `"single"` | ✅ Автоматическая из history | 1 скоуп с полной историей |
+| **OrchestratedStrategy** | `"coder_agent"` | ❌ Пропускается (скоуп создан оркестратором) | Скоуп с данными от search_agent |
+| **ChoreographyStrategy** | `"agent_a"` | ❌ Пропускается | Скоуп с данными broadcast |
+| **HierarchicalStrategy** | `"sub_agent"` | ❌ Пропускается | Скоуп с данными от primary |
+
+### 3.3. ExecutionEngine.build_context()
+
+```python
+class ExecutionEngine:
+    """Композиционный движок выполнения.
+    
+    Все стратегии используют единый путь формирования payload через FCM.
+    """
+    
+    def __init__(
+        self,
+        tool_registry: ToolRegistry,
+        context_manager: ContextManager | None = None,  # FCM (Слой 3)
+        history_builder: HistoryBuilder | None = None,
+        tool_filter: ToolFilter | None = None,
+        sanitizer: MessageSanitizer | None = None,
+        plan_extractor: PlanExtractor | None = None,
+        # compactor убран — теперь внутри FCM
+    ) -> None:
+        self.tool_registry = tool_registry
+        self.context_manager = context_manager
+        self.history_builder = history_builder or HistoryBuilder()
+        self.tool_filter = tool_filter or ToolFilter()
+        self.sanitizer = sanitizer or MessageSanitizer()
+        self.plan_extractor = plan_extractor or PlanExtractor()
+    
+    async def build_context(
+        self,
+        session: SessionState,
+        prompt: str,
+        system_prompt: str | None = None,
+        mcp_manager: Any | None = None,
+        content_parts: list[Any] | None = None,
+        agent_scope: str = "single",  # NEW: по умолчанию глобальный скоуп
+    ) -> AgentContext:
+        """Собрать AgentContext из сессии и промпта.
+        
+        Единая точка входа для всех стратегий.
+        Автоматически гидратирует скоуп из истории если он не существует.
+        """
+        # Фильтрация инструментов (без изменений)
+        available_tools = self._filter_tools(session, mcp_manager)
+        
+        if self.context_manager:
+            # Единый путь через FCM (все стратегии)
+            messages = await self._build_via_fcm(
+                session=session,
+                system_prompt=system_prompt,
+                agent_scope=agent_scope,
+            )
+        else:
+            # Fallback: старый путь без FCM (обратная совместимость)
+            messages = await self._build_legacy(session, system_prompt)
+        
+        # Формирование prompt блоков (без изменений)
+        prompt_blocks = self._build_prompt_blocks(prompt, content_parts)
+        
+        return AgentContext(
+            session_id=session.session_id,
+            session=session,
+            prompt=prompt_blocks,
+            conversation_history=messages,
+            available_tools=available_tools,
+            config=session.config_values,
+            model=session.config_values.get("model", ""),
+        )
+    
+    async def _build_via_fcm(
+        self,
+        session: SessionState,
+        system_prompt: str | None,
+        agent_scope: str,
+    ) -> list[LLMMessage]:
+        """Построить контекст через FCM.
+        
+        Логика:
+        1. Проверить существует ли скоуп
+        2. Если нет — гидратировать из истории (SingleStrategy)
+        3. Если есть — использовать как есть (Multi-agent уже наполнил)
+        4. Сформировать payload через optimize_and_build_payload
+        """
+        scope = self.context_manager.scopes.get(agent_scope)
+        
+        if scope is None:
+            # Скоуп не существует → гидратировать из истории
+            # (SingleStrategy всегда сюда попадает)
+            await self.context_manager.hydrate_from_history(
+                scope_name=agent_scope,
+                history=session.history,
+                system_prompt=system_prompt,
+            )
+        # else: скоуп уже создан оркестратором (Multi-agent)
+        #   → используем его без гидратации
+        
+        return await self.context_manager.optimize_and_build_payload(agent_scope)
+```
+
+### 3.4. FederatedContextManager.hydrate_from_history()
+
+```python
+class FederatedContextManager(ContextManager):
+    async def hydrate_from_history(
+        self,
+        scope_name: str,
+        history: list[ConversationMessage],
+        system_prompt: str | None = None,
+    ) -> None:
+        """Загрузить историю сессии в скоуп FCM.
+        
+        Вызывается автоматически в ExecutionEngine.build_context()
+        когда скоуп не существует (SingleStrategy).
+        
+        Для Multi-agent скоупы создаются оркестратором вручную,
+        и гидратация НЕ вызывается.
+        """
+        # Создать скоуп если не существует
+        if scope_name not in self.scopes:
+            await self.create_scope(scope_name)
+        
+        scope = self.scopes[scope_name]
+        
+        # Очистить старые элементы из истории (сохранить system_rules)
+        await self._clear_history_items(scope_name)
+        
+        # System prompt — критический приоритет (не вытесняется)
+        if system_prompt:
+            await self.add_to_scope(
+                scope_name,
+                item_id="system_prompt",
+                content_type="system_rules",
+                content=system_prompt,
+                priority=10,
+            )
+        
+        # Загрузить историю с приоритетами по ролям
+        for i, msg in enumerate(history):
+            priority = self._priority_for_role(msg.role)
+            content_type = self._type_for_role(msg.role)
+            
+            await self.add_to_scope(
+                scope_name,
+                item_id=f"history_{i}",
+                content_type=content_type,
+                content=msg.content,
+                priority=priority,
+            )
+    
+    @staticmethod
+    def _priority_for_role(role: str) -> int:
+        """Приоритет для роли сообщения."""
+        return {
+            "system": 10,      # Не вытесняется
+            "user": 8,         # Высокий приоритет
+            "assistant": 7,    # Средний приоритет
+            "tool": 5,         # Может быть вытеснен при нехватке токенов
+        }.get(role, 5)
+```
+
+### 3.5. Преимущества единого пути
+
+| Преимущество | Описание |
+|--------------|----------|
+| **Кэш файлов** | Все стратегии получают кэш (не только multi-agent) |
+| **AST-скелетирование** | Все стратегии получают сжатие кода |
+| **Приоритеты** | Все стратегии получают приоритизацию |
+| **Единый код** | Одна логика формирования payload |
+| **Переключение стратегии** | Контекст в FCM — можно переключаться без потери |
+
+### 3.6. MVP: гидратация каждый раз
+
+Для MVP **не нужна** оптимизация "не гидрировать если скоуп актуален":
+
+| Критерий | MVP (гидратировать всегда) | Post-MVP (оптимизация) |
+|----------|---------------------------|----------------------|
+| **Сложность** | ✅ Простая логика | ⚠️ Версионирование, хеши |
+| **Предсказуемость** | ✅ Всегда актуальные данные | ⚠️ Риск stale data |
+| **Overhead** | O(n) по истории (~1ms для 100 сообщений) | ✅ O(1) проверка версии |
+| **Тестируемость** | ✅ Простые тесты | ⚠️ Тесты edge cases |
+
+**Почему overhead приемлем для MVP:**
+1. `HistoryBuilder.build()` уже делает O(n) проход — это та же работа
+2. Гидратация — это просто копирование данных в dict (быстро)
+3. Для типичной сессии (< 100 сообщений) — незаметно
+4. `optimize_and_build_payload()` — вот где реальная работа (сортировка, скелетирование)
+
+---
+
+## 4. Пошаговое внедрение
 
 ### Шаг 1: Слой 1 — TokenCounter (Strategy Pattern)
 
@@ -1323,7 +1573,7 @@ class ExecutionEngine:
 
 ---
 
-## 3. Интеграция с существующим кодом
+## 5. Интеграция с существующим кодом
 
 ### 3.1. DI контейнер
 
@@ -1403,7 +1653,7 @@ min_saving_percent = 50
 
 ---
 
-## 4. Тестирование
+## 6. Тестирование
 
 ### 4.1. Unit тесты
 
@@ -1482,7 +1732,7 @@ class TestE2EFCM:
 
 ---
 
-## 5. Отладка и мониторинг
+## 7. Отладка и мониторинг
 
 ### 5.1. Логирование
 
@@ -1536,7 +1786,7 @@ fcm.skeletonization    # Сжатие через AST
 
 ---
 
-## 6. Часто задаваемые вопросы
+## 8. Часто задаваемые вопросы
 
 ### Q: Когда использовать FCM?
 
@@ -1564,7 +1814,7 @@ fcm.skeletonization    # Сжатие через AST
 
 ---
 
-## 7. Чек-лист готовности
+## 9. Чек-лист готовности
 
 ### Фаза 1: ASTSkeletonizer
 

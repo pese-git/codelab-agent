@@ -165,34 +165,38 @@ FCM организован в три слоя с чётким разделени
 
 ```mermaid
 graph TB
-    subgraph Layer3["Слой 3: Оркестрация (High-level)"]
+    subgraph Strategies["Стратегии (все)"]
+        Single["SingleStrategy<br/>(scope='single')"]
+        Orch["OrchestratedStrategy<br/>(scope='coder_agent', ...)"]
+        Chor["ChoreographyStrategy"]
+        Hier["HierarchicalStrategy"]
+    end
+    
+    subgraph EE["ExecutionEngine"]
+        BC["build_context()<br/>────────────<br/>Единая точка входа<br/>для всех стратегий"]
+    end
+    
+    subgraph Layer3["Слой 3: Оркестрация"]
         CM["ContextManager<br/>(ABC)"]
-        FCM["FederatedContextManager<br/>(реализация)"]
+        FCM["FederatedContextManager"]
+        HS["hydrate_from_history()"]
+        OBP["optimize_and_build_payload()"]
         
         FCM -.->|"extends"| CM
     end
     
-    subgraph Layer2["Слой 2: Сжатие (Mid-level)"]
+    subgraph Layer2["Слой 2: Сжатие"]
         CC["ContextCompactor<br/>(ABC)"]
-        DCC["DefaultContextCompactor<br/>(реализация)"]
+        DCC["DefaultContextCompactor"]
         
         DCC -.->|"extends"| CC
     end
     
-    subgraph Layer1["Слой 1: Утилиты (Low-level)"]
+    subgraph Layer1["Слой 1: Утилиты"]
         TC["TokenCounter<br/>(ABC)"]
         SK["CodeSkeletonizer<br/>(ABC)"]
         FCC["FileContentCache<br/>(ABC)"]
-        
-        TCImpl["TiktokenCounter<br/>ApproximateTokenCounter"]
-        SKImpl["PythonASTSkeletonizer"]
-        FCCImpl["InMemoryFileCache"]
         SFCC["SessionFileCacheRegistry"]
-        
-        TCImpl -.->|"extends"| TC
-        SKImpl -.->|"extends"| SK
-        FCCImpl -.->|"extends"| FCC
-        SFCC -->|"управляет"| FCC
     end
     
     subgraph Decorators["ToolExecutor Decorators"]
@@ -200,18 +204,150 @@ graph TB
         CID -->|"использует"| FCC
     end
     
-    FCM -->|"использует"| CC
-    FCM -->|"использует"| TC
-    FCM -->|"использует"| FCC
-    DCC -->|"использует"| TC
-    DCC -->|"использует"| SK
-    EE["ExecutionEngine"] -->|"использует"| CC
-    EE -->|"использует"| FCC
+    Single --> BC
+    Orch --> BC
+    Chor --> BC
+    Hier --> BC
     
+    BC -->|"agent_scope='single'"| HS
+    BC --> OBP
+    OBP -->|"delegate"| CC
+    OBP -->|"use"| TC
+    OBP -->|"use"| SK
+    OBP -->|"use"| FCC
+    DCC -->|"use"| TC
+    DCC -->|"use"| SK
+    
+    style Strategies fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style EE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
     style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
     style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
     style Decorators fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+```
+
+### 3.1.1. Единый путь формирования payload
+
+Все стратегии используют **единый путь** через `ExecutionEngine.build_context()` → `FCM`:
+
+```mermaid
+graph LR
+    subgraph Before["❌ До: два пути"]
+        S1["SingleStrategy"] --> S2["HistoryBuilder"]
+        S2 --> S3["ContextCompactor"]
+        S3 --> S4["LLM"]
+        
+        M1["Multi-agent"] --> M2["FCM"]
+        M2 --> S4
+    end
+    
+    subgraph After["✅ После: один путь"]
+        U1["SingleStrategy<br/>(1 скоуп)"] --> U2["ExecutionEngine"]
+        U3["Multi-agent<br/>(N скоупов)"] --> U2
+        U2 --> U4["FCM"]
+        U4 --> U5["LLM"]
+    end
+    
+    style Before fill:#ffebee,stroke:#c62828
+    style After fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Преимущества единого пути:**
+
+| Преимущество | Описание |
+|--------------|----------|
+| **Кэш файлов** | Все стратегии получают кэш (не только multi-agent) |
+| **AST-скелетирование** | Все стратегии получают сжатие кода |
+| **Приоритеты** | Все стратегии получают приоритизацию |
+| **Единый код** | Одна логика формирования payload |
+| **Переключение стратегии** | Контекст в FCM — можно переключаться без потери |
+
+### 3.1.2. SingleStrategy vs Multi-agent
+
+Разница — только в количестве скоупов:
+
+```mermaid
+graph TB
+    subgraph Single["SingleStrategy: 1 глобальный скоуп"]
+        SS["Scope: 'single'<br/>────────────<br/>system_rules (priority=10)<br/>user_prompt (priority=8)<br/>assistant_msg (priority=7)<br/>tool_result (priority=5)<br/>file_content (priority=5)"]
+    end
+    
+    subgraph Orch["OrchestratedStrategy: N скоупов"]
+        OS1["Scope: 'orchestrator'"]
+        OS2["Scope: 'search_agent'"]
+        OS3["Scope: 'coder_agent'"]
+        
+        OS2 -->|"share_item()"| OS3
+    end
+    
+    style Single fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style Orch fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+**Поток данных для SingleStrategy:**
+
+```mermaid
+sequenceDiagram
+    participant AL as AgentLoop
+    participant EE as ExecutionEngine
+    participant FCM
+    participant Cache as FileContentCache
+    participant CC as ContextCompactor
+    participant LLM
+    
+    Note over AL: Turn 1: новый промпт
+    AL->>EE: build_context(session, prompt, agent_scope="single")
+    EE->>FCM: scopes.get("single") → None
+    EE->>FCM: hydrate_from_history("single", history)
+    FCM->>FCM: Загрузить историю в скоуп
+    FCM->>FCM: system_prompt → priority=10
+    FCM->>FCM: user messages → priority=8
+    FCM->>FCM: tool results → priority=5
+    
+    AL->>EE: optimize_and_build_payload("single")
+    EE->>FCM: optimize_and_build_payload("single")
+    FCM->>CC: compact_if_needed() если нужно
+    CC-->>FCM: compacted items
+    FCM-->>EE: list[LLMMessage]
+    EE-->>AL: AgentContext
+    AL->>LLM: payload
+    
+    Note over AL: Turn 5: агент читает файл
+    AL->>Cache: set("db.py", content)
+    
+    Note over AL: Turn 12: агент снова читает db.py
+    AL->>Cache: get("db.py") → HIT (0ms)
+```
+
+**Поток данных для Multi-agent (OrchestratedStrategy):**
+
+```mermaid
+sequenceDiagram
+    participant Strategy as OrchestratedStrategy
+    participant EE as ExecutionEngine
+    participant FCM
+    participant LLM
+    
+    Note over Strategy: Шаг 1: Создание скоупов
+    Strategy->>FCM: create_scope("orchestrator", max_tokens=8000)
+    Strategy->>FCM: create_scope("search_agent", max_tokens=4000)
+    Strategy->>FCM: create_scope("coder_agent", max_tokens=16000)
+    
+    Note over Strategy: Шаг 2: Наполнение скоупов
+    Strategy->>FCM: add_to_scope("search_agent", "src/db.py", ...)
+    Strategy->>FCM: add_to_scope("search_agent", "bug_report", ...)
+    
+    Note over Strategy: Шаг 3: Шеринг между агентами
+    Strategy->>FCM: share_item("search_agent", "coder_agent", "src/db.py")
+    
+    Note over Strategy: Шаг 4: Формирование payload
+    Strategy->>EE: build_context(session, prompt, agent_scope="coder_agent")
+    EE->>FCM: scopes.get("coder_agent") → существует!
+    Note over EE: Пропускаем гидратацию
+    EE->>FCM: optimize_and_build_payload("coder_agent")
+    FCM-->>EE: list[LLMMessage]
+    EE-->>Strategy: AgentContext
+    Strategy->>LLM: payload
 ```
 
 ### 3.2. Слой 1: Утилиты (Low-level)
@@ -1354,59 +1490,70 @@ class ACPCache:
 
 ### 6.1. Интеграция с ExecutionEngine
 
-**Целевая архитектура (со слоистым FCM):**
+**Целевая архитектура: единый путь через FCM**
 
 ```mermaid
 graph LR
-    subgraph Target["ExecutionEngine с FCM"]
+    subgraph Target["ExecutionEngine с FCM (единый путь)"]
         Engine["ExecutionEngine"]
         Builder["HistoryBuilder"]
         Filter["ToolFilter"]
         Sanitizer["MessageSanitizer"]
         
-        subgraph Layer2["Слой 2"]
-            CC["ContextCompactor<br/>(ABC)"]
-        end
-        
         subgraph Layer3["Слой 3"]
             CM["ContextManager<br/>(ABC)"]
+            FCM["FederatedContextManager"]
+            HS["hydrate_from_history()"]
+            OBP["optimize_and_build_payload()"]
+        end
+        
+        subgraph Layer2["Слой 2"]
+            CC["ContextCompactor<br/>(ABC)"]
         end
     end
     
     Engine --> Builder
     Engine --> Filter
     Engine --> Sanitizer
-    Engine -->|"Single стратегия"| CC
-    Engine -->|"Мультиагент"| CM
-    CM -->|"delegate"| CC
+    Engine -->|"все стратегии"| FCM
+    FCM --> HS
+    FCM --> OBP
+    OBP -->|"delegate"| CC
     
     style Target fill:#e8f5e9,stroke:#2e7d32
-    style Layer2 fill:#a5d6a7,stroke:#388e3c
     style Layer3 fill:#c8e6c9,stroke:#2e7d32
+    style Layer2 fill:#a5d6a7,stroke:#388e3c
 ```
 
-**Изменения в ExecutionEngine:**
+**Ключевые изменения в ExecutionEngine:**
 
 ```python
-from codelab.server.agent.context.compactor import ContextCompactor
 from codelab.server.agent.context.manager import ContextManager
 
 
 class ExecutionEngine:
+    """Композиционный движок выполнения.
+    
+    Все стратегии (Single, Orchestrated, Choreography, Hierarchical)
+    используют единый путь формирования payload через FCM.
+    """
+    
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        compactor: ContextCompactor | None = None,  # ABC (Слой 2)
+        context_manager: ContextManager | None = None,  # Слой 3 (FCM)
         history_builder: HistoryBuilder | None = None,
         tool_filter: ToolFilter | None = None,
         sanitizer: MessageSanitizer | None = None,
         plan_extractor: PlanExtractor | None = None,
-        context_manager: ContextManager | None = None,  # ABC (Слой 3)
+        # compactor убран — теперь внутри FCM
     ) -> None:
         self.tool_registry = tool_registry
-        self.compactor = compactor
         self.context_manager = context_manager
-        # ... остальная инициализация
+        self.history_builder = history_builder or HistoryBuilder()
+        self.tool_filter = tool_filter or ToolFilter()
+        self.sanitizer = sanitizer or MessageSanitizer()
+        self.plan_extractor = plan_extractor or PlanExtractor()
     
     async def build_context(
         self,
@@ -1415,70 +1562,276 @@ class ExecutionEngine:
         system_prompt: str | None = None,
         mcp_manager: Any | None = None,
         content_parts: list[Any] | None = None,
-        agent_scope: str | None = None,  # NEW: имя скоупа агента
+        agent_scope: str = "single",  # NEW: по умолчанию глобальный скоуп
     ) -> AgentContext:
-        # Путь A: Мультиагентный с ContextManager (Слой 3)
-        if self.context_manager and agent_scope:
-            messages = await self.context_manager.optimize_and_build_payload(agent_scope)
-            # ContextManager уже делегировал сжатие в ContextCompactor
+        """Собрать AgentContext из сессии и промпта.
         
-        # Путь B: Стандартный с ContextCompactor (Слой 2)
+        Единая точка входа для всех стратегий:
+        - SingleStrategy: agent_scope="single" (1 глобальный скоуп)
+        - OrchestratedStrategy: agent_scope="coder_agent" (N скоупов)
+        
+        Автоматически гидратирует скоуп из истории если он не существует.
+        """
+        # Фильтрация инструментов (без изменений)
+        available_tools = self._filter_tools(session, mcp_manager)
+        
+        if self.context_manager:
+            # Единый путь через FCM (все стратегии)
+            messages = await self._build_via_fcm(
+                session=session,
+                system_prompt=system_prompt,
+                agent_scope=agent_scope,
+            )
         else:
-            history = self.history_builder.build(session.history)
-            if self.compactor:
-                history, _, _ = await self.compactor.compact_if_needed(history)
-            messages = history
+            # Fallback: старый путь без FCM (обратная совместимость)
+            messages = await self._build_legacy(session, system_prompt)
         
-        # ... остальная логика
+        # Формирование prompt блоков (без изменений)
+        prompt_blocks = self._build_prompt_blocks(prompt, content_parts)
+        
+        return AgentContext(
+            session_id=session.session_id,
+            session=session,
+            prompt=prompt_blocks,
+            conversation_history=messages,
+            available_tools=available_tools,
+            config=session.config_values,
+            model=session.config_values.get("model", ""),
+        )
+    
+    async def _build_via_fcm(
+        self,
+        session: SessionState,
+        system_prompt: str | None,
+        agent_scope: str,
+    ) -> list[LLMMessage]:
+        """Построить контекст через FCM.
+        
+        Логика:
+        1. Проверить существует ли скоуп
+        2. Если нет — гидратировать из истории (SingleStrategy)
+        3. Если есть — использовать как есть (Multi-agent уже наполнил)
+        4. Сформировать payload через optimize_and_build_payload
+        """
+        scope = self.context_manager.scopes.get(agent_scope)
+        
+        if scope is None:
+            # Скоуп не существует → гидратировать из истории
+            # (SingleStrategy всегда сюда попадает)
+            await self.context_manager.hydrate_from_history(
+                scope_name=agent_scope,
+                history=session.history,
+                system_prompt=system_prompt,
+            )
+        # else: скоуп уже создан оркестратором (Multi-agent)
+        #   → используем его без гидратации
+        
+        return await self.context_manager.optimize_and_build_payload(agent_scope)
+    
+    async def _build_legacy(
+        self,
+        session: SessionState,
+        system_prompt: str | None,
+    ) -> list[LLMMessage]:
+        """Fallback: старый путь без FCM (обратная совместимость)."""
+        history = self.history_builder.build(session.history, system_prompt)
+        history = self.sanitizer.sanitize(history)
+        # Без compactor — просто возвращаем историю
+        return history
 ```
 
-### 6.2. Расширение ContextCompactor (Слой 2)
+**Как это работает для разных стратегий:**
 
-**Новая реализация с AST-скелетированием:**
+| Стратегия | agent_scope | Гидратация | Результат |
+|-----------|-------------|------------|-----------|
+| **SingleStrategy** | `"single"` | ✅ Автоматическая из history | 1 скоуп с полной историей |
+| **OrchestratedStrategy** | `"coder_agent"` | ❌ Пропускается (скоуп создан оркестратором) | Скоуп с данными от search_agent |
+| **ChoreographyStrategy** | `"agent_a"` | ❌ Пропускается | Скоуп с данными broadcast |
+| **HierarchicalStrategy** | `"sub_agent"` | ❌ Пропускается | Скоуп с данными от primary |
+
+### 6.2. FederatedContextManager.hydrate_from_history()
+
+Метод для загрузки истории сессии в скоуп FCM.
 
 ```python
-from codelab.server.agent.context.token_counter import TokenCounter, create_token_counter
-from codelab.server.agent.context.ast_skeletonizer import CodeSkeletonizer, PythonASTSkeletonizer
-
-
-class ContextCompactor(ABC):
-    """Абстракция для сжатия контекста (Слой 2)."""
-    
-    @abstractmethod
-    async def compact_if_needed(
+class FederatedContextManager(ContextManager):
+    async def hydrate_from_history(
         self,
-        history: list[LLMMessage],
-    ) -> tuple[list[LLMMessage], bool, str]:
-        ...
-
-
-class DefaultContextCompactor(ContextCompactor):
-    """Стандартная реализация с тремя фазами сжатия."""
+        scope_name: str,
+        history: list[ConversationMessage],
+        system_prompt: str | None = None,
+    ) -> None:
+        """Загрузить историю сессии в скоуп FCM.
+        
+        Вызывается автоматически в ExecutionEngine.build_context()
+        когда скоуп не существует (SingleStrategy).
+        
+        Для Multi-agent скоупы создаются оркестратором вручную,
+        и гидратация НЕ вызывается.
+        
+        Args:
+            scope_name: Имя скоупа (обычно "single" для SingleStrategy).
+            history: История сессии из SessionState.history.
+            system_prompt: Системный промпт (добавляется с priority=10).
+        """
+        # Создать скоуп если не существует
+        if scope_name not in self.scopes:
+            await self.create_scope(scope_name)
+        
+        scope = self.scopes[scope_name]
+        
+        # Очистить старые элементы из истории (сохранить system_rules)
+        await self._clear_history_items(scope_name)
+        
+        # System prompt — критический приоритет (не вытесняется)
+        if system_prompt:
+            await self.add_to_scope(
+                scope_name,
+                item_id="system_prompt",
+                content_type="system_rules",
+                content=system_prompt,
+                priority=10,
+            )
+        
+        # Загрузить историю с приоритетами по ролям
+        for i, msg in enumerate(history):
+            priority = self._priority_for_role(msg.role)
+            content_type = self._type_for_role(msg.role)
+            
+            await self.add_to_scope(
+                scope_name,
+                item_id=f"history_{i}",
+                content_type=content_type,
+                content=msg.content,
+                priority=priority,
+            )
     
+    @staticmethod
+    def _priority_for_role(role: str) -> int:
+        """Приоритет для роли сообщения."""
+        return {
+            "system": 10,      # Не вытесняется
+            "user": 8,         # Высокий приоритет
+            "assistant": 7,    # Средний приоритет
+            "tool": 5,         # Может быть вытеснен при нехватке токенов
+        }.get(role, 5)
+    
+    @staticmethod
+    def _type_for_role(role: str) -> ContextType:
+        """Тип контента для роли сообщения."""
+        return {
+            "system": "system_rules",
+            "user": "user_prompt",
+            "assistant": "agent_report",
+            "tool": "terminal_output",  # tool results как terminal output
+        }.get(role, "agent_report")
+    
+    async def _clear_history_items(self, scope_name: str) -> None:
+        """Очистить элементы истории из скоупа (сохранить system_rules)."""
+        scope = self.scopes.get(scope_name)
+        if not scope:
+            return
+        
+        items_to_remove = [
+            item_id for item_id, item in scope.registry.items()
+            if item.priority < 10  # Сохранить system_rules (priority=10)
+        ]
+        for item_id in items_to_remove:
+            scope.remove(item_id)
+```
+
+### 6.3. ContextCompactor — отдельный компонент (Слой 2)
+
+**Архитектурное решение:** `ContextCompactor` остаётся отдельным компонентом Слоя 2, но вызывается через FCM.
+
+**Обоснование по SOLID:**
+
+| Принцип | Обоснование |
+|---------|-------------|
+| **SRP** | Compactor отвечает за сжатие (prune, skeletonize, summarize). FCM отвечает за оркестрацию (скоупы, шеринг, приоритеты). Разные ответственности → разные компоненты. |
+| **OCP** | Compactor можно расширить (добавить фазу сжатия) без изменения FCM. FCM можно расширить (добавить новый тип скоупа) без изменения Compactor. |
+| **DIP** | FCM зависит от `ContextCompactor(ABC)`, а не от `DefaultContextCompactor`. Можно подменить реализацию. |
+| **Тестируемость** | Compactor тестируется изолированно (вход: `list[LLMMessage]`, выход: `list[LLMMessage]`). FCM тестируется с моком Compactor. |
+
+```mermaid
+graph TB
+    subgraph EE["ExecutionEngine"]
+        BC["build_context()"]
+    end
+    
+    subgraph FCM["FCM (Слой 3)"]
+        OBP["optimize_and_build_payload()"]
+    end
+    
+    subgraph L2["Слой 2: Сжатие"]
+        CC["ContextCompactor(ABC)"]
+        DCC["DefaultContextCompactor"]
+    end
+    
+    subgraph L1["Слой 1: Утилиты"]
+        TC["TokenCounter"]
+        SK["CodeSkeletonizer"]
+    end
+    
+    BC -->|"использует"| FCM
+    FCM -->|"delegate сжатие"| CC
+    DCC -.->|"extends"| CC
+    DCC -->|"использует"| TC
+    DCC -->|"использует"| SK
+    
+    Note1["ExecutionEngine НЕ знает<br/>про ContextCompactor напрямую"]
+    Note2["FCM делегирует сжатие<br/>в ContextCompactor"]
+    
+    style EE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style FCM fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style L2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    style L1 fill:#81c784,stroke:#43a047,stroke-width:2px
+```
+
+**Код FederatedContextManager с делегированием в Compactor:**
+
+```python
+class FederatedContextManager(ContextManager):
     def __init__(
         self,
-        llm: LLMProvider | None = None,
-        model: str = "openai/gpt-4o-mini",
-        max_context_tokens: int = 128000,
-        reserved_tokens: int = 4096,
-        token_counter: TokenCounter | None = None,  # Слой 1
-        skeletonizer: CodeSkeletonizer | None = None,  # Слой 1
+        compactor: ContextCompactor | None = None,  # DI из Слоя 2
+        token_counter: TokenCounter | None = None,
+        skeletonizer: CodeSkeletonizer | None = None,
+        file_cache: FileContentCache | None = None,
+        event_bus: AgentEventBus | None = None,
     ) -> None:
-        self.llm = llm
-        self.model = model
-        self.max_context_tokens = max_context_tokens
-        self.reserved_tokens = reserved_tokens
+        self.compactor = compactor  # Отдельный компонент, не "внутренний"
         self.token_counter = token_counter or create_token_counter()
         self.skeletonizer = skeletonizer or PythonASTSkeletonizer()
+        self.file_cache = file_cache
+        self.event_bus = event_bus
+        self.scopes: dict[str, AgentContextScope] = {}
     
-    async def compact_if_needed(
+    async def optimize_and_build_payload(
         self,
-        history: list[LLMMessage],
-    ) -> tuple[list[LLMMessage], bool, str]:
-        # Фаза 1: Prune
-        # Фаза 2: Skeletonize (NEW)
-        # Фаза 3: Summarize
-        ...
+        scope_name: str,
+    ) -> list[LLMMessage]:
+        """Сформировать оптимизированный payload для LLM.
+        
+        1. Собрать items в LLMMessage
+        2. Делегировать сжатие в ContextCompactor (Слой 2)
+        3. Применить приоритеты и скелетирование (логика FCM)
+        """
+        scope = self.scopes.get(scope_name)
+        if not scope:
+            return []
+        
+        # 1. Собрать items в LLMMessage
+        messages = self._items_to_messages(scope)
+        
+        # 2. Делегировать сжатие в ContextCompactor (Слой 2)
+        if self.compactor:
+            messages, _, _ = await self.compactor.compact_if_needed(messages)
+        
+        # 3. Применить приоритеты FCM (системные vs динамические)
+        messages = self._apply_priorities(messages, scope)
+        
+        return messages
 ```
 
 **Миграция существующего ContextCompactor:**

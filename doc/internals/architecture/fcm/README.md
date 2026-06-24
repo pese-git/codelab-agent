@@ -1,8 +1,13 @@
 # Federated Context Manager — Документация
 
 > **Статус:** Design Document  
-> **Версия:** 2.1  
+> **Версия:** 2.2  
 > **Дата:** 24 июня 2026
+> 
+> **Изменения в v2.2:**
+> - Единый путь формирования payload через FCM для всех стратегий
+> - `hydrate_from_history()` автоматически в `ExecutionEngine.build_context()`
+> - `ContextCompactor` — отдельный компонент (Слой 2), вызывается через FCM
 > 
 > **Изменения в v2.1:**
 > - Добавлен `FileContentCache` — кэш содержимого файлов (Слой 1)
@@ -20,13 +25,61 @@
 
 Federated Context Manager (FCM) — компонент для управления контекстом в мультиагентной системе CodeLab. Решает проблемы дублирования RPC запросов, потери контекста при сжатии и отсутствия приоритетов.
 
-## Архитектура (v2.1)
+## Ключевая концепция: единый путь
+
+Все стратегии (Single, Orchestrated, Choreography, Hierarchical) используют **единый путь** формирования payload через `ExecutionEngine.build_context()` → `FCM`:
 
 ```mermaid
 graph TB
+    subgraph Strategies["Стратегии"]
+        Single["SingleStrategy<br/>(1 скоуп)"]
+        Multi["Multi-agent<br/>(N скоупов)"]
+    end
+    
+    subgraph EE["ExecutionEngine"]
+        BC["build_context()<br/>────────────<br/>Единая точка входа"]
+    end
+    
+    subgraph FCM["FCM"]
+        HS["hydrate_from_history()"]
+        OBP["optimize_and_build_payload()"]
+    end
+    
+    subgraph L2["Слой 2"]
+        CC["ContextCompactor"]
+    end
+    
+    Single --> BC
+    Multi --> BC
+    BC --> HS
+    BC --> OBP
+    OBP -->|"delegate"| CC
+    
+    style FCM fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style EE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+**Разница между стратегиями — только в количестве скоупов:**
+- SingleStrategy → 1 глобальный скоуп (`agent_scope="single"`)
+- Multi-agent → N скоупов + шеринг между ними
+
+## Архитектура (v2.2)
+
+```mermaid
+graph TB
+    subgraph Strategies["Стратегии"]
+        Single["SingleStrategy<br/>(scope='single')"]
+        Orch["OrchestratedStrategy<br/>(scope='coder_agent')"]
+    end
+    
+    subgraph EE["ExecutionEngine"]
+        BC["build_context()"]
+    end
+    
     subgraph Layer3["Слой 3: Оркестрация"]
         CM["ContextManager(ABC)"]
         FCM["FederatedContextManager"]
+        HS["hydrate_from_history()"]
     end
     
     subgraph Layer2["Слой 2: Сжатие"]
@@ -45,16 +98,22 @@ graph TB
         CID["CacheInvalidationDecorator"]
     end
     
+    Single --> BC
+    Orch --> BC
+    BC --> HS
+    BC --> FCM
     FCM -.->|"extends"| CM
+    FCM -->|"delegate"| CC
     DCC -.->|"extends"| CC
-    FCM -->|"использует"| CC
-    FCM -->|"использует"| TC
-    FCM -->|"использует"| FCC
-    DCC -->|"использует"| TC
-    DCC -->|"использует"| SK
-    CID -->|"использует"| FCC
-    SFCC -->|"управляет"| FCC
+    FCM -->|"use"| TC
+    FCM -->|"use"| SK
+    FCM -->|"use"| FCC
+    DCC -->|"use"| TC
+    DCC -->|"use"| SK
+    CID -->|"use"| FCC
+    SFCC -->|"manage"| FCC
     
+    style EE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
     style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
     style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
@@ -158,7 +217,8 @@ src/codelab/server/tools/executors/decorators/
 3. **Слой 1 — Decorator:** `CacheInvalidationDecorator` (Decorator)
 4. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
 5. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
-6. **Интеграция:** `ExecutionEngine`, стратегии (Orchestrated, Hierarchical)
+6. **Интеграция:** `ExecutionEngine.build_context()` → единый путь для всех стратегий
+7. **Гидратация:** `hydrate_from_history()` автоматически в `ExecutionEngine`
 
 Подробности в [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md).
 
