@@ -296,40 +296,37 @@ def test_file_cache_lru_eviction():
     assert cache.get("c.py") == "content_c"
 ```
 
-#### Error: CacheInvalidationDecorator failure
+#### Error: FileCacheDecorator failure (ветка `_on_write`)
 
-**Scenario:** invalidation logic падает (unexpected)
+**Scenario:** `FileContentCache.invalidate()` падает (unexpected) при
+успешной записи файла.
 
-**Behavior:**
+**Behavior:** ветка `_on_write` обёрнута в `try/except`, ошибка логируется,
+но не пробрасывается — stale cache лучше, чем упавший tool executor.
+
 ```python
-# src/codelab/server/tools/executors/decorators/cache_invalidation.py
-class CacheInvalidationDecorator(ToolExecutorDecorator):
-    async def execute(
-        self,
-        session: SessionState,
-        arguments: dict[str, Any],
-    ) -> ToolExecutionResult:
-        result = await self._wrapped.execute(session, arguments)
-        
-        # CRITICAL: не падаем если invalidation failed
-        try:
-            if result.success and self._is_write_operation(arguments):
-                path = arguments.get("path", "")
-                if path:
-                    self._file_cache.invalidate(path)
-                    logger.debug("file_cache_invalidated", path=path)
-        except Exception as e:
-            # Stale cache лучше чем упавший tool executor
-            logger.error(
-                "cache_invalidation_failed",
-                path=arguments.get("path"),
-                error_type=type(e).__name__,
-                exc_info=e,
-            )
-            # Continue без raise — tool execution успешен
-        
-        return result
+# src/codelab/server/tools/executors/decorators/file_cache.py
+def _on_write(self, session: SessionState, path: str) -> None:
+    try:
+        self._file_cache.invalidate(path)
+        logger.debug(
+            "file_cache_invalidated",
+            session_id=session.session_id,
+            path=path,
+        )
+    except Exception as e:
+        # Stale cache лучше, чем упавший tool execution
+        logger.error(
+            "file_cache_invalidation_failed",
+            path=path,
+            error_type=type(e).__name__,
+            exc_info=e,
+        )
+        # Continue без raise — tool execution успешен
 ```
+
+> Ветки `_on_read` и `_on_terminal` имеют такую же семантику: ошибки
+> регистрации/кэширования не должны срывать успешный tool execution.
 
 **Impact:**
 - ✅ Tool execution не affected
@@ -339,19 +336,19 @@ class CacheInvalidationDecorator(ToolExecutorDecorator):
 
 **Testing:**
 ```python
-async def test_cache_invalidation_decorator_failure():
+async def test_file_cache_decorator_invalidation_failure():
     # Mock file_cache.invalidate to raise
     mock_cache = MagicMock()
     mock_cache.invalidate.side_effect = RuntimeError("Cache error")
-    
-    decorator = CacheInvalidationDecorator(base_executor, mock_cache)
-    
+
+    decorator = FileCacheDecorator(base_executor, mock_cache)
+
     # Should not raise despite invalidation failure
     result = await decorator.execute(
-        session=MagicMock(),
+        session=MagicMock(session_id="s1"),
         arguments={"operation": "write", "path": "test.py"},
     )
-    
+
     assert result.success  # tool execution succeeded
 ```
 

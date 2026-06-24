@@ -200,7 +200,7 @@ graph TB
     end
     
     subgraph Decorators["ToolExecutor Decorators"]
-        CID["CacheInvalidationDecorator"]
+        CID["FileCacheDecorator"]
         CID -->|"использует"| FCC
     end
     
@@ -461,67 +461,78 @@ class SessionFileCacheRegistry:
         self._caches.clear()
 ```
 
-#### CacheInvalidationDecorator
+#### FileCacheDecorator
 
-Декоратор для `ToolExecutor`, обеспечивающий инвалидацию кэша при записи файлов.
+Единый декоратор для `ToolExecutor`, обслуживающий весь жизненный цикл
+кэша файлов (объединяет ранее планировавшиеся `FCMCachingDecorator` и
+`CacheInvalidationDecorator` — см. `INTEGRATION_GUIDE.md §2.6`).
+
+Ответственности:
+- успешный `fs/read` (полный файл) → `FileContentCache.set()` + опц. `FCM.add_to_scope("file_content")`,
+- успешный `fs/read` (partial, `line`/`limit`) → только опц. `FCM.add_to_scope` с составным `item_id`,
+- успешный `fs/write` → `FileContentCache.invalidate()`,
+- успешный `terminal/*` → опц. `FCM.add_to_scope("terminal_output")`.
+
+`context_manager` опционален — без него декоратор работает как pure
+file cache (read-cache + invalidation), что нужно для feature flag
+`agents.context.enable_fcm=false`.
 
 ```mermaid
 graph LR
     subgraph Chain["Chain of Decorators"]
         Base["FileSystemToolExecutor"]
-        CID["CacheInvalidationDecorator<br/>(NEW)"]
+        FC["FileCacheDecorator<br/>(NEW)"]
         Metrics["MetricsDecorator"]
         Tracing["TracingDecorator"]
-        
-        Base --> CID
-        CID --> Metrics
+
+        Base --> FC
+        FC --> Metrics
         Metrics --> Tracing
     end
-    
+
     style Chain fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
 ```
 
 ```python
-class CacheInvalidationDecorator(ToolExecutorDecorator):
-    """Инвалидация кэша файлов при записи.
-    
-    Паттерн: Decorator (соответствует существующей архитектуре).
-    Отслеживает write-операции и инвалидирует кэш для изменённых файлов.
-    
-    Отвечает ТОЛЬКО за инвалидацию — не за чтение, не за кэширование.
+class FileCacheDecorator(ToolExecutorDecorator):
+    """Read-cache + write-invalidation + опц. регистрация в FCM scope.
+
+    Полная реализация и тесты приведены в INTEGRATION_GUIDE.md §2.6.
     """
-    
+
+    _READ_OPERATIONS = frozenset({"read"})
     _WRITE_OPERATIONS = frozenset({"write"})
-    
+
     def __init__(
         self,
         wrapped: ToolExecutorProtocol,
         file_cache: FileContentCache,
+        context_manager: ContextManager | None = None,
     ) -> None:
         super().__init__(wrapped)
         self._file_cache = file_cache
-    
-    async def execute(
-        self,
-        session: SessionState,
-        arguments: dict[str, Any],
-    ) -> ToolExecutionResult:
+        self._context_manager = context_manager
+
+    async def execute(self, session, arguments):
         result = await self._wrapped.execute(session, arguments)
-        
-        # Инвалидация ТОЛЬКО при успешной записи
-        if result.success and self._is_write_operation(arguments):
-            path = arguments.get("path", "")
-            if path:
-                self._file_cache.invalidate(path)
-        
+        if not result.success:
+            return result
+        # _on_read / _on_write / _on_terminal — см. INTEGRATION_GUIDE.md
+        ...
         return result
-    
-    @staticmethod
-    def _is_write_operation(arguments: dict[str, Any]) -> bool:
-        return arguments.get("operation") in CacheInvalidationDecorator._WRITE_OPERATIONS
 ```
 
-**Почему Decorator?**
+**Почему один декоратор, а не два?**
+
+| Критерий | Один `FileCacheDecorator` | Два декоратора |
+|----------|--------------------------|----------------|
+| **Конфигурация** | ✅ Один объект в цепочке | ❌ Порядок имеет значение |
+| **SRP** | ✅ «Жизненный цикл кэша файлов» — одна ответственность | ⚠️ Искусственное расщепление вокруг одного state |
+| **Зависимости** | ✅ Один `FileContentCache` | ⚠️ Два декоратора делят один кэш |
+| **Тесты** | ✅ Один набор fixtures | ❌ Дублирование setup |
+| **Расширение (terminal_output)** | ✅ В том же `_on_terminal` | ❌ Нужен ещё один декоратор |
+
+**Почему Decorator, а не прямая модификация Executor?**
 
 | Критерий | Decorator | Прямая модификация Executor |
 |----------|-----------|---------------------------|
@@ -593,7 +604,7 @@ src/codelab/server/tools/executors/decorators/
 ├── timeout.py                     # TimeoutDecorator (существующий)
 ├── retry.py                       # RetryDecorator (существующий)
 ├── tracing.py                     # TracingDecorator (существующий)
-└── cache_invalidation.py          # CacheInvalidationDecorator (NEW)
+└── file_cache.py          # FileCacheDecorator (NEW)
 ```
 
 ### 3.6. Почему ABC, а не Protocol?
@@ -607,6 +618,124 @@ src/codelab/server/tools/executors/decorators/
 | **Документация** | ❌ Неявный контракт | ✅ Явный контракт через наследование |
 
 **Решение:** ABC соответствует стилю проекта и обеспечивает явный контракт.
+
+### 3.7. Базовые ABC: канонические определения
+
+Ниже приведены полные сигнатуры базовых классов слоёв 2 и 3, которые ранее
+существовали только в виде Mermaid-диаграмм. Эти определения — единственный
+источник истины для реализации.
+
+#### Слой 2: `ContextCompactor`
+
+**Файл:** `src/codelab/server/agent/context/compactor.py`
+
+```python
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+from codelab.server.llm.models import LLMMessage
+
+
+class ContextCompactor(ABC):
+    """Сжатие истории сообщений (Template Method).
+
+    Контракт:
+    - Принимает текущую историю сообщений.
+    - Возвращает (new_history, was_compacted, mode), где
+      * new_history — список сообщений после сжатия,
+      * was_compacted — была ли применена компакция,
+      * mode — короткий ярлык применённой стратегии
+        ("noop" | "pruned" | "skeletonized" | "summarized").
+    - Не мутирует входной список.
+    - Гарантирует idempotency: повторный вызов на уже сжатой истории
+      не должен приводить к дополнительной потере информации.
+    """
+
+    @abstractmethod
+    async def compact_if_needed(
+        self,
+        history: list[LLMMessage],
+    ) -> tuple[list[LLMMessage], bool, str]: ...
+```
+
+`DefaultContextCompactor` реализует фазы Prune → Skeletonize → Summarize
+(см. §5.2).
+
+#### Слой 3: `ContextManager`
+
+**Файл:** `src/codelab/server/agent/context/manager.py`
+
+```python
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+from codelab.server.acp.types import ConversationMessage
+from codelab.server.agent.context.items import ContextType
+from codelab.server.agent.context.scope import AgentContextScope
+from codelab.server.llm.models import LLMMessage
+
+
+class ContextManager(ABC):
+    """Оркестрация контекста агентов (Mediator + Facade).
+
+    Контракт:
+    - Управляет жизненным циклом изолированных скоупов (`AgentContextScope`).
+    - Предоставляет операции наполнения, шеринга, гидратации и формирования
+      payload для LLM.
+    - Не выполняет tool execution и не обращается напрямую к ACP клиенту.
+    """
+
+    scopes: dict[str, AgentContextScope]
+
+    @abstractmethod
+    async def create_scope(
+        self,
+        scope_name: str,
+        max_tokens: int = 4000,
+    ) -> AgentContextScope: ...
+
+    @abstractmethod
+    async def add_to_scope(
+        self,
+        scope_name: str,
+        item_id: str,
+        content_type: ContextType,
+        content: str,
+        priority: int = 5,
+    ) -> None: ...
+
+    @abstractmethod
+    async def share_item(
+        self,
+        source_scope: str,
+        target_scope: str,
+        item_id: str,
+        new_priority: int | None = None,
+    ) -> None: ...
+
+    @abstractmethod
+    async def hydrate_from_history(
+        self,
+        scope_name: str,
+        history: list[ConversationMessage],
+        system_prompt: str | None = None,
+    ) -> None:
+        """Загрузить историю сессии в скоуп.
+
+        Вызывается из `ExecutionEngine.build_context()` автоматически,
+        когда скоуп ещё не существует (SingleStrategy).
+        """
+
+    @abstractmethod
+    async def optimize_and_build_payload(
+        self,
+        scope_name: str,
+    ) -> list[LLMMessage]: ...
+```
+
+`FederatedContextManager` — единственная in-tree реализация (см. §5.3).
 
 ---
 
@@ -733,7 +862,7 @@ def create_token_counter() -> TokenCounter:
 | **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` | Семейство алгоритмов |
 | **Repository** | 1 | `FileContentCache` | Инкапсуляция кэша файлов |
 | **Registry** | 1 | `SessionFileCacheRegistry` | Управление кэшами по сессиям |
-| **Decorator** | 1 | `CacheInvalidationDecorator` | Инвалидация кэша при записи |
+| **Decorator** | 1 | `FileCacheDecorator` | Read-cache + write-invalidation + опц. регистрация в FCM scope |
 | **Template Method** | 2 | `ContextCompactor` | Скелет алгоритма |
 | **Composite** | 2 | `DefaultContextCompactor` | Композиция стратегий |
 | **Mediator** | 3 | `FederatedContextManager` | Координация агентов |
@@ -2446,8 +2575,8 @@ history, compacted, reason = await compactor.compact_if_needed(history)
 ### C.2. Feature flag
 
 ```python
-# Включение FCM через конфигурацию
-if config.agents.context.enabled:
+# Включение FCM через конфигурацию (каноническое имя — см. FEATURE_FLAGS.md)
+if config.agents.context.enable_fcm:
     context_manager = FederatedContextManager(event_bus=event_bus)
 else:
     context_manager = None

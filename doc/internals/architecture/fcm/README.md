@@ -1,9 +1,19 @@
 # Federated Context Manager — Документация
 
 > **Статус:** Design Document  
-> **Версия:** 2.2  
-> **Дата:** 24 июня 2026
-> 
+> **Версия:** 2.3  
+> **Дата:** 25 июня 2026
+>
+> **Изменения в v2.3:**
+> - `FCMCachingDecorator` + `CacheInvalidationDecorator` объединены в единый
+>   `FileCacheDecorator` (read-cache + write-invalidation + опц. FCM scope)
+> - Унификация конфига: единственное имя master switch — `agents.context.enable_fcm`
+> - Добавлены явные ABC `ContextManager` и `ContextCompactor`
+>   (`ARCHITECTURE.md §3.7`) — теперь не только Mermaid, но и канонический Python-код
+> - `INTEGRATION_GUIDE.md` Шаги 1–2: убран дубликат `TokenCounter` через `Protocol`,
+>   починен оборванный фрагмент после `_ASTVisitor`
+> - README указывает `MIGRATION_PLAN.md` как roadmap-источник истины
+>
 > **Изменения в v2.2:**
 > - Единый путь формирования payload через FCM для всех стратегий
 > - `hydrate_from_history()` автоматически в `ExecutionEngine.build_context()`
@@ -12,7 +22,7 @@
 > **Изменения в v2.1:**
 > - Добавлен `FileContentCache` — кэш содержимого файлов (Слой 1)
 > - Добавлен `SessionFileCacheRegistry` — реестр кэшей по сессиям
-> - Добавлен `CacheInvalidationDecorator` — инвалидация кэша при записи
+> - Декоратор инвалидации кэша (в v2.3 слит с `FileCacheDecorator`)
 > 
 > **Изменения в v2.0:**
 > - Слоистая архитектура (Layer 1/2/3)
@@ -95,7 +105,7 @@ graph TB
     end
     
     subgraph Decorators["ToolExecutor Decorators"]
-        CID["CacheInvalidationDecorator"]
+        CID["FileCacheDecorator"]
     end
     
     Single --> BC
@@ -127,7 +137,7 @@ graph TB
 | **Strategy** | 1 | `TokenCounter`, `CodeSkeletonizer` |
 | **Repository** | 1 | `FileContentCache` |
 | **Registry** | 1 | `SessionFileCacheRegistry` |
-| **Decorator** | 1 | `CacheInvalidationDecorator` |
+| **Decorator** | 1 | `FileCacheDecorator` |
 | **Template Method** | 2 | `ContextCompactor` |
 | **Composite** | 2 | `DefaultContextCompactor` |
 | **Mediator** | 3 | `FederatedContextManager` |
@@ -207,8 +217,7 @@ src/codelab/server/agent/context/
 └── cache.py                  # ACPCache
 
 src/codelab/server/tools/executors/decorators/
-├── cache_invalidation.py     # CacheInvalidationDecorator (NEW)
-└── fcm_caching.py            # FCMCachingDecorator (NEW)
+└── file_cache.py             # FileCacheDecorator (NEW: read-cache + write-invalidation + опц. FCM scope)
 
 # Изменяемые файлы
 src/codelab/server/agent/execution_engine.py      # +_build_via_fcm()
@@ -219,9 +228,14 @@ src/codelab/server/tools/integrations/
 
 ## Путь внедрения
 
+> **Roadmap-источник истины:** [MIGRATION_PLAN.md](./MIGRATION_PLAN.md), Phase 0–5.
+> Этот раздел — краткая сводка; конкретные задачи, acceptance criteria и
+> сроки приведены в плане миграции. Начинать с Phase 0 (расширение
+> `ExecutionEngine.__init__` + `agent_scope`) и Phase 1 (Слой 1 — утилиты).
+
 1. **Слой 1 — Утилиты:** `TokenCounter`, `CodeSkeletonizer`, `FileContentCache` (Strategy, Repository)
 2. **Слой 1 — Registry:** `SessionFileCacheRegistry` (Registry)
-3. **Слой 1 — Decorators:** `CacheInvalidationDecorator`, `FCMCachingDecorator` (Decorator)
+3. **Слой 1 — Decorator:** `FileCacheDecorator` (Decorator) — read-cache + write-invalidation + опц. FCM scope
 4. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
 5. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
 6. **SessionState:** Добавить `current_agent_scope`

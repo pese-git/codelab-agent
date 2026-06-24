@@ -39,8 +39,8 @@ from codelab.server.agent.context.items import ContextItem, ContextType
 from codelab.server.agent.context.scope import AgentContextScope
 
 # Decorators
-from codelab.server.tools.executors.decorators.cache_invalidation import (
-    CacheInvalidationDecorator,  # Инвалидация кэша при записи
+from codelab.server.tools.executors.decorators.file_cache import (
+    FileCacheDecorator,  # read-cache + write-invalidation + опц. FCM scope
 )
 ```
 
@@ -121,22 +121,26 @@ cache.invalidate("src/db.py")
 cache_registry.remove(session_id="session_123")
 ```
 
-### CacheInvalidationDecorator
+### FileCacheDecorator
 
 ```python
 # Создание chain of decorators (в DI или factory)
 from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
-from codelab.server.tools.executors.decorators.cache_invalidation import CacheInvalidationDecorator
+from codelab.server.tools.executors.decorators.file_cache import FileCacheDecorator
 
 base_executor = FileSystemToolExecutor(bridge, permission_checker)
-executor_with_cache = CacheInvalidationDecorator(base_executor, file_cache=cache)
+executor_with_cache = FileCacheDecorator(
+    base_executor,
+    file_cache=cache,
+    context_manager=fcm,  # опционально: регистрировать read/terminal в FCM scope
+)
 
-# Теперь при успешной записи кэш автоматически инвалидируется
+# Успешный write → cache.invalidate(path) автоматически
+# Успешный full read → cache.set(path, content) + FCM.add_to_scope (если задан)
 result = await executor_with_cache.execute(
     session=session,
     arguments={"operation": "write", "path": "src/db.py", "content": "..."},
 )
-# Кэш для "src/db.py" инвалидирован автоматически
 ```
 
 ### Работа со скоупами
@@ -253,27 +257,27 @@ else:
 
 ```toml
 [agents.context]
-enabled = true
-cache_max_size = 1000
-summarization_model = "openai/gpt-4o-mini"
+enable_fcm = true
+use_tiktoken = true
+enable_ast_skeletonization = true
+enable_file_cache = true
 
-[agents.context.skeletonization]
-enabled = true
-min_saving_percent = 50
+[agents.context.cache]
+max_size = 1000
+
+[agents.context.compaction]
+max_context_tokens = 128000
+reserved_tokens = 4096
 ```
 
 ### Feature flag
 
 ```python
-if config.context.enabled:
+if config.agents.context.enable_fcm:
     fcm = FederatedContextManager(...)
+    engine = ExecutionEngine(tool_registry=..., context_manager=fcm)
 else:
-    fcm = None
-
-engine = ExecutionEngine(
-    ...,
-    context_manager=fcm,
-)
+    engine = ExecutionEngine(tool_registry=..., compactor=ContextCompactor(...))
 ```
 
 ---
