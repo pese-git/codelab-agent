@@ -46,4 +46,4 @@
 - `src/codelab/server/protocol/handlers/permissions.py` — task permissions resolution
 - `src/codelab/server/agent/strategies/mcp_context.py` — MCP propagation в child sessions
 
-**Зависимости:** Зависит от event-bus, llm-adapter, agent-registry, observability, orchestrated-strategy (TokenSlicer, HybridContextManager).
+**Зависимости:** Зависит от event-bus, llm-adapter, agent-registry, observability, orchestrated-strategy (TokenSlicer, SubAgentCoordinator).

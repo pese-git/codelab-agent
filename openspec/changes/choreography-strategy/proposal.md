@@ -13,6 +13,8 @@
 - **Conflict Resolution** — Priority Queue из agent config (priority, меньше = важнее)
 - **ChoreographyStrategy** — стратегия выполнения с broadcast → parallel → conflict resolution
 
+**Использует `SubAgentCoordinator`** (из orchestrated-strategy) для создания child session winner-агента и TokenSlicer суммаризации.
+
 ### Интеграция
 
 - Валидация через AgentRegistry: требует ≥2 subagents

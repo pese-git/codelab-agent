@@ -10,7 +10,7 @@
 
 - **RouteDecision** — Pydantic модель для Structured Outputs (reasoning, target_agent, task_payload)
 - **TokenSlicer** — суммаризация ответов субагентов через дешёвую LLM модель, skip threshold, fallback truncate
-- **HybridContextManager** — координатор: TokenSlicer + ContextCompactor + Child Sessions
+- **SubAgentCoordinator** — координатор: TokenSlicer + Child Sessions (ContextCompactor убран — покрывается FCM)
 - **OrchestratedStrategy** — стратегия выполнения с циклом route→execute→slice→next
 
 ### Интеграция
@@ -26,7 +26,7 @@
 ### New Capabilities
 - `route-decision`: Structured Outputs для маршрутизации (Pydantic model)
 - `token-slicer`: Суммаризация ответов субагентов, skip threshold, fallback
-- `hybrid-context-manager`: Координация TokenSlicer + ContextCompactor + Child Sessions
+- `sub-agent-coordinator`: TokenSlicer + Child Sessions (без ContextCompactor — FCM покрывает)
 - `orchestrated-strategy`: Цикл route→execute→slice→next с max_steps
 - `child-sessions`: Создание и связывание дочерних сессий
 
@@ -39,7 +39,7 @@
 **Новые файлы:**
 - `src/codelab/server/agent/strategies/models.py` — RouteDecision
 - `src/codelab/server/agent/strategies/token_slicer.py` — TokenSlicer
-- `src/codelab/server/agent/core/context_manager.py` — HybridContextManager
+- `src/codelab/server/agent/strategies/sub_agent_coordinator.py` — SubAgentCoordinator
 - `src/codelab/server/agent/strategies/orchestrated.py` — OrchestratedStrategy
 
 **Изменяемые файлы:**

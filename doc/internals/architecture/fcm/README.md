@@ -207,23 +207,49 @@ src/codelab/server/agent/context/
 └── cache.py                  # ACPCache
 
 src/codelab/server/tools/executors/decorators/
-└── cache_invalidation.py     # CacheInvalidationDecorator (NEW)
+├── cache_invalidation.py     # CacheInvalidationDecorator (NEW)
+└── fcm_caching.py            # FCMCachingDecorator (NEW)
+
+# Изменяемые файлы
+src/codelab/server/agent/execution_engine.py      # +_build_via_fcm()
+src/codelab/server/protocol/state.py              # +current_agent_scope
+src/codelab/server/tools/integrations/
+└── client_rpc_bridge.py                          # +FileContentCache integration
 ```
 
 ## Путь внедрения
 
 1. **Слой 1 — Утилиты:** `TokenCounter`, `CodeSkeletonizer`, `FileContentCache` (Strategy, Repository)
 2. **Слой 1 — Registry:** `SessionFileCacheRegistry` (Registry)
-3. **Слой 1 — Decorator:** `CacheInvalidationDecorator` (Decorator)
+3. **Слой 1 — Decorators:** `CacheInvalidationDecorator`, `FCMCachingDecorator` (Decorator)
 4. **Слой 2 — Сжатие:** `ContextCompactor` с AST-скелетированием (Template Method)
 5. **Слой 3 — Оркестрация:** `ContextManager`, `FederatedContextManager` (Mediator)
-6. **Интеграция:** `ExecutionEngine.build_context()` → единый путь для всех стратегий
-7. **Гидратация:** `hydrate_from_history()` автоматически в `ExecutionEngine`
+6. **SessionState:** Добавить `current_agent_scope`
+7. **ClientRPCBridge:** Интегрировать `FileContentCache` (cache before RPC)
+8. **Интеграция:** `ExecutionEngine.build_context()` → единый путь для всех стратегий
+9. **Гидратация:** `hydrate_from_history()` автоматически в `ExecutionEngine`
+10. **Multi-agent стратегии:** `OrchestratedStrategy`, `HierarchicalStrategy`, `ChoreographyStrategy`
 
-Подробности в [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md).
+Подробности в [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md) и [AGENT_LOOP_INTEGRATION.md](./AGENT_LOOP_INTEGRATION.md).
 
 ## Связанные документы
 
+### Критические (P0) — Read Before Implementing
+- [AGENT_LOOP_INTEGRATION.md](./AGENT_LOOP_INTEGRATION.md) — **FCM flow в AgentLoop + все стратегии + ClientRPC → FCM**
+- [MIGRATION_PLAN.md](./MIGRATION_PLAN.md) — пошаговый план внедрения (7-8 недель)
+- [ERROR_HANDLING.md](./ERROR_HANDLING.md) — стратегия обработки ошибок
+- [EDGE_CASES.md](./EDGE_CASES.md) — спецификация 10 edge cases
+
+### High Priority (P1)
+- [FEATURE_FLAGS.md](./FEATURE_FLAGS.md) — конфигурация и rollout
+- [PERFORMANCE_REQUIREMENTS.md](./PERFORMANCE_REQUIREMENTS.md) — SLOs и бенчмарки
+
+### Reference
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — полная архитектура FCM
+- [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md) — пошаговое руководство
+- [DIAGRAMS.md](./DIAGRAMS.md) — все Mermaid диаграммы
+- [CHEAT_SHEET.md](./CHEAT_SHEET.md) — краткая шпаргалка
+
+### Внешние
 - [Мультиагентная техническая спецификация](../MULTIAGENT_TECHNICAL_SPECIFICATION.md)
 - [Архитектура ACP Protocol](../ARCHITECTURE.md)
-- [PoC документ](../../../../docs/poc/fcm-poc.md) (если существует)

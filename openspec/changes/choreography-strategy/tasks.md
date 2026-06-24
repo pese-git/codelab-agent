@@ -12,11 +12,12 @@
 - [ ] 3.1 Создать `server/agent/strategies/choreography.py` — ChoreographyStrategy
 - [ ] 3.2 Реализовать broadcast → parallel → conflict resolution → winner
 - [ ] 3.3 Интеграция с EventBus.broadcast()
-- [ ] 3.4 Интеграция с HybridContextManager (child session для winner)
-- [ ] 3.5 Реализовать max_steps предохранитель
-- [ ] 3.6 Реализовать coordination_overhead_tokens подсчёт
-- [ ] 3.7 Реализовать cancellation flow (asyncio.gather + return_exceptions)
-- [ ] 3.8 Unit-тесты ChoreographyStrategy
+- [ ] 3.4 Интеграция с SubAgentCoordinator (child session для winner, вместо HybridContextManager)
+- [ ] 3.5 Интеграция с FCM: create_scope("_broadcast_context"), optimize_and_build_payload, share_from winner
+- [ ] 3.6 Реализовать max_steps предохранитель
+- [ ] 3.7 Реализовать coordination_overhead_tokens подсчёт
+- [ ] 3.8 Реализовать cancellation flow (asyncio.gather + return_exceptions)
+- [ ] 3.9 Unit-тесты ChoreographyStrategy
 
 ## 4. Интеграция с StrategyDispatcher
 - [ ] 4.1 Добавить CHOREOGRAPHY_STRATEGY_DESCRIPTOR в descriptor.py
