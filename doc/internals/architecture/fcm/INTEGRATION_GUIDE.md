@@ -1,20 +1,26 @@
 # Federated Context Manager — Руководство по интеграции
 
-> **Версия:** 1.0  
+> **Версия:** 2.0  
 > **Дата:** 24 июня 2026  
 > **Для кого:** Разработчики, внедряющие FCM в проект
+> 
+> **Изменения в v2.0:**
+> - Слоистая архитектура (Layer 1/2/3)
+> - ABC вместо Protocol (соответствие стилю проекта)
+> - Паттерны проектирования: Strategy, Template Method, Composite, Mediator
 
 ---
 
 ## Оглавление
 
 1. [Быстрый старт](#1-быстрый-старт)
-2. [Пошаговое внедрение](#2-пошаговое-внедрение)
-3. [Интеграция с существующим кодом](#3-интеграция-с-существующим-кодом)
-4. [Тестирование](#4-тестирование)
-5. [Отладка и мониторинг](#5-отладка-и-мониторинг)
-6. [Часто задаваемые вопросы](#6-часто-задаваемые-вопросы)
-7. [Чек-лист готовности](#7-чек-лист-готовности)
+2. [Слоистая архитектура](#2-слоистая-архитектура)
+3. [Пошаговое внедрение](#3-пошаговое-внедрение)
+4. [Интеграция с существующим кодом](#4-интеграция-с-существующим-кодом)
+5. [Тестирование](#5-тестирование)
+6. [Отладка и мониторинг](#6-отладка-и-мониторинг)
+7. [Часто задаваемые вопросы](#7-часто-задаваемые-вопросы)
+8. [Чек-лист готовности](#8-чек-лист-готовности)
 
 ---
 
@@ -26,50 +32,71 @@
 |------------|----------|
 | Python | 3.12+ |
 | Зависимости | `tiktoken` (опционально, для точного подсчёта токенов) |
-| Знания | EventBus, Strategy Pattern, dataclass |
+| Знания | ABC, EventBus, Strategy Pattern, dataclass |
 | Время | ~2 недели на полное внедрение |
 
-### 1.2. Структура файлов
+### 1.2. Структура файлов (слоистая архитектура)
 
 ```
-src/codelab/server/agent/
-├── context/
-│   ├── __init__.py
-│   ├── items.py              # ContextItem, ContextType
-│   ├── scope.py              # AgentContextScope
-│   ├── manager.py            # FederatedContextManager
-│   ├── cache.py              # ACPCache
-│   ├── ast_skeletonizer.py   # ASTSkeletonizer
-│   └── token_counter.py      # TokenCounter
-├── context_compactor.py      # Расширение (добавить skeletonizer)
-└── execution_engine.py       # Расширение (добавить context_manager)
+src/codelab/server/agent/context/
+├── __init__.py                    # Экспорты
+│
+├── # Слой 1: Утилиты (ABC + реализации)
+├── token_counter.py               # TokenCounter(ABC), TiktokenCounter, ApproximateTokenCounter
+├── ast_skeletonizer.py            # CodeSkeletonizer(ABC), PythonASTSkeletonizer
+│
+├── # Слой 2: Сжатие (ABC + реализация)
+├── compactor.py                   # ContextCompactor(ABC), DefaultContextCompactor
+│
+├── # Слой 3: Оркестрация (ABC + реализация)
+├── items.py                       # ContextItem, ContextType (dataclasses)
+├── scope.py                       # AgentContextScope
+├── manager.py                     # ContextManager(ABC), FederatedContextManager
+└── cache.py                       # ACPCache
 
-tests/server/agent/
-├── context/
-│   ├── __init__.py
-│   ├── test_items.py
-│   ├── test_scope.py
-│   ├── test_manager.py
-│   ├── test_cache.py
-│   ├── test_ast_skeletonizer.py
-│   └── test_token_counter.py
-└── test_execution_engine_fcm.py
+tests/server/agent/context/
+├── __init__.py
+├── test_token_counter.py          # Слой 1
+├── test_ast_skeletonizer.py       # Слой 1
+├── test_compactor.py              # Слой 2
+├── test_items.py                  # Слой 3
+├── test_scope.py                  # Слой 3
+├── test_manager.py                # Слой 3
+└── test_cache.py                  # Слой 3
 ```
 
 ### 1.3. Минимальный пример
 
 ```python
-from codelab.server.agent.context import FederatedContextManager
+from codelab.server.agent.context import (
+    FederatedContextManager,
+    create_token_counter,
+    PythonASTSkeletonizer,
+    DefaultContextCompactor,
+)
 
 async def main():
-    # 1. Создать FCM
-    fcm = FederatedContextManager()
+    # 1. Создать компоненты (Слой 1)
+    token_counter = create_token_counter()  # Factory Method
+    skeletonizer = PythonASTSkeletonizer()
     
-    # 2. Создать скоупы для агентов
+    # 2. Создать ContextCompactor (Слой 2)
+    compactor = DefaultContextCompactor(
+        token_counter=token_counter,
+        skeletonizer=skeletonizer,
+    )
+    
+    # 3. Создать FederatedContextManager (Слой 3)
+    fcm = FederatedContextManager(
+        token_counter=token_counter,
+        skeletonizer=skeletonizer,
+        compactor=compactor,
+    )
+    
+    # 4. Использовать
     await fcm.create_scope("search_agent", max_tokens=4000)
     await fcm.create_scope("coder_agent", max_tokens=16000)
     
-    # 3. Добавить данные
     await fcm.add_to_scope(
         "search_agent",
         "src/db.py",
@@ -78,54 +105,218 @@ async def main():
         priority=5,
     )
     
-    # 4. Передать между агентами
     await fcm.share_item("search_agent", "coder_agent", "src/db.py")
     
-    # 5. Получить оптимизированный payload
     payload = await fcm.optimize_and_build_payload("coder_agent")
     print(payload)
 ```
 
 ---
 
-## 2. Пошаговое внедрение
+## 2. Слоистая архитектура
 
-### Шаг 1: Реализация ASTSkeletonizer
+### 2.1. Обзор слоёв
+
+```mermaid
+graph TB
+    subgraph Layer3["Слой 3: Оркестрация"]
+        CM["ContextManager(ABC)"]
+        FCM["FederatedContextManager"]
+    end
+    
+    subgraph Layer2["Слой 2: Сжатие"]
+        CC["ContextCompactor(ABC)"]
+        DCC["DefaultContextCompactor"]
+    end
+    
+    subgraph Layer1["Слой 1: Утилиты"]
+        TC["TokenCounter(ABC)"]
+        SK["CodeSkeletonizer(ABC)"]
+    end
+    
+    FCM -.->|"extends"| CM
+    DCC -.->|"extends"| CC
+    FCM -->|"использует"| CC
+    FCM -->|"использует"| TC
+    DCC -->|"использует"| TC
+    DCC -->|"использует"| SK
+    
+    style Layer3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Layer2 fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    style Layer1 fill:#81c784,stroke:#43a047,stroke-width:2px
+```
+
+### 2.2. Правила зависимостей
+
+| Слой | Может зависеть от | Не может зависеть от |
+|------|-------------------|---------------------|
+| **1. Утилиты** | Ничего | Слой 2, Слой 3 |
+| **2. Сжатие** | Слой 1 | Слой 3 |
+| **3. Оркестрация** | Слой 1, Слой 2 | — |
+
+### 2.3. ABC и паттерны
+
+| Слой | ABC | Реализации | Паттерн |
+|------|-----|------------|---------|
+| 1 | `TokenCounter` | `TiktokenCounter`, `ApproximateTokenCounter` | Strategy |
+| 1 | `CodeSkeletonizer` | `PythonASTSkeletonizer` | Strategy |
+| 2 | `ContextCompactor` | `DefaultContextCompactor` | Template Method, Composite |
+| 3 | `ContextManager` | `FederatedContextManager` | Mediator, Facade |
+
+---
+
+## 3. Пошаговое внедрение
+
+### Шаг 1: Слой 1 — TokenCounter (Strategy Pattern)
+
+**Файл:** `src/codelab/server/agent/context/token_counter.py`
+
+```python
+"""TokenCounter — абстракция для подсчёта токенов (Слой 1)."""
+
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
+
+
+class TokenCounter(ABC):
+    """Абстракция для подсчёта токенов.
+    
+    Паттерн: Strategy — разные реализации для разных backend'ов.
+    """
+    
+    @abstractmethod
+    def count(self, content: str) -> int:
+        """Подсчитать токены в содержимом."""
+        ...
+
+
+class TiktokenCounter(TokenCounter):
+    """Точный подсчёт через tiktoken."""
+    
+    def __init__(self, encoding_name: str = "cl100k_base") -> None:
+        import tiktoken
+        self._encoding = tiktoken.get_encoding(encoding_name)
+    
+    def count(self, content: str) -> int:
+        if not content:
+            return 0
+        return len(self._encoding.encode(content))
+
+
+class ApproximateTokenCounter(TokenCounter):
+    """Приближённый подсчёт (~4 символа на токен). Fallback."""
+    
+    def count(self, content: str) -> int:
+        if not content:
+            return 0
+        return len(content) // 4
+
+
+def create_token_counter() -> TokenCounter:
+    """Factory Method: создать лучший доступный TokenCounter."""
+    try:
+        return TiktokenCounter()
+    except ImportError:
+        logger.debug("tiktoken not available, using ApproximateTokenCounter")
+        return ApproximateTokenCounter()
+```
+
+**Тесты:** `tests/server/agent/context/test_token_counter.py`
+
+```python
+import pytest
+from codelab.server.agent.context.token_counter import (
+    TokenCounter,
+    TiktokenCounter,
+    ApproximateTokenCounter,
+    create_token_counter,
+)
+
+
+class TestTokenCounter:
+    def test_count_empty(self):
+        counter = create_token_counter()
+        assert counter.count("") == 0
+    
+    def test_count_returns_positive(self):
+        counter = create_token_counter()
+        assert counter.count("Hello, world!") > 0
+    
+    def test_approximate_counter(self):
+        counter = ApproximateTokenCounter()
+        assert counter.count("x" * 100) == 25
+    
+    def test_factory_returns_counter(self):
+        counter = create_token_counter()
+        assert isinstance(counter, TokenCounter)
+```
+
+---
+
+### Шаг 2: Слой 1 — CodeSkeletonizer (Strategy Pattern)
 
 **Файл:** `src/codelab/server/agent/context/ast_skeletonizer.py`
 
 ```python
-"""ASTSkeletonizer — сжатие Python-кода до сигнатур."""
+"""CodeSkeletonizer — абстракция для скелетирования кода (Слой 1)."""
 
 from __future__ import annotations
 
 import ast
 import logging
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
-class ASTSkeletonizer(ast.NodeVisitor):
-    """Сборщик структуры Python-кода.
+class CodeSkeletonizer(ABC):
+    """Абстракция для скелетирования кода.
     
-    Извлекает сигнатуры классов и функций, удаляя тела.
-    Используется для экономии токенов при сжатии контекста.
+    Паттерн: Strategy — разные языки/подходы.
     """
     
+    @abstractmethod
+    def skeletonize(self, code: str, file_id: str = "", language: str = "python") -> str:
+        """Сжать код до скелета."""
+        ...
+
+
+class PythonASTSkeletonizer(CodeSkeletonizer):
+    """Скелетирование Python-кода через AST."""
+    
+    def skeletonize(self, code: str, file_id: str = "", language: str = "python") -> str:
+        if language != "python":
+            return f"# Скелетирование для {language} не поддерживается\n{code}"
+        
+        try:
+            tree = ast.parse(code)
+            visitor = _ASTVisitor()
+            visitor.visit(tree)
+            skeleton = "\n".join(visitor.result)
+            return f"# [СЖАТО: структура файла {file_id}]\n{skeleton}"
+        except Exception as e:
+            logger.warning("Failed to skeletonize %s: %s", file_id, e)
+            return f"# [ОШИБКА СЖАТИЯ] {file_id}: {e}"
+
+
+class _ASTVisitor(ast.NodeVisitor):
+    """Внутренний visitor для AST."""
+    
     def __init__(self) -> None:
-        self.indent: int = 0
+        self.indent = 0
         self.result: list[str] = []
     
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         indent_str = "    " * self.indent
-        
-        # Декораторы
         for dec in node.decorator_list:
             try:
                 self.result.append(f"{indent_str}@{ast.unparse(dec)}")
             except Exception:
                 self.result.append(f"{indent_str}@decorator")
-        
         self.result.append(f"{indent_str}class {node.name}:")
         self.indent += 1
         self.generic_visit(node)
@@ -137,38 +328,22 @@ class ASTSkeletonizer(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node, is_async=True)
     
-    def _visit_function(
-        self,
-        node: ast.FunctionDef | ast.AsyncFunctionDef,
-        is_async: bool,
-    ) -> None:
+    def _visit_function(self, node, is_async: bool) -> None:
         indent_str = "    " * self.indent
-        
-        # Декораторы
         for dec in node.decorator_list:
             try:
                 self.result.append(f"{indent_str}@{ast.unparse(dec)}")
             except Exception:
                 self.result.append(f"{indent_str}@decorator")
-        
-        # Аргументы и return type
         try:
             args = ast.unparse(node.args)
             ret = f" -> {ast.unparse(node.returns)}" if node.returns else ""
         except Exception:
             args = "..."
             ret = ""
-        
         prefix = "async def" if is_async else "def"
         self.result.append(f"{indent_str}{prefix} {node.name}({args}){ret}: ...")
-
-
-def skeletonize(code: str, file_id: str = "<unknown>") -> str:
-    """Сжать Python-код до скелета.
-    
-    Args:
-        code: Исходный код Python.
-        file_id: Идентификатор файла для сообщений.
+```
     
     Returns:
         Сжатый код или оригинал при ошибке.

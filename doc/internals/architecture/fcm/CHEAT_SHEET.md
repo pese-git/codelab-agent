@@ -1,33 +1,65 @@
 # Federated Context Manager — Cheat Sheet
 
-> Быстрая шпаргалка для разработчиков
+> Быстрая шпаргалка для разработчиков (v2.0 — слоистая архитектура + ABC)
 
 ---
 
-## Импорт
+## Импорт (слоистая архитектура)
 
 ```python
-from codelab.server.agent.context import (
-    FederatedContextManager,
-    AgentContextScope,
-    ContextItem,
-    ContextType,
-    ASTSkeletonizer,
-    TokenCounter,
+# Слой 1: Утилиты
+from codelab.server.agent.context.token_counter import (
+    TokenCounter,              # ABC
+    TiktokenCounter,           # Реализация (точный)
+    ApproximateTokenCounter,   # Реализация (fallback)
+    create_token_counter,      # Factory Method
 )
+from codelab.server.agent.context.ast_skeletonizer import (
+    CodeSkeletonizer,          # ABC
+    PythonASTSkeletonizer,     # Реализация
+)
+
+# Слой 2: Сжатие
+from codelab.server.agent.context.compactor import (
+    ContextCompactor,          # ABC
+    DefaultContextCompactor,   # Реализация
+)
+
+# Слой 3: Оркестрация
+from codelab.server.agent.context.manager import (
+    ContextManager,            # ABC
+    FederatedContextManager,   # Реализация
+)
+from codelab.server.agent.context.items import ContextItem, ContextType
+from codelab.server.agent.context.scope import AgentContextScope
 ```
 
 ---
 
 ## Основные операции
 
-### Создание FCM
+### Создание компонентов (слоистая архитектура)
 
 ```python
+# Слой 1: Утилиты
+token_counter = create_token_counter()  # Factory Method
+skeletonizer = PythonASTSkeletonizer()
+
+# Слой 2: Сжатие
+compactor = DefaultContextCompactor(
+    token_counter=token_counter,
+    skeletonizer=skeletonizer,
+    max_context_tokens=128000,
+    reserved_tokens=4096,
+)
+
+# Слой 3: Оркестрация
 fcm = FederatedContextManager(
     event_bus=event_bus,      # опционально
     tracer=tracer,            # опционально
-    token_counter=TokenCounter(),
+    token_counter=token_counter,
+    skeletonizer=skeletonizer,
+    compactor=compactor,
 )
 ```
 
