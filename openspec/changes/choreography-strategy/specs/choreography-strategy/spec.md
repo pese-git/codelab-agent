@@ -72,17 +72,25 @@ class ChoreographyAnswer(DomainEvent):
 
 Система ДОЛЖНА предоставлять `ChoreographyStrategy` — стратегию параллельного выполнения:
 
-1. Broadcast ContextBroadcast всем агентам параллельно
-2. Сбор ChoreographyAnswer от каждого агента
-3. Conflict Resolution: Priority Queue
-4. Создать child session для winner-агента
-5. TokenSlicer: суммаризация winner output (опционально)
-6. coordination_overhead_tokens: токены холостых опросов
-7. max_steps предохранитель
+1. FCM.create_scope("_broadcast_context") + hydrate_from_history() — подготовка broadcast контекста
+2. Broadcast ContextBroadcast всем агентам параллельно (из FCM payload)
+3. Сбор ChoreographyAnswer от каждого агента
+4. Conflict Resolution: Priority Queue
+5. SubAgentCoordinator.process_subagent_response() — создать child session только для winner + TokenSlicer (опционально)
+6. FCM.add_to_scope("_broadcast_context", "winner_summary", ...) — добавить summary в контекст
+7. coordination_overhead_tokens: токены холостых опросов
+8. max_steps предохранитель
+
+**Управление контекстом:**
+- `FCM.create_scope("_broadcast_context")` — общий scope для broadcast (не изолированные per-agent scopes)
+- Broadcast context формируется через `FCM.optimize_and_build_payload("_broadcast_context")`
+- FCM НЕ создаёт scope для каждого агента-участника — они получают одинаковый broadcast payload
+- После Conflict Resolution: `FCM.create_scope(winner_name)` + `share_from("_broadcast_context", winner_name)` — только для winner
 
 #### Сценарий: Успешное выполнение
 - **КОГДА** стратегия начинает выполнение
-- **ТОГДА** выполняется цикл: broadcast → parallel → conflict resolution → winner → next step
+- **ТОГДА** FCM формирует broadcast payload из "_broadcast_context" scope
+- **И** выполняется цикл: broadcast → parallel → conflict resolution → SubAgentCoordinator → winner scope → next step
 - **И** цикл завершается когда winner status_signal="completed" или достигнут max_steps
 
 #### Сценарий: Fallback при недоступности стратегии
@@ -99,11 +107,12 @@ class ChoreographyAnswer(DomainEvent):
 
 ### Требование: Child Session для Winner
 
-Child session ДОЛЖНА создаваться только для winner-агента:
+Child session ДОЛЖНА создаваться только для winner-агента через `SubAgentCoordinator`:
 - Минимизирует overhead (1 child session вместо N)
 - Сохраняет навигацию к деталям выполненной работы
 - Проигравшие агенты НЕ получают child sessions
 - Ответы проигравших записываются в EventTimeline для debug mode
+- `SubAgentCoordinator` НЕ выполняет compaction — это делает FCM автоматически через `DefaultContextCompactor`
 
 ### Требование: Child session mode inheritance
 

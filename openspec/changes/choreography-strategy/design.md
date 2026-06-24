@@ -30,3 +30,19 @@
 - ✅ Все tasks отменяются параллельно
 - ✅ Частичные результаты игнорируются
 - ⚠️ Нельзя отменить отдельные tasks
+
+## Decision 4: SubAgentCoordinator для winner child session
+
+**Контекст:** ChoreographyStrategy создаёт child session только для winner-агента.
+
+**Решение:** Использует `SubAgentCoordinator` (из orchestrated-strategy) вместо `HybridContextManager`. SubAgentCoordinator содержит только TokenSlicer + SessionStorage — без ContextCompactor (FCM покрывает).
+
+**Broadcast context через FCM:**
+- `FCM.create_scope("_broadcast_context")` — общий scope для broadcast payload
+- Все агенты получают одинаковый payload из `FCM.optimize_and_build_payload("_broadcast_context")`
+- После выбора winner: `FCM.create_scope(winner_name)` + `share_from("_broadcast_context", winner_name)`
+
+**Tradeoffs:**
+- ✅ Переиспользование SubAgentCoordinator из orchestrated-strategy
+- ✅ FCM управляет broadcast context — нет отдельной broadcast логики
+- ⚠️ "_broadcast_context" — специальный scope, не привязан к конкретному агенту

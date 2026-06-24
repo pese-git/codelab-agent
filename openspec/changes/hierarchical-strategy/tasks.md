@@ -14,10 +14,11 @@
 - [ ] 3.2 Реализовать цикл: primary LLM → decision → delegate/answer
 - [ ] 3.3 Интеграция с TaskInvocation → AgentRequest
 - [ ] 3.4 Интеграция с TaskResult ← AgentResponse
-- [ ] 3.5 Интеграция с HybridContextManager (child sessions + TokenSlicer)
-- [ ] 3.6 Интеграция с TaskPermissions
-- [ ] 3.7 Реализовать cascade cancellation
-- [ ] 3.8 Unit-тесты HierarchicalStrategy
+- [ ] 3.5 Интеграция с SubAgentCoordinator (child sessions + TokenSlicer, вместо HybridContextManager)
+- [ ] 3.6 Интеграция с FCM: create_scope, hydrate_from_history, share_item, optimize_and_build_payload
+- [ ] 3.7 Интеграция с TaskPermissions
+- [ ] 3.8 Реализовать cascade cancellation
+- [ ] 3.9 Unit-тесты HierarchicalStrategy
 
 ## 4. Интеграция с StrategyDispatcher
 - [ ] 4.1 Добавить HIERARCHICAL_STRATEGY_DESCRIPTOR в descriptor.py
