@@ -58,7 +58,7 @@ graph TB
     
     subgraph Executors["Tool Executors"]
         FSExec["FileSystemToolExecutor"]
-        FCMDecorator["FCMCachingDecorator (NEW)"]
+        FCMDecorator["FileCacheDecorator (NEW)"]
         FSExec --> FCMDecorator
     end
 
@@ -93,7 +93,7 @@ FCM наполняется контекстом двумя путями:
 | Механизм | Когда | Кто | Что добавляет |
 |----------|-------|-----|---------------|
 | **`hydrate_from_history()`** | При каждом `build_context()` если scope не существует | ExecutionEngine | История сессии: system prompt, user messages, tool results |
-| **`FCMCachingDecorator`** | При успешном `fs/read` | Tool Executor Decorator | Содержимое файлов + FileContentCache |
+| **`FileCacheDecorator`** | При успешном `fs/read` | Tool Executor Decorator | Содержимое файлов + FileContentCache |
 | **Явное управление** | Multi-agent (Orchestrated, Hierarchical, Choreography) | Стратегия | Создание scope, add_to_scope, share_item |
 
 ---
@@ -146,26 +146,28 @@ Orchestrated, Hierarchical и Choreography стратегии:
 | Session start / hydration | `"system_prompt"` | `system_rules` | **10** | `hydrate_from_history()` |
 | User message (turn N) | `f"user_{turn}"` | `user_prompt` | **8** | `hydrate_from_history()` |
 | Assistant response (turn N) | `f"assistant_{turn}"` | `agent_report` | **7** | `hydrate_from_history()` |
-| **fs/read (полный файл)** | **`file_path`** | **`file_content`** | **5** | **`FCMCachingDecorator`** |
-| **fs/read (partial)** | **`f"{path}:{line}:{limit}"`** | **`file_content`** | **5** | **`FCMCachingDecorator`** |
-| terminal/exec | `f"terminal_{id}"` | `terminal_output` | **5** | `FCMCachingDecorator` |
+| **fs/read (полный файл)** | **`file_path`** | **`file_content`** | **5** | **`FileCacheDecorator`** |
+| **fs/read (partial)** | **`f"{path}:{line}:{limit}"`** | **`file_content`** | **5** | **`FileCacheDecorator`** |
+| terminal/exec | `f"terminal_{id}"` | `terminal_output` | **5** | `FileCacheDecorator` |
 | Search agent result | `"search_result_{N}"` | `agent_report` | **9** | Стратегия |
 | TokenSlicer summary | `"summary_{agent}_{N}"` | `agent_report` | **8** | `SubAgentCoordinator` |
 | Task delegation | `"task_{id}"` | `user_prompt` | **8** | `HierarchicalStrategy` |
 
-### 3.2. FCMCachingDecorator — новый Decorator для Tool Executors
+### 3.2. FileCacheDecorator — новый Decorator для Tool Executors
 
-`FCMCachingDecorator` — новый декоратор в цепочке Tool Executors. Аналог существующего `CacheInvalidationDecorator`.
+`FileCacheDecorator` — единый декоратор в цепочке Tool Executors,
+объединяющий ранее раздельные `FCMCachingDecorator` (read-cache + FCM scope)
+и `CacheInvalidationDecorator` (write-invalidation).
 
 ```python
-class FCMCachingDecorator(ToolExecutorDecorator):
+class FileCacheDecorator(ToolExecutorDecorator):
     """Кэширование результатов tool calls в FCM.
     
-    Паттерн: Decorator (соответствует CacheInvalidationDecorator).
+    Паттерн: Decorator (стандартный для проекта — как `MetricsDecorator`).
     
     Ответственности:
     - fs/read успех → FileContentCache.set() + FCM.add_to_scope()
-    - fs/write успех → FileContentCache.invalidate()  [через CacheInvalidationDecorator]
+    - fs/write успех → FileContentCache.invalidate()  [ветка _on_write того же декоратора]
     - terminal/exec → FCM.add_to_scope(type="terminal_output")
     
     НЕ отвечает за:
@@ -248,18 +250,16 @@ class FCMCachingDecorator(ToolExecutorDecorator):
 graph LR
     subgraph Chain["Chain of Decorators (FileSystemToolExecutor)"]
         Base["FileSystemToolExecutor"]
-        FCMCache["FCMCachingDecorator<br/>(NEW — кэш + FCM scope)"]
-        CacheInv["CacheInvalidationDecorator<br/>(invalidate при write)"]
+        FC["FileCacheDecorator<br/>(NEW — read-cache + invalidate + опц. FCM scope)"]
         Metrics["MetricsDecorator"]
         Timeout["TimeoutDecorator"]
-        
-        Base --> FCMCache
-        FCMCache --> CacheInv
-        CacheInv --> Metrics
+
+        Base --> FC
+        FC --> Metrics
         Metrics --> Timeout
     end
-    
-    style FCMCache fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    style FC fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
 ```
 
 ### 3.3. SubAgentCoordinator — координатор вызова субагентов
@@ -341,7 +341,7 @@ class SubAgentCoordinator:
 
 ### 3.4. `session.current_agent_scope` — текущий scope агента
 
-Для корректной работы `FCMCachingDecorator` сессия должна знать, в каком scope работает текущий агент:
+Для корректной работы `FileCacheDecorator` сессия должна знать, в каком scope работает текущий агент:
 
 ```python
 @dataclass
@@ -368,7 +368,7 @@ class SessionState:
 sequenceDiagram
     participant AL as AgentLoop
     participant TCH as ToolCallHandler
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant FSExec as FileSystemToolExecutor
     participant Bridge as ClientRPCBridge
     participant Client as ACP Client
@@ -402,7 +402,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant FSExec as FileSystemToolExecutor
     participant Bridge as ClientRPCBridge
     participant Client as ACP Client
@@ -430,7 +430,7 @@ sequenceDiagram
 sequenceDiagram
     participant Agent as LLM Agent
     participant Tool as fs tool call
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant FSExec as FileSystemToolExecutor
     participant Bridge as ClientRPCBridge
     participant Cache as FileContentCache
@@ -492,31 +492,25 @@ class ClientRPCBridge:
 
 ```mermaid
 sequenceDiagram
-    participant Dec as FCMCachingDecorator
-    participant CInv as CacheInvalidationDecorator
+    participant Dec as FileCacheDecorator
     participant FSExec as FileSystemToolExecutor
     participant Bridge as ClientRPCBridge
     participant Client as ACP Client
     participant Cache as FileContentCache
     participant FCM as FederatedContextManager
 
-    Dec->>CInv: execute(session, {op:"write", path:"db.py", content:"new content"})
-    CInv->>FSExec: execute(...)
+    Dec->>FSExec: execute(session, {op:"write", path:"db.py", content:"new content"})
     FSExec->>Bridge: write_file("db.py", "new content")
     Bridge->>Client: RPC: fs/write_text_file("db.py", ...)
     Client-->>Bridge: success
     Bridge-->>FSExec: success
-    FSExec-->>CInv: ToolExecutionResult(success=True)
-    
-    Note over CInv: Write успешен → инвалидировать кэш
-    CInv->>Cache: invalidate("db.py")
-    CInv-->>Dec: ToolExecutionResult(success=True)
-    
-    Note over Dec: Write не читает файл → нечего кэшировать
-    Note over Dec: Возвращаем результат без изменений
+    FSExec-->>Dec: ToolExecutionResult(success=True)
+
+    Note over Dec: Write успешен → ветка _on_write
+    Dec->>Cache: invalidate("db.py")
     Dec-->>Dec: return result
-    
-    Note over FCM: FCM scope может содержать стale "db.py"
+
+    Note over FCM: FCM scope может содержать stale "db.py"
     Note over FCM: При следующем build_context() → hydrate обновит scope
 ```
 
@@ -526,7 +520,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant TExec as TerminalToolExecutor
     participant Bridge as TerminalRPCBridge
     participant Client as ACP Client
@@ -569,7 +563,7 @@ sequenceDiagram
     participant CC as ContextCompactor
     participant EB as EventBus
     participant LLM as LLM API
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant Client as ACP Client
 
     User->>PP: session/prompt("Найди баг в db.py")
@@ -616,7 +610,7 @@ sequenceDiagram
     FCM->>FCM: Clearhistory items, keep system_prompt
     FCM->>FCM: Reload: user_0(8) + tool_result_db.py(5) + ...
     Note over FCM: "db.py" item НЕ дублируется:
-    Note over FCM: FCMCachingDecorator добавил его с priority=5
+    Note over FCM: FileCacheDecorator добавил его с priority=5
     Note over FCM: hydrate_from_history добавит tool result с priority=5
     Note over FCM: (разные item_id → нет конфликта)
     
@@ -643,7 +637,7 @@ graph TB
         U0["user_0: 'Найди баг в db.py'<br/>priority: 8<br/>50 токенов"]
         A0["assistant_0: tool_call fs.read<br/>priority: 7<br/>100 токенов"]
         TR["tool_result: db.py content<br/>priority: 5<br/>2000 токенов"]
-        FC["file_content: db.py [FCMCachingDecorator]<br/>priority: 5<br/>2000 токенов"]
+        FC["file_content: db.py [FileCacheDecorator]<br/>priority: 5<br/>2000 токенов"]
     end
     
     Note1["Замечание: tool_result и file_content<br/>содержат одинаковые данные.<br/>При hydrate → они разные items (разные id).<br/>optimize_and_build_payload обрабатывает оба.<br/>Post-MVP: дедупликация по содержимому."]
@@ -661,7 +655,7 @@ graph TB
 sequenceDiagram
     participant LLM
     participant AL as AgentLoop
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant Bridge as ClientRPCBridge
     participant Cache as FileContentCache
     participant FCM
@@ -738,7 +732,7 @@ sequenceDiagram
     participant OL as Orchestrator LLM
     participant SA as Search Agent
     participant CA as Coder Agent
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant TS as TokenSlicer
     participant Client as ACP Client
 
@@ -811,7 +805,7 @@ sequenceDiagram
     CA->>Dec: execute({op:"write", path:"db.py", content:"fixed content"})
     Dec->>Client: RPC: fs/write_text_file("db.py", ...)
     Client-->>Dec: success
-    Note over Dec: CacheInvalidationDecorator: FileContentCache.invalidate("db.py")
+    Note over Dec: FileCacheDecorator._on_write: FileContentCache.invalidate("db.py")
     
     CA-->>SAC: AgentResponse(text="Исправлен: line 42 добавлена проверка на None")
     
@@ -911,7 +905,7 @@ sequenceDiagram
     participant EB as EventBus
     participant Primary as Primary Agent
     participant Tester as Tester Agent
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant TS as TokenSlicer
     participant Client as ACP Client
 
@@ -1066,7 +1060,7 @@ sequenceDiagram
     participant A1 as Agent1 (priority=1)
     participant A2 as Agent2 (priority=2)
     participant A3 as Agent3 (priority=3)
-    participant Dec as FCMCachingDecorator
+    participant Dec as FileCacheDecorator
     participant TS as TokenSlicer
     participant Client as ACP Client
 
@@ -1170,16 +1164,16 @@ graph LR
 
 | Вариант | Плюсы | Минусы |
 |---------|-------|--------|
-| **A: FCMCachingDecorator** | SRP, OCP, соответствует паттерну | Нужно передать context_manager + session scope |
+| **A: FileCacheDecorator** | SRP, OCP, соответствует паттерну | Нужно передать context_manager + session scope |
 | B: AgentLoop.\_process\_tool\_calls | Единое место, прямой доступ | AgentLoop знает о FCM — нарушение SRP |
 | C: ExecutionEngine.hydrate\_from\_history | Уже существует, просто | Не Real-time — файлы добавляются только при следующем build_context() |
 
 **Решение: A + C (комбинация)**
-- `FCMCachingDecorator` — для Real-time кэширования файлов при tool execution
+- `FileCacheDecorator` — для Real-time кэширования файлов при tool execution
 - `hydrate_from_history()` — для синхронизации истории при build_context()
 
 **Обоснование:**
-- Соответствует существующему `CacheInvalidationDecorator`
+- Соответствует существующему паттерну Decorator (`MetricsDecorator`, `TracingDecorator`, …)
 - SRP: AgentLoop не знает о FCM
 - Real-time: файлы доступны в scope сразу после чтения
 
@@ -1187,7 +1181,7 @@ graph LR
 
 ### ADR-2: Как SingleStrategy узнаёт свой scope?
 
-**Контекст:** `FCMCachingDecorator` должен знать имя scope при добавлении `file_content`.
+**Контекст:** `FileCacheDecorator` должен знать имя scope при добавлении `file_content`.
 
 **Решение:** `session.current_agent_scope: str = "single"` — новое поле SessionState.
 
@@ -1233,7 +1227,7 @@ session.current_agent_scope = "_broadcast_context"  # ChoreographyStrategy
 
 **Контекст:** Где правильно проверять кэш перед RPC вызовом?
 
-**Решение: В ClientRPCBridge** (предпочтительно) + fallback в FCMCachingDecorator.
+**Решение: В ClientRPCBridge** (предпочтительно) + fallback в FileCacheDecorator.
 
 ```python
 # ClientRPCBridge.read_file() — проверяет кэш ПЕРЕД RPC
@@ -1283,7 +1277,7 @@ async def read_file(self, session, path, line=None, limit=None):
 | **Кол-во scope** | 1 (`"single"`) | N (orchestrator + sub-agents) | N (primary + sub-agents) | 2 (`_broadcast_context` + winner) |
 | **hydrate_from_history** | ✅ Каждый turn | Только для orchestrator scope | Только для primary scope | Только для broadcast scope |
 | **share_item** | ❌ Не нужен | ✅ search → coder | ✅ primary → subagent | ✅ broadcast → winner |
-| **FCMCachingDecorator** | ✅ scope = `"single"` | ✅ scope = `"search_agent"` | ✅ scope = `"tester"` | ✅ scope = `"_broadcast_context"` |
+| **FileCacheDecorator** | ✅ scope = `"single"` | ✅ scope = `"search_agent"` | ✅ scope = `"tester"` | ✅ scope = `"_broadcast_context"` |
 | **TokenSlicer** | ❌ | ✅ Каждый subagent response | ✅ Каждый task result | ✅ Winner response (опционально) |
 | **session.current_agent_scope** | `"single"` | Меняется per sub-agent | Меняется per delegation | `"_broadcast_context"` для всех |
 | **Child sessions** | ❌ | ✅ Per sub-agent | ✅ Per task | ✅ Только для winner |
@@ -1307,7 +1301,7 @@ graph LR
         end
         
         subgraph ToolExec["Tool Execution (если tool_calls)"]
-            TE1["6. FCMCachingDecorator.execute()"]
+            TE1["6. FileCacheDecorator.execute()"]
             TE2["7. ClientRPC → Client"]
             TE3["8. FileContentCache.set()"]
             TE4["9. FCM.add_to_scope()"]
@@ -1343,7 +1337,7 @@ graph LR
 
 | Компонент | Действие | Файл |
 |-----------|----------|------|
-| `FCMCachingDecorator` | Создать | `src/codelab/server/tools/executors/decorators/fcm_caching.py` |
+| `FileCacheDecorator` | Создать | `src/codelab/server/tools/executors/decorators/file_cache.py` |
 | `SessionState.current_agent_scope` | Добавить поле | `src/codelab/server/protocol/state.py` |
 | `ClientRPCBridge.read_file()` | Добавить FileContentCache | `src/codelab/server/tools/integrations/client_rpc_bridge.py` |
 | `ExecutionEngine._build_via_fcm()` | Создать | `src/codelab/server/agent/execution_engine.py` |
@@ -1356,7 +1350,7 @@ graph LR
 
 ```mermaid
 graph TB
-    A["SessionState.current_agent_scope"] --> B["FCMCachingDecorator"]
+    A["SessionState.current_agent_scope"] --> B["FileCacheDecorator"]
     C["FileContentCache (Слой 1)"] --> B
     C --> D["ClientRPCBridge + cache"]
     E["FederatedContextManager (Слой 3)"] --> B
@@ -1384,7 +1378,7 @@ async def test_single_strategy_fcm_lifecycle():
     """
     Проверяет полный lifecycle:
     1. build_context → hydrate_from_history создаёт scope
-    2. fs/read → FCMCachingDecorator добавляет файл в scope
+    2. fs/read → FileCacheDecorator добавляет файл в scope
     3. Повторное build_context → scope обновляется с tool result
     4. FileContentCache hit → нет повторного RPC
     """
@@ -1407,8 +1401,8 @@ async def test_single_strategy_fcm_lifecycle():
     scope = fcm.scopes["single"]
     assert scope.registry["system_prompt"].priority == 10
     
-    # Шаг 2: fs/read через FCMCachingDecorator
-    decorator = FCMCachingDecorator(
+    # Шаг 2: fs/read через FileCacheDecorator
+    decorator = FileCacheDecorator(
         wrapped=mock_fs_executor(content="class DB: ..."),
         file_cache=file_cache,
         context_manager=fcm,

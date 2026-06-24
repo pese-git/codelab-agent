@@ -12,7 +12,9 @@
 > **Изменения в v2.1:**
 > - Добавлен `FileContentCache` — кэш содержимого файлов (Слой 1)
 > - Добавлен `SessionFileCacheRegistry` — реестр кэшей по сессиям
-> - Добавлен `CacheInvalidationDecorator` — инвалидация кэша при записи
+> - Добавлен `FileCacheDecorator` — единый декоратор: кэширование `read`,
+>   инвалидация при `write`, опциональная регистрация в FCM scope
+>   (объединяет ранее раздельные `FCMCachingDecorator` и `CacheInvalidationDecorator`)
 > 
 > **Изменения в v2.0:**
 > - Слоистая архитектура (Layer 1/2/3)
@@ -68,7 +70,7 @@ src/codelab/server/agent/context/
 
 src/codelab/server/tools/executors/decorators/
 ├── base.py                        # ToolExecutorDecorator (существующий)
-├── cache_invalidation.py          # CacheInvalidationDecorator (NEW)
+├── file_cache.py                  # FileCacheDecorator (NEW)
 └── ...
 
 tests/server/agent/context/
@@ -83,7 +85,7 @@ tests/server/agent/context/
 └── test_cache.py                  # Слой 3
 
 tests/server/tools/executors/decorators/
-└── test_cache_invalidation.py     # Decorator
+└── test_file_cache.py             # Decorator
 ```
 
 ### 1.3. Минимальный пример
@@ -183,7 +185,7 @@ graph TB
 | 1 | `CodeSkeletonizer` | `PythonASTSkeletonizer` | Strategy |
 | 1 | `FileContentCache` | `InMemoryFileCache` | Repository |
 | 1 | `SessionFileCacheRegistry` | — | Registry |
-| 1 | `CacheInvalidationDecorator` | — | Decorator |
+| 1 | `FileCacheDecorator` | — | Decorator |
 | 2 | `ContextCompactor` | `DefaultContextCompactor` | Template Method, Composite |
 | 3 | `ContextManager` | `FederatedContextManager` | Mediator, Facade |
 
@@ -607,43 +609,30 @@ class _ASTVisitor(ast.NodeVisitor):
         prefix = "async def" if is_async else "def"
         self.result.append(f"{indent_str}{prefix} {node.name}({args}){ret}: ...")
 ```
-    
-    Returns:
-        Сжатый код или оригинал при ошибке.
-    """
-    try:
-        tree = ast.parse(code)
-        visitor = ASTSkeletonizer()
-        visitor.visit(tree)
-        skeleton = "\n".join(visitor.result)
-        return f"# [СЖАТО: структура файла {file_id}]\n{skeleton}"
-    except Exception as e:
-        logger.warning("Failed to skeletonize %s: %s", file_id, e)
-        return f"# [ОШИБКА СЖАТИЯ] {file_id}: {e}"
-```
 
 **Тесты:** `tests/server/agent/context/test_ast_skeletonizer.py`
 
 ```python
 import pytest
-from codelab.server.agent.context.ast_skeletonizer import ASTSkeletonizer, skeletonize
+from codelab.server.agent.context.ast_skeletonizer import PythonASTSkeletonizer
 
 
-class TestASTSkeletonizer:
+class TestPythonASTSkeletonizer:
     def test_class_with_methods(self):
         code = '''
 class MyClass:
     def method(self, x: int) -> str:
         return str(x)
-    
+
     async def async_method(self):
         pass
 '''
-        result = skeletonize(code)
+        skeletonizer = PythonASTSkeletonizer()
+        result = skeletonizer.skeletonize(code, "my.py")
         assert "class MyClass:" in result
         assert "def method(self, x: int) -> str: ..." in result
         assert "async def async_method(self): ..." in result
-    
+
     def test_decorators(self):
         code = '''
 class MyClass:
@@ -651,105 +640,21 @@ class MyClass:
     def method():
         pass
 '''
-        result = skeletonize(code)
+        skeletonizer = PythonASTSkeletonizer()
+        result = skeletonizer.skeletonize(code, "deco.py")
         assert "@staticmethod" in result
-    
+
     def test_invalid_code_returns_error(self):
-        code = "this is not valid python"
-        result = skeletonize(code, "test.py")
-        assert "ОШИБКА СЖАТИЯ" in result
+        skeletonizer = PythonASTSkeletonizer()
+        result = skeletonizer.skeletonize("this is not valid python", "bad.py")
+        assert "ОШИБКА СЖАТИЯ" in result or "ERROR" in result
 ```
 
----
-
-### Шаг 2: Реализация TokenCounter
-
-**Файл:** `src/codelab/server/agent/context/token_counter.py`
-
-```python
-"""TokenCounter — точный подсчёт токенов."""
-
-from __future__ import annotations
-
-import logging
-from typing import Protocol
-
-logger = logging.getLogger(__name__)
-
-
-class TokenCountable(Protocol):
-    """Протокол для объектов с подсчётом токенов."""
-    
-    def count_tokens(self, content: str) -> int: ...
-
-
-class TokenCounter:
-    """Подсчёт токенов с tiktoken или fallback.
-    
-    Если tiktoken установлен — использует точный подсчёт.
-    Иначе — грубую оценку (~4 символа на токен).
-    """
-    
-    def __init__(self) -> None:
-        self._encoding = None
-        self._has_tiktoken = False
-        
-        try:
-            import tiktoken
-            self._encoding = tiktoken.get_encoding("cl100k_base")
-            self._has_tiktoken = True
-            logger.debug("TokenCounter: using tiktoken (cl100k_base)")
-        except ImportError:
-            logger.debug("TokenCounter: tiktoken not available, using fallback")
-    
-    @property
-    def has_tiktoken(self) -> bool:
-        """Доступен ли tiktoken."""
-        return self._has_tiktoken
-    
-    def count(self, content: str) -> int:
-        """Подсчитать токены в содержимом.
-        
-        Args:
-            content: Текст для подсчёта.
-        
-        Returns:
-            Количество токенов.
-        """
-        if not content:
-            return 0
-        
-        if self._encoding is not None:
-            return len(self._encoding.encode(content))
-        
-        # Fallback: ~4 символа на токен
-        return len(content) // 4
-```
-
-**Тесты:** `tests/server/agent/context/test_token_counter.py`
-
-```python
-import pytest
-from codelab.server.agent.context.token_counter import TokenCounter
-
-
-class TestTokenCounter:
-    def test_count_empty(self):
-        counter = TokenCounter()
-        assert counter.count("") == 0
-    
-    def test_count_returns_positive(self):
-        counter = TokenCounter()
-        result = counter.count("Hello, world!")
-        assert result > 0
-    
-    def test_fallback_mode(self):
-        counter = TokenCounter()
-        # Fallback: len // 4
-        content = "x" * 100
-        if not counter.has_tiktoken:
-            assert counter.count(content) == 25
-```
+> **Замечание.** Полная реализация `TokenCounter` уже приведена в Шаге 1.
+> Раньше здесь дублировалось альтернативное определение через `typing.Protocol` —
+> оно удалено: проект использует `ABC` (см. `ARCHITECTURE.md §3.6`), поэтому
+> единственный канонический вариант — `class TokenCounter(ABC)` + реализации
+> `TiktokenCounter` и `ApproximateTokenCounter`.
 
 ---
 
@@ -924,12 +829,29 @@ class TestSessionFileCacheRegistry:
 
 ---
 
-### Шаг 2.6: CacheInvalidationDecorator (Decorator Pattern)
+### Шаг 2.6: FileCacheDecorator (Decorator Pattern)
 
-**Файл:** `src/codelab/server/tools/executors/decorators/cache_invalidation.py`
+> **Решение по архитектуре (v2.3).** Ранее проектом предусматривались два
+> отдельных декоратора — `FCMCachingDecorator` (кэширование `read`+регистрация
+> в FCM scope) и `CacheInvalidationDecorator` (инвалидация при `write`). Оба
+> оборачивают один и тот же `FileSystemToolExecutor`, работают с одним
+> `FileContentCache` и логически обслуживают единый жизненный цикл «кэш файлов».
+> Чтобы не плодить конфигурационную сложность и порядок декораторов в цепочке,
+> они объединены в **один компонент `FileCacheDecorator`** с двумя ветками:
+> успешный `read` → `cache.set()` + опциональный `FCM.add_to_scope()`,
+> успешный `write` → `cache.invalidate()`.
+
+**Файл:** `src/codelab/server/tools/executors/decorators/file_cache.py`
 
 ```python
-"""CacheInvalidationDecorator — инвалидация кэша при записи файлов."""
+"""FileCacheDecorator — единый декоратор для работы с FileContentCache.
+
+Объединяет:
+- кэширование результатов `fs/read` (полный файл),
+- регистрацию контента в текущем FCM scope (опционально),
+- инвалидацию кэша при `fs/write`,
+- регистрацию `terminal_output` в FCM scope (опционально).
+"""
 
 from __future__ import annotations
 
@@ -938,6 +860,7 @@ from typing import Any
 import structlog
 
 from codelab.server.agent.context.file_cache import FileContentCache
+from codelab.server.agent.context.manager import ContextManager
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.decorators.base import (
@@ -948,49 +871,116 @@ from codelab.server.tools.executors.decorators.base import (
 logger = structlog.get_logger()
 
 
-class CacheInvalidationDecorator(ToolExecutorDecorator):
-    """Инвалидация кэша файлов при записи.
-    
-    Паттерн: Decorator (соответствует существующей архитектуре).
-    Отслеживает write-операции и инвалидирует кэш для изменённых файлов.
+class FileCacheDecorator(ToolExecutorDecorator):
+    """Единый декоратор кэширования контента файлов.
+
+    Паттерн: Decorator (соответствует существующей архитектуре проекта).
+
+    Ответственности:
+    - `fs/read` (success, полный файл) → `cache.set()` + `FCM.add_to_scope(file_content)`
+    - `fs/read` (success, partial)     → `FCM.add_to_scope(file_content)`, без кэша
+    - `fs/write` (success)             → `cache.invalidate()`
+    - `terminal/*` (success)           → `FCM.add_to_scope(terminal_output)`, без кэша
+
+    `context_manager` — опционален: без него декоратор работает как pure
+    file cache (read-cache + invalidation), что обеспечивает backward
+    compatibility и feature flag `enable_fcm=false`.
     """
-    
+
+    _READ_OPERATIONS = frozenset({"read"})
     _WRITE_OPERATIONS = frozenset({"write"})
-    
+
     def __init__(
         self,
         wrapped: ToolExecutorProtocol,
         file_cache: FileContentCache,
+        context_manager: ContextManager | None = None,
     ) -> None:
         super().__init__(wrapped)
         self._file_cache = file_cache
-    
+        self._context_manager = context_manager
+
     async def execute(
         self,
         session: SessionState,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         result = await self._wrapped.execute(session, arguments)
-        
-        # Инвалидация ТОЛЬКО при успешной записи
-        if result.success and self._is_write_operation(arguments):
-            path = arguments.get("path", "")
-            if path:
-                self._file_cache.invalidate(path)
-                logger.debug(
-                    "file_cache_invalidated",
-                    session_id=session.session_id,
-                    path=path,
-                )
-        
+        if not result.success:
+            return result
+
+        operation = arguments.get("operation", "")
+        tool_name = arguments.get("tool_name", "")
+        path = arguments.get("path", "")
+
+        if operation in self._READ_OPERATIONS and result.output and path:
+            await self._on_read(session, arguments, result.output)
+        elif operation in self._WRITE_OPERATIONS and path:
+            self._on_write(session, path)
+        elif "terminal" in tool_name and result.output:
+            await self._on_terminal(session, result.output)
+
         return result
-    
-    @staticmethod
-    def _is_write_operation(arguments: dict[str, Any]) -> bool:
-        return arguments.get("operation") in CacheInvalidationDecorator._WRITE_OPERATIONS
+
+    async def _on_read(
+        self,
+        session: SessionState,
+        arguments: dict[str, Any],
+        output: str,
+    ) -> None:
+        path = arguments["path"]
+        line = arguments.get("line")
+        limit = arguments.get("limit")
+        is_full_read = line is None and limit is None
+
+        if is_full_read:
+            self._file_cache.set(path, output)
+            item_id = path
+        else:
+            item_id = f"{path}:{line}:{limit}"
+
+        if self._context_manager is not None:
+            scope_name = getattr(session, "current_agent_scope", "single") or "single"
+            await self._context_manager.add_to_scope(
+                scope_name=scope_name,
+                item_id=item_id,
+                content_type="file_content",
+                content=output,
+                priority=5,
+            )
+
+    def _on_write(self, session: SessionState, path: str) -> None:
+        try:
+            self._file_cache.invalidate(path)
+            logger.debug(
+                "file_cache_invalidated",
+                session_id=session.session_id,
+                path=path,
+            )
+        except Exception as e:
+            # Stale cache лучше, чем упавший tool execution
+            logger.error(
+                "file_cache_invalidation_failed",
+                path=path,
+                error_type=type(e).__name__,
+                exc_info=e,
+            )
+
+    async def _on_terminal(self, session: SessionState, output: str) -> None:
+        if self._context_manager is None:
+            return
+        scope_name = getattr(session, "current_agent_scope", "single") or "single"
+        terminal_id = f"terminal_{session.session_id}_{id(output)}"
+        await self._context_manager.add_to_scope(
+            scope_name=scope_name,
+            item_id=terminal_id,
+            content_type="terminal_output",
+            content=output,
+            priority=5,
+        )
 ```
 
-**Тесты:** `tests/server/tools/executors/decorators/test_cache_invalidation.py`
+**Тесты:** `tests/server/tools/executors/decorators/test_file_cache.py`
 
 ```python
 import pytest
@@ -998,70 +988,113 @@ from unittest.mock import AsyncMock, MagicMock
 
 from codelab.server.agent.context.file_cache import InMemoryFileCache
 from codelab.server.tools.base import ToolExecutionResult
-from codelab.server.tools.executors.decorators.cache_invalidation import (
-    CacheInvalidationDecorator,
+from codelab.server.tools.executors.decorators.file_cache import (
+    FileCacheDecorator,
 )
 
 
-class TestCacheInvalidationDecorator:
-    @pytest.fixture
-    def mock_executor(self):
-        executor = MagicMock()
-        executor.execute = AsyncMock()
-        return executor
-    
-    @pytest.fixture
-    def file_cache(self):
-        return InMemoryFileCache()
-    
-    async def test_write_invalidates_cache(self, mock_executor, file_cache):
-        # Подготовка
-        file_cache.set("test.py", "old content")
-        mock_executor.execute.return_value = ToolExecutionResult(success=True)
-        
-        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
-        
-        # Выполнение
-        result = await decorator.execute(
-            session=MagicMock(),
-            arguments={"operation": "write", "path": "test.py"},
+@pytest.fixture
+def mock_executor():
+    executor = MagicMock()
+    executor.execute = AsyncMock()
+    return executor
+
+
+@pytest.fixture
+def file_cache():
+    return InMemoryFileCache()
+
+
+class TestFileCacheDecorator:
+    async def test_successful_read_caches_full_file(self, mock_executor, file_cache):
+        mock_executor.execute.return_value = ToolExecutionResult(
+            success=True, output="content"
         )
-        
-        # Проверка
-        assert result.success
-        assert file_cache.get("test.py") is None
-    
-    async def test_read_does_not_invalidate(self, mock_executor, file_cache):
-        # Подготовка
-        file_cache.set("test.py", "content")
-        mock_executor.execute.return_value = ToolExecutionResult(success=True)
-        
-        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
-        
-        # Выполнение
+        decorator = FileCacheDecorator(mock_executor, file_cache)
+
         await decorator.execute(
-            session=MagicMock(),
+            session=MagicMock(session_id="s1"),
             arguments={"operation": "read", "path": "test.py"},
         )
-        
-        # Проверка — кэш НЕ инвалидирован
+
         assert file_cache.get("test.py") == "content"
-    
-    async def test_failed_write_does_not_invalidate(self, mock_executor, file_cache):
-        # Подготовка
-        file_cache.set("test.py", "content")
-        mock_executor.execute.return_value = ToolExecutionResult(success=False)
-        
-        decorator = CacheInvalidationDecorator(mock_executor, file_cache)
-        
-        # Выполнение
+
+    async def test_successful_partial_read_does_not_cache(
+        self, mock_executor, file_cache
+    ):
+        mock_executor.execute.return_value = ToolExecutionResult(
+            success=True, output="lines"
+        )
+        decorator = FileCacheDecorator(mock_executor, file_cache)
+
         await decorator.execute(
-            session=MagicMock(),
+            session=MagicMock(session_id="s1"),
+            arguments={
+                "operation": "read",
+                "path": "test.py",
+                "line": 10,
+                "limit": 50,
+            },
+        )
+        assert file_cache.get("test.py") is None
+
+    async def test_successful_write_invalidates(self, mock_executor, file_cache):
+        file_cache.set("test.py", "old")
+        mock_executor.execute.return_value = ToolExecutionResult(success=True)
+        decorator = FileCacheDecorator(mock_executor, file_cache)
+
+        await decorator.execute(
+            session=MagicMock(session_id="s1"),
             arguments={"operation": "write", "path": "test.py"},
         )
-        
-        # Проверка — кэш НЕ инвалидирован (запись не удалась)
+        assert file_cache.get("test.py") is None
+
+    async def test_failed_write_does_not_invalidate(self, mock_executor, file_cache):
+        file_cache.set("test.py", "content")
+        mock_executor.execute.return_value = ToolExecutionResult(success=False)
+        decorator = FileCacheDecorator(mock_executor, file_cache)
+
+        await decorator.execute(
+            session=MagicMock(session_id="s1"),
+            arguments={"operation": "write", "path": "test.py"},
+        )
         assert file_cache.get("test.py") == "content"
+
+    async def test_invalidation_failure_does_not_propagate(
+        self, mock_executor, file_cache
+    ):
+        broken_cache = MagicMock(spec=InMemoryFileCache)
+        broken_cache.invalidate.side_effect = RuntimeError("boom")
+        mock_executor.execute.return_value = ToolExecutionResult(success=True)
+        decorator = FileCacheDecorator(mock_executor, broken_cache)
+
+        result = await decorator.execute(
+            session=MagicMock(session_id="s1"),
+            arguments={"operation": "write", "path": "test.py"},
+        )
+        assert result.success  # ошибка инвалидации не ломает результат
+
+    async def test_read_with_fcm_registers_in_scope(self, mock_executor, file_cache):
+        mock_executor.execute.return_value = ToolExecutionResult(
+            success=True, output="content"
+        )
+        fcm = MagicMock()
+        fcm.add_to_scope = AsyncMock()
+        decorator = FileCacheDecorator(mock_executor, file_cache, context_manager=fcm)
+
+        session = MagicMock(session_id="s1")
+        session.current_agent_scope = "search_agent"
+
+        await decorator.execute(
+            session=session,
+            arguments={"operation": "read", "path": "test.py"},
+        )
+
+        fcm.add_to_scope.assert_awaited_once()
+        kwargs = fcm.add_to_scope.await_args.kwargs
+        assert kwargs["scope_name"] == "search_agent"
+        assert kwargs["item_id"] == "test.py"
+        assert kwargs["content_type"] == "file_content"
 ```
 
 ---
@@ -1530,28 +1563,35 @@ class FederatedContextManager:
 
 **Файл:** `src/codelab/server/agent/execution_engine.py`
 
-Добавить параметр `context_manager`:
+`ExecutionEngine` принимает `context_manager` и реализует **единый путь**
+формирования payload через FCM (см. §3.3). Параметр `compactor` сохраняется
+для обратной совместимости (deprecated, удаляется в Phase 5 миграции).
 
 ```python
 class ExecutionEngine:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        compactor: ContextCompactor | None = None,
+        compactor: ContextCompactor | None = None,         # deprecated
+        context_manager: ContextManager | None = None,     # NEW (Слой 3)
         history_builder: HistoryBuilder | None = None,
         tool_filter: ToolFilter | None = None,
         sanitizer: MessageSanitizer | None = None,
         plan_extractor: PlanExtractor | None = None,
-        context_manager: FederatedContextManager | None = None,  # NEW
     ) -> None:
+        if compactor is not None and context_manager is not None:
+            raise ValueError(
+                "ExecutionEngine: use either compactor (legacy) "
+                "or context_manager (FCM), not both"
+            )
         self.tool_registry = tool_registry
         self.compactor = compactor
+        self.context_manager = context_manager
         self.history_builder = history_builder or HistoryBuilder()
         self.tool_filter = tool_filter or ToolFilter()
         self.sanitizer = sanitizer or MessageSanitizer()
         self.plan_extractor = plan_extractor or PlanExtractor()
-        self.context_manager = context_manager  # NEW
-    
+
     async def build_context(
         self,
         session: SessionState,
@@ -1559,16 +1599,36 @@ class ExecutionEngine:
         system_prompt: str | None = None,
         mcp_manager: Any | None = None,
         content_parts: list[Any] | None = None,
-        agent_scope: str | None = None,  # NEW
+        agent_scope: str = "single",   # NEW: единая точка входа для всех стратегий
     ) -> AgentContext:
-        # Если FCM доступен и указан скоуп — использовать его
-        if self.context_manager and agent_scope:
-            messages = await self.context_manager.optimize_and_build_payload(agent_scope)
-            # Конвертация в формат AgentContext
-            # ...
-        
-        # Иначе: стандартный путь
-        # ... существующая логика
+        if self.context_manager is not None:
+            messages = await self._build_via_fcm(session, system_prompt, agent_scope)
+        else:
+            # Legacy fallback (enable_fcm=false)
+            messages = self.history_builder.build(
+                session.history, system_prompt=system_prompt
+            )
+            messages = self.sanitizer.sanitize(messages)
+            if self.compactor is not None:
+                messages, _, _ = await self.compactor.compact_if_needed(messages)
+        # ... формирование AgentContext (prompt_blocks, tools, ...) ...
+
+    async def _build_via_fcm(
+        self,
+        session: SessionState,
+        system_prompt: str | None,
+        agent_scope: str,
+    ) -> list[LLMMessage]:
+        scope = self.context_manager.scopes.get(agent_scope)
+        if scope is None:
+            # SingleStrategy: скоупа нет → гидратация из истории.
+            await self.context_manager.hydrate_from_history(
+                scope_name=agent_scope,
+                history=session.history,
+                system_prompt=system_prompt,
+            )
+        # Multi-agent: скоуп уже создан стратегией — используем как есть.
+        return await self.context_manager.optimize_and_build_payload(agent_scope)
 ```
 
 ---
@@ -1580,60 +1640,95 @@ class ExecutionEngine:
 **Файл:** `src/codelab/server/di/container.py` (или аналог)
 
 ```python
-from codelab.server.agent.context import FederatedContextManager, TokenCounter
+from codelab.server.agent.context.token_counter import (
+    TokenCounter,
+    create_token_counter,
+)
+from codelab.server.agent.context.ast_skeletonizer import (
+    CodeSkeletonizer,
+    PythonASTSkeletonizer,
+)
+from codelab.server.agent.context.compactor import (
+    ContextCompactor,
+    DefaultContextCompactor,
+)
+from codelab.server.agent.context.manager import (
+    ContextManager,
+    FederatedContextManager,
+)
 
-# Регистрация в DI контейнере
+
 def register_fcm(container: Container) -> None:
+    container.register(TokenCounter,    factory=lambda: create_token_counter())
+    container.register(CodeSkeletonizer, factory=lambda: PythonASTSkeletonizer())
     container.register(
-        TokenCounter,
-        factory=lambda: TokenCounter(),
+        ContextCompactor,
+        factory=lambda: DefaultContextCompactor(
+            token_counter=container.get(TokenCounter),
+            skeletonizer=container.get(CodeSkeletonizer),
+            llm=container.get(LLMProvider),
+        ),
     )
     container.register(
-        FederatedContextManager,
+        ContextManager,
         factory=lambda: FederatedContextManager(
             event_bus=container.get(AgentEventBus),
             tracer=container.get(Tracer),
             token_counter=container.get(TokenCounter),
+            skeletonizer=container.get(CodeSkeletonizer),
+            compactor=container.get(ContextCompactor),
         ),
     )
 ```
 
 ### 3.2. Feature flag
 
-**Файл:** `src/codelab/server/config.py`
+**Каноническое имя — `agents.context.enable_fcm`** (см. `FEATURE_FLAGS.md` §1).
+Никаких альтернативных имён (`context.enabled`, `agents.context.enabled`)
+проект не использует.
 
 ```python
 @dataclass
-class ContextConfig:
-    """Конфигурация FCM."""
-    enabled: bool = False
-    cache_max_size: int = 1000
-    summarization_model: str = "openai/gpt-4o-mini"
+class ContextCacheConfig:
+    max_size: int = 1000
 
-# В AppConfig
+
 @dataclass
-class AppConfig:
-    # ...
+class ContextCompactionConfig:
+    max_context_tokens: int = 128_000
+    reserved_tokens: int = 4096
+
+
+@dataclass
+class ContextConfig:
+    """Конфигурация FCM (`[agents.context]`)."""
+    enable_fcm: bool = False                    # master switch
+    use_tiktoken: bool = True
+    enable_ast_skeletonization: bool = True
+    enable_file_cache: bool = True
+    cache: ContextCacheConfig = field(default_factory=ContextCacheConfig)
+    compaction: ContextCompactionConfig = field(default_factory=ContextCompactionConfig)
+
+
+@dataclass
+class AgentsConfig:
     context: ContextConfig = field(default_factory=ContextConfig)
 ```
 
 **Использование:**
 
 ```python
-# В factory или runner
-if config.context.enabled:
-    context_manager = FederatedContextManager(
-        event_bus=event_bus,
-        tracer=tracer,
+if config.agents.context.enable_fcm:
+    context_manager = FederatedContextManager(...)
+    engine = ExecutionEngine(
+        tool_registry=tool_registry,
+        context_manager=context_manager,
     )
 else:
-    context_manager = None
-
-engine = ExecutionEngine(
-    tool_registry=tool_registry,
-    compactor=compactor,
-    context_manager=context_manager,
-)
+    engine = ExecutionEngine(
+        tool_registry=tool_registry,
+        compactor=ContextCompactor(...),   # legacy путь
+    )
 ```
 
 ### 3.3. Конфигурация в TOML
@@ -1642,13 +1737,17 @@ engine = ExecutionEngine(
 
 ```toml
 [agents.context]
-enabled = true
-cache_max_size = 1000
-summarization_model = "openai/gpt-4o-mini"
+enable_fcm = true
+use_tiktoken = true
+enable_ast_skeletonization = true
+enable_file_cache = true
 
-[agents.context.skeletonization]
-enabled = true
-min_saving_percent = 50
+[agents.context.cache]
+max_size = 1000
+
+[agents.context.compaction]
+max_context_tokens = 128000
+reserved_tokens = 4096
 ```
 
 ---
@@ -1806,7 +1905,7 @@ fcm.skeletonization    # Сжатие через AST
 
 ### Q: Как отключить FCM?
 
-**A:** Установить `context.enabled = false` в конфигурации или не передавать `context_manager` в `ExecutionEngine`.
+**A:** Установить `agents.context.enable_fcm = false` в конфигурации (или env-override `CODELAB_FCM_ENABLED=false`) — `ExecutionEngine` получит `compactor` вместо `context_manager` и пойдёт по legacy пути.
 
 ### Q: FCM работает с single стратегией?
 

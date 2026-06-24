@@ -120,7 +120,7 @@ src/codelab/server/agent/context/     (NEW directory)
 └── cache.py                           (NEW)
 
 src/codelab/server/tools/executors/decorators/
-└── cache_invalidation.py              (NEW)
+└── file_cache.py              (NEW)
 ```
 
 ### 2.3. Backward Compatibility Strategy
@@ -351,7 +351,7 @@ class ExecutionEngine:
 - [ ] Реализовать `CodeSkeletonizer` (ABC + PythonASTSkeletonizer)
 - [ ] Реализовать `FileContentCache` (ABC + InMemoryFileCache)
 - [ ] Реализовать `SessionFileCacheRegistry`
-- [ ] Реализовать `CacheInvalidationDecorator`
+- [ ] Реализовать `FileCacheDecorator`
 - [ ] 100% test coverage для всех компонентов
 - [ ] Benchmark: `PythonASTSkeletonizer` performance (см. PERFORMANCE_REQUIREMENTS.md)
 
