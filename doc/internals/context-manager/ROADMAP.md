@@ -959,12 +959,155 @@ LLM получает контекст
 Результат: рабочий код с валидацией
 ```
 
+#### Context tools (MVP: context/gather)
+
+**Задачи:**
+
+1. Создать tool wrapper для `context/gather`
+2. Добавить методы `store()` и `query()` в ContextManager
+3. Зарегистрировать tool в ToolRegistry
+4. Unit tests для tool wrapper
+5. Integration tests для query/store
+
+**Код:**
+
+```python
+# src/codelab/server/context/tools.py
+
+async def context_gather_handler(
+    objective: str,
+    context_manager: ContextManager,
+    session: SessionState,
+) -> dict:
+    """
+    Tool handler для context/gather.
+    
+    LLM вызывает этот tool, когда понимает, что нужен дополнительный контекст.
+    Например: "Мне нужно посмотреть, как работает регистрация"
+    """
+    # Запросить контекст через ContextManager
+    result = await context_manager.query(session, objective=objective)
+    
+    return {
+        "files": result.files,
+        "summary": result.summary,
+        "tokens_used": result.tokens_used,
+    }
+
+
+# src/codelab/server/context/manager.py
+
+class ContextManager:
+    # Автоматический сбор (используется стратегиями)
+    async def build_context(self, session, task) -> list[LLMMessage]:
+        """Собрать контекст для LLM call."""
+        ...
+    
+    # Явный запрос (используется LLM через tool)
+    async def query(self, session, objective: str) -> GatherResult:
+        """
+        Запросить контекст по теме.
+        
+        Используется когда LLM понимает, что нужен дополнительный контекст.
+        Например: objective="registration flow"
+        """
+        # Анализ цели
+        profile = await self.task_analyzer.analyze(
+            task=objective,
+            project_context=session.context.system_prompt
+        )
+        
+        # Сбор контекста
+        result = await self.gatherer.gather_context(
+            task=objective,
+            profile=profile,
+            session=session
+        )
+        
+        # Сохранение в контекст
+        self.store(session, result)
+        
+        return result
+    
+    # Хранение (используется внутренне)
+    def store(self, session, result: GatherResult) -> None:
+        """Добавить данные в контекст."""
+        # Добавить файлы в контекст сессии
+        for file_path, content in result.file_contents.items():
+            bounded_content = self.budget.bound_content(content, max_tokens=8000)
+            session.context.add_file(file_path, bounded_content)
+        
+        # Обновить snapshot
+        if self.snapshot:
+            self.snapshot.capture()
+        
+        # Применить budget constraints
+        session.context.apply_budget(self.budget)
+```
+
+**Регистрация tool:**
+
+```python
+# src/codelab/server/di.py
+
+class ToolsProvider:
+    def get_tools(self) -> list[ToolDefinition]:
+        return [
+            # ... существующие tools ...
+            
+            ToolDefinition(
+                name="context/gather",
+                description="Собрать контекст по теме. Используется для получения дополнительного контекста, когда LLM понимает, что нужна информация по конкретной теме.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "objective": {
+                            "type": "string",
+                            "description": "Тема или цель для сбора контекста (например, 'registration flow', 'email validation')"
+                        }
+                    },
+                    "required": ["objective"]
+                },
+                handler=context_gather_handler
+            )
+        ]
+```
+
+**Пример использования LLM:**
+
+```
+User: "Добавь email validation"
+
+LLM получает контекст:
+  - auth.dto.ts
+  - auth.service.ts
+
+LLM понимает: "Мне нужно посмотреть, как работает регистрация"
+  → LLM вызывает: context/gather(objective="registration flow")
+
+ContextManager:
+  → TaskAnalyzer: анализ "registration flow"
+  → ContextGatherer: поиск файлов по теме
+  → store(): добавление в контекст
+  → budget: ограничение размера
+
+LLM получает обновлённый контекст:
+  - auth.dto.ts
+  - auth.service.ts
+  - register.controller.ts  ← добавлено
+  - register.service.ts     ← добавлено
+
+LLM продолжает работу с полным контекстом
+```
+
 ### Критерии готовности
 
 - [ ] TaskAnalyzer классифицирует задачи с точностью >80%
 - [ ] ContextGatherer находит релевантные файлы
 - [ ] TokenBudgetManager ограничивает размер контента
 - [ ] TaskAnalysisStage интегрирован в pipeline
+- [ ] Tool `context/gather` зарегистрирован и работает
+- [ ] ContextManager.query() и store() реализованы
 - [ ] End-to-end тесты проходят
 - [ ] Агент решает реальные задачи
 
