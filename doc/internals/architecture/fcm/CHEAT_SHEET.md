@@ -1,6 +1,6 @@
 # Federated Context Manager — Cheat Sheet
 
-> Быстрая шпаргалка для разработчиков (v2.1 — слоистая архитектура + ABC + FileContentCache)
+> Быстрая шпаргалка для разработчиков (v2.2 — единый путь формирования payload)
 
 ---
 
@@ -43,6 +43,34 @@ from codelab.server.tools.executors.decorators.cache_invalidation import (
     CacheInvalidationDecorator,  # Инвалидация кэша при записи
 )
 ```
+
+---
+
+## Единый путь формирования payload
+
+Все стратегии используют **единый путь** через `ExecutionEngine.build_context()`:
+
+```python
+# SingleStrategy — 1 глобальный скоуп
+context = await engine.build_context(
+    session=session,
+    prompt=prompt,
+    agent_scope="single",  # по умолчанию
+)
+
+# OrchestratedStrategy — N скоупов
+await fcm.create_scope("coder_agent", max_tokens=16000)
+await fcm.add_to_scope("coder_agent", "src/db.py", "file_content", code)
+context = await engine.build_context(
+    session=session,
+    prompt=prompt,
+    agent_scope="coder_agent",
+)
+```
+
+**Логика гидратации:**
+- Если скоуп не существует → `hydrate_from_history()` (SingleStrategy)
+- Если скоуп существует → использовать как есть (Multi-agent)
 
 ---
 
