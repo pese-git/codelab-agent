@@ -7,6 +7,7 @@
 | Директория | Описание |
 |------------|----------|
 | [`architecture/`](architecture/) | Архитектура, ADR, карта проекта |
+| [`architecture/fcm/`](architecture/fcm/) | Federated Context Manager — архитектура и руководство по интеграции |
 | [`roadmap/`](roadmap/) | Планы развития кодовой базы (фазы: security → architecture → quality) |
 | [`archive/`](archive/) | Исторические документы, выполненные планы |
 
