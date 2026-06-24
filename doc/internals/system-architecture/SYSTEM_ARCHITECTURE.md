@@ -471,6 +471,8 @@ sequenceDiagram
 | `EnvironmentContextSource` | Environment variables | ✅ [Документация](./CONTEXT_LIFECYCLE.md#environmentcontextsource) |
 | `SkillContextSource` | Каталог skills | ✅ [Документация](./CONTEXT_LIFECYCLE.md#skillcontextsource) |
 
+> **Примечание:** Все файловые операции в Context Sources выполняются через ACP (ToolRegistry) для поддержки LOCAL и REMOTE режимов. Server не имеет прямого доступа к файловой системе клиента.
+
 #### File Intelligence
 
 | Компонент | Назначение | Статус |

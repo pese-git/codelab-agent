@@ -96,6 +96,15 @@ Git awareness — это не просто поиск файлов:
 - ❌ Объединить все компоненты в один — нарушение SRP, сложно тестировать
 - ❌ Часть ContextGatherer — смешение ответственности
 
+**Почему все Git-операции через ACP (ToolRegistry)?**
+
+GitContextSource и GitDiffAnalyzer выполняют Git-команды через `terminal/create` ACP tool. Это обеспечивает:
+- **Единый интерфейс** для LOCAL и REMOTE режимов
+- **Выполнение на стороне клиента** — Git работает с файловой системой клиента
+- **Согласованность** — все компоненты используют один подход (ContextGatherer, InstructionContextSource, GitContextSource)
+
+В REMOTE режиме Server физически не может выполнять Git-команды напрямую — файловая система находится на стороне клиента. ACP абстрагирует это различие.
+
 ---
 
 ## GitContextSource
@@ -128,8 +137,9 @@ class CommitInfo:
 class GitContextSource(ContextSource[GitState]):
     """Источник контекста из Git."""
     
-    def __init__(self, cwd: str):
+    def __init__(self, cwd: str, tool_registry: ToolRegistry):
         self.cwd = cwd
+        self.tools = tool_registry
         super().__init__(
             key="git",
             loader=self.load_git_state,

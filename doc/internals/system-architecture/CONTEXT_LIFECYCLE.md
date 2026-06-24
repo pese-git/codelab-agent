@@ -319,6 +319,37 @@ Codec инкапсулирует логику сравнения:
 ./src/auth/AGENTS.md              # Subdirectory
 ```
 
+**Все файловые операции выполняются через ACP (ToolRegistry)** для поддержки LOCAL и REMOTE режимов.
+
+### Обоснование
+
+**Почему все файловые операции через ACP?**
+
+**Единый интерфейс для LOCAL и REMOTE режимов:**
+- В LOCAL режиме Server и Client на одной машине
+- В REMOTE режиме Server и Client на разных машинах
+- ACP (ToolRegistry) абстрагирует различия — Server всегда работает через единый интерфейс
+
+**Server не имеет прямого доступа к файловой системе клиента:**
+- В REMOTE режиме Server физически не может читать файлы клиента
+- Даже в LOCAL режиме использование ACP обеспечивает единообразие
+- Клиент контролирует доступ к своим файлам
+
+**Устранение противоречий:**
+- `ContextGatherer` — через ACP
+- `GitContextSource` — через ACP
+- `InstructionContextSource` — через ACP
+- Все компоненты используют единый подход
+
+**Альтернативы:**
+- ❌ Прямой доступ через `open()` — не работает в REMOTE режиме
+- ❌ Гибридный подход (global через `open()`, project через ACP) — усложнение логики
+- ❌ Передача инструкций при session/new — нет динамического обновления
+
+**Компромиссы:**
+- Дополнительные ACP calls — но они быстрые и кэшируются
+- Зависимость от ToolRegistry — но он уже используется другими компонентами
+
 ### Интерфейс
 
 ```python
@@ -332,8 +363,9 @@ class InstructionFile:
 class InstructionContextSource(ContextSource[list[InstructionFile]]):
     """Источник контекста из AGENTS.md файлов."""
     
-    def __init__(self, cwd: str):
+    def __init__(self, cwd: str, tool_registry: ToolRegistry):
         self.cwd = cwd
+        self.tool_registry = tool_registry
         super().__init__(
             key="instructions",
             loader=self.load_instructions,
@@ -347,11 +379,11 @@ class InstructionContextSource(ContextSource[list[InstructionFile]]):
         instructions = []
         
         # 1. Global instructions
-        global_path = Path.home() / '.config' / 'codelab' / 'AGENTS.md'
-        if global_path.exists():
-            content = await self._read_file(str(global_path))
+        global_path = str(Path.home() / '.config' / 'codelab' / 'AGENTS.md')
+        content = await self._read_file(global_path)
+        if content is not None:
             instructions.append(InstructionFile(
-                path=str(global_path),
+                path=global_path,
                 content=content,
                 scope="global"
             ))
@@ -363,10 +395,9 @@ class InstructionContextSource(ContextSource[list[InstructionFile]]):
         while current not in visited:
             visited.add(current)
             
-            agents_md = current / 'AGENTS.md'
-            if agents_md.exists():
-                content = await self._read_file(str(agents_md))
-                
+            agents_md = str(current / 'AGENTS.md')
+            content = await self._read_file(agents_md)
+            if content is not None:
                 # Определить scope
                 if current == Path(self.cwd).root:
                     scope = "project"
@@ -374,7 +405,7 @@ class InstructionContextSource(ContextSource[list[InstructionFile]]):
                     scope = "directory"
                 
                 instructions.append(InstructionFile(
-                    path=str(agents_md),
+                    path=agents_md,
                     content=content,
                     scope=scope
                 ))
@@ -389,10 +420,26 @@ class InstructionContextSource(ContextSource[list[InstructionFile]]):
         
         return instructions
     
-    async def _read_file(self, path: str) -> str:
-        """Прочитать файл."""
-        with open(path, 'r') as f:
-            return f.read()
+    async def _read_file(self, path: str) -> str | None:
+        """
+        Прочитать файл через ACP.
+        
+        Возвращает None если файл не существует или произошла ошибка.
+        Все файловые операции выполняются через ToolRegistry для поддержки
+        LOCAL и REMOTE режимов.
+        """
+        try:
+            result = await self.tool_registry.execute(
+                "fs/read_text_file",
+                {"path": path}
+            )
+            return result.content
+        except FileNotFoundError:
+            return None
+        except Exception as e:
+            # Логируем ошибку, но не прерываем загрузку
+            logger.warning(f"Failed to read {path}: {e}")
+            return None
     
     def render_baseline(self, instructions: list[InstructionFile]) -> str:
         """Рендер baseline контекста."""
@@ -444,7 +491,10 @@ class InstructionCodec(Codec[list[InstructionFile]]):
 ### Пример использования
 
 ```python
-source = InstructionContextSource(cwd="/path/to/project")
+source = InstructionContextSource(
+    cwd="/path/to/project",
+    tool_registry=tool_registry
+)
 instructions = await source.load()
 
 # Результат:
@@ -1416,20 +1466,29 @@ class ContextManager:
     def __init__(
         self,
         registry: ContextRegistry,
+        tool_registry: ToolRegistry,
         snapshot: ContextSnapshot | None = None,
         epoch: ContextEpoch | None = None,
         ...
     ):
         self.registry = registry
+        self.tool_registry = tool_registry
         self.snapshot = snapshot
         self.epoch = epoch
     
     async def initialize(self, session: SessionState) -> None:
         """Инициализация контекста для сессии."""
         # Регистрация sources
-        self.registry.register(InstructionContextSource(session.cwd))
+        # Все файловые операции выполняются через ACP (tool_registry)
+        # для поддержки LOCAL и REMOTE режимов
+        self.registry.register(
+            InstructionContextSource(session.cwd, self.tool_registry)
+        )
         self.registry.register(ProjectContextSource(session.cwd, discovery))
         self.registry.register(EnvironmentContextSource(session.cwd))
+        self.registry.register(
+            GitContextSource(session.cwd, self.tool_registry)
+        )
         
         # Регистрация SkillContextSource (если skills включены)
         if self.skill_registry:
@@ -1486,14 +1545,15 @@ class ContextManager:
 **Задачи:**
 - [ ] Реализовать `ContextRegistry` с регистрацией sources
 - [ ] Реализовать `ContextSource` base class
-- [ ] Реализовать `InstructionContextSource` (AGENTS.md иерархия)
+- [ ] Реализовать `InstructionContextSource` с ACP (через ToolRegistry)
 - [ ] Реализовать `ProjectContextSource`
 - [ ] Реализовать `EnvironmentContextSource`
 - [ ] Реализовать `SkillContextSource` (каталог skills из SkillRegistry)
+- [ ] Реализовать `GitContextSource` с ACP (через ToolRegistry)
 - [ ] Реализовать `ContextSnapshot` с detect_changes
 - [ ] Unit tests
 
-**Результат:** Базовое отслеживание изменений.
+**Результат:** Базовое отслеживание изменений. Все файловые операции через ACP.
 
 ### Phase 3: Epoch Layer (1 неделя)
 
