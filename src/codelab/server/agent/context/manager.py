@@ -14,10 +14,11 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
     from codelab.server.llm.base import LLMProvider
     from codelab.server.tools.base import ToolRegistry
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class DefaultContextManager(ContextManager):
@@ -82,38 +83,123 @@ class DefaultContextManager(ContextManager):
             PayloadEnvelope с baseline и tail
         """
         start_time = time.time()
-
-        prompt_text = self._extract_prompt_text(prompt)
-
-        analyzer = LLMBasedTaskAnalyzer(llm=self._llm, model=self._model)
-        profile = await analyzer.analyze(prompt_text, session)
-
-        logger.debug(
-            "Task analyzed",
-            task_type=profile.task_type,
-            search_terms=profile.search_terms,
+        session_id = getattr(session, "session_id", "unknown")
+        
+        logger.info(
+            "context.build.start",
+            session_id=session_id,
+            agent_scope=agent_scope,
+            has_system_prompt=system_prompt is not None,
+            gather_enabled=self._config.gather_enabled,
         )
 
+        # Этап 1: Извлечение текста из prompt
+        extract_start = time.time()
+        prompt_text = self._extract_prompt_text(prompt)
+        extract_ms = (time.time() - extract_start) * 1000
+        
+        logger.debug(
+            "context.build.prompt_extracted",
+            session_id=session_id,
+            prompt_length=len(prompt_text),
+            prompt_preview=prompt_text[:100] if prompt_text else "",
+            elapsed_ms=extract_ms,
+        )
+
+        # Этап 2: Анализ задачи (TaskAnalyzer)
+        analyze_start = time.time()
+        logger.debug(
+            "context.build.task_analysis.start",
+            session_id=session_id,
+            llm_available=self._llm is not None,
+            model=self._model,
+        )
+        
+        analyzer = LLMBasedTaskAnalyzer(llm=self._llm, model=self._model)
+        profile = await analyzer.analyze(prompt_text, session)
+        analyze_ms = (time.time() - analyze_start) * 1000
+
+        logger.info(
+            "context.build.task_analysis.complete",
+            session_id=session_id,
+            task_type=profile.task_type,
+            search_terms=profile.search_terms,
+            target_modules=profile.target_modules,
+            investigation_depth=profile.investigation_depth,
+            needs_tests=profile.needs_tests,
+            elapsed_ms=analyze_ms,
+        )
+
+        # Этап 3: Формирование baseline
+        baseline_start = time.time()
         baseline: list[LLMMessage] = []
 
         if system_prompt:
             baseline.append(LLMMessage(role="system", content=system_prompt))
+            logger.debug(
+                "context.build.baseline.system_prompt_added",
+                session_id=session_id,
+                system_prompt_length=len(system_prompt),
+            )
 
+        # Этап 4: Сбор файлов (если включено)
         if self._config.gather_enabled:
-            session_id = getattr(session, "session_id", "unknown")
+            gather_start = time.time()
+            logger.info(
+                "context.build.gather.start",
+                session_id=session_id,
+                max_files=options.max_files if options else None,
+            )
+            
             gatherer = ACPContextGatherer(
                 tool_registry=self._tool_registry,
                 dependency_graph=self._dependency_graph,
                 session_id=session_id,
             )
             items = await gatherer.gather(profile, session, options=options)
+            gather_ms = (time.time() - gather_start) * 1000
+
+            logger.info(
+                "context.build.gather.complete",
+                session_id=session_id,
+                files_gathered=len(items),
+                file_paths=[item.id for item in items[:10]],  # Первые 10 файлов
+                total_tokens=sum(item.token_count for item in items),
+                elapsed_ms=gather_ms,
+            )
 
             context_content = self._format_context_items(items)
             if context_content:
                 baseline.append(
                     LLMMessage(role="system", content=context_content)
                 )
+                logger.debug(
+                    "context.build.baseline.context_added",
+                    session_id=session_id,
+                    context_length=len(context_content),
+                    context_preview=(
+                        context_content[:200] + "..."
+                        if len(context_content) > 200
+                        else context_content
+                    ),
+                )
+        else:
+            logger.debug(
+                "context.build.gather.skipped",
+                session_id=session_id,
+                reason="gather_enabled=false",
+            )
 
+        baseline_ms = (time.time() - baseline_start) * 1000
+        logger.debug(
+            "context.build.baseline.complete",
+            session_id=session_id,
+            baseline_messages=len(baseline),
+            elapsed_ms=baseline_ms,
+        )
+
+        # Этап 5: Формирование tail
+        tail_start = time.time()
         tail: list[LLMMessage] = []
         for block in prompt:
             if block.get("type") == "text":
@@ -121,16 +207,46 @@ class DefaultContextManager(ContextManager):
                 if text:
                     tail.append(LLMMessage(role="user", content=text))
 
+        tail_ms = (time.time() - tail_start) * 1000
+        logger.debug(
+            "context.build.tail.complete",
+            session_id=session_id,
+            tail_messages=len(tail),
+            elapsed_ms=tail_ms,
+        )
+
+        # Этап 6: Вычисление fingerprint
+        fingerprint_start = time.time()
         baseline_fingerprint = self._compute_fingerprint(baseline)
+        fingerprint_ms = (time.time() - fingerprint_start) * 1000
+        
+        logger.debug(
+            "context.build.fingerprint.computed",
+            session_id=session_id,
+            fingerprint=baseline_fingerprint,
+            elapsed_ms=fingerprint_ms,
+        )
+
+        # Этап 7: Оценка токенов
         token_count = self._estimate_total_tokens(baseline, tail)
+        
+        logger.debug(
+            "context.build.tokens.estimated",
+            session_id=session_id,
+            baseline_tokens=self._estimate_total_tokens(baseline, []),
+            tail_tokens=self._estimate_total_tokens([], tail),
+            total_tokens=token_count,
+        )
 
         elapsed_ms = (time.time() - start_time) * 1000
-        logger.debug(
-            "Context built",
+        logger.info(
+            "context.build.complete",
+            session_id=session_id,
             baseline_messages=len(baseline),
             tail_messages=len(tail),
             token_count=token_count,
-            elapsed_ms=elapsed_ms,
+            baseline_fingerprint=baseline_fingerprint,
+            total_elapsed_ms=elapsed_ms,
         )
 
         return PayloadEnvelope(
@@ -161,15 +277,34 @@ class DefaultContextManager(ContextManager):
         """
         available = max_context_tokens - reserved_tokens
 
-        if envelope.token_count <= available:
-            return envelope
-
         logger.debug(
-            "Context exceeds limit, truncating",
-            current=envelope.token_count,
-            available=available,
+            "context.ensure_fits.check",
+            current_tokens=envelope.token_count,
+            max_context_tokens=max_context_tokens,
+            reserved_tokens=reserved_tokens,
+            available_tokens=available,
+            fits=envelope.token_count <= available,
         )
 
+        if envelope.token_count <= available:
+            logger.info(
+                "context.ensure_fits.ok",
+                token_count=envelope.token_count,
+                available=available,
+                margin=available - envelope.token_count,
+            )
+            return envelope
+
+        logger.warning(
+            "context.ensure_fits.exceeded",
+            current=envelope.token_count,
+            available=available,
+            exceeded_by=envelope.token_count - available,
+            action="truncation_needed",
+        )
+
+        # TODO: Phase 3 - реализовать усечение низкоприоритетных элементов
+        # Сейчас просто возвращаем envelope как есть
         return envelope
 
     async def process_subagent_response(
@@ -190,13 +325,32 @@ class DefaultContextManager(ContextManager):
         Returns:
             SubagentResult с summary
         """
+        logger.info(
+            "context.subagent.process.start",
+            parent_scope=parent_scope,
+            subagent_scope=subagent_scope,
+            response_type=type(response).__name__ if response else None,
+        )
+
         summary = f"[Subagent {subagent_scope} response placeholder]"
-        return SubagentResult(
+        
+        result = SubagentResult(
             summary=summary,
             token_count=0,
             source_scope=subagent_scope,
             shared_items=[],
         )
+
+        logger.info(
+            "context.subagent.process.complete",
+            parent_scope=parent_scope,
+            subagent_scope=subagent_scope,
+            summary_length=len(summary),
+            token_count=result.token_count,
+            shared_items_count=len(result.shared_items),
+        )
+
+        return result
 
     @staticmethod
     def _extract_prompt_text(prompt: list[dict]) -> str:
