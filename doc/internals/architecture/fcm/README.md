@@ -1,6 +1,16 @@
 # Federated Context Manager — Документация
 
-> **Статус:** Design Document  
+> ⚠️ **SUPERSEDED.** Эти документы заменены консолидированной архитектурой согласно
+> [ADR-002](../adr/ADR-002-context-manager-consolidation.md).
+> Канон — [`doc/internals/context-manager/CONSOLIDATED_ARCHITECTURE.md`](../../context-manager/CONSOLIDATED_ARCHITECTURE.md).
+>
+> FCM не реализуется как самостоятельный компонент: его сильные части (`FileContentCache`,
+> `CodeSkeletonizer`, `TokenCounter`, `FileCacheDecorator`, priority-based eviction) вливаются
+> в единый `ContextManager` как **слой C (хранение и эффективность)**. Федеративный шеринг —
+> кандидат на отказ. Эти файлы сохранены как детальные спеки компонентов слоя C и будут
+> архивированы в `doc/internals/archive/fcm/` на Phase 0.
+
+> **Статус:** Design Document (superseded by ADR-002)  
 > **Версия:** 2.3  
 > **Дата:** 25 июня 2026
 >
