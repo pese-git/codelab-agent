@@ -72,7 +72,7 @@ ContextManager (единая точка входа)
    │    SkillContextSource, ContextRegistry / ContextSource
    │
    ├─ Слой B. Жизненный цикл (CM)
-   │    ContextEpoch, ContextSnapshot, ContextReconciliation, ConversationSummarizer
+   │    ContextEpoch, ContextSnapshot, ContextReconciler, ConversationSummarizer
    │
    ├─ Слой C. Хранение и эффективность (FCM)
    │    FileContentCache + SessionFileCacheRegistry + FileCacheDecorator
@@ -92,7 +92,7 @@ ContextManager (единая точка входа)
 | `TaskAnalyzer` | Классифицирует задачу (bug_fix/feature/refactor/architecture), извлекает поисковые термины, глубину исследования. LLM-классификация |
 | `ContextGatherer` | Пайплайн: `project_tree()` → `search()` → `read_file()` → построение графа → отбор целевых файлов. Через ACP `ToolRegistry` |
 | `DependencyGraph` | Карта импортов/зависимостей. `get_dependencies()`/`get_dependents()`. Phase 1 — regex, Phase 5 — рекурсия/tree-sitter |
-| `TokenBudgetManager` | Аллокация бюджета (system/history/tool/response), `bound_content()`, `compact_if_needed()` |
+| `TokenBudgetManager` | Аллокация бюджета (system/history/tool/response) — `allocate()`, `bound_content()` |
 | `ContextRegistry` / `ContextSource` | Реестр источников контекста; `render_baseline()` / `render_updates()` |
 | `SkillContextSource` | Каталог доступных скиллов в системном промпте + отслеживание изменений |
 
@@ -102,7 +102,7 @@ ContextManager (единая точка входа)
 |-----------|------------------|
 | `ContextEpoch` | Иммутабельный baseline + `mid_conversation_messages` (дельты). `get_full_context()` |
 | `ContextSnapshot` | Снимок состояния источников; `detect_changes()` через Codec-сравнение (не таймстемпы) |
-| `ContextReconciliation` | Применение изменений на безопасных границах хода. Состояния `UNCHANGED`/`UPDATED`/`DEFERRED` |
+| `ContextReconciler` | Применение изменений на безопасных границах хода. Состояния `UNCHANGED`/`UPDATED`/`DEFERRED` |
 | `ConversationSummarizer` | Интеллектуальная суммаризация диалога при сжатии (сохраняет ключевые решения/контекст) |
 
 ### Слой C — Хранение и эффективность (из FCM)
@@ -157,7 +157,7 @@ API формирования payload **с первого дня** разделя
 
 1. **Phase 0** — форма данных `baseline/tail` в API.
 2. **Phase 1** — MVP-поведение как у гидрации (baseline тривиально пересобирается каждый ход) за этим API.
-3. **Phase 4** — включить `ContextEpoch` + `ContextSnapshot` + `ContextReconciliation` как оптимизацию за тем же API.
+3. **Phase 4** — включить `ContextEpoch` + `ContextSnapshot` + `ContextReconciler` как оптимизацию за тем же API.
 
 ---
 
@@ -266,7 +266,7 @@ federation = false               # КАНДИДАТ НА ОТКАЗ
 - **Acceptance:** скиллы рендерятся как источник; компактор проходит все 3 фазы; деградация без LLM работает.
 
 ### Phase 4 — Инкрементальность (2 нед)
-- **Что:** `ContextEpoch` + `ContextSnapshot`(Codec-детект) + `ContextReconciliation` за тем же `baseline/tail` API; включение provider/KV prefix-cache. **Единый сигнал инвалидации файла** (стык с Phase 2).
+- **Что:** `ContextEpoch` + `ContextSnapshot`(Codec-детект) + `ContextReconciler` за тем же `baseline/tail` API; включение provider/KV prefix-cache. **Единый сигнал инвалидации файла** (стык с Phase 2).
 - **Acceptance:** baseline отправляется один раз за эпоху; дельты применяются на границах хода; нет рассинхрона при `fs/write`; измеримый кэш-хит на длинной сессии.
 
 ### Phase 5 — Полный DependencyGraph (2 нед)
@@ -296,7 +296,7 @@ src/codelab/server/agent/context/
 │
 ├── # Слой B: жизненный цикл
 ├── epoch.py              # ContextEpoch
-├── snapshot.py           # ContextSnapshot, ContextReconciliation
+├── snapshot.py           # ContextSnapshot, ContextReconciler
 ├── summarizer.py         # ConversationSummarizer
 │
 ├── # Слой C: хранение и эффективность

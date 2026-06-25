@@ -48,6 +48,11 @@ Phase 4. Опирается на [INTERFACES.md](./INTERFACES.md), [DATA_MODELS.
 - Управляется явно (наличие LLM-адаптера / флаг), без исключений в горячем пути.
 - **Acceptance:** при отсутствии LLM `compact_if_needed()` отрабатывает только Prune+Skeletonize, не падает; если без Summarize payload не вмещается — фиксируется деградация (лог/метрика), а не краш.
 
+### T3.6 — Интеграция `ContextCompactor` в `ContextManager.ensure_context_fits()`
+- Реализовать метод `ContextManager.ensure_context_fits()` (ABC заморожен в Phase 0, [INTERFACES.md §1](./INTERFACES.md)): при превышении `max_context_tokens - reserved_tokens` вызывает `ContextCompactor.compact_if_needed()` над `envelope.to_messages()` и возвращает новый `PayloadEnvelope`.
+- Подключить вызов из `ExecutionEngine` для стратегий Single/Hierarchical (см. [STRATEGY_INTEGRATION.md](./STRATEGY_INTEGRATION.md)).
+- **Acceptance:** `ensure_context_fits()` возвращает `PayloadEnvelope`, помещающийся в окно (или логирует деградацию); сборка по-прежнему отдаёт только `PayloadEnvelope`, плоский список не «протекает».
+
 ---
 
 ## Definition of Done для Phase 3
@@ -57,6 +62,7 @@ Phase 4. Опирается на [INTERFACES.md](./INTERFACES.md), [DATA_MODELS.
 - [ ] `ConversationSummarizer` сохраняет ключевые решения и укладывается в `target_tokens`.
 - [ ] Единый `ContextCompactor` проходит все 3 фазы (Prune → Skeletonize → Summarize) и останавливается на достаточной.
 - [ ] Деградация без LLM (Prune+Skeletonize) работает без регрессий.
+- [ ] `ContextManager.ensure_context_fits()` интегрирована с `ContextCompactor`; сжатие вызывается при превышении лимита (T3.6).
 - [ ] Типизация проходит; реализации соответствуют замороженным сигнатурам Phase 0.
 
 ---
@@ -64,7 +70,7 @@ Phase 4. Опирается на [INTERFACES.md](./INTERFACES.md), [DATA_MODELS.
 ## Что Phase 3 НЕ делает (важно)
 
 - Не реализует **полную инкрементальную реконсиляцию эпох** (`ContextEpoch`/`ContextSnapshot`/`ContextReconciler`) — это Phase 4. Здесь только детект изменений источников **через `fingerprint()`**, без применения дельт на границах хода.
-- Не вводит provider/KV prefix-cache и единый сигнал инвалидации файла — Phase 4.
+- Не вводит provider/KV prefix-cache — Phase 4. (Единый сигнал инвалидации файла вводится в Phase 2, T2.4; Phase 4 лишь подписывает на него snapshot-детект.)
 - Не реализует `CodeSkeletonizer`/`TokenCounter`/`FileContentCache` — они приходят из Phase 2 и **переиспользуются**.
 - Не трогает мультиагентный обмен (`process_subagent_response`/`ChildSessionManager`) — Phase 6.
 - Не меняет поведение при `enabled=false` (работает legacy-компактор).
