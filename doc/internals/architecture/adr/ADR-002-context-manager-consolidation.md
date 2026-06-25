@@ -161,7 +161,7 @@ ContextManager (единая точка входа — из CM)
 1. ~~Единый roadmap: как пересобрать Phase 0–6 (CM) с вкраплением слоя C (FCM)?~~ — **решено**, см. раздел «Единый roadmap».
 2. ~~Кэш файлов: совместимы ли RAM-кэш FCM и provider-side caching эпох CM, или один избыточен?~~ — **решено**, см. раздел «Решение по кэшированию».
 3. ~~Мультиагент: изоляция (CM) по умолчанию + федерация (FCM) за флагом — или отказаться от федерации?~~ — **решено**, см. раздел «Решение по мультиагентному обмену».
-4. Финальная схема конфиг-флагов `agents.context.*`.
+4. ~~Финальная схема конфиг-флагов `agents.context.*`.~~ — **решено**, см. раздел «Схема конфиг-флагов».
 5. Кто владелец объединённого канона и куда переносится `doc/internals/architecture/fcm/` (архив или merge в `context-manager/`)?
 
 ---
@@ -287,6 +287,78 @@ ContextManager (единая точка входа — из CM)
 
 ---
 
+## Схема конфиг-флагов
+
+Флаги мапятся на слои/фазы roadmap → канареечный rollout без переписывания конфига. Master-switch заменяет FCM-флаг `agents.context.enable_fcm`.
+
+```toml
+[agents.context]
+# Master switch: новый ContextManager vs legacy context_compactor.py
+enabled = false
+
+# --- Слой A: сбор контекста (Phase 1) ---
+[agents.context.gather]
+enabled = true                   # TaskAnalyzer → ContextGatherer → DependencyGraph
+recursive_dependencies = false   # Phase 5: рекурсивный обход графа (иначе 1 уровень)
+use_tree_sitter = false          # Phase 5: tree-sitter вместо regex
+
+# --- Слой C: хранение и эффективность (Phase 2) ---
+[agents.context.storage]
+use_tiktoken = true              # точный подсчёт, иначе ApproximateTokenCounter
+file_cache = true                # FileContentCache: устранение дублей ACP RPC
+skeletonize = true               # CodeSkeletonizer (AST) как фаза компактора
+
+[agents.context.storage.cache]
+max_files = 1000                 # LRU-предел кэша файлов на сессию
+
+# --- Слой B: жизненный цикл (Phase 4) ---
+[agents.context.lifecycle]
+# baseline/tail форма payload — фундамент (Phase 0), флагом НЕ управляется.
+incremental = false              # ContextEpoch + Snapshot + Reconciliation.
+                                 # false → MVP-поведение «гидрация каждый ход»
+
+# --- Бюджет токенов (Phase 1) ---
+[agents.context.budget]
+max_context_tokens = 128000
+reserved_tokens = 4096
+system_share = 0.20              # доли аллокации (TokenBudgetManager)
+history_share = 0.50
+tool_output_share = 0.20
+response_buffer_share = 0.10
+
+# --- Слой D: мультиагент (Phase 6) ---
+[agents.context.multiagent]
+# изоляция (ChildSessionManager) — всегда, флагом не управляется.
+federation = false               # share_item() между скоупами.
+                                 # КАНДИДАТ НА ОТКАЗ — включать только с обоснованием
+```
+
+### Два «не-флага» (фундамент, не переключатели)
+- **`baseline/tail` форма payload** (Phase 0) — есть всегда; `lifecycle.incremental` управляет лишь тем, заполняется ли epoch инкрементально или baseline пересобирается каждый ход.
+- **Изоляция мультиагента** (`ChildSessionManager`) — всегда; флагом управляется только опциональная `federation`.
+
+### Env-overrides
+
+Для канареечного rollout и CI каждый флаг перекрывается переменной окружения (приоритет выше TOML):
+
+| Переменная | Перекрывает | Тип |
+|---|---|---|
+| `CODELAB_CONTEXT_ENABLED` | `agents.context.enabled` | bool |
+| `CODELAB_CONTEXT_ROLLOUT_PERCENT` | — (канареечный % сессий) | int 0–100 |
+| `CODELAB_CONTEXT_GATHER` | `agents.context.gather.enabled` | bool |
+| `CODELAB_CONTEXT_RECURSIVE_DEPS` | `agents.context.gather.recursive_dependencies` | bool |
+| `CODELAB_CONTEXT_TREE_SITTER` | `agents.context.gather.use_tree_sitter` | bool |
+| `CODELAB_CONTEXT_TIKTOKEN` | `agents.context.storage.use_tiktoken` | bool |
+| `CODELAB_CONTEXT_FILE_CACHE` | `agents.context.storage.file_cache` | bool |
+| `CODELAB_CONTEXT_SKELETONIZE` | `agents.context.storage.skeletonize` | bool |
+| `CODELAB_CONTEXT_CACHE_MAX_FILES` | `agents.context.storage.cache.max_files` | int |
+| `CODELAB_CONTEXT_INCREMENTAL` | `agents.context.lifecycle.incremental` | bool |
+| `CODELAB_CONTEXT_MAX_TOKENS` | `agents.context.budget.max_context_tokens` | int |
+| `CODELAB_CONTEXT_RESERVED_TOKENS` | `agents.context.budget.reserved_tokens` | int |
+| `CODELAB_CONTEXT_FEDERATION` | `agents.context.multiagent.federation` | bool |
+
+---
+
 ## Статус реализации
 
 Оба дизайна — **design-only**. Из кода существует только legacy `src/codelab/server/agent/context_compactor.py` (двухфазный Prune→Summarize, покрыт тестами). Любая реализация единой архитектуры стартует от него как baseline.
@@ -302,3 +374,4 @@ ContextManager (единая точка входа — из CM)
 | 2026-06-25 | Добавлен раздел «Единый roadmap» (Phase 0–6, ~13 недель) — закрыт открытый вопрос №1 |
 | 2026-06-25 | Добавлен раздел «Решение по кэшированию» — закрыт открытый вопрос №2 |
 | 2026-06-25 | Добавлен раздел «Решение по мультиагентному обмену» — закрыт открытый вопрос №3 |
+| 2026-06-25 | Добавлен раздел «Схема конфиг-флагов» (TOML + env-overrides) — закрыт открытый вопрос №4 |
