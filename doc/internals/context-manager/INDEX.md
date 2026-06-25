@@ -21,6 +21,7 @@
 | [OBSERVABILITY.md](./OBSERVABILITY.md) | Каталог метрик, span-ы трейсинга, логи, мониторинг rollout | Разработчики, SRE |
 | [PERFORMANCE_SLO.md](./PERFORMANCE_SLO.md) | Числовые SLO, бенчмарк-сценарии, бюджеты ресурсов | Разработчики, SRE |
 | [TESTING_STRATEGY.md](./TESTING_STRATEGY.md) | Уровни тестов, рисковые места, golden-тесты, тест-матрица по фазам | Разработчики, QA |
+| [COMPETITIVE_BACKLOG.md](./COMPETITIVE_BACKLOG.md) | Идеи из анализа конкурентов (Hermes, OpenCode) для будущих фаз | Все |
 | [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md) | Все архитектурные решения и обоснования | Архитекторы, reviewers |
 
 ## Статус готовности к разработке
