@@ -13,9 +13,11 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
+import time
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codelab.server.agent.context.interfaces import TaskAnalyzer
 from codelab.server.agent.context.models import TaskProfile, TaskType
@@ -24,7 +26,7 @@ from codelab.server.llm.models import CompletionRequest, LLMMessage
 if TYPE_CHECKING:
     from codelab.server.llm.base import LLMProvider
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 CLASSIFICATION_PROMPT = """Analyze the following user task and extract structured
 information for context gathering.
@@ -66,21 +68,83 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
         Returns:
             TaskProfile с классификацией и стратегией поиска
         """
+        start_time = time.time()
+        
+        logger.info(
+            "context.task_analyze.start",
+            prompt_length=len(prompt),
+            prompt_preview=prompt[:100] if prompt else "",
+            llm_available=self._llm is not None,
+            model=self._model if self._llm else None,
+        )
+
         if self._llm is None:
-            logger.debug("LLM not available, using fallback classification")
-            return self._fallback_classify(prompt)
+            logger.warning(
+                "context.task_analyze.llm_not_available",
+                reason="using_fallback_classification",
+            )
+            profile = self._fallback_classify(prompt)
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "context.task_analyze.complete",
+                method="fallback",
+                task_type=profile.task_type,
+                elapsed_ms=elapsed_ms,
+            )
+            return profile
 
         try:
-            return await self._llm_classify(prompt)
-        except Exception:
-            logger.exception("LLM classification failed, using fallback")
-            return self._fallback_classify(prompt)
+            llm_start = time.time()
+            logger.debug(
+                "context.task_analyze.llm_call.start",
+                model=self._model,
+            )
+            
+            profile = await self._llm_classify(prompt)
+            
+            llm_ms = (time.time() - llm_start) * 1000
+            elapsed_ms = (time.time() - start_time) * 1000
+            
+            logger.info(
+                "context.task_analyze.complete",
+                method="llm",
+                task_type=profile.task_type,
+                search_terms_count=len(profile.search_terms),
+                target_modules_count=len(profile.target_modules),
+                investigation_depth=profile.investigation_depth,
+                needs_tests=profile.needs_tests,
+                llm_call_ms=llm_ms,
+                total_elapsed_ms=elapsed_ms,
+            )
+            return profile
+        except Exception as e:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.exception(
+                "context.task_analyze.llm_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                fallback_to="heuristic",
+            )
+            profile = self._fallback_classify(prompt)
+            logger.info(
+                "context.task_analyze.complete",
+                method="fallback_after_error",
+                task_type=profile.task_type,
+                elapsed_ms=elapsed_ms,
+            )
+            return profile
 
     async def _llm_classify(self, prompt: str) -> TaskProfile:
         """LLM-классификация с парсингом JSON ответа."""
         assert self._llm is not None
 
         formatted_prompt = CLASSIFICATION_PROMPT.format(prompt=prompt)
+
+        logger.debug(
+            "context.task_analyze.llm.request",
+            model=self._model,
+            prompt_length=len(formatted_prompt),
+        )
 
         request = CompletionRequest(
             model=self._model,
@@ -92,26 +156,58 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
         response = await self._llm.create_completion(request)
         text = response.text.strip()
 
+        logger.debug(
+            "context.task_analyze.llm.response",
+            response_length=len(text),
+            response_preview=text[:200] if text else "",
+        )
+
         return self._parse_classification(text, prompt)
 
     def _parse_classification(self, text: str, original_prompt: str) -> TaskProfile:
         """Парсить JSON ответ LLM в TaskProfile."""
+        logger.debug(
+            "context.task_analyze.parse.start",
+            response_length=len(text),
+        )
+
         json_match = re.search(r"\{[\s\S]*\}", text)
         if not json_match:
-            logger.warning("No JSON found in LLM response, using fallback")
+            logger.warning(
+                "context.task_analyze.parse.no_json_found",
+                response_preview=text[:200] if text else "",
+                fallback_to="heuristic",
+            )
             return self._fallback_classify(original_prompt)
 
         try:
             data = json.loads(json_match.group())
-        except json.JSONDecodeError:
-            logger.warning("Invalid JSON in LLM response, using fallback")
+            logger.debug(
+                "context.task_analyze.parse.json_extracted",
+                keys=list(data.keys()),
+            )
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "context.task_analyze.parse.invalid_json",
+                error=str(e),
+                response_preview=text[:200] if text else "",
+                fallback_to="heuristic",
+            )
             return self._fallback_classify(original_prompt)
 
         task_type_str = data.get("task_type", "feature")
         try:
             task_type = TaskType(task_type_str)
+            logger.debug(
+                "context.task_analyze.parse.task_type",
+                task_type=task_type,
+            )
         except ValueError:
-            logger.warning("Invalid task_type '%s', defaulting to FEATURE", task_type_str)
+            logger.warning(
+                "context.task_analyze.parse.invalid_task_type",
+                task_type=task_type_str,
+                default_to="feature",
+            )
             task_type = TaskType.FEATURE
 
         search_terms = data.get("search_terms", [])

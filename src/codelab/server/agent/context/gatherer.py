@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
 from codelab.server.agent.context.interfaces import ContextGatherer
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
     from codelab.server.tools.base import ToolRegistry
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 BINARY_EXTENSIONS = {
     ".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".obj", ".o",
@@ -77,36 +78,117 @@ class ACPContextGatherer(ContextGatherer):
         start_time = time.time()
         max_files = options.max_files if options and options.max_files else 20
 
-        logger.debug(
-            "Starting context gather",
+        logger.info(
+            "context.gather.start",
+            session_id=self._session_id,
             task_type=profile.task_type,
             search_terms=profile.search_terms,
+            target_modules=profile.target_modules,
             max_files=max_files,
         )
 
+        # Этап 1: Сбор кандидатов из target_modules
         candidates: list[str] = []
 
         if profile.target_modules:
             candidates.extend(profile.target_modules)
+            logger.debug(
+                "context.gather.target_modules_added",
+                session_id=self._session_id,
+                count=len(profile.target_modules),
+                modules=profile.target_modules,
+            )
 
+        # Этап 2: Поиск файлов по поисковым терминам
+        search_start = time.time()
+        search_results_by_term: dict[str, list[str]] = {}
+        
         for term in profile.search_terms[:5]:
+            term_start = time.time()
             search_results = await self._search_files(term)
+            term_ms = (time.time() - term_start) * 1000
+            
+            search_results_by_term[term] = search_results
             candidates.extend(search_results)
+            
+            logger.debug(
+                "context.gather.search.term",
+                session_id=self._session_id,
+                term=term,
+                results_count=len(search_results),
+                results=search_results[:5],  # Первые 5 результатов
+                elapsed_ms=term_ms,
+            )
 
+        search_ms = (time.time() - search_start) * 1000
+        logger.info(
+            "context.gather.search.complete",
+            session_id=self._session_id,
+            terms_searched=len(profile.search_terms[:5]),
+            total_results=len(candidates),
+            elapsed_ms=search_ms,
+        )
+
+        # Этап 3: Дедупликация кандидатов
         unique_candidates = self._deduplicate(candidates)
-        logger.debug("Found %d candidate files", len(unique_candidates))
+        logger.debug(
+            "context.gather.candidates.deduplicated",
+            session_id=self._session_id,
+            before_dedup=len(candidates),
+            after_dedup=len(unique_candidates),
+            duplicates_removed=len(candidates) - len(unique_candidates),
+        )
 
+        # Этап 4: Чтение файлов и построение графа зависимостей
+        read_start = time.time()
         items: list[ContextItem] = []
+        files_read = 0
+        files_skipped_binary = 0
+        files_skipped_empty = 0
+        files_skipped_error = 0
+
         for path in unique_candidates[:max_files]:
             content = await self._read_file(path)
+            
             if content is None:
+                files_skipped_error += 1
+                logger.debug(
+                    "context.gather.file.read_failed",
+                    session_id=self._session_id,
+                    path=path,
+                )
                 continue
 
-            if self._is_binary(path) or self._is_empty(content):
+            if self._is_binary(path):
+                files_skipped_binary += 1
+                logger.debug(
+                    "context.gather.file.skipped_binary",
+                    session_id=self._session_id,
+                    path=path,
+                )
                 continue
 
+            if self._is_empty(content):
+                files_skipped_empty += 1
+                logger.debug(
+                    "context.gather.file.skipped_empty",
+                    session_id=self._session_id,
+                    path=path,
+                )
+                continue
+
+            # Парсинг импортов и добавление в граф зависимостей
             imports = self._dependency_graph.parse_imports(content)
             self._dependency_graph.add_file(path, imports)
+            
+            logger.debug(
+                "context.gather.file.processed",
+                session_id=self._session_id,
+                path=path,
+                content_length=len(content),
+                imports_count=len(imports),
+                imports=imports[:5],  # Первые 5 импортов
+            )
 
             token_count = DefaultTokenBudgetManager.estimate_tokens(content)
             items.append(
@@ -120,10 +202,38 @@ class ACPContextGatherer(ContextGatherer):
                     last_accessed=time.time(),
                 )
             )
+            files_read += 1
 
+        read_ms = (time.time() - read_start) * 1000
+        logger.info(
+            "context.gather.files_read.complete",
+            session_id=self._session_id,
+            files_read=files_read,
+            files_skipped_binary=files_skipped_binary,
+            files_skipped_empty=files_skipped_empty,
+            files_skipped_error=files_skipped_error,
+            elapsed_ms=read_ms,
+        )
+
+        # Этап 5: Добавление зависимых файлов
+        dependents_start = time.time()
         dependent_files = self._get_dependents(items)
+        
+        logger.debug(
+            "context.gather.dependents.found",
+            session_id=self._session_id,
+            dependents_count=len(dependent_files),
+            dependents=dependent_files[:10],  # Первые 10
+        )
+
+        dependents_added = 0
         for dep_path in dependent_files:
             if len(items) >= max_files:
+                logger.debug(
+                    "context.gather.dependents.limit_reached",
+                    session_id=self._session_id,
+                    max_files=max_files,
+                )
                 break
             if any(item.id == dep_path for item in items):
                 continue
@@ -144,12 +254,26 @@ class ACPContextGatherer(ContextGatherer):
                     last_accessed=time.time(),
                 )
             )
+            dependents_added += 1
+
+        dependents_ms = (time.time() - dependents_start) * 1000
+        logger.debug(
+            "context.gather.dependents.complete",
+            session_id=self._session_id,
+            dependents_added=dependents_added,
+            elapsed_ms=dependents_ms,
+        )
 
         elapsed_ms = (time.time() - start_time) * 1000
-        logger.debug(
-            "Context gather completed",
+        total_tokens = sum(item.token_count for item in items)
+        
+        logger.info(
+            "context.gather.complete",
+            session_id=self._session_id,
             files_gathered=len(items),
-            elapsed_ms=elapsed_ms,
+            total_tokens=total_tokens,
+            file_paths=[item.id for item in items],
+            total_elapsed_ms=elapsed_ms,
         )
 
         return items
