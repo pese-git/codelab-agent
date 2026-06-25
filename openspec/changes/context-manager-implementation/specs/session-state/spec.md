@@ -1,29 +1,29 @@
-# Delta-спецификация session-state
+# session-state Delta Specification
 
 ## ADDED Requirements
 
 ### Requirement: SessionState current_agent_scope
-Система ДОЛЖНА добавить поле `current_agent_scope: str = "single"` в `SessionState` для идентификации области агента.
+The system MUST add field `current_agent_scope: str = "single"` to `SessionState` for agent scope identification.
 
-#### Scenario: Область агента по умолчанию
-- **WHEN** `SessionState` создаётся без явной области
-- **THEN** `current_agent_scope` по умолчанию равен `"single"`
+#### Scenario: Default agent scope
+- **WHEN** `SessionState` is created without explicit scope
+- **THEN** `current_agent_scope` defaults to `"single"`
 
-#### Scenario: Область агента для мультиагентных стратегий
-- **WHEN** `OrchestratedStrategy` создаёт дочернюю сессию
-- **THEN** дочерний `SessionState` имеет `current_agent_scope`, установленный в идентификатор области дочернего элемента
+#### Scenario: Agent scope for multiagent strategies
+- **WHEN** `OrchestratedStrategy` creates child session
+- **THEN** child `SessionState` has `current_agent_scope` set to child's scope identifier
 
-#### Scenario: Область агента передаётся в ContextManager
-- **WHEN** вызывается `ExecutionEngine.build_context()`
-- **THEN** параметр `agent_scope` получается из `session.current_agent_scope`
+#### Scenario: Agent scope passed to ContextManager
+- **WHEN** `ExecutionEngine.build_context()` is called
+- **THEN** parameter `agent_scope` is derived from `session.current_agent_scope`
 
-### Requirement: Миграция SessionState для Context Manager
-Система ДОЛЖНА поддерживать миграцию `SessionState` для включения поля `current_agent_scope`.
+### Requirement: SessionState Migration for Context Manager
+The system MUST support migration of `SessionState` to include `current_agent_scope` field.
 
-#### Scenario: Обратная совместимость
-- **WHEN** загружается старый `SessionState` без `current_agent_scope`
-- **THEN** система устанавливает значение по умолчанию `"single"` при десериализации
+#### Scenario: Backward compatibility
+- **WHEN** old `SessionState` without `current_agent_scope` is loaded
+- **THEN** the system sets default value `"single"` during deserialization
 
-#### Scenario: Обновление версии схемы
-- **WHEN** схема `SessionState` обновляется
-- **THEN** schema_version инкрементируется, миграция обрабатывает новое поле
+#### Scenario: Schema version update
+- **WHEN** `SessionState` schema is updated
+- **THEN** schema_version is incremented, migration handles new field

@@ -1,138 +1,138 @@
-# Спецификация возможности Context Compaction
+# Context Compaction Capability Specification
 
 ## ADDED Requirements
 
-### Requirement: ContextCompactor выполняет три фазы
-Система ДОЛЖНА выполнять компактирование в три фазы: Prune → Skeletonize → Summarize.
+### Requirement: ContextCompactor Runs Three Phases
+The system MUST run compaction in three phases: Prune → Skeletonize → Summarize.
 
-#### Scenario: Трёхфазное компактирование
-- **WHEN** вызывается `compact_if_needed()` и `token_count > max_context_tokens - reserved_tokens`
-- **THEN** система запускает Prune (FIFO удаление), затем Skeletonize (AST сжатие), затем Summarize (LLM суммаризация)
+#### Scenario: Three-phase compaction
+- **WHEN** `compact_if_needed()` is called and `token_count > max_context_tokens - reserved_tokens`
+- **THEN** the system runs Prune (FIFO removal), then Skeletonize (AST compression), then Summarize (LLM summarization)
 
-#### Scenario: Порядок фаз фиксирован
-- **WHEN** компактирование инициировано
-- **THEN** Prune запускается первым, Skeletonize вторым, Summarize третьим
+#### Scenario: Phase order is fixed
+- **WHEN** compaction is triggered
+- **THEN** Prune runs first, Skeletonize second, Summarize third
 
-#### Scenario: Сигнатура компактирования совместима с legacy
-- **WHEN** вызывается `compact_if_needed(messages, max_context_tokens, reserved_tokens)`
-- **THEN** сигнатура соответствует legacy `ContextCompactor.compact_if_needed()` для бесшовной миграции
+#### Scenario: Compaction signature compatible with legacy
+- **WHEN** `compact_if_needed(messages, max_context_tokens, reserved_tokens)` is called
+- **THEN** signature matches legacy `ContextCompactor.compact_if_needed()` for seamless migration
 
-### Requirement: Фаза Prune удаляет старые tool outputs
-Система ДОЛЖНА удалять старые сообщения tool outputs используя FIFO, сохраняя первые 2 и последние N сообщений.
+### Requirement: Prune Phase Removes Old Tool Outputs
+The system MUST remove old tool output messages using FIFO, preserving the first 2 and last N messages.
 
-#### Scenario: Prune сохраняет первые и последние сообщения
-- **WHEN** Prune инициируется на истории из 200 сообщений
-- **THEN** система сохраняет первые 2 сообщения и последние N сообщений, удаляет средние tool outputs
+#### Scenario: Prune preserves first and last messages
+- **WHEN** Prune is triggered on a history of 200 messages
+- **THEN** the system preserves the first 2 messages and last N messages, removes middle tool outputs
 
-#### Scenario: Prune удаляет пары tool_call + tool_result
-- **WHEN** Prune удаляет tool result
-- **THEN** система удаляет соответствующий tool_call для поддержания валидности протокола
+#### Scenario: Prune removes tool_call + tool_result pairs
+- **WHEN** Prune removes a tool result
+- **THEN** the system removes the corresponding tool_call to maintain protocol validity
 
-#### Scenario: Prune не создаёт осиротевших сообщений
-- **WHEN** Prune завершается
-- **THEN** каждый `tool_result` имеет соответствующий `tool_call`, нет осиротевших сообщений
+#### Scenario: Prune does not create orphaned messages
+- **WHEN** Prune completes
+- **THEN** every `tool_result` has a corresponding `tool_call`, no orphaned messages
 
-### Requirement: Фаза Skeletonize сжимает код
-Система ДОЛЖНА сжимать файлы кода используя `CodeSkeletonizer` во время компактирования.
+### Requirement: Skeletonize Phase Compresses Code
+The system MUST compress code files using `CodeSkeletonizer` during compaction.
 
-#### Scenario: Skeletonize сжимает read-only файлы
-- **WHEN** запускается фаза Skeletonize
-- **THEN** система применяет `skeletonize()` к большим файлам кода, которые не редактируются агентом
+#### Scenario: Skeletonize compresses read-only files
+- **WHEN** Skeletonize phase runs
+- **THEN** the system applies `skeletonize()` to large code files that are not being edited by the agent
 
-#### Scenario: Skeletonize пропускает неподдерживаемые языки
-- **WHEN** файл не на Python или неподдерживаемый язык
-- **THEN** система пропускает skeletonization для этого файла, использует оригинальное содержимое
+#### Scenario: Skeletonize skips unsupported languages
+- **WHEN** file is not Python or unsupported language
+- **THEN** the system skips skeletonization for that file, uses original content
 
-#### Scenario: Skeletonize обеспечивает экономию токенов
-- **WHEN** skeleton произведён
-- **THEN** skeleton на 80-85% меньше оригинала (для Python файлов)
+#### Scenario: Skeletonize achieves token savings
+- **WHEN** skeleton is produced
+- **THEN** skeleton is 80-85% smaller than original (for Python files)
 
-### Requirement: Фаза Summarize использует LLM
-Система ДОЛЖНА суммаризировать разговор используя LLM, когда Prune + Skeletonize недостаточны.
+### Requirement: Summarize Phase Uses LLM
+The system MUST summarize conversation using LLM when Prune + Skeletonize are insufficient.
 
-#### Scenario: Summarize инициируется при необходимости
-- **WHEN** Prune + Skeletonize не снижают ниже лимита
-- **THEN** система вызывает `ConversationSummarizer.summarize(messages, target_tokens)`
+#### Scenario: Summarize triggered when needed
+- **WHEN** Prune + Skeletonize do not reduce below limit
+- **THEN** the system calls `ConversationSummarizer.summarize(messages, target_tokens)`
 
-#### Scenario: Summarize сохраняет ключевые решения
-- **WHEN** суммаризация завершается
-- **THEN** summary содержит ключевые решения, состояние задачи, важный контекст
+#### Scenario: Summarize preserves key decisions
+- **WHEN** summarization completes
+- **THEN** summary contains key decisions, task state, important context
 
-#### Scenario: Summarize при недоступности LLM
-- **WHEN** LLM провайдер недоступен
-- **THEN** система пропускает фазу Summarize, продолжает только с Prune + Skeletonize, логирует warning `summarization_failed_degrade_to_prune`
+#### Scenario: Summarize when LLM unavailable
+- **WHEN** LLM provider is unavailable
+- **THEN** the system skips Summarize phase, continues with Prune + Skeletonize only, logs warning `summarization_failed_degrade_to_prune`
 
-### Requirement: Компактирование учитывает приоритет
-Система ДОЛЖНА не вытеснять элементы с `priority >= 10` во время компактирования.
+### Requirement: Compaction Respects Priority
+The system MUST NOT evict items with `priority >= 10` during compaction.
 
-#### Scenario: Системные правила не вытесняются
-- **WHEN** компактирование нуждается в снижении токенов
-- **THEN** система не вытесняет `system_rules` (priority=10)
+#### Scenario: System rules not evicted
+- **WHEN** compaction needs to reduce tokens
+- **THEN** the system does not evict `system_rules` (priority=10)
 
-#### Scenario: Промпт пользователя не вытесняется
-- **WHEN** компактирование нуждается в снижении токенов
-- **THEN** система не вытесняет `user_prompt` (priority=8), если нет критического переполнения
+#### Scenario: User prompt not evicted
+- **WHEN** compaction needs to reduce tokens
+- **THEN** the system does not evict `user_prompt` (priority=8) unless critical overflow
 
-#### Scenario: Порядок eviction по приоритету
-- **WHEN** элементы вытесняются
-- **THEN** система вытесняет сначала наименьший приоритет: `file_skeleton=3` → `terminal_output=4` → `file_content=5` → ... → `system_rules=10`
+#### Scenario: Eviction order by priority
+- **WHEN** items are evicted
+- **THEN** the system evicts lowest priority first: `file_skeleton=3` → `terminal_output=4` → `file_content=5` → ... → `system_rules=10`
 
-### Requirement: Жёсткое усечение после трёх фаз
-Система ДОЛЖНА выполнять жёсткое усечение, если payload всё ещё превышает бюджет после трёх фаз.
+### Requirement: Hard Truncation After Three Phases
+The system MUST perform hard truncation if payload still exceeds budget after three phases.
 
-#### Scenario: Жёсткое усечение по приоритету
-- **WHEN** `token_count > max_context_tokens - reserved_tokens` после Prune + Skeletonize + Summarize
-- **THEN** система выполняет жёсткое усечение через `TokenBudgetManager.bound_content()` по приоритету, вытесняет от наименьшего приоритета вверх
+#### Scenario: Hard truncation by priority
+- **WHEN** `token_count > max_context_tokens - reserved_tokens` after Prune + Skeletonize + Summarize
+- **THEN** the system performs hard truncation via `TokenBudgetManager.bound_content()` by priority, evicts from lowest priority up
 
-#### Scenario: Критические элементы превышают бюджет
-- **WHEN** сами `system_rules` (priority >= 10) превышают бюджет
-- **THEN** система усекает критические элементы как последнюю меру, логирует error `critical_items_exceed_budget`, не вызывает исключение в горячем пути
+#### Scenario: Critical items exceed budget
+- **WHEN** `system_rules` (priority >= 10) themselves exceed budget
+- **THEN** the system truncates critical items as last resort, logs error `critical_items_exceed_budget`, does not raise exception in hot path
 
-#### Scenario: Переполнение провайдера с приблизительным счётчиком
-- **WHEN** `ApproximateTokenCounter` недооценивает и провайдер отклоняет
-- **THEN** система повторяет `ensure_context_fits()` с более строгим лимитом, логирует warning `budget_underestimated_retry`
+#### Scenario: Provider overflow with approximate counter
+- **WHEN** `ApproximateTokenCounter` underestimates and provider rejects
+- **THEN** the system retries `ensure_context_fits()` with stricter limit, logs warning `budget_underestimated_retry`
 
-### Requirement: Осиротевшие tool сообщения санитизируются
-Система ДОЛЖНА санитизировать осиротевшие tool сообщения перед формированием `PayloadEnvelope`.
+### Requirement: Orphaned Tool Messages Are Sanitized
+The system MUST sanitize orphaned tool messages before forming `PayloadEnvelope`.
 
-#### Scenario: Осиротевший tool_result удаляется
-- **WHEN** `tool_result` не имеет соответствующего `tool_call` в payload
-- **THEN** система удаляет осиротевший `tool_result` или конвертирует в нейтральное текстовое сообщение, логирует `orphaned_tool_result_dropped`
+#### Scenario: Orphaned tool_result removed
+- **WHEN** `tool_result` has no corresponding `tool_call` in payload
+- **THEN** the system removes orphaned `tool_result` or converts to neutral text message, logs `orphaned_tool_result_dropped`
 
-#### Scenario: Осиротевший tool_call дополняется
-- **WHEN** `tool_call` не имеет соответствующего `tool_result`
-- **THEN** система добавляет placeholder result или удаляет `tool_call` для поддержания валидности протокола
+#### Scenario: Orphaned tool_call completed
+- **WHEN** `tool_call` has no corresponding `tool_result`
+- **THEN** the system adds placeholder result or removes `tool_call` to maintain protocol validity
 
-#### Scenario: Prune удаляет пары
-- **WHEN** Prune удаляет tool сообщения
-- **THEN** система удаляет `tool_call` + `tool_result` вместе, не создаёт сирот
+#### Scenario: Prune removes pairs
+- **WHEN** Prune removes tool messages
+- **THEN** the system removes `tool_call` + `tool_result` together, does not create orphans
 
-### Requirement: Метрики компактирования эмитируются
-Система ДОЛЖНА эмитировать метрики для коэффициента компактирования, длительности и деградации.
+### Requirement: Compaction Metrics Are Emitted
+The system MUST emit metrics for compaction ratio, duration, and degradation.
 
-#### Scenario: Метрика коэффициента компактирования
-- **WHEN** компактирование завершается
-- **THEN** система эмитирует histogram `context_compaction_ratio` с label `phase`
+#### Scenario: Compaction ratio metric
+- **WHEN** compaction completes
+- **THEN** the system emits histogram `context_compaction_ratio` with label `phase`
 
-#### Scenario: Метрика количества компактирований
-- **WHEN** компактирование инициируется
-- **THEN** система инкрементирует счётчик `context_compaction_total`
+#### Scenario: Compaction count metric
+- **WHEN** compaction is triggered
+- **THEN** the system increments counter `context_compaction_total`
 
-#### Scenario: Метрика деградации
-- **WHEN** фаза Summarize пропускается
-- **THEN** система инкрементирует счётчик `context_compaction_degraded_total` с label `reason`
+#### Scenario: Degradation metric
+- **WHEN** Summarize phase is skipped
+- **THEN** the system increments counter `context_compaction_degraded_total` with label `reason`
 
-### Requirement: ensure_context_fits гарантирует бюджет
-Система ДОЛЖНА гарантировать, что payload помещается в `max_context_tokens - reserved_tokens`.
+### Requirement: ensure_context_fits Guarantees Budget
+The system MUST guarantee that payload fits within `max_context_tokens - reserved_tokens`.
 
-#### Scenario: ensure_context_fits снижает токены
-- **WHEN** вызывается `ensure_context_fits(envelope, max_context_tokens, reserved_tokens)`
-- **THEN** возвращённый envelope имеет `token_count <= max_context_tokens - reserved_tokens`
+#### Scenario: ensure_context_fits reduces tokens
+- **WHEN** `ensure_context_fits(envelope, max_context_tokens, reserved_tokens)` is called
+- **THEN** returned envelope has `token_count <= max_context_tokens - reserved_tokens`
 
-#### Scenario: ensure_context_fits сохраняет критические элементы
-- **WHEN** необходимо компактирование
-- **THEN** элементы с `priority >= 10` сохраняются, если нет критического переполнения
+#### Scenario: ensure_context_fits preserves critical items
+- **WHEN** compaction is needed
+- **THEN** items with `priority >= 10` are preserved unless critical overflow
 
-#### Scenario: ensure_context_fits не вызывает исключение в горячем пути
-- **WHEN** компактирование завершается сбоем или бюджет не может быть достигнут
-- **THEN** система деградирует корректно (жёсткое усечение, логирование), не вызывает исключение
+#### Scenario: ensure_context_fits does not raise in hot path
+- **WHEN** compaction fails or budget cannot be met
+- **THEN** the system degrades gracefully (hard truncation, logging), does not raise exception
