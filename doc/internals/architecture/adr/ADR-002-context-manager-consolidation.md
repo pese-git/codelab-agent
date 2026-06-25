@@ -105,8 +105,8 @@ ContextManager (единая точка входа — из CM)
    │    priority-based eviction (ContextItem.priority)
    │
    └─ Слой D. Мультиагентный обмен
-        Базово — изоляция через ChildSessionManager (из CM)
-        Опционально — федеративный share_item() между скоупами (из FCM, за флагом)
+        По умолчанию — изоляция через ChildSessionManager (из CM)
+        Федеративный share_item() (FCM) — кандидат на отказ (см. «Решение по мультиагентному обмену»)
 ```
 
 ### Маппинг компонентов FCM → CM
@@ -114,7 +114,7 @@ ContextManager (единая точка входа — из CM)
 | FCM-компонент | Судьба в единой архитектуре | Целевой слой |
 |---------------|------------------------------|--------------|
 | `FederatedContextManager` | Растворяется в едином `ContextManager` (его методы) | вход |
-| `AgentContextScope` | Сохраняется как реализация изоляции; шеринг — за флагом | D |
+| `AgentContextScope` | Сохраняется как реализация изоляции; федеративный шеринг — кандидат на отказ | D |
 | `ContextItem` (+priority) | Внутренняя модель элемента контекста; priority используется для eviction | C |
 | `FileContentCache` / `InMemoryFileCache` | **Принимается as-is** — закрывает дубли RPC, чего нет в CM | C |
 | `SessionFileCacheRegistry` | **Принимается as-is** | C |
