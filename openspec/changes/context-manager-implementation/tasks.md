@@ -1,193 +1,193 @@
-# Context Manager Implementation — Tasks
+# Реализация Context Manager — Задачи
 
-## Phase 0: Foundation (1 week)
+## Фаза 0: Основа (1 неделя)
 
-- [ ] 0.1 Create package structure `src/codelab/server/agent/context/` with `__init__.py`
-- [ ] 0.2 Implement data models in `models.py`: `PayloadEnvelope`, `TaskProfile`, `BudgetAllocation`, `BuildOptions`, `ContextConfig`, `ContextItem`, `ContextEpoch`, `ContextSnapshot`, `ReconcileResult`, `SubagentResult`, enums (`TaskType`, `ContextType`, `ChangeState`)
-- [ ] 0.3 Write unit tests for `PayloadEnvelope.to_messages()` and `ContextSnapshot.diff()`
-- [ ] 0.4 Define ABC interfaces in `interfaces.py`: `ContextManager`, `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextSource`, `ContextRegistry`, `ConversationSummarizer`, `ContextReconciler`, `TokenCounter`, `CodeSkeletonizer`, `FileContentCache`, `ContextCompactor`, `ChildSessionManager`
-- [ ] 0.5 Verify all ABCs have `@abstractmethod` decorators; mypy/pyright passes
-- [ ] 0.6 Introduce `PayloadEnvelope` in `ExecutionEngine.build_context()` return type with `to_messages()` adapter at `LLMAdapter` boundary
-- [ ] 0.7 Implement feature flags loader: TOML `[agents.context.*]` → `ContextConfig` with env overrides `CODELAB_CONTEXT_*`
-- [ ] 0.8 Deprecate `agents.context.enable_fcm` → alias to `agents.context.enabled` with warning
-- [ ] 0.9 Wrap legacy `context_compactor.py` in `ContextCompactor(ABC)` implementation without changing logic
-- [ ] 0.10 Update `ExecutionEngine` to select implementation by `agents.context.enabled` flag
-- [ ] 0.11 Verify `enabled=false` (default) preserves legacy behavior; all existing `test_context_compactor.py` tests pass
-- [ ] 0.12 Archive `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/` with redirect header to ADR-002
-- [ ] 0.13 Update cross-references in `doc/internals/` to point to new canon `doc/internals/context-manager/`
-- [ ] 0.14 Write integration test: `PayloadEnvelope` flows through `ExecutionEngine` → `LLMAdapter` boundary
+- [ ] 0.1 Создать структуру пакета `src/codelab/server/agent/context/` с `__init__.py`
+- [ ] 0.2 Реализовать модели данных в `models.py`: `PayloadEnvelope`, `TaskProfile`, `BudgetAllocation`, `BuildOptions`, `ContextConfig`, `ContextItem`, `ContextEpoch`, `ContextSnapshot`, `ReconcileResult`, `SubagentResult`, перечисления (`TaskType`, `ContextType`, `ChangeState`)
+- [ ] 0.3 Написать unit тесты для `PayloadEnvelope.to_messages()` и `ContextSnapshot.diff()`
+- [ ] 0.4 Определить ABC интерфейсы в `interfaces.py`: `ContextManager`, `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextSource`, `ContextRegistry`, `ConversationSummarizer`, `ContextReconciler`, `TokenCounter`, `CodeSkeletonizer`, `FileContentCache`, `ContextCompactor`, `ChildSessionManager`
+- [ ] 0.5 Проверить, что все ABC имеют декораторы `@abstractmethod`; mypy/pyright проходит
+- [ ] 0.6 Ввести `PayloadEnvelope` в тип возврата `ExecutionEngine.build_context()` с адаптером `to_messages()` на границе `LLMAdapter`
+- [ ] 0.7 Реализовать загрузчик feature flags: TOML `[agents.context.*]` → `ContextConfig` с переопределениями env `CODELAB_CONTEXT_*`
+- [ ] 0.8 Объявить устаревшим `agents.context.enable_fcm` → алиас на `agents.context.enabled` с предупреждением
+- [ ] 0.9 Обернуть legacy `context_compactor.py` в реализацию `ContextCompactor(ABC)` без изменения логики
+- [ ] 0.10 Обновить `ExecutionEngine` для выбора реализации по флагу `agents.context.enabled`
+- [ ] 0.11 Проверить, что `enabled=false` (по умолчанию) сохраняет legacy поведение; все существующие тесты `test_context_compactor.py` проходят
+- [ ] 0.12 Архивировать `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/` с заголовком перенаправления на ADR-002
+- [ ] 0.13 Обновить перекрёстные ссылки в `doc/internals/` для указания на новый канон `doc/internals/context-manager/`
+- [ ] 0.14 Написать интеграционный тест: `PayloadEnvelope` проходит через `ExecutionEngine` → границу `LLMAdapter`
 
-## Phase 1: MVP Gather (3 weeks)
+## Фаза 1: MVP сбор (3 недели)
 
-- [ ] 1.1 Implement `TaskAnalyzer.analyze()` with LLM-based classification (BUG_FIX/FEATURE/REFACTOR/ARCHITECTURE)
-- [ ] 1.2 Implement default `TaskProfile` fallback when LLM classification fails
-- [ ] 1.3 Write unit tests for `TaskAnalyzer` with mocked LLM provider
-- [ ] 1.4 Implement `ContextGatherer.gather()` pipeline: `project_tree()` → `search()` → `read_file()` → dependency graph → selection
-- [ ] 1.5 Ensure `ContextGatherer` performs all I/O through ACP `ToolRegistry`, no direct file access
-- [ ] 1.6 Implement binary file detection (by extension and UTF-8 decode error)
-- [ ] 1.7 Implement empty/whitespace file filtering
-- [ ] 1.8 Write unit tests for `ContextGatherer` with mocked `ToolRegistry`
-- [ ] 1.9 Implement `DependencyGraph` with regex-based import parsing (Phase 1)
-- [ ] 1.10 Implement `get_dependencies(recursive=False)` and `get_dependents()` methods
-- [ ] 1.11 Implement cyclic import protection with visited set
-- [ ] 1.12 Write unit tests for `DependencyGraph` including cyclic imports
-- [ ] 1.13 Implement `TokenBudgetManager.allocate()` with configurable shares (system/history/tool_output/response_buffer)
-- [ ] 1.14 Implement `TokenBudgetManager.bound_content()` preserving start and end
-- [ ] 1.15 Write unit tests for `TokenBudgetManager`
-- [ ] 1.16 Implement `ContextRegistry` with `register()`, `render_baseline()`, `render_updates()`, `detect_changes()`
-- [ ] 1.17 Implement `ContextSource` ABC with `source_id`, `render()`, `fingerprint()` (Codec-based)
-- [ ] 1.18 Write unit tests for `ContextRegistry` and `ContextSource`
-- [ ] 1.19 Integrate Layer A with `ExecutionEngine.build_context()`: `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph` → `TokenBudgetManager`
-- [ ] 1.20 Write integration test: `build_context()` collects relevant files for a sample task
-- [ ] 1.21 Write e2e test: `SingleStrategy` → `ExecutionEngine` → `ContextManager` → file collection ≥80% accuracy
-- [ ] 1.22 Add metrics: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
-- [ ] 1.23 Add tracing span: `context.build` with attributes (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
-- [ ] 1.24 Add tracing span: `context.gather` with attributes (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
-- [ ] 1.25 Verify feature flag `gather.enabled=false` disables automatic gathering
+- [ ] 1.1 Реализовать `TaskAnalyzer.analyze()` с классификацией на основе LLM (BUG_FIX/FEATURE/REFACTOR/ARCHITECTURE)
+- [ ] 1.2 Реализовать fallback `TaskProfile` по умолчанию при сбое классификации LLM
+- [ ] 1.3 Написать unit тесты для `TaskAnalyzer` с замоканым LLM провайдером
+- [ ] 1.4 Реализовать конвейер `ContextGatherer.gather()`: `project_tree()` → `search()` → `read_file()` → граф зависимостей → отбор
+- [ ] 1.5 Обеспечить, чтобы `ContextGatherer` выполнял весь I/O через ACP `ToolRegistry`, без прямого доступа к файлам
+- [ ] 1.6 Реализовать обнаружение бинарных файлов (по расширению и ошибке декодирования UTF-8)
+- [ ] 1.7 Реализовать фильтрацию пустых файлов/файлов только с пробелами
+- [ ] 1.8 Написать unit тесты для `ContextGatherer` с замоканым `ToolRegistry`
+- [ ] 1.9 Реализовать `DependencyGraph` с парсингом импортов на основе regex (Фаза 1)
+- [ ] 1.10 Реализовать методы `get_dependencies(recursive=False)` и `get_dependents()`
+- [ ] 1.11 Реализовать защиту от циклических импортов с множеством посещённых
+- [ ] 1.12 Написать unit тесты для `DependencyGraph`, включая циклические импорты
+- [ ] 1.13 Реализовать `TokenBudgetManager.allocate()` с настраиваемыми долями (system/history/tool_output/response_buffer)
+- [ ] 1.14 Реализовать `TokenBudgetManager.bound_content()` с сохранением начала и конца
+- [ ] 1.15 Написать unit тесты для `TokenBudgetManager`
+- [ ] 1.16 Реализовать `ContextRegistry` с `register()`, `render_baseline()`, `render_updates()`, `detect_changes()`
+- [ ] 1.17 Реализовать ABC `ContextSource` с `source_id`, `render()`, `fingerprint()` (на основе Codec)
+- [ ] 1.18 Написать unit тесты для `ContextRegistry` и `ContextSource`
+- [ ] 1.19 Интегрировать Слой A с `ExecutionEngine.build_context()`: `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph` → `TokenBudgetManager`
+- [ ] 1.20 Написать интеграционный тест: `build_context()` собирает релевантные файлы для примера задачи
+- [ ] 1.21 Написать e2e тест: `SingleStrategy` → `ExecutionEngine` → `ContextManager` → точность сбора файлов ≥80%
+- [ ] 1.22 Добавить метрики: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
+- [ ] 1.23 Добавить span трейсинга: `context.build` с атрибутами (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
+- [ ] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
+- [ ] 1.25 Проверить, что feature flag `gather.enabled=false` отключает автоматический сбор
 
-## Phase 2: Storage Layer (2 weeks)
+## Фаза 2: Слой хранения (2 недели)
 
-- [ ] 2.1 Implement `TokenCounter` ABC with `count()` and `count_messages()` methods
-- [ ] 2.2 Implement `TiktokenCounter` using tiktoken library
-- [ ] 2.3 Implement `ApproximateTokenCounter` fallback (`len(text) // 4`)
-- [ ] 2.4 Implement factory: try tiktoken import, fallback to approximate with warning log
-- [ ] 2.5 Write unit tests for `TokenCounter` accuracy and fallback
-- [ ] 2.6 Implement `FileContentCache` ABC with `get()`, `set()`, `invalidate()` methods
-- [ ] 2.7 Implement `InMemoryFileCache` with LRU eviction at `cache_max_files`
-- [ ] 2.8 Ensure `invalidate()` publishes change signal to unified source of truth
-- [ ] 2.9 Write unit tests for `FileContentCache` including LRU eviction and invalidation signal
-- [ ] 2.10 Implement `SessionFileCacheRegistry` for per-session cache lifecycle
-- [ ] 2.11 Ensure registry releases cache memory on session close
-- [ ] 2.12 Write unit tests for `SessionFileCacheRegistry` lifecycle
-- [ ] 2.13 Implement `FileCacheDecorator` wrapping `ToolExecutor`
-- [ ] 2.14 Intercept successful `fs/read` → call `FileContentCache.set(path, content)`
-- [ ] 2.15 Intercept successful `fs/write` → call `FileContentCache.invalidate(path)` + publish signal
-- [ ] 2.16 Ensure decorator errors are logged but not propagated (tool execution succeeds)
-- [ ] 2.17 Write unit tests for `FileCacheDecorator` with mocked `ToolExecutor`
-- [ ] 2.18 Implement `CodeSkeletonizer` ABC with `can_handle()` and `skeletonize()` methods
-- [ ] 2.19 Implement `PythonASTSkeletonizer` using Python `ast` module
-- [ ] 2.20 Ensure skeletonization is deterministic: stable AST order, sorted imports, normalized whitespace
-- [ ] 2.21 Implement fallback: return original code on `SyntaxError` or unsupported language
-- [ ] 2.22 Implement check: if skeleton token count >= original, use original
-- [ ] 2.23 Write golden tests: 100 runs on same input → byte-identical output
-- [ ] 2.24 Write unit tests for `CodeSkeletonizer` including determinism and fallback
-- [ ] 2.25 Implement `ContextItem` dataclass with `id`, `type`, `content`, `priority`, `owner_scope`, `token_count`, `last_accessed`
-- [ ] 2.26 Add metrics: `context_file_cache_hits`, `context_file_cache_misses`, `context_file_cache_evictions`, `context_file_cache_size_bytes`, `context_token_count_duration_ms`, `context_skeleton_savings_ratio`
-- [ ] 2.27 Verify feature flag `storage.enabled=false` disables caching and skeletonization
+- [ ] 2.1 Реализовать ABC `TokenCounter` с методами `count()` и `count_messages()`
+- [ ] 2.2 Реализовать `TiktokenCounter` с использованием библиотеки tiktoken
+- [ ] 2.3 Реализовать fallback `ApproximateTokenCounter` (`len(text) // 4`)
+- [ ] 2.4 Реализовать фабрику: попробовать импорт tiktoken, fallback на approximate с предупреждающим логом
+- [ ] 2.5 Написать unit тесты для точности `TokenCounter` и fallback
+- [ ] 2.6 Реализовать ABC `FileContentCache` с методами `get()`, `set()`, `invalidate()`
+- [ ] 2.7 Реализовать `InMemoryFileCache` с LRU eviction при `cache_max_files`
+- [ ] 2.8 Обеспечить, чтобы `invalidate()` публиковал сигнал изменения в единый источник истины
+- [ ] 2.9 Написать unit тесты для `FileContentCache`, включая LRU eviction и сигнал инвалидации
+- [ ] 2.10 Реализовать `SessionFileCacheRegistry` для жизненного цикла кэша каждой сессии
+- [ ] 2.11 Обеспечить, чтобы registry освобождал память кэша при закрытии сессии
+- [ ] 2.12 Написать unit тесты для жизненного цикла `SessionFileCacheRegistry`
+- [ ] 2.13 Реализовать `FileCacheDecorator`, оборачивающий `ToolExecutor`
+- [ ] 2.14 Перехватывать успешный `fs/read` → вызывать `FileContentCache.set(path, content)`
+- [ ] 2.15 Перехватывать успешный `fs/write` → вызывать `FileContentCache.invalidate(path)` + публиковать сигнал
+- [ ] 2.16 Обеспечить, чтобы ошибки decorator логировались, но не распространялись (выполнение инструмента успешно)
+- [ ] 2.17 Написать unit тесты для `FileCacheDecorator` с замоканым `ToolExecutor`
+- [ ] 2.18 Реализовать ABC `CodeSkeletonizer` с методами `can_handle()` и `skeletonize()`
+- [ ] 2.19 Реализовать `PythonASTSkeletonizer` с использованием модуля Python `ast`
+- [ ] 2.20 Обеспечить детерминированность скелетирования: стабильный порядок AST, отсортированные импорты, нормализованные пробелы
+- [ ] 2.21 Реализовать fallback: вернуть оригинальный код при `SyntaxError` или неподдерживаемом языке
+- [ ] 2.22 Реализовать проверку: если количество токенов skeleton >= оригинала, использовать оригинал
+- [ ] 2.23 Написать golden тесты: 100 запусков на одном входе → байт-идентичный вывод
+- [ ] 2.24 Написать unit тесты для `CodeSkeletonizer`, включая детерминизм и fallback
+- [ ] 2.25 Реализовать dataclass `ContextItem` с `id`, `type`, `content`, `priority`, `owner_scope`, `token_count`, `last_accessed`
+- [ ] 2.26 Добавить метрики: `context_file_cache_hits`, `context_file_cache_misses`, `context_file_cache_evictions`, `context_file_cache_size_bytes`, `context_token_count_duration_ms`, `context_skeleton_savings_ratio`
+- [ ] 2.27 Проверить, что feature flag `storage.enabled=false` отключает кэширование и скелетирование
 
-## Phase 3: Sources + Compaction (1 week)
+## Фаза 3: Источники + сжатие (1 неделя)
 
-- [ ] 3.1 Implement `SkillContextSource` for skill catalog in system prompt
-- [ ] 3.2 Register `SkillContextSource` with `ContextRegistry`
-- [ ] 3.3 Write unit tests for `SkillContextSource` rendering and change detection
-- [ ] 3.4 Implement 3-phase `ContextCompactor`: `compact_if_needed()` with Prune → Skeletonize → Summarize
-- [ ] 3.5 Implement Prune phase: FIFO removal of old tool outputs, preserve first 2 and last N messages
-- [ ] 3.6 Ensure Prune removes `tool_call` + `tool_result` pairs together (no orphans)
-- [ ] 3.7 Implement Skeletonize phase: apply `CodeSkeletonizer` to large read-only files
-- [ ] 3.8 Implement Summarize phase: call `ConversationSummarizer.summarize()` if Prune + Skeletonize insufficient
-- [ ] 3.9 Implement graceful degradation: if LLM unavailable, skip Summarize, continue with Prune + Skeletonize
-- [ ] 3.10 Ensure `compact_if_needed()` signature matches legacy for seamless migration
-- [ ] 3.11 Write unit tests for `ContextCompactor` including all three phases and degradation
-- [ ] 3.12 Implement `ConversationSummarizer.summarize()` with LLM provider
-- [ ] 3.13 Implement fallback: return truncated raw result if summarization fails
-- [ ] 3.14 Write unit tests for `ConversationSummarizer` with mocked LLM provider
-- [ ] 3.15 Implement `ensure_context_fits()` method in `ContextManager`
-- [ ] 3.16 Implement hard truncation via `TokenBudgetManager.bound_content()` if payload still exceeds budget after 3 phases
-- [ ] 3.17 Ensure items with `priority >= 10` are not evicted unless critical overflow
-- [ ] 3.18 Implement orphaned message sanitization: remove `tool_result` without `tool_call`, add placeholder for `tool_call` without `tool_result`
-- [ ] 3.19 Write unit tests for `ensure_context_fits()` including hard truncation and sanitization
-- [ ] 3.20 Add metrics: `context_compaction_ratio`, `context_compaction_total`, `context_compaction_degraded_total`
-- [ ] 3.21 Add tracing span: `context.compact` with attributes (`phase`, `ratio`, `tokens_before`, `tokens_after`, `degraded`)
+- [ ] 3.1 Реализовать `SkillContextSource` для каталога навыков в системном промпте
+- [ ] 3.2 Зарегистрировать `SkillContextSource` в `ContextRegistry`
+- [ ] 3.3 Написать unit тесты для рендеринга `SkillContextSource` и обнаружения изменений
+- [ ] 3.4 Реализовать 3-фазный `ContextCompactor`: `compact_if_needed()` с Prune → Skeletonize → Summarize
+- [ ] 3.5 Реализовать фазу Prune: FIFO удаление старых выводов инструментов, сохранение первых 2 и последних N сообщений
+- [ ] 3.6 Обеспечить, чтобы Prune удалял пары `tool_call` + `tool_result` вместе (без сирот)
+- [ ] 3.7 Реализовать фазу Skeletonize: применить `CodeSkeletonizer` к большим файлам только для чтения
+- [ ] 3.8 Реализовать фазу Summarize: вызвать `ConversationSummarizer.summarize()`, если Prune + Skeletonize недостаточно
+- [ ] 3.9 Реализовать graceful degradation: если LLM недоступен, пропустить Summarize, продолжить с Prune + Skeletonize
+- [ ] 3.10 Обеспечить, чтобы сигнатура `compact_if_needed()` соответствовала legacy для бесшовной миграции
+- [ ] 3.11 Написать unit тесты для `ContextCompactor`, включая все три фазы и деградацию
+- [ ] 3.12 Реализовать `ConversationSummarizer.summarize()` с LLM провайдером
+- [ ] 3.13 Реализовать fallback: вернуть усечённый сырой результат при сбое суммаризации
+- [ ] 3.14 Написать unit тесты для `ConversationSummarizer` с замоканым LLM провайдером
+- [ ] 3.15 Реализовать метод `ensure_context_fits()` в `ContextManager`
+- [ ] 3.16 Реализовать жёсткое усечение через `TokenBudgetManager.bound_content()`, если payload всё ещё превышает бюджет после 3 фаз
+- [ ] 3.17 Обеспечить, чтобы элементы с `priority >= 10` не вытеснялись, если нет критического переполнения
+- [ ] 3.18 Реализовать санитизацию осиротевших сообщений: удалить `tool_result` без `tool_call`, добавить placeholder для `tool_call` без `tool_result`
+- [ ] 3.19 Написать unit тесты для `ensure_context_fits()`, включая жёсткое усечение и санитизацию
+- [ ] 3.20 Добавить метрики: `context_compaction_ratio`, `context_compaction_total`, `context_compaction_degraded_total`
+- [ ] 3.21 Добавить span трейсинга: `context.compact` с атрибутами (`phase`, `ratio`, `tokens_before`, `tokens_after`, `degraded`)
 
-## Phase 4: Incremental Lifecycle (2 weeks)
+## Фаза 4: Инкрементальный жизненный цикл (2 недели)
 
-- [ ] 4.1 Implement `ContextEpoch` dataclass with `epoch_id`, `baseline`, `baseline_fingerprint`, `mid_conversation_messages`
-- [ ] 4.2 Implement `ContextEpoch.get_full_context()` returning `[*baseline, *mid_conversation_messages]`
-- [ ] 4.3 Implement `ContextSnapshot` dataclass with `fingerprints: dict[str, str]`
-- [ ] 4.4 Implement `ContextSnapshot.diff()` comparing fingerprints, returning changed `source_id` list
-- [ ] 4.5 Implement `ContextReconciler.snapshot()` collecting fingerprints from all sources
-- [ ] 4.6 Implement `ContextReconciler.reconcile()` returning `ReconcileResult` with `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
-- [ ] 4.7 Implement `UNCHANGED` state: no sources changed, baseline stable
-- [ ] 4.8 Implement `UPDATED` state: sources changed on safe boundary, baseline rebuilt (`epoch_broken=True`)
-- [ ] 4.9 Implement `DEFERRED` state: change detected mid-turn, applied on next boundary
-- [ ] 4.10 Implement conservative fallback: uncertain change → `epoch_broken=True`
-- [ ] 4.11 Write unit tests for `ContextReconciler` including all states and conservative fallback
-- [ ] 4.12 Integrate unified invalidation signal: `FileCacheDecorator.invalidate()` publishes to unified source
-- [ ] 4.13 Ensure `ContextSnapshot.diff()` detects changes independently of cache signal (double protection)
-- [ ] 4.14 Write integration test: `fs/write` → `invalidate()` → `reconcile()` detects change
-- [ ] 4.15 Write integration test: lost invalidation signal detected by snapshot comparison
-- [ ] 4.16 Implement `baseline_fingerprint` computation over canonicalized baseline content
-- [ ] 4.17 Ensure identical baseline produces identical fingerprint (deterministic hash)
-- [ ] 4.18 Implement incremental mode: send only `tail` when baseline unchanged (prompt cache hit)
-- [ ] 4.19 Write integration test: stable baseline → `epoch_broken=False` → tail-only send
-- [ ] 4.20 Write integration test: baseline change → `epoch_broken=True` → full baseline send
-- [ ] 4.21 Ensure epoch breaks are bounded: at most one per turn
-- [ ] 4.22 Implement `DEFERRED` debounce: accumulate changes, apply together on next boundary
-- [ ] 4.23 Add metrics: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
-- [ ] 4.24 Add tracing span: `context.reconcile` with attributes (`state`, `epoch_broken`, `changed_sources`)
-- [ ] 4.25 Verify feature flag `lifecycle.incremental=false` uses hydration mode (baseline rebuilt every turn)
-- [ ] 4.26 Verify feature flag `lifecycle.incremental=true` uses epoch mode (baseline stable, tail-only send)
+- [ ] 4.1 Реализовать dataclass `ContextEpoch` с `epoch_id`, `baseline`, `baseline_fingerprint`, `mid_conversation_messages`
+- [ ] 4.2 Реализовать `ContextEpoch.get_full_context()`, возвращающий `[*baseline, *mid_conversation_messages]`
+- [ ] 4.3 Реализовать dataclass `ContextSnapshot` с `fingerprints: dict[str, str]`
+- [ ] 4.4 Реализовать `ContextSnapshot.diff()`, сравнивающий fingerprints и возвращающий список изменённых `source_id`
+- [ ] 4.5 Реализовать `ContextReconciler.snapshot()`, собирающий fingerprints всех источников
+- [ ] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
+- [ ] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
+- [ ] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
+- [ ] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе
+- [ ] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
+- [ ] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
+- [ ] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
+- [ ] 4.13 Обеспечить, чтобы `ContextSnapshot.diff()` обнаруживал изменения независимо от сигнала кэша (двойная защита)
+- [ ] 4.14 Написать интеграционный тест: `fs/write` → `invalidate()` → `reconcile()` обнаруживает изменение
+- [ ] 4.15 Написать интеграционный тест: потерянный сигнал инвалидации обнаруживается сравнением snapshot
+- [ ] 4.16 Реализовать вычисление `baseline_fingerprint` по канонизированному содержимому baseline
+- [ ] 4.17 Обеспечить, чтобы идентичный baseline производил идентичный fingerprint (детерминированный хэш)
+- [ ] 4.18 Реализовать инкрементальный режим: отправлять только `tail`, когда baseline не изменён (попадание в prompt cache)
+- [ ] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
+- [ ] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
+- [ ] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
+- [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применять вместе на следующей границе
+- [ ] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
+- [ ] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
+- [ ] 4.25 Проверить, что feature flag `lifecycle.incremental=false` использует режим гидрации (baseline перестраивается каждый ход)
+- [ ] 4.26 Проверить, что feature flag `lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
 
-## Phase 5: Full DependencyGraph (2 weeks)
+## Фаза 5: Полный DependencyGraph (2 недели)
 
-- [ ] 5.1 Implement recursive dependency resolution in `DependencyGraph.get_dependencies(recursive=True)`
-- [ ] 5.2 Ensure recursive resolution uses visited set to prevent infinite loops
-- [ ] 5.3 Ensure result order is deterministic (by first visit order)
-- [ ] 5.4 Write unit tests for recursive dependency resolution including transitive dependencies
-- [ ] 5.5 Write integration test: large project (1000+ files) → `gather()` completes in <1s
-- [ ] 5.6 (Optional) Implement tree-sitter-based import parsing for improved accuracy
-- [ ] 5.7 (Optional) Write unit tests comparing tree-sitter vs regex accuracy
-- [ ] 5.8 Add metrics: `context_gathered_files` with `task_type` label for large projects
-- [ ] 5.9 Verify feature flag `gather.recursive_dependencies=false` uses non-recursive mode
-- [ ] 5.10 Verify feature flag `gather.use_tree_sitter=true` uses tree-sitter if implemented
+- [ ] 5.1 Реализовать рекурсивное разрешение зависимостей в `DependencyGraph.get_dependencies(recursive=True)`
+- [ ] 5.2 Обеспечить, чтобы рекурсивное разрешение использовало множество посещённых для предотвращения бесконечных циклов
+- [ ] 5.3 Обеспечить, чтобы порядок результата был детерминированным (по порядку первого посещения)
+- [ ] 5.4 Написать unit тесты для рекурсивного разрешения зависимостей, включая транзитивные зависимости
+- [ ] 5.5 Написать интеграционный тест: большой проект (1000+ файлов) → `gather()` завершается за <1с
+- [ ] 5.6 (Опционально) Реализовать парсинг импортов на основе tree-sitter для улучшенной точности
+- [ ] 5.7 (Опционально) Написать unit тесты, сравнивающие точность tree-sitter и regex
+- [ ] 5.8 Добавить метрики: `context_gathered_files` с label `task_type` для больших проектов
+- [ ] 5.9 Проверить, что feature flag `gather.recursive_dependencies=false` использует не рекурсивный режим
+- [ ] 5.10 Проверить, что feature flag `gather.use_tree_sitter=true` использует tree-sitter, если реализован
 
-## Phase 6: Multiagent (2 weeks)
+## Фаза 6: Мультиагент (2 недели)
 
-- [ ] 6.1 Implement `ChildSessionManager.create_child()` creating isolated child session
-- [ ] 6.2 Ensure child session has separate `agent_scope` and `ContextEpoch`
-- [ ] 6.3 Implement `ChildSessionManager.collect_summary()` returning `SubagentResult`
-- [ ] 6.4 Write unit tests for `ChildSessionManager` including isolation and summary collection
-- [ ] 6.5 Implement `process_subagent_response()` summarizing subagent result for parent
-- [ ] 6.6 Add summary to parent scope as `ContextType.AGENT_REPORT` with `priority=7`
-- [ ] 6.7 Implement graceful degradation: if summarization fails, return truncated raw result
-- [ ] 6.8 Implement subagent failure handling: return error summary to parent, do not crash parent
-- [ ] 6.9 Implement subagent timeout handling: cancel child task, return timeout marker to parent
-- [ ] 6.10 Write unit tests for `process_subagent_response()` including failure and timeout
-- [ ] 6.11 Integrate `OrchestratedStrategy` with `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
-- [ ] 6.12 Write integration test: `OrchestratedStrategy` → orchestrator + subagents → summarized results
-- [ ] 6.13 Integrate `ChoreographyStrategy` with `ContextManager`: `build_context()` + `process_subagent_response()` (winner only)
-- [ ] 6.14 Write integration test: `ChoreographyStrategy` → broadcast → winner processed, others discarded
-- [ ] 6.15 Integrate `HierarchicalStrategy` with `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` at each level
-- [ ] 6.16 Write integration test: `HierarchicalStrategy` → tree of agents → bottom-up summarization
-- [ ] 6.17 Ensure lifecycle model (hydration vs epoch) is transparent to strategies
-- [ ] 6.18 Write test: strategy does not know about lifecycle model, only uses `build_context()` API
-- [ ] 6.19 (Optional) Implement federated `share_item()` behind feature flag `multiagent.federation=true`
-- [ ] 6.20 (Optional) Write test: federation conflicts with epoch stability → `epoch_broken=True`
-- [ ] 6.21 Add metrics: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts`
-- [ ] 6.22 Verify feature flag `multiagent.federation=false` uses isolation only
+- [ ] 6.1 Реализовать `ChildSessionManager.create_child()`, создающий изолированную дочернюю сессию
+- [ ] 6.2 Обеспечить, чтобы дочерняя сессия имела отдельные `agent_scope` и `ContextEpoch`
+- [ ] 6.3 Реализовать `ChildSessionManager.collect_summary()`, возвращающий `SubagentResult`
+- [ ] 6.4 Написать unit тесты для `ChildSessionManager`, включая изоляцию и сбор summary
+- [ ] 6.5 Реализовать `process_subagent_response()`, суммаризирующий результат субагента для родителя
+- [ ] 6.6 Добавить summary в область родителя как `ContextType.AGENT_REPORT` с `priority=7`
+- [ ] 6.7 Реализовать graceful degradation: если суммаризация завершается сбоем, вернуть усечённый сырой результат
+- [ ] 6.8 Реализовать обработку сбоя субагента: вернуть summary ошибки родителю, не ломать родителя
+- [ ] 6.9 Реализовать обработку таймаута субагента: отменить дочернюю задачу, вернуть метку таймаута родителю
+- [ ] 6.10 Написать unit тесты для `process_subagent_response()`, включая сбой и таймаут
+- [ ] 6.11 Интегрировать `OrchestratedStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
+- [ ] 6.12 Написать интеграционный тест: `OrchestratedStrategy` → оркестратор + субагенты → суммаризированные результаты
+- [ ] 6.13 Интегрировать `ChoreographyStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` (только победитель)
+- [ ] 6.14 Написать интеграционный тест: `ChoreographyStrategy` → broadcast → победитель обработан, остальные отброшены
+- [ ] 6.15 Интегрировать `HierarchicalStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` на каждом уровне
+- [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх
+- [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий
+- [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()`
+- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `multiagent.federation=true`
+- [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True`
+- [ ] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts`
+- [ ] 6.22 Проверить, что feature flag `multiagent.federation=false` использует только изоляцию
 
-## Cross-Cutting Tasks
+## Сквозные задачи
 
-- [ ] X.1 Write end-to-end test: full agent loop with `ContextManager` (Phase 1-6 enabled)
-- [ ] X.2 Implement canary rollout logic: `CODELAB_CONTEXT_ROLLOUT_PERCENT` for gradual rollout
-- [ ] X.3 Write canary monitoring dashboard: compare canary vs legacy metrics
-- [ ] X.4 Define rollback criteria: error rate > 0.01, p95 latency > 400ms, cache hit rate < 0.50
-- [ ] X.5 Write runbook: how to enable/disable features, how to rollback, how to monitor
-- [ ] X.6 Update `README.md` with Context Manager documentation
-- [ ] X.7 Update `AGENTS.md` with Context Manager conventions
-- [ ] X.8 Conduct code review: all phases reviewed by architecture team
-- [ ] X.9 Conduct security review: prompt injection protection, sensitive path blocking
-- [ ] X.10 Conduct performance review: benchmark results vs SLO targets
+- [ ] X.1 Написать end-to-end тест: полный цикл агента с `ContextManager` (Фазы 1-6 включены)
+- [ ] X.2 Реализовать логику canary rollout: `CODELAB_CONTEXT_ROLLOUT_PERCENT` для постепенного rollout
+- [ ] X.3 Написать дашборд мониторинга canary: сравнение метрик canary vs legacy
+- [ ] X.4 Определить критерии отката: error rate > 0.01, p95 latency > 400ms, cache hit rate < 0.50
+- [ ] X.5 Написать runbook: как включать/отключать функции, как откатывать, как мониторить
+- [ ] X.6 Обновить `README.md` с документацией Context Manager
+- [ ] X.7 Обновить `AGENTS.md` с соглашениями Context Manager
+- [ ] X.8 Провести code review: все фазы проверены командой архитектуры
+- [ ] X.9 Провести security review: защита от prompt injection, блокировка чувствительных путей
+- [ ] X.10 Провести performance review: результаты бенчмарков против целей SLO
 
-## Success Criteria
+## Критерии успеха
 
-- [ ] S.1 All phases 0-6 implemented according to specs
-- [ ] S.2 Legacy `ContextCompactor` works when `enabled=false` without regressions
-- [ ] S.3 `PayloadEnvelope` is the only payload format in the formation path
-- [ ] S.4 Graceful degradation: hot path never crashes, every failure has a fallback
-- [ ] S.5 Observability: 20+ metrics, tracing spans, structured logs
-- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% with metrics and rollback criteria
-- [ ] S.7 All edge cases from EDGE_CASES.md have acceptance tests
-- [ ] S.8 All error handling from ERROR_HANDLING.md has tests
-- [ ] S.9 Performance SLO met: `build_context()` p95 < 200ms, cache hit rate > 0.80
-- [ ] S.10 Documentation updated: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md
+- [ ] S.1 Все фазы 0-6 реализованы согласно спецификациям
+- [ ] S.2 Legacy `ContextCompactor` работает при `enabled=false` без регрессий
+- [ ] S.3 `PayloadEnvelope` — единственный формат payload в пути формирования
+- [ ] S.4 Graceful degradation: горячий путь никогда не падает, каждый сбой имеет fallback
+- [ ] S.5 Наблюдаемость: 20+ метрик, spans трейсинга, структурированные логи
+- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% с метриками и критериями отката
+- [ ] S.7 Все краевые случаи из EDGE_CASES.md имеют приёмочные тесты
+- [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты
+- [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80
+- [ ] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md

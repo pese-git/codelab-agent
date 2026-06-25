@@ -1,350 +1,350 @@
-# Context Manager Implementation — Design Document
+# Реализация Context Manager — Технический проект
 
-## Context
+## Контекст
 
-### Current State
+### Текущее состояние
 
-CodeLab currently uses a legacy `ContextCompactor` with two-phase compaction (Prune + LLM Summarize). This approach has several limitations:
+CodeLab в настоящее время использует legacy `ContextCompactor` с двухфазным сжатием (Prune + LLM Summarize). Этот подход имеет несколько ограничений:
 
-1. **No intelligent file collection** — agents rely on manual context attachment or simple heuristics
-2. **Full context re-sending every turn** — linear cost growth on long sessions (quadratic total)
-3. **No file content cache** — repeated ACP RPCs for the same files
-4. **No AST-based skeletonization** — loss of code structure during compression
-5. **No incremental model** — no savings on stable prefix (prompt cache miss every turn)
+1. **Нет интеллектуального сбора файлов** — агенты полагаются на ручное добавление контекста или простые эвристики
+2. **Полная переотправка контекста каждый ход** — линейный рост затрат на длинных сессиях (квадратичный в сумме)
+3. **Нет кэша содержимого файлов** — повторяющиеся ACP RPC для одних и тех же файлов
+4. **Нет AST-скелетирования** — потеря структуры кода при сжатии
+5. **Нет инкрементальной модели** — нет экономии на стабильном префиксе (промах prompt cache каждый ход)
 
-### Constraints
+### Ограничения
 
-- **ACP Protocol compliance** — all tool calls go through `ToolRegistry`, no direct file I/O
-- **Backward compatibility** — legacy `ContextCompactor` must work when `agents.context.enabled=false`
-- **Graceful degradation** — hot path must never crash; every failure has a fallback
-- **Deterministic output** — `CodeSkeletonizer` and `FileContentCache` must produce byte-identical output for cache stability
-- **Python 3.12+** — strict type hints, asyncio, Pydantic 2.11+
+- **Соответствие протоколу ACP** — все вызовы инструментов проходят через `ToolRegistry`, без прямого I/O файлов
+- **Обратная совместимость** — legacy `ContextCompactor` должен работать при `agents.context.enabled=false`
+- **Graceful degradation** — горячий путь никогда не должен падать; каждый сбой имеет fallback
+- **Детерминированный вывод** — `CodeSkeletonizer` и `FileContentCache` должны производить байт-идентичный вывод для стабильности кэша
+- **Python 3.12+** — строгие type hints, asyncio, Pydantic 2.11+
 
-### Stakeholders
+### Заинтересованные стороны
 
-- **End users** — developers using CodeLab agent for coding tasks
-- **SRE** — monitoring rollout via metrics and canary deployment
-- **Developers** — implementing and maintaining the system
+- **Конечные пользователи** — разработчики, использующие агент CodeLab для задач кодирования
+- **SRE** — мониторинг rollout через метрики и canary deployment
+- **Разработчики** — реализация и поддержка системы
 
-## Goals / Non-Goals
+## Цели / Не-цели
 
-**Goals:**
+**Цели:**
 
-1. **Intelligent context collection** — automatically gather relevant files for the task (Layer A)
-2. **Incremental context model** — send only deltas when baseline is unchanged (Layer B)
-3. **Efficient storage** — file content cache, AST skeletonization, accurate token counting (Layer C)
-4. **Three-phase compaction** — Prune → Skeletonize → Summarize with graceful degradation
-5. **Multiagent isolation** — child sessions for subagents with summarized results (Layer D)
-6. **Observability** — 20+ metrics, tracing spans, structured logs for canary rollout
-7. **Phased rollout** — 7 phases (0-6) over ~13 weeks with feature flags
+1. **Интеллектуальный сбор контекста** — автоматический сбор релевантных файлов для задачи (Слой A)
+2. **Инкрементальная модель контекста** — отправка только дельт при неизменном baseline (Слой B)
+3. **Эффективное хранение** — кэш содержимого файлов, AST-скелетирование, точный подсчёт токенов (Слой C)
+4. **Трёхфазное сжатие** — Prune → Skeletonize → Summarize с graceful degradation
+5. **Изоляция мультиагента** — дочерние сессии для субагентов с суммаризированными результатами (Слой D)
+6. **Наблюдаемость** — 20+ метрик, spans трейсинга, структурированные логи для canary rollout
+7. **Поэтапный rollout** — 7 фаз (0-6) за ~13 недель с feature flags
 
-**Non-Goals:**
+**Не-цели:**
 
-1. **Federated context sharing** — candidate for rejection (ADR-002 §8); isolation is default
-2. **Cross-session persistent memory** — out of scope for this change (see COMPETITIVE_BACKLOG.md)
-3. **Learning loop / auto-skill creation** — future work (see COMPETITIVE_BACKLOG.md)
-4. **Tree-sitter parsing** — Phase 5 optional; regex-based dependency graph is MVP
-5. **Provider-specific optimizations** — focus on protocol-level prompt cache, not provider internals
+1. **Федеративный обмен контекстом** — кандидат на отказ (ADR-002 §8); изоляция по умолчанию
+2. **Постоянная память между сессиями** — вне области этого изменения (см. COMPETITIVE_BACKLOG.md)
+3. **Learning loop / автоматическое создание навыков** — будущая работа (см. COMPETITIVE_BACKLOG.md)
+4. **Парсинг Tree-sitter** — опционально для Фазы 5; граф зависимостей на regex — MVP
+5. **Оптимизации для конкретных провайдеров** — фокус на prompt cache на уровне протокола, а не на внутренностях провайдера
 
-## Decisions
+## Решения
 
-### Decision 1: Consolidate CM and FCM into 4-Layer Architecture
+### Решение 1: Консолидация CM и FCM в 4-слойную архитектуру
 
-**Choice:** Merge two previously independent designs (CM "what to read" + FCM "how to store efficiently") into a unified 4-layer architecture (A-D).
+**Выбор:** Объединить два ранее независимых дизайна (CM "что читать" + FCM "как эффективно хранить") в единую 4-слойную архитектуру (A-D).
 
-**Rationale:**
-- CM and FCM answered complementary questions and were not competitors
-- CM = intelligence layer (task analysis, gathering, lifecycle)
-- FCM = efficiency layer (caching, skeletonization, token counting)
-- Consolidation avoids duplication and provides a single source of truth
+**Обоснование:**
+- CM и FCM отвечали на взаимодополняющие вопросы и не были конкурентами
+- CM = слой интеллекта (анализ задач, сбор, жизненный цикл)
+- FCM = слой эффективности (кэширование, скелетирование, подсчёт токенов)
+- Консолидация избегает дублирования и обеспечивает единый источник истины
 
-**Alternatives considered:**
-- Keep CM and FCM separate → rejected: would lead to duplicated effort and inconsistent APIs
-- Choose one "winner" → rejected: both have valuable capabilities
+**Рассмотренные альтернативы:**
+- Оставить CM и FCM раздельными → отклонено: приведёт к дублированию усилий и несогласованным API
+- Выбрать одного "победителя" → отклонено: оба имеют ценные возможности
 
-### Decision 2: PayloadEnvelope with baseline/tail Separation
+### Решение 2: PayloadEnvelope с разделением baseline/tail
 
-**Choice:** Introduce `PayloadEnvelope` as the canonical payload format with explicit `baseline` (immutable prefix) and `tail` (deltas).
+**Выбор:** Ввести `PayloadEnvelope` как канонический формат payload с явным `baseline` (иммутабельный префикс) и `tail` (дельты).
 
-**Rationale:**
-- Foundation for incremental model (Phase 4) — stable baseline enables prompt cache hits
-- Must be established in Phase 0, otherwise late incremental support = core rewrite
-- Single point of conversion: `to_messages()` at the `EventBus` boundary
+**Обоснование:**
+- Основа для инкрементальной модели (Фаза 4) — стабильный baseline обеспечивает попадания в prompt cache
+- Должно быть установлено в Фазе 0, иначе поздняя поддержка инкрементальности = переписывание ядра
+- Единая точка конвертации: `to_messages()` на границе `EventBus`
 
-**Alternatives considered:**
-- Flat `list[LLMMessage]` throughout → rejected: no way to distinguish stable prefix from deltas
-- Implicit baseline detection → rejected: fragile, hard to test, provider-specific
+**Рассмотренные альтернативы:**
+- Плоский `list[LLMMessage]` повсюду → отклонено: нет способа отличить стабильный префикс от дельт
+- Неявное обнаружение baseline → отклонено: хрупко, сложно тестировать, зависит от провайдера
 
-### Decision 3: Incremental Model via ContextEpoch
+### Решение 3: Инкрементальная модель через ContextEpoch
 
-**Choice:** Use `ContextEpoch` with immutable baseline + `mid_conversation_messages` for incremental updates.
+**Выбор:** Использовать `ContextEpoch` с иммутабельным baseline + `mid_conversation_messages` для инкрементальных обновлений.
 
-**Rationale:**
-- Long sessions are the primary use case; hydration-every-turn cost grows quadratically
-- Epoch model sends baseline once, then only deltas → stable prefix → prompt cache hit
-- Hybrid bridge: Phase 1 (hydration) uses the same API as Phase 4 (epochs), just rebuilds baseline every turn
+**Обоснование:**
+- Длинные сессии — основной вариант использования; стоимость гидрации каждый ход растёт квадратично
+- Модель эпох отправляет baseline один раз, затем только дельты → стабильный префикс → попадание в prompt cache
+- Гибридный мост: Фаза 1 (гидрация) использует тот же API, что и Фаза 4 (эпохи), просто перестраивает baseline каждый ход
 
-**Alternatives considered:**
-- Hydration-only model → rejected: too expensive for long sessions
-- Provider-specific caching → rejected: not portable, provider-dependent
+**Рассмотренные альтернативы:**
+- Только модель гидрации → отклонено: слишком дорого для длинных сессий
+- Кэширование для конкретного провайдера → отклонено: не переносимо, зависит от провайдера
 
-### Decision 4: Codec Fingerprint for Change Detection
+### Решение 4: Codec Fingerprint для обнаружения изменений
 
-**Choice:** Use Codec-based fingerprints (not timestamps) for detecting source changes.
+**Выбор:** Использовать fingerprints на основе Codec (не timestamps) для обнаружения изменений источников.
 
-**Rationale:**
-- Timestamps are unreliable (clock skew, file system differences)
-- Codec fingerprints compare actual content → accurate change detection
-- Required for `ContextSnapshot.diff()` and `baseline_fingerprint` stability
+**Обоснование:**
+- Timestamps ненадёжны (смещение часов, различия файловых систем)
+- Codec fingerprints сравнивают фактическое содержимое → точное обнаружение изменений
+- Требуется для `ContextSnapshot.diff()` и стабильности `baseline_fingerprint`
 
-**Alternatives considered:**
-- Timestamp-based detection → rejected: fragile, platform-dependent
-- Hash of file path + size → rejected: does not detect content changes
+**Рассмотренные альтернативы:**
+- Обнаружение на основе timestamps → отклонено: хрупко, зависит от платформы
+- Хэш пути к файлу + размера → отклонено: не обнаруживает изменения содержимого
 
-### Decision 5: Three-Phase Compaction with Graceful Degradation
+### Решение 5: Трёхфазное сжатие с Graceful Degradation
 
-**Choice:** Implement 3-phase compaction: Prune (FIFO) → Skeletonize (AST) → Summarize (LLM).
+**Выбор:** Реализовать 3-фазное сжатие: Prune (FIFO) → Skeletonize (AST) → Summarize (LLM).
 
-**Rationale:**
-- Prune is cheap (no LLM) and effective for old tool outputs
-- Skeletonize achieves 80-85% token savings on code while preserving structure
-- Summarize is expensive (LLM call) but preserves key decisions; skipped if LLM unavailable
-- Graceful degradation: if Summarize fails, continue with Prune + Skeletonize
+**Обоснование:**
+- Prune дешёвый (без LLM) и эффективный для старых выводов инструментов
+- Skeletonize обеспечивает экономию 80-85% токенов на коде с сохранением структуры
+- Summarize дорогой (вызов LLM), но сохраняет ключевые решения; пропускается при недоступности LLM
+- Graceful degradation: если Summarize завершается сбоем, продолжаем с Prune + Skeletonize
 
-**Alternatives considered:**
-- Two-phase (Prune + Summarize) → rejected: loses code structure
-- LLM-only compression → rejected: too expensive, no structure preservation
+**Рассмотренные альтернативы:**
+- Двухфазное (Prune + Summarize) → отклонено: теряет структуру кода
+- Только сжатие LLM → отклонено: слишком дорого, нет сохранения структуры
 
-### Decision 6: Deterministic CodeSkeletonizer
+### Решение 6: Детерминированный CodeSkeletonizer
 
-**Choice:** Require `CodeSkeletonizer.skeletonize()` to produce byte-identical output for the same input.
+**Выбор:** Требовать, чтобы `CodeSkeletonizer.skeletonize()` производил байт-идентичный вывод для одного и того же входа.
 
-**Rationale:**
-- Non-deterministic output breaks `baseline_fingerprint` stability → prompt cache miss
-- Stable AST traversal order, sorted imports, normalized whitespace are required
-- Determinism is a requirement, not a convenience
+**Обоснование:**
+- Недетерминированный вывод ломает стабильность `baseline_fingerprint` → промах prompt cache
+- Требуются стабильный порядок обхода AST, отсортированные импорты, нормализованные пробелы
+- Детерминизм — это требование, а не удобство
 
-**Alternatives considered:**
-- Non-deterministic skeletonization → rejected: breaks cache stability
-- Provider-side normalization → rejected: not portable, provider-dependent
+**Рассмотренные альтернативы:**
+- Недетерминированное скелетирование → отклонено: ломает стабильность кэша
+- Нормализация на стороне провайдера → отклонено: не переносимо, зависит от провайдера
 
-### Decision 7: Unified Invalidation Signal (Phase 2 ↔ Phase 4 Integration)
+### Решение 7: Единый сигнал инвалидации (Интеграция Фазы 2 ↔ Фаза 4)
 
-**Choice:** `FileCacheDecorator.invalidate()` MUST publish a change signal to a unified source of truth.
+**Выбор:** `FileCacheDecorator.invalidate()` ДОЛЖЕН публиковать сигнал изменения в единый источник истины.
 
-**Rationale:**
-- Prevents silent baseline desync (cache says V2, epoch says V1)
-- `ContextSnapshot` compares Codec fingerprints independently of cache signal → double protection
-- Lost signal is recoverable via snapshot comparison, not a silent bug
+**Обоснование:**
+- Предотвращает тихий рассинхрон baseline (кэш говорит V2, эпоха говорит V1)
+- `ContextSnapshot` сравнивает Codec fingerprints независимо от сигнала кэша → двойная защита
+- Потерянный сигнал восстанавливается через сравнение snapshot, а не тихий баг
 
-**Alternatives considered:**
-- Cache and epoch update independently → rejected: risk of silent desync
-- Timestamp-based invalidation → rejected: unreliable
+**Рассмотренные альтернативы:**
+- Кэш и эпоха обновляются независимо → отклонено: риск тихого рассинхрона
+- Инвалидация на основе timestamps → отклонено: ненадёжно
 
-### Decision 8: Isolation by Default for Multiagent
+### Решение 8: Изоляция по умолчанию для мультиагента
 
-**Choice:** Subagents work in child sessions with isolated context; parent receives only summarized result.
+**Выбор:** Субагенты работают в дочерних сессиях с изолированным контекстом; родитель получает только суммаризированный результат.
 
-**Rationale:**
-- Clean boundaries, predictable budget
-- Federated `share_item()` conflicts with isolation and epoch stability
-- Both benefits of federation (file cache reuse, derived context transfer) are already covered by `FileContentCache` and `process_subagent_response()`
+**Обоснование:**
+- Чистые границы, предсказуемый бюджет
+- Федеративный `share_item()` конфликтует с изоляцией и стабильностью эпох
+- Обе выгоды федерации (переиспользование кэша файлов, передача производного контекста) уже покрыты `FileContentCache` и `process_subagent_response()`
 
-**Alternatives considered:**
-- Federated sharing by default → rejected: conflicts with isolation, breaks epoch stability
-- Hybrid approach → rejected: added complexity without clear benefit
+**Рассмотренные альтернативы:**
+- Федеративный обмен по умолчанию → отклонено: конфликтует с изоляцией, ломает стабильность эпох
+- Гибридный подход → отклонено: добавленная сложность без явной выгоды
 
-### Decision 9: Feature Flags for Canary Rollout
+### Решение 9: Feature Flags для Canary Rollout
 
-**Choice:** Use `[agents.context.*]` TOML config with master switch `enabled` and per-layer sub-flags.
+**Выбор:** Использовать TOML конфигурацию `[agents.context.*]` с master switch `enabled` и подфлагами для каждого слоя.
 
-**Rationale:**
-- Master switch allows instant rollback to legacy
-- Per-layer flags enable gradual rollout (gather → storage → lifecycle → multiagent)
-- Environment variables override TOML for deployment flexibility
+**Обоснование:**
+- Master switch позволяет мгновенный откат к legacy
+- Подфлаги для каждого слоя позволяют постепенный rollout (gather → storage → lifecycle → multiagent)
+- Переменные окружения переопределяют TOML для гибкости развёртывания
 
-**Alternatives considered:**
-- Single feature flag → rejected: no granular control
-- Code-level toggles → rejected: not configurable per deployment
+**Рассмотренные альтернативы:**
+- Единственный feature flag → отклонено: нет гранулярного контроля
+- Переключатели на уровне кода → отклонено: не настраиваются для каждого развёртывания
 
-### Decision 10: File Structure and DI
+### Решение 10: Структура файлов и DI
 
-**Choice:** Organize code under `src/codelab/server/agent/context/` with one file per component; use constructor-based DI.
+**Выбор:** Организовать код в `src/codelab/server/agent/context/` с одним файлом на компонент; использовать constructor-based DI.
 
-**Rationale:**
-- Clear separation of concerns (one component per file)
-- Constructor DI makes dependencies explicit, testable
-- External dependencies (ToolRegistry, LLMProvider) passed via constructor, not method parameters
+**Обоснование:**
+- Чёткое разделение ответственности (один компонент на файл)
+- Constructor DI делает зависимости явными, тестируемыми
+- Внешние зависимости (ToolRegistry, LLMProvider) передаются через конструктор, а не через параметры методов
 
-**Alternatives considered:**
-- Monolithic `context_manager.py` → rejected: hard to test, maintain
-- Service locator pattern → rejected: hidden dependencies, hard to test
+**Рассмотренные альтернативы:**
+- Монолитный `context_manager.py` → отклонено: сложно тестировать, поддерживать
+- Паттерн Service locator → отклонено: скрытые зависимости, сложно тестировать
 
-## Risks / Trade-offs
+## Риски / Компромиссы
 
-### Risk 1: Phase 2 ↔ Phase 4 Integration Complexity
+### Риск 1: Сложность интеграции Фазы 2 ↔ Фаза 4
 
-**Risk:** Unified invalidation signal is critical for correctness; if lost, baseline desyncs silently.
+**Риск:** Единый сигнал инвалидации критичен для корректности; если потерян, baseline рассинхронизируется тихо.
 
-**Mitigation:**
-- `ContextSnapshot.diff()` compares Codec fingerprints independently of cache signal
-- Lost signal counter (`context.invalidation.lost`) detects desync
-- Conservative fallback: `epoch_broken=True` on uncertainty (expensive but correct)
+**Смягчение:**
+- `ContextSnapshot.diff()` сравнивает Codec fingerprints независимо от сигнала кэша
+- Счётчик потерянных сигналов (`context.invalidation.lost`) обнаруживает рассинхрон
+- Консервативный fallback: `epoch_broken=True` при неопределённости (дорого, но корректно)
 
-### Risk 2: CodeSkeletonizer Determinism
+### Риск 2: Детерминизм CodeSkeletonizer
 
-**Risk:** Non-deterministic output breaks prompt cache stability.
+**Риск:** Недетерминированный вывод ломает стабильность prompt cache.
 
-**Mitigation:**
-- Golden tests: 100 runs on same input → byte-identical output
-- Stable AST traversal order, sorted imports, normalized whitespace
-- Regression test: same file two turns → identical fingerprint
+**Смягчение:**
+- Golden тесты: 100 запусков на одном входе → байт-идентичный вывод
+- Стабильный порядок обхода AST, отсортированные импорты, нормализованные пробелы
+- Регрессионный тест: один и тот же файл два хода → идентичный fingerprint
 
-### Risk 3: Graceful Degradation Complexity
+### Риск 3: Сложность Graceful Degradation
 
-**Risk:** Hot path must never crash; every failure has a fallback.
+**Риск:** Горячий путь никогда не должен падать; каждый сбой имеет fallback.
 
-**Mitigation:**
-- Detailed error handling spec (ERROR_HANDLING.md)
-- 14 edge cases with acceptance criteria (EDGE_CASES.md)
-- Tests for every fallback path
+**Смягчение:**
+- Детальная спецификация обработки ошибок (ERROR_HANDLING.md)
+- 14 краевых случаев с критериями приёмки (EDGE_CASES.md)
+- Тесты для каждого пути fallback
 
-### Risk 4: Performance Overhead
+### Риск 4: Накладные расходы на производительность
 
-**Risk:** New layers add latency to `build_context()`.
+**Риск:** Новые слои добавляют задержку к `build_context()`.
 
-**Mitigation:**
-- SLO: `build_context()` p95 < 200ms (without LLM calls)
-- Benchmark scenarios for short/medium/long sessions
-- Canary rollout with latency monitoring
+**Смягчение:**
+- SLO: `build_context()` p95 < 200ms (без вызовов LLM)
+- Сценарии бенчмарков для коротких/средних/длинных сессий
+- Canary rollout с мониторингом задержки
 
-### Risk 5: Migration Complexity
+### Риск 5: Сложность миграции
 
-**Risk:** Migrating from legacy `ContextCompactor` to new `ContextManager` may break existing behavior.
+**Риск:** Миграция с legacy `ContextCompactor` на новый `ContextManager` может сломать существующее поведение.
 
-**Mitigation:**
-- Feature flag `agents.context.enabled=false` (default) → legacy behavior preserved
-- Legacy bridge: `ContextCompactor.compact_if_needed()` signature preserved
-- Canary rollout: 5% → 25% → 50% → 100% with metrics
+**Смягчение:**
+- Feature flag `agents.context.enabled=false` (по умолчанию) → legacy поведение сохранено
+- Legacy мост: сигнатура `ContextCompactor.compact_if_needed()` сохранена
+- Canary rollout: 5% → 25% → 50% → 100% с метриками
 
-### Trade-off 1: Complexity vs. Flexibility
+### Компромисс 1: Сложность против Гибкости
 
-**Trade-off:** 4-layer architecture is more complex than monolithic design, but provides clear separation of concerns and independent evolution.
+**Компромисс:** 4-слойная архитектура сложнее монолитного дизайна, но обеспечивает чёткое разделение ответственности и независимую эволюцию.
 
-**Acceptance:** Complexity is justified by the need for incremental model, multiagent support, and observability.
+**Принятие:** Сложность оправдана необходимостью инкрементальной модели, поддержки мультиагента и наблюдаемости.
 
-### Trade-off 2: Determinism vs. Simplicity
+### Компромисс 2: Детерминизм против Простоты
 
-**Trade-off:** Deterministic `CodeSkeletonizer` requires more effort (sorted imports, stable AST order), but enables prompt cache hits.
+**Компромисс:** Детерминированный `CodeSkeletonizer` требует больше усилий (отсортированные импорты, стабильный порядок AST), но обеспечивает попадания в prompt cache.
 
-**Acceptance:** Determinism is a requirement for cache stability; non-deterministic output is unacceptable.
+**Принятие:** Детерминизм — требование для стабильности кэша; недетерминированный вывод неприемлем.
 
-### Trade-off 3: Isolation vs. Sharing
+### Компромисс 3: Изоляция против Обмена
 
-**Trade-off:** Isolation by default is simpler and safer, but federated sharing could save tokens in some scenarios.
+**Компромисс:** Изоляция по умолчанию проще и безопаснее, но федеративный обмен может сэкономить токены в некоторых сценариях.
 
-**Acceptance:** Isolation covers 95% of use cases; federation is candidate for rejection unless specific scenario justifies it.
+**Принятие:** Изоляция покрывает 95% случаев использования; федерация — кандидат на отказ, если конкретный сценарий не оправдывает её.
 
-## Migration Plan
+## План миграции
 
-### Phase 0: Foundation (1 week)
+### Фаза 0: Основа (1 неделя)
 
-1. Create `src/codelab/server/agent/context/` package
-2. Implement data models (`PayloadEnvelope`, `ContextItem`, etc.)
-3. Define ABC interfaces (`ContextManager`, `TaskAnalyzer`, etc.)
-4. Add feature flags `[agents.context.*]` with `enabled=false` default
-5. Wrap legacy `ContextCompactor` in `ContextCompactor(ABC)` implementation
-6. Archive `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/`
+1. Создать пакет `src/codelab/server/agent/context/`
+2. Реализовать модели данных (`PayloadEnvelope`, `ContextItem`, и т.д.)
+3. Определить ABC интерфейсы (`ContextManager`, `TaskAnalyzer`, и т.д.)
+4. Добавить feature flags `[agents.context.*]` с `enabled=false` по умолчанию
+5. Обернуть legacy `ContextCompactor` в реализацию `ContextCompactor(ABC)`
+6. Архивировать `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/`
 
-**Rollback:** Feature flag `enabled=false` → legacy behavior preserved.
+**Откат:** Feature flag `enabled=false` → legacy поведение сохранено.
 
-### Phase 1: MVP Gather (3 weeks)
+### Фаза 1: MVP сбор (3 недели)
 
-1. Implement `TaskAnalyzer` (LLM-based classification)
-2. Implement `ContextGatherer` (ACP `ToolRegistry` pipeline)
-3. Implement `DependencyGraph` (regex-based)
-4. Implement `TokenBudgetManager`
-5. Integrate with `ExecutionEngine.build_context()`
+1. Реализовать `TaskAnalyzer` (классификация на основе LLM)
+2. Реализовать `ContextGatherer` (конвейер ACP `ToolRegistry`)
+3. Реализовать `DependencyGraph` (на основе regex)
+4. Реализовать `TokenBudgetManager`
+5. Интегрировать с `ExecutionEngine.build_context()`
 
-**Rollback:** Feature flag `gather.enabled=false` → no automatic gathering.
+**Откат:** Feature flag `gather.enabled=false` → нет автоматического сбора.
 
-### Phase 2: Storage Layer (2 weeks)
+### Фаза 2: Слой хранения (2 недели)
 
-1. Implement `TokenCounter` (tiktoken + fallback)
-2. Implement `FileContentCache` + `SessionFileCacheRegistry`
-3. Implement `FileCacheDecorator`
-4. Implement `CodeSkeletonizer` (AST-based)
+1. Реализовать `TokenCounter` (tiktoken + fallback)
+2. Реализовать `FileContentCache` + `SessionFileCacheRegistry`
+3. Реализовать `FileCacheDecorator`
+4. Реализовать `CodeSkeletonizer` (на основе AST)
 
-**Rollback:** Feature flag `storage.enabled=false` → no caching/skeletonization.
+**Откат:** Feature flag `storage.enabled=false` → нет кэширования/скелетирования.
 
-### Phase 3: Sources + Compaction (1 week)
+### Фаза 3: Источники + сжатие (1 неделя)
 
-1. Implement `ContextRegistry` + `ContextSource` + `SkillContextSource`
-2. Implement 3-phase `ContextCompactor` (Prune → Skeletonize → Summarize)
-3. Implement `ConversationSummarizer`
+1. Реализовать `ContextRegistry` + `ContextSource` + `SkillContextSource`
+2. Реализовать 3-фазный `ContextCompactor` (Prune → Skeletonize → Summarize)
+3. Реализовать `ConversationSummarizer`
 
-**Rollback:** Feature flag `storage.skeletonize=false` → no skeletonization.
+**Откат:** Feature flag `storage.skeletonize=false` → нет скелетирования.
 
-### Phase 4: Incremental Lifecycle (2 weeks)
+### Фаза 4: Инкрементальный жизненный цикл (2 недели)
 
-1. Implement `ContextEpoch` + `ContextSnapshot` + `ContextReconciler`
-2. Unified invalidation signal (Phase 2 ↔ Phase 4 integration)
-3. Enable `lifecycle.incremental=true` for prompt cache hits
+1. Реализовать `ContextEpoch` + `ContextSnapshot` + `ContextReconciler`
+2. Единый сигнал инвалидации (интеграция Фаза 2 ↔ Фаза 4)
+3. Включить `lifecycle.incremental=true` для попаданий в prompt cache
 
-**Rollback:** Feature flag `lifecycle.incremental=false` → hydration mode.
+**Откат:** Feature flag `lifecycle.incremental=false` → режим гидрации.
 
-### Phase 5: Full DependencyGraph (2 weeks)
+### Фаза 5: Полный DependencyGraph (2 недели)
 
-1. Implement recursive dependency resolution
-2. Optional: tree-sitter instead of regex
+1. Реализовать рекурсивное разрешение зависимостей
+2. Опционально: tree-sitter вместо regex
 
-**Rollback:** Feature flag `gather.recursive_dependencies=false` → non-recursive.
+**Откат:** Feature flag `gather.recursive_dependencies=false` → не рекурсивный.
 
-### Phase 6: Multiagent (2 weeks)
+### Фаза 6: Мультиагент (2 недели)
 
-1. Implement `ChildSessionManager`
-2. Implement `process_subagent_response()`
-3. Integrate with Orchestrated/Choreography/Hierarchical strategies
+1. Реализовать `ChildSessionManager`
+2. Реализовать `process_subagent_response()`
+3. Интегрировать со стратегиями Orchestrated/Choreography/Hierarchical
 
-**Rollback:** Feature flag `multiagent.federation=false` → isolation only.
+**Откат:** Feature flag `multiagent.federation=false` → только изоляция.
 
-## Open Questions
+## Открытые вопросы
 
-### Question 1: Tree-sitter vs. Regex for DependencyGraph
+### Вопрос 1: Tree-sitter против Regex для DependencyGraph
 
-**Question:** Should Phase 5 use tree-sitter for more accurate dependency parsing?
+**Вопрос:** Должна ли Фаза 5 использовать tree-sitter для более точного парсинга зависимостей?
 
-**Status:** Optional; regex is MVP. Tree-sitter adds complexity but improves accuracy for complex imports.
+**Статус:** Опционально; regex — MVP. Tree-sitter добавляет сложность, но улучшает точность для сложных импортов.
 
-**Decision needed:** Before Phase 5 implementation.
+**Требуется решение:** Перед реализацией Фазы 5.
 
-### Question 2: Federation Use Cases
+### Вопрос 2: Сценарии использования федерации
 
-**Question:** Are there specific scenarios where federated `share_item()` provides value not covered by isolation?
+**Вопрос:** Есть ли конкретные сценарии, где федеративный `share_item()` обеспечивает ценность, не покрытую изоляцией?
 
-**Status:** Candidate for rejection. Need concrete use case to justify complexity.
+**Статус:** Кандидат на отказ. Требуется конкретный случай использования для оправдания сложности.
 
-**Decision needed:** Before Phase 6 implementation.
+**Требуется решение:** Перед реализацией Фазы 6.
 
-### Question 3: Provider-Specific Prompt Cache
+### Вопрос 3: Prompt Cache для конкретных провайдеров
 
-**Question:** Should we implement provider-specific optimizations (e.g., Anthropic prompt caching, OpenAI prefix caching)?
+**Вопрос:** Должны ли мы реализовать оптимизации для конкретных провайдеров (например, кэширование промптов Anthropic, кэширование префиксов OpenAI)?
 
-**Status:** Out of scope. Focus on protocol-level prompt cache via stable `baseline_fingerprint`.
+**Статус:** Вне области. Фокус на prompt cache на уровне протокола через стабильный `baseline_fingerprint`.
 
-**Decision needed:** Future work, if provider-specific optimizations provide significant value.
+**Требуется решение:** Будущая работа, если оптимизации для конкретных провайдеров обеспечивают значительную ценность.
 
-### Question 4: Persistent Memory Integration
+### Вопрос 4: Интеграция постоянной памяти
 
-**Question:** Should Context Manager integrate with persistent memory (MEMORY.md/USER.md) from COMPETITIVE_BACKLOG?
+**Вопрос:** Должен ли Context Manager интегрироваться с постоянной памятью (MEMORY.md/USER.md) из COMPETITIVE_BACKLOG?
 
-**Status:** Out of scope for this change. Future work (Phase 7+).
+**Статус:** Вне области этого изменения. Будущая работа (Фаза 7+).
 
-**Decision needed:** After Phase 6 completion.
+**Требуется решение:** После завершения Фазы 6.
 
-## References
+## Ссылки
 
-- [ADR-002: Context Manager Consolidation](../doc/internals/architecture/adr/ADR-002-context-manager-consolidation.md)
+- [ADR-002: Консолидация Context Manager](../doc/internals/architecture/adr/ADR-002-context-manager-consolidation.md)
 - [CONSOLIDATED_ARCHITECTURE.md](../doc/internals/context-manager/CONSOLIDATED_ARCHITECTURE.md)
 - [INTERFACES.md](../doc/internals/context-manager/INTERFACES.md)
 - [DATA_MODELS.md](../doc/internals/context-manager/DATA_MODELS.md)
