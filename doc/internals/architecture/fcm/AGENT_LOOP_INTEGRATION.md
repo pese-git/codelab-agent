@@ -1,9 +1,16 @@
 # FCM — Интеграция с AgentLoop и стратегиями
 
-> **Версия:** 1.0  
-> **Дата:** 24 июня 2026  
+> **Версия:** 1.1  
+> **Дата:** 25 июня 2026  
 > **Статус:** Design Document  
 > **Аудитория:** Разработчики, AI Agents
+>
+> **Изменения в v1.1 (согласование с каноном v2.3):**
+> - §4.3 переписан без противоречия: кэш-хит устраняет RPC в `ClientRPCBridge`
+>   (ADR-4), декоратор только наполняет кэш/scope в постобработке
+> - Пути multi-agent стратегий исправлены на
+>   `src/codelab/server/protocol/handlers/strategies/*_strategy.py`;
+>   отмечено, что они ещё не существуют (есть только `single_strategy.py`)
 
 ---
 
@@ -429,37 +436,35 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Agent as LLM Agent
-    participant Tool as fs tool call
     participant Dec as FileCacheDecorator
     participant FSExec as FileSystemToolExecutor
     participant Bridge as ClientRPCBridge
     participant Cache as FileContentCache
     participant FCM as FederatedContextManager
 
-    Note over Tool: Агент снова запрашивает тот же файл
-    Agent->>Tool: {operation:"read", path:"db.py"}
-    Tool->>Dec: execute(session, arguments)
-    
+    Note over Agent: Агент снова запрашивает тот же файл
+    Agent->>Dec: {operation:"read", path:"db.py"}
+    Dec->>FSExec: execute(...) [delegate]
+    FSExec->>Bridge: read_file("db.py")
+
+    Note over Bridge: Полное чтение → проверка кэша ПЕРЕД RPC (ADR-4)
+    Bridge->>Cache: get("db.py")
     alt Cache HIT
-        Note over Dec: FCM уже содержит "db.py" в scope
-        Note over Dec: FileSystemExecutor всё равно вызывает ClientRPC
-        Note over Dec: (FCM не перехватывает tool execution)
-        Dec->>FSExec: execute(...)
-        FSExec->>Bridge: read_file("db.py")
-        Bridge->>Cache: Проверка кэша (в Bridge layer или выше)
-        
-        alt Bridge использует FileContentCache
-            Cache-->>Bridge: content (HIT — 0ms, без RPC)
-            Bridge-->>FSExec: content
-        else Bridge не использует кэш напрямую
-            Note over Bridge: ClientRPC → Client → файловая система
-        end
-        
-        FSExec-->>Dec: ToolExecutionResult
-        Dec->>FCM: add_to_scope("single", "db.py", ...) [update/overwrite]
-        Dec-->>Tool: result
+        Cache-->>Bridge: content (0ms, RPC НЕ выполняется)
+    else Cache MISS
+        Bridge->>Bridge: RPC fs/read → Client, затем cache.set("db.py", content)
     end
+    Bridge-->>FSExec: content
+    FSExec-->>Dec: ToolExecutionResult
+
+    Note over Dec: Полный read → cache.set + add_to_scope (overwrite, без дублей)
+    Dec->>FCM: add_to_scope(scope, "db.py", "file_content", content, priority=5)
+    Dec-->>Agent: result
 ```
+
+> **Где живёт кэш-хит.** RPC устраняется именно в `ClientRPCBridge` (ADR-4):
+> Bridge проверяет `FileContentCache` перед обращением к клиенту. Декоратор
+> не перехватывает RPC — он лишь наполняет кэш/scope в постобработке.
 
 **Замечание по кэшированию на уровне Bridge:**
 
@@ -1342,9 +1347,13 @@ graph LR
 | `ClientRPCBridge.read_file()` | Добавить FileContentCache | `src/codelab/server/tools/integrations/client_rpc_bridge.py` |
 | `ExecutionEngine._build_via_fcm()` | Создать | `src/codelab/server/agent/execution_engine.py` |
 | `FederatedContextManager.hydrate_from_history()` | Реализовать | `src/codelab/server/agent/context/manager.py` |
-| `OrchestratedStrategy` | Интегрировать FCM | `src/codelab/server/agent/strategies/orchestrated.py` |
-| `HierarchicalStrategy` | Интегрировать FCM | `src/codelab/server/agent/strategies/hierarchical.py` |
-| `ChoreographyStrategy` | Интегрировать FCM | `src/codelab/server/agent/strategies/choreography.py` |
+| `OrchestratedStrategy` | Создать + интегрировать FCM¹ | `src/codelab/server/protocol/handlers/strategies/orchestrated_strategy.py` |
+| `HierarchicalStrategy` | Создать + интегрировать FCM¹ | `src/codelab/server/protocol/handlers/strategies/hierarchical_strategy.py` |
+| `ChoreographyStrategy` | Создать + интегрировать FCM¹ | `src/codelab/server/protocol/handlers/strategies/choreography_strategy.py` |
+
+> ¹ Multi-agent стратегии пока **не существуют** в кодовой базе (есть только
+> `single_strategy.py`). Их сначала нужно создать в
+> `src/codelab/server/protocol/handlers/strategies/`, а затем интегрировать FCM.
 
 ### Зависимости создания
 

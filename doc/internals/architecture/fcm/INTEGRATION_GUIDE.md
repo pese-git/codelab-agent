@@ -1,9 +1,22 @@
 # Federated Context Manager — Руководство по интеграции
 
-> **Версия:** 2.2  
-> **Дата:** 24 июня 2026  
+> **Версия:** 2.3  
+> **Дата:** 25 июня 2026  
 > **Для кого:** Разработчики, внедряющие FCM в проект
-> 
+>
+> **Изменения в v2.3:**
+> - Канонический `manager.py` (§4) приведён в рабочий вид и согласован с
+>   `ARCHITECTURE.md §3.7`: `FederatedContextManager` наследует
+>   `ContextManager(ABC)`; единая сигнатура конструктора
+>   `(token_counter, skeletonizer, compactor, file_cache, event_bus, tracer)`;
+>   `create_token_counter()` вместо инстанцирования ABC `TokenCounter`;
+>   скелетирование через инъецированный `self.skeletonizer` (модульная
+>   `skeletonize()` удалена); Domain Events объявлены на уровне модуля
+> - Добавлена обязательная обработка edge cases в каноне: усечение элемента
+>   больше бюджета (§EDGE_CASES 1), `ValueError` при превышении бюджета
+>   критическими элементами (§EDGE_CASES 2), отказ от скелета не меньше
+>   оригинала (§EDGE_CASES 3), публикация `ContextOverflow` при вытеснении
+>
 > **Изменения в v2.2:**
 > - Единый путь формирования payload через FCM для всех стратегий
 > - `hydrate_from_history()` автоматически в `ExecutionEngine.build_context()`
@@ -65,8 +78,7 @@ src/codelab/server/agent/context/
 ├── # Слой 3: Оркестрация (ABC + реализация)
 ├── items.py                       # ContextItem, ContextType (dataclasses)
 ├── scope.py                       # AgentContextScope
-├── manager.py                     # ContextManager(ABC), FederatedContextManager
-└── cache.py                       # ACPCache
+└── manager.py                     # ContextManager(ABC), FederatedContextManager
 
 src/codelab/server/tools/executors/decorators/
 ├── base.py                        # ToolExecutorDecorator (существующий)
@@ -1271,19 +1283,27 @@ class AgentContextScope:
 **Файл:** `src/codelab/server/agent/context/manager.py`
 
 ```python
-"""FederatedContextManager — глобальный координатор FCM."""
+"""FederatedContextManager — глобальный координатор FCM (Слой 3)."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from .ast_skeletonizer import skeletonize
+from codelab.server.agent.contracts.base import DomainEvent
+
+from .ast_skeletonizer import PythonASTSkeletonizer
+from .compactor import ContextCompactor
+from .file_cache import FileContentCache
 from .items import ContextItem, ContextType
 from .scope import AgentContextScope
-from .token_counter import TokenCounter
+from .token_counter import TokenCounter, create_token_counter
 
 if TYPE_CHECKING:
+    from codelab.server.acp.types import ConversationMessage
+    from codelab.server.agent.context.ast_skeletonizer import CodeSkeletonizer
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.llm.models import LLMMessage
     from codelab.server.observability.tracer import Tracer
@@ -1291,28 +1311,113 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class FederatedContextManager:
+# --- Domain Events: объявлены на уровне модуля (НЕ внутри методов), ---
+# --- чтобы подписчики могли сопоставлять их по типу. ---
+
+
+@dataclass(frozen=True)
+class ContextItemAdded(DomainEvent):
+    scope_name: str = ""
+    item_id: str = ""
+    item_type: str = ""
+    token_count: int = 0
+
+
+@dataclass(frozen=True)
+class ContextShared(DomainEvent):
+    source_scope: str = ""
+    target_scope: str = ""
+    item_id: str = ""
+    new_priority: int = 0
+
+
+@dataclass(frozen=True)
+class ContextOverflow(DomainEvent):
+    scope_name: str = ""
+    max_tokens: int = 0
+    current_tokens: int = 0
+    evicted_items: list[str] = field(default_factory=list)
+
+
+class ContextManager(ABC):
+    """Оркестрация контекста агентов (Mediator + Facade).
+
+    Канонический контракт целиком — в ARCHITECTURE.md §3.7. Ниже —
+    реализация по умолчанию `FederatedContextManager` в том же модуле.
+    """
+
+    scopes: dict[str, AgentContextScope]
+
+    @abstractmethod
+    async def create_scope(
+        self, scope_name: str, max_tokens: int = 4000
+    ) -> AgentContextScope: ...
+
+    @abstractmethod
+    async def add_to_scope(
+        self,
+        scope_name: str,
+        item_id: str,
+        content_type: ContextType,
+        content: str,
+        priority: int = 5,
+    ) -> None: ...
+
+    @abstractmethod
+    async def share_item(
+        self,
+        source_scope: str,
+        target_scope: str,
+        item_id: str,
+        new_priority: int | None = None,
+    ) -> None: ...
+
+    @abstractmethod
+    async def hydrate_from_history(
+        self,
+        scope_name: str,
+        history: list[ConversationMessage],
+        system_prompt: str | None = None,
+    ) -> None: ...
+
+    @abstractmethod
+    async def optimize_and_build_payload(
+        self, scope_name: str
+    ) -> list[LLMMessage]: ...
+
+
+class FederatedContextManager(ContextManager):
     """Глобальный менеджер контекста для мультиагентной системы.
-    
-    Координирует скоупы агентов, кэширование, шеринг и оптимизацию.
-    
+
+    Координирует скоупы агентов, кэш файлов (Слой 1), шеринг и делегирует
+    сжатие истории в ContextCompactor (Слой 2).
+
     Attributes:
         scopes: Словарь скоупов (name → AgentContextScope).
+        token_counter: Подсчёт токенов (Слой 1).
+        skeletonizer: Скелетонизатор кода (Слой 1, Strategy).
+        compactor: Компактор истории (Слой 2, опционально).
+        file_cache: Кэш содержимого файлов (Слой 1, опционально).
         event_bus: Шина событий для публикации Domain Events.
         tracer: Трейсер для observability.
-        token_counter: Подсчёт токенов.
     """
-    
+
     def __init__(
         self,
+        token_counter: TokenCounter | None = None,
+        skeletonizer: CodeSkeletonizer | None = None,
+        compactor: ContextCompactor | None = None,
+        file_cache: FileContentCache | None = None,
         event_bus: AgentEventBus | None = None,
         tracer: Tracer | None = None,
-        token_counter: TokenCounter | None = None,
     ) -> None:
         self.scopes: dict[str, AgentContextScope] = {}
+        self.token_counter = token_counter or create_token_counter()
+        self.skeletonizer = skeletonizer or PythonASTSkeletonizer()
+        self.compactor = compactor
+        self.file_cache = file_cache
         self.event_bus = event_bus
         self.tracer = tracer
-        self.token_counter = token_counter or TokenCounter()
     
     async def create_scope(
         self,
@@ -1355,8 +1460,21 @@ class FederatedContextManager:
         if scope_name not in self.scopes:
             await self.create_scope(scope_name)
         
+        scope = self.scopes[scope_name]
         token_count = self.token_counter.count(content)
-        
+
+        # Edge case (EDGE_CASES §1): элемент больше бюджета скоупа → усечение,
+        # чтобы один большой файл не ломал всю сборку payload.
+        if token_count > scope.max_tokens:
+            logger.warning(
+                "item_exceeds_max_tokens_truncating item_id=%s tokens=%d max=%d",
+                item_id,
+                token_count,
+                scope.max_tokens,
+            )
+            content = content[: scope.max_tokens * 4]  # ~4 символа на токен
+            token_count = self.token_counter.count(content)
+
         item = ContextItem(
             id=item_id,
             type=content_type,
@@ -1365,19 +1483,11 @@ class FederatedContextManager:
             owner_scope=scope_name,
             token_count=token_count,
         )
-        
-        self.scopes[scope_name].add(item)
-        
-        # Публикация события
+
+        scope.add(item)
+
+        # Публикация события (класс объявлен на уровне модуля)
         if self.event_bus:
-            from codelab.server.agent.contracts.base import DomainEvent
-            
-            class ContextItemAdded(DomainEvent):
-                scope_name: str = ""
-                item_id: str = ""
-                item_type: str = ""
-                token_count: int = 0
-            
             await self.event_bus.publish(ContextItemAdded(
                 scope_name=scope_name,
                 item_id=item_id,
@@ -1439,16 +1549,8 @@ class FederatedContextManager:
             shared_item.priority,
         )
         
-        # Публикация события
+        # Публикация события (класс объявлен на уровне модуля)
         if self.event_bus:
-            from codelab.server.agent.contracts.base import DomainEvent
-            
-            class ContextShared(DomainEvent):
-                source_scope: str = ""
-                target_scope: str = ""
-                item_id: str = ""
-                new_priority: int = 0
-            
             await self.event_bus.publish(ContextShared(
                 source_scope=source_scope,
                 target_scope=target_scope,
@@ -1481,81 +1583,108 @@ class FederatedContextManager:
             logger.warning("Scope not found: %s", scope_name)
             return []
         
-        # Разделение
-        system_items = [
-            item for item in scope.registry.values()
-            if item.priority >= 10
-        ]
-        dynamic_items = [
-            item for item in scope.registry.values()
-            if item.priority < 10
-        ]
-        
-        # Бюджет
-        system_tokens = sum(item.token_count for item in system_items)
+        # Разделение на системные (критические) и динамические
+        system_items = [i for i in scope.registry.values() if i.priority >= 10]
+        dynamic_items = [i for i in scope.registry.values() if i.priority < 10]
+
+        # Бюджет системных элементов
+        system_tokens = sum(i.token_count for i in system_items)
+
+        # Edge case (EDGE_CASES §2 / ERROR_HANDLING §4): критические элементы
+        # не вытесняются, поэтому их сумма обязана помещаться в бюджет.
+        if system_tokens > scope.max_tokens:
+            logger.error(
+                "critical_items_exceed_budget scope=%s system_tokens=%d max=%d",
+                scope_name,
+                system_tokens,
+                scope.max_tokens,
+            )
+            raise ValueError(
+                f"Critical items ({system_tokens} tokens) exceed scope "
+                f"budget ({scope.max_tokens} tokens). "
+                f"Reduce critical items or increase max_tokens."
+            )
+
         available_budget = scope.max_tokens - system_tokens
-        
-        # Сортировка
+
+        # Сортировка: priority DESC, last_accessed DESC
         dynamic_items.sort(
             key=lambda x: (x.priority, x.last_accessed),
             reverse=True,
         )
-        
-        # Заполнение бюджета
+
+        # Заполнение бюджета (AST-скелетирование как fallback для file_content)
         final_dynamic: list[ContextItem] = []
+        evicted: list[str] = []
         current_tokens = 0
-        
+
         for item in dynamic_items:
             if current_tokens + item.token_count <= available_budget:
-                # Полное вхождение
                 final_dynamic.append(item)
                 current_tokens += item.token_count
-            elif item.type == "file_content":
-                # Попытка скелетирования
-                skeleton_text = skeletonize(item.content, item.id)
+                continue
+
+            if item.type == "file_content":
+                # Strategy: скелетируем через инъецированный CodeSkeletonizer.
+                skeleton_text = self.skeletonizer.skeletonize(
+                    item.content, file_id=item.id
+                )
                 skeleton_tokens = self.token_counter.count(skeleton_text)
-                
-                if current_tokens + skeleton_tokens <= available_budget:
-                    skeleton_item = ContextItem(
+                # Edge case (EDGE_CASES §3): скелет может быть не меньше оригинала.
+                if (
+                    skeleton_tokens < item.token_count
+                    and current_tokens + skeleton_tokens <= available_budget
+                ):
+                    final_dynamic.append(ContextItem(
                         id=f"{item.id}:skeleton",
                         type="file_skeleton",
                         content=skeleton_text,
                         priority=item.priority,
                         owner_scope=scope_name,
                         token_count=skeleton_tokens,
-                    )
-                    final_dynamic.append(skeleton_item)
+                    ))
                     current_tokens += skeleton_tokens
                     logger.debug(
-                        "Skeletonized %s: %d → %d tokens",
+                        "skeletonized item_id=%s %d → %d tokens",
                         item.id,
                         item.token_count,
                         skeleton_tokens,
                     )
-                else:
-                    logger.debug(
-                        "Evicted %s (even skeleton doesn't fit)",
-                        item.id,
-                    )
-            else:
-                logger.debug("Evicted %s", item.id)
-        
+                    continue
+
+            evicted.append(item.id)
+            logger.debug("evicted item_id=%s", item.id)
+
+        # Observability: сообщаем о вытеснении (класс объявлен на уровне модуля)
+        if evicted and self.event_bus:
+            await self.event_bus.publish(ContextOverflow(
+                scope_name=scope_name,
+                max_tokens=scope.max_tokens,
+                current_tokens=system_tokens + current_tokens,
+                evicted_items=evicted,
+            ))
+
         # Формирование messages
         messages: list[LLMMessage] = []
-        
         for item in system_items:
             messages.append(LLMMessage(role="system", content=item.content))
-        
+
         if final_dynamic:
             context_block = f"--- КОНТЕКСТ АГЕНТА [{scope_name.upper()}] ---\n"
             for item in final_dynamic:
                 context_block += f"\n[{item.type.upper()}] {item.id}\n{item.content}\n"
             context_block += "-------------------------------------------\n"
-            
             messages.append(LLMMessage(role="user", content=context_block))
-        
+
         return messages
 ```
+
+> **Полнота класса.** Методы `hydrate_from_history()` и хелперы
+> `_priority_for_role` / `_type_for_role` / `_clear_history_items` —
+> часть того же `FederatedContextManager`; их канонический код приведён
+> в §3.4 (здесь не дублируется). Класс наследует `ContextManager(ABC)`
+> из этого же модуля (см. ABC выше и `ARCHITECTURE.md §3.7`), поэтому
+> реализует все пять абстрактных методов.
 
 ---
 
@@ -1897,7 +2026,11 @@ fcm.skeletonization    # Сжатие через AST
 
 ### Q: FCM заменяет ContextCompactor?
 
-**A:** Нет, FCM дополняет его. `ContextCompactor` работает с `session.history`, а FCM — с контекстом агентов. Можно использовать оба.
+**A:** FCM **включает** `ContextCompactor` как Слой 2 и делегирует ему сжатие
+истории. На уровне `ExecutionEngine` это взаимоисключающие пути: движок
+принимает либо `context_manager` (FCM-путь), либо `compactor` (legacy-путь),
+но не оба одновременно. При включённом FCM (`enable_fcm=true`) отдельный
+legacy-компактор не используется — он живёт внутри FCM.
 
 ### Q: Что если tiktoken не установлен?
 
