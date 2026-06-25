@@ -207,6 +207,8 @@ class TestFileMetricsExporter:
         metrics2 = {"sess_2": SessionMetrics(session_id="sess_2", llm_call_count=2)}
 
         exporter.export_metrics(metrics1)
+        # Сбрасываем last_export_time чтобы обойти MIN_EXPORT_INTERVAL
+        exporter._last_export_time = 0.0
         result = exporter.export_metrics(metrics2)
 
         assert result is not None

@@ -9,6 +9,8 @@
 
 Phase 0: внутренне использует PayloadEnvelope (baseline/tail),
 to_messages() — адаптер на границе с LLMAdapter.
+
+Phase 1: при enabled=true использует DefaultContextManager для сбора контекста.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from codelab.server.agent.tool_filter import ToolFilter
 from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
+    from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
@@ -53,6 +56,7 @@ class ExecutionEngine:
         sanitizer: MessageSanitizer | None = None,
         plan_extractor: PlanExtractor | None = None,
         context_config: ContextConfig | None = None,
+        context_manager: ContextManager | None = None,
     ) -> None:
         self.tool_registry = tool_registry
         self.compactor = compactor
@@ -61,6 +65,7 @@ class ExecutionEngine:
         self.sanitizer = sanitizer or MessageSanitizer()
         self.plan_extractor = plan_extractor or PlanExtractor()
         self.context_config = context_config or ContextConfig()
+        self.context_manager = context_manager
 
     async def build_context(
         self,
@@ -78,6 +83,8 @@ class ExecutionEngine:
 
         Phase 0: внутренне использует PayloadEnvelope (baseline/tail).
         to_messages() — адаптер на границе с LLMAdapter.
+
+        Phase 1: при enabled=true использует ContextManager для сбора контекста.
 
         Args:
             session: Состояние сессии.
@@ -99,22 +106,37 @@ class ExecutionEngine:
             mcp_tools,
         )
 
-        history = self.history_builder.build(
-            session.history,
-            system_prompt=system_prompt,
-        )
+        if self.context_config.enabled and self.context_manager is not None:
+            prompt_blocks = [{"type": "text", "text": prompt}]
+            if content_parts:
+                prompt_blocks = [
+                    self._content_part_to_dict(part) for part in content_parts
+                ]
 
-        history = self.sanitizer.sanitize(history)
+            envelope = await self.context_manager.build_context(
+                session=session,
+                prompt=prompt_blocks,
+                agent_scope="single",
+                system_prompt=system_prompt,
+            )
+            history = envelope.to_messages()
+        else:
+            history = self.history_builder.build(
+                session.history,
+                system_prompt=system_prompt,
+            )
 
-        envelope = self._build_envelope(history)
-        envelope = await self._ensure_envelope_fits(envelope)
-        history = envelope.to_messages()
+            history = self.sanitizer.sanitize(history)
 
-        if content_parts:
+            envelope = self._build_envelope(history)
+            envelope = await self._ensure_envelope_fits(envelope)
+            history = envelope.to_messages()
+
+        if content_parts and not (self.context_config.enabled and self.context_manager):
             prompt_blocks = [
                 self._content_part_to_dict(part) for part in content_parts
             ]
-        else:
+        elif not (self.context_config.enabled and self.context_manager):
             prompt_blocks = [{"type": "text", "text": prompt}]
 
         return AgentContext(

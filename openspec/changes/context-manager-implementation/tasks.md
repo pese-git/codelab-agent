@@ -19,31 +19,31 @@
 
 ## Фаза 1: MVP сбор (3 недели)
 
-- [ ] 1.1 Реализовать `TaskAnalyzer.analyze()` с классификацией на основе LLM (BUG_FIX/FEATURE/REFACTOR/ARCHITECTURE)
-- [ ] 1.2 Реализовать fallback `TaskProfile` по умолчанию при сбое классификации LLM
-- [ ] 1.3 Написать unit тесты для `TaskAnalyzer` с замоканым LLM провайдером
-- [ ] 1.4 Реализовать конвейер `ContextGatherer.gather()`: `project_tree()` → `search()` → `read_file()` → граф зависимостей → отбор
-- [ ] 1.5 Обеспечить, чтобы `ContextGatherer` выполнял весь I/O через ACP `ToolRegistry`, без прямого доступа к файлам
-- [ ] 1.6 Реализовать обнаружение бинарных файлов (по расширению и ошибке декодирования UTF-8)
-- [ ] 1.7 Реализовать фильтрацию пустых файлов/файлов только с пробелами
-- [ ] 1.8 Написать unit тесты для `ContextGatherer` с замоканым `ToolRegistry`
-- [ ] 1.9 Реализовать `DependencyGraph` с парсингом импортов на основе regex (Фаза 1)
-- [ ] 1.10 Реализовать методы `get_dependencies(recursive=False)` и `get_dependents()`
-- [ ] 1.11 Реализовать защиту от циклических импортов с множеством посещённых
-- [ ] 1.12 Написать unit тесты для `DependencyGraph`, включая циклические импорты
-- [ ] 1.13 Реализовать `TokenBudgetManager.allocate()` с настраиваемыми долями (system/history/tool_output/response_buffer)
-- [ ] 1.14 Реализовать `TokenBudgetManager.bound_content()` с сохранением начала и конца
-- [ ] 1.15 Написать unit тесты для `TokenBudgetManager`
+- [x] 1.1 Реализовать `TaskAnalyzer.analyze()` с классификацией на основе LLM (BUG_FIX/FEATURE/REFACTOR/ARCHITECTURE)
+- [x] 1.2 Реализовать fallback `TaskProfile` по умолчанию при сбое классификации LLM
+- [x] 1.3 Написать unit тесты для `TaskAnalyzer` с замоканым LLM провайдером
+- [x] 1.4 Реализовать конвейер `ContextGatherer.gather()`: `project_tree()` → `search()` → `read_file()` → граф зависимостей → отбор
+- [x] 1.5 Обеспечить, чтобы `ContextGatherer` выполнял весь I/O через ACP `ToolRegistry`, без прямого доступа к файлам
+- [x] 1.6 Реализовать обнаружение бинарных файлов (по расширению и ошибке декодирования UTF-8)
+- [x] 1.7 Реализовать фильтрацию пустых файлов/файлов только с пробелами
+- [x] 1.8 Написать unit тесты для `ContextGatherer` с замоканым `ToolRegistry`
+- [x] 1.9 Реализовать `DependencyGraph` с парсингом импортов на основе regex (Фаза 1)
+- [x] 1.10 Реализовать методы `get_dependencies(recursive=False)` и `get_dependents()`
+- [x] 1.11 Реализовать защиту от циклических импортов с множеством посещённых
+- [x] 1.12 Написать unit тесты для `DependencyGraph`, включая циклические импорты
+- [x] 1.13 Реализовать `TokenBudgetManager.allocate()` с настраиваемыми долями (system/history/tool_output/response_buffer)
+- [x] 1.14 Реализовать `TokenBudgetManager.bound_content()` с сохранением начала и конца
+- [x] 1.15 Написать unit тесты для `TokenBudgetManager`
 - [ ] 1.16 Реализовать `ContextRegistry` с `register()`, `render_baseline()`, `render_updates()`, `detect_changes()`
 - [ ] 1.17 Реализовать ABC `ContextSource` с `source_id`, `render()`, `fingerprint()` (на основе Codec)
 - [ ] 1.18 Написать unit тесты для `ContextRegistry` и `ContextSource`
-- [ ] 1.19 Интегрировать Слой A с `ExecutionEngine.build_context()`: `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph` → `TokenBudgetManager`
-- [ ] 1.20 Написать интеграционный тест: `build_context()` собирает релевантные файлы для примера задачи
+- [x] 1.19 Интегрировать Слой A с `ExecutionEngine.build_context()`: `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph` → `TokenBudgetManager`
+- [x] 1.20 Написать интеграционный тест: `build_context()` собирает релевантные файлы для примера задачи
 - [ ] 1.21 Написать e2e тест: `SingleStrategy` → `ExecutionEngine` → `ContextManager` → точность сбора файлов ≥80%
 - [ ] 1.22 Добавить метрики: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
 - [ ] 1.23 Добавить span трейсинга: `context.build` с атрибутами (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
 - [ ] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
-- [ ] 1.25 Проверить, что feature flag `agents.context.gather.enabled=false` отключает автоматический сбор
+- [x] 1.25 Проверить, что feature flag `agents.context.gather.enabled=false` отключает автоматический сбор
 
 ## Фаза 2: Слой хранения (2 недели)
 
