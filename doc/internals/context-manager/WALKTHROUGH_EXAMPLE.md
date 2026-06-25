@@ -20,6 +20,45 @@
 
 Каждая итерация = один проход agent loop: `Strategy → ExecutionEngine.build_context() → ContextManager → LLM → (tool calls) → continue`.
 
+### Обзор 4 итераций (sequence diagram)
+
+```mermaid
+sequenceDiagram
+    actor U as Пользователь
+    participant CM as ContextManager
+    participant FC as FileContentCache
+    participant L as LLM (LLMAdapter)
+
+    Note over U,L: Итерация 1 — сбор контекста (гидрация)
+    U->>CM: prompt «исправь падение при пустом email»
+    CM->>CM: TaskAnalyzer → Gatherer (read login.py, validators.py)
+    CM->>FC: set(login.py), set(validators.py)
+    CM->>L: PayloadEnvelope baseline 3300 + tail 20 (fp_a1)
+    L-->>CM: tool_call: read test_login.py
+
+    Note over U,L: Итерация 2 — продолжение (кэш-хит)
+    CM->>FC: get(login.py) ✓ кэш-хит (0 RPC)
+    CM->>L: baseline 3300 + tail 1240 (fp_a1)
+    L-->>CM: правка validators.py; read session.py (большой)
+
+    Note over U,L: Итерация 3 — скелет + 3-фазное сжатие
+    CM->>CM: skeletonize(session.py) 3500→250; Prune 135k→52k
+    CM->>L: baseline 52000 (fp_b7)
+    L-->>CM: fs/write validators.py (фикс)
+
+    Note over U,L: Итерация 4a — инкрементальная эпоха (baseline неизменен)
+    CM->>CM: snapshot.diff = UNCHANGED → baseline из эпохи
+    CM->>L: только tail 30 (fp_b7 → prompt-cache хит)
+    L-->>CM: обычный ход
+
+    Note over U,L: Итерация 4b — правка файла → инвалидация
+    L-->>CM: fs/write validators.py
+    CM->>FC: invalidate(validators.py) + сигнал изменения
+    CM->>CM: reconcile = UPDATED → новая эпоха fp_c2
+    CM->>L: baseline пересобран 52010 (fp_c2)
+    L-->>U: end_turn → ответ
+```
+
 ---
 
 ## Итерация 1 — первый запрос (сбор контекста, гидрация)
