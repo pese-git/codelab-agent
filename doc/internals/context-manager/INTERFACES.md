@@ -165,7 +165,7 @@ class ConversationSummarizer(ABC):
 
 
 class ContextReconciler(ABC):
-    """ContextSnapshot + ContextReconciliation (Phase 4)."""
+    """ContextSnapshot + ContextReconciler (Phase 4)."""
 
     @abstractmethod
     async def snapshot(self, registry: ContextRegistry) -> "ContextSnapshot": ...

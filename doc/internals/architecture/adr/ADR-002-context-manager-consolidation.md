@@ -52,7 +52,7 @@
 | Главная проблема | Дубли RPC, потеря при сжатии, приоритеты | Сбор *правильного* контекста + инкрементальность |
 | Сбор контекста | Пассивный (агент кладёт прочитанное в scope) | Активный (`TaskAnalyzer`+`Gatherer`+`Graph` сами решают) |
 | Кэширование | Свой RAM `FileContentCache` | Иммутабельный `ContextEpoch`, кэш на стороне провайдера |
-| Инкрементальность | нет (гидратация каждый ход — MVP) | ✅ `ContextReconciliation` (только изменённые источники) |
+| Инкрементальность | нет (гидратация каждый ход — MVP) | ✅ `ContextReconciler` (только изменённые источники) |
 | Сжатие | 3 фазы: Prune→Skeletonize→Summarize + AST | Prune + `ConversationSummarizer`, AST отложен (Phase 4/X) |
 | Детект изменений | по `last_accessed` | по Codec-сравнению (не таймстемпы) |
 | Мультиагент | `share_item()` федеративно | `process_subagent_response()` + `ChildSessionManager` (изоляция) |
@@ -96,7 +96,7 @@ ContextManager (единая точка входа — из CM)
    │    SkillContextSource, ContextRegistry / ContextSource
    │
    ├─ Слой B. Жизненный цикл (из CM)
-   │    ContextEpoch, ContextSnapshot, ContextReconciliation, ConversationSummarizer
+   │    ContextEpoch, ContextSnapshot, ContextReconciler, ConversationSummarizer
    │
    ├─ Слой C. Хранение и эффективность (из FCM)
    │    FileContentCache + SessionFileCacheRegistry + FileCacheDecorator
@@ -175,7 +175,7 @@ ContextManager (единая точка входа — из CM)
 | Модель | Суть | Источник |
 |--------|------|----------|
 | **Гидрация каждый ход** | payload пересобирается заново из истории/скоупа на каждом обращении к LLM | FCM |
-| **Инкрементальная** | иммутабельный `ContextEpoch` baseline + дельты; `ContextSnapshot` детектит изменения, `ContextReconciliation` применяет их на границах хода | CM |
+| **Инкрементальная** | иммутабельный `ContextEpoch` baseline + дельты; `ContextSnapshot` детектит изменения, `ContextReconciler` применяет их на границах хода | CM |
 
 ### Сравнение
 
@@ -203,7 +203,7 @@ ContextManager (единая точка входа — из CM)
 
 1. **Phase 0 — форма данных сразу.** API формирования payload с явным разделением `baseline (иммутабельный) / tail (дельты)`. Дёшево, фиксирует контракт.
 2. **Phase 1 — MVP-поведение как у гидрации** за этим интерфейсом (`baseline` тривиально пересобирается каждый ход). Быстро, корректно, тестируемо.
-3. **Phase 4 — включить `ContextEpoch` + `ContextSnapshot` + `ContextReconciliation`** как оптимизацию за тем же API, без переписывания ядра (после слоя хранения C — см. «Единый roadmap»).
+3. **Phase 4 — включить `ContextEpoch` + `ContextSnapshot` + `ContextReconciler`** как оптимизацию за тем же API, без переписывания ядра (после слоя хранения C — см. «Единый roadmap»).
 
 Итог: поведение FCM на старте, форма данных CM с первого дня. Инкрементальность фиксируется как **требование**, а не «возможно позже».
 
@@ -226,7 +226,7 @@ ContextManager (единая точка входа — из CM)
 | **1. MVP-сбор** (3 нед) | `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph(regex)` → `TokenBudgetManager`; всё через ACP `ToolRegistry`. Поведение payload — гидрация (baseline тривиально пересобирается) | CM | «Умный» контекст + рабочий e2e на простой модели жизненного цикла |
 | **2. Слой хранения C** (2 нед) | `TokenCounter`(tiktoken), `FileContentCache`+`SessionFileCacheRegistry`+`FileCacheDecorator` (устранение дублей RPC), `CodeSkeletonizer`(AST) как фаза Skeletonize компактора | **FCM** | Стабилизирует содержимое baseline → готовит почву для кэш-хита перед инкрементальностью |
 | **3. Источники + сжатие** (1 нед) | `ContextRegistry`/`ContextSource`, `SkillContextSource`, единый 3-фазный компактор (Prune→Skeletonize(C)→Summarize), `ConversationSummarizer` | CM + FCM | Полный набор источников за реестром; финализация сжатия |
-| **4. Инкрементальность** (2 нед) | `ContextEpoch` + `ContextSnapshot`(Codec-детект) + `ContextReconciliation` за тем же `baseline/tail` API; включение provider/KV prefix-cache | CM | Главный выигрыш для длинных сессий; без переписывания ядра |
+| **4. Инкрементальность** (2 нед) | `ContextEpoch` + `ContextSnapshot`(Codec-детект) + `ContextReconciler` за тем же `baseline/tail` API; включение provider/KV prefix-cache | CM | Главный выигрыш для длинных сессий; без переписывания ядра |
 | **5. Полный DependencyGraph** (2 нед) | рекурсивное разрешение зависимостей, опц. tree-sitter вместо regex | CM | Точность отбора файлов на больших проектах |
 | **6. Мультиагент** (2 нед) | `process_subagent_response`, `ChildSessionManager` (изоляция, default); опц. федеративный `share_item()` (FCM) за флагом | CM + FCM(opt) | Самая спорная часть — последней, за флагом |
 
@@ -259,7 +259,7 @@ ContextManager (единая точка входа — из CM)
 ### Требование интеграции (Phase 2 ↔ Phase 4)
 Главный риск — не избыточность, а **рассинхрон инвалидаций**. При `fs/write`:
 - `FileContentCache.invalidate(path)` сбрасывает контент-кэш, **но**
-- если файл в baseline эпохи, изменение должен заметить `ContextSnapshot` и обработать `ContextReconciliation` (обновить/разорвать эпоху).
+- если файл в baseline эпохи, изменение должен заметить `ContextSnapshot` и обработать `ContextReconciler` (обновить/разорвать эпоху).
 
 Если инвалидация контента не доходит до эпохи — модель работает на устаревшем baseline (тихий баг рассинхрона). Поэтому `FileCacheDecorator` (Phase 2) и snapshot-детект (Phase 4) **обязаны слушать единый источник истины об изменениях файла** (Codec-сравнение CM), а не два независимых сигнала. Фиксируется как требование на стыке Phase 2 и Phase 4.
 

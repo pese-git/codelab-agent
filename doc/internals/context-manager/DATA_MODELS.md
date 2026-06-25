@@ -136,7 +136,7 @@ class ContextSnapshot:
 
 @dataclass(frozen=True)
 class ReconcileResult:
-    """Результат ContextReconciliation.reconcile()."""
+    """Результат ContextReconciler.reconcile()."""
     state: ChangeState
     updated_sources: list[str]
     new_tail_messages: list[LLMMessage]
