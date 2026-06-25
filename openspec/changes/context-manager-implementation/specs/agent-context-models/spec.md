@@ -85,7 +85,7 @@
 - `priority: int` — 0-10; >=10 не вытесняется при компактировании
 - `owner_scope: str`
 - `token_count: int`
-- `last_accessed: float = 0.0`
+- `last_accessed: float = 0.0` — временная метка последнего доступа (для LRU eviction)
 
 #### Scenario: ContextItem с приоритетом
 - **WHEN** создаётся элемент контекста

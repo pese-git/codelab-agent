@@ -43,7 +43,7 @@
 - [ ] 1.22 Добавить метрики: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
 - [ ] 1.23 Добавить span трейсинга: `context.build` с атрибутами (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
 - [ ] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
-- [ ] 1.25 Проверить, что feature flag `gather.enabled=false` отключает автоматический сбор
+- [ ] 1.25 Проверить, что feature flag `agents.context.gather.enabled=false` отключает автоматический сбор
 
 ## Фаза 2: Слой хранения (2 недели)
 
@@ -73,7 +73,7 @@
 - [ ] 2.24 Написать unit тесты для `CodeSkeletonizer`, включая детерминизм и fallback
 - [ ] 2.25 Реализовать dataclass `ContextItem` с `id`, `type`, `content`, `priority`, `owner_scope`, `token_count`, `last_accessed`
 - [ ] 2.26 Добавить метрики: `context_file_cache_hits`, `context_file_cache_misses`, `context_file_cache_evictions`, `context_file_cache_size_bytes`, `context_token_count_duration_ms`, `context_skeleton_savings_ratio`
-- [ ] 2.27 Проверить, что feature flag `storage.enabled=false` отключает кэширование и скелетирование
+- [ ] 2.27 Проверить, что feature flag `agents.context.storage.enabled=false` отключает кэширование и скелетирование
 
 ## Фаза 3: Источники + сжатие (1 неделя)
 
@@ -125,8 +125,8 @@
 - [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применять вместе на следующей границе
 - [ ] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
 - [ ] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
-- [ ] 4.25 Проверить, что feature flag `lifecycle.incremental=false` использует режим гидрации (baseline перестраивается каждый ход)
-- [ ] 4.26 Проверить, что feature flag `lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
+- [ ] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline перестраивается каждый ход)
+- [ ] 4.26 Проверить, что feature flag `agents.context.lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
 
 ## Фаза 5: Полный DependencyGraph (2 недели)
 
@@ -138,8 +138,8 @@
 - [ ] 5.6 (Опционально) Реализовать парсинг импортов на основе tree-sitter для улучшенной точности
 - [ ] 5.7 (Опционально) Написать unit тесты, сравнивающие точность tree-sitter и regex
 - [ ] 5.8 Добавить метрики: `context_gathered_files` с label `task_type` для больших проектов
-- [ ] 5.9 Проверить, что feature flag `gather.recursive_dependencies=false` использует не рекурсивный режим
-- [ ] 5.10 Проверить, что feature flag `gather.use_tree_sitter=true` использует tree-sitter, если реализован
+- [ ] 5.9 Проверить, что feature flag `agents.context.gather.recursive_dependencies=false` использует не рекурсивный режим
+- [ ] 5.10 Проверить, что feature flag `agents.context.gather.use_tree_sitter=true` использует tree-sitter, если реализован
 
 ## Фаза 6: Мультиагент (2 недели)
 
@@ -161,10 +161,10 @@
 - [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх
 - [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий
 - [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()`
-- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `multiagent.federation=true`
+- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `agents.context.multiagent.federation=true`
 - [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True`
 - [ ] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts`
-- [ ] 6.22 Проверить, что feature flag `multiagent.federation=false` использует только изоляцию
+- [ ] 6.22 Проверить, что feature flag `agents.context.multiagent.federation=false` использует только изоляцию
 
 ## Сквозные задачи
 
