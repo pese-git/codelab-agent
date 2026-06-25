@@ -143,27 +143,33 @@ ContextManager (единая точка входа)
 
 `ContextManager` не вызывает LLM сам — он только готовит payload. За вызов и tool-цикл отвечают существующие компоненты (`ExecutionEngine`, `EventBus`, `LLMAdapter`, `LLMLoopStage` — см. [ADR-001](../architecture/adr/ADR-001-llm-adapter-single-call.md)). Полная петля:
 
-```
-                    ┌─────────────────────── ContextManager ───────────────────────┐
- session.history ──▶│ build_context() → PayloadEnvelope → ensure_context_fits()     │
-        ▲           └──────────────────────────────┬────────────────────────────────┘
-        │                                           │ envelope.to_messages()  (baseline+tail)
-        │                                           ▼
-        │              ExecutionEngine: AgentContext.conversation_history = to_messages()
-        │                                           │
-        │                                           ▼  AgentRequest(messages, tools)
-        │                                EventBus.send_request()
-        │                                           │
-        │                                           ▼
-        │                        LLMAdapter.call() → provider.create_completion()   (ОДИН вызов)
-        │                                           │  AgentResponse(text, tool_calls, stop_reason)
-        │                                           ▼
-        │                LLMLoopStage: есть tool_calls?
-        │                   ├─ да → выполнить инструменты (через ToolRegistry + FileCacheDecorator)
-        │                   │         результат → tool_result-сообщение
-        │                   │         └────────────┐
-        └───────────────────────────────────────────┘  append в session.history → следующий build_context()
-                            └─ нет (end_turn) → ответ пользователю, петля завершена
+```mermaid
+flowchart TD
+    SH[("session.history")]
+
+    subgraph CM["ContextManager"]
+        BC["build_context() → PayloadEnvelope<br/>→ ensure_context_fits()"]
+    end
+
+    EE["ExecutionEngine:<br/>AgentContext.conversation_history = envelope.to_messages()"]
+    EB["EventBus.send_request()<br/>AgentRequest(messages, tools)"]
+    LLM["LLMAdapter.call() → provider.create_completion()<br/>(ОДИН вызов)"]
+    DEC{"LLMLoopStage:<br/>есть tool_calls?"}
+    TOOLS["Выполнить инструменты<br/>(ToolRegistry + FileCacheDecorator)<br/>→ tool_result-сообщение"]
+    DONE(["end_turn → ответ пользователю<br/>петля завершена"])
+
+    SH -->|вход| BC
+    BC -->|"to_messages() (baseline+tail)"| EE
+    EE --> EB
+    EB --> LLM
+    LLM -->|"AgentResponse(text, tool_calls, stop_reason)"| DEC
+    DEC -->|да| TOOLS
+    DEC -->|нет| DONE
+    TOOLS -->|"append → следующий build_context()"| SH
+
+    %% файловый канал
+    TOOLS -.->|"fs/read → set() / fs/write → invalidate()"| FCC[("FileContentCache<br/>+ сигнал инвалидации")]
+    FCC -.->|"кэш-хит / reconcile (Phase 4)"| BC
 ```
 
 **A. Исходящий путь (PayloadEnvelope → LLM).**
