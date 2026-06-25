@@ -1,5 +1,8 @@
 # Federated Context Manager — Архитектура и интеграция
 
+> **ARCHIVED.** Этот документ архивирован. Каноническая документация — в [`doc/internals/context-manager/`](../../context-manager/). См. также [ADR-002](../adr/ADR-002-context-manager-consolidation.md).
+
+
 > **Версия:** 2.3  
 > **Дата:** 25 июня 2026  
 > **Статус:** Design Document  

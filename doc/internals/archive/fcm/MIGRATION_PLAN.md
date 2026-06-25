@@ -1,5 +1,8 @@
 # FCM Migration Plan
 
+> **ARCHIVED.** Этот документ архивирован. Каноническая документация — в [`doc/internals/context-manager/`](../../context-manager/). См. также [ADR-002](../adr/ADR-002-context-manager-consolidation.md).
+
+
 > **Версия:** 1.1  
 > **Дата:** 25 июня 2026  
 > **Для кого:** Разработчики, имплементирующие FCM

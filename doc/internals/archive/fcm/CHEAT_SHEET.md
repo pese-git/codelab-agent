@@ -1,5 +1,8 @@
 # Federated Context Manager — Cheat Sheet
 
+> **ARCHIVED.** Этот документ архивирован. Каноническая документация — в [`doc/internals/context-manager/`](../../context-manager/). См. также [ADR-002](../adr/ADR-002-context-manager-consolidation.md).
+
+
 > Быстрая шпаргалка для разработчиков (v2.3 — единый путь формирования payload,
 > слоистая архитектура, ABC + Factory). Канонические сигнатуры — см.
 > `ARCHITECTURE.md §3.7` и `INTEGRATION_GUIDE.md §4`.
