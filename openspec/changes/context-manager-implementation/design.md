@@ -266,7 +266,7 @@ CodeLab в настоящее время использует legacy `ContextCom
 4. Реализовать `TokenBudgetManager`
 5. Интегрировать с `ExecutionEngine.build_context()`
 
-**Откат:** Feature flag `gather.enabled=false` → нет автоматического сбора.
+**Откат:** Feature flag `agents.context.gather.enabled=false` → нет автоматического сбора.
 
 ### Фаза 2: Слой хранения (2 недели)
 
@@ -275,7 +275,7 @@ CodeLab в настоящее время использует legacy `ContextCom
 3. Реализовать `FileCacheDecorator`
 4. Реализовать `CodeSkeletonizer` (на основе AST)
 
-**Откат:** Feature flag `storage.enabled=false` → нет кэширования/скелетирования.
+**Откат:** Feature flag `agents.context.storage.enabled=false` → нет кэширования/скелетирования.
 
 ### Фаза 3: Источники + сжатие (1 неделя)
 
@@ -289,9 +289,9 @@ CodeLab в настоящее время использует legacy `ContextCom
 
 1. Реализовать `ContextEpoch` + `ContextSnapshot` + `ContextReconciler`
 2. Единый сигнал инвалидации (интеграция Фаза 2 ↔ Фаза 4)
-3. Включить `lifecycle.incremental=true` для попаданий в prompt cache
+3. Включить `agents.context.lifecycle.incremental=true` для попаданий в prompt cache
 
-**Откат:** Feature flag `lifecycle.incremental=false` → режим гидрации.
+**Откат:** Feature flag `agents.context.lifecycle.incremental=false` → режим гидрации.
 
 ### Фаза 5: Полный DependencyGraph (2 недели)
 
@@ -306,7 +306,7 @@ CodeLab в настоящее время использует legacy `ContextCom
 2. Реализовать `process_subagent_response()`
 3. Интегрировать со стратегиями Orchestrated/Choreography/Hierarchical
 
-**Откат:** Feature flag `multiagent.federation=false` → только изоляция.
+**Откат:** Feature flag `agents.context.multiagent.federation=false` → только изоляция.
 
 ## Открытые вопросы
 

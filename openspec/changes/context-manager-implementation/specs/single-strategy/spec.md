@@ -7,7 +7,7 @@
 SingleStrategy ДОЛЖНА:
 1. Вызвать `ExecutionEngine.build_context(session, prompt, agent_scope="single", system_prompt=...)`
 2. Получить `PayloadEnvelope` от `ContextManager.build_context()`
-3. Вызвать `ContextManager.ensure_context_fits(envelope, max_context_tokens, reserved_tokens)`
+3. Вызвать `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
 4. Конвертировать `envelope.to_messages()` в `AgentRequest.messages`
 5. Вызвать `event_bus.send_request(request, parent_span)`
 6. Вернуть `AgentResponse` вызывающему
@@ -25,7 +25,7 @@ SingleStrategy ДОЛЖНА:
 `ExecutionEngine.build_context(session, prompt, *, agent_scope, system_prompt, options)` ДОЛЖЕН:
 1. Вызвать `ContextManager.build_context(session, prompt, agent_scope=agent_scope, system_prompt=system_prompt, options=options)`
 2. Получить `PayloadEnvelope`
-3. Вызвать `ContextManager.ensure_context_fits(envelope, max_context_tokens, reserved_tokens)`
+3. Вызвать `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
 4. Сформировать `AgentContext` с `conversation_history = envelope.to_messages()`
 
 #### Scenario: ExecutionEngine делегирует ContextManager
@@ -44,7 +44,7 @@ SingleStrategy ДОЛЖНА:
 
 #### Scenario: Legacy режим
 - **WHEN** `agents.context.enabled=false`
-- **THEN** `ExecutionEngine` использует legacy `ContextCompactor`, поведение бит-в-бит как до Phase 0
+- **THEN** `ExecutionEngine` использует legacy `ContextCompactor`, поведение бит-в-бит как до Фазы 0
 
 #### Scenario: Новый режим
 - **WHEN** `agents.context.enabled=true`

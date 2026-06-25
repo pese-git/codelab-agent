@@ -36,20 +36,20 @@
 ### Feature flags
 
 Новая конфигурация `[agents.context.*]` с master-switch `enabled` и подфлагами для каждого слоя:
-- `gather.enabled` (Phase 1)
-- `storage.enabled` (Phase 2)
-- `lifecycle.incremental` (Phase 4)
-- `multiagent.federation` (Phase 6, кандидат на отказ)
+- `agents.context.gather.enabled` (Фаза 1)
+- `agents.context.storage.enabled` (Фаза 2)
+- `agents.context.lifecycle.incremental` (Фаза 4)
+- `agents.context.multiagent.federation` (Фаза 6, кандидат на отказ)
 
 ### Фазы реализации
 
-- **Phase 0:** Каркас + контракты + baseline/tail форма (1 неделя)
-- **Phase 1:** MVP-сбор (слой A) (3 недели)
-- **Phase 2:** Слой C (кэш, скелет, tiktoken) (2 недели)
-- **Phase 3:** Источники + 3-фазное сжатие (1 неделя)
-- **Phase 4:** Инкрементальность (эпохи) (2 недели)
-- **Phase 5:** Полный DependencyGraph (2 недели)
-- **Phase 6:** Мультиагент (2 недели)
+- **Фаза 0:** Каркас + контракты + baseline/tail форма (1 неделя)
+- **Фаза 1:** MVP-сбор (слой A) (3 недели)
+- **Фаза 2:** Слой C (кэш, скелет, tiktoken) (2 недели)
+- **Фаза 3:** Источники + 3-фазное сжатие (1 неделя)
+- **Фаза 4:** Инкрементальность (эпохи) (2 недели)
+- **Фаза 5:** Полный DependencyGraph (2 недели)
+- **Фаза 6:** Мультиагент (2 недели)
 
 **Итого:** ~13 недель
 
@@ -146,7 +146,7 @@ src/codelab/server/tools/executors/decorators/
 
 ### Риски
 
-1. **Сложность стыка Phase 2 ↔ Phase 4:** единый сигнал инвалидации файла критичен для корректности baseline
+1. **Сложность стыка Фаза 2 ↔ Фаза 4:** единый сигнал инвалидации файла критичен для корректности baseline
 2. **Детерминизм `CodeSkeletonizer`:** недетерминированный вывод рвёт prompt-cache хит
 3. **Graceful degradation:** горячий путь никогда не должен падать (требование ко всем слоям)
 
