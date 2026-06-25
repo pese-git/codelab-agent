@@ -1,8 +1,17 @@
 # FCM Migration Plan
 
-> **Версия:** 1.0  
-> **Дата:** 24 июня 2026  
+> **Версия:** 1.1  
+> **Дата:** 25 июня 2026  
 > **Для кого:** Разработчики, имплементирующие FCM
+>
+> **Изменения в v1.1 (согласование с каноном v2.3):**
+> - §2.3: единая backward-compat политика — `raise ValueError` при
+>   одновременном `compactor` и `context_manager` (как в Phase 0 и
+>   `INTEGRATION_GUIDE.md §5`); убрано скрытое авто-создание legacy-компактора
+> - Путь `SingleStrategy` исправлен на
+>   `protocol/handlers/strategies/single_strategy.py`
+> - Метка `mode` в `DefaultContextCompactor` приведена к каноническому
+>   набору `{noop, pruned, skeletonized, summarized}` (§3.7 ABC)
 
 ---
 
@@ -85,8 +94,10 @@ class ExecutionEngine:
 ### 1.3. Dependencies
 
 **Используемые стратегии:**
-- `SingleStrategy` (src/codelab/server/agent/strategies/)
-- Другие стратегии пока не существуют (multi-agent в планах)
+- `SingleStrategy` (`src/codelab/server/protocol/handlers/strategies/single_strategy.py`)
+- Multi-agent стратегии (Orchestrated/Hierarchical/Choreography) пока **не
+  существуют** — будут созданы в той же директории
+  `src/codelab/server/protocol/handlers/strategies/` (`*_strategy.py`)
 
 **Тесты:**
 - `tests/server/agent/test_context_compactor.py` (100% coverage)
@@ -127,35 +138,38 @@ src/codelab/server/tools/executors/decorators/
 
 **Principle:** Существующий код продолжает работать без изменений
 
+**Principle:** FCM и legacy `ContextCompactor` — **взаимоисключающие** пути.
+Эта же политика действует в Phase 0 (§4) и `INTEGRATION_GUIDE.md §5`.
+
 **Implementation:**
 ```python
 class ExecutionEngine:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        # NEW: accept both (transitional period)
-        compactor: ContextCompactor | None = None,
-        context_manager: ContextManager | None = None,
+        compactor: ContextCompactor | None = None,      # deprecated (legacy путь)
+        context_manager: ContextManager | None = None,  # NEW (FCM путь)
         ...,
     ) -> None:
+        # FCM и legacy compactor нельзя задавать одновременно.
+        if compactor is not None and context_manager is not None:
+            raise ValueError(
+                "ExecutionEngine: use either compactor (legacy) "
+                "or context_manager (FCM), not both"
+            )
+
         self.tool_registry = tool_registry
-        
-        # Backward compatibility: если оба None, создаём legacy compactor
-        if compactor is None and context_manager is None:
-            from codelab.server.agent.context_compactor import ContextCompactor
-            compactor = ContextCompactor()
-        
         self.compactor = compactor
         self.context_manager = context_manager
-        
-        # Log deprecation warning
-        if compactor is not None and context_manager is None:
+
+        # Deprecation warning при использовании legacy-параметра.
+        if compactor is not None:
             logger.warning(
                 "compactor parameter is deprecated, use context_manager instead",
                 deprecation_version="v2.3",
                 removal_version="v3.0",
             )
-    
+
     async def build_context(
         self,
         session: SessionState,
@@ -165,19 +179,19 @@ class ExecutionEngine:
         content_parts: list[Any] | None = None,
         agent_scope: str = "single",  # NEW: default value для backward compat
     ) -> AgentContext:
-        # ... history building ...
-        
-        # Feature flag logic
         if self.context_manager is not None:
-            # NEW path: FCM
-            history = await self._build_via_fcm(
-                session, system_prompt, agent_scope
+            # NEW path: FCM (единый путь для всех стратегий)
+            messages = await self._build_via_fcm(session, system_prompt, agent_scope)
+        else:
+            # LEGACY path: HistoryBuilder + опц. ContextCompactor
+            messages = self.history_builder.build(
+                session.history, system_prompt=system_prompt
             )
-        elif self.compactor is not None:
-            # LEGACY path: ContextCompactor
-            history, _, _ = await self.compactor.compact_if_needed(history)
-        
-        return AgentContext(...)
+            messages = self.sanitizer.sanitize(messages)
+            if self.compactor is not None:
+                messages, _, _ = await self.compactor.compact_if_needed(messages)
+
+        return AgentContext(...)  # prompt_blocks, tools, messages, ...
 ```
 
 ---
@@ -441,7 +455,7 @@ class DefaultContextCompactor(ContextCompactor):
             summarized = await self._summarize_conversation(pruned)
             return summarized, True, "summarized"
         
-        return pruned, True, "pruned_only"
+        return pruned, True, "pruned"  # mode из канонического набора §3.7 ABC
     
     async def _skeletonize_file_content(self, history):
         """AST-сжатие для file_content сообщений."""

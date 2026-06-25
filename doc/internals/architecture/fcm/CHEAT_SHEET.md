@@ -1,6 +1,8 @@
 # Federated Context Manager — Cheat Sheet
 
-> Быстрая шпаргалка для разработчиков (v2.2 — единый путь формирования payload)
+> Быстрая шпаргалка для разработчиков (v2.3 — единый путь формирования payload,
+> слоистая архитектура, ABC + Factory). Канонические сигнатуры — см.
+> `ARCHITECTURE.md §3.7` и `INTEGRATION_GUIDE.md §4`.
 
 ---
 
@@ -9,10 +11,10 @@
 ```python
 # Слой 1: Утилиты
 from codelab.server.agent.context.token_counter import (
-    TokenCounter,              # ABC
+    TokenCounter,              # ABC (НЕ инстанцируется напрямую)
     TiktokenCounter,           # Реализация (точный)
     ApproximateTokenCounter,   # Реализация (fallback)
-    create_token_counter,      # Factory Method
+    create_token_counter,      # Factory Method ← используйте это
 )
 from codelab.server.agent.context.ast_skeletonizer import (
     CodeSkeletonizer,          # ABC
@@ -33,7 +35,7 @@ from codelab.server.agent.context.compactor import (
 # Слой 3: Оркестрация
 from codelab.server.agent.context.manager import (
     ContextManager,            # ABC
-    FederatedContextManager,   # Реализация
+    FederatedContextManager,   # Реализация (наследует ContextManager)
 )
 from codelab.server.agent.context.items import ContextItem, ContextType
 from codelab.server.agent.context.scope import AgentContextScope
@@ -80,10 +82,10 @@ context = await engine.build_context(
 
 ```python
 # Слой 1: Утилиты
-token_counter = create_token_counter()  # Factory Method
+token_counter = create_token_counter()      # Factory: Tiktoken или Approximate
 skeletonizer = PythonASTSkeletonizer()
-file_cache = InMemoryFileCache(max_size=1000)
 cache_registry = SessionFileCacheRegistry(max_cache_size=1000)
+file_cache = cache_registry.get_or_create(session_id="session_123")
 
 # Слой 2: Сжатие
 compactor = DefaultContextCompactor(
@@ -93,12 +95,14 @@ compactor = DefaultContextCompactor(
     reserved_tokens=4096,
 )
 
-# Слой 3: Оркестрация
+# Слой 3: Оркестрация (каноническая сигнатура — позиционно совпадает везде)
 fcm = FederatedContextManager(
     token_counter=token_counter,
     skeletonizer=skeletonizer,
     compactor=compactor,
     file_cache=file_cache,
+    event_bus=event_bus,   # опционально (observability)
+    tracer=tracer,         # опционально (observability)
 )
 ```
 
@@ -124,7 +128,6 @@ cache_registry.remove(session_id="session_123")
 ### FileCacheDecorator
 
 ```python
-# Создание chain of decorators (в DI или factory)
 from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
 from codelab.server.tools.executors.decorators.file_cache import FileCacheDecorator
 
@@ -143,13 +146,16 @@ result = await executor_with_cache.execute(
 )
 ```
 
+> `context_manager` опционален: без него декоратор работает как чистый
+> file-cache (read-cache + invalidation), что нужно для `enable_fcm=false`.
+
 ### Работа со скоупами
 
 ```python
-# Создать скоуп
+# Создать скоуп (max_tokens должен быть > 0, иначе ValueError)
 scope = await fcm.create_scope("agent_name", max_tokens=4000)
 
-# Добавить элемент
+# Добавить элемент (item > max_tokens → усекается, EDGE_CASES §1)
 await fcm.add_to_scope(
     scope_name="agent_name",
     item_id="src/file.py",
@@ -181,6 +187,8 @@ await fcm.share_item(
 ```python
 messages = await fcm.optimize_and_build_payload("agent_name")
 # Returns: list[LLMMessage]
+# ⚠️ Бросает ValueError, если сумма критических элементов (priority>=10)
+#    превышает scope.max_tokens (EDGE_CASES §2).
 ```
 
 ---
@@ -210,8 +218,11 @@ messages = await fcm.optimize_and_build_payload("agent_name")
 
 ## AST-скелетирование
 
+Скелетонизатор — это **Strategy** (инъецируемый объект `CodeSkeletonizer`),
+а не модульная функция:
+
 ```python
-from codelab.server.agent.context.ast_skeletonizer import skeletonize
+skeletonizer = PythonASTSkeletonizer()
 
 # Исходный код: 200 токенов
 code = """
@@ -219,32 +230,37 @@ class Database:
     def connect(self):
         # 50 строк логики
         pass
-    
+
     def query(self, sql: str) -> dict:
         # 30 строк логики
         pass
 """
 
 # Скелет: 30 токенов
-result = skeletonize(code, "db.py")
+result = skeletonizer.skeletonize(code, file_id="db.py")
 # class Database:
 #     def connect(self): ...
 #     def query(self, sql: str) -> dict: ...
 ```
 
+> Edge case (EDGE_CASES §3): для minified-кода скелет может оказаться не
+> меньше оригинала — FCM в этом случае оставляет оригинал.
+
 ---
 
 ## Подсчёт токенов
 
-```python
-counter = TokenCounter()
+`TokenCounter` — это ABC. Создавайте реализацию через фабрику:
 
-# Точный подсчёт (если tiktoken установлен)
+```python
+counter = create_token_counter()  # TiktokenCounter или ApproximateTokenCounter
+
 tokens = counter.count("Hello, world!")
 
-# Проверка режима
-if counter.has_tiktoken:
-    print("Точный подсчёт")
+# Проверка режима — через тип, а не через атрибут
+from codelab.server.agent.context.token_counter import TiktokenCounter
+if isinstance(counter, TiktokenCounter):
+    print("Точный подсчёт (tiktoken)")
 else:
     print("Fallback: len // 4")
 ```
@@ -257,7 +273,7 @@ else:
 
 ```toml
 [agents.context]
-enable_fcm = true
+enable_fcm = true                  # master switch (каноническое имя)
 use_tiktoken = true
 enable_ast_skeletonization = true
 enable_file_cache = true
@@ -271,6 +287,9 @@ reserved_tokens = 4096
 ```
 
 ### Feature flag
+
+FCM и legacy `ContextCompactor` — **взаимоисключающие** пути
+(`ExecutionEngine` принимает либо `context_manager`, либо `compactor`):
 
 ```python
 if config.agents.context.enable_fcm:
@@ -325,9 +344,11 @@ items = scope.get_items_by_priority()
 
 | Ошибка | Причина | Решение |
 |--------|---------|---------|
-| `Scope not found` | Скоуп не создан | Вызвать `create_scope()` |
-| `Item not found` | Элемент не добавлен | Вызвать `add_to_scope()` |
-| `Token limit exceeded` | Превышен бюджет | Проверить `max_tokens` |
+| `Scope '...' not found` | Скоуп не создан | Вызвать `create_scope()` |
+| `Item '...' not found` | Элемент не добавлен | Вызвать `add_to_scope()` |
+| `Critical items ... exceed scope budget` | Сумма priority>=10 > max_tokens | Уменьшить критические или поднять `max_tokens` |
+| `max_tokens must be positive` | `create_scope(..., max_tokens<=0)` | Передать положительный лимит |
+| `TypeError: Can't instantiate abstract class TokenCounter` | Прямой вызов `TokenCounter()` | Использовать `create_token_counter()` |
 
 ---
 
@@ -336,3 +357,5 @@ items = scope.get_items_by_priority()
 - [Полная архитектура](./ARCHITECTURE.md)
 - [Руководство по интеграции](./INTEGRATION_GUIDE.md)
 - [Диаграммы](./DIAGRAMS.md)
+- [Edge cases](./EDGE_CASES.md)
+- [Обработка ошибок](./ERROR_HANDLING.md)

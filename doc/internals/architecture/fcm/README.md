@@ -213,8 +213,7 @@ src/codelab/server/agent/context/
 ├── # Слой 3: Оркестрация
 ├── items.py                  # ContextItem, ContextType
 ├── scope.py                  # AgentContextScope
-├── manager.py                # ContextManager(ABC), FederatedContextManager
-└── cache.py                  # ACPCache
+└── manager.py                # ContextManager(ABC), FederatedContextManager
 
 src/codelab/server/tools/executors/decorators/
 └── file_cache.py             # FileCacheDecorator (NEW: read-cache + write-invalidation + опц. FCM scope)

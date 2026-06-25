@@ -1,7 +1,11 @@
 # FCM Performance Requirements & SLOs
 
-> **Версия:** 1.0  
-> **Дата:** 24 июня 2026
+> **Версия:** 1.1  
+> **Дата:** 25 июня 2026
+>
+> **Изменения в v1.1:** устранена нестыковка SLO `optimize_and_build_payload`
+> (p95 < 500ms) с LLM-суммаризацией (< 2s) — суммаризация явно вынесена из
+> p95-бюджета в `max`.
 
 ---
 
@@ -16,14 +20,19 @@
 | `share_item()` | < 1ms | < 5ms | < 10ms | < 50ms |
 | `optimize_and_build_payload()` | < 100ms | < 500ms | < 1s | < 5s |
 
-#### Breakdown: optimize_and_build_payload
+> **Важно:** SLO `optimize_and_build_payload` (p95 < 500ms, p99 < 1s)
+> относятся к **типовому пути без LLM-суммаризации**. LLM-суммаризация —
+> редкий fallback (срабатывает, только когда Prune + Skeletonize не уложились
+> в бюджет), в p95/p99 не входит; её стоимость отражается в `max` (< 5s).
+
+#### Breakdown: optimize_and_build_payload (типовой путь)
 
 | Sub-operation | Budget (p95) | Note |
 |---------------|--------------|------|
 | Sort by priority | < 10ms | O(n log n) на 100 items |
 | Token counting | < 50ms | Multiple items |
-| AST skeletonization | < 200ms | Самая тяжёлая операция |
-| LLM summarization | < 2s | Если нужна |
+| AST skeletonization | < 200ms | Самая тяжёлая операция в p95-бюджете |
+| LLM summarization | < 2s | Опц. редкий путь — **вне p95**; учитывается в `max` (< 5s) |
 
 ### 1.2. Throughput Requirements
 

@@ -1,10 +1,22 @@
 # Federated Context Manager — Архитектура и интеграция
 
-> **Версия:** 2.0  
-> **Дата:** 24 июня 2026  
+> **Версия:** 2.3  
+> **Дата:** 25 июня 2026  
 > **Статус:** Design Document  
 > **PoC:** См. документ "Техническое задание и Архитектурный дизайн: Федеративный Менеджер Контекста"
-> 
+>
+> **Изменения в v2.3:**
+> - Добавлены явные ABC `ContextManager` и `ContextCompactor` (§3.7)
+> - Унифицирована единственная сигнатура `FederatedContextManager`
+>   `(token_counter, skeletonizer, compactor, file_cache, event_bus, tracer)`
+>   в §8.1; удалены устаревшие методы `get_from_cache/set_cache`
+> - `TokenCounter` приведён к ABC + `create_token_counter()` (§5A.4);
+>   убран конкретный класс из ранних версий
+> - `ACPCache` заменён на `FileContentCache` (§5A.7, §5A.5 топология);
+>   удалён оборванный Mermaid-фрагмент и устаревший пример `ContextCompactor`
+> - Перенумерованы дублирующие главы/разделы (вторая глава «Подсистемы» → §5A,
+>   разделы жизненного цикла/топологии → §5.4/§5.5, AgentEventBus → §6.4)
+>
 > **Изменения в v2.0:**
 > - Слоистая архитектура (Layer 1/2/3)
 > - ABC вместо Protocol (соответствие стилю проекта)
@@ -595,8 +607,7 @@ src/codelab/server/agent/context/
 ├── # Слой 3: Оркестрация (ABC + реализация)
 ├── items.py                       # ContextItem, ContextType (dataclasses)
 ├── scope.py                       # AgentContextScope
-├── manager.py                     # ContextManager(ABC), FederatedContextManager
-└── cache.py                       # ACPCache (для FCM — кэш межагентского шеринга)
+└── manager.py                     # ContextManager(ABC), FederatedContextManager
 
 src/codelab/server/tools/executors/decorators/
 ├── base.py                        # ToolExecutorDecorator (существующий)
@@ -1124,7 +1135,7 @@ class AgentContextScope:
     def get_total_tokens(self) -> int: ...
 ```
 
-### 4.2. Жизненный цикл контекста
+### 5.4. Жизненный цикл контекста
 
 ```mermaid
 sequenceDiagram
@@ -1137,10 +1148,10 @@ sequenceDiagram
     participant LLM as LLM API
     
     User->>Client: "Найди баг в db.py и исправь"
-    Client->>FCM: add_to_cache("src/db.py", content)
+    Client->>FCM: fs/read → FileContentCache.set("src/db.py", content)
     
     FCM->>Search: Делегирование поиска
-    Search->>FCM: get_from_cache("src/db.py")
+    Search->>FCM: FileContentCache.get("src/db.py")
     FCM-->>Search: content (из кэша)
     Search->>FCM: add_to_scope("search", "bug_report", report, priority=9)
     Search-->>FCM: Задача выполнена
@@ -1156,13 +1167,13 @@ sequenceDiagram
     LLM-->>Coder: Готовый патч
 ```
 
-### 4.3. Топология скоупов
+### 5.5. Топология скоупов
 
 ```mermaid
 graph LR
     subgraph FCM["Federated Context Manager"]
         subgraph Global["Глобальный кэш"]
-            Cache["ACPCache<br/>(все RPC ответы)"]
+            Cache["FileContentCache<br/>(содержимое файлов)"]
         end
         
         subgraph PlanScope["Scope: plan_agent"]
@@ -1185,8 +1196,8 @@ graph LR
         end
     end
     
-    Cache -->|"get_from_cache()"| SearchScope
-    Cache -->|"get_from_cache()"| CoderScope
+    Cache -->|"FileCacheDecorator"| SearchScope
+    Cache -->|"FileCacheDecorator"| CoderScope
     
     SearchScope -->|"share_item()"| CoderScope
     
@@ -1199,9 +1210,12 @@ graph LR
 
 ---
 
-## 5. Подсистемы FCM
+## 5A. Подсистемы FCM — детальная спецификация (структуры данных и алгоритмы)
 
-### 5.1. ContextItem — единица информации
+> Глава дополняет §5 (компоненты по слоям) детальными структурами данных,
+> алгоритмами и потоками. Нумерация §5A.x локальна для этой главы.
+
+### 5A.1. ContextItem — единица информации
 
 **Назначение:** Минимальная единица информации в памяти FCM.
 
@@ -1255,7 +1269,7 @@ classDiagram
 | 5-9 | Высокий | Текущие файлы, активные отчёты |
 | 10+ | Критический | System rules, не вытесняются |
 
-### 5.2. AgentContextScope — изолированная область агента
+### 5A.2. AgentContextScope — изолированная область агента
 
 **Назначение:** Изолированное пространство памяти для конкретного агента.
 
@@ -1318,7 +1332,7 @@ stateDiagram-v2
     end note
 ```
 
-### 5.3. ASTSkeletonizer — сжатие кода
+### 5A.3. ASTSkeletonizer — сжатие кода
 
 **Назначение:** Сжатие исходного кода до сигнатур классов и функций для экономии токенов.
 
@@ -1387,52 +1401,56 @@ class DatabaseConnector:
 # Экономия: 85% токенов
 ```
 
-### 5.4. TokenCounter — точный подсчёт токенов
+### 5A.4. TokenCounter — точный подсчёт токенов
 
 **Назначение:** Точный подсчёт токенов с fallback на грубую оценку.
 
+`TokenCounter` — это **ABC** (см. §3.2, §5.1). Конкретные реализации —
+`TiktokenCounter` и `ApproximateTokenCounter`; выбор делает фабрика
+`create_token_counter()`. Прямое инстанцирование `TokenCounter()` запрещено
+(ABC).
+
 ```mermaid
 graph TD
-    subgraph TokenCounter["TokenCounter"]
-        Input["content: str"]
-        
-        HasTiktoken{"HAS_TIKTOKEN?"}
-        
-        Tiktoken["tiktoken.encode()<br/>Точный подсчёт"]
-        Fallback["len(content) // 4<br/>Грубая оценка"]
-        
-        Output["token_count: int"]
+    subgraph Factory["create_token_counter() (Factory Method)"]
+        Try["import tiktoken"]
+        Ok["TiktokenCounter<br/>(точный)"]
+        Fallback["ApproximateTokenCounter<br/>(len // 4)"]
     end
-    
-    Input --> HasTiktoken
-    HasTiktoken -->|Yes| Tiktoken
-    HasTiktoken -->|No| Fallback
-    Tiktoken --> Output
-    Fallback --> Output
-    
-    style TokenCounter fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+
+    Try -->|"успех"| Ok
+    Try -->|"ImportError"| Fallback
+
+    style Factory fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
 ```
 
-**Реализация:**
+**Реализация (канон — INTEGRATION_GUIDE §4, Шаг 1):**
 
 ```python
-class TokenCounter:
-    """Точный или аппроксимированный подсчёт токенов."""
-    
-    def __init__(self) -> None:
-        self._encoding = None
-        try:
-            import tiktoken
-            self._encoding = tiktoken.get_encoding("cl100k_base")
-        except ImportError:
-            pass
-    
+class TokenCounter(ABC):
+    @abstractmethod
+    def count(self, content: str) -> int: ...
+
+
+class TiktokenCounter(TokenCounter):
+    def __init__(self, encoding_name: str = "cl100k_base") -> None:
+        import tiktoken
+        self._encoding = tiktoken.get_encoding(encoding_name)
+
     def count(self, content: str) -> int:
-        """Подсчитать токены в содержимом."""
-        if self._encoding is not None:
-            return len(self._encoding.encode(content))
-        # Fallback: ~4 символа на токен
-        return len(content) // 4
+        return len(self._encoding.encode(content)) if content else 0
+
+
+class ApproximateTokenCounter(TokenCounter):
+    def count(self, content: str) -> int:
+        return len(content) // 4 if content else 0
+
+
+def create_token_counter() -> TokenCounter:
+    try:
+        return TiktokenCounter()
+    except ImportError:
+        return ApproximateTokenCounter()
 ```
 
 **Сравнение методов:**
@@ -1442,7 +1460,7 @@ class TokenCounter:
 | `tiktoken` | 100% | Медленнее | `tiktoken` (optional) |
 | `len // 4` | ~70-130% | Быстрее | Нет |
 
-### 5.5. Shared Memory Bridge — межагентский шеринг
+### 5A.5. Shared Memory Bridge — межагентский шеринг
 
 **Назначение:** Передача данных между агентами без повторных RPC запросов.
 
@@ -1478,7 +1496,7 @@ sequenceDiagram
 4. Добавить копию в target скоуп
 5. Опубликовать `ContextSharedEvent` в EventBus (для observability)
 
-### 5.6. Priority Scoring — ранжирование элементов
+### 5A.6. Priority Scoring — ранжирование элементов
 
 **Назначение:** Определение порядка элементов в payload для LLM.
 
@@ -1561,56 +1579,60 @@ async def optimize_and_build_payload(self, scope_name: str) -> list[LLMMessage]:
     return messages
 ```
 
-### 5.7. ACP Cache — кэш RPC ответов
+### 5A.7. FileContentCache — кэш содержимого файлов
 
-**Назначение:** Кэширование ответов от клиента для предотвращения повторных запросов.
+**Назначение:** Кэширование содержимого файлов для предотвращения повторных
+RPC-запросов к клиенту. Заменяет `ACPCache` из ранних версий.
+
+Канонический компонент Слоя 1 (`FileContentCache(ABC)` + `InMemoryFileCache`,
+см. §3.2 и INTEGRATION_GUIDE §2.5). Наполнение и инвалидация — через
+`FileCacheDecorator`; проверка кэша **перед** RPC — в `ClientRPCBridge`
+(см. AGENT_LOOP_INTEGRATION §4 и ADR-4).
 
 ```mermaid
 graph LR
-    subgraph Flow["Поток данных"]
-        Agent["Агент"]
-        FCM["FederatedContextManager"]
-        Cache["ACPCache"]
+    subgraph Flow["Поток данных (полный read)"]
+        Agent["Агент / Tool call"]
+        Dec["FileCacheDecorator"]
+        Bridge["ClientRPCBridge"]
+        Cache["FileContentCache"]
         Client["ACP Client"]
-        User["Пользователь<br/>(Файловая система)"]
     end
-    
-    Agent -->|"1. get_file(path)"| FCM
-    FCM -->|"2. cache.get(path)"| Cache
-    
+
+    Agent -->|"fs/read(path)"| Bridge
+    Bridge -->|"cache.get(path)"| Cache
+
     alt Hit
-        Cache -->|"3a. content"| FCM
-        FCM -->|"4a. content"| Agent
+        Cache -->|"content (0ms, без RPC)"| Bridge
     else Miss
-        Cache -->|"3b. None"| FCM
-        FCM -->|"4b. RPC request"| Client
-        Client -->|"5. RPC to user"| User
-        User -->|"6. file content"| Client
-        Client -->|"7. content"| FCM
-        FCM -->|"8. cache.set(path, content)"| Cache
-        FCM -->|"9. content"| Agent
+        Bridge -->|"RPC"| Client
+        Client -->|"content"| Bridge
+        Bridge -->|"cache.set(path, content)"| Cache
     end
-    
+
+    Bridge -->|"result"| Dec
+    Dec -->|"add_to_scope(file_content)"| Agent
+
     style Flow fill:#e0f7fa,stroke:#00838f,stroke-width:2px
 ```
 
-**Интерфейс:**
+**Интерфейс (Слой 1):**
 
 ```python
-class ACPCache:
-    """Кэш ответов от ACP клиента."""
-    
-    def get(self, key: str) -> str | None:
-        """Получить из кэша."""
-        
-    def set(self, key: str, content: str) -> None:
-        """Сохранить в кэш."""
-        
-    def invalidate(self, key: str) -> None:
-        """Инвалидировать запись."""
-        
-    def clear(self) -> None:
-        """Очистить весь кэш."""
+class FileContentCache(ABC):
+    """Кэш содержимого файлов (Repository)."""
+
+    @abstractmethod
+    def get(self, path: str) -> str | None: ...
+
+    @abstractmethod
+    def set(self, path: str, content: str) -> None: ...
+
+    @abstractmethod
+    def invalidate(self, path: str) -> None: ...
+
+    @abstractmethod
+    def clear(self) -> None: ...
 ```
 
 ---
@@ -1982,47 +2004,11 @@ graph LR
     style Before fill:#ffebee,stroke:#c62828
     style After fill:#e8f5e9,stroke:#2e7d32
 ```
-    end
-    
-    Current --> Extended
-    
-    style Current fill:#fff3e0,stroke:#e65100
-    style Extended fill:#e8f5e9,stroke:#2e7d32
-```
+> Канонический код `DefaultContextCompactor` (три фазы Prune → Skeletonize →
+> Summarize) — в `MIGRATION_PLAN.md` Phase 2 и `INTEGRATION_GUIDE.md §4`.
+> Контракт `compact_if_needed` (включая допустимые `mode`) — в §3.7.
 
-**Изменения:**
-
-```python
-class ContextCompactor:
-    def __init__(
-        self,
-        llm: LLMProvider | None = None,
-        model: str = "openai/gpt-4o-mini",
-        max_context_tokens: int = 128000,
-        reserved_tokens: int = 4096,
-        skeletonizer: ASTSkeletonizer | None = None,  # NEW
-    ) -> None:
-        # ... существующая инициализация
-        self.skeletonizer = skeletonizer
-    
-    async def compact_if_needed(
-        self,
-        history: list[LLMMessage],
-    ) -> tuple[list[LLMMessage], bool, str]:
-        # ... существующая логика
-        
-        # Фаза 1.5: AST Skeletonize (NEW)
-        if self.skeletonizer and pruned_tokens > trigger:
-            skeletonized = self._skeletonize_code(pruned)
-            skeleton_tokens = self._estimate_tokens(skeletonized)
-            if skeleton_tokens <= trigger:
-                return skeletonized, True, "skeletonized"
-            pruned = skeletonized
-        
-        # ... остальная логика
-```
-
-### 6.3. Интеграция с AgentEventBus
+### 6.4. Интеграция с AgentEventBus
 
 **Новые Domain Events:**
 
@@ -2057,7 +2043,7 @@ class ContextOverflow(DomainEvent):
 **Публикация событий:**
 
 ```python
-class FederatedContextManager:
+class FederatedContextManager(ContextManager):  # частичная иллюстрация, полная сигнатура — §8.1
     def __init__(self, event_bus: AgentEventBus | None = None) -> None:
         self.event_bus = event_bus
     
@@ -2082,7 +2068,7 @@ class FederatedContextManager:
             ))
 ```
 
-### 6.4. Интеграция со стратегиями
+### 6.5. Интеграция со стратегиями
 
 **Использование FCM в OrchestratedStrategy:**
 
@@ -2131,7 +2117,7 @@ class OrchestratedStrategy:
         # ... продолжение
 ```
 
-### 6.5. Интеграция с Observability
+### 6.6. Интеграция с Observability
 
 **Метрики FCM:**
 
@@ -2174,7 +2160,7 @@ class FCMetricsTracker:
 **Tracing:**
 
 ```python
-class FederatedContextManager:
+class FederatedContextManager(ContextManager):  # частичная иллюстрация, полная сигнатура — §8.1
     def __init__(self, tracer: Tracer | None = None, ...) -> None:
         self.tracer = tracer
     
@@ -2202,37 +2188,20 @@ class FederatedContextManager:
 
 ## 7. Путь внедрения
 
+> **Источник истины по roadmap — [MIGRATION_PLAN.md](./MIGRATION_PLAN.md)
+> (Phase 0–5).** Раздел ниже — историческая черновая разбивка по фазам и
+> сохранён как справка по объёму работ. При расхождении приоритет имеет
+> MIGRATION_PLAN: там актуальные фазы (Слой 1/2/3), acceptance criteria,
+> feature-flag rollout и порядок «Слой 1 → Слой 2 → Слой 3», а не
+> «ASTSkeletonizer-first» из черновика.
+
 ### 7.1. Фазы внедрения
 
-```mermaid
-gantt
-    title План внедрения FCM
-    dateFormat  YYYY-MM-DD
-    section Фаза 1: ASTSkeletonizer
-    Реализация ASTSkeletonizer     :a1, 2026-06-25, 3d
-    Интеграция в ContextCompactor  :a2, after a1, 2d
-    Тесты                          :a3, after a2, 2d
-    
-    section Фаза 2: TokenCounter
-    Реализация TokenCounter        :b1, after a3, 2d
-    Замена _estimate_tokens        :b2, after b1, 1d
-    Тесты                          :b3, after b2, 1d
-    
-    section Фаза 3: ContextItem + Scope
-    Реализация ContextItem         :c1, after b3, 2d
-    Реализация AgentContextScope   :c2, after c1, 2d
-    Тесты                          :c3, after c2, 2d
-    
-    section Фаза 4: FederatedContextManager
-    Реализация FCM                 :d1, after c3, 3d
-    Интеграция с EventBus          :d2, after d1, 2d
-    Тесты                          :d3, after d2, 2d
-    
-    section Фаза 5: Интеграция со стратегиями
-    Интеграция в ExecutionEngine   :e1, after d3, 2d
-    Интеграция в OrchestratedStrategy :e2, after e1, 3d
-    E2E тесты                      :e3, after e2, 3d
-```
+Канонический график (Phase 0–5) и Gantt — в
+[MIGRATION_PLAN.md](./MIGRATION_PLAN.md) (Appendix B, «Rollout Timeline»).
+Дублирующая Gantt-диаграмма из черновика удалена, чтобы не было двух
+расходящихся планов (черновик использовал устаревшую схему «ASTSkeletonizer →
+TokenCounter → …» вместо «Слой 1 → Слой 2 → Слой 3»).
 
 ### 7.2. Фаза 1: ASTSkeletonizer
 
@@ -2289,16 +2258,14 @@ gantt
 
 **Файлы:**
 - `src/codelab/server/agent/context/manager.py` — реализация
-- `src/codelab/server/agent/context/cache.py` — ACPCache
 - `tests/server/agent/context/test_manager.py`
-- `tests/server/agent/context/test_cache.py`
 
 **Чек-лист:**
 - [ ] `FederatedContextManager` с scopes dict
-- [ ] `ACPCache` для кэширования RPC ответов
-- [ ] Методы `create_scope`, `add_to_scope`, `share_item`
+- [ ] Делегирование сжатия в `ContextCompactor` (Слой 2)
+- [ ] Методы `create_scope`, `add_to_scope`, `share_item`, `hydrate_from_history`
 - [ ] `optimize_and_build_payload` с приоритетами
-- [ ] Интеграция с `ASTSkeletonizer`
+- [ ] Интеграция с `CodeSkeletonizer`
 - [ ] Интеграция с `TokenCounter`
 - [ ] Публикация событий в EventBus
 - [ ] Unit тесты
@@ -2338,24 +2305,31 @@ gantt
 ### 8.1. FederatedContextManager
 
 ```python
-class FederatedContextManager:
-    """Глобальный менеджер контекста для мультиагентной системы."""
-    
+class FederatedContextManager(ContextManager):
+    """Глобальный менеджер контекста для мультиагентной системы.
+
+    Единственная каноническая сигнатура (см. INTEGRATION_GUIDE §4).
+    Кэш файлов — отдельный компонент Слоя 1 (`FileContentCache`),
+    а не методы FCM.
+    """
+
     def __init__(
         self,
+        token_counter: TokenCounter | None = None,
+        skeletonizer: CodeSkeletonizer | None = None,
+        compactor: ContextCompactor | None = None,
+        file_cache: FileContentCache | None = None,
         event_bus: AgentEventBus | None = None,
         tracer: Tracer | None = None,
-        skeletonizer: ASTSkeletonizer | None = None,
-        token_counter: TokenCounter | None = None,
     ) -> None: ...
-    
+
     async def create_scope(
         self,
         scope_name: str,
         max_tokens: int = 4000,
     ) -> AgentContextScope:
         """Создать новый скоуп для агента."""
-    
+
     async def add_to_scope(
         self,
         scope_name: str,
@@ -2365,7 +2339,7 @@ class FederatedContextManager:
         priority: int = 5,
     ) -> None:
         """Добавить элемент в скоуп."""
-    
+
     async def share_item(
         self,
         source_scope: str,
@@ -2374,18 +2348,20 @@ class FederatedContextManager:
         new_priority: int | None = None,
     ) -> None:
         """Передать элемент между скоупами."""
-    
+
+    async def hydrate_from_history(
+        self,
+        scope_name: str,
+        history: list[ConversationMessage],
+        system_prompt: str | None = None,
+    ) -> None:
+        """Загрузить историю сессии в скоуп (SingleStrategy)."""
+
     async def optimize_and_build_payload(
         self,
         scope_name: str,
     ) -> list[LLMMessage]:
         """Сформировать оптимизированный payload для LLM."""
-    
-    async def get_from_cache(self, key: str) -> str | None:
-        """Получить из ACP кэша."""
-    
-    async def set_cache(self, key: str, content: str) -> None:
-        """Сохранить в ACP кэш."""
 ```
 
 ### 8.2. ContextItem
