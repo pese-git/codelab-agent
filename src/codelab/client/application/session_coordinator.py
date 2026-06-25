@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -257,7 +258,24 @@ class SessionCoordinator:
                 request_id=request.id,
                 session_id=request.params.sessionId,
             )
-            outcome = await perm_request.wait_for_outcome()
+            
+            # Ждём ответа пользователя с timeout (5 минут по умолчанию)
+            # Если пользователь не ответил, автоматически отменяем запрос
+            PERMISSION_TIMEOUT_SECONDS = 300  # 5 минут
+            try:
+                outcome = await asyncio.wait_for(
+                    perm_request.wait_for_outcome(),
+                    timeout=PERMISSION_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                self._logger.warning(
+                    "permission_request_timeout",
+                    request_id=request.id,
+                    session_id=request.params.sessionId,
+                    tool_call_id=request.params.toolCall.toolCallId,
+                    timeout_seconds=PERMISSION_TIMEOUT_SECONDS,
+                )
+                return CancelledPermissionOutcome(outcome="cancelled")
 
             self._logger.info(
                 "permission_outcome_received_from_user",
