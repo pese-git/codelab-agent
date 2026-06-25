@@ -2,20 +2,20 @@
 
 ## Фаза 0: Основа (1 неделя)
 
-- [ ] 0.1 Создать структуру пакета `src/codelab/server/agent/context/` с `__init__.py`
-- [ ] 0.2 Реализовать модели данных в `models.py`: `PayloadEnvelope`, `TaskProfile`, `BudgetAllocation`, `BuildOptions`, `ContextConfig`, `ContextItem`, `ContextEpoch`, `ContextSnapshot`, `ReconcileResult`, `SubagentResult`, перечисления (`TaskType`, `ContextType`, `ChangeState`)
-- [ ] 0.3 Написать unit тесты для `PayloadEnvelope.to_messages()` и `ContextSnapshot.diff()`
-- [ ] 0.4 Определить ABC интерфейсы в `interfaces.py`: `ContextManager`, `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextSource`, `ContextRegistry`, `ConversationSummarizer`, `ContextReconciler`, `TokenCounter`, `CodeSkeletonizer`, `FileContentCache`, `ContextCompactor`, `ChildSessionManager`
-- [ ] 0.5 Проверить, что все ABC имеют декораторы `@abstractmethod`; mypy/pyright проходит
-- [ ] 0.6 Ввести `PayloadEnvelope` в тип возврата `ExecutionEngine.build_context()` с адаптером `to_messages()` на границе `LLMAdapter`
-- [ ] 0.7 Реализовать загрузчик feature flags: TOML `[agents.context.*]` → `ContextConfig` с переопределениями env `CODELAB_CONTEXT_*`
-- [ ] 0.8 Объявить устаревшим `agents.context.enable_fcm` → алиас на `agents.context.enabled` с предупреждением
-- [ ] 0.9 Обернуть legacy `context_compactor.py` в реализацию `ContextCompactor(ABC)` без изменения логики
-- [ ] 0.10 Обновить `ExecutionEngine` для выбора реализации по флагу `agents.context.enabled`
-- [ ] 0.11 Проверить, что `enabled=false` (по умолчанию) сохраняет legacy поведение; все существующие тесты `test_context_compactor.py` проходят
-- [ ] 0.12 Архивировать `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/` с заголовком перенаправления на ADR-002
-- [ ] 0.13 Обновить перекрёстные ссылки в `doc/internals/` для указания на новый канон `doc/internals/context-manager/`
-- [ ] 0.14 Написать интеграционный тест: `PayloadEnvelope` проходит через `ExecutionEngine` → границу `LLMAdapter`
+- [x] 0.1 Создать структуру пакета `src/codelab/server/agent/context/` с `__init__.py`
+- [x] 0.2 Реализовать модели данных в `models.py`: `PayloadEnvelope`, `TaskProfile`, `BudgetAllocation`, `BuildOptions`, `ContextConfig`, `ContextItem`, `ContextEpoch`, `ContextSnapshot`, `ReconcileResult`, `SubagentResult`, перечисления (`TaskType`, `ContextType`, `ChangeState`)
+- [x] 0.3 Написать unit тесты для `PayloadEnvelope.to_messages()` и `ContextSnapshot.diff()`
+- [x] 0.4 Определить ABC интерфейсы в `interfaces.py`: `ContextManager`, `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextSource`, `ContextRegistry`, `ConversationSummarizer`, `ContextReconciler`, `TokenCounter`, `CodeSkeletonizer`, `FileContentCache`, `ContextCompactor`, `ChildSessionManager`
+- [x] 0.5 Проверить, что все ABC имеют декораторы `@abstractmethod`; mypy/pyright проходит
+- [x] 0.6 Ввести `PayloadEnvelope` в тип возврата `ExecutionEngine.build_context()` с адаптером `to_messages()` на границе `LLMAdapter`
+- [x] 0.7 Реализовать загрузчик feature flags: TOML `[agents.context.*]` → `ContextConfig` с переопределениями env `CODELAB_CONTEXT_*`
+- [x] 0.8 Объявить устаревшим `agents.context.enable_fcm` → алиас на `agents.context.enabled` с предупреждением
+- [x] 0.9 Обернуть legacy `context_compactor.py` в реализацию `ContextCompactor(ABC)` без изменения логики
+- [x] 0.10 Обновить `ExecutionEngine` для выбора реализации по флагу `agents.context.enabled`
+- [x] 0.11 Проверить, что `enabled=false` (по умолчанию) сохраняет legacy поведение; все существующие тесты `test_context_compactor.py` проходят
+- [x] 0.12 Архивировать `doc/internals/architecture/fcm/` → `doc/internals/archive/fcm/` с заголовком перенаправления на ADR-002
+- [x] 0.13 Обновить перекрёстные ссылки в `doc/internals/` для указания на новый канон `doc/internals/context-manager/`
+- [x] 0.14 Написать интеграционный тест: `PayloadEnvelope` проходит через `ExecutionEngine` → границу `LLMAdapter`
 
 ## Фаза 1: MVP сбор (3 недели)
 

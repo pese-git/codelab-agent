@@ -191,4 +191,4 @@ Spans создаются через существующий tracer (`SpanContex
 - [CONSOLIDATED_ARCHITECTURE.md](./CONSOLIDATED_ARCHITECTURE.md) — слои A–D, фазы, §4.1 (замкнутый цикл)
 - [INTERFACES.md](./INTERFACES.md) — контракты компонентов
 - [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md) — решения и таблица env-overrides
-- [PERFORMANCE_REQUIREMENTS.md](../architecture/fcm/PERFORMANCE_REQUIREMENTS.md) — SLO и пороги деградации (источник идей по метрикам)
+- [PERFORMANCE_REQUIREMENTS.md](../archive/fcm/PERFORMANCE_REQUIREMENTS.md) — SLO и пороги деградации (источник идей по метрикам, архив)
