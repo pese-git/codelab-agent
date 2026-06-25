@@ -139,6 +139,50 @@ ContextManager (единая точка входа)
 
 Различие стратегий — только в количестве/координации скоупов; путь формирования payload единый.
 
+### 4.1. Замкнутый цикл: как `PayloadEnvelope` уходит в LLM и как `tool_result` возвращается в FCM
+
+`ContextManager` не вызывает LLM сам — он только готовит payload. За вызов и tool-цикл отвечают существующие компоненты (`ExecutionEngine`, `EventBus`, `LLMAdapter`, `LLMLoopStage` — см. [ADR-001](../architecture/adr/ADR-001-llm-adapter-single-call.md)). Полная петля:
+
+```
+                    ┌─────────────────────── ContextManager ───────────────────────┐
+ session.history ──▶│ build_context() → PayloadEnvelope → ensure_context_fits()     │
+        ▲           └──────────────────────────────┬────────────────────────────────┘
+        │                                           │ envelope.to_messages()  (baseline+tail)
+        │                                           ▼
+        │              ExecutionEngine: AgentContext.conversation_history = to_messages()
+        │                                           │
+        │                                           ▼  AgentRequest(messages, tools)
+        │                                EventBus.send_request()
+        │                                           │
+        │                                           ▼
+        │                        LLMAdapter.call() → provider.create_completion()   (ОДИН вызов)
+        │                                           │  AgentResponse(text, tool_calls, stop_reason)
+        │                                           ▼
+        │                LLMLoopStage: есть tool_calls?
+        │                   ├─ да → выполнить инструменты (через ToolRegistry + FileCacheDecorator)
+        │                   │         результат → tool_result-сообщение
+        │                   │         └────────────┐
+        └───────────────────────────────────────────┘  append в session.history → следующий build_context()
+                            └─ нет (end_turn) → ответ пользователю, петля завершена
+```
+
+**A. Исходящий путь (PayloadEnvelope → LLM).**
+1. `ContextManager.build_context()`/`ensure_context_fits()` возвращают `PayloadEnvelope`.
+2. `ExecutionEngine` кладёт `envelope.to_messages()` (= `baseline + tail`, плоский `list[LLMMessage]`) в `AgentContext.conversation_history` — **единственная точка, где конверт «разворачивается» в плоский список** (инвариант из [INTERFACES.md](./INTERFACES.md)).
+3. Стратегия формирует `AgentRequest(messages=conversation_history, tools=...)` и вызывает `EventBus.send_request()`.
+4. `LLMAdapter` делает **один** `create_completion()` к провайдеру и возвращает `AgentResponse` (`text`, `tool_calls`, `stop_reason`, `usage`).
+
+**B. Входящий путь (tool_result → FCM).** Если `AgentResponse.tool_calls` не пуст, `LLMLoopStage` выполняет инструменты, и результат возвращается в FCM **по двум каналам**:
+
+| Канал | Что входит | Как попадает в FCM | Где используется |
+|-------|------------|--------------------|------------------|
+| **Диалоговый** | `tool_result` как сообщение | Добавляется в `session.history`; на следующем `build_context()` становится частью `tail` (гидрация) или дельтой `mid_conversation_messages` (эпоха, Phase 4) | Слой B (жизненный цикл) |
+| **Файловый** | содержимое файла при `fs/read`; факт изменения при `fs/write` | `FileCacheDecorator` (обёртка ToolExecutor) при успешном `fs/read` кладёт содержимое в `FileContentCache`; при `fs/write` — `invalidate()` + публикует сигнал изменения в единый источник истины | Слой C (кэш) + Слой B (reconcile, Phase 4) |
+
+5. Цикл повторяется: следующий `build_context()` видит обновлённую `session.history` (диалоговый канал) и прогретый/инвалидированный `FileContentCache` (файловый канал). Так `tool_result` «замыкается» обратно во вход FCM.
+
+> **Ключевой момент:** FCM не «слушает» инструменты напрямую. Диалоговые результаты входят через `session.history` (его читает `build_context()`), а файловые — через `FileCacheDecorator`, который сидит на пути выполнения tool-ов. Оба канала сходятся на следующей итерации сборки.
+
 ---
 
 ## 5. Жизненный цикл контекста (инкрементальная модель)
