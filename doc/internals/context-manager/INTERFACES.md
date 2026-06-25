@@ -9,8 +9,11 @@
 
 Базовые типы берутся из существующего кода:
 - `LLMMessage`, `LLMToolCall`, `ToolDefinition` — `codelab.server.agent.*` (как в `base.py`/`context_compactor.py`)
-- `AgentContext`, `ContinuationContext` — `codelab.server.agent.base`
+- `AgentContext`, `ContinuationContext`, `AgentResponse` — `codelab.server.agent.base`
 - `SessionState` — `codelab.server.protocol.state`
+
+> Эти типы существуют в коде сегодня и НЕ переопределяются в `context.models` —
+> интерфейсы импортируют их как есть.
 
 ---
 
@@ -260,3 +263,24 @@ class ChildSessionManager(ABC):
 2. **`PayloadEnvelope` (baseline/tail) — фундамент.** Любой новый метод сборки возвращает `PayloadEnvelope`, не «плоский» список сообщений.
 3. **Совместимость с legacy.** `ContextCompactor.compact_if_needed()` сохраняет сигнатуру текущего `context_compactor.py` для миграции под флагом.
 4. **Расширение — через новые ABC/источники**, а не изменение существующих (Open/Closed).
+
+---
+
+## 7. Зависимости реализаций (DI) и уточнения сигнатур
+
+Внешние зависимости компонентов передаются **через конструктор реализации (DI)**, а не через параметры методов — поэтому в сигнатурах ABC их нет. Конкретно:
+
+| Компонент | Зависимость (в конструкторе) | Почему не в сигнатуре |
+|-----------|------------------------------|------------------------|
+| `ContextGatherer` | `ToolRegistry` (ACP) | `gather()` дёргает `project_tree`/`search`/`read_file` через реестр; собственного I/O нет (правило ADR-002) |
+| `ConversationSummarizer` | `LLMProvider` + модель | `summarize()` делает LLM-вызов; при отсутствии провайдера фаза Summarize пропускается (деградация, Phase 3 T3.5) |
+| `TokenBudgetManager` | `ContextConfig` (доли), `TokenCounter` | `allocate()` читает доли из конфига; счётчик — из слоя C |
+| `ContextCompactor` | `TokenCounter`, `CodeSkeletonizer`, опц. `ConversationSummarizer` | композиция фаз Prune/Skeletonize/Summarize |
+| `ContextReconciler` | `ContextRegistry`, единый сигнал инвалидации файла | детект изменений — только через Codec-fingerprint (см. Phase 4 T4.4) |
+
+Уточнения по неочевидным местам:
+
+- **`TaskAnalyzer.analyze(prompt: str, ...)`** — `prompt` это текст пользовательского сообщения текущего хода (первый/последний `user`-блок), а не вся история; история доступна через `session`.
+- **`ContextSource.fingerprint()`** объявлен `async`, т.к. реализация может требовать I/O (чтение скиллов/файла). Значения собираются заранее в `ContextSnapshot.fingerprints`; `ContextSnapshot.diff()` сравнивает уже готовые строки **синхронно**.
+- **`BuildOptions.incremental` / `skeletonize`** = `None` означает «взять значение из `ContextConfig`» (per-call override только при явном `True`/`False`).
+- **`build_context()` в примерах** [STRATEGY_INTEGRATION.md](./STRATEGY_INTEGRATION.md) приведён в сокращённой форме (часть аргументов опущена для краткости); обязательны `session` и `prompt` согласно §1.
