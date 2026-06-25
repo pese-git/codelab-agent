@@ -13,7 +13,7 @@
 | [CONSOLIDATED_ARCHITECTURE.md](./CONSOLIDATED_ARCHITECTURE.md) | Полная архитектура: слои A–D, путь payload, жизненный цикл, кэш, сжатие, мультиагент, флаги, фазы 0–6 | Все |
 | [INTERFACES.md](./INTERFACES.md) | Замороженные ABC/контракты (Phase 0) | Разработчики |
 | [DATA_MODELS.md](./DATA_MODELS.md) | Структуры данных (dataclass), `PayloadEnvelope`, конфиг | Разработчики |
-| [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) | Детальный спек первой фазы — точка входа в разработку | Разработчики |
+| [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) … [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | Детальные спеки фаз — задачи, acceptance, DoD, риски | Разработчики |
 | [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md) | Все архитектурные решения и обоснования | Архитекторы, reviewers |
 
 ## Статус готовности к разработке
@@ -21,15 +21,15 @@
 | Фаза | Спецификация | Статус |
 |------|--------------|--------|
 | Phase 0 — Каркас + контракты | [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) + INTERFACES + DATA_MODELS | ✅ Готово к разработке |
-| Phase 1 — MVP-сбор | CONSOLIDATED_ARCHITECTURE §10 (acceptance есть) | 🟡 Нужен детальный спек перед стартом |
-| Phase 2 — Слой хранения C | §10 + архив `fcm/` (детальные спеки компонентов) | 🟡 Нужен детальный спек |
-| Phase 3 — Источники + сжатие | §10 | 🟡 |
-| Phase 4 — Инкрементальность | §10 + §5 (жизненный цикл) | 🟡 |
-| Phase 5 — Полный DependencyGraph | §10 | 🟡 |
-| Phase 6 — Мультиагент | §10 + §8 | 🟡 |
+| Phase 1 — MVP-сбор | [PHASE_1_SPEC.md](./PHASE_1_SPEC.md) | ✅ Готово к разработке |
+| Phase 2 — Слой хранения C | [PHASE_2_SPEC.md](./PHASE_2_SPEC.md) | ✅ Готово к разработке |
+| Phase 3 — Источники + сжатие | [PHASE_3_SPEC.md](./PHASE_3_SPEC.md) | ✅ Готово к разработке |
+| Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | ✅ Готово к разработке |
+| Phase 5 — Полный DependencyGraph | [PHASE_5_SPEC.md](./PHASE_5_SPEC.md) | ✅ Готово к разработке |
+| Phase 6 — Мультиагент | [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | ✅ Готово к разработке |
 
-> Детальные спеки Phase 1–6 (по образцу `PHASE_0_SPEC.md`) создаются перед стартом
-> соответствующей фазы. Архитектура и acceptance-критерии для них уже зафиксированы.
+> Все фазы 0–6 специфицированы (задачи, acceptance, DoD, риски). Архитектура
+> и контракты зафиксированы в CONSOLIDATED_ARCHITECTURE / INTERFACES / DATA_MODELS.
 
 ## Ключевые решения (из ADR-002)
 
