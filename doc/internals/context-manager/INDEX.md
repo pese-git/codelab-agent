@@ -16,6 +16,11 @@
 | [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) … [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | Детальные спеки фаз — задачи, acceptance, DoD, риски | Разработчики |
 | [STRATEGY_INTEGRATION.md](./STRATEGY_INTEGRATION.md) | План интеграции 4 стратегий (Single/Orchestrated/Choreography/Hierarchical) с ContextManager | Разработчики |
 | [WALKTHROUGH_EXAMPLE.md](./WALKTHROUGH_EXAMPLE.md) | Сквозной пример: вход → преобразования → выход на нескольких итерациях agent loop | Все |
+| [ERROR_HANDLING.md](./ERROR_HANDLING.md) | Стратегия обработки ошибок по слоям A–D (graceful degradation) | Разработчики |
+| [EDGE_CASES.md](./EDGE_CASES.md) | 14 краевых случаев с ожидаемым поведением и acceptance | Разработчики, QA |
+| [OBSERVABILITY.md](./OBSERVABILITY.md) | Каталог метрик, span-ы трейсинга, логи, мониторинг rollout | Разработчики, SRE |
+| [PERFORMANCE_SLO.md](./PERFORMANCE_SLO.md) | Числовые SLO, бенчмарк-сценарии, бюджеты ресурсов | Разработчики, SRE |
+| [TESTING_STRATEGY.md](./TESTING_STRATEGY.md) | Уровни тестов, рисковые места, golden-тесты, тест-матрица по фазам | Разработчики, QA |
 | [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md) | Все архитектурные решения и обоснования | Архитекторы, reviewers |
 
 ## Статус готовности к разработке
