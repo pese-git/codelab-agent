@@ -1,119 +1,119 @@
-# Context Lifecycle Capability Specification
+# Спецификация возможности Context Lifecycle
 
 ## ADDED Requirements
 
-### Requirement: PayloadEnvelope Separates Baseline and Tail
-The system MUST support `PayloadEnvelope` with explicit separation of immutable `baseline` and `tail` deltas.
+### Requirement: PayloadEnvelope разделяет Baseline и Tail
+Система MUST поддерживать `PayloadEnvelope` с явным разделением иммутабельного `baseline` и дельт `tail`.
 
-#### Scenario: PayloadEnvelope structure
-- **WHEN** `build_context()` is called
-- **THEN** the system returns `PayloadEnvelope` with `baseline: list[LLMMessage]`, `tail: list[LLMMessage]`, `baseline_fingerprint: str`, `token_count: int`
+#### Scenario: Структура PayloadEnvelope
+- **WHEN** вызывается `build_context()`
+- **THEN** система возвращает `PayloadEnvelope` с `baseline: list[LLMMessage]`, `tail: list[LLMMessage]`, `baseline_fingerprint: str`, `token_count: int`
 
-#### Scenario: to_messages flattens baseline and tail
-- **WHEN** `envelope.to_messages()` is called
-- **THEN** the system returns `[*baseline, *tail]` as flat `list[LLMMessage]`
+#### Scenario: to_messages уплощает baseline и tail
+- **WHEN** вызывается `envelope.to_messages()`
+- **THEN** система возвращает `[*baseline, *tail]` как плоский `list[LLMMessage]`
 
-#### Scenario: Baseline fingerprint stability
-- **WHEN** baseline content does not change between calls
-- **THEN** `baseline_fingerprint` remains identical (deterministic hash)
+#### Scenario: Стабильность fingerprint baseline
+- **WHEN** содержимое baseline не изменяется между вызовами
+- **THEN** `baseline_fingerprint` остаётся идентичным (детерминированный хеш)
 
-### Requirement: ContextEpoch Manages Incremental Updates
-The system MUST support `ContextEpoch` with immutable baseline and incremental `mid_conversation_messages`.
+### Requirement: ContextEpoch управляет инкрементальными обновлениями
+Система MUST поддерживать `ContextEpoch` с иммутабельным baseline и инкрементальными `mid_conversation_messages`.
 
-#### Scenario: Epoch creation
-- **WHEN** new epoch starts
-- **THEN** the system creates `ContextEpoch` with `epoch_id`, `baseline`, `baseline_fingerprint`, empty `mid_conversation_messages`
+#### Scenario: Создание эпохи
+- **WHEN** начинается новая эпоха
+- **THEN** система создаёт `ContextEpoch` с `epoch_id`, `baseline`, `baseline_fingerprint`, пустыми `mid_conversation_messages`
 
-#### Scenario: get_full_context returns baseline + mid_conversation
-- **WHEN** `epoch.get_full_context()` is called
-- **THEN** the system returns `[*baseline, *mid_conversation_messages]`
+#### Scenario: get_full_context возвращает baseline + mid_conversation
+- **WHEN** вызывается `epoch.get_full_context()`
+- **THEN** система возвращает `[*baseline, *mid_conversation_messages]`
 
-#### Scenario: Mid-conversation messages accumulation
-- **WHEN** tool results are added during conversation
-- **THEN** the system adds them to `mid_conversation_messages`, baseline remains unchanged
+#### Scenario: Накопление mid-conversation сообщений
+- **WHEN** tool results добавляются во время разговора
+- **THEN** система добавляет их в `mid_conversation_messages`, baseline остаётся неизменным
 
-### Requirement: ContextSnapshot Detects Changes via Fingerprint
-The system MUST detect source changes using Codec fingerprints, not timestamps.
+### Requirement: ContextSnapshot обнаруживает изменения через Fingerprint
+Система MUST обнаруживать изменения источников используя Codec fingerprints, а не timestamps.
 
-#### Scenario: Snapshot creation
-- **WHEN** `ContextReconciler.snapshot(registry)` is called
-- **THEN** the system collects fingerprints from all sources, returns `ContextSnapshot` with `fingerprints: dict[str, str]`
+#### Scenario: Создание snapshot
+- **WHEN** вызывается `ContextReconciler.snapshot(registry)`
+- **THEN** система собирает fingerprints всех источников, возвращает `ContextSnapshot` с `fingerprints: dict[str, str]`
 
-#### Scenario: Diff detects changed sources
-- **WHEN** `snapshot.diff(other)` is called
-- **THEN** the system compares fingerprints, returns list of `source_id` with changed fingerprints
+#### Scenario: Diff обнаруживает изменённые источники
+- **WHEN** вызывается `snapshot.diff(other)`
+- **THEN** система сравнивает fingerprints, возвращает список `source_id` с изменёнными fingerprints
 
-#### Scenario: Fingerprint is Codec-based
-- **WHEN** source content changes
-- **THEN** fingerprint changes (does not depend on timestamp)
+#### Scenario: Fingerprint основан на Codec
+- **WHEN** содержимое источника изменяется
+- **THEN** fingerprint изменяется (не зависит от timestamp)
 
-### Requirement: ContextReconciler Safely Applies Changes
-The system MUST apply changes on safe boundaries with states `UNCHANGED`, `UPDATED`, or `DEFERRED`.
+### Requirement: ContextReconciler безопасно применяет изменения
+Система MUST применять изменения на безопасных границах с состояниями `UNCHANGED`, `UPDATED` или `DEFERRED`.
 
-#### Scenario: Reconcile without changes
-- **WHEN** `reconcile(epoch, registry)` is called and no source has changed
-- **THEN** the system returns `ReconcileResult(state=UNCHANGED, epoch_broken=False)`
+#### Scenario: Reconcile без изменений
+- **WHEN** вызывается `reconcile(epoch, registry)` и ни один источник не изменился
+- **THEN** система возвращает `ReconcileResult(state=UNCHANGED, epoch_broken=False)`
 
-#### Scenario: Reconcile with source change on safe boundary
-- **WHEN** source has changed and reconcile is called on safe boundary
-- **THEN** the system returns `ReconcileResult(state=UPDATED, updated_sources=[...], epoch_broken=True)`, baseline is rebuilt
+#### Scenario: Reconcile с изменением источника на безопасной границе
+- **WHEN** источник изменился и reconcile вызывается на безопасной границе
+- **THEN** система возвращает `ReconcileResult(state=UPDATED, updated_sources=[...], epoch_broken=True)`, baseline перестраивается
 
-#### Scenario: Reconcile with change detected mid-turn
-- **WHEN** change is detected but not on safe boundary
-- **THEN** the system returns `ReconcileResult(state=DEFERRED)`, change is applied on next boundary
+#### Scenario: Reconcile с изменением, обнаруженным в середине хода
+- **WHEN** изменение обнаружено, но не на безопасной границе
+- **THEN** система возвращает `ReconcileResult(state=DEFERRED)`, изменение применяется на следующей границе
 
-#### Scenario: Reconcile with uncertain change
-- **WHEN** fingerprint is unreadable or ambiguous
-- **THEN** the system conservatively returns `ReconcileResult(state=UPDATED, epoch_broken=True)`, rebuilds baseline
+#### Scenario: Reconcile с неопределённым изменением
+- **WHEN** fingerprint нечитаем или неоднозначен
+- **THEN** система консервативно возвращает `ReconcileResult(state=UPDATED, epoch_broken=True)`, перестраивает baseline
 
-### Requirement: ConversationSummarizer Preserves Key Decisions
-The system MUST summarize conversation history, preserving key decisions and task state.
+### Requirement: ConversationSummarizer сохраняет ключевые решения
+Система MUST суммаризировать историю разговора, сохраняя ключевые решения и состояние задачи.
 
-#### Scenario: Successful summarization
-- **WHEN** `summarize(messages, target_tokens)` is called
-- **THEN** the system returns summarized `LLMMessage` with preserved key decisions and state
+#### Scenario: Успешная суммаризация
+- **WHEN** вызывается `summarize(messages, target_tokens)`
+- **THEN** система возвращает суммаризированное `LLMMessage` с сохранёнными ключевыми решениями и состоянием
 
-#### Scenario: Degradation when LLM unavailable
-- **WHEN** LLM provider is unavailable
-- **THEN** the system skips Summarize phase, continues with Prune + Skeletonize only, logs warning `summarization_failed_degrade_to_prune`
+#### Scenario: Деградация при недоступности LLM
+- **WHEN** LLM провайдер недоступен
+- **THEN** система пропускает фазу Summarize, продолжает только с Prune + Skeletonize, логирует warning `summarization_failed_degrade_to_prune`
 
-#### Scenario: Empty or invalid summarization result
-- **WHEN** summarizer returns empty or invalid result
-- **THEN** the system treats this as failure, degrades to Prune + Skeletonize
+#### Scenario: Пустой или невалидный результат суммаризации
+- **WHEN** суммаризатор возвращает пустой или невалидный результат
+- **THEN** система обрабатывает это как сбой, деградирует до Prune + Skeletonize
 
-### Requirement: Baseline Fingerprint Uses Canonical Form
-The system MUST compute `baseline_fingerprint` from canonicalized baseline content.
+### Requirement: Fingerprint Baseline использует каноническую форму
+Система MUST вычислять `baseline_fingerprint` по канонизированному содержимому baseline.
 
-#### Scenario: Baseline canonicalization during hashing
-- **WHEN** baseline is assembled from sources
-- **THEN** the system canonicalizes content (stable order, normalized whitespace), computes hash over full baseline
+#### Scenario: Канонизация baseline при хешировании
+- **WHEN** baseline собирается из источников
+- **THEN** система канонизирует содержимое (стабильный порядок, нормализованные пробелы), вычисляет хеш по полному baseline
 
-#### Scenario: Identical baseline produces identical fingerprint
-- **WHEN** same content arrives in different order
-- **THEN** after canonicalization fingerprint is identical
+#### Scenario: Идентичный baseline производит идентичный fingerprint
+- **WHEN** одинаковое содержимое поступает в разном порядке
+- **THEN** после канонизации fingerprint идентичен
 
-#### Scenario: Different baseline produces different fingerprint
-- **WHEN** baseline content differs
-- **THEN** fingerprint differs (no collisions on test corpus)
+#### Scenario: Различный baseline производит различный fingerprint
+- **WHEN** содержимое baseline различается
+- **THEN** fingerprint различается (нет коллизий на тестовом корпусе)
 
-### Requirement: Incremental Model Saves Tokens on Stable Baseline
-The system MUST send only tail when baseline is unchanged (Phase 4+).
+### Requirement: Инкрементальная модель экономит токены на стабильном Baseline
+Система MUST отправлять только tail, когда baseline не изменён (Фаза 4+).
 
-#### Scenario: Stable baseline in incremental mode
-- **WHEN** `incremental=true` and baseline has not changed
-- **THEN** the system sends only `tail` (30 tokens), reuses cached baseline (52000 tokens), achieves >60% token savings
+#### Scenario: Стабильный baseline в инкрементальном режиме
+- **WHEN** `incremental=true` и baseline не изменился
+- **THEN** система отправляет только `tail` (30 токенов), переиспользует кэшированный baseline (52000 токенов), достигается экономия >60% токенов
 
-#### Scenario: Baseline change breaks epoch
-- **WHEN** source changes and `epoch_broken=True`
-- **THEN** the system rebuilds baseline, sends new baseline + tail, prompt cache misses but correctness is preserved
+#### Scenario: Изменение baseline ломает эпоху
+- **WHEN** источник изменяется и `epoch_broken=True`
+- **THEN** система перестраивает baseline, отправляет новый baseline + tail, prompt cache промахивается, но корректность сохраняется
 
-### Requirement: Epoch Breaks Are Limited
-The system MUST limit epoch breaks to no more than one per turn.
+### Requirement: Разрывы эпох ограничены
+Система MUST ограничивать разрывы эпох не более чем одним за ход.
 
-#### Scenario: Multiple changes in one turn
-- **WHEN** multiple sources change in one turn
-- **THEN** the system applies all changes in one `epoch_broken=True`, not multiple breaks
+#### Scenario: Множественные изменения за один ход
+- **WHEN** несколько источников изменяются за один ход
+- **THEN** система применяет все изменения в одном `epoch_broken=True`, а не множественные разрывы
 
-#### Scenario: Debounce with DEFERRED state
-- **WHEN** `DEFERRED` changes accumulate
-- **THEN** the system applies them together on next boundary, one epoch break
+#### Scenario: Debounce с состоянием DEFERRED
+- **WHEN** накапливаются изменения `DEFERRED`
+- **THEN** система применяет их вместе на следующей границе, один разрыв эпохи

@@ -1,51 +1,51 @@
-# single-strategy Delta Specification
+# Delta-спецификация single-strategy
 
 ## MODIFIED Requirements
 
-### Requirement: SingleStrategy Flow
+### Requirement: Поток SingleStrategy
 
 SingleStrategy MUST:
-1. Call `ExecutionEngine.build_context(session, prompt, agent_scope="single", system_prompt=...)`
-2. Receive `PayloadEnvelope` from `ContextManager.build_context()`
-3. Call `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
-4. Convert `envelope.to_messages()` to `AgentRequest.messages`
-5. Call `event_bus.send_request(request, parent_span)`
-6. Return `AgentResponse` to caller
+1. Вызвать `ExecutionEngine.build_context(session, prompt, agent_scope="single", system_prompt=...)`
+2. Получить `PayloadEnvelope` от `ContextManager.build_context()`
+3. Вызвать `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
+4. Конвертировать `envelope.to_messages()` в `AgentRequest.messages`
+5. Вызвать `event_bus.send_request(request, parent_span)`
+6. Вернуть `AgentResponse` вызывающему
 
-#### Scenario: SingleStrategy with ContextManager
-- **WHEN** `SingleStrategy.execute()` is called
-- **THEN** strategy uses `ContextManager.build_context()` and `ensure_context_fits()` instead of direct legacy `ContextCompactor` call
+#### Scenario: SingleStrategy с ContextManager
+- **WHEN** вызывается `SingleStrategy.execute()`
+- **THEN** стратегия использует `ContextManager.build_context()` и `ensure_context_fits()` вместо прямого вызова legacy `ContextCompactor`
 
-#### Scenario: PayloadEnvelope conversion
-- **WHEN** `PayloadEnvelope` is received from `build_context()`
-- **THEN** strategy calls `envelope.to_messages()` to get flat list of messages for `AgentRequest`
+#### Scenario: Конвертация PayloadEnvelope
+- **WHEN** `PayloadEnvelope` получен от `build_context()`
+- **THEN** стратегия вызывает `envelope.to_messages()` для получения плоского списка сообщений для `AgentRequest`
 
-### Requirement: ExecutionEngine.build_context with ContextManager
+### Requirement: ExecutionEngine.build_context с ContextManager
 
 `ExecutionEngine.build_context(session, prompt, *, agent_scope, system_prompt, options)` MUST:
-1. Call `ContextManager.build_context(session, prompt, agent_scope=agent_scope, system_prompt=system_prompt, options=options)`
-2. Receive `PayloadEnvelope`
-3. Call `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
-4. Form `AgentContext` with `conversation_history = envelope.to_messages()`
+1. Вызвать `ContextManager.build_context(session, prompt, agent_scope=agent_scope, system_prompt=system_prompt, options=options)`
+2. Получить `PayloadEnvelope`
+3. Вызвать `ContextManager.ensure_context_fits(envelope, *, max_context_tokens, reserved_tokens)`
+4. Сформировать `AgentContext` с `conversation_history = envelope.to_messages()`
 
-#### Scenario: ExecutionEngine delegates to ContextManager
-- **WHEN** `ExecutionEngine.build_context()` is called
-- **THEN** execution is delegated to `ContextManager`, legacy `ContextCompactor` is used only when `agents.context.enabled=false`
+#### Scenario: ExecutionEngine делегирует ContextManager
+- **WHEN** вызывается `ExecutionEngine.build_context()`
+- **THEN** выполнение делегируется `ContextManager`, legacy `ContextCompactor` используется только при `agents.context.enabled=false`
 
-#### Scenario: AgentContext from PayloadEnvelope
-- **WHEN** `PayloadEnvelope` is received
-- **THEN** `AgentContext.conversation_history` is formed via `envelope.to_messages()`
+#### Scenario: AgentContext из PayloadEnvelope
+- **WHEN** `PayloadEnvelope` получен
+- **THEN** `AgentContext.conversation_history` формируется через `envelope.to_messages()`
 
-### Requirement: ContextManager Implementation Selection
+### Requirement: Выбор реализации ContextManager
 
-`ExecutionEngine` MUST select implementation by flag `agents.context.enabled`:
-- `enabled=true` → use new `ContextManager`
-- `enabled=false` (default) → use legacy `ContextCompactor`
+`ExecutionEngine` MUST выбирать реализацию по флагу `agents.context.enabled`:
+- `enabled=true` → использовать новый `ContextManager`
+- `enabled=false` (по умолчанию) → использовать legacy `ContextCompactor`
 
-#### Scenario: Legacy mode
+#### Scenario: Legacy режим
 - **WHEN** `agents.context.enabled=false`
-- **THEN** `ExecutionEngine` uses legacy `ContextCompactor`, behavior is bit-for-bit as before Phase 0
+- **THEN** `ExecutionEngine` использует legacy `ContextCompactor`, поведение бит-в-бит как до Фазы 0
 
-#### Scenario: New mode
+#### Scenario: Новый режим
 - **WHEN** `agents.context.enabled=true`
-- **THEN** `ExecutionEngine` uses new `ContextManager` with full functionality
+- **THEN** `ExecutionEngine` использует новый `ContextManager` с полной функциональностью

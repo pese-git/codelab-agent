@@ -1,36 +1,36 @@
-# agent-event-bus Delta Specification
+# Delta-спецификация agent-event-bus
 
 ## MODIFIED Requirements
 
-### Requirement: Request Sending Guarantees
+### Requirement: Гарантии отправки запроса
 
-The `send_request()` method MUST:
-- Raise `AgentNotFoundError` if target_agent is not registered
-- Retry sending up to 3 times with exponential backoff
-- Raise `AgentDispatchError` if all retry attempts are exhausted
-- Propagate parent_span context for tracing
-- Return `AgentResponse` (DomainEvent) wrapped from `AgentResult`
-- Accept `messages` from `PayloadEnvelope.to_messages()` at the boundary with `ContextManager`
+Метод `send_request()` MUST:
+- Вызывать `AgentNotFoundError`, если target_agent не зарегистрирован
+- Повторять отправку до 3 раз с экспоненциальной задержкой
+- Вызывать `AgentDispatchError`, если все повторные попытки исчерпаны
+- Распространять контекст parent_span для tracing
+- Возвращать `AgentResponse` (DomainEvent), обёрнутый из `AgentResult`
+- Принимать `messages` из `PayloadEnvelope.to_messages()` на границе с `ContextManager`
 
-#### Scenario: AgentRequest from PayloadEnvelope
-- **WHEN** strategy forms `AgentRequest`
-- **THEN** `request.messages` is formed via `envelope.to_messages()` at the boundary with `EventBus`
+#### Scenario: AgentRequest из PayloadEnvelope
+- **WHEN** стратегия формирует `AgentRequest`
+- **THEN** `request.messages` формируется через `envelope.to_messages()` на границе с `EventBus`
 
-#### Scenario: PayloadEnvelope does not leak
-- **WHEN** `ContextManager` returns `PayloadEnvelope`
-- **THEN** `PayloadEnvelope` is not passed to `EventBus` directly, only via `to_messages()` at the boundary
+#### Scenario: PayloadEnvelope не протекает
+- **WHEN** `ContextManager` возвращает `PayloadEnvelope`
+- **THEN** `PayloadEnvelope` не передаётся в `EventBus` напрямую, только через `to_messages()` на границе
 
-### Requirement: Integration with ContextManager
+### Requirement: Интеграция с ContextManager
 
-`AgentEventBus` MUST work with `ContextManager` through `ExecutionEngine`:
-- Strategies call `ExecutionEngine.build_context()` → receive `PayloadEnvelope`
-- Strategies convert `envelope.to_messages()` → `AgentRequest.messages`
-- `EventBus.send_request()` accepts `AgentRequest` with flat list of messages
+`AgentEventBus` MUST работать с `ContextManager` через `ExecutionEngine`:
+- Стратегии вызывают `ExecutionEngine.build_context()` → получают `PayloadEnvelope`
+- Стратегии конвертируют `envelope.to_messages()` → `AgentRequest.messages`
+- `EventBus.send_request()` принимает `AgentRequest` с плоским списком сообщений
 
-#### Scenario: Transparent integration
-- **WHEN** strategy uses `ContextManager`
-- **THEN** `EventBus` does not know about `PayloadEnvelope`, works with flat list of messages
+#### Scenario: Прозрачная интеграция
+- **WHEN** стратегия использует `ContextManager`
+- **THEN** `EventBus` не знает о `PayloadEnvelope`, работает с плоским списком сообщений
 
-#### Scenario: Backward compatibility
-- **WHEN** legacy `ContextCompactor` is used
-- **THEN** `EventBus` works as before, without changes
+#### Scenario: Обратная совместимость
+- **WHEN** используется legacy `ContextCompactor`
+- **THEN** `EventBus` работает как прежде, без изменений

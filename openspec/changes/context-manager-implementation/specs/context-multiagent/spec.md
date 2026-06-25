@@ -1,142 +1,142 @@
-# Context Multiagent Capability Specification
+# Спецификация возможности Context Multiagent
 
 ## ADDED Requirements
 
-### Requirement: ChildSessionManager Isolates Subagents
-The system MUST isolate subagents in child sessions by default.
+### Requirement: ChildSessionManager изолирует субагентов
+Система MUST изолировать субагентов в дочерних сессиях по умолчанию.
 
-#### Scenario: Child session creation
-- **WHEN** `create_child(parent, subagent_scope)` is called
-- **THEN** the system creates new `SessionState` for child with isolated context, returns child session
+#### Scenario: Создание дочерней сессии
+- **WHEN** вызывается `create_child(parent, subagent_scope)`
+- **THEN** система создаёт новый `SessionState` для дочернего элемента с изолированным контекстом, возвращает дочернюю сессию
 
-#### Scenario: Child session has separate scope
-- **WHEN** child session is created
-- **THEN** child has its own `agent_scope`, separate from parent
+#### Scenario: Дочерняя сессия имеет отдельную область
+- **WHEN** дочерняя сессия создана
+- **THEN** дочерний элемент имеет свой собственный `agent_scope`, отдельный от родителя
 
-#### Scenario: Child session has separate epoch
-- **WHEN** child session runs
-- **THEN** child has its own `ContextEpoch`, separate from parent
+#### Scenario: Дочерняя сессия имеет отдельную эпоху
+- **WHEN** дочерняя сессия выполняется
+- **THEN** дочерний элемент имеет свой собственный `ContextEpoch`, отдельный от родителя
 
-### Requirement: process_subagent_response Summarizes for Parent
-The system MUST summarize subagent response for parent agent.
+### Requirement: process_subagent_response суммаризирует для родителя
+Система MUST суммаризировать ответ субагента для родительского агента.
 
-#### Scenario: Successful summarization
-- **WHEN** `process_subagent_response(parent_scope, subagent_scope, response)` is called
-- **THEN** the system returns `SubagentResult` with `summary` (summarized result), `token_count`, `source_scope`
+#### Scenario: Успешная суммаризация
+- **WHEN** вызывается `process_subagent_response(parent_scope, subagent_scope, response)`
+- **THEN** система возвращает `SubagentResult` с `summary` (суммаризированный результат), `token_count`, `source_scope`
 
-#### Scenario: Summary added to parent context
-- **WHEN** subagent completes
-- **THEN** `SubagentResult.summary` is added to parent scope as `ContextType.AGENT_REPORT` with `priority=7`
+#### Scenario: Summary добавляется в контекст родителя
+- **WHEN** субагент завершается
+- **THEN** `SubagentResult.summary` добавляется в область родителя как `ContextType.AGENT_REPORT` с `priority=7`
 
-#### Scenario: Degradation on summarization failure
-- **WHEN** LLM summarization fails
-- **THEN** the system returns truncated raw result via `bound_content()`, logs warning `subagent_summary_degraded`
+#### Scenario: Деградация при сбое суммаризации
+- **WHEN** LLM суммаризация завершается сбоем
+- **THEN** система возвращает усечённый сырой результат через `bound_content()`, логирует warning `subagent_summary_degraded`
 
-### Requirement: Subagent Failure Does Not Crash Parent
-The system MUST handle subagent failures gracefully without crashing parent.
+### Requirement: Сбой субагента не ломает родителя
+Система MUST обрабатывать сбои субагентов корректно, не ломая родительский процесс.
 
-#### Scenario: Subagent exception
-- **WHEN** subagent raises exception in child session
-- **THEN** `process_subagent_response()` returns `SubagentResult` with error summary, parent continues, logs error `subagent_failed`
+#### Scenario: Исключение субагента
+- **WHEN** субагент вызывает исключение в дочерней сессии
+- **THEN** `process_subagent_response()` возвращает `SubagentResult` с summary ошибки, родитель продолжает работу, логирует error `subagent_failed`
 
-#### Scenario: Subagent timeout
-- **WHEN** child session times out
-- **THEN** `collect_summary()` cancels child task, returns `SubagentResult` with timeout marker, parent does not block, logs warning `subagent_timeout`
+#### Scenario: Таймаут субагента
+- **WHEN** дочерняя сессия истекает по таймауту
+- **THEN** `collect_summary()` отменяет дочернюю задачу, возвращает `SubagentResult` с меткой таймаута, родитель не блокируется, логирует warning `subagent_timeout`
 
-#### Scenario: Child session creation failure
-- **WHEN** `create_child()` fails
-- **THEN** the system returns `SubagentResult` with error to parent, does not crash parent strategy, logs error `child_session_create_failed`
+#### Scenario: Сбой создания дочерней сессии
+- **WHEN** `create_child()` завершается сбоем
+- **THEN** система возвращает `SubagentResult` с ошибкой родителю, не ломает родительскую стратегию, логирует error `child_session_create_failed`
 
-### Requirement: Federation Is Candidate for Rejection
-The system MUST treat federated `share_item()` as candidate for rejection (ADR-002 §8).
+### Requirement: Федерация — кандидат на отказ
+Система MUST рассматривать федеративный `share_item()` как кандидата на отказ (ADR-002 §8).
 
-#### Scenario: Federation disabled by default
-- **WHEN** `agents.context.multiagent.federation=false` (default)
-- **THEN** the system uses isolation only, no federated sharing
+#### Scenario: Федерация отключена по умолчанию
+- **WHEN** `agents.context.multiagent.federation=false` (по умолчанию)
+- **THEN** система использует только изоляцию, без федеративного обмена
 
-#### Scenario: Federation enabled only with justification
-- **WHEN** federation is enabled via feature flag
-- **THEN** the system allows `share_item()` between scopes, requires scenario justification not covered by isolation
+#### Scenario: Федерация включается только с обоснованием
+- **WHEN** федерация включается через feature flag
+- **THEN** система разрешает `share_item()` между областями, требует обоснование сценария, не покрываемого изоляцией
 
-#### Scenario: Federation conflicts with epoch stability
-- **WHEN** shared item changes baseline of another agent
-- **THEN** the system breaks epoch for affected agent, logs warning about federation conflict
+#### Scenario: Федерация конфликтует со стабильностью эпох
+- **WHEN** общий элемент изменяет baseline другого агента
+- **THEN** система ломает эпоху для затронутого агента, логирует warning о конфликте федерации
 
-### Requirement: Orchestrated Strategy Uses ContextManager
-The system MUST integrate `OrchestratedStrategy` with `ContextManager` methods.
+### Requirement: Orchestrated Strategy использует ContextManager
+Система MUST интегрировать `OrchestratedStrategy` с методами `ContextManager`.
 
-#### Scenario: Orchestrator builds context
-- **WHEN** `OrchestratedStrategy.execute()` is called
-- **THEN** the system calls `build_context(agent_scope="orchestrator")` for routing decision
+#### Scenario: Оркестратор строит контекст
+- **WHEN** вызывается `OrchestratedStrategy.execute()`
+- **THEN** система вызывает `build_context(agent_scope="orchestrator")` для решения о маршрутизации
 
-#### Scenario: Subagent builds context
-- **WHEN** orchestrator delegates to subagent
-- **THEN** the system calls `build_context(agent_scope="<subagent>")` for subagent
+#### Scenario: Субагент строит контекст
+- **WHEN** оркестратор делегирует субагенту
+- **THEN** система вызывает `build_context(agent_scope="<subagent>")` для субагента
 
-#### Scenario: Subagent response processed
-- **WHEN** subagent returns response
-- **THEN** the system calls `process_subagent_response(parent="orchestrator", subagent=..., response)`, adds summary to orchestrator scope
+#### Scenario: Ответ субагента обрабатывается
+- **WHEN** субагент возвращает ответ
+- **THEN** система вызывает `process_subagent_response(parent="orchestrator", subagent=..., response)`, добавляет summary в область оркестратора
 
-#### Scenario: ensure_context_fits between rounds
-- **WHEN** orchestrator prepares next delegation round
-- **THEN** the system calls `ensure_context_fits()` for orchestrator scope
+#### Scenario: ensure_context_fits между раундами
+- **WHEN** оркестратор готовит следующий раунд делегирования
+- **THEN** система вызывает `ensure_context_fits()` для области оркестратора
 
-### Requirement: Choreography Strategy Uses ContextManager
-The system MUST integrate `ChoreographyStrategy` with `ContextManager` methods.
+### Requirement: Choreography Strategy использует ContextManager
+Система MUST интегрировать `ChoreographyStrategy` с методами `ContextManager`.
 
-#### Scenario: Each participant builds context
-- **WHEN** `ChoreographyStrategy.execute()` broadcasts to participants
-- **THEN** the system calls `build_context(agent_scope="<participant>")` for each participant
+#### Scenario: Каждый участник строит контекст
+- **WHEN** `ChoreographyStrategy.execute()` транслирует участникам
+- **THEN** система вызывает `build_context(agent_scope="<participant>")` для каждого участника
 
-#### Scenario: Only winner response processed
-- **WHEN** responses are collected
-- **THEN** the system calls `process_subagent_response()` only for winner, discards other responses
+#### Scenario: Только ответ победителя обрабатывается
+- **WHEN** ответы собраны
+- **THEN** система вызывает `process_subagent_response()` только для победителя, отбрасывает остальные ответы
 
-#### Scenario: No ensure_context_fits for choreography
-- **WHEN** choreography completes
-- **THEN** the system does not call `ensure_context_fits()` (unlike orchestrated/hierarchical)
+#### Scenario: Нет ensure_context_fits для choreography
+- **WHEN** choreography завершается
+- **THEN** система не вызывает `ensure_context_fits()` (в отличие от orchestrated/hierarchical)
 
-### Requirement: Hierarchical Strategy Uses ContextManager
-The system MUST integrate `HierarchicalStrategy` with `ContextManager` methods.
+### Requirement: Hierarchical Strategy использует ContextManager
+Система MUST интегрировать `HierarchicalStrategy` с методами `ContextManager`.
 
-#### Scenario: Root builds context
-- **WHEN** `HierarchicalStrategy.execute()` starts
-- **THEN** the system calls `build_context(agent_scope="root")`
+#### Scenario: Корень строит контекст
+- **WHEN** `HierarchicalStrategy.execute()` запускается
+- **THEN** система вызывает `build_context(agent_scope="root")`
 
-#### Scenario: Child sessions created for delegation
-- **WHEN** root delegates to child
-- **THEN** the system calls `ChildSessionManager.create_child(parent, subagent_scope)`, child has own scope and epoch
+#### Scenario: Дочерние сессии создаются для делегирования
+- **WHEN** корень делегирует дочернему элементу
+- **THEN** система вызывает `ChildSessionManager.create_child(parent, subagent_scope)`, дочерний элемент имеет свою область и эпоху
 
-#### Scenario: Bottom-up response processing
-- **WHEN** child completes
-- **THEN** the system calls `ChildSessionManager.collect_summary(child)`, then `process_subagent_response()`, summary goes to parent
+#### Scenario: Обработка ответа снизу вверх
+- **WHEN** дочерний элемент завершается
+- **THEN** система вызывает `ChildSessionManager.collect_summary(child)`, затем `process_subagent_response()`, summary идёт родителю
 
-#### Scenario: ensure_context_fits at each level
-- **WHEN** hierarchy has multiple levels
-- **THEN** the system calls `ensure_context_fits()` at each level to prevent context growth
+#### Scenario: ensure_context_fits на каждом уровне
+- **WHEN** иерархия имеет несколько уровней
+- **THEN** система вызывает `ensure_context_fits()` на каждом уровне для предотвращения роста контекста
 
-### Requirement: Strategy Integration Is Transparent
-The system MUST make lifecycle model (hydration vs epoch) transparent to strategies.
+### Requirement: Интеграция стратегии прозрачна
+Система MUST делать модель жизненного цикла (гидрация vs эпоха) прозрачной для стратегий.
 
-#### Scenario: Strategy does not know about lifecycle
-- **WHEN** strategy calls `build_context()`
-- **THEN** strategy receives `PayloadEnvelope`, does not know if hydration or epoch is used
+#### Scenario: Стратегия не знает о жизненном цикле
+- **WHEN** стратегия вызывает `build_context()`
+- **THEN** стратегия получает `PayloadEnvelope`, не знает, используется гидрация или эпоха
 
-#### Scenario: Lifecycle switch does not require strategy changes
-- **WHEN** flag `agents.context.lifecycle.incremental` changes
-- **THEN** strategies continue to work without modifications
+#### Scenario: Переключение жизненного цикла не требует изменений стратегии
+- **WHEN** флаг `agents.context.lifecycle.incremental` изменяется
+- **THEN** стратегии продолжают работать без модификаций
 
-### Requirement: Multiagent Metrics Are Emitted
-The system MUST emit metrics for multiagent operations.
+### Requirement: Метрики мультиагента эмитируются
+Система MUST эмитировать метрики для мультиагентных операций.
 
-#### Scenario: Subagent response count
-- **WHEN** `process_subagent_response()` is called
-- **THEN** the system increments counter `context_subagent_responses_total` with label `parent_scope`
+#### Scenario: Счётчик ответов субагентов
+- **WHEN** вызывается `process_subagent_response()`
+- **THEN** система инкрементирует счётчик `context_subagent_responses_total` с label `parent_scope`
 
-#### Scenario: Subagent failure metric
-- **WHEN** subagent fails
-- **THEN** the system increments metric `context.subagent.failures` with `subagent_scope` and `error_type`
+#### Scenario: Метрика сбоев субагентов
+- **WHEN** субагент завершается сбоем
+- **THEN** система инкрементирует метрику `context.subagent.failures` с `subagent_scope` и `error_type`
 
-#### Scenario: Subagent timeout metric
-- **WHEN** subagent times out
-- **THEN** the system increments metric `context.subagent.timeouts` with `subagent_scope` and `timeout_sec`
+#### Scenario: Метрика таймаутов субагентов
+- **WHEN** субагент истекает по таймауту
+- **THEN** система инкрементирует метрику `context.subagent.timeouts` с `subagent_scope` и `timeout_sec`

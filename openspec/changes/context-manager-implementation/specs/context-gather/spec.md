@@ -1,107 +1,107 @@
-# Context Gather Capability Specification
+# Спецификация возможности Context Gather
 
 ## ADDED Requirements
 
-### Requirement: Task Analysis Classifies User Intent
-The system MUST analyze the user's prompt to classify the task type and extract search strategy.
+### Requirement: Анализ задачи классифицирует намерение пользователя
+Система MUST анализировать промпт пользователя для классификации типа задачи и извлечения стратегии поиска.
 
-#### Scenario: Bug fix task classification
-- **WHEN** user submits prompt "Fix crash when email is empty in auth"
-- **THEN** the system classifies task as `BUG_FIX` with `investigation_depth=2` and `needs_tests=True`
+#### Scenario: Классификация задачи исправления бага
+- **WHEN** пользователь отправляет промпт "Fix crash when email is empty in auth"
+- **THEN** система классифицирует задачу как `BUG_FIX` с `investigation_depth=2` и `needs_tests=True`
 
-#### Scenario: Feature task classification
-- **WHEN** user submits prompt "Add user authentication with OAuth"
-- **THEN** the system classifies task as `FEATURE` with `investigation_depth=3` and `needs_tests=True`
+#### Scenario: Классификация задачи новой функциональности
+- **WHEN** пользователь отправляет промпт "Add user authentication with OAuth"
+- **THEN** система классифицирует задачу как `FEATURE` с `investigation_depth=3` и `needs_tests=True`
 
-#### Scenario: LLM classification failure fallback
-- **WHEN** LLM-based classification fails (network error, timeout, invalid response)
-- **THEN** the system returns default `TaskProfile` with `task_type=FEATURE`, `investigation_depth=1`, and heuristic search terms extracted from prompt text
+#### Scenario: Fallback при сбое LLM-классификации
+- **WHEN** LLM-классификация завершается сбоем (ошибка сети, таймаут, невалидный ответ)
+- **THEN** система возвращает дефолтный `TaskProfile` с `task_type=FEATURE`, `investigation_depth=1` и эвристическими поисковыми терминами, извлечёнными из текста промпта
 
-### Requirement: Context Gatherer Collects Relevant Files
-The system MUST collect relevant files through ACP ToolRegistry using the pipeline: `project_tree()` → `search()` → `read_file()` → dependency graph → selection.
+### Requirement: Context Gatherer собирает релевантные файлы
+Система MUST собирать релевантные файлы через ACP ToolRegistry используя конвейер: `project_tree()` → `search()` → `read_file()` → граф зависимостей → отбор.
 
-#### Scenario: Successful file collection
-- **WHEN** TaskProfile has `search_terms=["email", "auth"]` and `target_modules=["auth"]`
-- **THEN** the system calls `project_tree()`, `search(["email", "auth"])`, reads candidate files, and returns `list[ContextItem]` with `type=FILE_CONTENT`
+#### Scenario: Успешный сбор файлов
+- **WHEN** TaskProfile имеет `search_terms=["email", "auth"]` и `target_modules=["auth"]`
+- **THEN** система вызывает `project_tree()`, `search(["email", "auth"])`, читает файлы-кандидаты и возвращает `list[ContextItem]` с `type=FILE_CONTENT`
 
-#### Scenario: ACP RPC failure for project_tree
-- **WHEN** RPC `project_tree()` fails
-- **THEN** the system continues with empty tree, relies on `search()` and `target_modules` from TaskProfile, logs warning `gather_project_tree_failed`
+#### Scenario: Сбой ACP RPC для project_tree
+- **WHEN** RPC `project_tree()` завершается сбоем
+- **THEN** система продолжает с пустым деревом, полагается на `search()` и `target_modules` из TaskProfile, логирует warning `gather_project_tree_failed`
 
-#### Scenario: ACP RPC failure for search
-- **WHEN** RPC `search()` fails
-- **THEN** the system skips search step, continues with tree + dependencies from DependencyGraph, logs warning `gather_search_failed`
+#### Scenario: Сбой ACP RPC для search
+- **WHEN** RPC `search()` завершается сбоем
+- **THEN** система пропускает шаг поиска, продолжает с деревом + зависимостями из DependencyGraph, логирует warning `gather_search_failed`
 
-#### Scenario: ACP RPC failure for read_file
-- **WHEN** RPC `read_file()` fails for a specific file
-- **THEN** the system skips that file, continues with remaining files, logs warning `gather_read_file_failed` with field `path`
+#### Scenario: Сбой ACP RPC для read_file
+- **WHEN** RPC `read_file()` завершается сбоем для конкретного файла
+- **THEN** система пропускает этот файл, продолжает с остальными файлами, логирует warning `gather_read_file_failed` с полем `path`
 
-#### Scenario: All RPCs fail
-- **WHEN** all ACP RPCs fail simultaneously
-- **THEN** the system returns empty or partial `list[ContextItem]`, logs error `gather_all_sources_failed`, payload builds from `session.history` + system prompt only
+#### Scenario: Все RPC завершаются сбоем
+- **WHEN** все ACP RPC завершаются сбоем одновременно
+- **THEN** система возвращает пустой или частичный `list[ContextItem]`, логирует error `gather_all_sources_failed`, payload строится только из `session.history` + системного промпта
 
-### Requirement: Binary Files Are Filtered
-The system MUST detect and exclude binary files from context collection.
+### Requirement: Бинарные файлы фильтруются
+Система MUST обнаруживать и исключать бинарные файлы из сбора контекста.
 
-#### Scenario: Binary file detection by extension
-- **WHEN** file has binary extension (`.png`, `.zip`, `.pdf`, `.exe`)
-- **THEN** the system skips file without calling `read_file()`, logs info `gather_file_skipped` with `reason=binary`
+#### Scenario: Обнаружение бинарного файла по расширению
+- **WHEN** файл имеет бинарное расширение (`.png`, `.zip`, `.pdf`, `.exe`)
+- **THEN** система пропускает файл без вызова `read_file()`, логирует info `gather_file_skipped` с `reason=binary`
 
-#### Scenario: Binary file detection by content
-- **WHEN** `read_file()` returns content that fails UTF-8 decoding
-- **THEN** the system catches `UnicodeDecodeError`, excludes file from result, logs info `gather_file_skipped` with `reason=binary`
+#### Scenario: Обнаружение бинарного файла по содержимому
+- **WHEN** `read_file()` возвращает содержимое, которое не декодируется UTF-8
+- **THEN** система перехватывает `UnicodeDecodeError`, исключает файл из результата, логирует info `gather_file_skipped` с `reason=binary`
 
-### Requirement: Empty Files Are Filtered
-The system MUST exclude empty files or files with only whitespace from context collection.
+### Requirement: Пустые файлы фильтруются
+Система MUST исключать пустые файлы или файлы только с пробелами из сбора контекста.
 
-#### Scenario: Empty file filtering
-- **WHEN** file content is `""` or contains only whitespace
-- **THEN** the system does not add `ContextItem` for this file, continues with remaining files
+#### Scenario: Фильтрация пустых файлов
+- **WHEN** содержимое файла `""` или содержит только пробелы
+- **THEN** система не добавляет `ContextItem` для этого файла, продолжает с остальными файлами
 
-### Requirement: Dependency Graph Resolves Imports
-The system MUST build and query a dependency graph to resolve file imports.
+### Requirement: Граф зависимостей разрешает импорты
+Система MUST строить и запрашивать граф зависимостей для разрешения импортов файлов.
 
-#### Scenario: Regex-based dependency resolution (Phase 1)
-- **WHEN** file `auth/login.py` imports `auth/validators.py`
-- **THEN** `DependencyGraph.get_dependencies("auth/login.py")` returns `["auth/validators.py"]`
+#### Scenario: Разрешение зависимостей на основе regex (Фаза 1)
+- **WHEN** файл `auth/login.py` импортирует `auth/validators.py`
+- **THEN** `DependencyGraph.get_dependencies("auth/login.py")` возвращает `["auth/validators.py"]`
 
-#### Scenario: Cyclic import handling
-- **WHEN** files have cyclic imports (`a.py` → `b.py` → `a.py`)
-- **THEN** `get_dependencies(recursive=True)` uses visited set to prevent infinite recursion, returns each file exactly once, result order is deterministic
+#### Scenario: Обработка циклических импортов
+- **WHEN** файлы имеют циклические импорты (`a.py` → `b.py` → `a.py`)
+- **THEN** `get_dependencies(recursive=True)` использует множество посещённых для предотвращения бесконечной рекурсии, возвращает каждый файл ровно один раз, порядок результата детерминирован
 
-#### Scenario: Recursive dependency resolution (Phase 5)
-- **WHEN** `recursive=True` and file has transitive dependencies
-- **THEN** the system resolves all transitive dependencies, returns complete dependency tree
+#### Scenario: Рекурсивное разрешение зависимостей (Фаза 5)
+- **WHEN** `recursive=True` и файл имеет транзитивные зависимости
+- **THEN** система разрешает все транзитивные зависимости, возвращает полное дерево зависимостей
 
-### Requirement: Token Budget Allocation
-The system MUST allocate token budget across system, history, tool output, and response buffer.
+### Requirement: Распределение токенов бюджета
+Система MUST распределять бюджет токенов между system, history, tool output и response buffer.
 
-#### Scenario: Budget allocation with default shares
-- **WHEN** `max_context_tokens=128000` and default shares (system=0.20, history=0.50, tool_output=0.20, response_buffer=0.10)
-- **THEN** `allocate()` returns `BudgetAllocation` with `system_tokens=25600`, `history_tokens=64000`, `tool_output_tokens=25600`, `response_buffer_tokens=12800`
+#### Scenario: Распределение бюджета с долями по умолчанию
+- **WHEN** `max_context_tokens=128000` и доли по умолчанию (system=0.20, history=0.50, tool_output=0.20, response_buffer=0.10)
+- **THEN** `allocate()` возвращает `BudgetAllocation` с `system_tokens=25600`, `history_tokens=64000`, `tool_output_tokens=25600`, `response_buffer_tokens=12800`
 
-#### Scenario: Content bounding
-- **WHEN** file content exceeds allocated `max_tokens`
-- **THEN** `bound_content(content, max_tokens)` truncates content preserving start and end, logs info `content_bounded` with `original_tokens` and `bound_tokens`
+#### Scenario: Ограничение содержимого
+- **WHEN** содержимое файла превышает выделенные `max_tokens`
+- **THEN** `bound_content(content, max_tokens)` обрезает содержимое, сохраняя начало и конец, логирует info `content_bounded` с `original_tokens` и `bound_tokens`
 
-### Requirement: Context Registry Manages Sources
-The system MUST manage context sources through a registry pattern with baseline and updates rendering.
+### Requirement: Context Registry управляет источниками
+Система MUST управлять источниками контекста через паттерн registry с рендерингом baseline и updates.
 
-#### Scenario: Source registration
-- **WHEN** `ContextSource` is registered via `register(source)`
-- **THEN** source is added to registry with unique `source_id`
+#### Scenario: Регистрация источника
+- **WHEN** `ContextSource` регистрируется через `register(source)`
+- **THEN** источник добавляется в registry с уникальным `source_id`
 
-#### Scenario: Baseline rendering
-- **WHEN** `render_baseline()` is called
-- **THEN** the system renders all registered sources, returns combined string
+#### Scenario: Рендеринг baseline
+- **WHEN** вызывается `render_baseline()`
+- **THEN** система рендерит все зарегистрированные источники, возвращает объединённую строку
 
-#### Scenario: Change detection via fingerprint
-- **WHEN** `detect_changes()` is called
-- **THEN** the system compares current fingerprints with previous snapshot, returns list of changed `source_id`
+#### Scenario: Обнаружение изменений через fingerprint
+- **WHEN** вызывается `detect_changes()`
+- **THEN** система сравнивает текущие fingerprints с предыдущим snapshot, возвращает список изменённых `source_id`
 
-### Requirement: Gatherer Has No Direct I/O
-The system MUST ensure that `ContextGatherer` performs all I/O through ACP `ToolRegistry`, not directly.
+### Requirement: Gatherer не имеет прямого I/O
+Система MUST гарантировать, что `ContextGatherer` выполняет весь I/O через ACP `ToolRegistry`, а не напрямую.
 
-#### Scenario: I/O through ToolRegistry
-- **WHEN** `ContextGatherer.gather()` needs to read files
-- **THEN** the system calls `ToolRegistry` methods (`project_tree`, `search`, `read_file`), does not perform direct file system access
+#### Scenario: I/O через ToolRegistry
+- **WHEN** `ContextGatherer.gather()` нужно читать файлы
+- **THEN** система вызывает методы `ToolRegistry` (`project_tree`, `search`, `read_file`), не выполняет прямой доступ к файловой системе

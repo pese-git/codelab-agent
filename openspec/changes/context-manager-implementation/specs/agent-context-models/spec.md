@@ -1,57 +1,57 @@
-# agent-context-models Delta Specification
+# Delta-спецификация agent-context-models
 
 ## ADDED Requirements
 
-### Requirement: PayloadEnvelope Data Model
-The system MUST provide `PayloadEnvelope` as a frozen dataclass:
-- `baseline: list[LLMMessage]` — immutable prefix (system + stable sources)
-- `tail: list[LLMMessage]` — current turn deltas (user/assistant/tool)
-- `baseline_fingerprint: str` — Codec fingerprint of baseline (for prompt-cache hit)
-- `token_count: int` — total token estimate
+### Requirement: Модель данных PayloadEnvelope
+Система MUST предоставлять `PayloadEnvelope` как frozen dataclass:
+- `baseline: list[LLMMessage]` — иммутабельный префикс (system + стабильные источники)
+- `tail: list[LLMMessage]` — дельты текущего хода (user/assistant/tool)
+- `baseline_fingerprint: str` — Codec-отпечаток baseline (для попадания в prompt-cache)
+- `token_count: int` — общая оценка токенов
 
-#### Scenario: PayloadEnvelope creation
-- **WHEN** `build_context()` is called
-- **THEN** the system returns `PayloadEnvelope` with separated baseline and tail
+#### Scenario: Создание PayloadEnvelope
+- **WHEN** вызывается `build_context()`
+- **THEN** система возвращает `PayloadEnvelope` с разделёнными baseline и tail
 
-#### Scenario: to_messages flattens baseline and tail
-- **WHEN** `envelope.to_messages()` is called
-- **THEN** the system returns `[*baseline, *tail]` as flat `list[LLMMessage]`
+#### Scenario: to_messages уплощает baseline и tail
+- **WHEN** вызывается `envelope.to_messages()`
+- **THEN** система возвращает `[*baseline, *tail]` как плоский `list[LLMMessage]`
 
-### Requirement: TaskProfile Data Model
-The system MUST provide `TaskProfile` as a frozen dataclass:
-- `task_type: TaskType` — classification (BUG_FIX, FEATURE, REFACTOR, ARCHITECTURE)
-- `search_terms: list[str]` — extracted search terms
-- `target_modules: list[str]` — target modules
+### Requirement: Модель данных TaskProfile
+Система MUST предоставлять `TaskProfile` как frozen dataclass:
+- `task_type: TaskType` — классификация (BUG_FIX, FEATURE, REFACTOR, ARCHITECTURE)
+- `search_terms: list[str]` — извлечённые поисковые термины
+- `target_modules: list[str]` — целевые модули
 - `investigation_depth: int` — 1-3
-- `needs_tests: bool` — whether tests are needed
+- `needs_tests: bool` — нужны ли тесты
 
-#### Scenario: TaskProfile from TaskAnalyzer
-- **WHEN** `TaskAnalyzer.analyze()` completes
-- **THEN** the system returns `TaskProfile` with classification and search strategy
+#### Scenario: TaskProfile от TaskAnalyzer
+- **WHEN** `TaskAnalyzer.analyze()` завершается
+- **THEN** система возвращает `TaskProfile` с классификацией и стратегией поиска
 
-### Requirement: BudgetAllocation Data Model
-The system MUST provide `BudgetAllocation` as a frozen dataclass:
+### Requirement: Модель данных BudgetAllocation
+Система MUST предоставлять `BudgetAllocation` как frozen dataclass:
 - `system_tokens: int`
 - `history_tokens: int`
 - `tool_output_tokens: int`
 - `response_buffer_tokens: int`
 
-#### Scenario: BudgetAllocation from TokenBudgetManager
-- **WHEN** `TokenBudgetManager.allocate(total_tokens)` is called
-- **THEN** the system returns `BudgetAllocation` with token shares
+#### Scenario: BudgetAllocation от TokenBudgetManager
+- **WHEN** вызывается `TokenBudgetManager.allocate(total_tokens)`
+- **THEN** система возвращает `BudgetAllocation` с долями токенов
 
-### Requirement: BuildOptions Data Model
-The system MUST provide `BuildOptions` as a frozen dataclass:
-- `incremental: bool | None = None` — None means use config
+### Requirement: Модель данных BuildOptions
+Система MUST предоставлять `BuildOptions` как frozen dataclass:
+- `incremental: bool | None = None` — None означает использовать конфиг
 - `skeletonize: bool | None = None`
 - `max_files: int | None = None`
 
-#### Scenario: BuildOptions overrides config
-- **WHEN** `BuildOptions(incremental=True)` is passed to `build_context()`
-- **THEN** the system uses `True` for incremental, overriding config value
+#### Scenario: BuildOptions переопределяет конфиг
+- **WHEN** `BuildOptions(incremental=True)` передаётся в `build_context()`
+- **THEN** система использует `True` для incremental, переопределяя значение конфига
 
-### Requirement: ContextConfig Data Model
-The system MUST provide `ContextConfig` as a frozen dataclass with feature flags:
+### Requirement: Модель данных ContextConfig
+Система MUST предоставлять `ContextConfig` как frozen dataclass с feature flags:
 - `enabled: bool = False` — master switch
 - `gather_enabled: bool = True`
 - `recursive_dependencies: bool = False`
@@ -69,65 +69,65 @@ The system MUST provide `ContextConfig` as a frozen dataclass with feature flags
 - `response_buffer_share: float = 0.10`
 - `federation: bool = False`
 
-#### Scenario: ContextConfig from TOML
-- **WHEN** TOML `[agents.context.*]` is loaded
-- **THEN** the system creates `ContextConfig` with values from TOML
+#### Scenario: ContextConfig из TOML
+- **WHEN** TOML `[agents.context.*]` загружается
+- **THEN** система создаёт `ContextConfig` со значениями из TOML
 
-#### Scenario: ContextConfig env override
-- **WHEN** environment variable `CODELAB_CONTEXT_ENABLED=true` is set
-- **THEN** the system overrides TOML value with env value
+#### Scenario: ContextConfig переопределение через env
+- **WHEN** установлена переменная окружения `CODELAB_CONTEXT_ENABLED=true`
+- **THEN** система переопределяет значение TOML значением из env
 
-### Requirement: ContextItem Data Model
-The system MUST provide `ContextItem` as a frozen dataclass:
-- `id: str` — usually file path or unique key
-- `type: ContextType` — FILE_CONTENT, FILE_SKELETON, TERMINAL_OUTPUT, etc.
+### Requirement: Модель данных ContextItem
+Система MUST предоставлять `ContextItem` как frozen dataclass:
+- `id: str` — обычно путь к файлу или уникальный ключ
+- `type: ContextType` — FILE_CONTENT, FILE_SKELETON, TERMINAL_OUTPUT, и т.д.
 - `content: str`
-- `priority: int` — 0-10; >=10 not evicted during compaction
+- `priority: int` — 0-10; >=10 не вытесняется при компактировании
 - `owner_scope: str`
 - `token_count: int`
-- `last_accessed: float = 0.0` — last access timestamp (for LRU eviction)
+- `last_accessed: float = 0.0` — временная метка последнего доступа (для LRU eviction)
 
-#### Scenario: ContextItem with priority
-- **WHEN** context item is created
-- **THEN** item has priority for eviction ordering
+#### Scenario: ContextItem с приоритетом
+- **WHEN** создаётся элемент контекста
+- **THEN** элемент имеет приоритет для упорядочивания eviction
 
-### Requirement: ContextEpoch Data Model
-The system MUST provide `ContextEpoch` as a frozen dataclass:
+### Requirement: Модель данных ContextEpoch
+Система MUST предоставлять `ContextEpoch` как frozen dataclass:
 - `epoch_id: str`
 - `baseline: list[LLMMessage]`
 - `baseline_fingerprint: str`
 - `mid_conversation_messages: list[LLMMessage] = field(default_factory=list)`
 
 #### Scenario: ContextEpoch get_full_context
-- **WHEN** `epoch.get_full_context()` is called
-- **THEN** the system returns `[*baseline, *mid_conversation_messages]`
+- **WHEN** вызывается `epoch.get_full_context()`
+- **THEN** система возвращает `[*baseline, *mid_conversation_messages]`
 
-### Requirement: ContextSnapshot Data Model
-The system MUST provide `ContextSnapshot` as a frozen dataclass:
-- `fingerprints: dict[str, str]` — source_id → Codec fingerprint
+### Requirement: Модель данных ContextSnapshot
+Система MUST предоставлять `ContextSnapshot` как frozen dataclass:
+- `fingerprints: dict[str, str]` — source_id → Codec-отпечаток
 
 #### Scenario: ContextSnapshot diff
-- **WHEN** `snapshot.diff(other)` is called
-- **THEN** the system returns list of changed source_ids
+- **WHEN** вызывается `snapshot.diff(other)`
+- **THEN** система возвращает список изменённых source_id
 
-### Requirement: ReconcileResult Data Model
-The system MUST provide `ReconcileResult` as a frozen dataclass:
+### Requirement: Модель данных ReconcileResult
+Система MUST предоставлять `ReconcileResult` как frozen dataclass:
 - `state: ChangeState` — UNCHANGED, UPDATED, DEFERRED
 - `updated_sources: list[str]`
 - `new_tail_messages: list[LLMMessage]`
-- `epoch_broken: bool` — True means baseline was rebuilt (cache loss)
+- `epoch_broken: bool` — True означает, что baseline был перестроен (потеря кэша)
 
-#### Scenario: ReconcileResult with epoch broken
-- **WHEN** reconciliation detects baseline change
-- **THEN** `ReconcileResult` has `epoch_broken=True`
+#### Scenario: ReconcileResult с поломкой эпохи
+- **WHEN** реконсиляция обнаруживает изменение baseline
+- **THEN** `ReconcileResult` имеет `epoch_broken=True`
 
-### Requirement: SubagentResult Data Model
-The system MUST provide `SubagentResult` as a frozen dataclass:
-- `summary: str` — summarized result (isolation)
+### Requirement: Модель данных SubagentResult
+Система MUST предоставлять `SubagentResult` как frozen dataclass:
+- `summary: str` — суммаризированный результат (изоляция)
 - `token_count: int`
 - `source_scope: str`
-- `shared_items: list[ContextItem] = field(default_factory=list)` — empty without federation
+- `shared_items: list[ContextItem] = field(default_factory=list)` — пусто без федерации
 
-#### Scenario: SubagentResult from process_subagent_response
-- **WHEN** `process_subagent_response()` completes
-- **THEN** the system returns `SubagentResult` with summary for parent
+#### Scenario: SubagentResult от process_subagent_response
+- **WHEN** `process_subagent_response()` завершается
+- **THEN** система возвращает `SubagentResult` с summary для родителя
