@@ -397,6 +397,7 @@ class MultiAgentProvider(Provider):
         config: AppConfig,
         metrics_tracker: MetricsTracker,
         tracer: Tracer,
+        llm_provider: LLMProvider,
     ) -> DefaultContextManager:
         """Создаёт DefaultContextManager с метриками и трейсингом.
 
@@ -406,6 +407,7 @@ class MultiAgentProvider(Provider):
         return DefaultContextManager(
             tool_registry=tool_registry,
             config=config.agents.context,
+            llm=llm_provider,
             metrics_tracker=metrics_tracker,
             tracer=tracer,
         )
