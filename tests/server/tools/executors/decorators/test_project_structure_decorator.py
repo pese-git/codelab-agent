@@ -47,7 +47,7 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
         arguments = {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         }
 
@@ -78,13 +78,13 @@ class TestProjectStructureDecorator:
 
         # 1. terminal/create
         await decorator.execute(session, {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         })
 
         # 2. terminal/wait_for_exit
         await decorator.execute(session, {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "term_1",
         })
 
@@ -107,7 +107,7 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
         arguments = {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "ls -la lib",
         }
 
@@ -129,7 +129,7 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
         arguments = {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "npm install",
         }
 
@@ -164,12 +164,12 @@ class TestProjectStructureDecorator:
         session = self._make_session()
 
         await decorator.execute(session, {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         })
 
         await decorator.execute(session, {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "term_1",
         })
 
@@ -193,7 +193,7 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
         arguments = {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "unknown_terminal",
         }
 
@@ -222,12 +222,12 @@ class TestProjectStructureDecorator:
         session = self._make_session()
 
         await decorator.execute(session, {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         })
 
         await decorator.execute(session, {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "term_1",
         })
 
@@ -246,7 +246,7 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
         arguments = {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         }
 
@@ -276,12 +276,12 @@ class TestProjectStructureDecorator:
         session = self._make_session()
 
         await decorator.execute(session, {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         })
 
         await decorator.execute(session, {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "term_1",
         })
 
@@ -310,14 +310,14 @@ class TestProjectStructureDecorator:
         session = self._make_session()
 
         await decorator.execute(session, {
-            "tool_name": "terminal/create",
+            "operation": "create",
             "command": "find . -type f",
         })
 
         assert "term_1" in decorator._terminal_commands
 
         await decorator.execute(session, {
-            "tool_name": "terminal/wait_for_exit",
+            "operation": "wait_for_exit",
             "terminal_id": "term_1",
         })
 
