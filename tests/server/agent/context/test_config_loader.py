@@ -5,7 +5,6 @@ import os
 import pytest
 
 from codelab.server.agent.context.config_loader import load_context_config
-from codelab.server.agent.context.models import ContextConfig
 
 
 class TestLoadContextConfig:

@@ -1,6 +1,5 @@
 """Unit тесты для TokenBudgetManager."""
 
-import pytest
 
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
 from codelab.server.agent.context.models import ContextConfig

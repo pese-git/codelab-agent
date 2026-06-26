@@ -157,6 +157,7 @@ class TestSystemPromptBuilderCwd:
         assert "Working directory: /home/user/project" in result
         assert "CRITICAL FILE SYSTEM CONSTRAINTS" in result
         assert "MUST ONLY work within the working directory" in result
+        assert "terminal/create automatically runs in the working directory" in result
         assert "Base prompt" in result
 
     def test_cwd_is_first_section(self):

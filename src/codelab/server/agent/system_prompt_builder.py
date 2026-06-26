@@ -92,7 +92,9 @@ class SystemPromptBuilder:
                 "MUST be relative to the working directory\n"
                 "5. If unsure about a path, use 'ls -la' or 'find . -name <pattern>' first\n"
                 "6. Do NOT use fs/read_text_file on directories — it will fail with EISDIR error\n"
-                "7. Attempts to access files outside the working directory will be REJECTED"
+                "7. Attempts to access files outside the working directory will be REJECTED\n"
+                "8. terminal/create automatically runs in the working directory — "
+                "you do NOT need to 'cd' first"
             )
 
         # 1. Agent prompt (роль агента)
