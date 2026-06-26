@@ -541,6 +541,7 @@ class SlashCommandsProvider(Provider):
         strategy_dispatcher: StrategyDispatcher,
         metrics_tracker: MetricsTracker,
         tracer: Tracer,
+        config: AppConfig,
     ) -> CommandRegistry:
         """Реестр команд."""
         from codelab.server.protocol.handlers.slash_commands.builtin.context import (
@@ -554,7 +555,7 @@ class SlashCommandsProvider(Provider):
         registry.register(StatusCommandHandler())
         registry.register(ModeCommandHandler())
         registry.register(StrategyCommandHandler(strategy_dispatcher))
-        registry.register(ContextCommandHandler(metrics_tracker, tracer))
+        registry.register(ContextCommandHandler(metrics_tracker, config.agents.context, tracer))
         registry.register(HelpCommandHandler(registry))
         return registry
 
