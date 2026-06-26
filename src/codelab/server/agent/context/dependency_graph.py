@@ -35,6 +35,7 @@ class RegexDependencyGraph(DependencyGraph):
         self._project_root = project_root or Path.cwd()
         self._dependencies: dict[str, set[str]] = defaultdict(set)
         self._dependents: dict[str, set[str]] = defaultdict(set)
+        self._project_files: list[str] | None = None
 
     def add_file(self, path: str, imports: list[str]) -> None:
         """Добавить файл в граф с его импортами.
@@ -156,3 +157,21 @@ class RegexDependencyGraph(DependencyGraph):
         """Очистить граф."""
         self._dependencies.clear()
         self._dependents.clear()
+        self._project_files = None
+
+    def set_project_files(self, files: list[str]) -> None:
+        """Установить кэш структуры проекта.
+
+        Args:
+            files: Список относительных путей к файлам проекта
+        """
+        self._project_files = files
+        logger.debug("Project files cached", count=len(files))
+
+    def get_project_files(self) -> list[str] | None:
+        """Получить кэш структуры проекта.
+
+        Returns:
+            Список путей или None если кэш не загружен
+        """
+        return self._project_files

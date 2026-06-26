@@ -107,6 +107,9 @@ class PromptOrchestrator:
                 FileSystemToolDefinitions,
                 TerminalToolDefinitions,
             )
+            from ...tools.executors.decorators.project_structure import (
+                ProjectStructureDecorator,
+            )
             from ...tools.executors.filesystem_executor import FileSystemToolExecutor
             from ...tools.executors.terminal_executor import TerminalToolExecutor
             from ...tools.integrations.client_rpc_bridge import ClientRPCBridge
@@ -117,8 +120,9 @@ class PromptOrchestrator:
             FileSystemToolDefinitions.register_all(
                 self.tool_registry, FileSystemToolExecutor(bridge, checker)
             )
+            terminal_executor = TerminalToolExecutor(bridge, checker)
             TerminalToolDefinitions.register_all(
-                self.tool_registry, TerminalToolExecutor(bridge, checker)
+                self.tool_registry, ProjectStructureDecorator(terminal_executor)
             )
             logger.debug(
                 "PromptOrchestrator registered tool executors",

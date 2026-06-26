@@ -9,7 +9,6 @@ from codelab.server.tools.base import ToolDefinition
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
-    from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 
 
 class TerminalToolDefinitions:
@@ -144,18 +143,19 @@ class TerminalToolDefinitions:
     @staticmethod
     def register_all(
         tool_registry: ToolRegistry,
-        executor: TerminalToolExecutor,
+        executor: Any,
     ) -> None:
         """Зарегистрировать все терминальные инструменты в реестре.
-        
+
         Регистрирует:
         - terminal/execute_command (create) для запуска команды
         - terminal/wait_for_exit для ожидания завершения
         - terminal/release_terminal (release) для освобождения ресурсов
-        
+
         Args:
             tool_registry: Реестр инструментов для регистрации
             executor: Executor для выполнения терминальных операций
+                (TerminalToolExecutor или декоратор, оборачивающий его)
         """
         # Создать обработчик для создания терминала и запуска команды
         async def create_handler(session: SessionState, **arguments: Any) -> Any:
