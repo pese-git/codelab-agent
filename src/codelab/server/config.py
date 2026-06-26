@@ -47,7 +47,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Импортируем типы для Registry metadata из TOML config
+from codelab.server.agent.context.models import ContextConfig
 from codelab.server.toml_config.pydantic_config import (
     FallbackConfig,
     ProviderConfig,
@@ -137,12 +137,14 @@ class AgentsConfig(BaseModel):
         fallback_strategy: Стратегия fallback если нет нужных агентов
         default_model: Модель по умолчанию для агентов
         max_steps: Максимальное количество шагов мультиагентного выполнения
+        context: Конфигурация Context Manager
     """
 
     strategy: str = "single"
     fallback_strategy: str = "single"
     default_model: str = "openai/gpt-4o"
     max_steps: int = 7
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
 
 class StorageConfig(BaseModel):
@@ -495,7 +497,11 @@ class AppConfig(BaseSettings):
             # Загружаем agents конфигурацию из TOML
             agents_data = toml_data.get("agents", {})
             if isinstance(agents_data, dict):
-                agents_config = AgentsConfig(**agents_data)
+                # Загружаем Context Manager конфигурацию из [agents.context]
+                from codelab.server.agent.context.config_loader import load_context_config
+                context_data = agents_data.pop("context", {})
+                context_config = load_context_config({"agents": {"context": context_data}})
+                agents_config = AgentsConfig(context=context_config, **agents_data)
             else:
                 agents_config = AgentsConfig()
         else:

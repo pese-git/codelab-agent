@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from codelab.server.agent.context.models import ContextConfig
 from codelab.server.observability.metrics_tracker import MetricsTracker
 from codelab.server.observability.tracer import Tracer
 from codelab.server.protocol.handlers.slash_commands.builtin.context import (
@@ -21,10 +22,15 @@ class TestContextCommandHandler:
         session.config_values = {}
         return session
 
+    def _make_config(self, enabled: bool = False, gather_enabled: bool = True) -> ContextConfig:
+        """Создать ContextConfig для тестов."""
+        return ContextConfig(enabled=enabled, gather_enabled=gather_enabled)
+
     def test_show_summary_no_metrics(self):
         """/context без метрик показывает 'нет данных'."""
         tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
         session = self._make_session()
 
         result = handler.execute([], session)
@@ -44,7 +50,8 @@ class TestContextCommandHandler:
             tail_tokens=500,
             session_id="test-session",
         )
-        handler = ContextCommandHandler(tracker)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
         session = self._make_session()
 
         result = handler.execute([], session)
@@ -53,10 +60,77 @@ class TestContextCommandHandler:
         assert "Сборок контекста" in text
         assert "5" in text or "2,000" in text
 
+    def test_show_summary_enabled_status(self):
+        """/context показывает правильный статус из конфигурации."""
+        tracker = MetricsTracker()
+        config = self._make_config(enabled=True, gather_enabled=True)
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute([], session)
+
+        text = result.content[0]["text"]
+        assert "enabled=True" in text
+        assert "gather=on" in text
+        assert "✅" in text
+
+    def test_show_summary_disabled_status(self):
+        """/context показывает правильный статус когда выключен."""
+        tracker = MetricsTracker()
+        config = self._make_config(enabled=False, gather_enabled=True)
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute([], session)
+
+        text = result.content[0]["text"]
+        assert "enabled=False" in text
+        assert "⏸️" in text
+
+    def test_context_on_runtime_override(self):
+        """/context on устанавливает runtime override."""
+        tracker = MetricsTracker()
+        config = self._make_config(enabled=False)
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["on"], session)
+
+        text = result.content[0]["text"]
+        assert "включён" in text
+        assert session.config_values["context_enabled"] == "true"
+
+        # После on статус должен показывать enabled=True
+        result2 = handler.execute([], session)
+        assert "enabled=True" in result2.content[0]["text"]
+
+    def test_context_off_runtime_override(self):
+        """/context off устанавливает runtime override."""
+        tracker = MetricsTracker()
+        config = self._make_config(enabled=True)
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        # Сначала проверим что статус enabled=True из конфига
+        result_before = handler.execute([], session)
+        assert "enabled=True" in result_before.content[0]["text"]
+
+        # Выключаем через команду
+        result = handler.execute(["off"], session)
+
+        text = result.content[0]["text"]
+        assert "выключен" in text
+        assert session.config_values["context_enabled"] == "false"
+
+        # После off статус должен показывать enabled=False
+        result2 = handler.execute([], session)
+        assert "enabled=False" in result2.content[0]["text"]
+
     def test_show_spans_no_tracer(self):
         """/context spans без tracer показывает предупреждение."""
         tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker, tracer=None)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config, tracer=None)
         session = self._make_session()
 
         result = handler.execute(["spans"], session)
@@ -68,7 +142,8 @@ class TestContextCommandHandler:
         """/context spans без span'ов показывает 'нет span'ов'."""
         tracker = MetricsTracker()
         tracer = Tracer()
-        handler = ContextCommandHandler(tracker, tracer)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config, tracer)
         session = self._make_session()
 
         result = handler.execute(["spans"], session)
@@ -80,7 +155,8 @@ class TestContextCommandHandler:
         """/context spans показывает context.build и context.gather."""
         tracker = MetricsTracker()
         tracer = Tracer()
-        handler = ContextCommandHandler(tracker, tracer)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config, tracer)
         session = self._make_session()
 
         # Создаём span'ы
@@ -105,48 +181,11 @@ class TestContextCommandHandler:
         assert "context.build" in text
         assert "context.gather" in text
 
-    def test_context_on(self):
-        """/context on включает Context Manager."""
-        tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
-        session = self._make_session()
-        session.config_values["context_enabled"] = "false"
-
-        result = handler.execute(["on"], session)
-
-        text = result.content[0]["text"]
-        assert "включён" in text
-        assert session.config_values["context_enabled"] == "true"
-
-    def test_context_off(self):
-        """/context off выключает Context Manager."""
-        tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
-        session = self._make_session()
-        session.config_values["context_enabled"] = "true"
-
-        result = handler.execute(["off"], session)
-
-        text = result.content[0]["text"]
-        assert "выключен" in text
-        assert session.config_values["context_enabled"] == "false"
-
-    def test_context_already_enabled(self):
-        """/context on когда уже включён показывает 'уже включён'."""
-        tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
-        session = self._make_session()
-        session.config_values["context_enabled"] = "true"
-
-        result = handler.execute(["on"], session)
-
-        text = result.content[0]["text"]
-        assert "уже включён" in text
-
     def test_context_unknown_subcommand(self):
         """/context unknown показывает ошибку и подсказку."""
         tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
         session = self._make_session()
 
         result = handler.execute(["unknown"], session)
@@ -160,7 +199,8 @@ class TestContextCommandHandler:
     def test_get_definition(self):
         """get_definition() возвращает корректное определение."""
         tracker = MetricsTracker()
-        handler = ContextCommandHandler(tracker)
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
 
         definition = handler.get_definition()
 

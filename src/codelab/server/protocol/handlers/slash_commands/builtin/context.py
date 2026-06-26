@@ -12,6 +12,7 @@ from codelab.server.models import AvailableCommand, AvailableCommandInput
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
+    from codelab.server.agent.context.models import ContextConfig
     from codelab.server.observability.metrics_tracker import MetricsTracker
     from codelab.server.observability.tracer import Tracer
     from codelab.server.protocol.state import SessionState
@@ -32,15 +33,18 @@ class ContextCommandHandler(CommandHandler):
     def __init__(
         self,
         metrics_tracker: MetricsTracker,
+        config: ContextConfig,
         tracer: Tracer | None = None,
     ) -> None:
         """Инициализация handler.
 
         Args:
             metrics_tracker: MetricsTracker для получения метрик
+            config: ContextConfig с настройками Context Manager
             tracer: Tracer для получения span'ов (опционально)
         """
         self._metrics_tracker = metrics_tracker
+        self._config = config
         self._tracer = tracer
 
     def execute(
@@ -90,12 +94,21 @@ class ContextCommandHandler(CommandHandler):
         session_id = session.session_id
         metrics = self._metrics_tracker.get_metrics(session_id)
 
-        # Определяем статус
-        context_enabled = session.config_values.get("context_enabled", "false")
-        gather_enabled = session.config_values.get("context_gather_enabled", "true")
+        # Runtime override из session имеет приоритет над конфигом
+        session_enabled = session.config_values.get("context_enabled")
+        if session_enabled is not None:
+            context_enabled = session_enabled == "true"
+        else:
+            context_enabled = self._config.enabled
 
-        status_icon = "✅" if context_enabled == "true" else "⏸️"
-        gather_status = "on" if gather_enabled != "false" else "off"
+        session_gather = session.config_values.get("context_gather_enabled")
+        if session_gather is not None:
+            gather_enabled = session_gather == "true"
+        else:
+            gather_enabled = self._config.gather_enabled
+
+        status_icon = "✅" if context_enabled else "⏸️"
+        gather_status = "on" if gather_enabled else "off"
 
         lines = [
             f"📦 **Context Manager** {status_icon}",
@@ -199,12 +212,18 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
+    def _get_effective_enabled(self, session: SessionState) -> bool:
+        """Получить эффективный статус Context Manager (конфиг + runtime override)."""
+        session_enabled = session.config_values.get("context_enabled")
+        if session_enabled is not None:
+            return session_enabled == "true"
+        return self._config.enabled
+
     def _set_enabled(self, session: SessionState, enabled: bool) -> CommandResult:
         """Включить или выключить Context Manager."""
-        old_value = session.config_values.get("context_enabled", "false")
-        new_value = "true" if enabled else "false"
+        current = self._get_effective_enabled(session)
 
-        if old_value == new_value:
+        if current == enabled:
             state = "включён" if enabled else "выключен"
             return CommandResult(
                 content=[{
@@ -213,7 +232,7 @@ class ContextCommandHandler(CommandHandler):
                 }]
             )
 
-        session.config_values["context_enabled"] = new_value
+        session.config_values["context_enabled"] = "true" if enabled else "false"
 
         action = "включён" if enabled else "выключен"
         return CommandResult(
