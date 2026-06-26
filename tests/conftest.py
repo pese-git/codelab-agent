@@ -6,12 +6,27 @@ from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
+import structlog
 
 if TYPE_CHECKING:
     from codelab.client.presentation.chat_view_model import ChatViewModel
     from codelab.client.presentation.plan_view_model import PlanViewModel
     from codelab.client.presentation.session_view_model import SessionViewModel
     from codelab.client.presentation.terminal_view_model import TerminalViewModel
+
+
+# === Фикстуры для structlog ===
+
+
+@pytest.fixture(autouse=True)
+def reset_structlog_cache():
+    """Сбросить кэш structlog перед каждым тестом.
+    
+    Structlog кэширует logger instances, что может вызывать проблемы
+    при перехвате вывода в тестах (caplog/capsys).
+    """
+    structlog.reset_defaults()
+    yield
 
 
 # === Общие фикстуры ===
