@@ -1,6 +1,5 @@
 """Unit тесты для DependencyGraph."""
 
-import pytest
 
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 

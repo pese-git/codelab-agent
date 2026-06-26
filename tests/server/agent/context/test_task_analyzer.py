@@ -4,7 +4,7 @@ import pytest
 
 from codelab.server.agent.context.models import TaskType
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
-from codelab.server.llm.models import CompletionResponse, LLMToolCall, StopReason
+from codelab.server.llm.models import CompletionResponse, StopReason
 
 
 class MockLLMForAnalyzer:

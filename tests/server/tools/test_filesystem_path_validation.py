@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pathlib import Path
 
 from codelab.server.tools.definitions.filesystem import (
     _normalize_path,
@@ -129,23 +128,16 @@ class TestValidatePathEdgeCases:
         _validate_path_in_cwd(path, cwd)
 
     def test_path_equals_cwd_raises_error(self):
-        """Путь равный cwd (директория) выбрасывает ValueError.
+        """Путь равный cwd (директория) проходит валидацию.
         
-        Это корректно, так как мы проверяем файлы, а не директории.
+        Edge case: путь равный cwd не содержит файлов, но валидация
+        проверяет только принадлежность к директории, не тип объекта.
         """
         cwd = "/home/user/project"
         path = "/home/user/project"
         
-        # Путь равный cwd не начинается с cwd + separator
-        # Но это edge case - директория не файл
-        # В реальности это должно обрабатываться на уровне executor
-        # Здесь просто проверяем что валидация работает
-        try:
-            _validate_path_in_cwd(path, cwd)
-            # Если не выбросило - это тоже OK для edge case
-        except ValueError:
-            # Если выбросило - это тоже OK
-            pass
+        # Путь равный cwd проходит валидацию (принадлежит cwd)
+        _validate_path_in_cwd(path, cwd)
 
     def test_symlink_scenario(self):
         """Сценарий с symlink (тестируем логику, не реальные symlink)."""

@@ -159,9 +159,12 @@ class TerminalToolDefinitions:
         """
         # Создать обработчик для создания терминала и запуска команды
         async def create_handler(session: SessionState, **arguments: Any) -> Any:
-            """Обработчик для terminal/execute_command (create)."""
+            """Обработчик для terminal/create."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "create"
+            # Подставить session.cwd если LLM не передал cwd явно
+            if "cwd" not in arguments and session.cwd:
+                arguments["cwd"] = session.cwd
             return await executor.execute(session, arguments)
 
         # Создать обработчик для ожидания завершения
