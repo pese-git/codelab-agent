@@ -37,6 +37,8 @@ from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
     from codelab.server.llm.base import LLMProvider
+    from codelab.server.observability.metrics_tracker import MetricsTracker
+    from codelab.server.observability.tracer import Tracer
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger(__name__)
@@ -51,6 +53,8 @@ class DefaultContextManager(ContextManager):
         config: ContextConfig | None = None,
         llm: LLMProvider | None = None,
         model: str = "openai/gpt-4o-mini",
+        metrics_tracker: MetricsTracker | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._config = config or ContextConfig()
@@ -58,6 +62,8 @@ class DefaultContextManager(ContextManager):
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
         self._dependency_graph = RegexDependencyGraph(Path.cwd())
+        self._metrics_tracker = metrics_tracker
+        self._tracer = tracer
 
     async def build_context(
         self,
@@ -84,7 +90,14 @@ class DefaultContextManager(ContextManager):
         """
         start_time = time.time()
         session_id = getattr(session, "session_id", "unknown")
-        
+
+        span = None
+        if self._tracer is not None:
+            span = self._tracer.start_span(
+                name="context.build",
+                session_id=str(session_id),
+            )
+
         logger.info(
             "context.build.start",
             session_id=session_id,
@@ -155,6 +168,7 @@ class DefaultContextManager(ContextManager):
                 tool_registry=self._tool_registry,
                 dependency_graph=self._dependency_graph,
                 session_id=session_id,
+                tracer=self._tracer,
             )
             items = await gatherer.gather(profile, session, options=options)
             gather_ms = (time.time() - gather_start) * 1000
@@ -239,6 +253,13 @@ class DefaultContextManager(ContextManager):
         )
 
         elapsed_ms = (time.time() - start_time) * 1000
+        baseline_tokens = self._estimate_total_tokens(baseline, [])
+        tail_tokens = self._estimate_total_tokens([], tail)
+        gathered_files_count = sum(
+            1 for msg in baseline
+            if msg.role == "system" and "<context>" in (msg.content or "")
+        )
+
         logger.info(
             "context.build.complete",
             session_id=session_id,
@@ -248,6 +269,24 @@ class DefaultContextManager(ContextManager):
             baseline_fingerprint=baseline_fingerprint,
             total_elapsed_ms=elapsed_ms,
         )
+
+        if span is not None and self._tracer is not None:
+            self._tracer.end_span(span, attributes={
+                "agent_scope": agent_scope,
+                "task_type": profile.task_type,
+                "gathered_files": gathered_files_count,
+                "baseline_tokens": baseline_tokens,
+                "tail_tokens": tail_tokens,
+            })
+
+        if self._metrics_tracker is not None:
+            self._metrics_tracker.record_context_build(
+                build_duration_ms=elapsed_ms,
+                gathered_files=gathered_files_count,
+                baseline_tokens=baseline_tokens,
+                tail_tokens=tail_tokens,
+                session_id=str(session_id),
+            )
 
         return PayloadEnvelope(
             baseline=baseline,

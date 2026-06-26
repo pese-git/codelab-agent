@@ -56,11 +56,17 @@ class SessionMetrics:
     strategy_execution_total_ms: float = 0.0
     agent_responses: int = 0
     agent_errors: int = 0
+    context_build_count: int = 0
+    context_build_total_ms: float = 0.0
+    context_gathered_files: int = 0
+    context_baseline_tokens: int = 0
+    context_tail_tokens: int = 0
 
     # Debug mode — детальные записи
     dispatch_details: list[dict[str, Any]] = field(default_factory=list)
     llm_call_details: list[dict[str, Any]] = field(default_factory=list)
     agent_response_details: list[dict[str, Any]] = field(default_factory=list)
+    context_build_details: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def avg_bus_dispatch_ms(self) -> float:
@@ -203,6 +209,31 @@ class MetricsTracker:
         metrics = self._get_or_create(session_id)
         metrics.strategy_execution_count += 1
         metrics.strategy_execution_total_ms += total_time_ms
+
+    def record_context_build(
+        self,
+        build_duration_ms: float,
+        gathered_files: int,
+        baseline_tokens: int,
+        tail_tokens: int,
+        session_id: str,
+    ) -> None:
+        """Записать метрику сборки контекста."""
+        metrics = self._get_or_create(session_id)
+        metrics.context_build_count += 1
+        metrics.context_build_total_ms += build_duration_ms
+        metrics.context_gathered_files += gathered_files
+        metrics.context_baseline_tokens += baseline_tokens
+        metrics.context_tail_tokens += tail_tokens
+
+        if self.debug:
+            metrics.context_build_details.append({
+                "build_duration_ms": build_duration_ms,
+                "gathered_files": gathered_files,
+                "baseline_tokens": baseline_tokens,
+                "tail_tokens": tail_tokens,
+                "timestamp": time.time(),
+            })
 
     def get_metrics(self, session_id: str) -> SessionMetrics:
         """Получить метрики сессии.
