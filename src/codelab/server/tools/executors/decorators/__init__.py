@@ -8,6 +8,7 @@
 - RetryDecorator: Добавляет retry логику с exponential backoff
 - MetricsDecorator: Собирает метрики выполнения (duration, success/failure)
 - TracingDecorator: Создаёт trace spans для distributed tracing
+- ProjectStructureDecorator: Извлекает структуру проекта из terminal output
 
 Example:
     >>> from codelab.server.tools.executors.decorators import (
@@ -15,6 +16,7 @@ Example:
     ...     RetryDecorator,
     ...     MetricsDecorator,
     ...     TracingDecorator,
+    ...     ProjectStructureDecorator,
     ... )
     >>> 
     >>> # Создаём chain of decorators
@@ -23,6 +25,7 @@ Example:
     >>> executor = RetryDecorator(executor, max_retries=3)
     >>> executor = MetricsDecorator(executor)
     >>> executor = TracingDecorator(executor)
+    >>> executor = ProjectStructureDecorator(executor)
     >>> 
     >>> # Выполняем инструмент
     >>> result = await executor.execute(session, arguments)
@@ -35,6 +38,7 @@ from .metrics import (
     ToolMetrics,
     get_global_metrics_collector,
 )
+from .project_structure import ProjectStructureDecorator
 from .retry import RetryDecorator
 from .timeout import TimeoutDecorator
 from .tracing import (
@@ -63,4 +67,5 @@ __all__ = [
     "generate_trace_id",
     "generate_span_id",
     "get_global_trace_recorder",
+    "ProjectStructureDecorator",
 ]

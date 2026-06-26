@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,13 @@ BINARY_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
     ".woff", ".woff2", ".ttf", ".eot",
     ".db", ".sqlite", ".sqlite3",
+}
+
+IGNORE_DIRS = {
+    ".git", "__pycache__", "venv", ".venv", "node_modules",
+    ".idea", ".vscode", "build", "dist", ".dart_tool",
+    ".fvm", "android", "ios", "macos", "linux", "windows", "web",
+    ".DS_Store", ".gradle", ".codelab",
 }
 
 
@@ -97,25 +105,53 @@ class ACPContextGatherer(ContextGatherer):
             max_files=max_files,
         )
 
-        # Этап 1: Сбор кандидатов из target_modules
+        # Этап 0: Получаем структуру проекта из кэша сессии
+        project_files_start = time.time()
+        project_files = self._list_project_files(session)
+        project_files_ms = (time.time() - project_files_start) * 1000
+
+        logger.info(
+            "context.gather.project_files.ready",
+            session_id=self._session_id,
+            count=len(project_files),
+            elapsed_ms=project_files_ms,
+        )
+
+        # Этап 1: Сбор кандидатов из target_modules с адаптивным поиском
         candidates: list[str] = []
 
         if profile.target_modules:
-            candidates.extend(profile.target_modules)
+            for module in profile.target_modules:
+                # Проверяем существование файла в реальной структуре
+                if module in project_files:
+                    candidates.append(module)
+                else:
+                    # Fallback: ищем похожие файлы
+                    similar = self._find_similar_files(module, project_files)
+                    candidates.extend(similar)
+                    if similar:
+                        logger.debug(
+                            "context.gather.target_module.fallback",
+                            session_id=self._session_id,
+                            original=module,
+                            found=similar,
+                        )
+
             logger.debug(
                 "context.gather.target_modules_added",
                 session_id=self._session_id,
-                count=len(profile.target_modules),
-                modules=profile.target_modules,
+                count=len(candidates),
+                modules=candidates[:10],
             )
 
-        # Этап 2: Поиск файлов по поисковым терминам
+        # Этап 2: Поиск файлов по поисковым терминам в реальной структуре
         search_start = time.time()
         search_results_by_term: dict[str, list[str]] = {}
         
         for term in profile.search_terms[:5]:
             term_start = time.time()
-            search_results = await self._search_files(term)
+            # Ищем в реальной структуре проекта
+            search_results = self._search_in_files(term, project_files)
             term_ms = (time.time() - term_start) * 1000
             
             search_results_by_term[term] = search_results
@@ -373,3 +409,137 @@ class ACPContextGatherer(ContextGatherer):
     def _is_empty(content: str) -> bool:
         """Проверить, пуст ли файл."""
         return len(content.strip()) == 0
+
+    def _list_project_files(self, session: Any) -> list[str]:
+        """Получить список файлов проекта из кэша сессии.
+
+        Структура проекта предоставляется агентом через terminal/create
+        в рамках agent loop (где permission flow активен) и сохраняется
+        в session.config_values["project_structure"] как JSON-список путей.
+
+        Args:
+            session: Состояние сессии с config_values
+
+        Returns:
+            Список относительных путей к файлам проекта (может быть пустым)
+        """
+        cached = self._dependency_graph.get_project_files()
+        if cached is not None:
+            logger.debug(
+                "context.gather.project_files.from_cache",
+                session_id=self._session_id,
+                count=len(cached),
+            )
+            return cached
+
+        config_values = getattr(session, "config_values", {}) or {}
+        structure_json = config_values.get("project_structure")
+
+        if structure_json:
+            try:
+                raw_files = json.loads(structure_json)
+                if isinstance(raw_files, list):
+                    filtered = self._filter_paths([str(f) for f in raw_files])
+                    self._dependency_graph.set_project_files(filtered)
+                    logger.info(
+                        "context.gather.project_files.from_session",
+                        session_id=self._session_id,
+                        total_files=len(raw_files),
+                        filtered_files=len(filtered),
+                    )
+                    return filtered
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "context.gather.project_files.invalid_json",
+                    session_id=self._session_id,
+                )
+
+        logger.debug(
+            "context.gather.project_files.not_available",
+            session_id=self._session_id,
+            hint="Agent has not yet saved project structure via session/set_config_option",
+        )
+        return []
+
+    @staticmethod
+    def _filter_paths(paths: list[str]) -> list[str]:
+        """Отфильтровать мусорные папки и файлы.
+
+        Args:
+            paths: Список путей
+
+        Returns:
+            Отфильтрованный список путей
+        """
+        filtered = []
+        for path in paths:
+            # Нормализуем слэши
+            normalized = path.replace("\\", "/")
+            parts = normalized.strip("./").split("/")
+
+            # Проверяем, есть ли игнорируемые папки в пути
+            if any(part in IGNORE_DIRS for part in parts):
+                continue
+
+            # Пропускаем пустые пути
+            if not normalized or normalized == ".":
+                continue
+
+            filtered.append(normalized)
+
+        return filtered
+
+    @staticmethod
+    def _find_similar_files(target: str, project_files: list[str]) -> list[str]:
+        """Найти похожие файлы по имени (без расширения).
+
+        Args:
+            target: Целевой путь от LLM (например, "src/main.py")
+            project_files: Список реальных путей в проекте
+
+        Returns:
+            Список похожих путей (максимум 5)
+        """
+        from pathlib import PurePosixPath
+
+        target_name = PurePosixPath(target).stem.lower()
+        matches = []
+
+        for file_path in project_files:
+            file_name = PurePosixPath(file_path).stem.lower()
+
+            # Проверка: содержит ли имя файла ключевые слова из target
+            is_similar = (
+                target_name in file_name
+                or file_name in target_name
+                or any(
+                    word in file_name
+                    for word in target_name.replace("_", " ").split()
+                    if len(word) > 3
+                )
+            )
+
+            if is_similar:
+                matches.append(file_path)
+
+        return matches[:5]
+
+    @staticmethod
+    def _search_in_files(term: str, project_files: list[str]) -> list[str]:
+        """Найти файлы, содержащие term в имени.
+
+        Args:
+            term: Поисковый термин
+            project_files: Список путей
+
+        Returns:
+            Список подходящих путей (максимум 10)
+        """
+        term_lower = term.lower()
+        matches = []
+
+        for file_path in project_files:
+            if term_lower in file_path.lower():
+                matches.append(file_path)
+
+        return matches[:10]
