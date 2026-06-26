@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from codelab.server.models import AvailableCommand, AvailableCommandInput
@@ -14,7 +16,7 @@ from ..base import CommandHandler, CommandResult
 if TYPE_CHECKING:
     from codelab.server.agent.context.models import ContextConfig
     from codelab.server.observability.metrics_tracker import MetricsTracker
-    from codelab.server.observability.tracer import Tracer
+    from codelab.server.observability.tracer import SpanContext, Tracer
     from codelab.server.protocol.state import SessionState
 
 
@@ -150,7 +152,12 @@ class ContextCommandHandler(CommandHandler):
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
     def _show_spans(self, session: SessionState) -> CommandResult:
-        """Показать последние span'ы context.build и context.gather."""
+        """Показать последние span'ы context.build и context.gather.
+
+        Использует комбинированный подход:
+        1. Сначала проверяет память (актуальные span'ы)
+        2. Если пусто — читает из последнего экспортированного файла
+        """
         if self._tracer is None:
             return CommandResult(
                 content=[{
@@ -160,13 +167,19 @@ class ContextCommandHandler(CommandHandler):
             )
 
         session_id = session.session_id
-        completed = self._tracer.get_completed_spans(session_id=session_id)
+        source = "memory"
 
-        # Фильтруем только context-related span'ы
+        # 1. Сначала проверяем память (актуальные span'ы)
+        completed = self._tracer.get_completed_spans(session_id=session_id)
         context_spans = [
             s for s in completed
             if s.name.startswith("context.")
         ]
+
+        # 2. Если пусто — читаем из последнего экспортированного файла
+        if not context_spans:
+            context_spans = self._load_spans_from_latest_file(session_id)
+            source = "file"
 
         if not context_spans:
             return CommandResult(
@@ -180,7 +193,7 @@ class ContextCommandHandler(CommandHandler):
         recent = context_spans[-10:]
 
         lines = [
-            "🔍 **Последние span'ы контекста:**",
+            f"🔍 **Последние span'ы контекста** (источник: {source}):",
             "",
         ]
 
@@ -211,6 +224,54 @@ class ContextCommandHandler(CommandHandler):
                 lines.append(f"• **{span.name}** — `{duration:.0f}ms`")
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
+
+    def _load_spans_from_latest_file(self, session_id: str) -> list[SpanContext]:
+        """Загрузить span'ы из последнего экспортированного файла.
+
+        Args:
+            session_id: ID сессии для фильтрации
+
+        Returns:
+            Список SpanContext из файла или пустой список
+        """
+        from codelab.server.observability.tracer import SpanContext
+
+        spans_dir = Path.home() / ".codelab" / "data" / "observability" / "spans"
+        if not spans_dir.exists():
+            return []
+
+        # Находим последний файл
+        span_files = sorted(spans_dir.glob("*.json"), reverse=True)
+        if not span_files:
+            return []
+
+        latest_file = span_files[0]
+
+        try:
+            with open(latest_file, encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Фильтруем span'ы по session_id и имени
+            context_spans = []
+            for span_data in data:
+                if (
+                    span_data.get("session_id") == session_id
+                    and span_data.get("name", "").startswith("context.")
+                ):
+                    span = SpanContext(
+                        span_id=span_data.get("span_id", ""),
+                        name=span_data.get("name", ""),
+                        parent_id=span_data.get("parent_id"),
+                        attributes=span_data.get("attributes", {}),
+                        start_time=span_data.get("start_time", 0),
+                        end_time=span_data.get("end_time"),
+                        session_id=span_data.get("session_id", ""),
+                    )
+                    context_spans.append(span)
+
+            return context_spans
+        except Exception:
+            return []
 
     def _get_effective_enabled(self, session: SessionState) -> bool:
         """Получить эффективный статус Context Manager (конфиг + runtime override)."""
