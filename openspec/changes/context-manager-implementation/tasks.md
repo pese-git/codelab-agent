@@ -34,15 +34,15 @@
 - [x] 1.13 Реализовать `TokenBudgetManager.allocate()` с настраиваемыми долями (system/history/tool_output/response_buffer)
 - [x] 1.14 Реализовать `TokenBudgetManager.bound_content()` с сохранением начала и конца
 - [x] 1.15 Написать unit тесты для `TokenBudgetManager`
-- [ ] 1.16 Реализовать `ContextRegistry` с `register()`, `render_baseline()`, `render_updates()`, `detect_changes()`
-- [ ] 1.17 Реализовать ABC `ContextSource` с `source_id`, `render()`, `fingerprint()` (на основе Codec)
-- [ ] 1.18 Написать unit тесты для `ContextRegistry` и `ContextSource`
+- [x] 1.16 Реализовать `ContextRegistry` с `register()`, `render_baseline()`, `render_updates()`, `detect_changes()`
+- [x] 1.17 Реализовать ABC `ContextSource` с `source_id`, `render()`, `fingerprint()` (на основе Codec)
+- [x] 1.18 Написать unit тесты для `ContextRegistry` и `ContextSource`
 - [x] 1.19 Интегрировать Слой A с `ExecutionEngine.build_context()`: `TaskAnalyzer` → `ContextGatherer` → `DependencyGraph` → `TokenBudgetManager`
 - [x] 1.20 Написать интеграционный тест: `build_context()` собирает релевантные файлы для примера задачи
-- [ ] 1.21 Написать e2e тест: `SingleStrategy` → `ExecutionEngine` → `ContextManager` → точность сбора файлов ≥80%
-- [ ] 1.22 Добавить метрики: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
-- [ ] 1.23 Добавить span трейсинга: `context.build` с атрибутами (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
-- [ ] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
+- [x] 1.21 Написать e2e тест: `SingleStrategy` → `ExecutionEngine` → `ContextManager` → точность сбора файлов ≥80%
+- [x] 1.22 Добавить метрики: `context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens`, `context_tail_tokens`
+- [x] 1.23 Добавить span трейсинга: `context.build` с атрибутами (`agent_scope`, `task_type`, `gathered_files`, `baseline_tokens`, `tail_tokens`)
+- [x] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
 - [x] 1.25 Проверить, что feature flag `agents.context.gather.enabled=false` отключает автоматический сбор
 
 ## Фаза 2: Слой хранения (2 недели)

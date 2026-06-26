@@ -117,6 +117,11 @@ class FileMetricsExporter:
                     "strategy_execution_total_ms": session_metrics.strategy_execution_total_ms,
                     "agent_responses": session_metrics.agent_responses,
                     "agent_errors": session_metrics.agent_errors,
+                    "context_build_count": session_metrics.context_build_count,
+                    "context_build_total_ms": session_metrics.context_build_total_ms,
+                    "context_gathered_files": session_metrics.context_gathered_files,
+                    "context_baseline_tokens": session_metrics.context_baseline_tokens,
+                    "context_tail_tokens": session_metrics.context_tail_tokens,
                     "avg_bus_dispatch_ms": session_metrics.avg_bus_dispatch_ms,
                     "avg_compression_ratio": session_metrics.avg_compression_ratio,
                 }

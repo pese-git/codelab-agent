@@ -30,6 +30,7 @@ from codelab.server.agent.context.models import (
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
+    from codelab.server.observability.tracer import Tracer
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger(__name__)
@@ -53,10 +54,12 @@ class ACPContextGatherer(ContextGatherer):
         tool_registry: ToolRegistry,
         dependency_graph: RegexDependencyGraph,
         session_id: str,
+        tracer: Tracer | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._dependency_graph = dependency_graph
         self._session_id = session_id
+        self._tracer = tracer
 
     async def gather(
         self,
@@ -77,6 +80,13 @@ class ACPContextGatherer(ContextGatherer):
         """
         start_time = time.time()
         max_files = options.max_files if options and options.max_files else 20
+
+        span = None
+        if self._tracer is not None:
+            span = self._tracer.start_span(
+                name="context.gather",
+                session_id=self._session_id,
+            )
 
         logger.info(
             "context.gather.start",
@@ -266,7 +276,7 @@ class ACPContextGatherer(ContextGatherer):
 
         elapsed_ms = (time.time() - start_time) * 1000
         total_tokens = sum(item.token_count for item in items)
-        
+
         logger.info(
             "context.gather.complete",
             session_id=self._session_id,
@@ -275,6 +285,14 @@ class ACPContextGatherer(ContextGatherer):
             file_paths=[item.id for item in items],
             total_elapsed_ms=elapsed_ms,
         )
+
+        if span is not None and self._tracer is not None:
+            self._tracer.end_span(span, attributes={
+                "task_type": profile.task_type,
+                "search_terms": profile.search_terms,
+                "candidate_files": len(unique_candidates),
+                "selected_files": len(items),
+            })
 
         return items
 
@@ -298,8 +316,10 @@ class ACPContextGatherer(ContextGatherer):
                 {"pattern": term, "max_results": 10},
             )
 
-            if result.success and isinstance(result.result, list):
-                return [str(item.get("path", "")) for item in result.result if item.get("path")]
+            if result.success and isinstance(result.raw_output, dict):
+                items = result.raw_output.get("results", [])
+                if isinstance(items, list):
+                    return [str(item.get("path", "")) for item in items if item.get("path")]
 
             return []
         except Exception:
@@ -315,8 +335,8 @@ class ACPContextGatherer(ContextGatherer):
                 {"path": path},
             )
 
-            if result.success and isinstance(result.result, dict):
-                content = result.result.get("content")
+            if result.success and isinstance(result.raw_output, dict):
+                content = result.raw_output.get("content")
                 if isinstance(content, str):
                     return content
 
