@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -55,6 +56,7 @@ class FileMetricsExporter:
 
     # Class variable для отслеживания последнего экспорта across all instances
     _global_last_export_time: float = 0.0
+    _flush_lock: threading.Lock = threading.Lock()  # Lock для предотвращения параллельных flush
 
     def __init__(self, export_dir: str = "~/.codelab/data/observability") -> None:
         self.export_dir = Path(export_dir).expanduser() / "metrics"
@@ -77,76 +79,79 @@ class FileMetricsExporter:
         if not metrics:
             return None
 
-        # Защита от дублирования: не экспортируем чаще чем MIN_EXPORT_INTERVAL
-        current_time = time.time()
-        if current_time - FileMetricsExporter._global_last_export_time < self.MIN_EXPORT_INTERVAL:
-            logger.debug(
-                "Skipping metrics export (last export %.1fs ago)",
-                current_time - FileMetricsExporter._global_last_export_time,
-            )
-            return None
+        # Используем lock для предотвращения параллельных flush
+        with FileMetricsExporter._flush_lock:
+            # Защита от дублирования: не экспортируем чаще чем MIN_EXPORT_INTERVAL
+            current_time = time.time()
+            time_since_last = current_time - FileMetricsExporter._global_last_export_time
+            if time_since_last < self.MIN_EXPORT_INTERVAL:
+                logger.debug(
+                    "Skipping metrics export (last export %.1fs ago)",
+                    time_since_last,
+                )
+                return None
 
-        self._ensure_dir()
+            self._ensure_dir()
 
-        # Один файл на день
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        file_path = self.export_dir / f"{date_str}.json"
+            # Один файл на день
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            file_path = self.export_dir / f"{date_str}.json"
 
-        # Сериализуем метрики
-        data = {}
-        for session_id, session_metrics in metrics.items():
-            data[session_id] = {
-                "session_id": session_metrics.session_id,
-                "bus_dispatch_count": session_metrics.bus_dispatch_count,
-                "bus_dispatch_total_ms": session_metrics.bus_dispatch_total_ms,
-                "llm_call_count": session_metrics.llm_call_count,
-                "llm_total_input_tokens": session_metrics.llm_total_input_tokens,
-                "llm_total_output_tokens": session_metrics.llm_total_output_tokens,
-                "compression_count": session_metrics.compression_count,
-                "compression_total_ratio": session_metrics.compression_total_ratio,
-                "slicer_count": session_metrics.slicer_count,
-                "slicer_total_original_tokens": session_metrics.slicer_total_original_tokens,
-                "slicer_total_sliced_tokens": session_metrics.slicer_total_sliced_tokens,
-                "slicer_total_latency_ms": session_metrics.slicer_total_latency_ms,
-                "strategy_execution_count": session_metrics.strategy_execution_count,
-                "strategy_execution_total_ms": session_metrics.strategy_execution_total_ms,
-                "agent_responses": session_metrics.agent_responses,
-                "agent_errors": session_metrics.agent_errors,
-                "avg_bus_dispatch_ms": session_metrics.avg_bus_dispatch_ms,
-                "avg_compression_ratio": session_metrics.avg_compression_ratio,
-            }
+            # Сериализуем метрики
+            data = {}
+            for session_id, session_metrics in metrics.items():
+                data[session_id] = {
+                    "session_id": session_metrics.session_id,
+                    "bus_dispatch_count": session_metrics.bus_dispatch_count,
+                    "bus_dispatch_total_ms": session_metrics.bus_dispatch_total_ms,
+                    "llm_call_count": session_metrics.llm_call_count,
+                    "llm_total_input_tokens": session_metrics.llm_total_input_tokens,
+                    "llm_total_output_tokens": session_metrics.llm_total_output_tokens,
+                    "compression_count": session_metrics.compression_count,
+                    "compression_total_ratio": session_metrics.compression_total_ratio,
+                    "slicer_count": session_metrics.slicer_count,
+                    "slicer_total_original_tokens": session_metrics.slicer_total_original_tokens,
+                    "slicer_total_sliced_tokens": session_metrics.slicer_total_sliced_tokens,
+                    "slicer_total_latency_ms": session_metrics.slicer_total_latency_ms,
+                    "strategy_execution_count": session_metrics.strategy_execution_count,
+                    "strategy_execution_total_ms": session_metrics.strategy_execution_total_ms,
+                    "agent_responses": session_metrics.agent_responses,
+                    "agent_errors": session_metrics.agent_errors,
+                    "avg_bus_dispatch_ms": session_metrics.avg_bus_dispatch_ms,
+                    "avg_compression_ratio": session_metrics.avg_compression_ratio,
+                }
 
-        # Атомарная запись через временный файл
-        tmp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".tmp",
-                dir=self.export_dir,
-                delete=False,
-                encoding="utf-8",
-            ) as tmp_f:
-                json.dump(data, tmp_f, indent=2, ensure_ascii=False)
-                tmp_path = Path(tmp_f.name)
+            # Атомарная запись через временный файл
+            tmp_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".tmp",
+                    dir=self.export_dir,
+                    delete=False,
+                    encoding="utf-8",
+                ) as tmp_f:
+                    json.dump(data, tmp_f, indent=2, ensure_ascii=False)
+                    tmp_path = Path(tmp_f.name)
 
-            # Заменяем оригинальный файл
-            tmp_path.replace(file_path)
+                # Заменяем оригинальный файл
+                tmp_path.replace(file_path)
 
-            # Обновляем метрики
-            self._metrics.total_exports += 1
-            self._metrics.total_items_exported += len(metrics)
-            self._metrics.last_export_time = time.time()
-            self._metrics.last_export_size_bytes = file_path.stat().st_size
-            FileMetricsExporter._global_last_export_time = self._metrics.last_export_time
+                # Обновляем метрики
+                self._metrics.total_exports += 1
+                self._metrics.total_items_exported += len(metrics)
+                self._metrics.last_export_time = time.time()
+                self._metrics.last_export_size_bytes = file_path.stat().st_size
+                FileMetricsExporter._global_last_export_time = self._metrics.last_export_time
 
-            logger.info("Exported metrics for %d sessions to %s", len(metrics), file_path)
-            return file_path
-        except Exception as e:
-            self._metrics.failed_exports += 1
-            logger.error("Failed to export metrics: %s", e)
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
-            return None
+                logger.info("Exported metrics for %d sessions to %s", len(metrics), file_path)
+                return file_path
+            except Exception as e:
+                self._metrics.failed_exports += 1
+                logger.error("Failed to export metrics: %s", e)
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
+                return None
 
     def flush(self, metrics_tracker: MetricsTracker) -> Path | None:
         """Получить метрики из MetricsTracker и экспортировать.

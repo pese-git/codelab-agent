@@ -65,6 +65,7 @@ class SystemPromptBuilder:
         """Собрать system prompt.
 
         Формирует system prompt из:
+        0. Рабочая директория проекта (cwd) — контекст для агента
         1. Agent prompt (роль агента из ~/.codelab/agents/*.md)
         2. Глобального системного промпта (если задан)
         3. Информации о MCP серверах (если mcp_manager подключён и имеет серверы)
@@ -77,6 +78,15 @@ class SystemPromptBuilder:
             Текст system prompt или None если ничего не задано.
         """
         parts: list[str] = []
+
+        # 0. Рабочая директория проекта (контекст для агента)
+        if session.cwd:
+            parts.append(
+                f"Working directory: {session.cwd}\n"
+                "All relative paths MUST be resolved against this directory.\n"
+                "To view project structure, use terminal/create with 'ls -la' or 'find' commands.\n"
+                "Do NOT use fs/read_text_file on directories — it will fail with EISDIR error."
+            )
 
         # 1. Agent prompt (роль агента)
         agent_prompt = self._resolve_agent_prompt(session)
@@ -102,6 +112,7 @@ class SystemPromptBuilder:
         logger.debug(
             "system_prompt built",
             agent_name=agent_name or "default",
+            cwd=session.cwd,
             has_agent_prompt=bool(agent_prompt),
             has_global_prompt=bool(self._global_prompt),
             has_mcp_info=mcp_manager is not None,

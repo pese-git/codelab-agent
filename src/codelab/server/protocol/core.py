@@ -795,11 +795,15 @@ class ACPProtocol:
             # там save_session вызывается после orchestrator.execute_pending_tool(),
             # поэтому здесь в in-memory session актуальный permission_request_id.
 
-            # Если LLM loop снова ожидает permission — просто выходим
+            # Если LLM loop снова ожидает permission — отправляем notifications и выходим
             if llm_result.pending_permission:
+                # Отправить notifications (включая permission request) перед выходом
+                for notification in llm_result.notifications:
+                    await self._send_message(notification)
                 logger.debug(
                     "llm loop deferred for permission",
                     session_id=session_id,
+                    notifications_sent=len(llm_result.notifications),
                 )
                 return
 
