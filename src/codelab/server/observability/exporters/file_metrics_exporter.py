@@ -53,10 +53,12 @@ class FileMetricsExporter:
     # Минимальный интервал между экспортами (секунды) для предотвращения дублирования
     MIN_EXPORT_INTERVAL = 5.0
 
+    # Class variable для отслеживания последнего экспорта across all instances
+    _global_last_export_time: float = 0.0
+
     def __init__(self, export_dir: str = "~/.codelab/data/observability") -> None:
         self.export_dir = Path(export_dir).expanduser() / "metrics"
         self._metrics = ExportMetrics()
-        self._last_export_time: float = 0.0
         # Директория создаётся лениво при первом экспорте
 
     def _ensure_dir(self) -> None:
@@ -77,10 +79,10 @@ class FileMetricsExporter:
 
         # Защита от дублирования: не экспортируем чаще чем MIN_EXPORT_INTERVAL
         current_time = time.time()
-        if current_time - self._last_export_time < self.MIN_EXPORT_INTERVAL:
+        if current_time - FileMetricsExporter._global_last_export_time < self.MIN_EXPORT_INTERVAL:
             logger.debug(
                 "Skipping metrics export (last export %.1fs ago)",
-                current_time - self._last_export_time,
+                current_time - FileMetricsExporter._global_last_export_time,
             )
             return None
 
@@ -135,7 +137,7 @@ class FileMetricsExporter:
             self._metrics.total_items_exported += len(metrics)
             self._metrics.last_export_time = time.time()
             self._metrics.last_export_size_bytes = file_path.stat().st_size
-            self._last_export_time = self._metrics.last_export_time
+            FileMetricsExporter._global_last_export_time = self._metrics.last_export_time
 
             logger.info("Exported metrics for %d sessions to %s", len(metrics), file_path)
             return file_path

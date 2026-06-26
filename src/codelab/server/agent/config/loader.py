@@ -11,10 +11,11 @@ Override логика: каждый источник перезаписывае�
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
@@ -23,7 +24,7 @@ from codelab.server.agent.config.models import (
 )
 from codelab.shared.logging import resolve_codelab_home
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Regex для YAML frontmatter
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)", re.DOTALL)
@@ -72,7 +73,7 @@ class AgentConfigLoader:
         # 4. Project Markdown (высший приоритет)
         result.update(self._load_markdown_dir(self.project_config_dir / "agents"))
 
-        logger.info("Loaded %d agent configurations", len(result))
+        logger.info("agents_configurations_loaded", count=len(result))
         return result
 
     def _load_toml_definitions(
@@ -90,14 +91,15 @@ class AgentConfigLoader:
                     cfg_dict = dict(cfg_dict)
                     cfg_dict["role"] = cfg_dict.pop("mode")
                     logger.warning(
-                        "Agent '%s': поле 'mode' deprecated в TOML, используйте 'role'",
-                        name,
+                        "agent_mode_deprecated_in_toml",
+                        agent_name=name,
+                        message="поле 'mode' deprecated в TOML, используйте 'role'",
                     )
                 toml_cfg = AgentTOMLConfig(**cfg_dict)
                 md_cfg = self._toml_to_markdown(name, toml_cfg)
                 result[name] = md_cfg
             except Exception:
-                logger.exception("Failed to parse TOML config for agent '%s'", name)
+                logger.exception("Failed to parse TOML config for agent", agent_name=name)
 
         return result
 
@@ -115,7 +117,7 @@ class AgentConfigLoader:
                 cfg = self._parse_markdown(md_file)
                 result[cfg.name] = cfg
             except Exception:
-                logger.exception("Failed to parse Markdown config: %s", md_file)
+                logger.exception("Failed to parse Markdown config", file_path=str(md_file))
 
         return result
 
@@ -151,7 +153,9 @@ class AgentConfigLoader:
         elif "mode" in frontmatter:
             role_str = frontmatter.pop("mode")
             logger.warning(
-                "Agent '%s': поле 'mode' deprecated, используйте 'role'", path.stem
+                "agent_mode_deprecated_in_markdown",
+                agent_name=path.stem,
+                message="поле 'mode' deprecated, используйте 'role'",
             )
         else:
             role_str = "primary"
