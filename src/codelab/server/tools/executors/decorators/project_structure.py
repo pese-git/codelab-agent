@@ -71,11 +71,11 @@ class ProjectStructureDecorator(ToolExecutorDecorator):
         if not result.success:
             return result
 
-        tool_name = arguments.get("tool_name", "")
+        operation = arguments.get("operation", "")
 
-        if tool_name == "terminal/create":
+        if operation == "create":
             self._handle_terminal_create(result, arguments)
-        elif tool_name == "terminal/wait_for_exit":
+        elif operation == "wait_for_exit":
             self._handle_terminal_wait(session, result, arguments)
 
         return result
