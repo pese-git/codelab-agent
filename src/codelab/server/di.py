@@ -27,6 +27,7 @@ from dishka import (
     provide,
 )
 
+from .agent.context.manager import DefaultContextManager
 from .agent.context_compactor import ContextCompactor
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
@@ -339,20 +340,46 @@ class MultiAgentProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_context_manager(
+        self,
+        tool_registry: ToolRegistryProtocol,
+        config: AppConfig,
+        metrics_tracker: MetricsTracker,
+        tracer: Tracer,
+    ) -> DefaultContextManager:
+        """Создаёт DefaultContextManager с метриками и трейсингом.
+
+        ContextManager автоматически собирает релевантные файлы через
+        TaskAnalyzer + ContextGatherer, записывает метрики и span'ы.
+        """
+        return DefaultContextManager(
+            tool_registry=tool_registry,
+            config=config.agents.context,
+            metrics_tracker=metrics_tracker,
+            tracer=tracer,
+        )
+
+    @provide(scope=Scope.APP)
     def get_execution_engine(
         self,
         tool_registry: ToolRegistryProtocol,
         compactor: ContextCompactor,
+        config: AppConfig,
+        context_manager: DefaultContextManager,
     ) -> ExecutionEngine:
-        """Создаёт ExecutionEngine с ContextCompactor.
+        """Создаёт ExecutionEngine с ContextCompactor и ContextManager.
 
         Compactor автоматически сжимает историю в build_context() и
         build_continuation_context() — это работает для всех стратегий
         (Single, Orchestrated, Hierarchical, Choreography) без дублирования.
+
+        ContextManager собирает релевантные файлы при enabled=true.
         """
         return ExecutionEngine(
             tool_registry=tool_registry,
             compactor=compactor,
+            context_config=config.agents.context,
+            context_manager=context_manager,
         )
 
     @provide(scope=Scope.APP)
