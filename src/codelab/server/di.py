@@ -488,8 +488,13 @@ class SlashCommandsProvider(Provider):
     def get_command_registry(
         self,
         strategy_dispatcher: StrategyDispatcher,
+        metrics_tracker: MetricsTracker,
+        tracer: Tracer,
     ) -> CommandRegistry:
         """Реестр команд."""
+        from codelab.server.protocol.handlers.slash_commands.builtin.context import (
+            ContextCommandHandler,
+        )
         from codelab.server.protocol.handlers.slash_commands.builtin.strategy import (
             StrategyCommandHandler,
         )
@@ -498,6 +503,7 @@ class SlashCommandsProvider(Provider):
         registry.register(StatusCommandHandler())
         registry.register(ModeCommandHandler())
         registry.register(StrategyCommandHandler(strategy_dispatcher))
+        registry.register(ContextCommandHandler(metrics_tracker, tracer))
         registry.register(HelpCommandHandler(registry))
         return registry
 
