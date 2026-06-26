@@ -82,10 +82,17 @@ class SystemPromptBuilder:
         # 0. Рабочая директория проекта (контекст для агента)
         if session.cwd:
             parts.append(
-                f"Working directory: {session.cwd}\n"
-                "All relative paths MUST be resolved against this directory.\n"
-                "To view project structure, use terminal/create with 'ls -la' or 'find' commands.\n"
-                "Do NOT use fs/read_text_file on directories — it will fail with EISDIR error."
+                f"Working directory: {session.cwd}\n\n"
+                "CRITICAL FILE SYSTEM CONSTRAINTS:\n"
+                "1. You MUST ONLY work within the working directory shown above\n"
+                "2. NEVER use absolute paths outside this directory\n"
+                "3. NEVER invent or guess file paths — use terminal commands "
+                "(ls, find) to discover files first\n"
+                "4. All file operations (fs/read_text_file, fs/write_text_file) "
+                "MUST be relative to the working directory\n"
+                "5. If unsure about a path, use 'ls -la' or 'find . -name <pattern>' first\n"
+                "6. Do NOT use fs/read_text_file on directories — it will fail with EISDIR error\n"
+                "7. Attempts to access files outside the working directory will be REJECTED"
             )
 
         # 1. Agent prompt (роль агента)

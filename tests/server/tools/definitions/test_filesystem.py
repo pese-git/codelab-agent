@@ -74,8 +74,8 @@ class TestReadHandlerNormalizesPath:
         assert arguments["operation"] == "read"
 
     @pytest.mark.asyncio
-    async def test_read_handler_keeps_absolute_path(self) -> None:
-        """Read handler должен сохранить абсолютный путь без изменений."""
+    async def test_read_handler_keeps_absolute_path_inside_cwd(self) -> None:
+        """Read handler должен сохранить абсолютный путь внутри cwd."""
         mock_executor = MagicMock()
         mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="content"))
         mock_executor.execute = mock_execute
@@ -88,12 +88,35 @@ class TestReadHandlerNormalizesPath:
         session = SessionState(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.read_handler
 
-        await handler(session=session, path="/tmp/file.txt")
+        await handler(session=session, path="/workspace/file.txt")
 
         mock_execute.assert_called_once()
         call_args = mock_execute.call_args
         arguments = call_args[0][1]
-        assert arguments["path"] == "/tmp/file.txt"
+        assert arguments["path"] == "/workspace/file.txt"
+
+    @pytest.mark.asyncio
+    async def test_read_handler_rejects_path_outside_cwd(self) -> None:
+        """Read handler должен отклонить путь вне cwd."""
+        mock_executor = MagicMock()
+        mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="content"))
+        mock_executor.execute = mock_execute
+
+        FileSystemToolDefinitions.register_all(
+            tool_registry=FakeRegistry(),
+            executor=mock_executor,
+        )
+
+        session = SessionState(session_id="sess_1", cwd="/workspace")
+        handler = FakeRegistry.read_handler
+
+        result = await handler(session=session, path="/tmp/file.txt")
+
+        # Executor не должен быть вызван
+        mock_execute.assert_not_called()
+        # Должна вернуться ошибка
+        assert result.success is False
+        assert "outside working directory" in result.error
 
 
 class TestWriteHandlerNormalizesPath:
@@ -123,8 +146,8 @@ class TestWriteHandlerNormalizesPath:
         assert arguments["operation"] == "write"
 
     @pytest.mark.asyncio
-    async def test_write_handler_keeps_absolute_path(self) -> None:
-        """Write handler должен сохранить абсолютный путь без изменений."""
+    async def test_write_handler_keeps_absolute_path_inside_cwd(self) -> None:
+        """Write handler должен сохранить абсолютный путь внутри cwd."""
         mock_executor = MagicMock()
         mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="written"))
         mock_executor.execute = mock_execute
@@ -137,12 +160,35 @@ class TestWriteHandlerNormalizesPath:
         session = SessionState(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.write_handler
 
-        await handler(session=session, path="/tmp/output.txt", content="hello")
+        await handler(session=session, path="/workspace/output.txt", content="hello")
 
         mock_execute.assert_called_once()
         call_args = mock_execute.call_args
         arguments = call_args[0][1]
-        assert arguments["path"] == "/tmp/output.txt"
+        assert arguments["path"] == "/workspace/output.txt"
+
+    @pytest.mark.asyncio
+    async def test_write_handler_rejects_path_outside_cwd(self) -> None:
+        """Write handler должен отклонить путь вне cwd."""
+        mock_executor = MagicMock()
+        mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="written"))
+        mock_executor.execute = mock_execute
+
+        FileSystemToolDefinitions.register_all(
+            tool_registry=FakeRegistry(),
+            executor=mock_executor,
+        )
+
+        session = SessionState(session_id="sess_1", cwd="/workspace")
+        handler = FakeRegistry.write_handler
+
+        result = await handler(session=session, path="/tmp/output.txt", content="hello")
+
+        # Executor не должен быть вызван
+        mock_execute.assert_not_called()
+        # Должна вернуться ошибка
+        assert result.success is False
+        assert "outside working directory" in result.error
 
 
 class FakeRegistry:
