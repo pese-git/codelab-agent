@@ -90,7 +90,7 @@ class TestTomlToMarkdown:
 class TestBackwardCompatibility:
     """2.9 — backward compatibility: чтение deprecated поля mode."""
 
-    def test_mode_field_in_markdown_fallback(self, temp_dir, caplog):
+    def test_mode_field_in_markdown_fallback(self, temp_dir, capsys):
         """Когда Markdown содержит mode но не role — читает как role с warning."""
         md_file = temp_dir / "coder.md"
         md_file.write_text(
@@ -98,13 +98,14 @@ class TestBackwardCompatibility:
         )
 
         loader = AgentConfigLoader(project_config_dir=temp_dir)
-        with caplog.at_level("WARNING"):
-            cfg = loader._parse_markdown(md_file)
+        cfg = loader._parse_markdown(md_file)
 
         assert cfg.role == AgentRole.SUBAGENT
         assert cfg.model == "openai/gpt-4o"
-        assert "mode" in caplog.text.lower()
-        assert "deprecated" in caplog.text.lower()
+        
+        # Проверяем что warning был выведен (structlog пишет в stdout)
+        captured = capsys.readouterr()
+        assert "agent_mode_deprecated_in_markdown" in captured.out
 
     def test_mode_field_in_markdown_defaults_to_primary(self, temp_dir, caplog):
         """Невалидный mode → default PRIMARY с warning."""
@@ -131,7 +132,7 @@ class TestBackwardCompatibility:
         assert cfg.role == AgentRole.SUBAGENT
         assert "deprecated" not in caplog.text.lower()
 
-    def test_mode_field_in_toml_fallback(self, caplog):
+    def test_mode_field_in_toml_fallback(self, capsys):
         """Когда TOML содержит mode но не role — читает как role с warning."""
         loader = AgentConfigLoader()
         project_toml = {
@@ -145,14 +146,15 @@ class TestBackwardCompatibility:
             }
         }
 
-        with caplog.at_level("WARNING"):
-            result = loader.load_all(project_toml=project_toml)
+        result = loader.load_all(project_toml=project_toml)
 
         assert "coder" in result
         assert result["coder"].role == AgentRole.SUBAGENT
         assert result["coder"].model == "openai/gpt-4o"
-        assert "mode" in caplog.text.lower()
-        assert "deprecated" in caplog.text.lower()
+        
+        # Проверяем что warning был выведен (structlog пишет в stdout)
+        captured = capsys.readouterr()
+        assert "agent_mode_deprecated_in_toml" in captured.out
 
     def test_toml_role_takes_precedence_over_mode(self, caplog):
         """Когда TOML есть и role и mode — role имеет приоритет."""

@@ -139,10 +139,59 @@ class TestSystemPromptBuilderMCP:
         session = _mock_session(config_values={"_agent": "coder"})
         result = builder.build(session, mcp_manager=mock_mcp)
 
-        assert result.startswith("Ты — программист.")
+        assert "Ты — программист." in result
         assert "Используй инструменты." in result
         assert "You have access to the following MCP" in result
         assert "github" in result
+
+
+class TestSystemPromptBuilderCwd:
+    """Тесты рабочей директории в system prompt."""
+
+    def test_cwd_included_in_prompt(self):
+        """cwd включается в system prompt."""
+        builder = SystemPromptBuilder(global_prompt="Base prompt")
+        session = _mock_session(config_values={}, cwd="/home/user/project")
+        result = builder.build(session)
+
+        assert "Working directory: /home/user/project" in result
+        assert "All relative paths MUST be resolved against this directory" in result
+        assert "Base prompt" in result
+
+    def test_cwd_is_first_section(self):
+        """cwd идёт первым в system prompt (до agent prompt)."""
+        mock_registry = _mock_agent_registry("coder", "Agent prompt")
+        builder = SystemPromptBuilder(
+            global_prompt="Global prompt",
+            agent_registry=mock_registry,
+        )
+        session = _mock_session(
+            config_values={"_agent": "coder"},
+            cwd="/project",
+        )
+        result = builder.build(session)
+
+        assert result.startswith("Working directory: /project")
+        assert result.index("Working directory") < result.index("Agent prompt")
+        assert result.index("Agent prompt") < result.index("Global prompt")
+
+    def test_empty_cwd_not_included(self):
+        """Пустой cwd не добавляется в system prompt."""
+        builder = SystemPromptBuilder(global_prompt="Base prompt")
+        session = _mock_session(config_values={}, cwd="")
+        result = builder.build(session)
+
+        assert "Working directory" not in result
+        assert result == "Base prompt"
+
+    def test_cwd_only_returns_prompt(self):
+        """Только cwd без других промптов возвращает cwd секцию."""
+        builder = SystemPromptBuilder(global_prompt="")
+        session = _mock_session(config_values={}, cwd="/project")
+        result = builder.build(session)
+
+        assert result is not None
+        assert "Working directory: /project" in result
 
 
 class TestSystemPromptBuilderFormatMCPInfo:
@@ -167,10 +216,11 @@ class TestSystemPromptBuilderFormatMCPInfo:
         assert "mcp:" not in result.split(":")[-1]
 
 
-def _mock_session(config_values: dict | None = None) -> MagicMock:
+def _mock_session(config_values: dict | None = None, cwd: str = "") -> MagicMock:
     """Создать mock SessionState."""
     session = MagicMock()
     session.config_values = config_values or {}
+    session.cwd = cwd
     return session
 
 
