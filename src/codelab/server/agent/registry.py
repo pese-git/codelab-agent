@@ -11,9 +11,10 @@ AgentRegistry:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from codelab.server.agent.config import (
     AgentConfigLoader,
@@ -26,7 +27,7 @@ from codelab.server.agent.event_bus.bus import AgentEventBus
 if TYPE_CHECKING:
     from codelab.server.agent.factory import AgentFactory
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class AgentRegistry:
@@ -81,7 +82,7 @@ class AgentRegistry:
             await self._register_agent(name, agent)
 
         self._initialized = True
-        logger.info("AgentRegistry initialized with %d agents", len(self._agents))
+        logger.info("agent_registry_initialized", agents_count=len(self._agents))
 
     async def reload(
         self,
@@ -123,7 +124,9 @@ class AgentRegistry:
             )
 
         logger.info(
-            "AgentRegistry reloaded: +%d -%d", len(added), len(removed)
+            "agent_registry_reloaded",
+            added_count=len(added),
+            removed_count=len(removed),
         )
         return {"added": list(added), "removed": list(removed)}
 
@@ -143,7 +146,7 @@ class AgentRegistry:
         # Регистрируем handler адаптера в EventBus
         await adapter.register_with_bus(self._event_bus, name)
 
-        logger.debug("agent registered in EventBus: %s (model=%s)", name, agent.model)
+        logger.debug("agent_registered_in_event_bus", agent_name=name, model=agent.model)
 
     def get(self, agent_name: str) -> ResolvedAgent | None:
         """Получить конфигурацию агента.

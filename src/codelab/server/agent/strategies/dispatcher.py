@@ -210,11 +210,19 @@ class StrategyDispatcher:
 
         old_strategy = self._current_strategy_name
         self._current_strategy_name = name
-        logger.info(
-            "strategy changed",
-            old_strategy=old_strategy,
-            new_strategy=name,
-        )
+        
+        if old_strategy != name:
+            logger.info(
+                "strategy changed",
+                old_strategy=old_strategy,
+                new_strategy=name,
+            )
+        else:
+            logger.debug(
+                "strategy unchanged",
+                strategy=name,
+            )
+        
         return True
 
     def get_strategy(self) -> str:

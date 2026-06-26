@@ -10,8 +10,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
+
+import structlog
 
 from codelab.server.agent.config.loader import AgentConfigLoader
 from codelab.server.agent.config.models import (
@@ -21,7 +22,7 @@ from codelab.server.agent.config.models import (
     ResolvedAgent,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class AgentConfigResolver:
@@ -56,13 +57,13 @@ class AgentConfigResolver:
 
         for name, md_config in self._raw_configs.items():
             if not md_config.enabled:
-                logger.debug("Skipping disabled agent: %s", name)
+                logger.debug("agent_disabled_skipped", agent_name=name)
                 continue
 
             resolved = self._resolve(name, md_config)
             self._resolved[name] = resolved
 
-        logger.info("Resolved %d agents", len(self._resolved))
+        logger.info("agents_resolved", count=len(self._resolved))
         return self._resolved
 
     def _resolve(self, name: str, md_config: AgentMarkdownConfig) -> ResolvedAgent:

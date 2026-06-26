@@ -8,9 +8,10 @@ AgentEventBus реализует:
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from codelab.server.agent.contracts.base import (
     AgentDispatchError,
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 # SpanContext будет определён в observability, пока используем Any
 SpanContext = Any
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -129,17 +130,17 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
     async def register_agent(self, agent_name: str, handler: RequestHandler) -> None:
         """Зарегистрировать обработчик для агента."""
         self._agents[agent_name] = handler
-        logger.info("Registered agent: %s", agent_name)
+        logger.info("agent_registered", agent_name=agent_name)
         await self.publish(AgentRegistered(agent_name=agent_name))
 
     async def unregister_agent(self, agent_name: str) -> None:
         """Удалить агента из шины."""
         if agent_name not in self._agents:
-            logger.warning("Attempt to unregister unknown agent: %s", agent_name)
+            logger.warning("attempt_to_unregister_unknown_agent", agent_name=agent_name)
             return
 
         del self._agents[agent_name]
-        logger.info("Unregistered agent: %s", agent_name)
+        logger.info("agent_unregistered", agent_name=agent_name)
         await self.publish(AgentUnregistered(agent_name=agent_name))
 
     async def send_request(
