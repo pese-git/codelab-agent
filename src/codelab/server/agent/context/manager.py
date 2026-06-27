@@ -146,6 +146,7 @@ class DefaultContextManager(ContextManager):
         # Этап 3: Формирование baseline
         baseline_start = time.time()
         baseline: list[LLMMessage] = []
+        gathered_files_count = 0
 
         if system_prompt:
             baseline.append(LLMMessage(role="system", content=system_prompt))
@@ -171,12 +172,13 @@ class DefaultContextManager(ContextManager):
                 tracer=self._tracer,
             )
             items = await gatherer.gather(profile, session, options=options)
+            gathered_files_count = len(items)
             gather_ms = (time.time() - gather_start) * 1000
 
             logger.info(
                 "context.build.gather.complete",
                 session_id=session_id,
-                files_gathered=len(items),
+                files_gathered=gathered_files_count,
                 file_paths=[item.id for item in items[:10]],  # Первые 10 файлов
                 total_tokens=sum(item.token_count for item in items),
                 elapsed_ms=gather_ms,
@@ -255,10 +257,6 @@ class DefaultContextManager(ContextManager):
         elapsed_ms = (time.time() - start_time) * 1000
         baseline_tokens = self._estimate_total_tokens(baseline, [])
         tail_tokens = self._estimate_total_tokens([], tail)
-        gathered_files_count = sum(
-            1 for msg in baseline
-            if msg.role == "system" and "<context>" in (msg.content or "")
-        )
 
         logger.info(
             "context.build.complete",
