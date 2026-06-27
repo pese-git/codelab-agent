@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import time
+from difflib import SequenceMatcher
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -108,6 +110,10 @@ class ACPContextGatherer(ContextGatherer):
         # Этап 0: Получаем структуру проекта из кэша сессии
         project_files_start = time.time()
         project_files = self._list_project_files(session)
+
+        if not project_files:
+            project_files = await self._bootstrap_project_files(session)
+
         project_files_ms = (time.time() - project_files_start) * 1000
 
         logger.info(
@@ -129,13 +135,13 @@ class ACPContextGatherer(ContextGatherer):
                     # Fallback: ищем похожие файлы
                     similar = self._find_similar_files(module, project_files)
                     candidates.extend(similar)
-                    if similar:
-                        logger.debug(
-                            "context.gather.target_module.fallback",
-                            session_id=self._session_id,
-                            original=module,
-                            found=similar,
-                        )
+                    logger.info(
+                        "context.gather.target_module.fallback",
+                        session_id=self._session_id,
+                        original=module,
+                        found_count=len(similar),
+                        found=similar[:5],
+                    )
 
             logger.debug(
                 "context.gather.target_modules_added",
@@ -150,8 +156,7 @@ class ACPContextGatherer(ContextGatherer):
         
         for term in profile.search_terms[:5]:
             term_start = time.time()
-            # Ищем в реальной структуре проекта
-            search_results = self._search_in_files(term, project_files)
+            search_results = await self._search_in_files(term, project_files, session)
             term_ms = (time.time() - term_start) * 1000
             
             search_results_by_term[term] = search_results
@@ -177,13 +182,25 @@ class ACPContextGatherer(ContextGatherer):
 
         # Этап 3: Дедупликация кандидатов
         unique_candidates = self._deduplicate(candidates)
-        logger.debug(
+        logger.info(
             "context.gather.candidates.deduplicated",
             session_id=self._session_id,
             before_dedup=len(candidates),
             after_dedup=len(unique_candidates),
             duplicates_removed=len(candidates) - len(unique_candidates),
+            candidates=unique_candidates[:20],
         )
+
+        # Этап 3.5: Fallback — если кандидатов нет, собрать основные файлы проекта
+        if not unique_candidates and project_files:
+            fallback_files = self._get_fallback_files(project_files, max_files)
+            unique_candidates = fallback_files
+            logger.info(
+                "context.gather.fallback_files",
+                session_id=self._session_id,
+                count=len(fallback_files),
+                files=fallback_files[:10],
+            )
 
         # Этап 4: Чтение файлов и построение графа зависимостей
         read_start = time.time()
@@ -194,7 +211,7 @@ class ACPContextGatherer(ContextGatherer):
         files_skipped_error = 0
 
         for path in unique_candidates[:max_files]:
-            content = await self._read_file(path)
+            content = await self._read_file(path, session)
             
             if content is None:
                 files_skipped_error += 1
@@ -284,7 +301,7 @@ class ACPContextGatherer(ContextGatherer):
             if any(item.id == dep_path for item in items):
                 continue
 
-            content = await self._read_file(dep_path)
+            content = await self._read_file(dep_path, session)
             if content is None or self._is_binary(dep_path) or self._is_empty(content):
                 continue
 
@@ -362,19 +379,26 @@ class ACPContextGatherer(ContextGatherer):
             logger.exception("Search failed for term '%s'", term)
             return []
 
-    async def _read_file(self, path: str) -> str | None:
+    async def _read_file(self, path: str, session: Any) -> str | None:
         """Прочитать файл через ToolRegistry."""
         try:
             result = await self._tool_registry.execute_tool(
                 self._session_id,
-                "fs_read",
+                "fs/read_text_file",
                 {"path": path},
+                session=session,
             )
 
-            if result.success and isinstance(result.raw_output, dict):
-                content = result.raw_output.get("content")
-                if isinstance(content, str):
-                    return content
+            if result.success and result.output:
+                return result.output
+
+            if not result.success:
+                logger.debug(
+                    "context.gather.file.read_error",
+                    session_id=self._session_id,
+                    path=path,
+                    error=result.error,
+                )
 
             return None
         except Exception:
@@ -461,6 +485,153 @@ class ACPContextGatherer(ContextGatherer):
         )
         return []
 
+    async def _bootstrap_project_files(self, session: Any) -> list[str]:
+        """Получить структуру проекта через terminal, если она отсутствует.
+
+        Запускает `find . -type f` через terminal/create, ждёт завершения
+        через terminal/wait_for_exit, парсит вывод и сохраняет в сессию.
+
+        Args:
+            session: Состояние сессии с config_values
+
+        Returns:
+            Список отфильтрованных путей к файлам проекта
+        """
+        try:
+            create_result = await self._tool_registry.execute_tool(
+                self._session_id,
+                "terminal/create",
+                {"command": "find . -type f"},
+                session=session,
+            )
+
+            if not create_result.success:
+                logger.debug(
+                    "context.gather.bootstrap.terminal_create_failed",
+                    session_id=self._session_id,
+                )
+                return []
+
+            terminal_id = ""
+            if create_result.metadata:
+                terminal_id = create_result.metadata.get("terminal_id", "")
+            if not terminal_id and create_result.raw_output:
+                terminal_id = create_result.raw_output.get("terminal_id", "")
+
+            if not terminal_id:
+                logger.debug(
+                    "context.gather.bootstrap.no_terminal_id",
+                    session_id=self._session_id,
+                )
+                return []
+
+            wait_result = await self._tool_registry.execute_tool(
+                self._session_id,
+                "terminal/wait_for_exit",
+                {"terminal_id": terminal_id},
+                session=session,
+            )
+
+            if not wait_result.success or not wait_result.output:
+                logger.debug(
+                    "context.gather.bootstrap.terminal_wait_failed",
+                    session_id=self._session_id,
+                )
+                return []
+
+            raw_files = self._parse_find_output(wait_result.output)
+            filtered = self._filter_paths(raw_files)
+
+            if filtered:
+                self._dependency_graph.set_project_files(filtered)
+                config_values = getattr(session, "config_values", {}) or {}
+                config_values["project_structure"] = json.dumps(filtered)
+
+                logger.info(
+                    "context.gather.bootstrap.complete",
+                    session_id=self._session_id,
+                    total_files=len(raw_files),
+                    filtered_files=len(filtered),
+                )
+
+            return filtered
+
+        except Exception:
+            logger.exception(
+                "context.gather.bootstrap.error",
+                session_id=self._session_id,
+            )
+            return []
+
+    @staticmethod
+    def _get_fallback_files(project_files: list[str], max_files: int) -> list[str]:
+        """Собрать основные файлы проекта, когда нет кандидатов.
+
+        Приоритет:
+        1. Конфигурационные файлы проекта (pubspec.yaml, package.json, pyproject.toml)
+        2. Главные файлы (main.dart, main.py, index.js, App.tsx)
+        3. Остальные файлы исходного кода (lib/, src/, app/)
+
+        Args:
+            project_files: Список всех путей в проекте
+            max_files: Максимальное количество файлов
+
+        Returns:
+            Список основных файлов проекта
+        """
+        config_files = {
+            "pubspec.yaml", "package.json", "pyproject.toml", "setup.py",
+            "setup.cfg", "Cargo.toml", "go.mod", "pom.xml", "build.gradle",
+            "build.gradle.kts", "CMakeLists.txt", "Makefile", "README.md",
+        }
+        main_files_patterns = {
+            "main.dart", "main.py", "index.js", "index.ts", "index.tsx",
+            "App.tsx", "App.jsx", "app.py", "server.py",
+        }
+        source_dirs = {"lib", "src", "app", "pkg", "cmd"}
+
+        priority_1: list[str] = []
+        priority_2: list[str] = []
+        priority_3: list[str] = []
+
+        for path in project_files:
+            filename = PurePosixPath(path).name
+            parts = PurePosixPath(path).parts
+
+            if any(part in IGNORE_DIRS for part in parts):
+                continue
+
+            if path in config_files or filename in config_files:
+                priority_1.append(path)
+            elif filename in main_files_patterns:
+                priority_2.append(path)
+            elif len(parts) > 1 and parts[0] in source_dirs:
+                priority_3.append(path)
+
+        result: list[str] = []
+        for group in [priority_1, priority_2, priority_3]:
+            for path in group:
+                if len(result) >= max_files:
+                    return result
+                if path not in result:
+                    result.append(path)
+
+        return result
+
+    @staticmethod
+    def _parse_find_output(output: str) -> list[str]:
+        """Парсить вывод find команды в список путей."""
+        paths = []
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("find:"):
+                continue
+            if line.startswith("./"):
+                line = line[2:]
+            if line:
+                paths.append(line)
+        return paths
+
     @staticmethod
     def _filter_paths(paths: list[str]) -> list[str]:
         """Отфильтровать мусорные папки и файлы.
@@ -473,16 +644,20 @@ class ACPContextGatherer(ContextGatherer):
         """
         filtered = []
         for path in paths:
-            # Нормализуем слэши
-            normalized = path.replace("\\", "/")
-            parts = normalized.strip("./").split("/")
+            normalized = path.replace("\\", "/").strip()
 
-            # Проверяем, есть ли игнорируемые папки в пути
-            if any(part in IGNORE_DIRS for part in parts):
+            if not normalized or normalized in (".", "./"):
                 continue
 
-            # Пропускаем пустые пути
-            if not normalized or normalized == ".":
+            if normalized.startswith("./"):
+                normalized = normalized[2:]
+
+            if not normalized:
+                continue
+
+            parts = normalized.split("/")
+
+            if any(part in IGNORE_DIRS for part in parts):
                 continue
 
             filtered.append(normalized)
@@ -490,43 +665,167 @@ class ACPContextGatherer(ContextGatherer):
         return filtered
 
     @staticmethod
-    def _find_similar_files(target: str, project_files: list[str]) -> list[str]:
-        """Найти похожие файлы по имени (без расширения).
+    def _detect_project_type(project_files: list[str]) -> str:
+        """Определить тип проекта по файлам.
 
         Args:
-            target: Целевой путь от LLM (например, "src/main.py")
+            project_files: Список путей в проекте
+
+        Returns:
+            Тип проекта: "dart", "python", "javascript", "unknown"
+        """
+        file_set = set(project_files)
+
+        if "pubspec.yaml" in file_set:
+            return "dart"
+        if any(f.endswith(".dart") for f in project_files[:50]):
+            return "dart"
+
+        if any(f in file_set for f in ("pyproject.toml", "setup.py", "setup.cfg")):
+            return "python"
+        if any(f.endswith(".py") for f in project_files[:50]):
+            return "python"
+
+        if "package.json" in file_set:
+            return "javascript"
+        if any(f.endswith((".js", ".ts", ".jsx", ".tsx")) for f in project_files[:50]):
+            return "javascript"
+
+        return "unknown"
+
+    @staticmethod
+    def _map_path_to_project(target: str, project_type: str) -> list[str]:
+        """Сгенерировать варианты путей для поиска в проекте.
+
+        Args:
+            target: Целевой путь от LLM (например, "src/auth.py")
+            project_type: Тип проекта ("dart", "python", "javascript")
+
+        Returns:
+            Список вариантов путей для поиска
+        """
+        target_path = PurePosixPath(target)
+        target_stem = target_path.stem
+        target_suffix = target_path.suffix
+
+        candidates: list[str] = []
+
+        if project_type == "dart":
+            if target_suffix in (".py", ".js", ".ts"):
+                candidates.append(f"lib/{target_stem}.dart")
+                candidates.append(f"lib/src/{target_stem}.dart")
+                candidates.append(f"lib/screens/{target_stem}_screen.dart")
+                candidates.append(f"lib/widgets/{target_stem}_widget.dart")
+                candidates.append(f"lib/pages/{target_stem}_page.dart")
+                candidates.append(f"lib/models/{target_stem}.dart")
+                candidates.append(f"lib/services/{target_stem}_service.dart")
+                candidates.append(f"lib/providers/{target_stem}_provider.dart")
+            else:
+                candidates.append(target)
+
+        elif project_type == "python":
+            if target_suffix == ".dart":
+                candidates.append(f"src/{target_stem}.py")
+                candidates.append(f"app/{target_stem}.py")
+            else:
+                candidates.append(target)
+
+        elif project_type == "javascript":
+            if target_suffix in (".py", ".dart"):
+                candidates.append(f"src/{target_stem}.js")
+                candidates.append(f"src/{target_stem}.ts")
+                candidates.append(f"src/{target_stem}.jsx")
+                candidates.append(f"src/{target_stem}.tsx")
+                candidates.append(f"lib/{target_stem}.js")
+                candidates.append(f"lib/{target_stem}.ts")
+            else:
+                candidates.append(target)
+
+        else:
+            candidates.append(target)
+
+        return candidates
+
+    def _find_similar_files(self, target: str, project_files: list[str]) -> list[str]:
+        """Найти похожие файлы по имени с fuzzy matching и маппингом путей.
+
+        Args:
+            target: Целевой путь от LLM (например, "src/auth.py")
             project_files: Список реальных путей в проекте
 
         Returns:
             Список похожих путей (максимум 5)
         """
-        from pathlib import PurePosixPath
+        project_type = self._detect_project_type(project_files)
+        mapped_paths = self._map_path_to_project(target, project_type)
 
-        target_name = PurePosixPath(target).stem.lower()
-        matches = []
+        matches: list[tuple[float, str]] = []
+        seen_paths: set[str] = set()
+
+        for mapped_path in mapped_paths:
+            if mapped_path in project_files and mapped_path not in seen_paths:
+                matches.append((1.0, mapped_path))
+                seen_paths.add(mapped_path)
+
+        target_stem = PurePosixPath(target).stem.lower()
+        target_words = set(target_stem.replace("_", " ").replace("-", " ").split())
+        target_words = {w for w in target_words if len(w) > 2}
 
         for file_path in project_files:
-            file_name = PurePosixPath(file_path).stem.lower()
+            if file_path in seen_paths:
+                continue
 
-            # Проверка: содержит ли имя файла ключевые слова из target
-            is_similar = (
-                target_name in file_name
-                or file_name in target_name
-                or any(
-                    word in file_name
-                    for word in target_name.replace("_", " ").split()
-                    if len(word) > 3
-                )
+            file_stem = PurePosixPath(file_path).stem.lower()
+
+            if target_stem in file_stem or file_stem in target_stem:
+                matches.append((0.9, file_path))
+                seen_paths.add(file_path)
+                continue
+
+            file_words = set(file_stem.replace("_", " ").replace("-", " ").split())
+            file_words = {w for w in file_words if len(w) > 2}
+
+            common_words = target_words & file_words
+            if common_words:
+                score = 0.7 + 0.1 * len(common_words)
+                matches.append((min(score, 0.89), file_path))
+                seen_paths.add(file_path)
+                continue
+
+            ratio = SequenceMatcher(None, target_stem, file_stem).ratio()
+            if ratio >= 0.6:
+                matches.append((ratio * 0.7, file_path))
+                seen_paths.add(file_path)
+
+        path_segments = PurePosixPath(target).parts
+        target_segment_words = set()
+        for segment in path_segments:
+            segment_stem = PurePosixPath(segment).stem.lower()
+            target_segment_words.update(
+                w for w in segment_stem.replace("_", " ").replace("-", " ").split()
+                if len(w) > 2
             )
 
-            if is_similar:
-                matches.append(file_path)
+        for file_path in project_files:
+            if file_path in seen_paths:
+                continue
 
-        return matches[:5]
+            file_lower = file_path.lower()
+            segment_match_score = sum(
+                1 for word in target_segment_words if word in file_lower
+            )
 
-    @staticmethod
-    def _search_in_files(term: str, project_files: list[str]) -> list[str]:
-        """Найти файлы, содержащие term в имени.
+            if segment_match_score >= 2:
+                matches.append((0.5 + segment_match_score * 0.05, file_path))
+                seen_paths.add(file_path)
+
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return [path for _, path in matches[:5]]
+
+    async def _search_in_files(
+        self, term: str, project_files: list[str], session: Any
+    ) -> list[str]:
+        """Найти файлы по термину: сначала по пути, затем по содержимому.
 
         Args:
             term: Поисковый термин
@@ -536,10 +835,44 @@ class ACPContextGatherer(ContextGatherer):
             Список подходящих путей (максимум 10)
         """
         term_lower = term.lower()
-        matches = []
+        matches: list[str] = []
 
         for file_path in project_files:
             if term_lower in file_path.lower():
                 matches.append(file_path)
+
+        if len(matches) >= 3:
+            return matches[:10]
+
+        found_paths = set(matches)
+        content_search_limit = 30
+        files_to_check = [f for f in project_files if f not in found_paths]
+
+        logger.info(
+            "context.gather.content_search.start",
+            session_id=self._session_id,
+            term=term,
+            path_matches=len(matches),
+            files_to_check=min(len(files_to_check), content_search_limit),
+        )
+
+        for file_path in files_to_check[:content_search_limit]:
+            if self._is_binary(file_path):
+                continue
+
+            content = await self._read_file(file_path, session)
+            if content is None or self._is_empty(content):
+                continue
+
+            if term_lower in content.lower():
+                matches.append(file_path)
+                logger.info(
+                    "context.gather.content_search.match",
+                    session_id=self._session_id,
+                    term=term,
+                    file_path=file_path,
+                )
+                if len(matches) >= 10:
+                    break
 
         return matches[:10]
