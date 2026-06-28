@@ -14,13 +14,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..mcp.manager import MCPManager
 
+from .notification_bus import SessionNotificationBus
+
 
 @dataclass
 class SessionRuntimeState:
     """Runtime-состояние одной сессии (не сериализуется).
 
     Хранит объекты, которые не могут быть сериализованы в storage,
-    но необходимы для работы сессии: MCP manager, обработчики команд.
+    но необходимы для работы сессии: MCP manager, обработчики команд,
+    notification bus.
     """
 
     mcp_manager: MCPManager | None = None
@@ -29,6 +32,10 @@ class SessionRuntimeState:
     # Хранится в runtime registry, т.к. handlers содержат ссылки на MCPManager
     # и не могут быть сериализованы.
     mcp_prompt_handlers: dict[str, Any] = field(default_factory=dict)
+    # Шина для notifications. Бизнес-логика публикует, транспорт доставляет.
+    notification_bus: SessionNotificationBus = field(
+        default_factory=SessionNotificationBus
+    )
 
 
 class SessionRuntimeRegistry:
@@ -83,6 +90,22 @@ class SessionRuntimeRegistry:
                 self._states[session_id] = SessionRuntimeState()
             self._states[session_id].mcp_manager = mcp_manager
 
+    async def get_notification_bus(
+        self, session_id: str
+    ) -> SessionNotificationBus:
+        """Получить или создать notification bus для сессии.
+
+        Args:
+            session_id: Идентификатор сессии.
+
+        Returns:
+            SessionNotificationBus для указанной сессии.
+        """
+        async with self._lock:
+            if session_id not in self._states:
+                self._states[session_id] = SessionRuntimeState()
+            return self._states[session_id].notification_bus
+
     async def remove(self, session_id: str) -> None:
         """Удалить runtime state с cleanup MCP subprocesses.
 
@@ -95,7 +118,7 @@ class SessionRuntimeRegistry:
             await state.mcp_manager.shutdown()
 
     async def cleanup(self) -> None:
-        """Shutdown всех MCP managers при выходе из REQUEST scope.
+        """Shutdown всех MCP managers и очистка bus при выходе из REQUEST scope.
 
         Вызывается автоматически dishka через generator cleanup.
         """
@@ -105,3 +128,4 @@ class SessionRuntimeRegistry:
         for state in states:
             if state.mcp_manager:
                 await state.mcp_manager.shutdown()
+            state.notification_bus.clear()

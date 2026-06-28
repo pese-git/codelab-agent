@@ -91,6 +91,24 @@ class SessionPromptCommandHandler:
                 )
             )
 
+        # Валидация ContentBlock-массива по ACP (06-Content): неподдерживаемый
+        # тип или битые поля должны отклоняться с -32602, а не молча теряться
+        # в acp_mapper.
+        from ..handlers.prompt import validate_prompt_content
+
+        prompt_blocks = params.get("prompt")
+        if not isinstance(prompt_blocks, list):
+            return ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    message.id,
+                    code=-32602,
+                    message="Invalid params: prompt must be an array",
+                )
+            )
+        content_error = validate_prompt_content(message.id, prompt_blocks)
+        if content_error is not None:
+            return ProtocolOutcome(response=content_error)
+
         # Очищаем stale active_turn
         session.active_turn = None
 

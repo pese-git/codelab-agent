@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from dishka import (
@@ -46,6 +46,23 @@ from .llm.resolver import ModelResolver
 from .llm.scripted_mock import ScriptedMockLLMProvider
 from .observability import EventTimeline, MetricsTracker, Tracer
 from .observability.exporters import FileEventExporter, FileMetricsExporter, FileSpanExporter
+from .protocol.background_executor import BackgroundExecutor
+from .protocol.commands import (
+    AuthenticateCommandHandler,
+    InitializeCommandHandler,
+    PermissionResponseCommandHandler,
+    SessionCancelCommandHandler,
+    SessionListCommandHandler,
+    SessionLoadCommandHandler,
+    SessionNewCommandHandler,
+    SessionPromptCommandHandler,
+    SetConfigOptionCommandHandler,
+    SetModeCommandHandler,
+)
+from .protocol.commands import (
+    CommandRegistry as MethodCommandRegistry,
+)
+from .protocol.config_spec_builder import ConfigSpecBuilder
 from .protocol.core import ACPProtocol
 from .protocol.handlers.client_rpc_handler import ClientRPCHandler
 from .protocol.handlers.config_option_builder import ConfigOptionBuilder
@@ -64,6 +81,10 @@ from .protocol.handlers.slash_commands.builtin import (
 from .protocol.handlers.state_manager import StateManager
 from .protocol.handlers.tool_call_handler import ToolCallHandler
 from .protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
+from .protocol.mcp_session_manager import MCPSessionManager
+from .protocol.orchestrator_builder import PromptOrchestratorBuilder
+from .protocol.pending_registry import PendingRequestRegistry
+from .protocol.response_router import ResponseRouter
 from .protocol.session_runtime import SessionRuntimeRegistry
 from .rpc_holder import ClientRPCServiceHolder
 from .storage import SessionStorage
@@ -87,6 +108,18 @@ def _make_mock_provider() -> LLMProvider:
         return ScriptedMockLLMProvider.from_file(scenario_path)
     return MockLLMProvider()
 
+
+def _make_async_provider(value: Any) -> Callable[[], Awaitable[Any]]:
+    """Создаёт async-функцию, возвращающую value.
+
+    Используется для передачи синхронных значений в места,
+    где ожидается async provider (Callable[[], Awaitable[T]]).
+    """
+
+    async def _provider() -> Any:
+        return value
+
+    return _provider
 
 # Тип для observability debug mode (чтобы отличить от require_auth)
 class ObservabilityDebug:
@@ -605,7 +638,7 @@ class RuntimeRegistryProvider(Provider):
 
 
 class PipelineProvider(Provider):
-    """Провайдер pipeline стадий (APP scope)."""
+    """Провайдер pipeline стадий и builder-ов (APP scope)."""
 
     @provide(scope=Scope.APP)
     def get_system_prompt_builder(
@@ -686,35 +719,49 @@ class PromptOrchestratorProvider(Provider):
         return ClientRPCServiceHolder()
 
     @provide(scope=Scope.APP)
+    def get_orchestrator_builder(
+        self,
+        tool_registry: ToolRegistryProtocol,
+        agent_registry: AgentRegistry,
+        llm_loop_stage: LLMLoopStage,
+        global_policy_manager: GlobalPolicyManager,
+    ) -> PromptOrchestratorBuilder:
+        """Создаёт PromptOrchestratorBuilder."""
+        return PromptOrchestratorBuilder(
+            tool_registry=tool_registry,
+            agent_registry=agent_registry,
+            llm_loop_stage=llm_loop_stage,
+            global_policy_manager=global_policy_manager,
+        )
+
+    @provide(scope=Scope.APP)
     def get_prompt_orchestrator(
         self,
-        state_manager: StateManager,
-        plan_builder: PlanBuilder,
-        turn_lifecycle_manager: TurnLifecycleManager,
-        tool_call_handler: ToolCallHandler,
-        permission_manager: PermissionManager,
-        client_rpc_handler: ClientRPCHandler,
-        tool_registry: ToolRegistryProtocol,
-        llm_loop_stage: LLMLoopStage,
+        builder: PromptOrchestratorBuilder,
         holder: ClientRPCServiceHolder,
-        global_policy_manager: GlobalPolicyManager,
-        command_registry: CommandRegistry,
-        pipeline: PromptPipeline,
     ) -> PromptOrchestrator:
-        """Создаёт PromptOrchestrator со всеми зависимостями."""
-        return PromptOrchestrator(
-            state_manager=state_manager,
-            plan_builder=plan_builder,
-            turn_lifecycle_manager=turn_lifecycle_manager,
-            tool_call_handler=tool_call_handler,
-            permission_manager=permission_manager,
-            client_rpc_handler=client_rpc_handler,
-            tool_registry=tool_registry,
-            llm_loop_stage=llm_loop_stage,
-            client_rpc_service_holder=holder,
-            global_policy_manager=global_policy_manager,
-            command_registry=command_registry,
-            pipeline=pipeline,
+        """Создаёт PromptOrchestrator через Builder."""
+        orchestrator = builder.build()
+        # Устанавливаем holder для client_rpc_service
+        orchestrator._client_rpc_service_holder = holder
+        return orchestrator
+
+
+class ConfigSpecProvider(Provider):
+    """Провайдер ConfigSpecBuilder (APP scope)."""
+
+    @provide(scope=Scope.APP)
+    def get_config_spec_builder(
+        self,
+        config_option_builder: ConfigOptionBuilder,
+        agent_registry: AgentRegistry,
+        strategy_registry: StrategyRegistry,
+    ) -> ConfigSpecBuilder:
+        """Создаёт ConfigSpecBuilder."""
+        return ConfigSpecBuilder(
+            config_option_builder=config_option_builder,
+            agent_registry=agent_registry,
+            strategy_registry=strategy_registry,
         )
 
 
@@ -824,57 +871,195 @@ class RequestProvider(Provider):
     """Провайдер REQUEST-scoped зависимостей (на WebSocket соединение)."""
 
     @provide(scope=Scope.REQUEST)
-    def get_acp_protocol(
+    def get_pending_registry(self) -> PendingRequestRegistry:
+        """Создаёт PendingRequestRegistry для текущего соединения."""
+        return PendingRequestRegistry()
+
+    @provide(scope=Scope.REQUEST)
+    def get_response_router(
         self,
+        storage: SessionStorage,
+        pending_registry: PendingRequestRegistry,
+        holder: ClientRPCServiceHolder,
+    ) -> ResponseRouter:
+        """Создаёт ResponseRouter для текущего соединения."""
+        return ResponseRouter(
+            storage=storage,
+            pending_registry=pending_registry,
+            client_rpc_service=holder.service,
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_method_command_registry(
+        self,
+        storage: SessionStorage,
+        config_spec_builder: ConfigSpecBuilder,
+        mcp_session_manager: MCPSessionManager,
+        prompt_orchestrator: PromptOrchestrator,
+        runtime_registry: SessionRuntimeRegistry,
+        pending_registry: PendingRequestRegistry,
+        model_resolver: ModelResolver,
+        agent_factory: AgentFactory,
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
-        storage: SessionStorage,
-        agent_factory: AgentFactory,
-        tool_registry: ToolRegistryProtocol,
-        prompt_orchestrator: PromptOrchestrator,
-        holder: ClientRPCServiceHolder,
-        registry: LLMProviderRegistry,
-        config_option_builder: ConfigOptionBuilder,
-        runtime_registry: SessionRuntimeRegistry,
-        agent_registry: AgentRegistry,
-        strategy_registry: StrategyRegistry,
         command_registry: CommandRegistry,
-        model_resolver: ModelResolver,
+    ) -> MethodCommandRegistry:
+        """Создаёт CommandRegistry с CommandHandlers для текущего соединения.
+
+        Создаётся per-request, т.к. CommandHandlers зависят от
+        request-specific данных (authenticated, runtime_capabilities).
+        """
+        config_specs = config_spec_builder.build()
+
+        auth_methods = [
+            {
+                "id": "local",
+                "name": "Local authentication",
+                "description": "Local authentication flow",
+                "type": "api_key",
+            }
+        ]
+
+        # Callbacks для side effects
+        def _on_capabilities_negotiated(capabilities: Any) -> None:
+            pass  # Capabilities хранятся в CommandHandler
+
+        def _on_authenticated(authenticated: bool) -> None:
+            pass  # Auth state хранится в CommandHandler
+
+        async def _on_session_created(session_state: Any, params: dict) -> None:
+            await mcp_session_manager.setup_if_needed(session_state, params)
+
+        async def _on_session_loaded(session_state: Any, params: dict) -> None:
+            await mcp_session_manager.setup_if_needed(session_state, params)
+
+        llm_adapter = agent_factory.get_primary_adapter()
+
+        registry = MethodCommandRegistry()
+        registry.register(InitializeCommandHandler(
+            supported_protocol_versions=(1,),
+            require_auth=require_auth,
+            auth_methods=auth_methods,
+            on_capabilities_negotiated=_on_capabilities_negotiated,
+        ))
+        registry.register(AuthenticateCommandHandler(
+            require_auth=require_auth,
+            auth_api_key=auth_api_key,
+            auth_methods=auth_methods,
+            on_authenticated=_on_authenticated,
+        ))
+        registry.register(SessionNewCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+            auth_methods=auth_methods,
+            require_auth=require_auth,
+            authenticated=False,
+            runtime_capabilities=None,
+            command_registry=command_registry,
+            on_session_created=_on_session_created,
+        ))
+        registry.register(SessionLoadCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+            auth_methods=auth_methods,
+            require_auth=require_auth,
+            authenticated=False,
+            runtime_capabilities=None,
+            pending_registry=pending_registry,
+            on_session_loaded=_on_session_loaded,
+        ))
+        registry.register(SessionListCommandHandler(
+            storage=storage,
+            page_size=50,
+        ))
+        registry.register(SessionPromptCommandHandler(
+            storage=storage,
+            orchestrator_provider=_make_async_provider(prompt_orchestrator),
+            runtime_registry=runtime_registry,
+            mcp_provider=mcp_session_manager.ensure_initialized,
+        ))
+        registry.register(SessionCancelCommandHandler(
+            storage=storage,
+            orchestrator_provider=_make_async_provider(prompt_orchestrator),
+            llm_adapter=llm_adapter,
+        ))
+        registry.register(PermissionResponseCommandHandler(
+            storage=storage,
+        ))
+        registry.register(SetConfigOptionCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+            model_resolver=model_resolver,
+        ))
+        registry.register(SetModeCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+        ))
+
+        return registry
+
+    @provide(scope=Scope.REQUEST)
+    def get_mcp_session_manager(
+        self,
+        runtime_registry: SessionRuntimeRegistry,
+        tool_registry: ToolRegistryProtocol,
+    ) -> MCPSessionManager:
+        """Создаёт MCPSessionManager для текущего соединения."""
+        return MCPSessionManager(
+            runtime_registry=runtime_registry,
+            tool_registry=tool_registry,
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_background_executor(
+        self,
+        storage: SessionStorage,
+        prompt_orchestrator: PromptOrchestrator,
+        mcp_session_manager: MCPSessionManager,
+        runtime_registry: SessionRuntimeRegistry,
+    ) -> BackgroundExecutor:
+        """Создаёт BackgroundExecutor для текущего соединения."""
+        return BackgroundExecutor(
+            storage=storage,
+            orchestrator_provider=_make_async_provider(prompt_orchestrator),
+            mcp_provider=mcp_session_manager.ensure_initialized,
+            runtime_registry=runtime_registry,
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_acp_protocol(
+        self,
+        storage: SessionStorage,
+        method_registry: MethodCommandRegistry,
+        response_router: ResponseRouter,
+        background_executor: BackgroundExecutor,
+        pending_registry: PendingRequestRegistry,
+        runtime_registry: SessionRuntimeRegistry,
+        agent_factory: AgentFactory,
+        prompt_orchestrator: PromptOrchestrator,
         trace_messages: Annotated[bool, from_context(provides="trace_messages")],
     ) -> ACPProtocol:
-        """Создаёт ACPProtocol для текущего соединения."""
-        # ClientRPCService создаётся вручную в handle_ws_request (требует runtime callback)
-        # и устанавливается в holder перед созданием ACPProtocol
-        client_rpc_service = holder.service
-
+        """Создаёт ACPProtocol (Facade) для текущего соединения."""
         # Создаем middleware для трассировки сообщений если включено
         middleware = []
         if trace_messages:
             from codelab.server.protocol.middleware.message_trace import (
                 create_message_trace_middleware,
             )
-
             middleware.append(create_message_trace_middleware(enabled=True))
 
-        # Получаем LLMAdapter для cancellation (может быть None если primary агент ещё не создан)
         llm_adapter = agent_factory.get_primary_adapter()
 
         return ACPProtocol(
-            require_auth=require_auth,
-            auth_api_key=auth_api_key,
             storage=storage,
-            client_rpc_service=client_rpc_service,
-            tool_registry=tool_registry,
-            prompt_orchestrator=prompt_orchestrator,
-            llm_registry=registry,
-            config_option_builder=config_option_builder,
-            middleware=middleware if middleware else None,
+            method_registry=method_registry,
+            response_router=response_router,
+            background_executor=background_executor,
+            pending_registry=pending_registry,
             runtime_registry=runtime_registry,
-            agent_registry=agent_registry,
-            strategy_registry=strategy_registry,
-            command_registry=command_registry,
-            model_resolver=model_resolver,
+            middleware=middleware if middleware else None,
             llm_adapter=llm_adapter,
+            orchestrator_provider=_make_async_provider(prompt_orchestrator),
         )
 
 
@@ -914,6 +1099,7 @@ def make_container(
         RuntimeRegistryProvider(),
         PipelineProvider(),
         PromptOrchestratorProvider(),
+        ConfigSpecProvider(),
         RequestProvider(),
         context={
             AppConfig: config,

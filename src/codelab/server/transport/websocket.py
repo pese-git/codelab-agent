@@ -126,8 +126,16 @@ class WebSocketTransport:
         holder = await self._app_container.get(ClientRPCServiceHolder)
         holder.service = client_rpc_service
 
+        # Отслеживаем текущую сессию для подписки на notification bus
+        current_session_id: str | None = None
+        notification_bus_subscribed = False
+
         async with self._app_container() as request_scope:
             protocol = await request_scope.get(ACPProtocol)
+
+            # Получаем runtime registry для подписки на notification bus
+            from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+            runtime_registry = await request_scope.get(SessionRuntimeRegistry)
 
             # Настраиваем send_callback для отправки сообщений из фоновых задач
             protocol._send_callback = self._send_protocol_message
@@ -194,6 +202,30 @@ class WebSocketTransport:
                                 raw_session_id = acp_request.params.get("sessionId")
                                 if isinstance(raw_session_id, str):
                                     session_id = raw_session_id
+
+                            # Подписываемся на notification bus при получении session_id
+                            if (
+                                session_id is not None
+                                and session_id != current_session_id
+                            ):
+                                # Отписываемся от старого bus если был
+                                if current_session_id is not None:
+                                    old_bus = await runtime_registry.get_notification_bus(
+                                        current_session_id
+                                    )
+                                    old_bus.unsubscribe(self._send_protocol_message)
+
+                                # Подписываемся на новый bus
+                                current_session_id = session_id
+                                new_bus = await runtime_registry.get_notification_bus(
+                                    session_id
+                                )
+                                new_bus.subscribe(self._send_protocol_message)
+                                notification_bus_subscribed = True
+                                self._conn_logger.info(
+                                    "subscribed_to_notification_bus",
+                                    session_id=session_id,
+                                )
 
                             # session/prompt — выполняем в фоне
                             if method_name == "session/prompt":
@@ -277,6 +309,23 @@ class WebSocketTransport:
                         break
 
             finally:
+                # Отписываемся от notification bus при закрытии
+                if notification_bus_subscribed and current_session_id is not None:
+                    try:
+                        bus = await runtime_registry.get_notification_bus(
+                            current_session_id
+                        )
+                        bus.unsubscribe(self._send_protocol_message)
+                        self._conn_logger.info(
+                            "unsubscribed_from_notification_bus",
+                            session_id=current_session_id,
+                        )
+                    except Exception as e:
+                        self._conn_logger.warning(
+                            "failed_to_unsubscribe_from_notification_bus",
+                            error=str(e),
+                        )
+
                 # Cleanup: отменяем все prompt tasks
                 if prompt_request_tasks:
                     self._conn_logger.info(

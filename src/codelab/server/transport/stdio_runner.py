@@ -176,12 +176,64 @@ async def run_stdio_server(
             # Настраиваем send_callback для отправки сообщений из фоновых задач
             protocol._send_callback = transport.send
 
+            # Получаем runtime registry для подписки на notification bus
+            from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+            runtime_registry = await request_scope.get(SessionRuntimeRegistry)
+
+            # Отслеживаем текущую сессию для подписки на notification bus
+            current_session_id: str | None = None
+
             # Запускаем цикл обработки через handle_and_process
             # чтобы фоновые задачи (pending_tool_execution) работали корректно
             async def on_message(acp_request: ACPMessage) -> Any:
+                nonlocal current_session_id
+
+                # Извлекаем session_id из запроса
+                session_id = None
+                if isinstance(acp_request.params, dict):
+                    raw_session_id = acp_request.params.get("sessionId")
+                    if isinstance(raw_session_id, str):
+                        session_id = raw_session_id
+
+                # Подписываемся на notification bus при получении session_id
+                if session_id is not None and session_id != current_session_id:
+                    # Отписываемся от старого bus если был
+                    if current_session_id is not None:
+                        old_bus = await runtime_registry.get_notification_bus(
+                            current_session_id
+                        )
+                        old_bus.unsubscribe(transport.send)
+
+                    # Подписываемся на новый bus
+                    current_session_id = session_id
+                    new_bus = await runtime_registry.get_notification_bus(session_id)
+                    new_bus.subscribe(transport.send)
+                    logger.info(
+                        "subscribed_to_notification_bus",
+                        session_id=session_id,
+                    )
+
                 return await protocol.handle_and_process(acp_request)
 
-            await transport.run(on_message=on_message)
+            try:
+                await transport.run(on_message=on_message)
+            finally:
+                # Отписываемся от notification bus при закрытии
+                if current_session_id is not None:
+                    try:
+                        bus = await runtime_registry.get_notification_bus(
+                            current_session_id
+                        )
+                        bus.unsubscribe(transport.send)
+                        logger.info(
+                            "unsubscribed_from_notification_bus",
+                            session_id=current_session_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "failed_to_unsubscribe_from_notification_bus",
+                            error=str(e),
+                        )
 
     except asyncio.CancelledError:
         logger.info("stdio server cancelled")
