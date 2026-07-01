@@ -44,17 +44,33 @@ def _add_pid(
 
 
 def get_codelab_dir() -> Path:
-    """Получить директорию ~/.codelab с автоматическим созданием.
+    """Получить домашнюю директорию CodeLab с автоматическим созданием.
 
-    Директория используется для хранения конфигурации,
-    логов и других данных приложения.
+    Путь берётся из переменной окружения ``CODELAB_HOME`` (если задана),
+    иначе используется ``~/.codelab``. Это единый источник правды для
+    расположения глобального состояния (конфиг, агенты, политики, логи).
 
     Returns:
-        Путь к директории ~/.codelab
+        Путь к домашней директории CodeLab
     """
-    codelab_dir = Path.home() / ".codelab"
+    codelab_dir = resolve_codelab_home()
     codelab_dir.mkdir(parents=True, exist_ok=True)
     return codelab_dir
+
+
+def resolve_codelab_home() -> Path:
+    """Определить домашнюю директорию CodeLab без создания на диске.
+
+    Возвращает ``$CODELAB_HOME`` (с раскрытием ``~``), либо ``~/.codelab``.
+    Используется там, где нежелателен побочный эффект создания директории.
+
+    Returns:
+        Путь к домашней директории CodeLab
+    """
+    env_home = os.getenv("CODELAB_HOME")
+    if env_home:
+        return Path(env_home).expanduser()
+    return Path.home() / ".codelab"
 
 
 def get_logs_dir(log_dir: Path | None = None) -> Path:

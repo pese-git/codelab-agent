@@ -497,6 +497,21 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
     session/update с agent_message_chunk (ответ mock LLM) и вернуть
     финальный ответ со stopReason=end_turn.
     """
+    # Готовим герметичное окружение: primary-агент на mock-модели в изолированном
+    # CODELAB_HOME (см. _server_env). Так turn детерминирован и не зависит от
+    # глобального ~/.codelab/agents разработчика.
+    agents_dir = tmp_cwd / ".codelab" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "primary.md").write_text(
+        "---\n"
+        "name: primary\n"
+        "role: primary\n"
+        "model: mock/mock-model\n"
+        "---\n\n"
+        "Тестовый агент.\n",
+        encoding="utf-8",
+    )
+
     proc = await _start_server(tmp_cwd)
 
     try:
@@ -558,15 +573,13 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
         for n in session_updates:
             assert n["params"]["sessionId"] == session_id
 
-        # В стриме должен быть непустой текст ответа агента.
-        # Точный текст не проверяем: он зависит от резолвленного провайдера
-        # (mock на чистом окружении / локальный LLM при наличии конфига),
-        # а под тестом — именно wiring транспорта: prompt → стрим → ответ.
+        # Окружение изолировано (CODELAB_HOME указывает на пустую tmp-директорию,
+        # CODELAB_LLM_PROVIDER=mock), поэтому ответ детерминирован — mock LLM.
         streamed_text = "".join(
             chunk["params"]["update"].get("content", {}).get("text", "")
             for chunk in agent_chunks
         )
-        assert streamed_text.strip(), "агент не прислал текст в agent_message_chunk"
+        assert "Mock response" in streamed_text
 
     finally:
         await _stop_server(proc)
