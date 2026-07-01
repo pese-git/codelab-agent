@@ -137,7 +137,7 @@ class TestBuildConfigSpecsWithActiveStrategy:
         """_build_config_specs включает _active_strategy."""
         protocol = ACPProtocol()
 
-        specs = protocol._build_config_specs()
+        specs = protocol._build_config_specs_legacy()
 
         assert "_active_strategy" in specs
         assert specs["_active_strategy"]["id"] == "_active_strategy"
@@ -160,7 +160,7 @@ class TestBuildConfigSpecsWithActiveStrategy:
             agent_registry=agent_registry,
         )
 
-        specs = protocol._build_config_specs()
+        specs = protocol._build_config_specs_legacy()
 
         assert "_active_strategy" in specs
         assert len(specs["_active_strategy"]["options"]) == 1

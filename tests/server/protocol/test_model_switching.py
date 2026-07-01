@@ -278,28 +278,30 @@ async def test_model_change_without_resolver(
 
 
 def test_get_default_model_uses_model_resolver() -> None:
-    """Проверить что _get_default_model использует model_resolver."""
+    """Проверить что _get_default_model берёт модель из config_option_builder."""
     from unittest.mock import MagicMock
 
-    from codelab.server.protocol.core import ACPProtocol
+    from codelab.server.protocol.config_spec_builder import ConfigSpecBuilder
 
-    # Создать mock model_resolver
-    mock_resolver = MagicMock()
-    mock_resolver.default_provider = "openrouter"
+    # Создать mock config_option_builder с моделью в списке
+    mock_model = MagicMock()
+    mock_model.full_id = "openrouter/gpt-4o"
+    mock_builder = MagicMock()
+    mock_builder.get_model_list.return_value = [mock_model]
 
-    protocol = ACPProtocol(model_resolver=mock_resolver)
+    builder = ConfigSpecBuilder(config_option_builder=mock_builder)
 
-    # Проверить что используется model_resolver.default_provider
-    default_model = protocol._get_default_model()
+    # Проверить что используется первая модель из Registry
+    default_model = builder._get_default_model()
     assert default_model == "openrouter/gpt-4o"
 
 
 def test_get_default_model_fallback_without_resolver() -> None:
-    """Проверить что _get_default_model имеет fallback без model_resolver."""
-    from codelab.server.protocol.core import ACPProtocol
+    """Проверить что _get_default_model имеет fallback без config_option_builder."""
+    from codelab.server.protocol.config_spec_builder import ConfigSpecBuilder
 
-    protocol = ACPProtocol()
+    builder = ConfigSpecBuilder()
 
-    # Без model_resolver — fallback на openai/gpt-4o
-    default_model = protocol._get_default_model()
+    # Без config_option_builder — fallback на openai/gpt-4o
+    default_model = builder._get_default_model()
     assert default_model == "openai/gpt-4o"

@@ -1,7 +1,13 @@
-"""Дополнительные тесты для оставшихся непокрытых веток ACPProtocol.
+"""Дополнительные тесты для оставшихся веток декомпозированного ACPProtocol.
 
-Покрывают handle_and_process, обработку client response, завершение turn,
-отмену сессий, восстановление MCP prompts и обработку permission-ответов.
+После декомпозиции God Object'а ACPProtocol логика вынесена в компоненты:
+- BackgroundExecutor — фоновое выполнение tools, завершение turns.
+- ResponseRouter — маршрутизация client responses / permission responses.
+- Command handlers (session_prompt / session_cancel / permission_response).
+- MCPSessionManager — инициализация MCP серверов и восстановление prompts.
+
+Тесты сохраняют исходный behavioral intent, но нацелены на новые компоненты
+напрямую (или через сохранённые публичные фасадные методы ACPProtocol).
 """
 
 from __future__ import annotations
@@ -11,7 +17,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from codelab.server.mcp import MCPManager
 from codelab.server.messages import ACPMessage
+from codelab.server.protocol.background_executor import BackgroundExecutor
+from codelab.server.protocol.commands.permission_response import (
+    PermissionResponseCommandHandler,
+)
+from codelab.server.protocol.commands.session_cancel import SessionCancelCommandHandler
+from codelab.server.protocol.commands.session_prompt import SessionPromptCommandHandler
 from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.mcp_session_manager import MCPSessionManager
+from codelab.server.protocol.response_router import ResponseRouter
 from codelab.server.protocol.session_factory import SessionFactory
 from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
 from codelab.server.protocol.state import (
@@ -25,8 +39,46 @@ from codelab.server.protocol.state import (
 from codelab.server.storage import InMemoryStorage
 
 
+def _make_background_executor(
+    storage: InMemoryStorage,
+    *,
+    orchestrator: Any | None = None,
+    mcp_manager: Any | None = None,
+    runtime_registry: SessionRuntimeRegistry | None = None,
+) -> BackgroundExecutor:
+    """Создаёт BackgroundExecutor с провайдерами-заглушками."""
+
+    async def orchestrator_provider() -> Any:
+        return orchestrator
+
+    async def mcp_provider(_session: SessionState) -> Any:
+        return mcp_manager
+
+    return BackgroundExecutor(
+        storage=storage,
+        orchestrator_provider=orchestrator_provider,
+        mcp_provider=mcp_provider,
+        runtime_registry=runtime_registry or SessionRuntimeRegistry(),
+    )
+
+
+def _make_response_router(
+    storage: InMemoryStorage,
+    *,
+    client_rpc_service: Any | None = None,
+) -> ResponseRouter:
+    """Создаёт ResponseRouter."""
+    from codelab.server.protocol.pending_registry import PendingRequestRegistry
+
+    return ResponseRouter(
+        storage=storage,
+        pending_registry=PendingRequestRegistry(),
+        client_rpc_service=client_rpc_service,
+    )
+
+
 class TestHandleAndProcess:
-    """Тесты для handle_and_process и фонового выполнения tool."""
+    """Тесты для handle_and_process и планирования фоновой задачи (фасад)."""
 
     async def test_schedules_background_task_when_pending_tool_exists(self) -> None:
         """При pending_tool_execution запускается фоновая задача."""
@@ -57,16 +109,15 @@ class TestHandleAndProcess:
 
 
 class TestExecuteToolInBackground:
-    """Тесты для _execute_tool_in_background."""
+    """Тесты для BackgroundExecutor.execute_tool_in_background."""
 
     async def test_sends_notifications_and_turn_completion(self) -> None:
         """Успешный фоновый запуск отправляет turn completion.
-        
-        Note: Notifications теперь отправляются через immediate delivery callback
-        в AgentLoop, а не через batch отправку в _execute_tool_in_background.
-        Поэтому _send_message вызывается только для completion.
+
+        Notifications доставляются через immediate delivery callback в AgentLoop,
+        поэтому _send_message вызывается только для completion.
         """
-        protocol = ACPProtocol()
+        executor = _make_background_executor(InMemoryStorage())
         notification = ACPMessage.notification("session/update", {})
         completion = ACPMessage.response("req_1", {"stopReason": "end_turn"})
         llm_result = LLMLoopResult(
@@ -74,44 +125,45 @@ class TestExecuteToolInBackground:
             stop_reason="end_turn",
         )
 
-        with patch.object(protocol, "execute_pending_tool", return_value=llm_result):
-            with patch.object(protocol, "complete_active_turn", return_value=completion):
-                with patch.object(protocol, "_send_message", new=AsyncMock()) as send:
-                    await protocol._execute_tool_in_background(
+        with patch.object(executor, "execute_pending_tool", return_value=llm_result):
+            with patch.object(executor, "complete_active_turn", return_value=completion):
+                with patch.object(executor, "_send_message", new=AsyncMock()) as send:
+                    await executor.execute_tool_in_background(
                         session_id="sess_1",
                         tool_call_id="call_1",
                     )
 
-        # Notifications отправляются через callback в AgentLoop,
-        # поэтому _send_message вызывается только для completion
         assert send.await_count == 1
-        send.assert_any_await(completion)
+        send.assert_any_await(completion, "sess_1")
 
     async def test_returns_early_when_pending_permission(self) -> None:
-        """Если снова ожидается permission, turn не завершается."""
-        protocol = ACPProtocol()
+        """Если снова ожидается permission, turn не завершается (только notif)."""
+        executor = _make_background_executor(InMemoryStorage())
         llm_result = LLMLoopResult(pending_permission=True)
 
-        with patch.object(protocol, "execute_pending_tool", return_value=llm_result):
-            with patch.object(protocol, "_send_message", new=AsyncMock()) as send:
-                await protocol._execute_tool_in_background(
-                    session_id="sess_1",
-                    tool_call_id="call_1",
-                )
+        with patch.object(executor, "execute_pending_tool", return_value=llm_result):
+            with patch.object(executor, "complete_active_turn", new=AsyncMock()) as complete:
+                with patch.object(executor, "_send_message", new=AsyncMock()):
+                    await executor.execute_tool_in_background(
+                        session_id="sess_1",
+                        tool_call_id="call_1",
+                    )
 
-        send.assert_not_awaited()
+        complete.assert_not_awaited()
 
     async def test_logs_error_on_exception(self) -> None:
         """Исключение в фоновой задаче логируется."""
-        protocol = ACPProtocol()
+        executor = _make_background_executor(InMemoryStorage())
 
         with patch.object(
-            protocol,
+            executor,
             "execute_pending_tool",
             side_effect=RuntimeError("boom"),
         ):
-            with patch("codelab.server.protocol.core.logger") as mock_logger:
-                await protocol._execute_tool_in_background(
+            with patch(
+                "codelab.server.protocol.background_executor.logger"
+            ) as mock_logger:
+                await executor.execute_tool_in_background(
                     session_id="sess_1",
                     tool_call_id="call_1",
                 )
@@ -120,13 +172,13 @@ class TestExecuteToolInBackground:
 
 
 class TestCompleteActiveTurn:
-    """Тесты для complete_active_turn."""
+    """Тесты для BackgroundExecutor.complete_active_turn."""
 
     async def test_returns_none_when_session_missing(self) -> None:
         """Возвращает None, если сессия не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        executor = _make_background_executor(InMemoryStorage())
 
-        result = await protocol.complete_active_turn("missing")
+        result = await executor.complete_active_turn("missing")
 
         assert result is None
 
@@ -136,25 +188,25 @@ class TestCompleteActiveTurn:
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
         completion = ACPMessage.response("req_1", {"stopReason": "end_turn"})
-        protocol = ACPProtocol(storage=storage)
+        executor = _make_background_executor(storage)
 
         with patch(
-            "codelab.server.protocol.core.prompt.complete_active_turn",
+            "codelab.server.protocol.background_executor.prompt.complete_active_turn",
             return_value=completion,
         ):
-            result = await protocol.complete_active_turn(session.session_id)
+            result = await executor.complete_active_turn(session.session_id)
 
         assert result is completion
 
 
 class TestShouldAutoCompleteActiveTurn:
-    """Тесты для should_auto_complete_active_turn."""
+    """Тесты для BackgroundExecutor.should_auto_complete_active_turn."""
 
     async def test_returns_false_when_session_missing(self) -> None:
         """False, если сессия не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        executor = _make_background_executor(InMemoryStorage())
 
-        result = await protocol.should_auto_complete_active_turn("missing")
+        result = await executor.should_auto_complete_active_turn("missing")
 
         assert result is False
 
@@ -163,9 +215,9 @@ class TestShouldAutoCompleteActiveTurn:
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        executor = _make_background_executor(storage)
 
-        result = await protocol.should_auto_complete_active_turn(session.session_id)
+        result = await executor.should_auto_complete_active_turn(session.session_id)
 
         assert result is False
 
@@ -178,42 +230,42 @@ class TestShouldAutoCompleteActiveTurn:
             session_id=session.session_id,
         )
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        executor = _make_background_executor(storage)
 
         with patch(
-            "codelab.server.protocol.core.prompt.should_auto_complete_active_turn",
+            "codelab.server.protocol.background_executor.prompt.should_auto_complete_active_turn",
             return_value=True,
         ):
-            result = await protocol.should_auto_complete_active_turn(session.session_id)
+            result = await executor.should_auto_complete_active_turn(session.session_id)
 
         assert result is True
 
 
 class TestHandleClientResponse:
-    """Тесты для handle_client_response."""
+    """Тесты для ResponseRouter.handle_client_response."""
 
     async def test_ignores_message_without_id(self) -> None:
         """Сообщение без id игнорируется пустым outcome."""
-        protocol = ACPProtocol()
+        router = _make_response_router(InMemoryStorage())
         message = ACPMessage.response(None, {"ok": True})
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
-            result = await protocol.handle_client_response(message)
+        with patch("codelab.server.protocol.response_router.logger") as mock_logger:
+            result = await router.handle_client_response(message)
 
         assert result == ProtocolOutcome()
         mock_logger.debug.assert_called_once()
 
     async def test_resolves_pending_client_rpc(self) -> None:
         """Response распознаётся как ожидаемый client RPC."""
-        protocol = ACPProtocol()
+        router = _make_response_router(InMemoryStorage())
         expected = ProtocolOutcome(response=ACPMessage.response("rpc_1", {"ok": True}))
 
         with patch.object(
-            protocol,
+            router,
             "_resolve_pending_client_rpc_response",
             return_value=expected,
         ):
-            result = await protocol.handle_client_response(
+            result = await router.handle_client_response(
                 ACPMessage.response("rpc_1", {"content": "ok"})
             )
 
@@ -223,10 +275,10 @@ class TestHandleClientResponse:
         """Response передаётся в ClientRPCService."""
         service = MagicMock()
         service.has_pending_request.return_value = True
-        protocol = ACPProtocol(client_rpc_service=service)
+        router = _make_response_router(InMemoryStorage(), client_rpc_service=service)
         message = ACPMessage.response("rpc_1", {"content": "ok"})
 
-        result = await protocol.handle_client_response(message)
+        result = await router.handle_client_response(message)
 
         assert result == ProtocolOutcome()
         service.handle_response.assert_called_once_with(message.to_dict())
@@ -237,9 +289,9 @@ class TestHandleClientResponse:
         session = SessionFactory.create_session(cwd="/tmp")
         session.cancelled_client_rpc_requests.add("rpc_1")
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        router = _make_response_router(storage)
 
-        result = await protocol.handle_client_response(
+        result = await router.handle_client_response(
             ACPMessage.response("rpc_1", {"content": "ok"})
         )
 
@@ -252,9 +304,9 @@ class TestHandleClientResponse:
         session = SessionFactory.create_session(cwd="/tmp")
         session.cancelled_permission_requests.add("perm_1")
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        router = _make_response_router(storage)
 
-        result = await protocol.handle_client_response(
+        result = await router.handle_client_response(
             ACPMessage.response("perm_1", {"outcome": "selected"})
         )
 
@@ -263,14 +315,14 @@ class TestHandleClientResponse:
 
     async def test_returns_empty_when_permission_resolution_none(self) -> None:
         """Если _resolve_permission_response вернул None — пустой outcome."""
-        protocol = ACPProtocol()
+        router = _make_response_router(InMemoryStorage())
 
         with patch.object(
-            protocol,
+            router,
             "_resolve_permission_response",
             return_value=None,
         ):
-            result = await protocol.handle_client_response(
+            result = await router.handle_client_response(
                 ACPMessage.response("perm_1", {"outcome": {"outcome": "selected"}})
             )
 
@@ -278,15 +330,15 @@ class TestHandleClientResponse:
 
     async def test_returns_resolved_permission_response(self) -> None:
         """Успешное разрешение permission пробрасывается наружу."""
-        protocol = ACPProtocol()
+        router = _make_response_router(InMemoryStorage())
         expected = ProtocolOutcome(response=ACPMessage.response("perm_1", {}))
 
         with patch.object(
-            protocol,
+            router,
             "_resolve_permission_response",
             return_value=expected,
         ):
-            result = await protocol.handle_client_response(
+            result = await router.handle_client_response(
                 ACPMessage.response("perm_1", {"outcome": {"outcome": "selected"}})
             )
 
@@ -294,13 +346,13 @@ class TestHandleClientResponse:
 
 
 class TestResolvePermissionResponse:
-    """Тесты для _resolve_permission_response."""
+    """Тесты для ResponseRouter._resolve_permission_response."""
 
     async def test_returns_none_when_session_not_found(self) -> None:
         """None, если сессия по permission_request_id не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        router = _make_response_router(InMemoryStorage())
 
-        result = await protocol._resolve_permission_response("perm_1", {})
+        result = await router._resolve_permission_response("perm_1", {})
 
         assert result is None
 
@@ -314,20 +366,20 @@ class TestResolvePermissionResponse:
             permission_request_id="perm_1",
         )
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        router = _make_response_router(storage)
         expected = ProtocolOutcome(response=ACPMessage.response("perm_1", {}))
 
         with patch(
-            "codelab.server.protocol.core.prompt.resolve_permission_response_impl",
+            "codelab.server.protocol.response_router.prompt.resolve_permission_response_impl",
             return_value=expected,
         ):
-            result = await protocol._resolve_permission_response("perm_1", {})
+            result = await router._resolve_permission_response("perm_1", {})
 
         assert result is expected
 
 
 class TestCancelActiveTurnsOnDisconnect:
-    """Тесты для cancel_active_turns_on_disconnect."""
+    """Тесты для ACPProtocol.cancel_active_turns_on_disconnect (фасад)."""
 
     async def test_continues_on_save_exception(self) -> None:
         """Ошибка save_session не прерывает цикл отмены."""
@@ -346,11 +398,8 @@ class TestCancelActiveTurnsOnDisconnect:
         await storage.save_session(session_bad)
 
         original_save = storage.save_session
-        call_count = 0
 
         async def flaky_save(session: SessionState) -> None:
-            nonlocal call_count
-            call_count += 1
             if session.session_id == session_bad.session_id:
                 raise RuntimeError("save failed")
             await original_save(session)
@@ -388,19 +437,42 @@ class TestCancelActiveTurnsOnDisconnect:
         assert count == 1
 
 
+def _make_prompt_handler(
+    storage: InMemoryStorage,
+    *,
+    orchestrator: Any | None = None,
+    runtime_registry: SessionRuntimeRegistry | None = None,
+) -> SessionPromptCommandHandler:
+    """Создаёт SessionPromptCommandHandler."""
+
+    async def orchestrator_provider() -> Any:
+        return orchestrator
+
+    async def mcp_provider(_session: Any) -> Any:
+        return None
+
+    return SessionPromptCommandHandler(
+        storage=storage,
+        orchestrator_provider=orchestrator_provider,
+        runtime_registry=runtime_registry or SessionRuntimeRegistry(),
+        mcp_provider=mcp_provider,
+        notification_callback=AsyncMock(),
+    )
+
+
 class TestHandleSessionPrompt:
-    """Тесты для _handle_session_prompt."""
+    """Тесты для SessionPromptCommandHandler.handle."""
 
     async def test_returns_error_when_session_id_invalid(self) -> None:
         """Ошибка, если sessionId не строка."""
-        protocol = ACPProtocol()
+        handler = _make_prompt_handler(InMemoryStorage(), orchestrator=AsyncMock())
         message = ACPMessage.request(
             "session/prompt",
             {"sessionId": 123},
             request_id="req_1",
         )
 
-        outcome = await protocol._handle_session_prompt(message)
+        outcome = await handler.handle(message)
 
         assert outcome.response is not None
         assert outcome.response.error is not None
@@ -408,14 +480,14 @@ class TestHandleSessionPrompt:
 
     async def test_returns_error_when_session_not_found(self) -> None:
         """Ошибка, если сессия не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        handler = _make_prompt_handler(InMemoryStorage(), orchestrator=AsyncMock())
         message = ACPMessage.request(
             "session/prompt",
             {"sessionId": "missing"},
             request_id="req_1",
         )
 
-        outcome = await protocol._handle_session_prompt(message)
+        outcome = await handler.handle(message)
 
         assert outcome.response is not None
         assert outcome.response.error is not None
@@ -428,17 +500,16 @@ class TestHandleSessionPrompt:
         await storage.save_session(session)
         orchestrator = AsyncMock()
         orchestrator.handle_prompt.return_value = ProtocolOutcome()
-        protocol = ACPProtocol(
-            storage=storage,
-            prompt_orchestrator=orchestrator,
-        )
+        handler = _make_prompt_handler(storage, orchestrator=orchestrator)
 
         with patch.object(
             storage,
             "save_session",
             side_effect=RuntimeError("save failed"),
         ):
-            with patch("codelab.server.protocol.core.logger") as mock_logger:
+            with patch(
+                "codelab.server.protocol.commands.session_prompt.logger"
+            ) as mock_logger:
                 message = ACPMessage.request(
                     "session/prompt",
                     {
@@ -447,34 +518,52 @@ class TestHandleSessionPrompt:
                     },
                     request_id="req_1",
                 )
-                outcome = await protocol._handle_session_prompt(message)
+                outcome = await handler.handle(message)
 
         mock_logger.error.assert_called_once()
         assert outcome == ProtocolOutcome()
 
 
+def _make_cancel_handler(
+    storage: InMemoryStorage,
+    *,
+    orchestrator: Any | None = None,
+    llm_adapter: Any | None = None,
+) -> SessionCancelCommandHandler:
+    """Создаёт SessionCancelCommandHandler."""
+
+    async def orchestrator_provider() -> Any:
+        return orchestrator
+
+    return SessionCancelCommandHandler(
+        storage=storage,
+        orchestrator_provider=orchestrator_provider,
+        llm_adapter=llm_adapter,
+    )
+
+
 class TestHandleSessionCancel:
-    """Тесты для _handle_session_cancel."""
+    """Тесты для SessionCancelCommandHandler.handle."""
 
     async def test_returns_empty_when_session_id_missing(self) -> None:
         """Пустой outcome, если sessionId отсутствует."""
-        protocol = ACPProtocol()
+        handler = _make_cancel_handler(InMemoryStorage(), orchestrator=MagicMock())
         message = ACPMessage.request("session/cancel", {}, request_id="req_1")
 
-        outcome = await protocol._handle_session_cancel(message)
+        outcome = await handler.handle(message)
 
         assert outcome == ProtocolOutcome(response=None, notifications=[])
 
     async def test_returns_response_when_session_not_found(self) -> None:
         """Возвращает response, если сессия не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        handler = _make_cancel_handler(InMemoryStorage(), orchestrator=MagicMock())
         message = ACPMessage.request(
             "session/cancel",
             {"sessionId": "missing"},
             request_id="req_1",
         )
 
-        outcome = await protocol._handle_session_cancel(message)
+        outcome = await handler.handle(message)
 
         assert outcome.response is not None
         assert outcome.response.result is None
@@ -487,9 +576,9 @@ class TestHandleSessionCancel:
         llm_adapter = AsyncMock()
         orchestrator = MagicMock()
         orchestrator.handle_cancel.return_value = ProtocolOutcome()
-        protocol = ACPProtocol(
-            storage=storage,
-            prompt_orchestrator=orchestrator,
+        handler = _make_cancel_handler(
+            storage,
+            orchestrator=orchestrator,
             llm_adapter=llm_adapter,
         )
 
@@ -498,7 +587,7 @@ class TestHandleSessionCancel:
             {"sessionId": session.session_id},
             request_id="req_1",
         )
-        await protocol._handle_session_cancel(message)
+        await handler.handle(message)
 
         llm_adapter.cancel_prompt.assert_awaited_once_with(session.session_id)
 
@@ -513,34 +602,31 @@ class TestHandleSessionCancel:
         await storage.save_session(session)
         orchestrator = MagicMock()
         orchestrator.handle_cancel.return_value = ProtocolOutcome()
-        protocol = ACPProtocol(
-            storage=storage,
-            prompt_orchestrator=orchestrator,
-        )
+        handler = _make_cancel_handler(storage, orchestrator=orchestrator)
 
         message = ACPMessage.request(
             "session/cancel",
             {"sessionId": session.session_id},
             request_id="req_1",
         )
-        outcome = await protocol._handle_session_cancel(message)
+        outcome = await handler.handle(message)
 
         assert len(outcome.followup_responses) == 1
         assert outcome.followup_responses[0].id == "prompt_req"
 
 
 class TestHandlePermissionResponseMethod:
-    """Тесты для _handle_permission_response_method."""
+    """Тесты для PermissionResponseCommandHandler.handle."""
 
     async def test_returns_error_when_id_is_none(self) -> None:
         """Notification без id отклоняется ошибкой."""
-        protocol = ACPProtocol()
+        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
         message = ACPMessage.notification(
             "session/request_permission_response",
             {"sessionId": "sess_1"},
         )
 
-        outcome = await protocol._handle_permission_response_method(message)
+        outcome = await handler.handle(message)
 
         assert outcome.response is not None
         assert outcome.response.error is not None
@@ -548,11 +634,11 @@ class TestHandlePermissionResponseMethod:
 
     async def test_delegates_to_handle_permission_response(self) -> None:
         """Request с id делегируется _handle_permission_response."""
-        protocol = ACPProtocol()
+        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
         expected = ProtocolOutcome(response=ACPMessage.response("perm_1", {}))
 
         with patch.object(
-            protocol,
+            handler,
             "_handle_permission_response",
             return_value=expected,
         ):
@@ -561,102 +647,94 @@ class TestHandlePermissionResponseMethod:
                 {"sessionId": "sess_1"},
                 request_id="perm_1",
             )
-            outcome = await protocol._handle_permission_response_method(message)
+            outcome = await handler.handle(message)
 
         assert outcome is expected
 
 
 class TestRestoreMcpPrompts:
-    """Тесты для _restore_mcp_prompts."""
+    """Тесты для MCPSessionManager._restore_mcp_prompts."""
 
     async def test_warns_when_runtime_not_found(self) -> None:
         """Предупреждение, если runtime state отсутствует."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
-        await storage.save_session(session)
         mcp_manager = MagicMock(spec=MCPManager)
-        protocol = ACPProtocol(storage=storage)
+        manager = MCPSessionManager(runtime_registry=SessionRuntimeRegistry())
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
-            await protocol._restore_mcp_prompts(session, mcp_manager)
+        with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
+            await manager._restore_mcp_prompts(session, mcp_manager)
 
         mock_logger.warning.assert_called_once()
 
     async def test_returns_when_get_all_prompts_fails(self) -> None:
         """При ошибке get_all_prompts метод возвращается без исключения."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
-        await storage.save_session(session)
         registry = SessionRuntimeRegistry()
         await registry.set_mcp_manager(session.session_id, MagicMock(spec=MCPManager))
         mcp_manager = AsyncMock()
         mcp_manager.get_all_prompts.side_effect = RuntimeError("prompts failed")
-        protocol = ACPProtocol(storage=storage, runtime_registry=registry)
+        manager = MCPSessionManager(runtime_registry=registry)
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
-            await protocol._restore_mcp_prompts(session, mcp_manager)
+        with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
+            await manager._restore_mcp_prompts(session, mcp_manager)
 
         mock_logger.warning.assert_called_once()
 
     async def test_skips_server_without_prompts(self) -> None:
         """Сервер без prompts пропускается."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(
             cwd="/tmp",
             mcp_servers=[{"name": "srv"}],
         )
-        await storage.save_session(session)
         registry = SessionRuntimeRegistry()
         await registry.set_mcp_manager(session.session_id, MagicMock(spec=MCPManager))
         mcp_manager = AsyncMock()
         mcp_manager.get_all_prompts.return_value = {"srv": []}
-        protocol = ACPProtocol(storage=storage, runtime_registry=registry)
+        manager = MCPSessionManager(runtime_registry=registry)
 
-        with patch.object(protocol, "_register_mcp_prompts_from_list") as register:
-            await protocol._restore_mcp_prompts(session, mcp_manager)
+        with patch.object(manager, "_register_mcp_prompts_from_list") as register:
+            await manager._restore_mcp_prompts(session, mcp_manager)
 
         register.assert_not_called()
 
 
 class TestSendAvailableCommandsUpdate:
-    """Тесты для _send_available_commands_update."""
+    """Тесты для MCPSessionManager.send_available_commands_update."""
 
     async def test_appends_non_dict_command_without_model_dump(self) -> None:
         """Команда без model_dump и не dict добавляется как есть."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         session.available_commands = ["raw_command"]  # type: ignore
-        await storage.save_session(session)
         mcp_manager = MagicMock()
         mcp_manager.get_all_tools.return_value = []
-        protocol = ACPProtocol(
-            storage=storage,
-            tool_registry=mcp_manager,
-            send_callback=AsyncMock(),
+        registry = SessionRuntimeRegistry()
+        tool_registry = MagicMock()
+        manager = MCPSessionManager(
+            runtime_registry=registry,
+            tool_registry=tool_registry,
         )
 
-        await protocol._send_available_commands_update(session, mcp_manager)
+        with patch.object(manager, "_send_message", new=AsyncMock()):
+            await manager.send_available_commands_update(session, mcp_manager)
 
         mcp_manager.get_all_tools.assert_called_once()
 
 
 class TestSetupMcpIfNeeded:
-    """Тесты для _setup_mcp_if_needed."""
+    """Тесты для MCPSessionManager.setup_if_needed."""
 
     async def test_returns_when_already_initialized(self) -> None:
         """Если MCP manager уже есть в runtime — инициализация пропускается."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(
             cwd="/tmp",
             mcp_servers=[{"name": "srv", "command": "cmd"}],
         )
-        await storage.save_session(session)
         registry = SessionRuntimeRegistry()
         await registry.set_mcp_manager(session.session_id, MagicMock(spec=MCPManager))
-        protocol = ACPProtocol(storage=storage, runtime_registry=registry)
+        manager = MCPSessionManager(runtime_registry=registry)
 
-        with patch.object(protocol, "_initialize_mcp_servers") as init:
-            await protocol._setup_mcp_if_needed(
+        with patch.object(manager, "_initialize_mcp_servers") as init:
+            await manager.setup_if_needed(
                 session,
                 {"mcpServers": [{"name": "srv", "command": "cmd"}]},
             )
@@ -665,13 +743,13 @@ class TestSetupMcpIfNeeded:
 
 
 class TestHandlePermissionResponse:
-    """Тесты для _handle_permission_response."""
+    """Тесты для PermissionResponseCommandHandler._handle_permission_response."""
 
     async def test_returns_error_for_unknown_request(self) -> None:
         """Ошибка для неизвестного permission request."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
 
-        outcome = await protocol._handle_permission_response(
+        outcome = await handler._handle_permission_response(
             "perm_unknown",
             {"sessionId": "sess_1"},
         )
@@ -686,9 +764,9 @@ class TestHandlePermissionResponse:
         session = SessionFactory.create_session(cwd="/tmp")
         session.cancelled_permission_requests.add("perm_1")
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        handler = PermissionResponseCommandHandler(storage=storage)
 
-        outcome = await protocol._handle_permission_response(
+        outcome = await handler._handle_permission_response(
             "perm_1",
             {"sessionId": session.session_id},
         )
@@ -708,9 +786,9 @@ class TestHandlePermissionResponse:
             permission_tool_call_id="call_1",
         )
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        handler = PermissionResponseCommandHandler(storage=storage)
 
-        outcome = await protocol._handle_permission_response(
+        outcome = await handler._handle_permission_response(
             "perm_1",
             {"sessionId": session.session_id, "result": {}},
         )
@@ -729,9 +807,9 @@ class TestHandlePermissionResponse:
             permission_request_id="perm_1",
         )
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        handler = PermissionResponseCommandHandler(storage=storage)
 
-        outcome = await protocol._handle_permission_response(
+        outcome = await handler._handle_permission_response(
             "perm_1",
             {
                 "sessionId": session.session_id,
@@ -760,9 +838,9 @@ class TestHandlePermissionResponse:
             status="pending",
         )
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        handler = PermissionResponseCommandHandler(storage=storage)
 
-        outcome = await protocol._handle_permission_response(
+        outcome = await handler._handle_permission_response(
             "perm_1",
             {
                 "sessionId": session.session_id,
@@ -775,13 +853,13 @@ class TestHandlePermissionResponse:
 
 
 class TestExecutePendingTool:
-    """Тесты для execute_pending_tool."""
+    """Тесты для BackgroundExecutor.execute_pending_tool."""
 
     async def test_returns_empty_when_session_missing(self) -> None:
         """Пустой LLMLoopResult, если сессия не найдена."""
-        protocol = ACPProtocol(storage=InMemoryStorage())
+        executor = _make_background_executor(InMemoryStorage())
 
-        result = await protocol.execute_pending_tool("missing", "call_1")
+        result = await executor.execute_pending_tool("missing", "call_1")
 
         assert result == LLMLoopResult(notifications=[], stop_reason="end_turn")
 
@@ -790,18 +868,9 @@ class TestExecutePendingTool:
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
-        protocol = ACPProtocol(storage=storage)
+        executor = _make_background_executor(storage, orchestrator=None)
 
-        with patch.object(protocol, "_ensure_mcp_initialized", return_value=None):
-            with patch.object(
-                protocol,
-                "_get_prompt_orchestrator",
-                return_value=None,
-            ):
-                result = await protocol.execute_pending_tool(
-                    session.session_id,
-                    "call_1",
-                )
+        result = await executor.execute_pending_tool(session.session_id, "call_1")
 
         assert result == LLMLoopResult(notifications=[], stop_reason="end_turn")
 
@@ -812,22 +881,20 @@ class TestExecutePendingTool:
         await storage.save_session(session)
         orchestrator = AsyncMock()
         orchestrator.execute_pending_tool.return_value = LLMLoopResult()
-        protocol = ACPProtocol(
-            storage=storage,
-            prompt_orchestrator=orchestrator,
-        )
+        executor = _make_background_executor(storage, orchestrator=orchestrator)
 
         with patch.object(
             storage,
             "save_session",
             side_effect=RuntimeError("save failed"),
         ):
-            with patch("codelab.server.protocol.core.logger") as mock_logger:
-                with patch.object(protocol, "_ensure_mcp_initialized", return_value=None):
-                    result = await protocol.execute_pending_tool(
-                        session.session_id,
-                        "call_1",
-                    )
+            with patch(
+                "codelab.server.protocol.background_executor.logger"
+            ) as mock_logger:
+                result = await executor.execute_pending_tool(
+                    session.session_id,
+                    "call_1",
+                )
 
         mock_logger.error.assert_called_once()
         assert result == LLMLoopResult()
@@ -837,50 +904,50 @@ class TestExecutePendingTool:
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
-        expected = LLMLoopResult(notifications=[ACPMessage.notification("session/update", {})])
+        expected = LLMLoopResult(
+            notifications=[ACPMessage.notification("session/update", {})]
+        )
         orchestrator = AsyncMock()
         orchestrator.execute_pending_tool.return_value = expected
-        protocol = ACPProtocol(
-            storage=storage,
-            prompt_orchestrator=orchestrator,
-        )
+        executor = _make_background_executor(storage, orchestrator=orchestrator)
 
-        with patch.object(protocol, "_ensure_mcp_initialized", return_value=None):
-            result = await protocol.execute_pending_tool(session.session_id, "call_1")
+        result = await executor.execute_pending_tool(session.session_id, "call_1")
 
         assert result is expected
 
 
+async def _init_with_mock_manager(
+    session: SessionState,
+    mcp_servers: list[dict[str, Any]],
+) -> tuple[MCPSessionManager, MagicMock, SessionRuntimeRegistry]:
+    """Инициализирует MCP с замоканным менеджером, возвращает manager/mcp/registry."""
+    registry = SessionRuntimeRegistry()
+    mcp_manager = MagicMock(spec=MCPManager)
+    mcp_manager.add_server = AsyncMock(return_value=[])
+    mcp_manager.get_all_prompts = AsyncMock(return_value={})
+    await registry.set_mcp_manager(session.session_id, mcp_manager)
+    manager = MCPSessionManager(
+        runtime_registry=registry,
+        tool_registry=MagicMock(),
+    )
+
+    with patch(
+        "codelab.server.protocol.mcp_session_manager.MCPManager",
+        return_value=mcp_manager,
+    ):
+        with patch.object(manager, "_send_message", new=AsyncMock()):
+            await manager._initialize_mcp_servers(session, mcp_servers)
+
+    return manager, mcp_manager, registry
+
+
 class TestInitializeMcpServersCallbacks:
-    """Тесты для callback'ов инициализации MCP серверов."""
-
-    async def _init_with_mock_manager(
-        self,
-        session: SessionState,
-        mcp_servers: list[dict[str, Any]],
-    ) -> tuple[ACPProtocol, MagicMock]:
-        """Инициализирует MCP с замоканным менеджером и возвращает протокол."""
-        storage = InMemoryStorage()
-        await storage.save_session(session)
-        registry = SessionRuntimeRegistry()
-        mcp_manager = MagicMock(spec=MCPManager)
-        mcp_manager.add_server = AsyncMock(return_value=[])
-        await registry.set_mcp_manager(session.session_id, mcp_manager)
-        protocol = ACPProtocol(
-            storage=storage,
-            runtime_registry=registry,
-            send_callback=AsyncMock(),
-        )
-
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mcp_manager):
-            await protocol._initialize_mcp_servers(session, mcp_servers)
-
-        return protocol, mcp_manager
+    """Тесты для callback'ов инициализации MCP серверов (MCPSessionManager)."""
 
     async def test_server_status_callback_sends_notifications(self) -> None:
         """Callback статуса сервера отправляет notifications."""
         session = SessionFactory.create_session(cwd="/tmp")
-        protocol, mcp_manager = await self._init_with_mock_manager(
+        manager, mcp_manager, _registry = await _init_with_mock_manager(
             session,
             [{"name": "srv", "command": "cmd"}],
         )
@@ -892,14 +959,15 @@ class TestInitializeMcpServersCallbacks:
             {"name": "srv", "state": "connected"},
         ]
 
-        await status_callback()
+        with patch.object(manager, "_send_message", new=AsyncMock()) as send:
+            await status_callback()
 
-        protocol._send_callback.assert_awaited_once()
+        send.assert_awaited_once()
 
     async def test_server_status_callback_logs_error_on_exception(self) -> None:
         """Callback статуса сервера логирует ошибку при исключении."""
         session = SessionFactory.create_session(cwd="/tmp")
-        protocol, mcp_manager = await self._init_with_mock_manager(
+        manager, mcp_manager, _registry = await _init_with_mock_manager(
             session,
             [{"name": "srv", "command": "cmd"}],
         )
@@ -908,16 +976,19 @@ class TestInitializeMcpServersCallbacks:
         status_callback = callbacks[0][0][0]
         mcp_manager.get_servers_info.side_effect = RuntimeError("info failed")
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
-            await status_callback()
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.logger"
+        ) as mock_logger:
+            with patch.object(manager, "_send_message", new=AsyncMock()) as send:
+                await status_callback()
 
         mock_logger.error.assert_called_once()
-        protocol._send_callback.assert_not_awaited()
+        send.assert_not_awaited()
 
     async def test_prompts_changed_runtime_not_found(self) -> None:
         """Callback prompts_change логирует предупреждение при отсутствии runtime."""
         session = SessionFactory.create_session(cwd="/tmp")
-        protocol, mcp_manager = await self._init_with_mock_manager(
+        manager, mcp_manager, registry = await _init_with_mock_manager(
             session,
             [{"name": "srv", "command": "cmd"}],
         )
@@ -926,9 +997,11 @@ class TestInitializeMcpServersCallbacks:
         prompts_callback = callbacks[0][0][0]
 
         # Удаляем runtime, чтобы callback не нашёл состояние
-        await protocol._runtime_registry.remove(session.session_id)
+        await registry.remove(session.session_id)
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.logger"
+        ) as mock_logger:
             await prompts_callback()
 
         mock_logger.warning.assert_called_once()
@@ -939,7 +1012,7 @@ class TestInitializeMcpServersCallbacks:
             cwd="/tmp",
             mcp_servers=[{"name": "srv", "command": "cmd"}],
         )
-        protocol, mcp_manager = await self._init_with_mock_manager(
+        manager, mcp_manager, _registry = await _init_with_mock_manager(
             session,
             [{"name": "srv", "command": "cmd"}],
         )
@@ -951,7 +1024,8 @@ class TestInitializeMcpServersCallbacks:
         mcp_manager.get_all_prompts.reset_mock()
         mcp_manager.get_all_prompts.return_value = {"srv": []}
 
-        await prompts_callback()
+        with patch.object(manager, "_send_message", new=AsyncMock()):
+            await prompts_callback()
 
         mcp_manager.get_all_prompts.assert_called_once()
 
@@ -961,7 +1035,7 @@ class TestInitializeMcpServersCallbacks:
             cwd="/tmp",
             mcp_servers=[{"name": "srv", "command": "cmd"}],
         )
-        protocol, mcp_manager = await self._init_with_mock_manager(
+        manager, mcp_manager, _registry = await _init_with_mock_manager(
             session,
             [{"name": "srv", "command": "cmd"}],
         )
@@ -973,22 +1047,18 @@ class TestInitializeMcpServersCallbacks:
         mcp_manager.get_all_prompts.reset_mock()
         mcp_manager.get_all_prompts.return_value = {}
 
-        await prompts_callback()
+        with patch.object(manager, "_send_message", new=AsyncMock()):
+            await prompts_callback()
 
         mcp_manager.get_all_prompts.assert_called_once()
 
     async def test_skips_invalid_server_config(self) -> None:
         """_initialize_mcp_servers пропускает невалидные конфигурации серверов."""
         session = SessionFactory.create_session(cwd="/tmp")
-        storage = InMemoryStorage()
-        await storage.save_session(session)
         registry = SessionRuntimeRegistry()
         mcp_manager = AsyncMock(spec=MCPManager)
         await registry.set_mcp_manager(session.session_id, mcp_manager)
-        protocol = ACPProtocol(
-            storage=storage,
-            runtime_registry=registry,
-        )
+        manager = MCPSessionManager(runtime_registry=registry)
 
         raw_configs: list[Any] = [
             "not_a_dict",
@@ -996,23 +1066,27 @@ class TestInitializeMcpServersCallbacks:
             {"command": "cmd"},
         ]
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mcp_manager):
-            with patch("codelab.server.protocol.core.logger") as mock_logger:
-                await protocol._initialize_mcp_servers(session, raw_configs)
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mcp_manager,
+        ):
+            with patch(
+                "codelab.server.protocol.mcp_session_manager.logger"
+            ) as mock_logger:
+                await manager._initialize_mcp_servers(session, raw_configs)
 
         assert mock_logger.warning.call_count == 3
         mcp_manager.add_server.assert_not_awaited()
 
 
 class TestRegisterMcpPromptsFromList:
-    """Тесты для _register_mcp_prompts_from_list."""
+    """Тесты для MCPSessionManager._register_mcp_prompts_from_list."""
 
     def test_optional_arguments_hint(self) -> None:
         """Формируется arguments_hint с обязательными и опциональными аргументами."""
-        storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         mcp_manager = MagicMock(spec=MCPManager)
-        protocol = ACPProtocol(storage=storage)
+        manager = MCPSessionManager(runtime_registry=SessionRuntimeRegistry())
 
         class PromptArg:
             def __init__(self, name: str, required: bool) -> None:
@@ -1032,10 +1106,10 @@ class TestRegisterMcpPromptsFromList:
         prompt_def = PromptDef()
 
         with patch(
-            "codelab.server.protocol.core.mcp_prompts_to_available_commands",
+            "codelab.server.protocol.mcp_session_manager.mcp_prompts_to_available_commands",
             return_value=[{"name": "greet"}],
         ):
-            protocol._register_mcp_prompts_from_list(
+            manager._register_mcp_prompts_from_list(
                 session,
                 mcp_manager,
                 "srv",

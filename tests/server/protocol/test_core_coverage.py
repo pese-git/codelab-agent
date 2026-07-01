@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from codelab.server.messages import ACPMessage
+from codelab.server.protocol.config_spec_builder import _DEFAULT_CONFIG_SPECS
 from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 
 
 class TestSendMessage:
@@ -25,15 +27,18 @@ class TestSendMessage:
 
         callback.assert_awaited_once_with(message)
 
-    async def test_send_message_logs_warning_when_callback_is_none(self) -> None:
-        """Логируется предупреждение, если callback не настроен."""
+    async def test_send_message_noop_when_callback_is_none(self) -> None:
+        """Без настроенного callback сообщение не доставляется (тихий no-op).
+
+        В новом фасаде ветка "нет callback" не падает и ничего не отправляет —
+        поведенческий интент "сообщение не уходит, если некуда" сохранён.
+        """
         message = ACPMessage.notification("session/update", {"update": {}})
         protocol = ACPProtocol()
 
-        with patch("codelab.server.protocol.core.logger") as mock_logger:
-            await protocol._send_message(message)
-
-        mock_logger.warning.assert_called_once()
+        assert protocol._send_callback is None
+        # Не должно бросать исключений и не должно ничего доставлять.
+        await protocol._send_message(message)
 
 
 class TestInitializeMcpFlags:
@@ -85,7 +90,7 @@ class TestBuildConfigSpecs:
         protocol = ACPProtocol(config_option_builder=builder)
         builder.build_config_specs.reset_mock()
 
-        specs = protocol._build_config_specs()
+        specs = protocol._build_config_specs_legacy()
 
         builder.build_config_specs.assert_called_once()
         call_kwargs = builder.build_config_specs.call_args.kwargs
@@ -194,7 +199,7 @@ class TestSupportedToolKinds:
             "other",
         }
 
-        assert expected <= ACPProtocol._supported_tool_kinds
+        assert expected <= ToolCallHandler._SUPPORTED_TOOL_KINDS
 
 
 class TestDefaultConfigSpecs:
@@ -202,7 +207,7 @@ class TestDefaultConfigSpecs:
 
     def test_default_config_specs_mode_structure(self) -> None:
         """mode spec имеет корректный default и набор options."""
-        mode_spec = ACPProtocol._default_config_specs["mode"]
+        mode_spec = _DEFAULT_CONFIG_SPECS["mode"]
 
         assert mode_spec["name"] == "Session Mode"
         assert mode_spec["category"] == "mode"
@@ -212,7 +217,7 @@ class TestDefaultConfigSpecs:
 
     def test_default_config_specs_model_structure(self) -> None:
         """model spec имеет корректный default."""
-        model_spec = ACPProtocol._default_config_specs["model"]
+        model_spec = _DEFAULT_CONFIG_SPECS["model"]
 
         assert model_spec["name"] == "Model"
         assert model_spec["category"] == "model"

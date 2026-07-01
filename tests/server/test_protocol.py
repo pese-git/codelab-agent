@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from _protocol_factory import build_protocol
 
 from codelab.server.client_rpc import ClientRPCService
 from codelab.server.messages import ACPMessage
@@ -3263,7 +3264,7 @@ async def test_get_prompt_orchestrator_creates_default_registry_without_tool_reg
 @pytest.mark.asyncio
 async def test_session_list_filters_by_cwd() -> None:
     """session/list с параметром cwd возвращает только сессии с matching cwd."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
@@ -3288,7 +3289,7 @@ async def test_session_list_filters_by_cwd() -> None:
 @pytest.mark.asyncio
 async def test_session_list_cwd_filter_returns_empty_on_no_match() -> None:
     """session/list с несуществующим cwd возвращает пустой список."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
@@ -3306,7 +3307,7 @@ async def test_session_list_cwd_filter_returns_empty_on_no_match() -> None:
 @pytest.mark.asyncio
 async def test_session_list_rejects_relative_cwd() -> None:
     """session/list отклоняет относительный путь в cwd."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     result = await protocol.handle(
         ACPMessage.request("session/list", {"cwd": "relative/path"})
@@ -3319,7 +3320,7 @@ async def test_session_list_rejects_relative_cwd() -> None:
 @pytest.mark.asyncio
 async def test_session_list_session_info_structure() -> None:
     """SessionInfo содержит все обязательные поля: sessionId, cwd, title, updatedAt, _meta."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -3348,7 +3349,7 @@ async def test_session_list_session_info_structure() -> None:
 @pytest.mark.asyncio
 async def test_session_info_update_structure_after_prompt() -> None:
     """session_info_update содержит title и updatedAt."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3382,7 +3383,7 @@ async def test_session_info_update_structure_after_prompt() -> None:
 @pytest.mark.asyncio
 async def test_session_info_update_structure_after_config_change() -> None:
     """session_info_update отправляется после set_config_option."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -3416,7 +3417,7 @@ async def test_session_info_update_structure_after_config_change() -> None:
 @pytest.mark.asyncio
 async def test_prompt_accepts_image_content() -> None:
     """Сервер принимает image content без ошибки валидации."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3447,7 +3448,7 @@ async def test_prompt_accepts_image_content() -> None:
 @pytest.mark.asyncio
 async def test_prompt_accepts_audio_content() -> None:
     """Сервер принимает audio content без ошибки валидации."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3478,7 +3479,7 @@ async def test_prompt_accepts_audio_content() -> None:
 @pytest.mark.asyncio
 async def test_prompt_accepts_resource_content() -> None:
     """Сервер принимает resource content без ошибки валидации."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3512,7 +3513,7 @@ async def test_prompt_accepts_resource_content() -> None:
 @pytest.mark.asyncio
 async def test_prompt_accepts_resource_link_content() -> None:
     """Сервер принимает resource_link content без ошибки валидации."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3548,7 +3549,7 @@ async def test_prompt_accepts_resource_link_content() -> None:
 @pytest.mark.asyncio
 async def test_config_options_contain_category_field() -> None:
     """configOptions в ответе session/new содержат поле category."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -3565,7 +3566,7 @@ async def test_config_options_contain_category_field() -> None:
 @pytest.mark.asyncio
 async def test_config_options_mode_has_mode_category() -> None:
     """Config option mode имеет category='mode'."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -3581,7 +3582,7 @@ async def test_config_options_mode_has_mode_category() -> None:
 @pytest.mark.asyncio
 async def test_set_config_option_returns_full_snapshot() -> None:
     """set_config_option возвращает полный snapshot всех configOptions."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -3615,7 +3616,7 @@ async def test_set_config_option_returns_full_snapshot() -> None:
 @pytest.mark.asyncio
 async def test_available_commands_update_structure() -> None:
     """available_commands_update содержит массив availableCommands с полями name и description."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
 
     created = await protocol.handle(
@@ -3658,7 +3659,7 @@ async def test_available_commands_update_structure() -> None:
 @pytest.mark.asyncio
 async def test_fs_read_tool_call_contains_locations() -> None:
     """tool_call для fs_read содержит locations с путём файла."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request(
             "initialize",
@@ -3705,7 +3706,7 @@ async def test_fs_read_tool_call_contains_locations() -> None:
 @pytest.mark.asyncio
 async def test_fs_write_tool_call_contains_locations() -> None:
     """tool_call для fs_write содержит locations с путём файла."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request(
             "initialize",
