@@ -34,6 +34,13 @@ def test_resolve_tui_connection_uses_store_values_when_args_missing(monkeypatch)
         "codelab.client.tui.config.TUIConfigStore.load",
         lambda _self: TUIConfig(host="127.0.0.8", port=8800, theme="light"),
     )
+    # Изолируем от TOML-цепочки (~/.codelab, ./codelab.toml), которая
+    # иначе переопределила бы значения из store при запуске на машине разработчика.
+    monkeypatch.setattr(
+        "codelab.client.tui.config.TUIConfigStore._load_from_toml_chain",
+        lambda _self: {},
+    )
+    monkeypatch.delenv("CODELAB_THEME", raising=False)
 
     host, port, theme = resolve_tui_connection(host=None, port=None)
 

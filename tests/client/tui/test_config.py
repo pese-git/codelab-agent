@@ -111,8 +111,12 @@ class TestTUIConfigStoreTOML:
     def test_load_from_toml_chain_no_files(self, temp_config_path: Path) -> None:
         """Загрузка TOML когда файлов нет возвращает empty dict."""
         store = TUIConfigStore(file_path=temp_config_path)
-        # Меняем cwd на временную директорию без TOML файлов
-        with patch.object(Path, "cwd", return_value=temp_config_path.parent):
+        # Меняем и cwd, и home на временную директорию без TOML файлов,
+        # чтобы глобальный ~/.codelab/codelab.toml не протекал в тест.
+        with (
+            patch.object(Path, "cwd", return_value=temp_config_path.parent),
+            patch.object(Path, "home", return_value=temp_config_path.parent),
+        ):
             result = store._load_from_toml_chain()
         assert result == {}
 
