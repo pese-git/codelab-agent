@@ -39,6 +39,20 @@ def _result(request_id: Any, result: dict) -> str:
     return json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result})
 
 
+def _error_payload(request_id: Any, code: int, message: str) -> str:
+    return json.dumps(
+        {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    )
+
+
+class _RpcError:
+    """Маркер: responder просит вернуть JSON-RPC error вместо result."""
+
+    def __init__(self, code: int = -32000, message: str = "error") -> None:
+        self.code = code
+        self.message = message
+
+
 async def _read_json(proc: asyncio.subprocess.Process, timeout: float = 15.0) -> dict:
     """Прочитать очередное JSON-сообщение из stdout (пропуская не-JSON строки)."""
     assert proc.stdout is not None
@@ -247,7 +261,11 @@ async def _run_prompt(
             if responder is None:
                 await _write(proc, _result(msg["id"], {}))
             else:
-                await _write(proc, _result(msg["id"], responder(msg.get("params", {}))))
+                out = responder(msg.get("params", {}))
+                if isinstance(out, _RpcError):
+                    await _write(proc, _error_payload(msg["id"], out.code, out.message))
+                else:
+                    await _write(proc, _result(msg["id"], out))
         elif method is not None:
             notifications.append(msg)
 
@@ -471,5 +489,96 @@ async def test_bypass_mode_auto_allows_without_permission(tmp_cwd: Path) -> None
         assert "session/request_permission" not in rpc
         assert "terminal/create" in rpc
         assert "Готово без запроса" in _agent_text(notes)
+    finally:
+        await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_allows_read_rejects_execute(tmp_cwd: Path) -> None:
+    """mode=plan: read авто-разрешён (без спроса), execute отклоняется.
+
+    Отклонённый в plan-режиме инструмент не выполняется (нет client RPC),
+    но агент получает "rejected" и продолжает — turn завершается нормально.
+    """
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["прочти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_read_text_file", "arguments": {"path": "R.md"}}
+                    ]},
+                    {"text": "Прочитал файл."},
+                ],
+            },
+            {
+                "when_user": ["запусти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "terminal_create", "arguments": {"command": "ls"}}
+                    ]},
+                    {"text": "Понял, в plan-режиме выполнить нельзя."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        await _set_mode(proc, session_id, "plan", 3)
+
+        # read — авто-разрешён, файл читается, без запроса разрешения
+        resp, notes, rpc = await _run_prompt(proc, session_id, "прочти R.md", 10)
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "session/request_permission" not in rpc
+        assert "fs/read_text_file" in rpc
+        assert "Прочитал файл" in _agent_text(notes)
+
+        # execute — отклонён: инструмент до клиента не доходит, агент продолжает
+        resp, notes, rpc = await _run_prompt(proc, session_id, "запусти ls", 11)
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "terminal/create" not in rpc
+        assert "session/request_permission" not in rpc
+    finally:
+        await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_tool_error_is_handled(tmp_cwd: Path) -> None:
+    """Ошибка инструмента: клиент вернул JSON-RPC error → агент продолжает."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["прочти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_read_text_file", "arguments": {"path": "missing.md"}}
+                    ]},
+                    {"text": "Не удалось прочитать файл, обработал ошибку."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        await _set_mode(proc, session_id, "bypass", 3)
+
+        resp, notes, rpc = await _run_prompt(
+            proc,
+            session_id,
+            "прочти missing.md",
+            10,
+            responders={
+                "fs/read_text_file": lambda p: _RpcError(-32000, "file not found")
+            },
+        )
+
+        # Ошибка инструмента не роняет turn — агент получает её и завершает ход
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "fs/read_text_file" in rpc
+        assert "обработал ошибку" in _agent_text(notes)
     finally:
         await _stop_server(proc)
