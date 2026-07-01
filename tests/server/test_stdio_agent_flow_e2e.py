@@ -337,3 +337,75 @@ async def test_terminal_flow(tmp_cwd: Path) -> None:
         assert "Команда выполнена" in _agent_text(notes)
     finally:
         await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_fs_write_flow(tmp_cwd: Path) -> None:
+    """fs/write: permission → recv answer → fs/write_text_file → result → text."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["запиши", "создай файл"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_write_text_file",
+                         "arguments": {"path": "notes.txt", "content": "привет"}}
+                    ]},
+                    {"text": "Файл записан."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        resp, notes, rpc = await _run_prompt(
+            proc, session_id, "запиши notes.txt", 10
+        )
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "fs/write_text_file" in rpc
+        assert "Файл записан" in _agent_text(notes)
+    finally:
+        await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_permission_reject_cancels_turn(tmp_cwd: Path) -> None:
+    """Отказ в разрешении: reject_once → turn cancelled, инструмент не вызван."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["ls", "запусти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "terminal_create", "arguments": {"command": "ls"}}
+                    ]},
+                    {"text": "Не должно быть достигнуто."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        resp, _notes, rpc = await _run_prompt(
+            proc,
+            session_id,
+            "запусти ls",
+            10,
+            responders={
+                "session/request_permission": lambda p: {
+                    "outcome": {"outcome": "selected", "optionId": "reject_once"}
+                }
+            },
+        )
+
+        # Отказ в разрешении отменяет turn; инструмент до клиента не доходит.
+        assert resp["result"]["stopReason"] == "cancelled"
+        assert "session/request_permission" in rpc
+        assert "terminal/create" not in rpc
+    finally:
+        await _stop_server(proc)
