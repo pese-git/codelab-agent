@@ -9,8 +9,9 @@ import asyncio
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage import CachedSessionStorage, InMemoryStorage
 
@@ -19,7 +20,7 @@ from codelab.server.storage import CachedSessionStorage, InMemoryStorage
 async def test_session_survives_protocol_restart() -> None:
     """Сессия должна быть доступна после пересоздания ACPProtocol."""
     storage = InMemoryStorage()
-    protocol1 = ACPProtocol(storage=storage)
+    protocol1 = build_protocol(storage=storage)
 
     # Инициализируем протокол
     await protocol1.handle(ACPMessage.request("initialize", {"clientCapabilities": {}}))
@@ -33,7 +34,7 @@ async def test_session_survives_protocol_restart() -> None:
     session_id = created.response.result["sessionId"]
 
     # "Перезапускаем" — создаем новый экземпляр протокола с тем же storage
-    protocol2 = ACPProtocol(storage=storage)
+    protocol2 = build_protocol(storage=storage)
     await protocol2.handle(ACPMessage.request("initialize", {"clientCapabilities": {}}))
 
     # Сессия должна быть найдена через session/load

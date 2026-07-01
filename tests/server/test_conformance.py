@@ -1,6 +1,7 @@
 import pytest
 
 from codelab.server.messages import ACPMessage
+from _protocol_factory import build_protocol
 from codelab.server.protocol import ACPProtocol
 
 
@@ -46,7 +47,7 @@ async def _initialize_with_fs_runtime(protocol: ACPProtocol) -> None:
 async def test_conformance_prompt_returns_end_turn_with_agent_update() -> None:
     """Проверяет базовый ACP prompt-cycle: update-поток + финальный end_turn."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -78,7 +79,7 @@ async def test_conformance_prompt_returns_end_turn_with_agent_update() -> None:
 async def test_conformance_cancel_while_waiting_permission_returns_cancelled() -> None:
     """Проверяет обязательный ACP-инвариант: cancel завершает turn как cancelled."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -109,7 +110,7 @@ async def test_conformance_cancel_while_waiting_permission_returns_cancelled() -
 async def test_conformance_permission_selected_completes_turn() -> None:
     """Проверяет ACP permission-flow: selected/allow завершает turn как end_turn."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -157,7 +158,7 @@ async def test_conformance_permission_selected_completes_turn() -> None:
 async def test_conformance_load_replays_history_and_stateful_updates() -> None:
     """Проверяет load replay для истории, plan и tool call состояния."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -212,7 +213,7 @@ async def test_conformance_load_replays_history_and_stateful_updates() -> None:
 async def test_conformance_fs_client_rpc_error_marks_tool_failed() -> None:
     """Проверяет fs edge-case: client-rpc error переводит tool_call в failed."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_fs_runtime(protocol)
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -260,7 +261,7 @@ async def test_conformance_fs_client_rpc_error_marks_tool_failed() -> None:
 async def test_conformance_terminal_client_rpc_lifecycle_completes() -> None:
     """Проверяет terminal edge-case: create/output/wait/release завершают turn."""
 
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await _initialize_with_tool_runtime(protocol)
     created = await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})

@@ -13,6 +13,8 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.protocol.state import (
@@ -31,7 +33,7 @@ class TestPermissionResponseRouting:
     async def protocol(self) -> ACPProtocol:
         """Создает ACPProtocol с in-memory storage."""
         storage = InMemoryStorage()
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
         return protocol
 
     @pytest.fixture
@@ -298,7 +300,7 @@ class TestPermissionResponseIntegration:
     async def protocol(self) -> ACPProtocol:
         """Создает ACPProtocol с in-memory storage."""
         storage = InMemoryStorage()
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
         return protocol
 
     @pytest.mark.asyncio
@@ -494,7 +496,7 @@ class TestDeferredTurnScenarios:
     async def protocol(self) -> ACPProtocol:
         """Создает ACPProtocol с in-memory storage."""
         storage = InMemoryStorage()
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
         return protocol
 
     @pytest.mark.asyncio

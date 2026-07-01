@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from codelab.server.agent.strategies.descriptor import StrategyDescriptor
-from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.config_spec_builder import ConfigSpecBuilder
 
 
 class TestBuildActiveStrategyConfigSpec:
@@ -13,9 +13,7 @@ class TestBuildActiveStrategyConfigSpec:
 
     def test_build_active_strategy_config_spec_no_registry(self) -> None:
         """Без StrategyRegistry возвращается fallback с только 'single'."""
-        protocol = ACPProtocol()
-
-        spec = protocol._build_active_strategy_config_spec()
+        spec = ConfigSpecBuilder()._build_strategy_spec()
 
         assert spec["id"] == "_active_strategy"
         assert spec["name"] == "Strategy"
@@ -48,19 +46,17 @@ class TestBuildActiveStrategyConfigSpec:
             hierarchical_descriptor,
         ]
 
-        protocol = ACPProtocol(
+        spec = ConfigSpecBuilder(
             strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-        )
-
-        spec = protocol._build_active_strategy_config_spec()
+        )._build_strategy_spec()
 
         assert spec["id"] == "_active_strategy"
         assert spec["name"] == "Strategy"
         assert spec["category"] == "strategy"
         assert spec["default"] == "single"
         assert len(spec["options"]) == 2
-        
+
         # Проверяем что опции содержат правильные значения
         option_values = [opt["value"] for opt in spec["options"]]
         assert "single" in option_values
@@ -73,12 +69,10 @@ class TestBuildActiveStrategyConfigSpec:
         agent_registry.is_initialized = False
         strategy_registry.get_available.return_value = []
 
-        protocol = ACPProtocol(
+        spec = ConfigSpecBuilder(
             strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-        )
-
-        spec = protocol._build_active_strategy_config_spec()
+        )._build_strategy_spec()
 
         assert spec["default"] == "single"
         assert len(spec["options"]) == 1
@@ -97,12 +91,10 @@ class TestBuildActiveStrategyConfigSpec:
 
         strategy_registry.get_available.return_value = [descriptor]
 
-        protocol = ACPProtocol(
+        spec = ConfigSpecBuilder(
             strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-        )
-
-        spec = protocol._build_active_strategy_config_spec()
+        )._build_strategy_spec()
 
         # Должны использоваться значения из strategy_metadata, а не из descriptor
         hierarchical_option = next(
@@ -118,12 +110,10 @@ class TestBuildActiveStrategyConfigSpec:
         agent_registry.is_initialized = False
         strategy_registry.get_available.side_effect = Exception("Registry error")
 
-        protocol = ACPProtocol(
+        spec = ConfigSpecBuilder(
             strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-        )
-
-        spec = protocol._build_active_strategy_config_spec()
+        )._build_strategy_spec()
 
         # Должен вернуться fallback
         assert spec["default"] == "single"
@@ -135,9 +125,7 @@ class TestBuildConfigSpecsWithActiveStrategy:
 
     def test_build_config_specs_includes_active_strategy(self) -> None:
         """_build_config_specs включает _active_strategy."""
-        protocol = ACPProtocol()
-
-        specs = protocol._build_config_specs_legacy()
+        specs = ConfigSpecBuilder().build()
 
         assert "_active_strategy" in specs
         assert specs["_active_strategy"]["id"] == "_active_strategy"
@@ -155,12 +143,10 @@ class TestBuildConfigSpecsWithActiveStrategy:
 
         strategy_registry.get_available.return_value = [descriptor]
 
-        protocol = ACPProtocol(
+        specs = ConfigSpecBuilder(
             strategy_registry=strategy_registry,
             agent_registry=agent_registry,
-        )
-
-        specs = protocol._build_config_specs_legacy()
+        ).build()
 
         assert "_active_strategy" in specs
         assert len(specs["_active_strategy"]["options"]) == 1

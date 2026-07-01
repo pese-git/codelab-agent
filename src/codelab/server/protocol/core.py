@@ -22,7 +22,6 @@ from .state import (
 
 if TYPE_CHECKING:
     from ..agent.llm_adapter import LLMAdapter
-    from ..client_rpc.service import ClientRPCService
     from .handlers.prompt_orchestrator import PromptOrchestrator
     from .session_runtime import SessionRuntimeRegistry
 
@@ -67,134 +66,50 @@ class ACPProtocol:
         outcome = await protocol.handle(ACPMessage.request("session/list", {}))
     """
 
-    _supported_protocol_versions = (1,)
-
     def __init__(
         self,
         *,
+        method_registry: Any,
+        response_router: Any,
+        background_executor: Any,
         storage: SessionStorage | None = None,
-        method_registry: Any | None = None,
-        response_router: Any | None = None,
-        background_executor: Any | None = None,
         pending_registry: PendingRequestRegistry | None = None,
         runtime_registry: SessionRuntimeRegistry | None = None,
         middleware: list[MiddlewareFn] | None = None,
         send_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
         llm_adapter: LLMAdapter | None = None,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]] | None = None,
-        # Legacy parameters для обратной совместимости
-        require_auth: bool = False,
-        auth_api_key: str | None = None,
-        client_rpc_service: ClientRPCService | None = None,
-        tool_registry: Any | None = None,
-        prompt_orchestrator: PromptOrchestrator | None = None,
-        global_policy_manager: Any | None = None,
-        llm_registry: Any | None = None,
-        config_option_builder: Any | None = None,
-        agent_registry: Any | None = None,
-        strategy_registry: Any | None = None,
-        command_registry: Any | None = None,
-        model_resolver: Any | None = None,
-        mcp_http_enabled: bool = True,
-        mcp_sse_enabled: bool = True,
     ) -> None:
         """Инициализирует ACPProtocol (Facade).
 
+        Все зависимости передаются извне (через DI-контейнер, см.
+        codelab.server.di.make_container). Фасад ничего не собирает сам.
+
         Args:
-            storage: Хранилище сессий.
             method_registry: Реестр обработчиков команд (Command Pattern).
             response_router: Маршрутизатор ответов от клиента.
             background_executor: Исполнитель фоновых задач.
+            storage: Хранилище сессий (по умолчанию InMemoryStorage).
             pending_registry: Реестр pending permission requests.
             runtime_registry: Реестр runtime-состояний сессий.
             middleware: Список middleware функций для сквозной логики.
             send_callback: Callback для отправки сообщений транспортом.
             llm_adapter: Адаптер LLM для cancellation.
             orchestrator_provider: Функция для получения PromptOrchestrator.
-            require_auth: (Legacy) Требуется ли аутентификация.
-            auth_api_key: (Legacy) API ключ для аутентификации.
-            client_rpc_service: (Legacy) Сервис для agent->client RPC.
-            tool_registry: (Legacy) Реестр инструментов.
-            prompt_orchestrator: (Legacy) Оркестратор prompt-turn.
-            global_policy_manager: (Legacy) Менеджер глобальных политик.
-            llm_registry: (Legacy) Реестр LLM провайдеров.
-            config_option_builder: (Legacy) Билдер config options.
-            agent_registry: (Legacy) Реестр агентов.
-            strategy_registry: (Legacy) Реестр стратегий.
-            command_registry: (Legacy) Реестр slash-команд.
-            model_resolver: (Legacy) Резолвер моделей.
-            mcp_http_enabled: (Legacy) Поддерживается ли MCP HTTP transport.
-            mcp_sse_enabled: (Legacy) Поддерживается ли MCP SSE transport.
         """
-        # Инициализировать хранилище (по умолчанию InMemoryStorage)
         if storage is None:
             from ..storage import InMemoryStorage
             storage = InMemoryStorage()
         self._storage = storage
-
+        self._method_registry = method_registry
+        self._response_router = response_router
+        self._background_executor = background_executor
         self._pending_registry = pending_registry or PendingRequestRegistry()
         self._runtime_registry = runtime_registry
         self._middleware = middleware or []
         self._send_callback = send_callback
         self._llm_adapter = llm_adapter
         self._orchestrator_provider = orchestrator_provider
-
-        # Legacy параметры для обратной совместимости
-        self._require_auth = require_auth
-        self._auth_api_key = auth_api_key
-        self._client_rpc_service = client_rpc_service
-        self._tool_registry = tool_registry
-        self._prompt_orchestrator = prompt_orchestrator
-        self._global_policy_manager = global_policy_manager
-        self._llm_registry = llm_registry
-        self._config_option_builder = config_option_builder
-        self._agent_registry = agent_registry
-        self._strategy_registry = strategy_registry
-        self._command_registry = command_registry
-        self._model_resolver = model_resolver
-        self._mcp_http_enabled = mcp_http_enabled
-        self._mcp_sse_enabled = mcp_sse_enabled
-        self._authenticated = False
-        self._auth_methods: list[dict[str, Any]] = [
-            {
-                "id": "local",
-                "name": "Local authentication",
-                "description": "Local authentication flow",
-                "type": "api_key",
-            }
-        ]
-        self._runtime_capabilities: Any | None = None
-
-        # Создать дефолтные компоненты если не переданы
-        if method_registry is None:
-            method_registry = self._create_default_method_registry()
-        self._method_registry = method_registry
-
-        if response_router is None:
-            from .response_router import ResponseRouter
-            response_router = ResponseRouter(
-                storage=self._storage,
-                pending_registry=self._pending_registry,
-                client_rpc_service=self._client_rpc_service,
-            )
-        self._response_router = response_router
-
-        if background_executor is None:
-            from .background_executor import BackgroundExecutor
-            from .session_runtime import SessionRuntimeRegistry
-            # Создаём runtime registry если не передан
-            if self._runtime_registry is None:
-                self._runtime_registry = SessionRuntimeRegistry()
-            background_executor = BackgroundExecutor(
-                storage=self._storage,
-                orchestrator_provider=self._get_prompt_orchestrator,
-                mcp_provider=self._ensure_mcp_initialized_legacy,
-                runtime_registry=self._runtime_registry,
-            )
-        self._background_executor = background_executor
-
-        # Config specs (legacy)
-        self._config_specs: dict[str, dict[str, Any]] = self._build_config_specs_legacy()
 
     @property
     def storage(self) -> SessionStorage:
@@ -377,6 +292,9 @@ class ACPProtocol:
         Returns:
             Количество сессий, в которых активный turn был отменен.
         """
+        if self._orchestrator_provider is None:
+            return 0
+
         cancelled_count = 0
         cursor = None
         while True:
@@ -385,7 +303,7 @@ class ACPProtocol:
                 if session_state.active_turn is None:
                     continue
 
-                orchestrator = await self._get_prompt_orchestrator()
+                orchestrator = await self._orchestrator_provider()
                 orchestrator.handle_cancel(
                     request_id=None,
                     params={"sessionId": session_state.session_id},
@@ -403,366 +321,6 @@ class ACPProtocol:
 
         return cancelled_count
 
-    # -----------------------------------------------------------------------
-    # Legacy методы для обратной совместимости
-    # -----------------------------------------------------------------------
-
-    def _create_default_method_registry(self) -> Any:
-        """Создаёт CommandRegistry с legacy обработчиками.
-
-        Используется когда ACPProtocol создаётся напрямую без DI.
-        """
-        from .commands.base import CommandRegistry
-        from .handlers import auth, config, session
-        registry = CommandRegistry()
-
-        # Создаём wrapper-ы для legacy handlers
-        class _InitializeWrapper:
-            method_name = "initialize"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                response = auth.initialize(
-                    message.id,
-                    params,
-                    self._protocol._supported_protocol_versions,
-                    self._protocol._require_auth,
-                    self._protocol._auth_methods,
-                    mcp_http_enabled=self._protocol._mcp_http_enabled,
-                    mcp_sse_enabled=self._protocol._mcp_sse_enabled,
-                )
-                client_capabilities = params.get("clientCapabilities")
-                if isinstance(client_capabilities, dict):
-                    self._protocol._runtime_capabilities = auth.parse_client_runtime_capabilities(
-                        client_capabilities
-                    )
-                return ProtocolOutcome(response=response)
-
-        class _AuthenticateWrapper:
-            method_name = "authenticate"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                response, authenticated = auth.authenticate(
-                    message.id,
-                    params,
-                    self._protocol._require_auth,
-                    self._protocol._auth_api_key,
-                    self._protocol._auth_methods,
-                )
-                self._protocol._authenticated = authenticated
-                return ProtocolOutcome(response=response)
-
-        class _SessionNewWrapper:
-            method_name = "session/new"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                response_msg = session.session_new(
-                    message.id,
-                    params,
-                    self._protocol._require_auth,
-                    self._protocol._authenticated,
-                    self._protocol._config_specs,
-                    self._protocol._auth_methods,
-                    self._protocol._runtime_capabilities,
-                    self._protocol._command_registry,
-                )
-                if response_msg.result is not None:
-                    session_id = response_msg.result.get("sessionId")
-                    if isinstance(session_id, str):
-                        from .session_factory import SessionFactory
-                        config_values = {
-                            config_id: str(spec["default"])
-                            for config_id, spec in self._protocol._config_specs.items()
-                        }
-                        available_commands = (
-                            self._protocol._command_registry.get_commands_as_dicts()
-                            if self._protocol._command_registry is not None
-                            else []
-                        )
-                        session_state = SessionFactory.create_session(
-                            cwd=params.get("cwd", ""),
-                            mcp_servers=params.get("mcpServers", []),
-                            config_values=config_values,
-                            available_commands=available_commands,
-                            runtime_capabilities=self._protocol._runtime_capabilities,
-                            session_id=session_id,
-                        )
-                        await self._protocol._storage.save_session(session_state)
-                        mcp_manager = self._protocol._get_mcp_session_manager_legacy()
-                        await mcp_manager.setup_if_needed(session_state, params)
-                return ProtocolOutcome(response=response_msg)
-
-        class _SessionLoadWrapper:
-            method_name = "session/load"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                return await session.session_load(
-                    message.id,
-                    params,
-                    self._protocol._require_auth,
-                    self._protocol._authenticated,
-                    self._protocol._config_specs,
-                    self._protocol._auth_methods,
-                    self._protocol._storage,
-                )
-
-        class _SessionListWrapper:
-            method_name = "session/list"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                response = await session.session_list(
-                    message.id,
-                    params,
-                    self._protocol._storage,
-                    50,
-                )
-                return ProtocolOutcome(response=response)
-
-        class _SessionPromptWrapper:
-            method_name = "session/prompt"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                orchestrator = await self._protocol._get_prompt_orchestrator()
-                session_id = params.get("sessionId")
-                if not isinstance(session_id, str):
-                    return ProtocolOutcome(
-                        response=ACPMessage.error_response(
-                            message.id,
-                            code=-32602,
-                            message="Invalid params: sessionId is required",
-                        )
-                    )
-                sess = await self._protocol._storage.load_session(session_id)
-                if sess is None:
-                    return ProtocolOutcome(
-                        response=ACPMessage.error_response(
-                            message.id,
-                            code=-32001,
-                            message=f"Session not found: {session_id}",
-                        )
-                    )
-                sess.active_turn = None
-                outcome = await orchestrator.handle_prompt(
-                    request_id=message.id,
-                    params=params,
-                    session=sess,
-                    storage=self._protocol._storage,
-                    mcp_manager=None,
-                    mcp_prompt_handlers={},
-                    notification_callback=self._protocol._send_message,
-                )
-                await self._protocol._storage.save_session(sess)
-                return outcome
-
-        class _SessionCancelWrapper:
-            method_name = "session/cancel"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                orchestrator = await self._protocol._get_prompt_orchestrator()
-                session_id = params.get("sessionId")
-                if not isinstance(session_id, str):
-                    return ProtocolOutcome(response=None, notifications=[])
-                sess = await self._protocol._storage.load_session(session_id)
-                if sess is None:
-                    return ProtocolOutcome(
-                        response=ACPMessage.response(message.id, None),
-                        notifications=[],
-                    )
-                outcome = orchestrator.handle_cancel(
-                    request_id=message.id,
-                    params=params,
-                    session=sess,
-                )
-                if self._protocol._llm_adapter is not None:
-                    await self._protocol._llm_adapter.cancel_prompt(session_id)
-                await self._protocol._storage.save_session(sess)
-
-                # Если cancel завершил deferred turn, отправляем followup response
-                # на исходный prompt request.
-                followup: list[ACPMessage] = list(outcome.followup_responses)
-                pending = sess.pending_prompt_response
-                if pending is not None:
-                    followup.append(
-                        ACPMessage.response(
-                            pending["request_id"],
-                            {"stopReason": pending["stop_reason"]},
-                        )
-                    )
-                    sess.pending_prompt_response = None
-                    await self._protocol._storage.save_session(sess)
-
-                cancel_response = outcome.response or (
-                    ACPMessage.response(message.id, None) if message.id is not None else None
-                )
-                return ProtocolOutcome(
-                    response=cancel_response,
-                    notifications=outcome.notifications,
-                    followup_responses=followup,
-                )
-
-        class _PermissionResponseWrapper:
-            method_name = "session/request_permission_response"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                if message.id is None:
-                    return ProtocolOutcome(
-                        response=ACPMessage.error_response(
-                            None, code=-32600, message="Invalid Request: id is required"
-                        )
-                    )
-                return ProtocolOutcome(response=ACPMessage.response(message.id, {}))
-
-        class _SetConfigOptionWrapper:
-            method_name = "session/set_config_option"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                return await config.session_set_config_option(
-                    message.id,
-                    params,
-                    self._protocol._storage,
-                    self._protocol._config_specs,
-                    model_resolver=self._protocol._model_resolver,
-                )
-
-        class _SetModeWrapper:
-            method_name = "session/set_mode"
-
-            def __init__(self, protocol: ACPProtocol) -> None:
-                self._protocol = protocol
-
-            async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-                params = message.params or {}
-                return await config.session_set_mode(
-                    message.id,
-                    params,
-                    self._protocol._storage,
-                    self._protocol._config_specs,
-                )
-
-        registry.register(_InitializeWrapper(self))
-        registry.register(_AuthenticateWrapper(self))
-        registry.register(_SessionNewWrapper(self))
-        registry.register(_SessionLoadWrapper(self))
-        registry.register(_SessionListWrapper(self))
-        registry.register(_SessionPromptWrapper(self))
-        registry.register(_SessionCancelWrapper(self))
-        registry.register(_PermissionResponseWrapper(self))
-        registry.register(_SetConfigOptionWrapper(self))
-        registry.register(_SetModeWrapper(self))
-
-        return registry
-
-    async def _get_prompt_orchestrator(self) -> PromptOrchestrator:
-        """Получить PromptOrchestrator (legacy)."""
-        if self._prompt_orchestrator is not None:
-            return self._prompt_orchestrator
-
-        if self._orchestrator_provider is not None:
-            return await self._orchestrator_provider()
-
-        # Создать дефолтный orchestrator
-        from ..agent.system_prompt_builder import SystemPromptBuilder
-        from .handlers.permission_manager import PermissionManager
-        from .handlers.pipeline.stages import LLMLoopStage
-        from .handlers.plan_builder import PlanBuilder
-        from .handlers.state_manager import StateManager
-        from .handlers.tool_call_handler import ToolCallHandler
-        from .orchestrator_builder import PromptOrchestratorBuilder
-
-        if self._tool_registry is None:
-            from ..tools.registry import SimpleToolRegistry
-            self._tool_registry = SimpleToolRegistry()
-
-        # Создаём минимальный LLMLoopStage для legacy режима
-        state_manager = StateManager()
-        plan_builder = PlanBuilder()
-        tool_call_handler = ToolCallHandler()
-        permission_manager = PermissionManager()
-        system_prompt_builder = SystemPromptBuilder(
-            global_prompt="",
-            agent_registry=self._agent_registry,
-        )
-
-        llm_loop_stage = LLMLoopStage(
-            tool_registry=self._tool_registry,
-            tool_call_handler=tool_call_handler,
-            permission_manager=permission_manager,
-            state_manager=state_manager,
-            plan_builder=plan_builder,
-            system_prompt_builder=system_prompt_builder,
-            global_policy_manager=self._global_policy_manager,
-        )
-
-        builder = PromptOrchestratorBuilder(
-            tool_registry=self._tool_registry,
-            agent_registry=self._agent_registry,
-            llm_loop_stage=llm_loop_stage,
-            global_policy_manager=self._global_policy_manager,
-            client_rpc_service=self._client_rpc_service,
-        )
-        self._prompt_orchestrator = builder.build()
-        return self._prompt_orchestrator
-
-    def _get_mcp_session_manager_legacy(self) -> Any:
-        """Лениво создаёт MCPSessionManager для legacy (direct-instantiation) пути."""
-        existing = getattr(self, "_mcp_session_manager_legacy", None)
-        if existing is not None:
-            return existing
-
-        if self._runtime_registry is None:
-            self._runtime_registry = SessionRuntimeRegistry()
-        if self._tool_registry is None:
-            from ..tools.registry import SimpleToolRegistry
-            self._tool_registry = SimpleToolRegistry()
-
-        from .mcp_session_manager import MCPSessionManager
-
-        manager = MCPSessionManager(
-            runtime_registry=self._runtime_registry,
-            tool_registry=self._tool_registry,
-        )
-        self._mcp_session_manager_legacy = manager
-        return manager
-
-    async def _ensure_mcp_initialized_legacy(self, session: Any) -> Any:
-        """Legacy MCP initialization — делегирует в MCPSessionManager."""
-        manager = self._get_mcp_session_manager_legacy()
-        return await manager.ensure_initialized(session)
-
     async def _send_message(self, message: ACPMessage) -> None:
         """Отправляет сообщение через transport callback."""
         if self._send_callback is not None:
@@ -772,36 +330,3 @@ class ACPProtocol:
                 "no send callback configured, message not sent",
                 method=message.method,
             )
-
-    def _build_config_specs_legacy(self) -> dict[str, dict[str, Any]]:
-        """Построить config specs (legacy)."""
-        from .config_spec_builder import ConfigSpecBuilder
-
-        builder = ConfigSpecBuilder(
-            config_option_builder=self._config_option_builder,
-            agent_registry=self._agent_registry,
-            strategy_registry=self._strategy_registry,
-        )
-        return builder.build()
-
-    def _build_active_strategy_config_spec(self) -> dict[str, Any]:
-        """Построить config spec для _active_strategy (legacy proxy)."""
-        from .config_spec_builder import ConfigSpecBuilder
-
-        builder = ConfigSpecBuilder(
-            config_option_builder=self._config_option_builder,
-            agent_registry=self._agent_registry,
-            strategy_registry=self._strategy_registry,
-        )
-        return builder._build_strategy_spec()
-
-    def _build_agent_config_spec(self) -> dict[str, Any]:
-        """Построить config spec для _agent (legacy proxy)."""
-        from .config_spec_builder import ConfigSpecBuilder
-
-        builder = ConfigSpecBuilder(
-            config_option_builder=self._config_option_builder,
-            agent_registry=self._agent_registry,
-            strategy_registry=self._strategy_registry,
-        )
-        return builder._build_agent_spec()

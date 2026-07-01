@@ -7,10 +7,10 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from _protocol_factory import build_protocol
 from factories import make_orchestrator
 
 from codelab.server.messages import ACPMessage, JsonRpcId
-from codelab.server.protocol import ACPProtocol
 from codelab.server.protocol.handlers.prompt import (
     validate_prompt_content,
 )
@@ -164,7 +164,7 @@ class TestSessionCancelStage5:
         """Отменяет активный turn через PromptOrchestrator."""
         # Arrange
         params = {"sessionId": "sess_1"}
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/cancel", params))
@@ -181,7 +181,7 @@ class TestSessionCancelStage5:
         """Обрабатывает cancel как notification (без request_id)."""
         # Arrange
         params = {"sessionId": "sess_1"}
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.notification("session/cancel", params))
@@ -209,7 +209,7 @@ class TestSessionCancelStage5:
         storage = InMemoryStorage()
         await storage.save_session(session)
         params = {"sessionId": "sess_1"}
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/cancel", params))
@@ -227,7 +227,7 @@ class TestSessionCancelStage5:
         from codelab.server.storage import InMemoryStorage
         storage = InMemoryStorage()
         params = {"sessionId": "nonexistent"}
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/cancel", params))
@@ -244,7 +244,7 @@ class TestSessionCancelStage5:
         from codelab.server.storage import InMemoryStorage
         storage = InMemoryStorage()
         params: dict[str, Any] = {}  # Missing sessionId
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/cancel", params))
@@ -472,7 +472,7 @@ class TestSessionPromptWithOrchestratorIntegration:
             "sessionId": "sess_1",
             "prompt": [{"type": "text", "text": "Hello test"}],
         }
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/prompt", params))
@@ -498,7 +498,7 @@ class TestSessionPromptWithOrchestratorIntegration:
             "sessionId": "sess_1",
             "prompt": [{"type": "text", "text": "Test message"}],
         }
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/prompt", params))
@@ -526,7 +526,7 @@ class TestSessionPromptWithOrchestratorIntegration:
             "sessionId": "sess_1",
             "prompt": "not an array",  # Invalid — becomes empty raw_text → "Empty prompt"
         }
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/prompt", params))
@@ -545,7 +545,7 @@ class TestSessionPromptWithOrchestratorIntegration:
             "sessionId": "nonexistent",
             "prompt": [{"type": "text", "text": "test"}],
         }
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/prompt", params))
@@ -572,7 +572,7 @@ class TestSessionPromptWithOrchestratorIntegration:
             "sessionId": "sess_1",
             "prompt": [{"type": "text", "text": "First message"}],
         }
-        protocol = ACPProtocol(storage=storage)
+        protocol = build_protocol(storage=storage)
 
         # Act
         outcome = await protocol.handle(ACPMessage.request("session/prompt", params))

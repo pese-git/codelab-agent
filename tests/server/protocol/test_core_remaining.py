@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from _protocol_factory import build_protocol
 from codelab.server.mcp import MCPManager
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.background_executor import BackgroundExecutor
@@ -23,7 +24,6 @@ from codelab.server.protocol.commands.permission_response import (
 )
 from codelab.server.protocol.commands.session_cancel import SessionCancelCommandHandler
 from codelab.server.protocol.commands.session_prompt import SessionPromptCommandHandler
-from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.response_router import ResponseRouter
 from codelab.server.protocol.session_factory import SessionFactory
@@ -82,7 +82,7 @@ class TestHandleAndProcess:
 
     async def test_schedules_background_task_when_pending_tool_exists(self) -> None:
         """При pending_tool_execution запускается фоновая задача."""
-        protocol = ACPProtocol()
+        protocol = build_protocol()
         pending = PendingToolExecution(session_id="sess_1", tool_call_id="call_1")
         outcome = ProtocolOutcome(pending_tool_execution=pending)
 
@@ -97,7 +97,7 @@ class TestHandleAndProcess:
 
     async def test_returns_outcome_without_background_task(self) -> None:
         """Без pending_tool_execution просто возвращается outcome."""
-        protocol = ACPProtocol()
+        protocol = build_protocol()
         outcome = ProtocolOutcome()
 
         with patch.object(protocol, "handle", return_value=outcome):
@@ -407,7 +407,7 @@ class TestCancelActiveTurnsOnDisconnect:
         storage.save_session = flaky_save  # type: ignore
 
         orchestrator = MagicMock()
-        protocol = ACPProtocol(
+        protocol = build_protocol(
             storage=storage,
             prompt_orchestrator=orchestrator,
         )
@@ -427,7 +427,7 @@ class TestCancelActiveTurnsOnDisconnect:
         )
         await storage.save_session(session)
         orchestrator = MagicMock()
-        protocol = ACPProtocol(
+        protocol = build_protocol(
             storage=storage,
             prompt_orchestrator=orchestrator,
         )

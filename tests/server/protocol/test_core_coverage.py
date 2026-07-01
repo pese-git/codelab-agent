@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from _protocol_factory import build_protocol
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.config_spec_builder import _DEFAULT_CONFIG_SPECS
-from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.config_spec_builder import (
+    _DEFAULT_CONFIG_SPECS,
+    ConfigSpecBuilder,
+)
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 
 
@@ -21,7 +24,7 @@ class TestSendMessage:
         """Callback вызывается, если он задан."""
         message = ACPMessage.notification("session/update", {"update": {}})
         callback = AsyncMock()
-        protocol = ACPProtocol(send_callback=callback)
+        protocol = build_protocol(send_callback=callback)
 
         await protocol._send_message(message)
 
@@ -30,7 +33,7 @@ class TestSendMessage:
     async def test_send_message_logs_warning_when_callback_is_none(self) -> None:
         """Без настроенного callback сообщение не уходит и пишется warning."""
         message = ACPMessage.notification("session/update", {"update": {}})
-        protocol = ACPProtocol()
+        protocol = build_protocol()
 
         assert protocol._send_callback is None
         with patch("codelab.server.protocol.core.logger") as mock_logger:
@@ -44,7 +47,7 @@ class TestInitializeMcpFlags:
 
     async def test_initialize_mcp_http_disabled(self) -> None:
         """mcp_http_enabled=False пробрасывается в результат initialize."""
-        protocol = ACPProtocol(mcp_http_enabled=False)
+        protocol = build_protocol(mcp_http_enabled=False)
         request = ACPMessage.request(
             "initialize",
             {"protocolVersion": 1, "clientCapabilities": {}},
@@ -61,7 +64,7 @@ class TestInitializeMcpFlags:
 
     async def test_initialize_mcp_sse_disabled(self) -> None:
         """mcp_sse_enabled=False пробрасывается в результат initialize."""
-        protocol = ACPProtocol(mcp_sse_enabled=False)
+        protocol = build_protocol(mcp_sse_enabled=False)
         request = ACPMessage.request(
             "initialize",
             {"protocolVersion": 1, "clientCapabilities": {}},
@@ -85,10 +88,9 @@ class TestBuildConfigSpecs:
         builder = MagicMock()
         builder.get_model_list.return_value = []
         builder.build_config_specs.return_value = {"model": {"default": "openai/gpt-4o"}}
-        protocol = ACPProtocol(config_option_builder=builder)
         builder.build_config_specs.reset_mock()
 
-        specs = protocol._build_config_specs_legacy()
+        specs = ConfigSpecBuilder(config_option_builder=builder).build()
 
         builder.build_config_specs.assert_called_once()
         call_kwargs = builder.build_config_specs.call_args.kwargs
@@ -114,9 +116,7 @@ class TestBuildAgentConfigSpec:
 
     def test_build_agent_config_spec_no_registry(self) -> None:
         """Без agent_registry возвращается fallback spec."""
-        protocol = ACPProtocol()
-
-        spec = protocol._build_agent_config_spec()
+        spec = ConfigSpecBuilder()._build_agent_spec()
 
         self._assert_fallback_spec(spec)
 
@@ -124,9 +124,8 @@ class TestBuildAgentConfigSpec:
         """Registry с is_initialized=False даёт fallback spec."""
         agent_registry = MagicMock()
         agent_registry.is_initialized = False
-        protocol = ACPProtocol(agent_registry=agent_registry)
 
-        spec = protocol._build_agent_config_spec()
+        spec = ConfigSpecBuilder(agent_registry=agent_registry)._build_agent_spec()
 
         self._assert_fallback_spec(spec)
 
@@ -134,9 +133,8 @@ class TestBuildAgentConfigSpec:
         """Registry без get_primary_agents даёт fallback spec."""
         agent_registry = MagicMock(spec=["is_initialized"])
         agent_registry.is_initialized = True
-        protocol = ACPProtocol(agent_registry=agent_registry)
 
-        spec = protocol._build_agent_config_spec()
+        spec = ConfigSpecBuilder(agent_registry=agent_registry)._build_agent_spec()
 
         self._assert_fallback_spec(spec)
 
@@ -145,9 +143,8 @@ class TestBuildAgentConfigSpec:
         agent_registry = MagicMock()
         agent_registry.is_initialized = True
         agent_registry.get_primary_agents.return_value = {}
-        protocol = ACPProtocol(agent_registry=agent_registry)
 
-        spec = protocol._build_agent_config_spec()
+        spec = ConfigSpecBuilder(agent_registry=agent_registry)._build_agent_spec()
 
         self._assert_fallback_spec(spec)
 
@@ -165,9 +162,8 @@ class TestBuildAgentConfigSpec:
             "beta": Agent("beta", "openai/gpt-4o", 20),
             "alpha": Agent("alpha", "anthropic/claude", 10),
         }
-        protocol = ACPProtocol(agent_registry=agent_registry)
 
-        spec = protocol._build_agent_config_spec()
+        spec = ConfigSpecBuilder(agent_registry=agent_registry)._build_agent_spec()
 
         assert spec["id"] == "_agent"
         assert spec["default"] == "alpha"

@@ -6,14 +6,15 @@
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol import ACPProtocol
 
 
 @pytest.mark.asyncio
 async def test_session_switching_flow_preserves_history() -> None:
     """Проверяет, что история сохраняется при переключении SESSION_1 → SESSION_2 → SESSION_1."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # === ЭТАП 1: Создание SESSION_1 ===
     created_1 = await protocol.handle(
@@ -98,7 +99,7 @@ async def test_session_switching_flow_preserves_history() -> None:
 @pytest.mark.asyncio
 async def test_session_switching_clears_active_turn() -> None:
     """Проверяет, что active_turn очищается при переключении на другую сессию."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # Создаем SESSION_1
     created_1 = await protocol.handle(
@@ -148,7 +149,7 @@ async def test_session_switching_clears_active_turn() -> None:
 @pytest.mark.asyncio
 async def test_session_switching_preserves_config() -> None:
     """Проверяет, что конфигурация сохраняется при переключении сессий."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # Создаем SESSION_1
     created_1 = await protocol.handle(
@@ -194,7 +195,7 @@ async def test_session_switching_preserves_config() -> None:
 @pytest.mark.asyncio
 async def test_session_switching_three_way_flow() -> None:
     """Проверяет полный flow: SESSION_1 → SESSION_2 → SESSION_3 → SESSION_1."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # Создаем три сессии с разными contexts
     sessions = {}
@@ -262,7 +263,7 @@ async def test_session_switching_three_way_flow() -> None:
 @pytest.mark.asyncio
 async def test_session_switching_different_cwd_contexts() -> None:
     """Проверяет, что контекст cwd правильно обновляется при переключении."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # Создаем SESSION_1 с одним cwd
     created_1 = await protocol.handle(
