@@ -14,6 +14,8 @@ from typing import Any
 
 import structlog
 
+from codelab.shared.logging import resolve_codelab_home
+
 logger = structlog.get_logger("mcp_config_loader")
 
 
@@ -91,7 +93,7 @@ def _find_toml_chain(cwd: Path | None = None) -> list[Path]:
     toml_files: list[Path] = []
 
     # Глобальный конфиг
-    global_config = Path.home() / ".codelab" / "codelab.toml"
+    global_config = resolve_codelab_home() / "codelab.toml"
     if global_config.exists():
         toml_files.append(global_config)
 

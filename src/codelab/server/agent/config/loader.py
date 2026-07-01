@@ -16,12 +16,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from codelab.shared.logging import resolve_codelab_home
 from codelab.server.agent.config.models import (
     AgentMarkdownConfig,
     AgentRole,
     AgentTOMLConfig,
 )
+from codelab.shared.logging import resolve_codelab_home
 
 logger = logging.getLogger(__name__)
 

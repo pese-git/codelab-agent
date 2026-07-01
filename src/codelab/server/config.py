@@ -54,6 +54,7 @@ from codelab.server.toml_config.pydantic_config import (
     TimeoutConfig,
     _expand_env_vars,
 )
+from codelab.shared.logging import resolve_codelab_home
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
@@ -243,12 +244,12 @@ class AppConfig(BaseSettings):
         files: list[Path] = []
 
         # 1. Global codelab.toml (user-level config)
-        global_toml = Path.home() / ".codelab" / "codelab.toml"
+        global_toml = resolve_codelab_home() / "codelab.toml"
         if global_toml.exists():
             files.append(global_toml)
 
         # 2. Global auth.toml (API keys — overrides template env vars)
-        auth_toml = Path.home() / ".codelab" / "auth.toml"
+        auth_toml = resolve_codelab_home() / "auth.toml"
         if auth_toml.exists():
             files.append(auth_toml)
 

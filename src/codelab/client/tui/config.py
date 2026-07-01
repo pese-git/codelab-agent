@@ -15,6 +15,8 @@ from typing import Any, Literal, cast
 
 import structlog
 
+from codelab.shared.logging import resolve_codelab_home
+
 logger = structlog.get_logger(__name__)
 
 type TUITheme = Literal["light", "dark"]
@@ -41,7 +43,7 @@ class TUIConfigStore:
     def __init__(self, file_path: Path | None = None) -> None:
         """Настраивает путь хранения конфигурации в домашней директории."""
 
-        self._file_path = file_path or (Path.home() / ".codelab" / "tui_config.json")
+        self._file_path = file_path or (resolve_codelab_home() / "tui_config.json")
 
     def load(self) -> TUIConfig:
         """Загружает конфигурацию из JSON файла или возвращает значения по умолчанию."""
@@ -177,12 +179,12 @@ class TUIConfigStore:
         files: list[Path] = []
 
         # 1. Global codelab.toml
-        global_toml = Path.home() / ".codelab" / "codelab.toml"
+        global_toml = resolve_codelab_home() / "codelab.toml"
         if global_toml.exists():
             files.append(global_toml)
 
         # 2. Global auth.toml
-        auth_toml = Path.home() / ".codelab" / "auth.toml"
+        auth_toml = resolve_codelab_home() / "auth.toml"
         if auth_toml.exists():
             files.append(auth_toml)
 

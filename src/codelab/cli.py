@@ -17,11 +17,12 @@ import argparse
 import asyncio
 import os
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 from dotenv import load_dotenv
+
+from codelab.shared.logging import resolve_codelab_home
 
 if TYPE_CHECKING:
     pass
@@ -33,11 +34,8 @@ logger = structlog.get_logger("codelab.cli")
 DEFAULT_PORT = int(os.getenv("CODELAB_PORT", "8765"))
 DEFAULT_HOST = os.getenv("CODELAB_HOST", "127.0.0.1")
 
-# Домашняя директория CodeLab (из env или ~/.codelab)
-_codelab_home_env = os.getenv("CODELAB_HOME")
-CODELAB_HOME = (
-    Path(_codelab_home_env).expanduser() if _codelab_home_env else Path.home() / ".codelab"
-)
+# Домашняя директория CodeLab (из env CODELAB_HOME или ~/.codelab)
+CODELAB_HOME = resolve_codelab_home()
 
 # Шаблон дефолтного .env файла для автоматической генерации при первом запуске
 DEFAULT_ENV_TEMPLATE = """# CodeLab Configuration
