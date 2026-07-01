@@ -74,6 +74,28 @@ async def _read_all_json_responses(
     return responses
 
 
+async def _read_until_response(
+    proc: asyncio.subprocess.Process,
+    request_id: int,
+    timeout: float = 15.0,
+) -> tuple[dict, list[dict]]:
+    """Читать сообщения до финального ответа на request_id.
+
+    Возвращает (response, notifications), где notifications — все
+    session/update и прочие notification-сообщения, пришедшие до ответа.
+    """
+    notifications: list[dict] = []
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(f"No response with id={request_id} received")
+        msg = await _read_json_response(proc, timeout=remaining)
+        if msg.get("id") == request_id and ("result" in msg or "error" in msg):
+            return msg, notifications
+        notifications.append(msg)
+
+
 def _server_env(tmp_cwd: Path) -> dict[str, str]:
     """Создать окружение для запуска сервера."""
     env = os.environ.copy()
@@ -465,3 +487,86 @@ async def test_stdio_send_lock_prevents_race_condition() -> None:
     # Проверяем что все id присутствуют (никакое не потеряно)
     response_ids = {json.loads(c.decode())["id"] for c in captured_chunks}
     assert response_ids == set(range(1, 21))
+
+
+@pytest.mark.asyncio
+async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> None:
+    """Полный flow общения с агентом по stdio.
+
+    initialize → session/new → session/prompt: сервер должен стримить
+    session/update с agent_message_chunk (ответ mock LLM) и вернуть
+    финальный ответ со stopReason=end_turn.
+    """
+    proc = await _start_server(tmp_cwd)
+
+    try:
+        await asyncio.sleep(0.5)
+        assert proc.stdin is not None
+
+        # 1. initialize
+        proc.stdin.write((
+            _make_request("initialize", {
+                "protocolVersion": 1,
+                "clientCapabilities": {},
+            }, request_id=1) + "\n"
+        ).encode())
+        await proc.stdin.drain()
+        init_response = await _read_json_response(proc)
+        assert init_response["id"] == 1
+
+        # 2. session/new
+        proc.stdin.write((
+            _make_request("session/new", {
+                "cwd": str(tmp_cwd),
+                "mcpServers": [],
+            }, request_id=2) + "\n"
+        ).encode())
+        await proc.stdin.drain()
+        new_response = await _read_json_response(proc)
+        assert new_response["id"] == 2
+        session_id = new_response["result"]["sessionId"]
+
+        # 3. session/prompt — отправляем текстовый промпт агенту
+        proc.stdin.write((
+            _make_request("session/prompt", {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": "Привет, агент"}],
+            }, request_id=3) + "\n"
+        ).encode())
+        await proc.stdin.drain()
+
+        # Читаем стрим notifications до финального ответа на prompt
+        prompt_response, notifications = await _read_until_response(proc, request_id=3)
+
+        # Финальный ответ: turn завершён нормально
+        assert prompt_response["result"]["stopReason"] == "end_turn"
+
+        # Среди notifications должен быть session/update с ответом mock LLM
+        session_updates = [
+            n for n in notifications if n.get("method") == "session/update"
+        ]
+        assert session_updates, "ожидались session/update notifications во время turn"
+
+        agent_chunks = [
+            n for n in session_updates
+            if n.get("params", {}).get("update", {}).get("sessionUpdate")
+            == "agent_message_chunk"
+        ]
+        assert agent_chunks, "ожидался хотя бы один agent_message_chunk"
+
+        # Все notifications относятся к нашей сессии
+        for n in session_updates:
+            assert n["params"]["sessionId"] == session_id
+
+        # В стриме должен быть непустой текст ответа агента.
+        # Точный текст не проверяем: он зависит от резолвленного провайдера
+        # (mock на чистом окружении / локальный LLM при наличии конфига),
+        # а под тестом — именно wiring транспорта: prompt → стрим → ответ.
+        streamed_text = "".join(
+            chunk["params"]["update"].get("content", {}).get("text", "")
+            for chunk in agent_chunks
+        )
+        assert streamed_text.strip(), "агент не прислал текст в agent_message_chunk"
+
+    finally:
+        await _stop_server(proc)
