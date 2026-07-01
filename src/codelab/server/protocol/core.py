@@ -377,10 +377,6 @@ class ACPProtocol:
         Returns:
             Количество сессий, в которых активный turn был отменен.
         """
-        if self._orchestrator_provider is None:
-            return 0
-
-        orchestrator = await self._orchestrator_provider()
         cancelled_count = 0
         cursor = None
         while True:
@@ -389,6 +385,7 @@ class ACPProtocol:
                 if session_state.active_turn is None:
                     continue
 
+                orchestrator = await self._get_prompt_orchestrator()
                 orchestrator.handle_cancel(
                     request_id=None,
                     params={"sessionId": session_state.session_id},
@@ -502,6 +499,8 @@ class ACPProtocol:
                             session_id=session_id,
                         )
                         await self._protocol._storage.save_session(session_state)
+                        mcp_manager = self._protocol._get_mcp_session_manager_legacy()
+                        await mcp_manager.setup_if_needed(session_state, params)
                 return ProtocolOutcome(response=response_msg)
 
         class _SessionLoadWrapper:
@@ -604,13 +603,28 @@ class ACPProtocol:
                 if self._protocol._llm_adapter is not None:
                     await self._protocol._llm_adapter.cancel_prompt(session_id)
                 await self._protocol._storage.save_session(sess)
+
+                # Если cancel завершил deferred turn, отправляем followup response
+                # на исходный prompt request.
+                followup: list[ACPMessage] = list(outcome.followup_responses)
+                pending = sess.pending_prompt_response
+                if pending is not None:
+                    followup.append(
+                        ACPMessage.response(
+                            pending["request_id"],
+                            {"stopReason": pending["stop_reason"]},
+                        )
+                    )
+                    sess.pending_prompt_response = None
+                    await self._protocol._storage.save_session(sess)
+
                 cancel_response = outcome.response or (
                     ACPMessage.response(message.id, None) if message.id is not None else None
                 )
                 return ProtocolOutcome(
                     response=cancel_response,
                     notifications=outcome.notifications,
-                    followup_responses=list(outcome.followup_responses),
+                    followup_responses=followup,
                 )
 
         class _PermissionResponseWrapper:
@@ -723,9 +737,31 @@ class ACPProtocol:
         self._prompt_orchestrator = builder.build()
         return self._prompt_orchestrator
 
+    def _get_mcp_session_manager_legacy(self) -> Any:
+        """Лениво создаёт MCPSessionManager для legacy (direct-instantiation) пути."""
+        existing = getattr(self, "_mcp_session_manager_legacy", None)
+        if existing is not None:
+            return existing
+
+        if self._runtime_registry is None:
+            self._runtime_registry = SessionRuntimeRegistry()
+        if self._tool_registry is None:
+            from ..tools.registry import SimpleToolRegistry
+            self._tool_registry = SimpleToolRegistry()
+
+        from .mcp_session_manager import MCPSessionManager
+
+        manager = MCPSessionManager(
+            runtime_registry=self._runtime_registry,
+            tool_registry=self._tool_registry,
+        )
+        self._mcp_session_manager_legacy = manager
+        return manager
+
     async def _ensure_mcp_initialized_legacy(self, session: Any) -> Any:
-        """Legacy MCP initialization (no-op для обратной совместимости)."""
-        return None
+        """Legacy MCP initialization — делегирует в MCPSessionManager."""
+        manager = self._get_mcp_session_manager_legacy()
+        return await manager.ensure_initialized(session)
 
     async def _send_message(self, message: ACPMessage) -> None:
         """Отправляет сообщение через transport callback."""

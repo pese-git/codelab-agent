@@ -743,7 +743,7 @@ class PromptOrchestratorProvider(Provider):
         """Создаёт PromptOrchestrator через Builder."""
         orchestrator = builder.build()
         # Устанавливаем holder для client_rpc_service
-        orchestrator._client_rpc_service_holder = holder
+        orchestrator.client_rpc_service_holder = holder
         return orchestrator
 
 
@@ -920,13 +920,6 @@ class RequestProvider(Provider):
             }
         ]
 
-        # Callbacks для side effects
-        def _on_capabilities_negotiated(capabilities: Any) -> None:
-            pass  # Capabilities хранятся в CommandHandler
-
-        def _on_authenticated(authenticated: bool) -> None:
-            pass  # Auth state хранится в CommandHandler
-
         async def _on_session_created(session_state: Any, params: dict) -> None:
             await mcp_session_manager.setup_if_needed(session_state, params)
 
@@ -934,6 +927,42 @@ class RequestProvider(Provider):
             await mcp_session_manager.setup_if_needed(session_state, params)
 
         llm_adapter = agent_factory.get_primary_adapter()
+
+        # Session-создающие хендлеры зависят от per-request negotiated состояния
+        # (client runtime capabilities из initialize и auth-статуса из authenticate).
+        # Создаём их заранее, чтобы initialize/authenticate могли обновлять их
+        # через callback-и — иначе session/new получает runtime_capabilities=None
+        # и tool-runtime считается недоступным.
+        session_new_handler = SessionNewCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+            auth_methods=auth_methods,
+            require_auth=require_auth,
+            authenticated=False,
+            runtime_capabilities=None,
+            command_registry=command_registry,
+            on_session_created=_on_session_created,
+        )
+        session_load_handler = SessionLoadCommandHandler(
+            storage=storage,
+            config_specs=config_specs,
+            auth_methods=auth_methods,
+            require_auth=require_auth,
+            authenticated=False,
+            runtime_capabilities=None,
+            pending_registry=pending_registry,
+            on_session_loaded=_on_session_loaded,
+        )
+
+        # Callbacks для side effects: пробрасываем negotiated состояние в
+        # session-создающие хендлеры.
+        def _on_capabilities_negotiated(capabilities: Any) -> None:
+            session_new_handler._runtime_capabilities = capabilities
+            session_load_handler._runtime_capabilities = capabilities
+
+        def _on_authenticated(authenticated: bool) -> None:
+            session_new_handler._authenticated = authenticated
+            session_load_handler._authenticated = authenticated
 
         registry = MethodCommandRegistry()
         registry.register(InitializeCommandHandler(
@@ -948,26 +977,8 @@ class RequestProvider(Provider):
             auth_methods=auth_methods,
             on_authenticated=_on_authenticated,
         ))
-        registry.register(SessionNewCommandHandler(
-            storage=storage,
-            config_specs=config_specs,
-            auth_methods=auth_methods,
-            require_auth=require_auth,
-            authenticated=False,
-            runtime_capabilities=None,
-            command_registry=command_registry,
-            on_session_created=_on_session_created,
-        ))
-        registry.register(SessionLoadCommandHandler(
-            storage=storage,
-            config_specs=config_specs,
-            auth_methods=auth_methods,
-            require_auth=require_auth,
-            authenticated=False,
-            runtime_capabilities=None,
-            pending_registry=pending_registry,
-            on_session_loaded=_on_session_loaded,
-        ))
+        registry.register(session_new_handler)
+        registry.register(session_load_handler)
         registry.register(SessionListCommandHandler(
             storage=storage,
             page_size=50,
