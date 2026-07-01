@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Annotated
@@ -42,6 +43,7 @@ from .llm.base import LLMConfig, LLMTimeoutConfig
 from .llm.errors import ProviderNotFoundError
 from .llm.registry import LLMProviderRegistry
 from .llm.resolver import ModelResolver
+from .llm.scripted_mock import ScriptedMockLLMProvider
 from .observability import EventTimeline, MetricsTracker, Tracer
 from .observability.exporters import FileEventExporter, FileMetricsExporter, FileSpanExporter
 from .protocol.core import ACPProtocol
@@ -70,6 +72,21 @@ from .tools.base import ToolRegistry as ToolRegistryProtocol
 from .tools.registry import SimpleToolRegistry
 
 logger = structlog.get_logger()
+
+
+def _make_mock_provider() -> LLMProvider:
+    """Создать mock-провайдер.
+
+    Если задан CODELAB_MOCK_SCENARIO (путь к JSON-сценарию), возвращает
+    сценарный ScriptedMockLLMProvider (конечный автомат для e2e-flow),
+    иначе — обычный MockLLMProvider с дефолтным ответом.
+    """
+    scenario_path = os.getenv("CODELAB_MOCK_SCENARIO")
+    if scenario_path:
+        logger.info("loading scripted mock scenario", path=scenario_path)
+        return ScriptedMockLLMProvider.from_file(scenario_path)
+    return MockLLMProvider()
+
 
 # Тип для observability debug mode (чтобы отличить от require_auth)
 class ObservabilityDebug:
@@ -743,7 +760,7 @@ class RegistryProvider(Provider):
 
         # Mock провайдер без TOML config
         if "mock" not in registry.get_registered_providers():
-            registry.register("mock", lambda: MockLLMProvider())
+            registry.register("mock", _make_mock_provider)
 
         logger.info(
             "llm registry created",
@@ -773,7 +790,7 @@ class RegistryProvider(Provider):
             "ollama": OllamaProvider,
             "lmstudio": LMStudioProvider,
         }
-        return factories.get(provider_id, lambda: MockLLMProvider())
+        return factories.get(provider_id, _make_mock_provider)
 
     @provide(scope=Scope.APP)
     def get_config_option_builder(
