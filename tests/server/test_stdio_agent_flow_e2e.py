@@ -582,3 +582,107 @@ async def test_tool_error_is_handled(tmp_cwd: Path) -> None:
         assert "обработал ошибку" in _agent_text(notes)
     finally:
         await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_multi_tool_sequence_in_one_turn(tmp_cwd: Path) -> None:
+    """Несколько инструментов за один turn: read → write → финальный текст."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["обработай"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_read_text_file", "arguments": {"path": "in.md"}}
+                    ]},
+                    {"tool_calls": [
+                        {"name": "fs_write_text_file",
+                         "arguments": {"path": "out.md", "content": "результат"}}
+                    ]},
+                    {"text": "Прочитал in.md и записал out.md."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        await _set_mode(proc, session_id, "bypass", 3)
+
+        resp, notes, rpc = await _run_prompt(proc, session_id, "обработай in.md", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        # Оба инструмента дошли до клиента в правильном порядке
+        assert "fs/read_text_file" in rpc
+        assert "fs/write_text_file" in rpc
+        assert rpc.index("fs/read_text_file") < rpc.index("fs/write_text_file")
+        assert "записал out.md" in _agent_text(notes)
+    finally:
+        await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_session_cancel_during_turn(tmp_cwd: Path) -> None:
+    """Отмена turn клиентом: session/cancel пока сервер ждёт разрешение."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["запусти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "terminal_create", "arguments": {"command": "sleep"}}
+                    ]},
+                    {"text": "Не должно быть достигнуто."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+
+        # Отправляем prompt (standard mode → сервер запросит разрешение)
+        await _write(
+            proc,
+            _request(
+                "session/prompt",
+                {
+                    "sessionId": session_id,
+                    "prompt": [{"type": "text", "text": "запусти sleep"}],
+                },
+                10,
+            ),
+        )
+
+        cancelled_sent = False
+        final = None
+        deadline = asyncio.get_event_loop().time() + 20.0
+        while final is None:
+            assert asyncio.get_event_loop().time() < deadline, "turn did not finish"
+            msg = await _read_json(proc, timeout=10.0)
+            if msg.get("id") == 10 and ("result" in msg or "error" in msg):
+                final = msg
+                break
+            method = msg.get("method")
+            if method == "session/request_permission" and not cancelled_sent:
+                # Вместо ответа на разрешение отменяем turn (без "id" — нотификация)
+                await _write(
+                    proc,
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "method": "session/cancel",
+                            "params": {"sessionId": session_id},
+                        }
+                    ),
+                )
+                cancelled_sent = True
+            elif method is not None and "id" in msg:
+                await _write(proc, _result(msg["id"], {}))
+
+        assert cancelled_sent
+        assert final["result"]["stopReason"] == "cancelled"
+    finally:
+        await _stop_server(proc)
