@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from codelab.server.agent.config import (
     AgentConfigLoader,
     AgentConfigResolver,
+    AgentRole,
     AgentsGlobalConfig,
     ResolvedAgent,
 )
@@ -75,6 +76,7 @@ class AgentRegistry:
             project_toml: Проектная TOML конфигурация
         """
         self._agents = self._resolver.resolve_all(global_toml, project_toml)
+        self._ensure_default_primary(self._agents)
 
         # Регистрируем каждого агента в EventBus
         for name, agent in self._agents.items():
@@ -82,6 +84,31 @@ class AgentRegistry:
 
         self._initialized = True
         logger.info("AgentRegistry initialized with %d agents", len(self._agents))
+
+    def _ensure_default_primary(self, agents: dict[str, ResolvedAgent]) -> None:
+        """Гарантировать наличие primary-агента в переданном наборе.
+
+        Стратегия ``single`` маршрутизирует промпт агенту с ролью primary
+        (по умолчанию — имя "primary"). Если пользователь не определил ни
+        одного primary-агента (пустой ~/.codelab/agents и TOML), добавляем
+        встроенного дефолтного, использующего сконфигурированную модель
+        (config.agents.default_model → выводится из config.llm). Без этого
+        любой промпт падал бы с AgentNotFoundError.
+        """
+        if any(a.role == AgentRole.PRIMARY for a in agents.values()):
+            return
+
+        agents["primary"] = ResolvedAgent(
+            name="primary",
+            role=AgentRole.PRIMARY,
+            priority=0,
+            model=self._global_config.default_model,
+            max_steps=self._global_config.max_steps,
+        )
+        logger.info(
+            "no primary agent defined — registered built-in default (model=%s)",
+            self._global_config.default_model,
+        )
 
     async def reload(
         self,
@@ -99,6 +126,7 @@ class AgentRegistry:
         """
         old_names = set(self._agents.keys())
         new_agents = self._resolver.resolve_all(global_toml, project_toml)
+        self._ensure_default_primary(new_agents)
         new_names = set(new_agents.keys())
 
         added = new_names - old_names

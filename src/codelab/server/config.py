@@ -44,7 +44,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Импортируем типы для Registry metadata из TOML config
@@ -136,13 +136,15 @@ class AgentsConfig(BaseModel):
     Атрибуты:
         strategy: Стратегия выполнения (single, multi_orchestrated, hierarchical)
         fallback_strategy: Стратегия fallback если нет нужных агентов
-        default_model: Модель по умолчанию для агентов
+        default_model: Модель по умолчанию для агентов. Если не задана явно
+            (None), выводится из config.llm как "provider/model" — так
+            CODELAB_LLM_PROVIDER/MODEL реально управляют моделью агентов.
         max_steps: Максимальное количество шагов мультиагентного выполнения
     """
 
     strategy: str = "single"
     fallback_strategy: str = "single"
-    default_model: str = "openai/gpt-4o"
+    default_model: str | None = None
     max_steps: int = 7
 
 
@@ -221,6 +223,18 @@ class AppConfig(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def _derive_agents_default_model(self) -> AppConfig:
+        """Вывести agents.default_model из config.llm, если он не задан явно.
+
+        Это связывает единую цепочку дефолтов: CODELAB_LLM_PROVIDER/MODEL
+        (или [llm] в TOML) → agents.default_model → модель конкретного агента.
+        Явно указанный agents.default_model сохраняется без изменений.
+        """
+        if self.agents.default_model is None:
+            self.agents.default_model = f"{self.llm.provider}/{self.llm.model}"
+        return self
 
     @classmethod
     def _find_toml_files(cls, custom_path: str | None = None) -> list[Path]:

@@ -38,7 +38,9 @@ class TestAgentsConfig:
         agents = AgentsConfig()
         assert agents.strategy == "single"
         assert agents.fallback_strategy == "single"
-        assert agents.default_model == "openai/gpt-4o"
+        # default_model=None означает "не задан явно" — выводится из config.llm
+        # на уровне AppConfig (см. AppConfig._derive_agents_default_model).
+        assert agents.default_model is None
         assert agents.max_steps == 7
 
     def test_custom_values(self):

@@ -497,21 +497,10 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
     session/update с agent_message_chunk (ответ mock LLM) и вернуть
     финальный ответ со stopReason=end_turn.
     """
-    # Готовим герметичное окружение: primary-агент на mock-модели в изолированном
-    # CODELAB_HOME (см. _server_env). Так turn детерминирован и не зависит от
-    # глобального ~/.codelab/agents разработчика.
-    agents_dir = tmp_cwd / ".codelab" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    (agents_dir / "primary.md").write_text(
-        "---\n"
-        "name: primary\n"
-        "role: primary\n"
-        "model: mock/mock-model\n"
-        "---\n\n"
-        "Тестовый агент.\n",
-        encoding="utf-8",
-    )
-
+    # Окружение изолировано (CODELAB_HOME — пустая tmp-директория,
+    # CODELAB_LLM_PROVIDER=mock). Пользовательских агентов нет, поэтому сервер
+    # авто-регистрирует встроенного primary-агента на сконфигурированной модели
+    # (agents.default_model выводится из config.llm → mock). Turn детерминирован.
     proc = await _start_server(tmp_cwd)
 
     try:
