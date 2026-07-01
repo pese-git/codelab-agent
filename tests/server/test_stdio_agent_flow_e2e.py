@@ -161,6 +161,29 @@ async def _handshake(proc: asyncio.subprocess.Process, tmp_cwd: Path) -> str:
     return new["result"]["sessionId"]
 
 
+async def _set_mode(
+    proc: asyncio.subprocess.Process,
+    session_id: str,
+    mode_id: str,
+    request_id: int,
+) -> None:
+    """Сменить режим сессии (plan / standard / bypass)."""
+    await _write(
+        proc,
+        _request(
+            "session/set_mode",
+            {"sessionId": session_id, "modeId": mode_id},
+            request_id,
+        ),
+    )
+    # Пропускаем возможные нотификации (current_mode_update) до ответа
+    while True:
+        resp = await _read_json(proc)
+        if resp.get("id") == request_id and ("result" in resp or "error" in resp):
+            assert "result" in resp
+            return
+
+
 DEFAULT_RESPONDERS: dict[str, Callable[[dict], dict]] = {
     "session/request_permission": lambda p: {
         "outcome": {"outcome": "selected", "optionId": "allow_once"}
@@ -407,5 +430,46 @@ async def test_permission_reject_cancels_turn(tmp_cwd: Path) -> None:
         assert resp["result"]["stopReason"] == "cancelled"
         assert "session/request_permission" in rpc
         assert "terminal/create" not in rpc
+    finally:
+        await _stop_server(proc)
+
+
+@pytest.mark.asyncio
+async def test_bypass_mode_auto_allows_without_permission(tmp_cwd: Path) -> None:
+    """mode=bypass: инструмент выполняется сразу, без session/request_permission."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["ls", "запусти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "terminal_create", "arguments": {"command": "ls"}}
+                    ]},
+                    {"tool_calls": [
+                        {"name": "terminal_wait_for_exit",
+                         "arguments": {"terminalId": "term-1"}}
+                    ]},
+                    {"tool_calls": [
+                        {"name": "terminal_release",
+                         "arguments": {"terminalId": "term-1"}}
+                    ]},
+                    {"text": "Готово без запроса разрешения."},
+                ],
+            },
+        ],
+    }
+    _default_primary_agent(tmp_cwd)
+    proc = await _start_server(tmp_cwd, _write_scenario(tmp_cwd, scenario))
+    try:
+        session_id = await _handshake(proc, tmp_cwd)
+        await _set_mode(proc, session_id, "bypass", 3)
+
+        resp, notes, rpc = await _run_prompt(proc, session_id, "запусти ls", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        # Разрешение НЕ запрашивалось — bypass авто-выполняет инструмент
+        assert "session/request_permission" not in rpc
+        assert "terminal/create" in rpc
+        assert "Готово без запроса" in _agent_text(notes)
     finally:
         await _stop_server(proc)
