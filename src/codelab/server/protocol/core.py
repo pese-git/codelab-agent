@@ -767,6 +767,11 @@ class ACPProtocol:
         """Отправляет сообщение через transport callback."""
         if self._send_callback is not None:
             await self._send_callback(message)
+        else:
+            logger.warning(
+                "no send callback configured, message not sent",
+                method=message.method,
+            )
 
     def _build_config_specs_legacy(self) -> dict[str, dict[str, Any]]:
         """Построить config specs (legacy)."""

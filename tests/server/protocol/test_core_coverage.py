@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.config_spec_builder import _DEFAULT_CONFIG_SPECS
@@ -27,18 +27,16 @@ class TestSendMessage:
 
         callback.assert_awaited_once_with(message)
 
-    async def test_send_message_noop_when_callback_is_none(self) -> None:
-        """Без настроенного callback сообщение не доставляется (тихий no-op).
-
-        В новом фасаде ветка "нет callback" не падает и ничего не отправляет —
-        поведенческий интент "сообщение не уходит, если некуда" сохранён.
-        """
+    async def test_send_message_logs_warning_when_callback_is_none(self) -> None:
+        """Без настроенного callback сообщение не уходит и пишется warning."""
         message = ACPMessage.notification("session/update", {"update": {}})
         protocol = ACPProtocol()
 
         assert protocol._send_callback is None
-        # Не должно бросать исключений и не должно ничего доставлять.
-        await protocol._send_message(message)
+        with patch("codelab.server.protocol.core.logger") as mock_logger:
+            await protocol._send_message(message)
+
+        mock_logger.warning.assert_called_once()
 
 
 class TestInitializeMcpFlags:
