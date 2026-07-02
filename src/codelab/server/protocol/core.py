@@ -1321,6 +1321,24 @@ class ACPProtocol:
                 )
             )
 
+        # Валидация ContentBlock-массива по ACP (06-Content): неподдерживаемый
+        # тип или битые поля должны отклоняться с -32602, а не молча теряться
+        # в acp_mapper.
+        from .handlers.prompt import validate_prompt_content
+
+        prompt_blocks = params.get("prompt")
+        if not isinstance(prompt_blocks, list):
+            return ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    message.id,
+                    code=-32602,
+                    message="Invalid params: prompt must be an array",
+                )
+            )
+        content_error = validate_prompt_content(message.id, prompt_blocks)
+        if content_error is not None:
+            return ProtocolOutcome(response=content_error)
+
         # Очищаем stale active_turn от предыдущего незавершённого turn.
         # Если turn был deferred (ожидает permission/client RPC), а соединение
         # разорвалось или сервер перезапустился — active_turn остаётся в storage

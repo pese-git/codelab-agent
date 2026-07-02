@@ -4,15 +4,8 @@
 на уровне полного JSON-RPC поверх subprocess-сервера:
 - session/prompt в несуществующую сессию → Session not found (-32001);
 - session/prompt без sessionId → Invalid params (-32602);
-- session/prompt с неизвестным типом контента → блок молча отбрасывается
-  (текущее поведение сервера, см. ЗАМЕЧАНИЕ ниже);
+- session/prompt с неизвестным типом контента → Invalid params (-32602);
 - session/new с битым MCP-сервером → graceful degradation (сессия работает).
-
-ЗАМЕЧАНИЕ (несоответствие ACP): validate_prompt_content() возвращает -32602 на
-неизвестный тип контента и покрыт юнит-тестами, но НЕ подключён к живому пути
-(core._handle_session_prompt → orchestrator). acp_mapper._map_single молча
-возвращает None для неизвестных блоков. По 06-Content/05-Prompt Turn сервер
-должен отклонять неподдерживаемый контент — сейчас он его игнорирует.
 """
 
 from __future__ import annotations
@@ -93,28 +86,30 @@ async def test_prompt_missing_session_id_returns_error(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_prompt_unknown_content_type_is_silently_dropped(tmp_cwd: Path) -> None:
-    """Неизвестный content-блок молча отбрасывается, текст обрабатывается.
+async def test_prompt_unsupported_content_type_returns_error(tmp_cwd: Path) -> None:
+    """session/prompt с неизвестным типом content-блока → error -32602.
 
-    Документирует ТЕКУЩЕЕ поведение (не идеал по ACP — см. ЗАМЕЧАНИЕ в docstring
-    модуля): сервер не отклоняет неподдерживаемый тип, а игнорирует его. Turn
-    завершается за счёт соседнего text-блока.
+    validate_prompt_content подключена в core._handle_session_prompt, поэтому
+    неподдерживаемый тип отклоняется, а не теряется в acp_mapper.
     """
     async with _server(tmp_cwd, h.chat_scenario()) as t:
         session_id = await h.handshake(t, tmp_cwd)
 
-        resp, notes, _ = await h.run_prompt(
+        resp = await _send_and_await(
             t,
-            session_id,
-            "",
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [
+                    {"type": "text", "text": "привет"},
+                    {"type": "video", "data": "xxx", "mimeType": "video/mp4"},
+                ],
+            },
             10,
-            prompt_blocks=[
-                {"type": "text", "text": "привет"},
-                {"type": "video", "data": "xxx", "mimeType": "video/mp4"},
-            ],
         )
-        assert resp["result"]["stopReason"] == "end_turn"
-        assert "тестовый агент" in h.agent_text(notes)
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
+        assert "unsupported content type" in resp["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
