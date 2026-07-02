@@ -65,6 +65,39 @@ class Transport(Protocol):
     async def recv(self, timeout: float = 15.0) -> dict: ...
 
 
+class StdioTransport:
+    """Transport поверх stdin/stdout subprocess-сервера."""
+
+    def __init__(self, proc: asyncio.subprocess.Process) -> None:
+        self._proc = proc
+
+    async def send(self, obj: dict) -> None:
+        assert self._proc.stdin is not None
+        self._proc.stdin.write((json.dumps(obj) + "\n").encode())
+        await self._proc.stdin.drain()
+
+    async def recv(self, timeout: float = 15.0) -> dict:
+        assert self._proc.stdout is not None
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("No JSON message from server")
+            line = await asyncio.wait_for(
+                self._proc.stdout.readline(), timeout=remaining
+            )
+            if not line:
+                raise TimeoutError("Server stdout closed")
+            text = line.decode().strip()
+            if not text:
+                continue
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Пропускаем не-JSON строки (напр. сообщения о создании конфигов)
+                continue
+
+
 # --------------------------------------------------------------------------- #
 # Окружение сервера / сценарий / агент
 # --------------------------------------------------------------------------- #
@@ -101,6 +134,64 @@ def default_primary_agent(tmp_cwd: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Запуск stdio-сервера
+# --------------------------------------------------------------------------- #
+
+class StdioServer:
+    """Async context manager: поднять stdio-сервер codelab и отдать transport.
+
+    Параметризуется через extra_args (доп. аргументы CLI, напр. --require-auth)
+    и extra_env (доп. переменные окружения), поэтому покрывает базовый,
+    auth- и mcp-сценарии без копипасты запуска subprocess.
+    """
+
+    def __init__(
+        self,
+        tmp_cwd: Path,
+        scenario: dict,
+        *,
+        extra_args: list[str] | None = None,
+        extra_env: dict[str, str] | None = None,
+        startup_delay: float = 0.5,
+    ) -> None:
+        self._tmp_cwd = tmp_cwd
+        self._scenario = scenario
+        self._extra_args = extra_args or []
+        self._extra_env = extra_env or {}
+        self._startup_delay = startup_delay
+        self._proc: asyncio.subprocess.Process | None = None
+
+    async def __aenter__(self) -> StdioTransport:
+        default_primary_agent(self._tmp_cwd)
+        scenario_path = write_scenario(self._tmp_cwd, self._scenario)
+        env = server_env(self._tmp_cwd, scenario_path)
+        env.update(self._extra_env)
+        self._proc = await asyncio.create_subprocess_exec(
+            "uv", "run", "--directory", str(PROJECT_ROOT),
+            "codelab", "serve", "--stdio", *self._extra_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._tmp_cwd),
+            env=env,
+        )
+        await asyncio.sleep(self._startup_delay)
+        return StdioTransport(self._proc)
+
+    async def __aexit__(self, *exc) -> None:
+        proc = self._proc
+        if proc is None:
+            return
+        if proc.stdin is not None:
+            proc.stdin.close()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except TimeoutError:
+            proc.terminate()
+            await proc.wait()
+
+
+# --------------------------------------------------------------------------- #
 # Ответчики клиента по умолчанию
 # --------------------------------------------------------------------------- #
 
@@ -126,30 +217,64 @@ DEFAULT_RESPONDERS: dict[str, Callable[[dict], Any]] = {
 # Драйвер
 # --------------------------------------------------------------------------- #
 
-async def handshake(transport: Transport, tmp_cwd: Path) -> str:
-    """initialize + session/new → возвращает session_id."""
+DEFAULT_CLIENT_CAPABILITIES: dict[str, Any] = {
+    "fs": {"readTextFile": True, "writeTextFile": True},
+    "terminal": True,
+}
+
+
+async def initialize(
+    transport: Transport,
+    client_capabilities: dict | None = None,
+    request_id: int = 1,
+) -> dict:
+    """Отправить initialize и вернуть его response (для проверки capabilities)."""
     await transport.send(
         request(
             "initialize",
             {
                 "protocolVersion": 1,
-                "clientCapabilities": {
-                    "fs": {"readTextFile": True, "writeTextFile": True},
-                    "terminal": True,
-                },
+                "clientCapabilities": (
+                    DEFAULT_CLIENT_CAPABILITIES
+                    if client_capabilities is None
+                    else client_capabilities
+                ),
             },
-            1,
+            request_id,
         )
     )
     init = await transport.recv()
-    assert init["id"] == 1
+    assert init["id"] == request_id
+    return init
 
+
+async def session_new(
+    transport: Transport,
+    tmp_cwd: Path,
+    mcp_servers: list[dict] | None = None,
+    request_id: int = 2,
+) -> str:
+    """Отправить session/new → возвращает session_id."""
     await transport.send(
-        request("session/new", {"cwd": str(tmp_cwd), "mcpServers": []}, 2)
+        request(
+            "session/new",
+            {"cwd": str(tmp_cwd), "mcpServers": mcp_servers or []},
+            request_id,
+        )
     )
     new = await transport.recv()
-    assert new["id"] == 2
+    assert new["id"] == request_id
     return new["result"]["sessionId"]
+
+
+async def handshake(
+    transport: Transport,
+    tmp_cwd: Path,
+    mcp_servers: list[dict] | None = None,
+) -> str:
+    """initialize + session/new → возвращает session_id."""
+    await initialize(transport)
+    return await session_new(transport, tmp_cwd, mcp_servers)
 
 
 async def set_mode(
@@ -173,17 +298,26 @@ async def run_prompt(
     request_id: int,
     responders: dict[str, Callable[[dict], Any]] | None = None,
     timeout: float = 20.0,
+    prompt_blocks: list[dict] | None = None,
 ) -> tuple[dict, list[dict], list[str]]:
     """Отправить session/prompt и отвечать на server→client RPC до финала.
+
+    prompt_blocks позволяет прислать произвольный multimodal-контент;
+    если не задан — используется один text-блок из prompt_text.
 
     Returns:
         (prompt_response, notifications, rpc_methods).
     """
     responders = {**DEFAULT_RESPONDERS, **(responders or {})}
+    blocks = (
+        prompt_blocks
+        if prompt_blocks is not None
+        else [{"type": "text", "text": prompt_text}]
+    )
     await transport.send(
         request(
             "session/prompt",
-            {"sessionId": session_id, "prompt": [{"type": "text", "text": prompt_text}]},
+            {"sessionId": session_id, "prompt": blocks},
             request_id,
         )
     )

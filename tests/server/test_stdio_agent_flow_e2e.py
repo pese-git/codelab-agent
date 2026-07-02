@@ -10,91 +10,13 @@ bypass (no ask), plan (read allow / execute reject), ошибка инструм
 
 from __future__ import annotations
 
-import asyncio
-import json
 from pathlib import Path
 
 import agent_flow_harness as h
 import pytest
 
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
-
-
-class StdioTransport:
-    """Transport поверх stdin/stdout subprocess-сервера."""
-
-    def __init__(self, proc: asyncio.subprocess.Process) -> None:
-        self._proc = proc
-
-    async def send(self, obj: dict) -> None:
-        assert self._proc.stdin is not None
-        self._proc.stdin.write((json.dumps(obj) + "\n").encode())
-        await self._proc.stdin.drain()
-
-    async def recv(self, timeout: float = 15.0) -> dict:
-        assert self._proc.stdout is not None
-        deadline = asyncio.get_event_loop().time() + timeout
-        while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                raise TimeoutError("No JSON message from server")
-            line = await asyncio.wait_for(
-                self._proc.stdout.readline(), timeout=remaining
-            )
-            if not line:
-                raise TimeoutError("Server stdout closed")
-            text = line.decode().strip()
-            if not text:
-                continue
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                # Пропускаем не-JSON строки (напр. сообщения о создании конфигов)
-                continue
-
-
-async def _start_server(
-    tmp_cwd: Path, scenario_path: Path
-) -> asyncio.subprocess.Process:
-    return await asyncio.create_subprocess_exec(
-        "uv", "run", "--directory", str(_PROJECT_ROOT),
-        "codelab", "serve", "--stdio",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(tmp_cwd),
-        env=h.server_env(tmp_cwd, scenario_path),
-    )
-
-
-async def _stop_server(proc: asyncio.subprocess.Process) -> None:
-    if proc.stdin is not None:
-        proc.stdin.close()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=5.0)
-    except TimeoutError:
-        proc.terminate()
-        await proc.wait()
-
-
-class _server:
-    """Async context manager: поднять stdio-сервер и отдать (transport)."""
-
-    def __init__(self, tmp_cwd: Path, scenario: dict) -> None:
-        self._tmp_cwd = tmp_cwd
-        self._scenario = scenario
-        self._proc: asyncio.subprocess.Process | None = None
-
-    async def __aenter__(self) -> StdioTransport:
-        h.default_primary_agent(self._tmp_cwd)
-        scenario_path = h.write_scenario(self._tmp_cwd, self._scenario)
-        self._proc = await _start_server(self._tmp_cwd, scenario_path)
-        await asyncio.sleep(0.5)
-        return StdioTransport(self._proc)
-
-    async def __aexit__(self, *exc) -> None:
-        if self._proc is not None:
-            await _stop_server(self._proc)
+# stdio-транспорт и запуск сервера вынесены в agent_flow_harness (h.StdioServer).
+_server = h.StdioServer
 
 
 @pytest.fixture
