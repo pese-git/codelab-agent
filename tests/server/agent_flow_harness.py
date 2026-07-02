@@ -422,6 +422,23 @@ def tool_call_statuses(notifications: list[dict]) -> list[str]:
     return statuses
 
 
+def plan_updates(notifications: list[dict]) -> list[list[dict]]:
+    """Собрать все plan-нотификации как список массивов entries.
+
+    Один элемент на каждую session/update c sessionUpdate == "plan"
+    (11-Agent Plan.md). Позволяет проверить публикацию плана и полную
+    замену entries при повторных обновлениях.
+    """
+    plans: list[list[dict]] = []
+    for n in notifications:
+        if n.get("method") != "session/update":
+            continue
+        update = n.get("params", {}).get("update", {})
+        if update.get("sessionUpdate") == "plan":
+            plans.append(update.get("entries", []))
+    return plans
+
+
 def agent_text(notifications: list[dict]) -> str:
     """Собрать весь текст из agent_message_chunk нотификаций."""
     parts = []
@@ -533,6 +550,40 @@ def multi_tool_scenario() -> dict:
                          "arguments": {"path": "out.md", "content": "результат"}}
                     ]},
                     {"text": "Прочитал in.md и записал out.md."},
+                ],
+            },
+        ],
+    }
+
+
+def plan_scenario() -> dict:
+    """Turn с двумя вызовами update_plan: публикация плана и его обновление.
+
+    Проверяет ACP-план (11-Agent Plan): каждое обновление — полный список
+    entries, клиент заменяет план целиком.
+    """
+    return {
+        "turns": [
+            {
+                "when_user": ["запланируй", "план"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "update_plan", "arguments": {"entries": [
+                            {"content": "Изучить код", "priority": "high",
+                             "status": "pending"},
+                            {"content": "Написать тесты", "priority": "medium",
+                             "status": "pending"},
+                        ]}}
+                    ]},
+                    {"tool_calls": [
+                        {"name": "update_plan", "arguments": {"entries": [
+                            {"content": "Изучить код", "priority": "high",
+                             "status": "completed"},
+                            {"content": "Написать тесты", "priority": "medium",
+                             "status": "in_progress"},
+                        ]}}
+                    ]},
+                    {"text": "План выполнен."},
                 ],
             },
         ],

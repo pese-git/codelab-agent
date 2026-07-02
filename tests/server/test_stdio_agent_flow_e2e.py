@@ -236,6 +236,34 @@ async def test_tool_call_status_lifecycle(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_plan_notifications_published_and_replaced(tmp_cwd: Path) -> None:
+    """Agent Plan (11-Agent Plan): update_plan → session/update sessionUpdate=plan.
+
+    Два обновления в turn: каждое — полный список entries со всеми
+    обязательными полями; второе отражает изменившиеся статусы.
+    """
+    async with _server(tmp_cwd, h.plan_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        await h.set_mode(t, session_id, "bypass", 3)
+        resp, notes, _ = await h.run_prompt(t, session_id, "запланируй работу", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        plans = h.plan_updates(notes)
+        assert len(plans) == 2, "ожидались две plan-нотификации"
+
+        # Каждое обновление — полный список из двух entries с ACP-полями.
+        for entries in plans:
+            assert len(entries) == 2
+            for e in entries:
+                assert isinstance(e["content"], str) and e["content"]
+                assert e["priority"] in ("low", "medium", "high")
+                assert e["status"] in ("pending", "in_progress", "completed")
+
+        # Второе обновление отражает новые статусы (полная замена, не merge).
+        assert [e["status"] for e in plans[1]] == ["completed", "in_progress"]
+
+
+@pytest.mark.asyncio
 async def test_session_cancel_during_turn(tmp_cwd: Path) -> None:
     """Отмена turn клиентом: session/cancel пока сервер ждёт разрешение."""
     async with _server(tmp_cwd, h.terminal_single_scenario()) as t:

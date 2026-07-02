@@ -311,6 +311,26 @@ async def test_ws_plan_mode_allows_read_rejects_execute(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_plan_notifications_published_and_replaced(tmp_cwd: Path) -> None:
+    """Agent Plan через WebSocket: update_plan → session/update sessionUpdate=plan."""
+    async with _server(tmp_cwd, h.plan_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        await h.set_mode(t, session_id, "bypass", 3)
+        resp, notes, _ = await h.run_prompt(t, session_id, "запланируй работу", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        plans = h.plan_updates(notes)
+        assert len(plans) == 2
+        for entries in plans:
+            assert len(entries) == 2
+            for e in entries:
+                assert isinstance(e["content"], str) and e["content"]
+                assert e["priority"] in ("low", "medium", "high")
+                assert e["status"] in ("pending", "in_progress", "completed")
+        assert [e["status"] for e in plans[1]] == ["completed", "in_progress"]
+
+
+@pytest.mark.asyncio
 async def test_ws_session_cancel_during_turn(tmp_cwd: Path) -> None:
     """session/cancel через WebSocket пока сервер ждёт разрешение."""
     async with _server(tmp_cwd, h.terminal_single_scenario()) as t:
