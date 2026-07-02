@@ -232,6 +232,18 @@ async def test_ws_multi_tool_sequence(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_set_mode_invalid_returns_error(tmp_cwd: Path) -> None:
+    """session/set_mode с невалидным modeId через WebSocket → error -32602."""
+    async with _server(tmp_cwd, h.chat_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp = await h.send_set_mode(t, session_id, "no_such_mode", 3)
+
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
+        assert "modeId" in resp["error"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_ws_fs_write_flow(tmp_cwd: Path) -> None:
     """fs/write через WebSocket: permission → write → result → text."""
     scenario = {

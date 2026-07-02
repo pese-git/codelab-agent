@@ -277,18 +277,25 @@ async def handshake(
     return await session_new(transport, tmp_cwd, mcp_servers)
 
 
-async def set_mode(
+async def send_set_mode(
     transport: Transport, session_id: str, mode_id: str, request_id: int
-) -> None:
-    """Сменить режим сессии (plan / standard / bypass)."""
+) -> dict:
+    """Отправить session/set_mode и вернуть сырой response (result или error)."""
     await transport.send(
         request("session/set_mode", {"sessionId": session_id, "modeId": mode_id}, request_id)
     )
     while True:
         resp = await transport.recv()
         if resp.get("id") == request_id and ("result" in resp or "error" in resp):
-            assert "result" in resp
-            return
+            return resp
+
+
+async def set_mode(
+    transport: Transport, session_id: str, mode_id: str, request_id: int
+) -> None:
+    """Сменить режим сессии (plan / standard / bypass); ожидает успех."""
+    resp = await send_set_mode(transport, session_id, mode_id, request_id)
+    assert "result" in resp
 
 
 async def run_prompt(
