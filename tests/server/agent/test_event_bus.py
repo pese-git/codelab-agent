@@ -492,3 +492,95 @@ class TestConcurrency:
 
         # Не должно быть ошибки
         await task
+
+
+# ─────────────────────────────────────────────
+# send_request_streaming — стриминг ответа
+# ─────────────────────────────────────────────
+
+
+class TestSendRequestStreaming:
+    """Тесты стримингового пути шины."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_yields_deltas_then_final(self, bus):
+        """stream_handler отдаёт дельты (str), затем финальный AgentResult;
+        шина отдаёт дельты и финальный AgentResponse."""
+        async def stream_handler(request, parent_span=None):
+            yield "Hel"
+            yield "lo"
+            yield AgentResult(text="Hello", agent_name="coder", stop_reason="end_turn")
+
+        await bus.register_agent(
+            "coder", MockRequestHandler(), stream_handler=stream_handler
+        )
+
+        request = AgentRequest(target_agent="coder", session_id="s1", correlation_id="c1")
+        items = [item async for item in bus.send_request_streaming(request)]
+
+        deltas = [i for i in items if isinstance(i, str)]
+        finals = [i for i in items if isinstance(i, AgentResponse)]
+        assert deltas == ["Hel", "lo"]
+        assert len(finals) == 1
+        assert finals[-1].text == "Hello"
+        assert finals[-1].request_id == "c1"
+        assert finals[-1].session_id == "s1"
+
+    @pytest.mark.asyncio
+    async def test_streaming_falls_back_without_stream_handler(self, bus):
+        """Без stream_handler — деградация: только финальный AgentResponse, без дельт."""
+        await bus.register_agent(
+            "coder",
+            MockRequestHandler(AgentResult(text="whole", agent_name="coder")),
+        )
+
+        request = AgentRequest(target_agent="coder", session_id="s1", correlation_id="c1")
+        items = [item async for item in bus.send_request_streaming(request)]
+
+        assert len(items) == 1
+        assert isinstance(items[0], AgentResponse)
+        assert items[0].text == "whole"
+
+    @pytest.mark.asyncio
+    async def test_streaming_unknown_agent_raises(self, bus):
+        """Стриминг к незарегистрированному агенту → AgentNotFoundError."""
+        request = AgentRequest(target_agent="ghost", session_id="s1")
+        with pytest.raises(AgentNotFoundError):
+            async for _ in bus.send_request_streaming(request):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_streaming_without_final_raises(self, bus):
+        """stream_handler без финального AgentResult → AgentDispatchError."""
+        async def bad_handler(request, parent_span=None):
+            yield "only delta"
+
+        await bus.register_agent("coder", MockRequestHandler(), stream_handler=bad_handler)
+
+        request = AgentRequest(target_agent="coder", session_id="s1")
+        with pytest.raises(AgentDispatchError):
+            async for _ in bus.send_request_streaming(request):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_streaming_publishes_final_for_observability(self, bus):
+        """Финальный AgentResponse публикуется в шину (как в send_request)."""
+        published: list = []
+
+        async def observer(event: DomainEvent) -> None:
+            published.append(event)
+
+        bus.subscribe(AgentResponse, observer)
+
+        async def stream_handler(request, parent_span=None):
+            yield "x"
+            yield AgentResult(text="x", agent_name="coder")
+
+        await bus.register_agent(
+            "coder", MockRequestHandler(), stream_handler=stream_handler
+        )
+        request = AgentRequest(target_agent="coder", session_id="s1")
+        async for _ in bus.send_request_streaming(request):
+            pass
+
+        assert any(isinstance(e, AgentResponse) for e in published)

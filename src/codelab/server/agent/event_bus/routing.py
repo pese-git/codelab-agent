@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from codelab.server.agent.contracts.base import (
         AgentRequest,
         AgentResponse,
+        AgentResult,
         ChoreographyAnswer,
         ContextBroadcast,
     )
@@ -36,6 +38,25 @@ class RequestHandler(Protocol):
     ) -> AgentResponse: ...
 
 
+class StreamingRequestHandler(Protocol):
+    """Протокол стримингового обработчика запросов к агенту.
+
+    Контракт async-генератора:
+    - промежуточные элементы — str (текстовые дельты ответа);
+    - последний элемент — AgentResult (финал: полный текст, tool_calls,
+      usage, stop_reason).
+
+    Реализуется компонентом, умеющим стримить (LLMAdapter поверх
+    provider.stream_completion).
+    """
+
+    def __call__(
+        self,
+        request: AgentRequest,
+        parent_span: SpanContext | None = None,
+    ) -> AsyncGenerator[str | AgentResult, None]: ...
+
+
 class AgentRoutingInterface(Protocol):
     """Протокол маршрутизации запросов к агентам.
 
@@ -43,12 +64,20 @@ class AgentRoutingInterface(Protocol):
     конкретным агентам или broadcast всем агентам.
     """
 
-    async def register_agent(self, agent_name: str, handler: RequestHandler) -> None:
+    async def register_agent(
+        self,
+        agent_name: str,
+        handler: RequestHandler,
+        stream_handler: StreamingRequestHandler | None = None,
+    ) -> None:
         """Зарегистрировать обработчик для агента.
 
         Args:
             agent_name: Уникальное имя агента.
-            handler: RequestHandler для обработки запросов.
+            handler: RequestHandler для обработки запросов (нестриминговый).
+            stream_handler: Опциональный StreamingRequestHandler для
+                send_request_streaming. Если не задан — стриминг деградирует
+                к одному финальному ответу через handler.
         """
 
     async def unregister_agent(self, agent_name: str) -> None:
