@@ -16,14 +16,19 @@ from typing import TYPE_CHECKING, Any
 from codelab.server.agent.base import AgentResponse as BaseAgentResponse
 from codelab.server.agent.contracts.base import (
     AgentRequest,
+    AgentResponse,
 )
 from codelab.server.llm.models import LLMToolCall
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.agent.execution_engine import ExecutionEngine
     from codelab.server.observability.tracer import SpanContext, Tracer
     from codelab.server.protocol.state import SessionState
+
+    OnDelta = Callable[[str], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,33 @@ class SingleStrategy:
         self.tracer = tracer
         self.default_agent_name = agent_name
 
+    async def _dispatch(
+        self,
+        request: AgentRequest,
+        span: SpanContext | None,
+        on_delta: OnDelta | None,
+    ) -> AgentResponse:
+        """Отправить запрос: стрим (если on_delta задан) или обычный.
+
+        В стриминговом режиме текстовые дельты доставляются через on_delta,
+        возвращается финальный AgentResponse (как и в нестриминговом).
+        """
+        if on_delta is None:
+            return await self.event_bus.send_request(request=request, parent_span=span)
+
+        final: AgentResponse | None = None
+        async for item in self.event_bus.send_request_streaming(
+            request=request, parent_span=span
+        ):
+            if isinstance(item, str):
+                await on_delta(item)
+            else:
+                final = item
+        if final is None:
+            # send_request_streaming гарантирует финал; страховка от контракт-багов
+            final = await self.event_bus.send_request(request=request, parent_span=span)
+        return final
+
     async def execute(
         self,
         session: SessionState,
@@ -102,6 +134,7 @@ class SingleStrategy:
         system_prompt: str | None = None,
         parent_span: SpanContext | None = None,
         agent_name: str | None = None,
+        on_delta: OnDelta | None = None,
     ) -> BaseAgentResponse:
         """Выполнить стратегию — вызвать агента через EventBus.
 
@@ -113,6 +146,9 @@ class SingleStrategy:
             parent_span: Родительский span для tracing (keyword-only, опционально).
             agent_name: Имя агента для вызова (из session.config_values["_agent"]).
                 Если None, используется default_agent_name.
+            on_delta: Опциональный async-callback для текстовых дельт. Если
+                задан — используется стриминговый путь (send_request_streaming),
+                дельты доставляются вживую; иначе — обычный send_request.
 
         Returns:
             AgentResponse с результатом вызова агента.
@@ -146,11 +182,8 @@ class SingleStrategy:
             session_id=session.session_id,
         )
 
-        # Вызываем агента через EventBus
-        response = await self.event_bus.send_request(
-            request=request,
-            parent_span=span,
-        )
+        # Вызываем агента через EventBus (стрим или обычный — по on_delta)
+        response = await self._dispatch(request, span, on_delta)
 
         # Tracing: завершаем span
         if span and self.tracer:
@@ -183,6 +216,7 @@ class SingleStrategy:
         *,
         parent_span: SpanContext | None = None,
         agent_name: str | None = None,
+        on_delta: OnDelta | None = None,
     ) -> BaseAgentResponse:
         """Продолжить выполнение после tool_results.
 
@@ -192,6 +226,7 @@ class SingleStrategy:
             parent_span: Родительский span (keyword-only, опционально).
             agent_name: Имя агента для вызова (keyword-only, опционально).
                 Если None, используется default_agent_name.
+            on_delta: Опциональный async-callback для текстовых дельт (стрим).
 
         Returns:
             AgentResponse с результатом.
@@ -220,10 +255,7 @@ class SingleStrategy:
             session_id=session.session_id,
         )
 
-        response = await self.event_bus.send_request(
-            request=request,
-            parent_span=span,
-        )
+        response = await self._dispatch(request, span, on_delta)
 
         if span and self.tracer:
             total_time_ms = (time.time() - start_time) * 1000

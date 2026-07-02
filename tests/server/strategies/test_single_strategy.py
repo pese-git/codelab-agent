@@ -360,3 +360,60 @@ class TestFullIntegration:
 
         assert result.text == "Hello from LLM!"
         assert result.stop_reason == "end_turn"
+
+
+async def _agen(items):
+    for item in items:
+        yield item
+
+
+class TestSingleStrategyStreaming:
+    """on_delta → стриминговый путь (send_request_streaming)."""
+
+    @pytest.mark.asyncio
+    async def test_on_delta_uses_streaming_and_collects_deltas(
+        self, mock_event_bus, mock_execution_engine, mock_session
+    ):
+        """Со on_delta стратегия зовёт send_request_streaming, дельты доставлены,
+        финальный AgentResponse конвертирован в BaseAgentResponse."""
+        final = AgentResponse(
+            request_id="r1", text="Hello", tool_calls=[],
+            usage=TokenUsage(1, 1, 2), stop_reason="end_turn",
+            agent_name="primary", session_id="s1",
+        )
+        mock_event_bus.send_request_streaming = lambda **kw: _agen(["Hel", "lo", final])
+
+        strategy = SingleStrategy(
+            event_bus=mock_event_bus,
+            execution_engine=mock_execution_engine,
+            agent_name="primary",
+        )
+
+        deltas: list[str] = []
+
+        async def on_delta(d: str) -> None:
+            deltas.append(d)
+
+        result = await strategy.execute(
+            session=mock_session, prompt="Hi", on_delta=on_delta
+        )
+
+        assert deltas == ["Hel", "lo"]
+        assert result.text == "Hello"
+        assert result.stop_reason == "end_turn"
+        mock_event_bus.send_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_without_on_delta_uses_send_request(
+        self, mock_event_bus, mock_execution_engine, mock_session
+    ):
+        """Без on_delta — обычный send_request (нестриминговый путь неизменен)."""
+        strategy = SingleStrategy(
+            event_bus=mock_event_bus,
+            execution_engine=mock_execution_engine,
+            agent_name="primary",
+        )
+
+        await strategy.execute(session=mock_session, prompt="Hi")
+
+        mock_event_bus.send_request.assert_called_once()

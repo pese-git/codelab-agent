@@ -23,6 +23,8 @@ import structlog
 from codelab.server.messages import ACPMessage
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from codelab.server.agent.base import AgentResponse
     from codelab.server.agent.registry import AgentRegistry
     from codelab.server.agent.strategies.base import LLMCallStrategy
@@ -30,6 +32,8 @@ if TYPE_CHECKING:
     from codelab.server.agent.strategies.registry import StrategyRegistry
     from codelab.server.observability.tracer import SpanContext
     from codelab.server.protocol.state import SessionState
+
+    OnDelta = Callable[[str], Awaitable[None]]
 
 logger = structlog.get_logger()
 
@@ -257,6 +261,7 @@ class StrategyDispatcher:
         *,
         system_prompt: str | None = None,
         parent_span: SpanContext | None = None,
+        on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Выполнить стратегию (LLMCallStrategy Protocol).
         
@@ -316,6 +321,7 @@ class StrategyDispatcher:
             mcp_manager=mcp_manager,
             system_prompt=system_prompt,
             parent_span=parent_span,
+            on_delta=on_delta,
         )
 
     async def continue_execution(
@@ -324,6 +330,7 @@ class StrategyDispatcher:
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,
+        on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Продолжить выполнение после tool_results (LLMCallStrategy Protocol).
         
@@ -381,6 +388,7 @@ class StrategyDispatcher:
             session=session,
             mcp_manager=mcp_manager,
             parent_span=parent_span,
+            on_delta=on_delta,
         )
 
     def _resolve_agent_name(self, session: SessionState) -> str:
