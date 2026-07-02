@@ -396,6 +396,25 @@ async def cancel_on_permission(
             await transport.send(result(msg["id"], {}))
 
 
+def tool_call_statuses(notifications: list[dict]) -> list[str]:
+    """Собрать последовательность статусов из tool_call / tool_call_update.
+
+    Возвращает статусы в порядке прихода нотификаций (напр.
+    ["pending", "in_progress", "completed"]) — для проверки жизненного
+    цикла tool call по ACP (08-Tool Calls.md §Status).
+    """
+    statuses: list[str] = []
+    for n in notifications:
+        if n.get("method") != "session/update":
+            continue
+        update = n.get("params", {}).get("update", {})
+        if update.get("sessionUpdate") in ("tool_call", "tool_call_update"):
+            status = update.get("status")
+            if status is not None:
+                statuses.append(status)
+    return statuses
+
+
 def agent_text(notifications: list[dict]) -> str:
     """Собрать весь текст из agent_message_chunk нотификаций."""
     parts = []

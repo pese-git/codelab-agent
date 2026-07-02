@@ -206,6 +206,24 @@ async def test_multi_tool_sequence_in_one_turn(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_call_status_lifecycle(tmp_cwd: Path) -> None:
+    """tool_call проходит статусы pending → in_progress → completed (08-Tool Calls)."""
+    async with _server(tmp_cwd, h.terminal_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        await h.set_mode(t, session_id, "bypass", 3)
+        resp, notes, _ = await h.run_prompt(t, session_id, "запусти ls -ahl", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        statuses = h.tool_call_statuses(notes)
+        # Должны присутствовать все три статуса в правильном порядке.
+        assert "pending" in statuses
+        assert "in_progress" in statuses
+        assert "completed" in statuses
+        assert statuses.index("pending") < statuses.index("in_progress")
+        assert statuses.index("in_progress") < statuses.index("completed")
+
+
+@pytest.mark.asyncio
 async def test_session_cancel_during_turn(tmp_cwd: Path) -> None:
     """Отмена turn клиентом: session/cancel пока сервер ждёт разрешение."""
     async with _server(tmp_cwd, h.terminal_single_scenario()) as t:

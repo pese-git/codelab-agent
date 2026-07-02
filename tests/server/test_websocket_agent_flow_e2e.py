@@ -232,6 +232,73 @@ async def test_ws_multi_tool_sequence(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_fs_write_flow(tmp_cwd: Path) -> None:
+    """fs/write через WebSocket: permission → write → result → text."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["запиши", "создай файл"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_write_text_file",
+                         "arguments": {"path": "notes.txt", "content": "привет"}}
+                    ]},
+                    {"text": "Файл записан."},
+                ],
+            },
+        ],
+    }
+    async with _server(tmp_cwd, scenario) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp, notes, rpc = await h.run_prompt(t, session_id, "запиши notes.txt", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "fs/write_text_file" in rpc
+        assert "Файл записан" in h.agent_text(notes)
+
+
+@pytest.mark.asyncio
+async def test_ws_plan_mode_allows_read_rejects_execute(tmp_cwd: Path) -> None:
+    """mode=plan через WebSocket: read авто-разрешён, execute отклоняется."""
+    scenario = {
+        "turns": [
+            {
+                "when_user": ["прочти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "fs_read_text_file", "arguments": {"path": "R.md"}}
+                    ]},
+                    {"text": "Прочитал файл."},
+                ],
+            },
+            {
+                "when_user": ["запусти"],
+                "replies": [
+                    {"tool_calls": [
+                        {"name": "terminal_create", "arguments": {"command": "ls"}}
+                    ]},
+                    {"text": "Понял, в plan-режиме выполнить нельзя."},
+                ],
+            },
+        ],
+    }
+    async with _server(tmp_cwd, scenario) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        await h.set_mode(t, session_id, "plan", 3)
+
+        resp, notes, rpc = await h.run_prompt(t, session_id, "прочти R.md", 10)
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "session/request_permission" not in rpc
+        assert "fs/read_text_file" in rpc
+        assert "Прочитал файл" in h.agent_text(notes)
+
+        resp, notes, rpc = await h.run_prompt(t, session_id, "запусти ls", 11)
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "terminal/create" not in rpc
+        assert "session/request_permission" not in rpc
+
+
+@pytest.mark.asyncio
 async def test_ws_session_cancel_during_turn(tmp_cwd: Path) -> None:
     """session/cancel через WebSocket пока сервер ждёт разрешение."""
     async with _server(tmp_cwd, h.terminal_single_scenario()) as t:
