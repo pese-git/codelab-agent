@@ -21,13 +21,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
 from codelab.server.protocol.state import ProtocolOutcome
+
+if TYPE_CHECKING:
+    from codelab.server.protocol.commands.base import CommandRegistry
 
 
 class _Assembler:
@@ -140,7 +143,7 @@ class _Assembler:
         return self._prompt_orchestrator
 
 
-def _build_method_registry(st: _Assembler) -> Any:
+def _build_method_registry(st: _Assembler) -> CommandRegistry:
     """Создаёт CommandRegistry с обёртками, читающими состояние из `st`."""
     from codelab.server.protocol.commands.base import CommandRegistry
     from codelab.server.protocol.handlers import auth, config, session

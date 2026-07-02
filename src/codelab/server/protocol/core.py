@@ -22,7 +22,10 @@ from .state import (
 
 if TYPE_CHECKING:
     from ..agent.llm_adapter import LLMAdapter
+    from .background_executor import BackgroundExecutor
+    from .commands.base import CommandRegistry
     from .handlers.prompt_orchestrator import PromptOrchestrator
+    from .response_router import ResponseRouter
     from .session_runtime import SessionRuntimeRegistry
 
 logger = structlog.get_logger()
@@ -69,9 +72,9 @@ class ACPProtocol:
     def __init__(
         self,
         *,
-        method_registry: Any,
-        response_router: Any,
-        background_executor: Any,
+        method_registry: CommandRegistry,
+        response_router: ResponseRouter,
+        background_executor: BackgroundExecutor,
         storage: SessionStorage | None = None,
         pending_registry: PendingRequestRegistry | None = None,
         runtime_registry: SessionRuntimeRegistry | None = None,
