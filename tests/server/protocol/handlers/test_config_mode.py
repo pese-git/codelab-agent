@@ -2,7 +2,7 @@
 
 Тестирует:
 - Валидация modeId (valid, invalid, old-mode normalization)
-- mode_changed notification
+- current_mode_update notification
 - Session not found
 """
 
@@ -61,12 +61,20 @@ class TestSessionSetModeValidModes:
         assert outcome.response is not None
         assert outcome.response.error is None
         assert session.config_values.get("mode") == "plan"
-        mode_changed = next(
-            (n for n in outcome.notifications if n.method == "session/mode_changed"),
+        # Проверяем current_mode_update через session/update
+        mode_update = next(
+            (
+                n
+                for n in outcome.notifications
+                if n.method == "session/update"
+                and n.params is not None
+                and n.params.get("update", {}).get("sessionUpdate")
+                == "current_mode_update"
+            ),
             None,
         )
-        assert mode_changed is not None
-        assert mode_changed.params["mode"] == "plan"
+        assert mode_update is not None
+        assert mode_update.params["update"]["currentModeId"] == "plan"
 
     @pytest.mark.asyncio
     async def test_set_mode_standard(self) -> None:
@@ -113,12 +121,20 @@ class TestSessionSetModeOldModeNormalization:
         assert outcome.response is not None
         assert outcome.response.error is None
         assert session.config_values.get("mode") == "standard"
-        mode_changed = next(
-            (n for n in outcome.notifications if n.method == "session/mode_changed"),
+        # Проверяем current_mode_update через session/update
+        mode_update = next(
+            (
+                n
+                for n in outcome.notifications
+                if n.method == "session/update"
+                and n.params is not None
+                and n.params.get("update", {}).get("sessionUpdate")
+                == "current_mode_update"
+            ),
             None,
         )
-        assert mode_changed is not None
-        assert mode_changed.params["mode"] == "standard"
+        assert mode_update is not None
+        assert mode_update.params["update"]["currentModeId"] == "standard"
 
     @pytest.mark.asyncio
     async def test_old_mode_code_normalizes_to_bypass(self) -> None:

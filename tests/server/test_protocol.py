@@ -2864,13 +2864,15 @@ async def test_session_set_mode_updates_current_mode() -> None:
 
     assert outcome.response is not None
     assert outcome.response.result == {}
-    # mode_changed notification имеет params {"sessionId": ..., "mode": ...}
-    mode_changed = [
+    # current_mode_update notification отправляется через session/update
+    mode_updates = [
         n for n in outcome.notifications
-        if n.method == "session/mode_changed"
+        if n.method == "session/update"
+        and n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate") == "current_mode_update"
     ]
-    assert len(mode_changed) >= 1
-    assert mode_changed[0].params["mode"] == "bypass"
+    assert len(mode_updates) >= 1
+    assert mode_updates[0].params["update"]["currentModeId"] == "bypass"
 
 
 @pytest.mark.asyncio

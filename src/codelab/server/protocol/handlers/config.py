@@ -198,19 +198,11 @@ async def session_set_mode(
     if mapped.response is None or mapped.response.error is not None:
         return mapped
 
-    # Добавляем mode_changed notification
-    mode_changed = ACPMessage.notification(
-        "session/mode_changed",
-        {
-            "sessionId": session_id,
-            "mode": normalized_mode,
-        },
-    )
-
     # По схеме `session/set_mode` возвращает пустой объект.
+    # Уведомление current_mode_update уже отправлено через session_set_config_option.
     return ProtocolOutcome(
         response=ACPMessage.response(request_id, {}),
-        notifications=[*mapped.notifications, mode_changed],
+        notifications=mapped.notifications,
     )
 
 
