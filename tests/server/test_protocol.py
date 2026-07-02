@@ -3253,3 +3253,502 @@ async def test_get_prompt_orchestrator_creates_default_registry_without_tool_reg
     result = await protocol._get_prompt_orchestrator()
     assert result is not None
     assert isinstance(result, PromptOrchestrator)
+
+
+# ---------------------------------------------------------------------------
+# 2.2. session/list — фильтрация по cwd и структура SessionInfo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_list_filters_by_cwd() -> None:
+    """session/list с параметром cwd возвращает только сессии с matching cwd."""
+    protocol = ACPProtocol()
+
+    await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
+    )
+    await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/project-b", "mcpServers": []})
+    )
+    await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
+    )
+
+    result = await protocol.handle(
+        ACPMessage.request("session/list", {"cwd": "/project-a"})
+    )
+    assert result.response is not None
+    assert result.response.error is None
+    sessions = result.response.result["sessions"]
+    assert len(sessions) == 2
+    assert all(s["cwd"] == "/project-a" for s in sessions)
+
+
+@pytest.mark.asyncio
+async def test_session_list_cwd_filter_returns_empty_on_no_match() -> None:
+    """session/list с несуществующим cwd возвращает пустой список."""
+    protocol = ACPProtocol()
+
+    await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
+    )
+
+    result = await protocol.handle(
+        ACPMessage.request("session/list", {"cwd": "/nonexistent"})
+    )
+    assert result.response is not None
+    assert result.response.error is None
+    assert result.response.result["sessions"] == []
+    assert result.response.result["nextCursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_list_rejects_relative_cwd() -> None:
+    """session/list отклоняет относительный путь в cwd."""
+    protocol = ACPProtocol()
+
+    result = await protocol.handle(
+        ACPMessage.request("session/list", {"cwd": "relative/path"})
+    )
+    assert result.response is not None
+    assert result.response.error is not None
+    assert result.response.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_session_list_session_info_structure() -> None:
+    """SessionInfo содержит все обязательные поля: sessionId, cwd, title, updatedAt, _meta."""
+    protocol = ACPProtocol()
+
+    await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+
+    result = await protocol.handle(ACPMessage.request("session/list", {}))
+    assert result.response is not None
+    sessions = result.response.result["sessions"]
+    assert len(sessions) >= 1
+
+    session_info = sessions[0]
+    assert "sessionId" in session_info
+    assert "cwd" in session_info
+    assert "title" in session_info
+    assert "updatedAt" in session_info
+    assert "_meta" in session_info
+    assert isinstance(session_info["sessionId"], str)
+    assert session_info["cwd"] == "/tmp"
+
+
+# ---------------------------------------------------------------------------
+# 2.3. session_info_update — структура уведомления
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_info_update_structure_after_prompt() -> None:
+    """session_info_update содержит title и updatedAt."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": "hello"}],
+            },
+        )
+    )
+
+    info_updates = [
+        n
+        for n in outcome.notifications
+        if n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate") == "session_info_update"
+    ]
+    assert len(info_updates) >= 1
+    update = info_updates[0].params["update"]
+    assert "updatedAt" in update
+    assert isinstance(update["updatedAt"], str)
+    assert "title" in update
+
+
+@pytest.mark.asyncio
+async def test_session_info_update_structure_after_config_change() -> None:
+    """session_info_update отправляется после set_config_option."""
+    protocol = ACPProtocol()
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/set_config_option",
+            {"sessionId": session_id, "configId": "mode", "value": "bypass"},
+        )
+    )
+
+    info_updates = [
+        n
+        for n in outcome.notifications
+        if n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate") == "session_info_update"
+    ]
+    assert len(info_updates) == 1
+    update = info_updates[0].params["update"]
+    assert "updatedAt" in update
+    assert "title" in update
+
+
+# ---------------------------------------------------------------------------
+# 2.4. Content types — сервер принимает все валидные типы
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prompt_accepts_image_content() -> None:
+    """Сервер принимает image content без ошибки валидации."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [
+                    {"type": "text", "text": "what is this?"},
+                    {
+                        "type": "image",
+                        "data": "iVBORw0KGgo=",
+                        "mimeType": "image/png",
+                    },
+                ],
+            },
+        )
+    )
+    if outcome.response is not None and outcome.response.error is not None:
+        assert "unsupported content type" not in outcome.response.error.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_prompt_accepts_audio_content() -> None:
+    """Сервер принимает audio content без ошибки валидации."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [
+                    {"type": "text", "text": "transcribe"},
+                    {
+                        "type": "audio",
+                        "data": "SUQz",
+                        "mimeType": "audio/mp3",
+                    },
+                ],
+            },
+        )
+    )
+    if outcome.response is not None and outcome.response.error is not None:
+        assert "unsupported content type" not in outcome.response.error.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_prompt_accepts_resource_content() -> None:
+    """Сервер принимает resource content без ошибки валидации."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [
+                    {"type": "text", "text": "read this"},
+                    {
+                        "type": "resource",
+                        "resource": {
+                            "uri": "file:///tmp/test.txt",
+                            "text": "content",
+                            "mimeType": "text/plain",
+                        },
+                    },
+                ],
+            },
+        )
+    )
+    if outcome.response is not None and outcome.response.error is not None:
+        assert "unsupported content type" not in outcome.response.error.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_prompt_accepts_resource_link_content() -> None:
+    """Сервер принимает resource_link content без ошибки валидации."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [
+                    {"type": "text", "text": "check link"},
+                    {
+                        "type": "resource_link",
+                        "uri": "https://example.com",
+                        "name": "Example",
+                    },
+                ],
+            },
+        )
+    )
+    if outcome.response is not None and outcome.response.error is not None:
+        assert "unsupported content type" not in outcome.response.error.message.lower()
+
+
+# ---------------------------------------------------------------------------
+# 2.7. Config options — категории в configOptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_options_contain_category_field() -> None:
+    """configOptions в ответе session/new содержат поле category."""
+    protocol = ACPProtocol()
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    assert created.response is not None
+    config_options = created.response.result.get("configOptions", [])
+    assert len(config_options) >= 1
+
+    for option in config_options:
+        assert "category" in option
+        assert isinstance(option["category"], str)
+
+
+@pytest.mark.asyncio
+async def test_config_options_mode_has_mode_category() -> None:
+    """Config option mode имеет category='mode'."""
+    protocol = ACPProtocol()
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    config_options = created.response.result.get("configOptions", [])
+    mode_option = next(
+        (opt for opt in config_options if opt["id"] == "mode"), None
+    )
+    assert mode_option is not None
+    assert mode_option["category"] == "mode"
+
+
+@pytest.mark.asyncio
+async def test_set_config_option_returns_full_snapshot() -> None:
+    """set_config_option возвращает полный snapshot всех configOptions."""
+    protocol = ACPProtocol()
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/set_config_option",
+            {"sessionId": session_id, "configId": "mode", "value": "bypass"},
+        )
+    )
+    assert outcome.response is not None
+    config_options = outcome.response.result["configOptions"]
+    assert isinstance(config_options, list)
+    assert len(config_options) >= 1
+    for option in config_options:
+        assert "id" in option
+        assert "name" in option
+        assert "category" in option
+        assert "type" in option
+        assert "currentValue" in option
+        assert "options" in option
+
+
+# ---------------------------------------------------------------------------
+# 2.8. available_commands_update — структура уведомления
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_available_commands_update_structure() -> None:
+    """available_commands_update содержит массив availableCommands с полями name и description."""
+    protocol = ACPProtocol()
+    await _initialize_with_tool_runtime(protocol)
+
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": "hello"}],
+            },
+        )
+    )
+
+    cmd_updates = [
+        n
+        for n in outcome.notifications
+        if n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate")
+        == "available_commands_update"
+    ]
+    assert len(cmd_updates) >= 1
+    update = cmd_updates[0].params["update"]
+    assert "availableCommands" in update
+    commands = update["availableCommands"]
+    assert isinstance(commands, list)
+    for cmd in commands:
+        assert "name" in cmd
+        assert "description" in cmd
+
+
+# ---------------------------------------------------------------------------
+# 2.9. Tool call locations — fs_read/fs_write содержат locations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fs_read_tool_call_contains_locations() -> None:
+    """tool_call для fs_read содержит locations с путём файла."""
+    protocol = ACPProtocol()
+    await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": True, "writeTextFile": False},
+                    "terminal": False,
+                },
+            },
+        )
+    )
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": "read"}],
+                "_meta": {"promptDirectives": {"fsReadPath": "README.md"}},
+            },
+        )
+    )
+
+    tool_calls = [
+        n
+        for n in outcome.notifications
+        if n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
+    ]
+    assert len(tool_calls) >= 1
+    update = tool_calls[0].params["update"]
+    assert "locations" in update
+    locations = update["locations"]
+    assert isinstance(locations, list)
+    assert len(locations) >= 1
+    assert locations[0]["path"].endswith("README.md")
+
+
+@pytest.mark.asyncio
+async def test_fs_write_tool_call_contains_locations() -> None:
+    """tool_call для fs_write содержит locations с путём файла."""
+    protocol = ACPProtocol()
+    await protocol.handle(
+        ACPMessage.request(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": False, "writeTextFile": True},
+                    "terminal": False,
+                },
+            },
+        )
+    )
+    created = await protocol.handle(
+        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
+    )
+    session_id = created.response.result["sessionId"]
+
+    outcome = await protocol.handle(
+        ACPMessage.request(
+            "session/prompt",
+            {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": "write"}],
+                "_meta": {
+                    "promptDirectives": {
+                        "fsWritePath": "output.txt",
+                        "fsWriteContent": "data",
+                    }
+                },
+            },
+        )
+    )
+
+    tool_calls = [
+        n
+        for n in outcome.notifications
+        if n.params is not None
+        and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
+    ]
+    assert len(tool_calls) >= 1
+    update = tool_calls[0].params["update"]
+    assert "locations" in update
+    locations = update["locations"]
+    assert isinstance(locations, list)
+    assert len(locations) >= 1
+    assert locations[0]["path"].endswith("output.txt")
