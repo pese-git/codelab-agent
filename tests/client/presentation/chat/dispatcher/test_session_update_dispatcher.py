@@ -266,6 +266,70 @@ class TestSessionUpdateDispatcher:
         # Не должно вызывать исключение
         dispatcher.dispatch_with_context(update_data, context)
 
+    def test_dispatch_session_info_update(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        context: ChatUpdateContext,
+    ) -> None:
+        """Диспетчер должен логировать session_info_update (нет handler)."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "session_info_update",
+                    "title": "Test Session",
+                    "updatedAt": "2026-04-07T00:00:00Z",
+                },
+            }
+        }
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch_with_context(update_data, context)
+
+    def test_dispatch_available_commands_update(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        context: ChatUpdateContext,
+    ) -> None:
+        """Диспетчер должен логировать available_commands_update (нет handler)."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [
+                        {
+                            "name": "status",
+                            "description": "Show status",
+                            "input": {"hint": "optional query"},
+                        }
+                    ],
+                },
+            }
+        }
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch_with_context(update_data, context)
+
+    def test_dispatch_current_mode_update(
+        self,
+        dispatcher: SessionUpdateDispatcher,
+        context: ChatUpdateContext,
+    ) -> None:
+        """Диспетчер должен логировать current_mode_update (нет handler)."""
+        update_data = {
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "current_mode_update",
+                    "currentModeId": "bypass",
+                },
+            }
+        }
+
+        # Не должно вызывать исключение
+        dispatcher.dispatch_with_context(update_data, context)
+
     def test_dispatch_missing_update_type(
         self,
         dispatcher: SessionUpdateDispatcher,
