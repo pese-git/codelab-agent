@@ -80,6 +80,11 @@ class TestLLMConfigDefaults:
         config = LLMConfig()
         assert config.fallback.enabled is False
 
+    def test_default_streaming_off(self) -> None:
+        """По умолчанию streaming = False (безопасный дефолт)."""
+        config = LLMConfig()
+        assert config.streaming is False
+
 
 # ============================================================================
 # Тесты AppConfig.load() — env vars имеют приоритет
@@ -130,6 +135,28 @@ class TestAppConfigFromEnv:
                 os.chdir(Path(tempfile.mkdtemp()))
                 config = AppConfig.load()
                 assert config.llm.max_tokens == 4096
+            finally:
+                os.chdir(old_cwd)
+
+    def test_streaming_from_env_true(self) -> None:
+        """CODELAB_LLM_STREAMING=true включает streaming."""
+        with patch.dict(os.environ, {"CODELAB_LLM_STREAMING": "true"}, clear=False):
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(Path(tempfile.mkdtemp()))
+                config = AppConfig.load()
+                assert config.llm.streaming is True
+            finally:
+                os.chdir(old_cwd)
+
+    def test_streaming_from_env_false(self) -> None:
+        """CODELAB_LLM_STREAMING=false явно выключает streaming (не truthy-строка)."""
+        with patch.dict(os.environ, {"CODELAB_LLM_STREAMING": "false"}, clear=False):
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(Path(tempfile.mkdtemp()))
+                config = AppConfig.load()
+                assert config.llm.streaming is False
             finally:
                 os.chdir(old_cwd)
 
@@ -212,6 +239,30 @@ max_tokens = 4096
                 assert config.llm.model == "openai/gpt-4o"
                 assert config.llm.temperature == 0.8
                 assert config.llm.max_tokens == 4096
+        finally:
+            os.chdir(old_cwd)
+
+    def test_load_streaming_from_toml(self, tmp_path: Path) -> None:
+        """load() читает streaming из [llm] секции TOML."""
+        self._create_toml(tmp_path, "[llm]\nstreaming = true\n")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            with patch.dict(os.environ, {}, clear=True):
+                config = AppConfig.load()
+                assert config.llm.streaming is True
+        finally:
+            os.chdir(old_cwd)
+
+    def test_env_streaming_overrides_toml(self, tmp_path: Path) -> None:
+        """env CODELAB_LLM_STREAMING имеет приоритет над TOML."""
+        self._create_toml(tmp_path, "[llm]\nstreaming = true\n")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            with patch.dict(os.environ, {"CODELAB_LLM_STREAMING": "false"}, clear=True):
+                config = AppConfig.load()
+                assert config.llm.streaming is False
         finally:
             os.chdir(old_cwd)
 

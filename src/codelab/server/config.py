@@ -23,6 +23,7 @@
     CODELAB_LLM_MODEL: Модель LLM (по умолчанию gpt-4o)
     CODELAB_LLM_TEMPERATURE: Temperature для LLM (по умолчанию 0.7)
     CODELAB_LLM_MAX_TOKENS: Максимальное количество токенов (по умолчанию 8192)
+    CODELAB_LLM_STREAMING: Токен-стриминг ответа (1/true/yes/on). По умолчанию off.
     CODELAB_SYSTEM_PROMPT: Системный промпт для агента
     CODELAB_SESSION_CACHE_SIZE: Размер LRU-кэша сессий (по умолчанию 200)
 
@@ -93,6 +94,11 @@ class LLMConfig(BaseModel):
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 8192
+    # Токен-стриминг ответа агента. Дефолт False: агентный путь использует
+    # create_completion (один chunk). Включение переводит цикл на
+    # stream_completion (дельты → live chunks). Реальный эффект — только если
+    # провайдер объявил supports_streaming (иначе безопасный фолбэк).
+    streaming: bool = False
     timeout: TimeoutConfig = Field(default_factory=TimeoutConfig)
 
     # Registry metadata (загружаются только из TOML)
@@ -367,7 +373,10 @@ class AppConfig(BaseSettings):
         # Применяем TOML (нижний приоритет)
         toml_llm = toml_data.get("llm", {})
         if isinstance(toml_llm, dict):
-            for key in ("provider", "model", "temperature", "max_tokens", "api_key", "base_url"):
+            for key in (
+                "provider", "model", "temperature", "max_tokens",
+                "api_key", "base_url", "streaming",
+            ):
                 if key in toml_llm:
                     llm_data[key] = toml_llm[key]
 
@@ -404,6 +413,10 @@ class AppConfig(BaseSettings):
         env_max_tokens = os.getenv("CODELAB_LLM_MAX_TOKENS")
         if env_max_tokens is not None:
             llm_data["max_tokens"] = int(env_max_tokens)
+
+        env_streaming = os.getenv("CODELAB_LLM_STREAMING")
+        if env_streaming is not None:
+            llm_data["streaming"] = env_streaming.strip().lower() in ("1", "true", "yes", "on")
 
         env_api_key = os.getenv("CODELAB_LLM_API_KEY")
         if env_api_key is not None:
