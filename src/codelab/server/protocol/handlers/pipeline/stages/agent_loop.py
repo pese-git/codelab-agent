@@ -131,6 +131,7 @@ class AgentLoop:
         global_policy_manager: GlobalPolicyManager | None = None,
         max_turn_requests: int = 10,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+        streaming_enabled: bool = False,
     ) -> None:
         """Инициализация AgentLoop.
 
@@ -166,6 +167,12 @@ class AgentLoop:
         self._global_policy_manager = global_policy_manager
         self._max_turn_requests = max_turn_requests
         self._notification_callback = notification_callback
+        self._streaming_enabled = streaming_enabled
+        # Были ли отправлены дельты в последнем вызове LLM. Нужно, чтобы при
+        # включённом стриминге, но провайдере без реальных дельт (напр. mock
+        # или один финальный chunk), полный текст всё же эмитился — иначе он
+        # потеряется из живой доставки.
+        self._last_call_streamed = False
 
     # ── Immediate Notification Delivery ─────────────────────────────────────────
     #
@@ -325,10 +332,17 @@ class AgentLoop:
             if agent_text:
                 final_text = agent_text
                 self._state_manager.add_assistant_message(session, agent_text)
-                notification = self._build_agent_response_notification(session_id, agent_text)
-                if not await self._send_notification_immediately(notification):
-                    notifications.append(notification)
+                # При стриминге текст уже доставлен дельтами через on_delta —
+                # не эмитим полный текст повторно (иначе дубль). Но если дельт
+                # не было (провайдер без стрима) — эмитим полный текст.
+                if not (self._streaming_enabled and self._last_call_streamed):
+                    notification = self._build_agent_response_notification(
+                        session_id, agent_text
+                    )
+                    if not await self._send_notification_immediately(notification):
+                        notifications.append(notification)
                 # Сохранить в events_history для replay при session/load
+                # (полный текст одним chunk'ом — авторитетно для реплея).
                 self._replay_manager.save_agent_message_chunk(
                     session,
                     {"type": "text", "text": agent_text},
@@ -548,12 +562,28 @@ class AgentLoop:
         # Формируем system prompt (agent + config + MCP info)
         system_prompt = self._system_prompt_builder.build(session, mcp_manager)
 
+        # Стриминг: on_delta эмитит текстовые дельты как agent_message_chunk
+        # вживую. Полный текст ответа НЕ эмитится повторно (см. run()).
+        on_delta = None
+        self._last_call_streamed = False
+        if self._streaming_enabled:
+            session_id = session.session_id
+
+            async def on_delta(delta: str) -> None:
+                self._last_call_streamed = True
+                await self._send_notification_immediately(
+                    self._build_agent_response_notification(session_id, delta)
+                )
+
         if iteration == 1 and prompt:
             return await self._strategy.execute(
-                session, prompt, mcp_manager, system_prompt=system_prompt
+                session, prompt, mcp_manager,
+                system_prompt=system_prompt, on_delta=on_delta,
             )
         else:
-            return await self._strategy.continue_execution(session, mcp_manager)
+            return await self._strategy.continue_execution(
+                session, mcp_manager, on_delta=on_delta,
+            )
 
     async def _process_tool_calls(
         self,

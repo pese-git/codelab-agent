@@ -664,6 +664,7 @@ class PipelineProvider(Provider):
         tracer: Tracer,
         strategy_dispatcher: StrategyDispatcher,
         system_prompt_builder: SystemPromptBuilder,
+        config: Annotated[AppConfig, from_context(provides=AppConfig)],
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
@@ -677,6 +678,7 @@ class PipelineProvider(Provider):
             global_policy_manager=global_policy_manager,
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,
+            streaming_enabled=config.llm.streaming,
         )
 
     @provide(scope=Scope.APP)

@@ -238,6 +238,12 @@ class LLMAdapter:
         stop_reason). Контракт совпадает с _single_call по финалу — остальной
         цикл не различает стриминговый и нестриминговый путь.
         """
+        # Гейт возможности: провайдер не умеет стримить → безопасный фолбэк
+        # на один create_completion (дельт нет, финал корректен).
+        if not self._llm_provider.capabilities.supports_streaming:
+            yield await self._single_call(messages, tools, config, model)
+            return
+
         temperature = config.get("temperature", 0.7)
         max_tokens = config.get("max_tokens", 8192)
         llm_tools = self._tool_registry.to_llm_tools(tools)

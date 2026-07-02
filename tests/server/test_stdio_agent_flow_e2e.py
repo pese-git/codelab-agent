@@ -218,6 +218,28 @@ async def test_set_mode_invalid_returns_error(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_streaming_emits_multiple_chunks(tmp_cwd: Path) -> None:
+    """CODELAB_LLM_STREAMING=1: ответ приходит несколькими agent_message_chunk,
+    их конкатенация равна полному тексту (живой токен-стриминг)."""
+    async with h.StdioServer(
+        tmp_cwd, h.chat_scenario(), extra_env={"CODELAB_LLM_STREAMING": "1"}
+    ) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp, notes, _ = await h.run_prompt(t, session_id, "привет", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        chunks = [
+            n["params"]["update"]["content"]["text"]
+            for n in notes
+            if n.get("method") == "session/update"
+            and n["params"]["update"].get("sessionUpdate") == "agent_message_chunk"
+        ]
+        # Стриминг: больше одного чанка, склейка == полный ответ.
+        assert len(chunks) > 1
+        assert "".join(chunks) == "Привет! Я тестовый агент."
+
+
+@pytest.mark.asyncio
 async def test_notifications_delivered_before_final_response(tmp_cwd: Path) -> None:
     """Порядок (риск №1): все session/update приходят ДО финального response.
 

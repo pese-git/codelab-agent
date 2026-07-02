@@ -396,7 +396,8 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Initial prompt")
 
         mock_strategy.execute.assert_called_once_with(
-            mock_session, "Initial prompt", None, system_prompt="You are a helpful assistant."
+            mock_session, "Initial prompt", None,
+            system_prompt="You are a helpful assistant.", on_delta=None,
         )
         mock_strategy.continue_execution.assert_not_called()
 
@@ -447,7 +448,9 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
-        mock_strategy.continue_execution.assert_called_once_with(mock_session, None)
+        mock_strategy.continue_execution.assert_called_once_with(
+            mock_session, None, on_delta=None
+        )
 
     def test_add_tool_result_to_history_success(
         self, mock_strategy, mock_session, mock_dependencies
@@ -1090,6 +1093,85 @@ class TestAgentLoopNotificationCallback:
         
         # Loop должен завершиться успешно несмотря на ошибку в callback
         result = await loop.run(mock_session, "test_session", "Read file")
-        
+
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Done reading"
+
+
+def _chunk_texts(captured: list) -> list[str]:
+    """Извлечь тексты agent_message_chunk из перехваченных нотификаций."""
+    texts = []
+    for msg in captured:
+        update = (msg.params or {}).get("update", {})
+        if update.get("sessionUpdate") == "agent_message_chunk":
+            texts.append(update.get("content", {}).get("text", ""))
+    return texts
+
+
+class TestAgentLoopStreaming:
+    """Живой стриминг (streaming_enabled) через on_delta."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_emits_deltas_no_full_text_dup(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Дельты эмитятся как agent_message_chunk; полный текст не дублируется."""
+        captured: list = []
+
+        async def capture(msg: ACPMessage) -> None:
+            captured.append(msg)
+
+        async def exec_side_effect(
+            session, prompt, mcp_manager, *, system_prompt=None, on_delta=None
+        ):
+            if on_delta:
+                await on_delta("Hel")
+                await on_delta("lo")
+            resp = MagicMock(spec=AgentResponse)
+            resp.text = "Hello"
+            resp.tool_calls = []
+            return resp
+
+        mock_strategy.execute.side_effect = exec_side_effect
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=capture,
+            streaming_enabled=True,
+        )
+        await loop.run(mock_session, "test_session", "Hi")
+
+        # Ровно дельты, без повторного полного "Hello"
+        assert _chunk_texts(captured) == ["Hel", "lo"]
+
+    @pytest.mark.asyncio
+    async def test_streaming_without_deltas_falls_back_to_full_text(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Стриминг включён, но провайдер не отдал дельт → эмитим полный текст."""
+        captured: list = []
+
+        async def capture(msg: ACPMessage) -> None:
+            captured.append(msg)
+
+        async def exec_side_effect(
+            session, prompt, mcp_manager, *, system_prompt=None, on_delta=None
+        ):
+            # on_delta не вызывается (провайдер без стрима)
+            resp = MagicMock(spec=AgentResponse)
+            resp.text = "Whole answer"
+            resp.tool_calls = []
+            return resp
+
+        mock_strategy.execute.side_effect = exec_side_effect
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=capture,
+            streaming_enabled=True,
+        )
+        await loop.run(mock_session, "test_session", "Hi")
+
+        assert _chunk_texts(captured) == ["Whole answer"]

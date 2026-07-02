@@ -77,6 +77,7 @@ class LLMLoopStage(PromptStage):
         global_policy_manager: GlobalPolicyManager | None = None,
         strategy_dispatcher: StrategyDispatcher | None = None,
         tracer: Tracer | None = None,
+        streaming_enabled: bool = False,
     ) -> None:
         """Инициализация LLMLoopStage.
 
@@ -100,6 +101,7 @@ class LLMLoopStage(PromptStage):
         self._global_policy_manager = global_policy_manager
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
+        self._streaming_enabled = streaming_enabled
 
         # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
@@ -197,6 +199,7 @@ class LLMLoopStage(PromptStage):
             system_prompt_builder=self._system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
             notification_callback=notification_callback,
+            streaming_enabled=self._streaming_enabled,
         )
         return self._agent_loop
 

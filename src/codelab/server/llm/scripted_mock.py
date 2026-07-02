@@ -162,7 +162,17 @@ class ScriptedMockLLMProvider(LLMProvider):
     ) -> AsyncGenerator[CompletionResponse, None]:
         self.last_request = request
         reply = self._next_reply(request.messages)
-        yield self._to_response(reply, request)
+        final = self._to_response(reply, request)
+        # Эмитим текст дельтами по словам (STREAMING), затем финальный chunk
+        # с полным текстом, tool_calls и stop_reason — как реальный провайдер.
+        if final.text:
+            for delta in re.findall(r"\S+\s*", final.text):
+                yield CompletionResponse(
+                    text=delta,
+                    stop_reason=StopReason.STREAMING,
+                    model=request.model,
+                )
+        yield final
 
     # ------------------------------------------------------------------ #
     # Логика автомата
