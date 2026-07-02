@@ -23,6 +23,14 @@ class TestOpenAIContentPartFormatting:
         assert result["type"] == "image_url"
         assert result["image_url"]["url"] == "data:image/png;base64,abc"
 
+    def test_audio_part_formatting(self) -> None:
+        part = ContentPart.make_audio(data="abc", mime_type="audio/wav")
+        result = self.provider._content_part_to_openai(part)
+        assert result is not None
+        assert result["type"] == "input_audio"
+        assert result["input_audio"]["data"] == "abc"
+        assert result["input_audio"]["format"] == "wav"
+
     def test_mixed_content_formatting(self) -> None:
         messages = [
             LLMMessage(
@@ -43,3 +51,6 @@ class TestOpenAIContentPartFormatting:
 
     def test_vision_capability(self) -> None:
         assert self.provider.capabilities.supports_vision is True
+
+    def test_audio_capability(self) -> None:
+        assert self.provider.capabilities.supports_audio is True

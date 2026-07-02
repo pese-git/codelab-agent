@@ -192,14 +192,14 @@ class AgentLoop:
         """
         if self._notification_callback is not None:
             try:
-                logger.info(
+                logger.debug(
                     "sending_notification_via_callback",
                     method=notification.method,
                     is_notification=notification.is_notification,
                     has_callback=True,
                 )
                 await self._notification_callback(notification)
-                logger.info(
+                logger.debug(
                     "notification_sent_via_callback",
                     method=notification.method,
                 )
@@ -213,7 +213,7 @@ class AgentLoop:
                 )
                 return False
         else:
-            logger.info(
+            logger.debug(
                 "notification_not_sent_no_callback",
                 method=notification.method,
                 has_callback=False,
@@ -616,6 +616,15 @@ class AgentLoop:
                 tool_call_id_from_llm=tool_call_id_from_llm,
             )
 
+            logger.info(
+                "tool_call_created",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                tool_name=acp_tool_name,
+                tool_kind=tool_kind,
+                is_mcp=is_mcp,
+            )
+
             tool_call_notification = self._tool_call_handler.build_tool_call_notification(
                 session_id=session_id,
                 tool_call_id=tool_call_id,
@@ -633,6 +642,15 @@ class AgentLoop:
                 status="pending",
             )
 
+            logger.info(
+                "tool_call_deciding_execution",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                tool_name=acp_tool_name,
+                tool_kind=tool_kind,
+                is_mcp=is_mcp,
+            )
+
             # MCP инструменты всегда требуют разрешения (по умолчанию)
             if is_mcp:
                 decision = await self._decide_tool_execution(session, tool_kind)
@@ -641,9 +659,10 @@ class AgentLoop:
             else:
                 decision = await self._decide_tool_execution(session, tool_kind)
 
-            logger.debug(
+            logger.info(
                 "tool_execution_decision",
                 session_id=session_id,
+                tool_call_id=tool_call_id,
                 tool_name=acp_tool_name,
                 tool_kind=tool_kind,
                 is_mcp=is_mcp,
@@ -673,10 +692,11 @@ class AgentLoop:
                         session.active_turn.phase = "awaiting_permission"
                         session.active_turn.permission_tool_call_id = tool_call_id
 
-                logger.debug(
-                    "permission request sent, pausing agent loop",
+                logger.info(
+                    "permission_request_sent_pausing_agent_loop",
                     session_id=session_id,
                     tool_call_id=tool_call_id,
+                    tool_name=acp_tool_name,
                 )
                 return ToolProcessingResult(
                     tool_results=tool_results,
@@ -685,6 +705,13 @@ class AgentLoop:
                 )
 
             if decision == "reject":
+                logger.info(
+                    "tool_call_rejected",
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    tool_name=acp_tool_name,
+                    tool_kind=tool_kind,
+                )
                 self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
                 rejection_msg = f"Tool execution rejected by policy for {tool_kind}"
                 rejection_content = [
@@ -715,6 +742,14 @@ class AgentLoop:
                 continue
 
             # decision == "allow"
+            logger.info(
+                "tool_call_executing",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                tool_name=acp_tool_name,
+                tool_kind=tool_kind,
+                is_mcp=is_mcp,
+            )
             try:
                 self._tool_call_handler.update_tool_call_status(
                     session, tool_call_id, "in_progress"

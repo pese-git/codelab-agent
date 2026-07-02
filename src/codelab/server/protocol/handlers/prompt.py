@@ -38,6 +38,9 @@ MAX_PROMPT_TEXT_LENGTH = 100_000
 # Максимальный размер данных image в base64 (20 МБ)
 MAX_IMAGE_DATA_SIZE = 20 * 1024 * 1024
 
+# Максимальный размер данных audio в base64 (25 МБ)
+MAX_AUDIO_DATA_SIZE = 25 * 1024 * 1024
+
 
 def complete_active_turn(
     session: SessionState,
@@ -138,6 +141,25 @@ def validate_prompt_content(
                     message=(
                         f"Invalid params: image data too large: {len(data)} bytes "
                         f"(max {MAX_IMAGE_DATA_SIZE})"
+                    ),
+                )
+            continue
+        if block_type == "audio":
+            data = block.get("data")
+            mime_type = block.get("mimeType")
+            if not isinstance(data, str) or not isinstance(mime_type, str):
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message="Invalid params: audio requires data (str) and mimeType (str)",
+                )
+            if len(data) > MAX_AUDIO_DATA_SIZE:
+                return ACPMessage.error_response(
+                    request_id,
+                    code=-32602,
+                    message=(
+                        f"Invalid params: audio data too large: {len(data)} bytes "
+                        f"(max {MAX_AUDIO_DATA_SIZE})"
                     ),
                 )
             continue

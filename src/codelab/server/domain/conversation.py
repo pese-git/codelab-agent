@@ -45,17 +45,23 @@ class Image:
     """Domain model для изображения."""
 
     data: str
-    format: str = "png"
+    mime_type: str = "image/png"
 
     @classmethod
     def from_acp(cls, block: dict[str, Any]) -> Image:
+        # Backward compatibility: поддерживаем старое поле "format"
+        mime_type = block.get("mimeType") or block.get("format", "image/png")
+        # Нормализация: если указан только формат без типа (например, "png"),
+        # преобразуем в полный MIME-тип
+        if mime_type and "/" not in mime_type:
+            mime_type = f"image/{mime_type}"
         return cls(
             data=block.get("data", ""),
-            format=block.get("format", "png"),
+            mime_type=mime_type,
         )
 
     def to_acp(self) -> dict[str, Any]:
-        return {"type": "image", "data": self.data, "format": self.format}
+        return {"type": "image", "data": self.data, "mimeType": self.mime_type}
 
 
 @dataclass(frozen=True)

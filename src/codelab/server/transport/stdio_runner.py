@@ -192,6 +192,14 @@ async def run_stdio_server(
             exc_info=True,
         )
     finally:
+        # Flush observability data перед закрытием
+        try:
+            flush_manager = await container.get(ObservabilityFlushManager)
+            await flush_manager.flush_all()
+            logger.debug("observability data flushed on shutdown")
+        except Exception as e:
+            logger.warning("failed to flush observability data on shutdown", error=str(e))
+
         # Cleanup: отменяем pending RPC requests
         if client_rpc_service is not None:
             cancelled = client_rpc_service.cancel_all_pending_requests(

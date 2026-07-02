@@ -3,6 +3,9 @@
 Адаптирует MCPManager.call_tool() под интерфейс ToolExecutor.
 Конвертирует MCP content → ACP content format.
 Обрабатывает timeout и errors.
+
+Использует Decorator Pattern для добавления timeout, retry, metrics и tracing:
+Base Executor → TimeoutDecorator → RetryDecorator → MetricsDecorator → TracingDecorator
 """
 
 from __future__ import annotations
@@ -15,6 +18,13 @@ import structlog
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
+from codelab.server.tools.executors.decorators import (
+    MetricsDecorator,
+    RetryDecorator,
+    TimeoutDecorator,
+    ToolExecutorProtocol,
+    TracingDecorator,
+)
 
 if TYPE_CHECKING:
     from codelab.server.mcp.manager import MCPManager
@@ -30,25 +40,39 @@ class MCPToolExecutor(ToolExecutor):
 
     Делегирует выполнение инструментов MCP серверам через MCPManager.
     Конвертирует результаты MCP в формат ToolExecutionResult.
+    
+    Использует chain of decorators:
+    - TimeoutDecorator: ограничивает время выполнения
+    - RetryDecorator: повторяет вызов при временных ошибках
+    - MetricsDecorator: собирает метрики выполнения
+    - TracingDecorator: создаёт trace spans для distributed tracing
 
     Attributes:
         mcp_manager: Менеджер MCP серверов сессии.
         default_timeout: Таймаут выполнения инструмента в секундах.
+        max_retries: Максимальное количество попыток при retry.
+        backoff_factor: Фактор для exponential backoff.
     """
 
     def __init__(
         self,
         mcp_manager: MCPManager,
         default_timeout: float = 30.0,
+        max_retries: int = 3,
+        backoff_factor: float = 2.0,
     ) -> None:
         """Инициализировать executor.
 
         Args:
             mcp_manager: Менеджер MCP серверов сессии.
             default_timeout: Таймаут выполнения в секундах.
+            max_retries: Максимальное количество попыток при retry.
+            backoff_factor: Фактор для exponential backoff.
         """
         self._mcp_manager = mcp_manager
         self._default_timeout = default_timeout
+        self._max_retries = max_retries
+        self._backoff_factor = backoff_factor
 
     @staticmethod
     def is_mcp_tool(tool_name: str) -> bool:
@@ -111,7 +135,16 @@ class MCPToolExecutor(ToolExecutor):
         session: SessionState,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
-        """Выполнить MCP инструмент.
+        """Выполнить MCP инструмент с timeout, retry, metrics и tracing.
+        
+        Использует chain of decorators:
+        Base Executor → TimeoutDecorator → RetryDecorator → MetricsDecorator → TracingDecorator
+        
+        Это обеспечивает:
+        - Timeout: предотвращает бесконечное ожидание
+        - Retry: устойчивость к временным сбоям (timeout, connection errors)
+        - Metrics: сбор метрик выполнения (duration, success/failure)
+        - Tracing: distributed tracing с trace/span IDs
 
         Args:
             session: Состояние сессии (используется для получения mcp_manager).
@@ -136,47 +169,91 @@ class MCPToolExecutor(ToolExecutor):
             )
 
         logger.info(
-            "executing MCP tool",
+            "executing MCP tool with decorators",
             session_id=session.session_id,
             tool_name=tool_name,
+            timeout=self._default_timeout,
+            max_retries=self._max_retries,
         )
 
-        # Убираем tool_name из arguments перед передачей в MCP
-        mcp_arguments = {k: v for k, v in arguments.items() if k != "tool_name"}
+        # Создаём chain of decorators
+        # Base → Timeout → Retry → Metrics → Tracing
+        base_executor = self._create_base_executor()
+        timeout_executor = TimeoutDecorator(base_executor, timeout=self._default_timeout)
+        retry_executor = RetryDecorator(
+            timeout_executor,
+            max_retries=self._max_retries,
+            backoff_factor=self._backoff_factor,
+        )
+        metrics_executor = MetricsDecorator(retry_executor)
+        tracing_executor = TracingDecorator(metrics_executor)
 
-        try:
-            result = await self._mcp_manager.call_tool(tool_name, mcp_arguments)
-
-            # Если результат уже ToolExecutionResult — возвращаем напрямую
-            if isinstance(result, ToolExecutionResult):
-                return result
-
-            # Конвертируем MCP content в текст
-            if hasattr(result, "content") and result.content:
-                output = self._convert_mcp_content_to_text(result.content)
-                is_error = getattr(result, "is_error", False)
-                return ToolExecutionResult(
-                    success=not is_error,
-                    output=output,
-                    error=output if is_error else None,
-                )
-
-            return ToolExecutionResult(
-                success=True,
-                output=str(result) if result else "",
-            )
-        except Exception as exc:
-            logger.error(
-                "MCP tool execution failed",
-                session_id=session.session_id,
-                tool_name=tool_name,
-                error=str(exc),
-                exc_info=True,
-            )
-            return ToolExecutionResult(
-                success=False,
-                error=f"MCP tool execution error: {exc}",
-            )
+        return await tracing_executor.execute(session, arguments)
+    
+    def _create_base_executor(self) -> ToolExecutorProtocol:
+        """Создать базовый executor без декораторов.
+        
+        Возвращает executor, который выполняет базовую логику
+        вызова MCP инструмента через MCPManager.
+        
+        Returns:
+            ToolExecutorProtocol для базового выполнения.
+        """
+        
+        class BaseMCPExecutor:
+            """Базовый executor для MCP инструментов."""
+            
+            def __init__(self, outer: MCPToolExecutor) -> None:
+                self._outer = outer
+            
+            async def execute(
+                self,
+                session: SessionState,
+                arguments: dict[str, Any],
+            ) -> ToolExecutionResult:
+                """Выполнить MCP инструмент без декораторов."""
+                tool_name = arguments.get("tool_name", "")
+                
+                # Убираем tool_name из arguments перед передачей в MCP
+                mcp_arguments = {k: v for k, v in arguments.items() if k != "tool_name"}
+                
+                try:
+                    result = await self._outer._mcp_manager.call_tool(
+                        tool_name, mcp_arguments
+                    )
+                    
+                    # Если результат уже ToolExecutionResult — возвращаем напрямую
+                    if isinstance(result, ToolExecutionResult):
+                        return result
+                    
+                    # Конвертируем MCP content в текст
+                    if hasattr(result, "content") and result.content:
+                        output = self._outer._convert_mcp_content_to_text(result.content)
+                        is_error = getattr(result, "is_error", False)
+                        return ToolExecutionResult(
+                            success=not is_error,
+                            output=output,
+                            error=output if is_error else None,
+                        )
+                    
+                    return ToolExecutionResult(
+                        success=True,
+                        output=str(result) if result else "",
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "MCP tool execution failed",
+                        session_id=session.session_id,
+                        tool_name=tool_name,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    return ToolExecutionResult(
+                        success=False,
+                        error=f"MCP tool execution error: {exc}",
+                    )
+        
+        return BaseMCPExecutor(self)
 
     async def execute_tool(
         self,

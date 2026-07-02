@@ -45,20 +45,33 @@ class TestResource:
 
 class TestImage:
     def test_create(self) -> None:
-        img = Image(data="base64data", format="png")
+        img = Image(data="base64data", mime_type="image/png")
         assert img.data == "base64data"
-        assert img.format == "png"
+        assert img.mime_type == "image/png"
 
     def test_from_acp(self) -> None:
+        block = {"type": "image", "data": "base64data", "mimeType": "image/jpeg"}
+        img = Image.from_acp(block)
+        assert img.data == "base64data"
+        assert img.mime_type == "image/jpeg"
+
+    def test_from_acp_backward_compat_format(self) -> None:
+        """Backward compatibility: поддерживаем старое поле 'format'."""
         block = {"type": "image", "data": "base64data", "format": "jpeg"}
         img = Image.from_acp(block)
         assert img.data == "base64data"
-        assert img.format == "jpeg"
+        assert img.mime_type == "image/jpeg"
+
+    def test_from_acp_backward_compat_format_full_mime(self) -> None:
+        """Backward compatibility: 'format' с полным MIME-типом."""
+        block = {"type": "image", "data": "base64data", "format": "image/webp"}
+        img = Image.from_acp(block)
+        assert img.mime_type == "image/webp"
 
     def test_to_acp(self) -> None:
-        img = Image(data="base64data", format="png")
+        img = Image(data="base64data", mime_type="image/png")
         acp = img.to_acp()
-        assert acp == {"type": "image", "data": "base64data", "format": "png"}
+        assert acp == {"type": "image", "data": "base64data", "mimeType": "image/png"}
 
 
 class TestMessageContent:

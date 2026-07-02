@@ -164,7 +164,7 @@ class TestContentValidatorExistingTypes:
         item = {
             "type": "diff",
             "path": "/test.py",
-            "diff": "@@ -1 +1 @@",
+            "newText": "new content",
         }
         is_valid, error = validator.validate_content_item(item)
         assert is_valid is True

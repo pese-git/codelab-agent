@@ -24,6 +24,13 @@ class TestContentPartCreation:
         assert part.data == "abc123"
         assert part.mime_type == "image/png"
 
+    def test_audio_factory(self) -> None:
+        part = ContentPart.make_audio(data="abc123", mime_type="audio/wav")
+        assert part.type == "audio"
+        assert part.text is None
+        assert part.data == "abc123"
+        assert part.mime_type == "audio/wav"
+
     def test_direct_construction(self) -> None:
         part = ContentPart(type="text", text="hi")
         assert part.type == "text"
@@ -43,6 +50,11 @@ class TestContentPartImmutability:
         with pytest.raises(FrozenInstanceError):
             part.data = "new"  # type: ignore[misc]
 
+    def test_frozen_audio(self) -> None:
+        part = ContentPart.make_audio(data="abc", mime_type="audio/wav")
+        with pytest.raises(FrozenInstanceError):
+            part.data = "new"  # type: ignore[misc]
+
 
 class TestContentPartIsMultimodal:
     """Тесты свойства is_multimodal."""
@@ -52,3 +64,6 @@ class TestContentPartIsMultimodal:
 
     def test_image_is_multimodal(self) -> None:
         assert ContentPart.make_image(data="abc", mime_type="image/png").is_multimodal is True
+
+    def test_audio_is_multimodal(self) -> None:
+        assert ContentPart.make_audio(data="abc", mime_type="audio/wav").is_multimodal is True

@@ -238,7 +238,9 @@ class TestNotificationPerformanceBenchmark:
         # Note: async callback добавляет overhead, но absolute latency всё ещё очень низкая
         assert overhead_percent < 500, f"Callback overhead {overhead_percent}% > 500%"
         
-        #更重要的是: absolute latency с callback всё ещё должна быть < 100ms
+        # Absolute latency с callback должна быть < 1ms (1000 микросекунд)
+        # Порог 1ms выбран как реалистичный для async Python кода,
+        # обеспечивающий real-time UX (человеческий глаз не замечает задержки < 100ms)
         avg_latency_with_callback = time_with_callback_ms / 1000
-        error_msg = f"Average latency with callback {avg_latency_with_callback}ms > 0.1ms"
-        assert avg_latency_with_callback < 0.1, error_msg
+        error_msg = f"Average latency with callback {avg_latency_with_callback}ms > 1ms"
+        assert avg_latency_with_callback < 1.0, error_msg

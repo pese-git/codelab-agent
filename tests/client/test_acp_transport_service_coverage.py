@@ -288,26 +288,22 @@ class TestReceive:
         assert message["method"] == "session/update"
 
     @pytest.mark.asyncio
-    async def test_receive_timeout(self) -> None:
-        """Таймаут ожидания сообщения оборачивается в RuntimeError."""
-        service = _create_service()
-        queues = RoutingQueues()
-        service._queues = queues  # noqa: SLF001
-
-        with patch.object(asyncio, "wait_for", side_effect=TimeoutError):
-            with pytest.raises(RuntimeError, match="Timeout waiting for message"):
-                await service.receive()
-
-    @pytest.mark.asyncio
     async def test_receive_failure(self) -> None:
         """Неожиданная ошибка при получении оборачивается в RuntimeError."""
         service = _create_service()
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001
 
-        with patch.object(asyncio, "wait_for", side_effect=ValueError("boom")):
-            with pytest.raises(RuntimeError, match="Failed to receive message"):
-                await service.receive()
+        async def failing_get() -> None:
+            raise ValueError("boom")
+
+        queues.get_or_create_response_queue = AsyncMock()  # noqa: SLF001
+        mock_queue = AsyncMock()
+        mock_queue.get = failing_get
+        queues.get_or_create_response_queue.return_value = mock_queue  # noqa: SLF001
+
+        with pytest.raises(RuntimeError, match="Failed to receive message"):
+            await service.receive(request_id="test")
 
 
 class TestListen:

@@ -80,8 +80,11 @@ class TestTerminalExecutorReadOutput:
 
         await executor._read_output(session)
 
-        # Буфер должен быть обрезан
-        assert len(session.output_buffer) <= 3
+        # Буфер должен быть обрезан до byte_limit
+        combined = "".join(session.output_buffer)
+        assert len(combined.encode("utf-8")) <= 8
+        # was_truncated должен быть установлен
+        assert session.was_truncated is True
 
     @pytest.mark.asyncio
     async def test_read_output_handles_exception(self) -> None:

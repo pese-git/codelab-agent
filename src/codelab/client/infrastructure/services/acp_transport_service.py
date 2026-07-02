@@ -342,17 +342,11 @@ class ACPTransportService(TransportService):
                 self._logger.debug("waiting_for_rpc_response", request_id=request_id)
                 # Получаем или создаем очередь для этого request_id
                 response_queue = await self._queues.get_or_create_response_queue(request_id)
-                message = await asyncio.wait_for(
-                    response_queue.get(),
-                    timeout=300.0,
-                )
+                message = await response_queue.get()
             else:
                 # Получаем асинхронное уведомление
                 self._logger.debug("waiting_for_notification")
-                message = await asyncio.wait_for(
-                    self._queues.notification_queue.get(),
-                    timeout=300.0,
-                )
+                message = await self._queues.notification_queue.get()
 
             message_id = message.get("id")
             self._logger.debug(
@@ -363,10 +357,6 @@ class ACPTransportService(TransportService):
                 has_error="error" in message,
             )
             return message
-        except TimeoutError:
-            self._logger.error("receive_timeout", request_id=request_id)
-            msg = "Timeout waiting for message from server"
-            raise RuntimeError(msg) from None
         except Exception as e:
             self._logger.error(
                 "receive_failed",

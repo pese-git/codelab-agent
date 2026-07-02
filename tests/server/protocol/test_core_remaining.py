@@ -441,7 +441,10 @@ class TestHandleSessionPrompt:
             with patch("codelab.server.protocol.core.logger") as mock_logger:
                 message = ACPMessage.request(
                     "session/prompt",
-                    {"sessionId": session.session_id},
+                    {
+                        "sessionId": session.session_id,
+                        "prompt": [{"type": "text", "text": "hi"}],
+                    },
                     request_id="req_1",
                 )
                 outcome = await protocol._handle_session_prompt(message)

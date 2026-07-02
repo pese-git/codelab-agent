@@ -626,3 +626,77 @@ class TestWebSocketTransportCompleteDeferredPrompt:
             )
 
         ws.send_str.assert_not_awaited()
+
+
+class TestObservabilityFlushOnDisconnect:
+    """Тесты flush observability data при disconnect."""
+
+    @pytest.mark.asyncio
+    async def test_flush_called_on_disconnect(
+        self,
+        mock_config: MagicMock,
+    ) -> None:
+        """flush_all() вызывается при закрытии WebSocket соединения."""
+        protocol = _make_protocol()
+        ws = _make_ws([WsMessage(WSMsgType.CLOSE)])
+        ws.closed = False
+
+        flush_manager = AsyncMock()
+        flush_manager.flush_all = AsyncMock()
+
+        container = _make_container(protocol)
+
+        def get_side_effect(cls):
+            if cls.__name__ == "ObservabilityFlushManager":
+                return flush_manager
+            return MagicMock()
+
+        container.get = AsyncMock(side_effect=get_side_effect)
+
+        transport = WebSocketTransport(
+            ws=ws,
+            app_container=container,
+            config=mock_config,
+            connection_id="conn_1",
+            remote_addr="127.0.0.1",
+        )
+
+        await transport.run(on_message=protocol.handle_and_process)
+
+        flush_manager.flush_all.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_flush_error_does_not_crash(
+        self,
+        mock_config: MagicMock,
+    ) -> None:
+        """Ошибка при flush не прерывает закрытие соединения."""
+        protocol = _make_protocol()
+        ws = _make_ws([WsMessage(WSMsgType.CLOSE)])
+        ws.closed = False
+
+        flush_manager = AsyncMock()
+        flush_manager.flush_all = AsyncMock(side_effect=RuntimeError("flush failed"))
+
+        container = _make_container(protocol)
+
+        def get_side_effect(cls):
+            if cls.__name__ == "ObservabilityFlushManager":
+                return flush_manager
+            return MagicMock()
+
+        container.get = AsyncMock(side_effect=get_side_effect)
+
+        transport = WebSocketTransport(
+            ws=ws,
+            app_container=container,
+            config=mock_config,
+            connection_id="conn_1",
+            remote_addr="127.0.0.1",
+        )
+
+        # Не должно поднять исключение
+        await transport.run(on_message=protocol.handle_and_process)
+
+        # flush_all был вызван
+        flush_manager.flush_all.assert_awaited_once()

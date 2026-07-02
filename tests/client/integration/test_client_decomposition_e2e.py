@@ -108,15 +108,16 @@ class MockTerminalExecutor(TerminalExecutorPort):
         }
         return terminal_id
 
-    async def get_output(self, terminal_id: str) -> dict[str, Any]:
+    async def get_output(self, terminal_id: str) -> tuple[str, bool, int | None, bool]:
         terminal = self._terminals.get(terminal_id)
         if terminal is None:
             raise ValueError(f"Terminal not found: {terminal_id}")
-        return {
-            "output": terminal["output"],
-            "isComplete": True,
-            "exitCode": terminal["exit_code"],
-        }
+        return (
+            terminal["output"],
+            True,
+            terminal["exit_code"],
+            False,
+        )
 
     async def wait_for_exit(self, terminal_id: str) -> tuple[int | None, str | None]:
         terminal = self._terminals.get(terminal_id)

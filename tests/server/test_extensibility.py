@@ -723,3 +723,89 @@ async def test_custom_method_with_double_underscore() -> None:
     assert outcome.response is not None
     assert outcome.response.error is not None
     assert outcome.response.error.code == -32601
+
+
+# ---------------------------------------------------------------------------
+# 2.10. CommandRegistry.register_extension
+# ---------------------------------------------------------------------------
+
+
+def test_register_extension_accepts_underscore_prefix() -> None:
+    """register_extension принимает handler с method_name начинающимся с '_'."""
+    from codelab.server.protocol.commands.base import CommandRegistry
+    from codelab.server.protocol.state import ProtocolOutcome
+
+    class FakeExtensionHandler:
+        method_name = "_custom/tool"
+
+        async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+            return ProtocolOutcome()
+
+    registry = CommandRegistry()
+    registry.register_extension(FakeExtensionHandler())
+
+    assert registry.has("_custom/tool")
+    assert registry.get("_custom/tool") is not None
+
+
+def test_register_extension_rejects_non_underscore_prefix() -> None:
+    """register_extension отклоняет handler без '_' prefix."""
+    from codelab.server.protocol.commands.base import CommandRegistry
+    from codelab.server.protocol.state import ProtocolOutcome
+
+    class FakeHandler:
+        method_name = "custom/tool"
+
+        async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+            return ProtocolOutcome()
+
+    registry = CommandRegistry()
+
+    with pytest.raises(ValueError, match="must start with '_'"):
+        registry.register_extension(FakeHandler())
+
+
+def test_register_extension_rejects_duplicate() -> None:
+    """register_extension отклоняет дубликат."""
+    from codelab.server.protocol.commands.base import CommandRegistry
+    from codelab.server.protocol.state import ProtocolOutcome
+
+    class FakeHandler:
+        method_name = "_custom/tool"
+
+        async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+            return ProtocolOutcome()
+
+    registry = CommandRegistry()
+    registry.register_extension(FakeHandler())
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register_extension(FakeHandler())
+
+
+@pytest.mark.asyncio
+async def test_registered_extension_method_is_handled() -> None:
+    """Зарегистрированный extension method обрабатывается вместо возврата ошибки."""
+    from codelab.server.protocol.commands.base import CommandRegistry
+    from codelab.server.protocol.state import ProtocolOutcome
+
+    class EchoHandler:
+        method_name = "_test/echo"
+
+        async def handle(self, message: ACPMessage) -> ProtocolOutcome:
+            return ProtocolOutcome(
+                response=ACPMessage.response(message.id, {"echo": True})
+            )
+
+    registry = CommandRegistry()
+    registry.register_extension(EchoHandler())
+
+    handler = registry.get("_test/echo")
+    assert handler is not None
+
+    request = ACPMessage.request("_test/echo", {"data": "test"})
+    outcome = await handler.handle(request)
+
+    assert outcome.response is not None
+    assert outcome.response.error is None
+    assert outcome.response.result == {"echo": True}

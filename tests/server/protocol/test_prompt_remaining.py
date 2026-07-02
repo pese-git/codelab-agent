@@ -163,10 +163,10 @@ class TestValidatePromptContent:
 
     def test_unsupported_content_type_returns_error(self) -> None:
         """Неподдерживаемый тип контента вызывает ошибку."""
-        error = validate_prompt_content("req_1", [{"type": "audio"}])
+        error = validate_prompt_content("req_1", [{"type": "video"}])
 
         assert error is not None
-        assert "unsupported content type audio" in error.error.message
+        assert "unsupported content type video" in error.error.message
 
 
 class TestExtractPromptDirectivesStopReasons:

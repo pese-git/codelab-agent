@@ -218,41 +218,6 @@ class TestSessionCoordinatorCoverage:
         assert call_args.callbacks is callbacks
 
     @pytest.mark.asyncio
-    async def test_request_permission_timeout_returns_cancelled(
-        self,
-        coordinator: SessionCoordinator,
-    ) -> None:
-        """request_permission возвращает cancelled при TimeoutError."""
-        permission_handler = Mock(spec=PermissionHandler)
-        manager = PermissionRequestManager()
-        permission_handler.get_request_manager.return_value = manager
-        coordinator._permission_handler = permission_handler
-
-        request = RequestPermissionRequest(
-            jsonrpc="2.0",
-            id="perm_timeout",
-            method="session/request_permission",
-            params={
-                "sessionId": "session_1",
-                "toolCall": {"toolCallId": "tool_1", "title": "Test"},
-                "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"}],
-            },
-        )
-
-        original_create = manager.create_request
-
-        def patched_create(*args, **kwargs):
-            kwargs["timeout"] = 0.01
-            return original_create(*args, **kwargs)
-
-        manager.create_request = patched_create  # type: ignore[method-assign]
-
-        callback = Mock()
-        outcome = await coordinator.request_permission(request, callback)
-
-        assert outcome.outcome == "cancelled"
-
-    @pytest.mark.asyncio
     async def test_request_permission_cleanup_error_in_finally(
         self,
         coordinator: SessionCoordinator,

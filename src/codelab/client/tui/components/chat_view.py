@@ -244,7 +244,7 @@ class ChatView(VerticalScroll):
         # с literal user text (избегаем crash на markup-like символах в тексте LLM)
         from textual.content import Content
         prefix = Content.from_markup("[bold green]⟳ [/]")
-        safe_text = Content.from_text(text)
+        safe_text = Content.from_text(text, markup=False)
         streaming_widget = Static(
             prefix + safe_text,
             id=f"stream_{time.time_ns()}",
@@ -265,7 +265,7 @@ class ChatView(VerticalScroll):
         # с literal user text (избегаем crash на markup-like символах)
         from textual.content import Content
         prefix = Content.from_markup("[italic]Tool: [/]")
-        safe_text = Content.from_text(str(tool_call))
+        safe_text = Content.from_text(str(tool_call), markup=False)
         tool_widget = Static(
             prefix + safe_text,
             id=f"tool_{time.time_ns()}",

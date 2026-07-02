@@ -240,6 +240,50 @@ class TestTracingIntegration:
         assert len(completed) == 1
         assert completed[0].name == "single_strategy"
 
+    @pytest.mark.asyncio
+    async def test_tracer_span_propagates_session_id(
+        self, mock_event_bus, mock_execution_engine, mock_session, mock_tracer
+    ):
+        """Span получает session_id из session.session_id."""
+        strategy = SingleStrategy(
+            event_bus=mock_event_bus,
+            execution_engine=mock_execution_engine,
+            tracer=mock_tracer,
+        )
+
+        await strategy.execute(
+            session=mock_session,
+            prompt="Test",
+        )
+
+        completed = mock_tracer.get_completed_spans()
+        assert len(completed) == 1
+        span = completed[0]
+        assert span.session_id == "s1"
+
+    @pytest.mark.asyncio
+    async def test_continue_execution_span_propagates_session_id(
+        self, mock_event_bus, mock_execution_engine, mock_session, mock_tracer
+    ):
+        """continue_execution тоже передаёт session_id в span."""
+        mock_execution_engine.build_continuation_context.return_value = MagicMock(
+            conversation_history=[LLMMessage(role="user", content="Hello")],
+            available_tools=[],
+        )
+
+        strategy = SingleStrategy(
+            event_bus=mock_event_bus,
+            execution_engine=mock_execution_engine,
+            tracer=mock_tracer,
+        )
+
+        await strategy.continue_execution(session=mock_session)
+
+        completed = mock_tracer.get_completed_spans()
+        assert len(completed) == 1
+        span = completed[0]
+        assert span.session_id == "s1"
+
 
 class TestContinueExecution:
     """Тесты continue_execution."""

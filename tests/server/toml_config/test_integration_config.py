@@ -16,8 +16,11 @@ class TestRegistryToConfigOptionsFlow:
 
     def test_registry_list_all_models_returns_toml_models(self) -> None:
         """registry.list_all_models() возвращает модели из TOML."""
+        # Явно грузим пример-конфиг (highest-priority custom path), чтобы тест
+        # был герметичным и не зависел от наличия ./codelab.toml или ~/.codelab.
+        example_toml = Path(__file__).resolve().parents[3] / "codelab.toml.example"
         provider = RegistryProvider()
-        registry = provider.get_llm_registry(AppConfig.load())
+        registry = provider.get_llm_registry(AppConfig.load(toml_path=str(example_toml)))
 
         models = registry.list_all_models()
 
@@ -27,7 +30,9 @@ class TestRegistryToConfigOptionsFlow:
         # Проверим что есть модели от провайдеров из TOML
         provider_ids = {m.provider_id for m in models}
         assert "openrouter" in provider_ids
-        assert "lmstudio" in provider_ids
+        # ollama задаёт модели в примере-конфиге (у lmstudio моделей нет,
+        # поэтому он не попадает в list_all_models()).
+        assert "ollama" in provider_ids
 
     def test_config_options_model_contains_all_toml_models(self) -> None:
         """configOptions.model.options содержит все модели из TOML."""

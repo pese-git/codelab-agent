@@ -96,5 +96,5 @@ class TestE2EInitializeCapabilities:
         assert isinstance(result, dict)
         caps = result["agentCapabilities"]["promptCapabilities"]
         assert caps["image"] is True
-        assert caps["audio"] is False
+        assert caps["audio"] is True
         assert caps["embeddedContext"] is True

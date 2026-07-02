@@ -31,7 +31,7 @@ class PromptCapabilityProfile:
 
 _PROMPT_CAPABILITIES = PromptCapabilityProfile(
     image=True,
-    audio=False,
+    audio=True,
     embedded_context=True,
 )
 

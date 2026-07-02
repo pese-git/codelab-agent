@@ -10,6 +10,7 @@ __pycache__/
 .vscode/
 .zed/
 .codegraph/
+.cocoindex_code/
 opencode/
 website/
 
@@ -25,6 +26,7 @@ opencode.local.json
 .env.*.local
 
 # Блокируем логи работы AI-агента и историю диалогов
+.opencode/
 .opencode/logs/
 .opencode/history/
 opencode_debug.log
@@ -36,3 +38,5 @@ Thumbs.db
 
 .coverage
 coverage.json
+# CocoIndex Code (ccc)
+/.cocoindex_code/

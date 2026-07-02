@@ -11,6 +11,8 @@ from typing import Any
 import aiofiles
 import structlog
 
+from codelab.shared.logging import resolve_codelab_home
+
 from ..exceptions import StorageError
 
 logger = structlog.get_logger()
@@ -35,17 +37,22 @@ class GlobalPolicyStorage:
     # Допустимые решения
     VALID_DECISIONS = ("allow_always", "reject_always")
 
-    # Путь по умолчанию: ~/.codelab/data/policies/global_permissions.json
-    _DEFAULT_PATH = Path.home() / ".codelab" / "data" / "policies"
-    DEFAULT_STORAGE_PATH = _DEFAULT_PATH / "global_permissions.json"
+    @staticmethod
+    def default_storage_path() -> Path:
+        """Путь по умолчанию: <CODELAB_HOME>/data/policies/global_permissions.json.
+
+        Вычисляется в рантайме, чтобы уважать CODELAB_HOME (а не значение
+        на момент импорта модуля).
+        """
+        return resolve_codelab_home() / "data" / "policies" / "global_permissions.json"
 
     def __init__(self, storage_path: Path | None = None) -> None:
         """Инициализирует хранилище.
 
         Args:
-            storage_path: Путь к JSON файлу (default: ~/.codelab/data/policies/)
+            storage_path: Путь к JSON файлу (default: <CODELAB_HOME>/data/policies/)
         """
-        self._storage_path = storage_path or self.DEFAULT_STORAGE_PATH
+        self._storage_path = storage_path or self.default_storage_path()
         self._lock = asyncio.Lock()
         self._cache: dict[str, str] | None = None
 

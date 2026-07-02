@@ -131,6 +131,37 @@ class TestInitialize:
 
         mock_adapter.register_with_bus.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_initialize_registers_builtin_primary_when_none_defined(
+        self, registry, global_config
+    ):
+        """Без пользовательских агентов регистрируется встроенный primary."""
+        with patch.object(registry._resolver, "resolve_all", return_value={}):
+            await registry.initialize()
+
+        agents = registry.get_all()
+        assert "primary" in agents
+        primary = agents["primary"]
+        assert primary.role == AgentRole.PRIMARY
+        # Модель берётся из global_config (выводится из config.llm на уровне AppConfig)
+        assert primary.model == global_config.default_model
+
+    @pytest.mark.asyncio
+    async def test_initialize_no_builtin_primary_when_primary_exists(self, registry):
+        """Если primary-агент уже определён, встроенный не добавляется."""
+        with patch.object(
+            registry._resolver,
+            "resolve_all",
+            return_value={
+                "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
+            },
+        ):
+            await registry.initialize()
+
+        agents = registry.get_all()
+        assert "primary" not in agents
+        assert set(agents) == {"coder"}
+
 
 class TestReload:
     """4.11 — reload → события added/removed опубликованы."""

@@ -107,10 +107,16 @@ class ContentFormatter:
                 parts.append(item["text"])
 
             elif content_type == "diff":
-                # Форматировать diff для читаемости
+                # Форматировать diff для LLM согласно ACP спецификации
                 path = item["path"]
-                diff = item["diff"]
-                parts.append(f"File: {path}\n\nDiff:\n```diff\n{diff}\n```")
+                old_text = item.get("oldText", "")
+                new_text = item.get("newText", "")
+                formatted = (
+                    f"File: {path}\n\n"
+                    f"Old:\n```\n{old_text}\n```\n\n"
+                    f"New:\n```\n{new_text}\n```"
+                )
+                parts.append(formatted)
 
             elif content_type == "image":
                 # Для изображений добавить описание (LLM не видит изображения напрямую)

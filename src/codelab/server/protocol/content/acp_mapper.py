@@ -42,6 +42,11 @@ class ACPContentMapper:
             mime_type = block.get("mimeType", "application/octet-stream")
             return ContentPart.make_image(data=data, mime_type=mime_type)
 
+        if block_type == "audio":
+            data = block.get("data", "")
+            mime_type = block.get("mimeType", "audio/wav")
+            return ContentPart.make_audio(data=data, mime_type=mime_type)
+
         if block_type == "resource":
             resource = block.get("resource", {})
             uri = resource.get("uri", "")

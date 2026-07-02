@@ -5,6 +5,7 @@
 - Различные стили для user/assistant/system
 - Timestamp отображение
 - Markdown контент внутри
+- Поддержка multimodal контента (изображения, аудио)
 
 Референс OpenCode: packages/web/src/ui/session/message.tsx
 """
@@ -19,6 +20,9 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Markdown as TextualMarkdown
 from textual.widgets import Static
+
+from .audio_content import AudioContentWidget
+from .image_content import ImageContentWidget
 
 
 class MessageRole(Enum):
@@ -313,6 +317,7 @@ class MessageBubble(Vertical):
         show_avatar: bool = True,
         show_header: bool = True,
         use_markdown: bool = True,
+        content_blocks: list[dict[str, Any]] | None = None,
         *,
         name: str | None = None,
         id: str | None = None,
@@ -328,6 +333,7 @@ class MessageBubble(Vertical):
             show_avatar: Показывать ли аватар
             show_header: Показывать ли заголовок (имя + время)
             use_markdown: Форматировать как Markdown
+            content_blocks: Список content blocks для multimodal контента
             name: Имя виджета
             id: ID виджета
             classes: CSS классы
@@ -342,6 +348,7 @@ class MessageBubble(Vertical):
         self._show_avatar = show_avatar
         self._show_header = show_header
         self._use_markdown = use_markdown
+        self._content_blocks = content_blocks or []
         self._content_widget: MessageContent | None = None
     
     def compose(self) -> ComposeResult:
@@ -362,12 +369,59 @@ class MessageBubble(Vertical):
                         custom_name=self._sender_name,
                     )
                 
-                # Контент
-                self._content_widget = MessageContent(
-                    content=self._content,
+                # Если есть content_blocks, рендерим их
+                if self._content_blocks:
+                    yield from self._render_content_blocks()
+                else:
+                    # Обычный текстовый контент
+                    self._content_widget = MessageContent(
+                        content=self._content,
+                        use_markdown=self._use_markdown,
+                    )
+                    yield self._content_widget
+    
+    def _render_content_blocks(self) -> ComposeResult:
+        """Рендерит content blocks (текст, изображения, аудио).
+        
+        Yields:
+            Виджеты для каждого content block
+        """
+        for block in self._content_blocks:
+            block_type = block.get("type")
+            
+            if block_type == "text":
+                text = block.get("text", "")
+                if text:
+                    yield MessageContent(
+                        content=text,
+                        use_markdown=self._use_markdown,
+                    )
+            
+            elif block_type == "image":
+                yield ImageContentWidget.from_content_block(block)
+            
+            elif block_type == "audio":
+                yield AudioContentWidget.from_content_block(block)
+            
+            elif block_type == "resource":
+                # Ресурсы отображаем как текст
+                resource = block.get("resource", {})
+                uri = resource.get("uri", "")
+                text = resource.get("text", "")
+                if text:
+                    yield MessageContent(
+                        content=f"[Resource: {uri}]\n{text}",
+                        use_markdown=self._use_markdown,
+                    )
+            
+            elif block_type == "resource_link":
+                # Ссылки на ресурсы отображаем как текст
+                uri = block.get("uri", "")
+                name = block.get("name", "")
+                yield MessageContent(
+                    content=f"[Resource link: {name}]({uri})",
                     use_markdown=self._use_markdown,
                 )
-                yield self._content_widget
     
     @property
     def role(self) -> MessageRole:
@@ -394,6 +448,16 @@ class MessageBubble(Vertical):
         if self._content_widget is not None:
             self._content_widget.update_content(content)
     
+    def update_content_blocks(self, blocks: list[dict[str, Any]]) -> None:
+        """Обновляет content blocks сообщения.
+        
+        Args:
+            blocks: Новый список content blocks
+        """
+        self._content_blocks = blocks
+        # Пересоздаем виджет для применения изменений
+        self.refresh()
+    
     @classmethod
     def from_dict(
         cls,
@@ -404,7 +468,7 @@ class MessageBubble(Vertical):
         """Создает MessageBubble из словаря сообщения.
         
         Args:
-            message: Словарь с ключами role, content, timestamp (опц.)
+            message: Словарь с ключами role, content/content_blocks, timestamp (опц.)
             show_avatar: Показывать ли аватар
             show_header: Показывать ли заголовок
             
@@ -418,8 +482,11 @@ class MessageBubble(Vertical):
         except ValueError:
             role = MessageRole.USER
         
-        # Извлекаем контент
-        content = str(message.get("content", ""))
+        # Извлекаем контент или content_blocks
+        content_blocks = message.get("content_blocks")
+        content = ""
+        if not content_blocks:
+            content = str(message.get("content", ""))
         
         # Извлекаем timestamp (если есть)
         ts_value = message.get("timestamp")
@@ -437,4 +504,5 @@ class MessageBubble(Vertical):
             timestamp=timestamp,
             show_avatar=show_avatar,
             show_header=show_header,
+            content_blocks=content_blocks,
         )

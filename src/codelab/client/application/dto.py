@@ -4,6 +4,9 @@ DTOs используются для:
 - Передачи данных между Application и Presentation слоями
 - Типизации параметров use cases
 - Валидации входных данных
+
+Content models (ImageContent, AudioContent и т.д.) импортируются из domain слоя,
+так как они являются domain-концептами согласно ACP спецификации.
 """
 
 from __future__ import annotations
@@ -11,6 +14,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+
+# Импортируем domain модели для мультимодального контента
+# Это domain-концепты, не DTO, но они используются в SendPromptRequest
+from ..domain.content_blocks import (
+    AudioContent,
+    ImageContent,
+    ResourceContent,
+    ResourceLinkContent,
+)
 
 # Type aliases для callback функций
 UpdateCallback = Callable[[dict[str, Any]], None]
@@ -120,6 +132,10 @@ class SendPromptRequest:
     """Request DTO для отправки prompt в сессию.
 
     Содержит параметры prompt и callbacks для обработки событий.
+    Поддерживает мультимодальный контент согласно ACP спецификации.
+
+    Content models (ImageContent, AudioContent и т.д.) являются domain-концептами
+    и импортируются из domain слоя.
     """
 
     session_id: str
@@ -127,6 +143,18 @@ class SendPromptRequest:
 
     prompt_text: str
     """Текст prompt."""
+
+    images: list[ImageContent] | None = None
+    """Список изображений для отправки (требует promptCapabilities.image)."""
+
+    audio: list[AudioContent] | None = None
+    """Список аудио для отправки (требует promptCapabilities.audio)."""
+
+    resources: list[ResourceContent] | None = None
+    """Список embedded resources (требует promptCapabilities.embeddedContext)."""
+
+    resource_links: list[ResourceLinkContent] | None = None
+    """Список ссылок на ресурсы (поддерживается всегда)."""
 
     callbacks: PromptCallbacks | None = None
     """Callbacks для обработки событий во время выполнения."""

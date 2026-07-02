@@ -25,8 +25,14 @@ class TerminalExecutorPort(Protocol):
         """Создаёт новый терминал и возвращает его ID."""
         ...
 
-    async def get_output(self, terminal_id: str) -> dict[str, Any]:
-        """Получает вывод терминала."""
+    async def get_output(
+        self, terminal_id: str
+    ) -> tuple[str, bool, int | None, bool]:
+        """Получает вывод терминала.
+
+        Returns:
+            Tuple (output, is_complete, exit_code, truncated)
+        """
         ...
 
     async def wait_for_exit(self, terminal_id: str) -> tuple[int | None, str | None]:
@@ -162,12 +168,27 @@ class TerminalCallbackExecutor:
             return None, error_msg
 
         try:
-            output_data = await self._executor.get_output(state.terminal_id)
+            output, is_complete, exit_code, truncated = await self._executor.get_output(
+                state.terminal_id
+            )
+
+            # Сформировать ответ согласно ACP спецификации
+            output_data: dict[str, Any] = {
+                "output": output,
+                "truncated": truncated,
+            }
+
+            if is_complete:
+                output_data["exitStatus"] = {
+                    "exitCode": exit_code,
+                    "signal": None,
+                }
 
             self._logger.debug(
                 "terminal_output_retrieved",
                 terminal_id=terminal_id,
-                output_size=len(str(output_data)),
+                output_size=len(output),
+                truncated=truncated,
             )
             return output_data, None
 

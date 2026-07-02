@@ -583,3 +583,105 @@ def test_parse_structured_session_update_rejects_invalid_current_mode_shape() ->
 
     with pytest.raises(ValidationError):
         parse_structured_session_update(notification)
+
+
+def test_parse_session_info_update_with_all_fields() -> None:
+    """SessionInfoUpdate должен парсить все поля."""
+    notification = parse_session_update_notification(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "sess_1",
+                "update": {
+                    "sessionUpdate": "session_info_update",
+                    "title": "My Session",
+                    "updatedAt": "2026-04-07T12:00:00Z",
+                },
+            },
+        }
+    )
+    assert notification is not None
+    parsed = parse_structured_session_update(notification)
+    assert isinstance(parsed, SessionInfoUpdate)
+    assert parsed.title == "My Session"
+    assert parsed.updatedAt == "2026-04-07T12:00:00Z"
+
+
+def test_parse_session_info_update_with_optional_fields() -> None:
+    """SessionInfoUpdate должен работать с опциональными полями."""
+    notification = parse_session_update_notification(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "sess_1",
+                "update": {
+                    "sessionUpdate": "session_info_update",
+                },
+            },
+        }
+    )
+    assert notification is not None
+    parsed = parse_structured_session_update(notification)
+    assert isinstance(parsed, SessionInfoUpdate)
+
+
+def test_parse_available_commands_update_multiple_commands() -> None:
+    """AvailableCommandsUpdate должен парсить несколько команд."""
+    notification = parse_session_update_notification(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "sess_1",
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [
+                        {
+                            "name": "status",
+                            "description": "Show status",
+                            "input": {"hint": "optional query"},
+                        },
+                        {
+                            "name": "help",
+                            "description": "Show help",
+                        },
+                        {
+                            "name": "clear",
+                            "description": "Clear chat",
+                        },
+                    ],
+                },
+            },
+        }
+    )
+    assert notification is not None
+    parsed = parse_structured_session_update(notification)
+    assert isinstance(parsed, AvailableCommandsUpdate)
+    assert len(parsed.availableCommands) == 3
+    assert parsed.availableCommands[0].name == "status"
+    assert parsed.availableCommands[1].name == "help"
+    assert parsed.availableCommands[1].input is None
+    assert parsed.availableCommands[2].name == "clear"
+
+
+def test_parse_available_commands_update_empty_list() -> None:
+    """AvailableCommandsUpdate должен работать с пустым списком команд."""
+    notification = parse_session_update_notification(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "sess_1",
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [],
+                },
+            },
+        }
+    )
+    assert notification is not None
+    parsed = parse_structured_session_update(notification)
+    assert isinstance(parsed, AvailableCommandsUpdate)
+    assert len(parsed.availableCommands) == 0

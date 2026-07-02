@@ -41,7 +41,7 @@ class TestHistoryMapperToProtocol:
         domain = ConversationMessage(
             role=MessageRole.USER,
             content=MessageContent(
-                images=[Image(data="base64data", format="png")],
+                images=[Image(data="base64data", mime_type="image/png")],
             ),
         )
         protocol = HistoryMapper.to_protocol(domain)
@@ -99,7 +99,7 @@ class TestHistoryMapperToDomain:
     def test_with_image(self) -> None:
         protocol = HistoryMessage(
             role="user",
-            content=[{"type": "image", "data": "base64", "format": "png"}],
+            content=[{"type": "image", "data": "base64", "mimeType": "image/png"}],
         )
         domain = HistoryMapper.to_domain(protocol)
         assert len(domain.content.images) == 1

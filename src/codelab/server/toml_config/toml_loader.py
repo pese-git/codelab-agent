@@ -36,6 +36,8 @@ from typing import Any
 
 import structlog
 
+from codelab.shared.logging import resolve_codelab_home
+
 logger = structlog.get_logger()
 
 
@@ -374,7 +376,7 @@ def load_config(
         project_root = Path.cwd()
 
     # Собрать пути к TOML файлам
-    auth_toml = Path.home() / ".codelab" / "auth.toml"
+    auth_toml = resolve_codelab_home() / "auth.toml"
     project_toml = project_root / "codelab.toml"
     local_toml = project_root / "codelab.local.toml"
 

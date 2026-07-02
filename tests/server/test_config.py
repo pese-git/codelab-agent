@@ -7,7 +7,30 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from codelab.server.config import AppConfig, LLMConfig
+from codelab.server.config import AgentsConfig, AppConfig, LLMConfig
+
+
+class TestAgentsDefaultModelDerivation:
+    """agents.default_model выводится из config.llm, если не задан явно."""
+
+    def test_derived_from_llm_defaults(self) -> None:
+        """Без явного значения default_model = provider/model из config.llm."""
+        config = AppConfig(llm=LLMConfig(provider="mock", model="gpt-4o"))
+        assert config.agents.default_model == "mock/gpt-4o"
+
+    def test_follows_llm_override(self) -> None:
+        """Смена provider/model в llm меняет производный default_model."""
+        config = AppConfig(llm=LLMConfig(provider="ollama", model="gemma"))
+        assert config.agents.default_model == "ollama/gemma"
+
+    def test_explicit_value_preserved(self) -> None:
+        """Явно заданный agents.default_model не перезаписывается."""
+        config = AppConfig(
+            llm=LLMConfig(provider="mock", model="gpt-4o"),
+            agents=AgentsConfig(default_model="anthropic/claude-sonnet-4"),
+        )
+        assert config.agents.default_model == "anthropic/claude-sonnet-4"
+
 
 # ============================================================================
 # Тесты LLMConfig defaults

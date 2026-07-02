@@ -18,7 +18,7 @@ class TestPromptCapabilityProfile:
 
     def test_server_profile(self) -> None:
         assert _PROMPT_CAPABILITIES.image is True
-        assert _PROMPT_CAPABILITIES.audio is False
+        assert _PROMPT_CAPABILITIES.audio is True
         assert _PROMPT_CAPABILITIES.embedded_context is True
 
 
@@ -51,7 +51,7 @@ class TestInitializeCapabilities:
         caps = result["agentCapabilities"]["promptCapabilities"]
         assert caps["embeddedContext"] is True
 
-    def test_initialize_includes_audio_false(self) -> None:
+    def test_initialize_includes_audio_true(self) -> None:
         response = initialize(
             request_id="req_1",
             params={"protocolVersion": 1, "clientCapabilities": {}},
@@ -62,4 +62,4 @@ class TestInitializeCapabilities:
         result = response.result
         assert isinstance(result, dict)
         caps = result["agentCapabilities"]["promptCapabilities"]
-        assert caps["audio"] is False
+        assert caps["audio"] is True

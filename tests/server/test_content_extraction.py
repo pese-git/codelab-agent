@@ -172,7 +172,7 @@ class TestContentValidator:
     def test_validate_diff_content_valid(self):
         """Валидация валидного diff content."""
         validator = ContentValidator()
-        item = {"type": "diff", "path": "file.py", "diff": "..."}
+        item = {"type": "diff", "path": "file.py", "newText": "new content"}
 
         is_valid, error = validator.validate_content_item(item)
 
@@ -196,7 +196,7 @@ class TestContentValidator:
     def test_validate_audio_content_valid(self):
         """Валидация валидного audio content."""
         validator = ContentValidator()
-        item = {"type": "audio", "data": "base64...", "format": "mp3"}
+        item = {"type": "audio", "data": "base64...", "mimeType": "audio/mp3"}
 
         is_valid, error = validator.validate_content_item(item)
 
@@ -254,14 +254,14 @@ class TestContentValidator:
         assert "text" in error
 
     def test_validate_missing_required_field_diff(self):
-        """Валидация diff без diff поля."""
+        """Валидация diff без newText поля."""
         validator = ContentValidator()
         item = {"type": "diff", "path": "file.py"}
 
         is_valid, error = validator.validate_content_item(item)
 
         assert is_valid is False
-        assert "diff" in error
+        assert "newText" in error
 
     def test_validate_missing_required_field_image(self):
         """Валидация image без mimeType поля."""
@@ -278,7 +278,7 @@ class TestContentValidator:
         validator = ContentValidator()
         items = [
             {"type": "text", "text": "A"},
-            {"type": "diff", "path": "f.py", "diff": "..."},
+            {"type": "diff", "path": "f.py", "newText": "..."},
             {"type": "image", "data": "...", "mimeType": "image/png"}
         ]
 
@@ -293,7 +293,7 @@ class TestContentValidator:
         items = [
             {"type": "text", "text": "Valid"},
             {"type": "invalid"},  # Missing type fields
-            {"type": "diff", "path": "f.py"}  # Missing diff field
+            {"type": "diff", "path": "f.py"}  # Missing newText field
         ]
 
         all_valid, errors = validator.validate_content_list(items)

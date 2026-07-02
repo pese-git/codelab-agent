@@ -262,6 +262,27 @@ class TestTracingIntegration:
         assert span.parent_id == parent_span.span_id
 
     @pytest.mark.asyncio
+    async def test_span_propagates_session_id(self, adapter, mock_llm_provider, mock_tracer):
+        """Span получает session_id из параметра call()."""
+        mock_llm_provider.create_completion = AsyncMock(
+            return_value=CompletionResponse(
+                text="done",
+                usage={"input_tokens": 10, "output_tokens": 5},
+            )
+        )
+
+        await adapter.call(
+            messages=[LLMMessage(role="user", content="test")],
+            tools=[],
+            session_id="sess_test_123",
+        )
+
+        completed = mock_tracer.get_completed_spans()
+        assert len(completed) == 1
+        span = completed[0]
+        assert span.session_id == "sess_test_123"
+
+    @pytest.mark.asyncio
     async def test_span_attributes_include_usage(self, adapter, mock_llm_provider, mock_tracer):
         """Атрибуты span включают данные usage."""
         mock_llm_provider.create_completion = AsyncMock(

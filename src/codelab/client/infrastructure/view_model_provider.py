@@ -62,6 +62,7 @@ from codelab.client.presentation.session_view_model import SessionViewModel
 from codelab.client.presentation.terminal_log_view_model import TerminalLogViewModel
 from codelab.client.presentation.terminal_view_model import TerminalViewModel
 from codelab.client.presentation.ui_view_model import UIViewModel
+from codelab.shared.logging import resolve_codelab_home
 
 
 class ViewModelProvider(Provider):
@@ -138,7 +139,7 @@ class ViewModelProvider(Provider):
         if config.history_dir:
             history_dir = Path(config.history_dir)
         else:
-            history_dir = Path.home() / ".codelab" / "data" / "history"
+            history_dir = resolve_codelab_home() / "data" / "history"
         return FileChatPersistence(history_dir)
 
     @provide(scope=Scope.APP)

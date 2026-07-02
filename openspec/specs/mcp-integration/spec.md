@@ -132,3 +132,83 @@
 - `MCPServerConfig` **MUST** поддерживать `type: "http" | "sse" | "stdio"`
 - HTTP config: `type`, `url`, `headers`
 - При HTTP transport, `mcpCapabilities.http` **MUST** быть `true` в initialize response
+
+## MCP Tool Execution Resilience
+
+Система **MUST** обеспечивать устойчивость выполнения MCP инструментов через decorator chain.
+
+### MCP Exceptions Hierarchy
+
+Система **MUST** предоставлять специализированные исключения:
+
+- `MCPError` — базовое исключение для MCP (наследует `ToolExecutionError`)
+- `MCPTimeoutError` — timeout при вызове инструмента (содержит `tool_name`, `timeout`)
+- `MCPConnectionError` — ошибка соединения с сервером
+- `MCPValidationError` — ошибка валидации аргументов
+- `MCPServerError` — ошибка на стороне MCP сервера
+
+### Timeout
+
+Система **MUST** ограничивать время выполнения MCP инструментов:
+
+- Timeout **MUST** быть настраиваемым per-server (default: 30s)
+- При превышении timeout **MUST** генерироваться `MCPTimeoutError`
+- Timeout **MUST** реализовываться через `asyncio.wait_for()`
+- MCPToolExecutor **MUST** оборачиваться в `TimeoutDecorator`
+
+### Retry
+
+Система **MUST** автоматически повторять вызовы при временных ошибках:
+
+- Retry **MUST** применяться только к retryable ошибкам: `MCPTimeoutError`, `MCPConnectionError`
+- Non-retryable ошибки (`MCPValidationError`, `MCPServerError`) **MUST** возвращаться сразу
+- Retry **MUST** использовать exponential backoff: `delay = backoff_factor ^ attempt`
+- Default: `max_retries = 3`, `backoff_factor = 2.0` (delays: 1s → 2s → 4s)
+- MCPToolExecutor **MUST** оборачиваться в `RetryDecorator`
+
+### Fallback
+
+Система **SHOULD** поддерживать fallback на альтернативный MCP сервер:
+
+- `MCPServerConfig` **SHOULD** поддерживать опциональный `fallback: MCPServerConfig`
+- При ошибке primary сервера после всех retry **SHOULD** переключаться на fallback
+- Fallback сервер **MUST** предоставлять те же инструменты (валидация при конфигурации)
+- Переключение **MUST** логироваться с указанием причины
+- Fallback **MUST** реализовываться через `FallbackStrategy` (Strategy Pattern)
+
+### Decorator Chain
+
+MCPToolExecutor **MUST** использовать chain of decorators:
+
+```
+Base Executor → Timeout → Retry → Metrics → Tracing
+```
+
+- Каждый декоратор **MUST** реализовывать `ToolExecutorDecorator` (абстрактный базовый класс)
+- Декораторы **MUST** добавлять одну ответственность (Single Responsibility Principle)
+- Порядок декораторов **MUST** быть: Timeout → Retry → Metrics → Tracing
+
+### Health Check
+
+Система **SHOULD** периодически проверять доступность MCP серверов:
+
+- `MCPHealthCheckService` **SHOULD** проверять серверы каждые 30s
+- Health check **SHOULD** использовать `client.ping()` с timeout 5s
+- При изменении статуса **MUST** уведомлять зарегистрированные callbacks (Observer Pattern)
+- Health check **SHOULD** запускаться как background task
+
+### Observability
+
+Система **MUST** собирать метрики выполнения MCP инструментов:
+
+- Latency (per tool, per server)
+- Success rate (per tool, per server)
+- Error count (per error type)
+- Retry count (per tool)
+- Fallback usage count
+
+Tracing **MUST** интегрироваться с существующим `Tracer`:
+
+- Каждый MCP tool call **MUST** создавать span `mcp_tool_execution`
+- Span **MUST** содержать атрибуты: `tool_name`, `server_id`, `success`, `error`
+- Span **MUST** быть частью span hierarchy (parent = `agent_loop`)

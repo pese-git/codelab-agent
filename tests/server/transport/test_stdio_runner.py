@@ -687,3 +687,89 @@ class TestRunStdioServerIntegration:
             call_kwargs = mock_make.call_args[1]
             assert call_kwargs["require_auth"] is True
             assert call_kwargs["auth_api_key"] == "test-key-123"
+
+
+class TestObservabilityFlushOnShutdown:
+    """Тесты flush observability data при shutdown stdio server."""
+
+    @pytest.mark.asyncio
+    async def test_flush_called_on_shutdown(self) -> None:
+        """flush_all() вызывается при закрытии stdio server."""
+        mock_storage = MagicMock()
+        mock_config = MagicMock()
+        mock_config.llm.provider = "mock"
+
+        flush_manager = AsyncMock()
+        flush_manager.flush_all = AsyncMock()
+
+        mock_container = _make_mock_container()
+
+        def get_side_effect(cls):
+            if cls.__name__ == "ObservabilityFlushManager":
+                return flush_manager
+            elif cls.__name__ == "ClientRPCServiceHolder":
+                from codelab.server.rpc_holder import ClientRPCServiceHolder
+                return ClientRPCServiceHolder()
+            return MagicMock()
+
+        mock_container.get = AsyncMock(side_effect=get_side_effect)
+
+        mock_transport = _make_default_transport_mock()
+
+        # Mock ClientRPCService с правильным return value для cancel_all_pending_requests
+        mock_rpc_service = MagicMock()
+        mock_rpc_service.cancel_all_pending_requests = MagicMock(return_value=0)
+
+        with (
+            patch(_MAKE_CONTAINER_PATH, return_value=mock_container),
+            patch(_STDIO_TRANSPORT_PATH, return_value=mock_transport),
+            patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
+        ):
+            await _run_with_mocks(
+                mock_storage, mock_config, mock_container,
+                transport_mock=mock_transport,
+            )
+
+        flush_manager.flush_all.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_flush_error_does_not_crash(self) -> None:
+        """Ошибка при flush не прерывает shutdown."""
+        mock_storage = MagicMock()
+        mock_config = MagicMock()
+        mock_config.llm.provider = "mock"
+
+        flush_manager = AsyncMock()
+        flush_manager.flush_all = AsyncMock(side_effect=RuntimeError("flush failed"))
+
+        mock_container = _make_mock_container()
+
+        def get_side_effect(cls):
+            if cls.__name__ == "ObservabilityFlushManager":
+                return flush_manager
+            elif cls.__name__ == "ClientRPCServiceHolder":
+                from codelab.server.rpc_holder import ClientRPCServiceHolder
+                return ClientRPCServiceHolder()
+            return MagicMock()
+
+        mock_container.get = AsyncMock(side_effect=get_side_effect)
+
+        mock_transport = _make_default_transport_mock()
+
+        # Mock ClientRPCService с правильным return value для cancel_all_pending_requests
+        mock_rpc_service = MagicMock()
+        mock_rpc_service.cancel_all_pending_requests = MagicMock(return_value=0)
+
+        with (
+            patch(_MAKE_CONTAINER_PATH, return_value=mock_container),
+            patch(_STDIO_TRANSPORT_PATH, return_value=mock_transport),
+            patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
+        ):
+            # Не должно поднять исключение
+            await _run_with_mocks(
+                mock_storage, mock_config, mock_container,
+                transport_mock=mock_transport,
+            )
+
+        # Контейнер должен быть закрыт
+        mock_container.close.assert_awaited_once()

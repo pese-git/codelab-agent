@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from codelab.client.infrastructure.services.terminal_executor import TerminalExecutor
 from codelab.client.presentation.chat.executors.terminal_callback_executor import (
     TerminalExecutorPort,
@@ -39,21 +37,18 @@ class TerminalExecutorAdapter(TerminalExecutorPort):
         """
         return await self._executor.create_terminal(command)
 
-    async def get_output(self, terminal_id: str) -> dict[str, Any]:
+    async def get_output(
+        self, terminal_id: str
+    ) -> tuple[str, bool, int | None, bool]:
         """Получает вывод терминала.
 
         Args:
             terminal_id: ID терминала
 
         Returns:
-            Словарь с выводом и статусом
+            Tuple (output, is_complete, exit_code, truncated)
         """
-        output, is_complete, exit_code = await self._executor.get_output(terminal_id)
-        return {
-            "output": output,
-            "isComplete": is_complete,
-            "exitCode": exit_code,
-        }
+        return await self._executor.get_output(terminal_id)
 
     async def wait_for_exit(self, terminal_id: str) -> tuple[int | None, str | None]:
         """Ожидает завершения терминала.
@@ -66,7 +61,7 @@ class TerminalExecutorAdapter(TerminalExecutorPort):
         """
         exit_code = await self._executor.wait_for_exit(terminal_id)
         # Получаем финальный output
-        output, _, _ = await self._executor.get_output(terminal_id)
+        output, _, _, _ = await self._executor.get_output(terminal_id)
         return (exit_code, output)
 
     async def release_terminal(self, terminal_id: str) -> None:

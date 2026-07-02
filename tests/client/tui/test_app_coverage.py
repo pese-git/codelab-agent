@@ -885,7 +885,7 @@ class TestRunTuiApp:
             patch("codelab.client.tui.app.resolve_tui_connection") as mock_resolve,
             patch("codelab.client.tui.app.ACPClientApp") as mock_app_class,
         ):
-            mock_resolve.return_value = ("127.0.0.1", 8765, "light", 300.0)
+            mock_resolve.return_value = ("127.0.0.1", 8765, "light")
             mock_app = MagicMock()
             mock_app_class.return_value = mock_app
 

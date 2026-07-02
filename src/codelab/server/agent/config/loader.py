@@ -21,6 +21,7 @@ from codelab.server.agent.config.models import (
     AgentRole,
     AgentTOMLConfig,
 )
+from codelab.shared.logging import resolve_codelab_home
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class AgentConfigLoader:
         global_config_dir: Path | None = None,
         project_config_dir: Path | None = None,
     ) -> None:
-        self.global_config_dir = global_config_dir or Path.home() / ".codelab"
+        self.global_config_dir = global_config_dir or resolve_codelab_home()
         self.project_config_dir = project_config_dir or Path(".codelab")
 
     def load_all(

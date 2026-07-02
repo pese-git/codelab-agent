@@ -333,11 +333,13 @@ class TestStdioClientTransportReaders:
 
         await transport._stdout_reader()
 
-        assert transport._stdout_queue.qsize() == 1
+        # Одно сообщение + sentinel при EOF
+        assert transport._stdout_queue.qsize() == 2
         assert await transport._stdout_queue.get() == '{"id": 1}'
+        assert await transport._stdout_queue.get() == ""
 
     async def test_stdout_reader_stops_on_eof(self) -> None:
-        """Проверяет остановку reader при EOF."""
+        """Проверяет остановку reader при EOF и отправку sentinel."""
         transport = StdioClientTransport(command="test", args=[])
         transport._closed = False
         transport._stdout_queue = asyncio.Queue()
@@ -349,7 +351,10 @@ class TestStdioClientTransportReaders:
 
         await transport._stdout_reader()
 
-        assert transport._stdout_queue.empty()
+        # При EOF должен быть sentinel (пустая строка) в очереди
+        assert transport._stdout_queue.qsize() == 1
+        sentinel = await transport._stdout_queue.get()
+        assert sentinel == ""
 
     async def test_stdout_reader_logs_error(self) -> None:
         """Проверяет логирование ошибки при сбое чтения stdout."""

@@ -34,6 +34,7 @@ from codelab.shared.content import (
 from codelab.shared.logging import (
     get_codelab_dir,
     get_logs_dir,
+    resolve_codelab_home,
     setup_logging,
 )
 from codelab.shared.messages import (
@@ -53,6 +54,7 @@ __all__ = [
     "setup_logging",
     "get_codelab_dir",
     "get_logs_dir",
+    "resolve_codelab_home",
     # Content base types
     "TextResource",
     "BlobResource",
