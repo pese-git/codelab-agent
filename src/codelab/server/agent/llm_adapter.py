@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 from codelab.server.agent.contracts.base import (
@@ -223,6 +224,63 @@ class LLMAdapter:
             agent_name=self._name,
         )
 
+    async def _stream_call(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        config: dict[str, Any],
+        model: str,
+    ) -> AsyncGenerator[str | AgentResult, None]:
+        """Стриминговый аналог _single_call.
+
+        Итерирует provider.stream_completion: отдаёт текстовые дельты (str),
+        затем финальный AgentResult (полный текст, tool_calls, usage,
+        stop_reason). Контракт совпадает с _single_call по финалу — остальной
+        цикл не различает стриминговый и нестриминговый путь.
+        """
+        temperature = config.get("temperature", 0.7)
+        max_tokens = config.get("max_tokens", 8192)
+        llm_tools = self._tool_registry.to_llm_tools(tools)
+
+        request = CompletionRequest(
+            model=model,
+            messages=list(messages),
+            tools=llm_tools if tools else None,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        final: CompletionResponse | None = None
+        async for chunk in self._llm_provider.stream_completion(request):
+            if chunk.stop_reason == StopReason.STREAMING:
+                if chunk.text:
+                    yield chunk.text  # текстовая дельта
+            else:
+                final = chunk  # финальный chunk
+
+        if final is None:
+            # Провайдер не отдал финал (напр. пустой стрим) — считаем end_turn.
+            final = CompletionResponse(text="", model=model)
+
+        usage = self._extract_usage(final)
+        if final.text:
+            self._plan_extractor.extract_from_text(final.text)
+        if final.tool_calls:
+            self._plan_extractor.extract_from_tool_call(final.tool_calls)
+
+        tool_calls = [
+            ToolCall(id=tc.id, name=tc.name, arguments=tc.arguments)
+            for tc in final.tool_calls
+        ] if final.tool_calls else []
+
+        yield AgentResult(
+            text=final.text or "",
+            tool_calls=tool_calls,
+            usage=usage,
+            stop_reason=self._map_stop_reason(final.stop_reason),
+            agent_name=self._name,
+        )
+
     def _extract_usage(self, response: CompletionResponse) -> TokenUsage:
         """Извлечь TokenUsage из CompletionResponse."""
         usage_data = response.usage
@@ -304,6 +362,21 @@ class LLMAdapter:
             session_id=request.session_id,
         )
 
+    async def _handle_request_streaming(
+        self,
+        request: AgentRequest,
+        parent_span: SpanContext | None = None,
+    ) -> AsyncGenerator[str | AgentResult, None]:
+        """Стриминговый RequestHandler: отдаёт дельты и финальный AgentResult.
+
+        Реализует StreamingRequestHandler Protocol для send_request_streaming.
+        """
+        model = self._model or self._llm_provider.name
+        async for item in self._stream_call(
+            request.messages, request.tools, {}, model
+        ):
+            yield item
+
     async def register_with_bus(
         self,
         event_bus: AgentEventBus,
@@ -311,10 +384,15 @@ class LLMAdapter:
     ) -> None:
         """Зарегистрировать адаптер в EventBus как RequestHandler.
 
+        Регистрирует и нестриминговый (_handle_request), и стриминговый
+        (_handle_request_streaming) обработчики.
+
         Args:
             event_bus: Шина событий
             agent_name: Имя агента для регистрации
         """
         self._event_bus = event_bus
         self._name = agent_name
-        await event_bus.register_agent(agent_name, self._handle_request)
+        await event_bus.register_agent(
+            agent_name, self._handle_request, self._handle_request_streaming
+        )
