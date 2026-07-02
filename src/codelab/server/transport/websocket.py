@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -94,7 +95,7 @@ class WebSocketTransport(AcpServerTransport):
 
     async def run(
         self,
-        on_message: Any = None,
+        on_message: Callable[[ACPMessage], Awaitable[ProtocolOutcome]] | None = None,
     ) -> None:
         """Основной цикл обработки WebSocket сообщений.
 
@@ -571,7 +572,7 @@ class WebSocketTransport(AcpServerTransport):
         self,
         *,
         acp_request: ACPMessage,
-        handler: Any,
+        handler: Callable[[ACPMessage], Awaitable[ProtocolOutcome]],
         method_name: str,
         session_id: str | None,
         request_id: str | None,

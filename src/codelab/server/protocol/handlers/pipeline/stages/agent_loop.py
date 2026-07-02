@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from codelab.server.agent.base import AgentResponse
     from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 
 logger = structlog.get_logger()
@@ -245,7 +246,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         initial_prompt: str | None = None,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
     ) -> AgentLoopResult:
         """Запустить цикл итераций.
 
@@ -446,7 +447,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
     ) -> AgentLoopResult:
         """Продолжить цикл после permission approval.
 
@@ -545,7 +546,7 @@ class AgentLoop:
         self,
         session: SessionState,
         prompt: str | None,
-        mcp_manager: Any | None,
+        mcp_manager: MCPManager | None,
         iteration: int,
     ) -> AgentResponse:
         """Вызвать LLM через стратегию.
@@ -591,7 +592,7 @@ class AgentLoop:
         session_id: str,
         tool_calls: list,
         notifications: list[ACPMessage],
-        mcp_manager: Any | None,
+        mcp_manager: MCPManager | None,
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
 
@@ -961,7 +962,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        mcp_manager: Any | None,
+        mcp_manager: MCPManager | None,
     ) -> ToolResult | None:
         """Выполнить pending tool после permission approval.
 

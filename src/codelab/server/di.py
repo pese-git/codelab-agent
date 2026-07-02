@@ -86,6 +86,7 @@ from .protocol.orchestrator_builder import PromptOrchestratorBuilder
 from .protocol.pending_registry import PendingRequestRegistry
 from .protocol.response_router import ResponseRouter
 from .protocol.session_runtime import SessionRuntimeRegistry
+from .protocol.state import ClientRuntimeCapabilities, SessionState
 from .rpc_holder import ClientRPCServiceHolder
 from .storage import SessionStorage
 from .storage.global_policy_storage import GlobalPolicyStorage
@@ -922,10 +923,10 @@ class RequestProvider(Provider):
             }
         ]
 
-        async def _on_session_created(session_state: Any, params: dict) -> None:
+        async def _on_session_created(session_state: SessionState, params: dict) -> None:
             await mcp_session_manager.setup_if_needed(session_state, params)
 
-        async def _on_session_loaded(session_state: Any, params: dict) -> None:
+        async def _on_session_loaded(session_state: SessionState, params: dict) -> None:
             await mcp_session_manager.setup_if_needed(session_state, params)
 
         llm_adapter = agent_factory.get_primary_adapter()
@@ -958,7 +959,7 @@ class RequestProvider(Provider):
 
         # Callbacks для side effects: пробрасываем negotiated состояние в
         # session-создающие хендлеры.
-        def _on_capabilities_negotiated(capabilities: Any) -> None:
+        def _on_capabilities_negotiated(capabilities: ClientRuntimeCapabilities | None) -> None:
             session_new_handler._runtime_capabilities = capabilities
             session_load_handler._runtime_capabilities = capabilities
 
