@@ -123,6 +123,20 @@ class SessionNotificationBus:
         self._buffer.clear()
         logger.debug("notification_bus_cleared")
 
+    def clear_buffer(self) -> None:
+        """Очищает только буфер, не трогая подписчиков.
+
+        Вызывается на session/load (реконнект): реплей истории через
+        replay_manager — авторитетный источник полного состояния, поэтому
+        сообщения, накопленные в буфере во время дисконнекта, устарели и
+        должны быть отброшены, иначе при повторной подписке произойдёт
+        двойная доставка persisted-контента (chunks/tool_calls).
+        """
+        dropped = len(self._buffer)
+        self._buffer.clear()
+        if dropped:
+            logger.debug("notification_bus_buffer_cleared", dropped=dropped)
+
     @property
     def has_subscribers(self) -> bool:
         """Проверяет наличие подписчиков."""

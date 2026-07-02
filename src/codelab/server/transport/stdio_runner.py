@@ -207,6 +207,11 @@ async def run_stdio_server(
                     # Подписываемся на новый bus
                     current_session_id = session_id
                     new_bus = await runtime_registry.get_notification_bus(session_id)
+                    # Реконнект (session/load): реплей истории авторитетен,
+                    # поэтому чистим буфер ДО подписки, чтобы subscribe не
+                    # доставил устаревшие сообщения повторно (двойная доставка).
+                    if acp_request.method == "session/load":
+                        new_bus.clear_buffer()
                     new_bus.subscribe(transport.send)
                     logger.info(
                         "subscribed_to_notification_bus",

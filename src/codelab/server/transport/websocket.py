@@ -220,6 +220,11 @@ class WebSocketTransport:
                                 new_bus = await runtime_registry.get_notification_bus(
                                     session_id
                                 )
+                                # Реконнект (session/load): реплей истории
+                                # авторитетен, чистим буфер ДО подписки, чтобы
+                                # не было двойной доставки при повторной подписке.
+                                if acp_request.method == "session/load":
+                                    new_bus.clear_buffer()
                                 new_bus.subscribe(self._send_protocol_message)
                                 notification_bus_subscribed = True
                                 self._conn_logger.info(
