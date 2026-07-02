@@ -21,6 +21,9 @@ from codelab.client.presentation.chat.handlers.message_chunk_handler import (
 from codelab.client.presentation.chat.handlers.plan_update_handler import (
     PlanUpdateHandler,
 )
+from codelab.client.presentation.chat.handlers.session_info_handler import (
+    SessionInfoHandler,
+)
 from codelab.client.presentation.chat.handlers.tool_call_handler import (
     ToolCallHandler,
 )
@@ -49,6 +52,7 @@ class SessionUpdateDispatcher:
         tool_call_handler: ToolCallHandler,
         plan_update_handler: PlanUpdateHandler,
         config_option_handler: ConfigOptionHandler,
+        session_info_handler: SessionInfoHandler | None = None,
     ) -> None:
         """Инициализирует диспетчер с обработчиками.
 
@@ -57,13 +61,25 @@ class SessionUpdateDispatcher:
             tool_call_handler: Обработчик tool calls
             plan_update_handler: Обработчик plan updates
             config_option_handler: Обработчик config option updates
+            session_info_handler: Обработчик информационных обновлений
         """
-        self._handlers = [
+        self._handlers: list[
+            MessageChunkHandler
+            | ToolCallHandler
+            | PlanUpdateHandler
+            | ConfigOptionHandler
+            | SessionInfoHandler
+        ] = [
             message_chunk_handler,
             tool_call_handler,
             plan_update_handler,
             config_option_handler,
         ]
+        # SessionInfoHandler опционален — создаём default если не передан
+        if session_info_handler is None:
+            session_info_handler = SessionInfoHandler()
+        self._handlers.append(session_info_handler)
+        
         # Оптимизация: dict для O(1) поиска handler'а по update_type
         self._handler_map: dict[str, Any] = {}
         for handler in self._handlers:
@@ -77,6 +93,8 @@ class SessionUpdateDispatcher:
                 "tool_call_result",
                 "plan",
                 "config_option_update",
+                "available_commands_update",
+                "session_info_update",
             ]:
                 if handler.can_handle(update_type):
                     self._handler_map[update_type] = handler

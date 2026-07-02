@@ -16,7 +16,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from aiohttp import WSMsgType, web
+from aiohttp import WSMsgType
 from dishka import AsyncContainer
 
 from codelab.server.client_rpc.service import ClientRPCService
@@ -24,6 +24,8 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.state import ProtocolOutcome
 from codelab.server.rpc_holder import ClientRPCServiceHolder
+from codelab.server.transport.base import AcpServerTransport
+from codelab.server.transport.websocket_connection import WebSocketConnection
 
 if TYPE_CHECKING:
     from codelab.server.config import AppConfig
@@ -49,21 +51,21 @@ def _truncate_payload(payload: str, max_length: int = 500) -> str:
     return payload
 
 
-class WebSocketTransport:
+class WebSocketTransport(AcpServerTransport):
     """WebSocket реализация AcpServerTransport.
 
     Управляет одним WebSocket соединением: читает сообщения, передаёт
     их в callback on_message, отправляет responses и notifications.
 
     Атрибуты:
-        ws: aiohttp WebSocketResponse
+        connection: Абстракция WebSocket соединения
         app_container: DI контейнер приложения
         config: Конфигурация приложения
     """
 
     def __init__(
         self,
-        ws: web.WebSocketResponse,
+        connection: WebSocketConnection,
         app_container: AsyncContainer,
         config: AppConfig,
         connection_id: str,
@@ -72,18 +74,18 @@ class WebSocketTransport:
         """Инициализирует WebSocket транспорт.
 
         Args:
-            ws: aiohttp WebSocketResponse (уже prepared)
+            connection: Абстракция WebSocket соединения
             app_container: DI контейнер приложения (REQUEST scope будет создан внутри)
             config: Конфигурация приложения
             connection_id: Уникальный ID соединения для логирования
             remote_addr: Адрес клиента для логирования
         """
-        self._ws = ws
+        self._connection = connection
         self._app_container = app_container
         self._config = config
         self._connection_id = connection_id
         self._remote_addr = remote_addr
-        self._ws_send_lock = asyncio.Lock()
+        self._connection_send_lock = asyncio.Lock()
         self._closed = False
         self._conn_logger = logger.bind(
             connection_id=connection_id,
@@ -119,7 +121,7 @@ class WebSocketTransport:
         # Используем REQUEST scope для этого WebSocket соединения
         if self._app_container is None:
             self._conn_logger.error("app container not initialized")
-            await self._ws.close()
+            await self._connection.close()
             return
 
         # Устанавливаем ClientRPCService в holder перед созданием REQUEST scope
@@ -148,7 +150,7 @@ class WebSocketTransport:
             handler = on_message if on_message is not None else protocol.handle_and_process
 
             try:
-                async for message in self._ws:
+                async for message in self._connection:
                     if message.type == WSMsgType.TEXT:
                         method_name: str | None = None
                         session_id: str | None = None
@@ -304,8 +306,8 @@ class WebSocketTransport:
                     elif message.type == WSMsgType.ERROR:
                         self._conn_logger.warning(
                             "ws_error",
-                            exception=str(self._ws.exception())
-                            if self._ws.exception()
+                            exception=str(self._connection.exception())
+                            if self._connection.exception()
                             else None,
                             peer=self._remote_addr,
                         )
@@ -403,10 +405,10 @@ class WebSocketTransport:
         Args:
             message: ACPMessage для отправки (response, notification или RPC request).
         """
-        async with self._ws_send_lock:
-            if self._ws.closed:
+        async with self._connection_send_lock:
+            if self._connection.closed:
                 return
-            await self._ws.send_str(message.to_json())
+            await self._connection.send_str(message.to_json())
 
     async def close(self) -> None:
         """Закрыть WebSocket соединение.
@@ -414,8 +416,8 @@ class WebSocketTransport:
         Метод идемпотентен — повторный вызов безопасен.
         """
         self._closed = True
-        if not self._ws.closed:
-            await self._ws.close()
+        if not self._connection.closed:
+            await self._connection.close()
 
     # =========================================================================
     # Internal helpers
@@ -432,9 +434,9 @@ class WebSocketTransport:
             payload=request_dict,
         )
 
-        async with self._ws_send_lock:
-            if not self._ws.closed:
-                await self._ws.send_json(request_dict)
+        async with self._connection_send_lock:
+            if not self._connection.closed:
+                await self._connection.send_json(request_dict)
 
     async def _send_protocol_message(self, message: ACPMessage) -> None:
         """Отправляет сообщение из фоновых задач протокола.
@@ -454,9 +456,9 @@ class WebSocketTransport:
             payload=message_json,
         )
 
-        async with self._ws_send_lock:
-            if not self._ws.closed:
-                await self._ws.send_str(message_json)
+        async with self._connection_send_lock:
+            if not self._connection.closed:
+                await self._connection.send_str(message_json)
                 self._conn_logger.info(
                     "protocol_message_sent",
                     method=message.method,
@@ -490,8 +492,8 @@ class WebSocketTransport:
             followups_count=followups_count,
         )
 
-        async with self._ws_send_lock:
-            if self._ws.closed:
+        async with self._connection_send_lock:
+            if self._connection.closed:
                 self._conn_logger.warning(
                     "outcome_not_sent_ws_closed",
                     request_id=request_id,
@@ -501,7 +503,7 @@ class WebSocketTransport:
 
             for idx, notification in enumerate(outcome.notifications):
                 notification_json = notification.to_json()
-                await self._ws.send_str(notification_json)
+                await self._connection.send_str(notification_json)
                 self._conn_logger.info(
                     "notification_sent",
                     method=notification.method,
@@ -511,7 +513,7 @@ class WebSocketTransport:
 
             if outcome.response is not None:
                 response_json = outcome.response.to_json()
-                await self._ws.send_str(response_json)
+                await self._connection.send_str(response_json)
                 self._conn_logger.info(
                     "response_sent",
                     request_id=request_id,
@@ -521,7 +523,7 @@ class WebSocketTransport:
 
             for followup_response in outcome.followup_responses:
                 followup_json = followup_response.to_json()
-                await self._ws.send_str(followup_json)
+                await self._connection.send_str(followup_json)
                 self._conn_logger.info(
                     "followup_response_sent",
                     request_id=followup_response.id,
@@ -652,9 +654,9 @@ class WebSocketTransport:
                 response = None
 
             # Отправляем response если он есть и соединение ещё живо
-            if response is not None and not self._ws.closed:
+            if response is not None and not self._connection.closed:
                 try:
-                    await self._ws.send_str(response.to_json())
+                    await self._connection.send_str(response.to_json())
                     conn_logger.info("deferred prompt completed successfully")
                 except Exception as exc:
                     conn_logger.error(
@@ -662,7 +664,7 @@ class WebSocketTransport:
                         error=str(exc),
                         exc_info=True,
                     )
-            elif self._ws.closed:
+            elif self._connection.closed:
                 conn_logger.debug("deferred prompt skipped (websocket closed)")
             else:
                 conn_logger.debug("deferred prompt skipped (no response)")
@@ -679,8 +681,8 @@ class WebSocketTransport:
                     )
                     session.pending_prompt_response = None
                     await protocol._storage.save_session(session)
-                    if not self._ws.closed:
-                        await self._ws.send_str(response.to_json())
+                    if not self._connection.closed:
+                        await self._connection.send_str(response.to_json())
                         conn_logger.info("deferred prompt cancelled response sent")
             except Exception as exc:
                 conn_logger.debug(

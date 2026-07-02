@@ -35,6 +35,7 @@ from .config import AppConfig
 from .di import ObservabilityFlushManager, make_container
 from .storage import SessionStorage
 from .transport.websocket import WebSocketTransport
+from .transport.websocket_connection import AiohttpWebSocketConnection
 
 # Получаем структурированный logger
 logger = structlog.get_logger()
@@ -448,8 +449,9 @@ class ACPHttpServer:
             return ws
 
         # Создаём WebSocketTransport и делегируем обработку
+        connection = AiohttpWebSocketConnection(ws)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=connection,
             app_container=self._app_container,
             config=self.config,
             connection_id=connection_id,

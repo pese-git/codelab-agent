@@ -669,6 +669,9 @@ class ACPTransportService(TransportService):
                     notification_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError, TimeoutError):
                         await notification_task
+                elif notification_task in done:
+                    with contextlib.suppress(TimeoutError, Exception):
+                        notification_task.result()
 
                 if permission_task is not None and permission_task in done:
                     self._logger.info(

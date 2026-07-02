@@ -55,21 +55,21 @@ def _make_container(protocol: MagicMock) -> MagicMock:
     return container
 
 
-def _make_ws(messages: list[WsMessage]) -> MagicMock:
-    """Создать мок WebSocketResponse с заданной последовательностью сообщений."""
-    ws = MagicMock()
-    ws.closed = False
-    ws.send_str = AsyncMock()
-    ws.send_json = AsyncMock()
-    ws.close = AsyncMock()
-    ws.exception = MagicMock(return_value=None)
+def _make_connection(messages: list[WsMessage]) -> MagicMock:
+    """Создать мок WebSocketConnection с заданной последовательностью сообщений."""
+    connection = MagicMock()
+    connection.closed = False
+    connection.send_str = AsyncMock()
+    connection.send_json = AsyncMock()
+    connection.close = AsyncMock()
+    connection.exception = MagicMock(return_value=None)
 
     async def _message_iterator(_self: Any) -> AsyncIterator[WsMessage]:
         for msg in messages:
             yield msg
 
-    ws.__aiter__ = _message_iterator
-    return ws
+    connection.__aiter__ = _message_iterator
+    return connection
 
 
 def _make_protocol() -> MagicMock:
@@ -104,9 +104,9 @@ class TestWebSocketTransportRunContainer:
         mock_config: MagicMock,
     ) -> None:
         """run() закрывает WS и завершается если app_container не задан."""
-        ws = _make_ws([])
+        ws = _make_connection([])
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=None,  # type: ignore[arg-type]
             config=mock_config,
             connection_id="conn_1",
@@ -128,7 +128,7 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Notification до initialize игнорируется без ответа."""
         protocol = _make_protocol()
-        ws = _make_ws([
+        ws = _make_connection([
             WsMessage(
                 WSMsgType.TEXT,
                 ACPMessage.notification("session/cancel", {"sessionId": "sess_1"}).to_json(),
@@ -137,7 +137,7 @@ class TestWebSocketTransportRunLifecycle:
         ])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -155,13 +155,13 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Сообщение WSMsgType.CLOSE завершает цикл обработки."""
         protocol = _make_protocol()
-        ws = _make_ws([
+        ws = _make_connection([
             WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
             WsMessage(WSMsgType.CLOSE),
         ])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -179,13 +179,13 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Сообщение WSMsgType.CLOSING завершает цикл обработки."""
         protocol = _make_protocol()
-        ws = _make_ws([
+        ws = _make_connection([
             WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
             WsMessage(WSMsgType.CLOSING),
         ])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -213,10 +213,10 @@ class TestWebSocketTransportRunCleanup:
                 await asyncio.sleep(60)
             return ProtocolOutcome()
 
-        ws = _make_ws([])
+        ws = _make_connection([])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -251,10 +251,10 @@ class TestWebSocketTransportRunCleanup:
         protocol.complete_active_turn = AsyncMock(side_effect=asyncio.sleep(60))
 
         deferred_created = asyncio.Event()
-        ws = _make_ws([])
+        ws = _make_connection([])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -295,13 +295,13 @@ class TestWebSocketTransportRunCleanup:
         protocol = _make_protocol()
         protocol.cancel_active_turns_on_disconnect = AsyncMock(return_value=3)
 
-        ws = _make_ws([
+        ws = _make_connection([
             WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
             WsMessage(WSMsgType.CLOSE),
         ])
         container = _make_container(protocol)
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -327,13 +327,13 @@ class TestWebSocketTransportRunCleanup:
             "codelab.server.transport.websocket.ClientRPCService",
             return_value=service_mock,
         ):
-            ws = _make_ws([
+            ws = _make_connection([
                 WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
                 WsMessage(WSMsgType.CLOSE),
             ])
             container = _make_container(protocol)
             transport = WebSocketTransport(
-                ws=ws,
+                connection=ws,
                 app_container=container,
                 config=mock_config,
                 connection_id="conn_1",
@@ -355,7 +355,7 @@ class TestWebSocketTransportFinalizeOutcome:
     ) -> None:
         """Создание нового deferred task отменяет предыдущий для той же сессии."""
         transport = WebSocketTransport(
-            ws=_make_ws([]),
+            connection=_make_connection([]),
             app_container=_make_container(_make_protocol()),
             config=mock_config,
             connection_id="conn_1",
@@ -397,10 +397,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
         """TimeoutError при complete_active_turn не прерывает выполнение."""
         protocol = _make_protocol()
         protocol.complete_active_turn = AsyncMock(side_effect=TimeoutError)
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -423,10 +423,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
         """Ошибка при complete_active_turn не прерывает выполнение."""
         protocol = _make_protocol()
         protocol.complete_active_turn = AsyncMock(side_effect=RuntimeError("boom"))
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -448,11 +448,11 @@ class TestWebSocketTransportCompleteDeferredPrompt:
     ) -> None:
         """Ошибка отправки ответа логируется, но не прерывает выполнение."""
         protocol = _make_protocol()
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         ws.send_str = AsyncMock(side_effect=RuntimeError("send failed"))
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -474,10 +474,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
     ) -> None:
         """Ответ не отправляется если WebSocket уже закрыт."""
         protocol = _make_protocol()
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = True
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -500,10 +500,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
         """Ответ не отправляется если complete_active_turn вернул None."""
         protocol = _make_protocol()
         protocol.complete_active_turn = AsyncMock(return_value=None)
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -535,10 +535,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
         )
         protocol._storage.load_session = AsyncMock(return_value=session)
 
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -572,10 +572,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
         protocol = _make_protocol()
         protocol._storage.load_session = AsyncMock(side_effect=RuntimeError("load failed"))
 
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -605,10 +605,10 @@ class TestWebSocketTransportCompleteDeferredPrompt:
     ) -> None:
         """Непредвиденная ошибка в _complete_deferred_prompt не прерывает выполнение."""
         protocol = _make_protocol()
-        ws = _make_ws([])
+        ws = _make_connection([])
         ws.closed = False
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=_make_container(protocol),
             config=mock_config,
             connection_id="conn_1",
@@ -638,7 +638,7 @@ class TestObservabilityFlushOnDisconnect:
     ) -> None:
         """flush_all() вызывается при закрытии WebSocket соединения."""
         protocol = _make_protocol()
-        ws = _make_ws([WsMessage(WSMsgType.CLOSE)])
+        ws = _make_connection([WsMessage(WSMsgType.CLOSE)])
         ws.closed = False
 
         flush_manager = AsyncMock()
@@ -654,7 +654,7 @@ class TestObservabilityFlushOnDisconnect:
         container.get = AsyncMock(side_effect=get_side_effect)
 
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
@@ -672,7 +672,7 @@ class TestObservabilityFlushOnDisconnect:
     ) -> None:
         """Ошибка при flush не прерывает закрытие соединения."""
         protocol = _make_protocol()
-        ws = _make_ws([WsMessage(WSMsgType.CLOSE)])
+        ws = _make_connection([WsMessage(WSMsgType.CLOSE)])
         ws.closed = False
 
         flush_manager = AsyncMock()
@@ -688,7 +688,7 @@ class TestObservabilityFlushOnDisconnect:
         container.get = AsyncMock(side_effect=get_side_effect)
 
         transport = WebSocketTransport(
-            ws=ws,
+            connection=ws,
             app_container=container,
             config=mock_config,
             connection_id="conn_1",
