@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock
 
 from factories import make_orchestrator
 
+from _protocol_factory import build_protocol
+
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import InMemoryStorage
 
 
@@ -25,12 +26,12 @@ class TestClientRPCServiceIntegration:
             client_capabilities={"fs": {"readTextFile": True}},
         )
 
-        protocol = ACPProtocol(
+        protocol = build_protocol(
             storage=InMemoryStorage(),
             client_rpc_service=client_rpc_service,
         )
 
-        assert protocol._client_rpc_service is client_rpc_service
+        assert protocol._response_router._client_rpc_service is client_rpc_service
 
     def test_make_orchestrator_with_client_rpc_service(self) -> None:
         """Проверяет что make_orchestrator() принимает client_rpc_service."""
@@ -45,19 +46,21 @@ class TestClientRPCServiceIntegration:
         assert orchestrator.client_rpc_service is client_rpc_service
 
     def test_client_rpc_service_without_prompt_orchestrator(self) -> None:
-        """Проверяет что ClientRPCService работает без prompt_orchestrator."""
+        """ClientRPCService проброшен без предварительного построения оркестратора."""
         send_callback = AsyncMock()
         client_rpc_service = ClientRPCService(
             send_request_callback=send_callback,
             client_capabilities={"fs": {"readTextFile": True}},
         )
 
-        protocol = ACPProtocol(
+        protocol = build_protocol(
             storage=InMemoryStorage(),
             client_rpc_service=client_rpc_service,
         )
 
-        assert protocol._prompt_orchestrator is None
+        # Конструкция успешна и client_rpc_service проброшен в ResponseRouter,
+        # при этом оркестратор не строится заранее.
+        assert protocol._response_router._client_rpc_service is client_rpc_service
 
     def test_make_orchestrator_without_client_rpc_service(self) -> None:
         """Проверяет что make_orchestrator() работает без client_rpc_service."""

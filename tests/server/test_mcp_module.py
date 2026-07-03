@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState
 from codelab.server.mcp.manager import (
     MCPManager,
@@ -697,11 +699,10 @@ class TestSessionMCPIntegration:
         3. Сохранить MCPManager в session_state.mcp_manager
         """
         from codelab.server.messages import ACPMessage
-        from codelab.server.protocol.core import ACPProtocol
-        
+
         # Создаём протокол
-        protocol = ACPProtocol(require_auth=False)
-        
+        protocol = build_protocol(require_auth=False)
+
         # Инициализируем протокол
         init_msg = ACPMessage.request(
             request_id=0,
@@ -763,11 +764,10 @@ class TestSessionMCPIntegration:
     ) -> None:
         """Проверяет, что session/new без mcpServers не создаёт MCPManager."""
         from codelab.server.messages import ACPMessage
-        from codelab.server.protocol.core import ACPProtocol
-        
+
         # Создаём протокол
-        protocol = ACPProtocol(require_auth=False)
-        
+        protocol = build_protocol(require_auth=False)
+
         # Инициализируем протокол
         init_msg = ACPMessage.request(
             request_id=0,
@@ -775,7 +775,7 @@ class TestSessionMCPIntegration:
             params={"protocolVersion": 1},
         )
         await protocol.handle(init_msg)
-        
+
         # Создаём сессию БЕЗ MCP серверов
         session_new_msg = ACPMessage.request(
             request_id=1,
@@ -805,17 +805,16 @@ class TestSessionMCPIntegration:
     ) -> None:
         """Проверяет, что пустой список mcpServers не создаёт MCPManager."""
         from codelab.server.messages import ACPMessage
-        from codelab.server.protocol.core import ACPProtocol
-        
-        protocol = ACPProtocol(require_auth=False)
-        
+
+        protocol = build_protocol(require_auth=False)
+
         init_msg = ACPMessage.request(
             request_id=0,
             method="initialize",
             params={"protocolVersion": 1},
         )
         await protocol.handle(init_msg)
-        
+
         # Создаём сессию с пустым списком MCP серверов
         session_new_msg = ACPMessage.request(
             request_id=1,
@@ -844,17 +843,16 @@ class TestSessionMCPIntegration:
     ) -> None:
         """Проверяет graceful degradation при невалидной конфигурации MCP."""
         from codelab.server.messages import ACPMessage
-        from codelab.server.protocol.core import ACPProtocol
-        
-        protocol = ACPProtocol(require_auth=False)
-        
+
+        protocol = build_protocol(require_auth=False)
+
         init_msg = ACPMessage.request(
             request_id=0,
             method="initialize",
             params={"protocolVersion": 1},
         )
         await protocol.handle(init_msg)
-        
+
         # Создаём сессию с невалидной конфигурацией (отсутствует name)
         session_new_msg = ACPMessage.request(
             request_id=1,

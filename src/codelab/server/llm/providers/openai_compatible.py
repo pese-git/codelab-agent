@@ -191,6 +191,8 @@ class OpenAICompatibleProvider(LLMProvider):
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "stream": True,
+            # usage приходит отдельным финальным chunk'ом только с этим флагом
+            "stream_options": {"include_usage": True},
         }
 
         if request.tools:
@@ -199,15 +201,77 @@ class OpenAICompatibleProvider(LLMProvider):
 
         stream = await self._client.chat.completions.create(**request_params)
 
-        buffer = ""
+        # Контракт стрима:
+        # - промежуточные chunk'и: stop_reason=STREAMING, text = ДЕЛЬТА (инкремент);
+        # - финальный chunk: полный text + собранные tool_calls + реальный
+        #   stop_reason + usage. Потребитель эмитит дельты вживую и НЕ должен
+        #   повторно эмитить text финального chunk'а.
+        full_text = ""
+        # Фрагменты tool_calls по index: id/name приходят в первом фрагменте,
+        # arguments — по кускам строки в последующих.
+        tool_frags: dict[int, dict[str, Any]] = {}
+        finish_reason: str | None = None
+        usage: dict[str, int] = {}
+
         async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                buffer += chunk.choices[0].delta.content
+            if getattr(chunk, "usage", None):
+                usage = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta is None:
+                continue
+            if delta.content:
+                full_text += delta.content
                 yield CompletionResponse(
-                    text=buffer,
+                    text=delta.content,
                     stop_reason=StopReason.STREAMING,
                     model=model,
                 )
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    frag = tool_frags.setdefault(
+                        tc.index, {"id": None, "name": None, "args": ""}
+                    )
+                    if tc.id:
+                        frag["id"] = tc.id
+                    if tc.function is not None:
+                        if tc.function.name:
+                            frag["name"] = tc.function.name
+                        if tc.function.arguments:
+                            frag["args"] += tc.function.arguments
+
+        tool_calls: list[LLMToolCall] = []
+        for idx in sorted(tool_frags):
+            frag = tool_frags[idx]
+            if not frag["name"]:
+                continue  # неполный фрагмент без имени — пропускаем
+            args: dict[str, Any] = {}
+            if frag["args"]:
+                try:
+                    args = json.loads(frag["args"])
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+            tool_calls.append(
+                LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args)
+            )
+
+        yield CompletionResponse(
+            text=full_text,
+            tool_calls=tool_calls,
+            stop_reason=self._finish_reason_to_stop_reason(
+                finish_reason, has_tool_calls=bool(tool_calls)
+            ),
+            model=model,
+            usage=usage,
+        )
 
     def _convert_to_openai_format(
         self,
@@ -298,6 +362,24 @@ class OpenAICompatibleProvider(LLMProvider):
             }
         return None
 
+    @staticmethod
+    def _finish_reason_to_stop_reason(
+        finish_reason: str | None, *, has_tool_calls: bool
+    ) -> StopReason:
+        """Маппинг OpenAI finish_reason → StopReason.
+
+        В стриме finish_reason может отсутствовать (None), но при собранных
+        tool_calls всё равно нужен TOOL_USE — поэтому has_tool_calls имеет
+        приоритет.
+        """
+        if finish_reason == "tool_calls" or has_tool_calls:
+            return StopReason.TOOL_USE
+        if finish_reason == "length":
+            return StopReason.MAX_TOKENS
+        if finish_reason == "stop":
+            return StopReason.STOP_SEQUENCE
+        return StopReason.END_TURN
+
     def _parse_completion(
         self,
         response: ChatCompletion,
@@ -339,13 +421,9 @@ class OpenAICompatibleProvider(LLMProvider):
                         )
                     )
 
-        stop_reason = StopReason.END_TURN
-        if choice.finish_reason == "tool_calls":
-            stop_reason = StopReason.TOOL_USE
-        elif choice.finish_reason == "length":
-            stop_reason = StopReason.MAX_TOKENS
-        elif choice.finish_reason == "stop":
-            stop_reason = StopReason.STOP_SEQUENCE
+        stop_reason = self._finish_reason_to_stop_reason(
+            choice.finish_reason, has_tool_calls=bool(tool_calls)
+        )
 
         usage = {}
         if response.usage:

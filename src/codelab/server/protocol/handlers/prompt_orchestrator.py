@@ -28,6 +28,8 @@ from .tool_call_handler import ToolCallHandler
 from .turn_lifecycle_manager import TurnLifecycleManager
 
 if TYPE_CHECKING:
+    from codelab.server.mcp.manager import MCPManager
+
     from .global_policy_manager import GlobalPolicyManager
 
 logger = structlog.get_logger()
@@ -137,7 +139,7 @@ class PromptOrchestrator:
         params: dict[str, Any],
         session: SessionState,
         storage: SessionStorage,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> ProtocolOutcome:
@@ -402,7 +404,7 @@ class PromptOrchestrator:
         session: SessionState,
         session_id: str,
         tool_call_id: str,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""

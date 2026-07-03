@@ -91,6 +91,24 @@ class SessionPromptCommandHandler:
                 )
             )
 
+        # Валидация ContentBlock-массива по ACP (06-Content): неподдерживаемый
+        # тип или битые поля должны отклоняться с -32602, а не молча теряться
+        # в acp_mapper.
+        from ..handlers.prompt import validate_prompt_content
+
+        prompt_blocks = params.get("prompt")
+        if not isinstance(prompt_blocks, list):
+            return ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    message.id,
+                    code=-32602,
+                    message="Invalid params: prompt must be an array",
+                )
+            )
+        content_error = validate_prompt_content(message.id, prompt_blocks)
+        if content_error is not None:
+            return ProtocolOutcome(response=content_error)
+
         # Очищаем stale active_turn
         session.active_turn = None
 
@@ -101,6 +119,16 @@ class SessionPromptCommandHandler:
         runtime = await self._runtime_registry.get(session_id)
         mcp_prompt_handlers = runtime.mcp_prompt_handlers if runtime else {}
 
+        # Живая доставка turn-нотификаций через per-session NotificationBus:
+        # AgentLoop публикует update'ы по ходу turn'а (транспорт уже подписан),
+        # а не батчит их в outcome.notifications. Это выравнивает синхронный
+        # prompt-путь с deferred-путём (BackgroundExecutor уже публикует в шину).
+        # Явный notification_callback имеет приоритет (используется в тестах).
+        notification_callback = self._notification_callback
+        if notification_callback is None:
+            bus = await self._runtime_registry.get_notification_bus(session_id)
+            notification_callback = bus.publish
+
         outcome = await orchestrator.handle_prompt(
             request_id=message.id,
             params=params,
@@ -108,7 +136,7 @@ class SessionPromptCommandHandler:
             storage=self._storage,
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
-            notification_callback=self._notification_callback,
+            notification_callback=notification_callback,
         )
 
         # Сохраняем сессию

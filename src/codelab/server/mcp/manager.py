@@ -473,6 +473,11 @@ class MCPManager:
         
         try:
             await self.refresh_tools(server_id)
+        except MCPServerNotFoundError:
+            logger.debug(
+                "Server '%s' already removed, skipping tools refresh",
+                server_id,
+            )
         except MCPManagerError as e:
             logger.error("Failed to refresh tools: %s", e)
         

@@ -15,8 +15,9 @@ import json
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol import ACPProtocol
 from codelab.server.protocol.handlers.session import (
     decode_session_cursor,
     encode_session_cursor,
@@ -32,7 +33,7 @@ from codelab.server.storage import InMemoryStorage
 @pytest.mark.asyncio
 async def test_session_list_rejects_cursor_with_valid_base64_but_invalid_json() -> None:
     """Cursor декодируется из base64, но не является валидным JSON."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -50,7 +51,7 @@ async def test_session_list_rejects_cursor_with_valid_base64_but_invalid_json() 
 @pytest.mark.asyncio
 async def test_session_list_rejects_cursor_with_valid_json_but_missing_index() -> None:
     """Cursor — валидный JSON, но без поля index."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -69,7 +70,7 @@ async def test_session_list_rejects_cursor_with_valid_json_but_missing_index() -
 @pytest.mark.asyncio
 async def test_session_list_rejects_cursor_with_non_int_index() -> None:
     """Cursor имеет index, но он не int (строка)."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -88,7 +89,7 @@ async def test_session_list_rejects_cursor_with_non_int_index() -> None:
 @pytest.mark.asyncio
 async def test_session_list_rejects_cursor_with_negative_index() -> None:
     """Cursor имеет index < 0."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -107,7 +108,7 @@ async def test_session_list_rejects_cursor_with_negative_index() -> None:
 @pytest.mark.asyncio
 async def test_session_list_returns_empty_page_when_cursor_beyond_total() -> None:
     """Cursor указывает за пределы общего числа сессий — пустая страница, не ошибка."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -133,7 +134,7 @@ async def test_session_list_returns_empty_page_when_cursor_beyond_total() -> Non
 @pytest.mark.asyncio
 async def test_session_list_returns_empty_when_no_sessions() -> None:
     """Пустой storage — должен вернуть пустой массив sessions."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     response = await protocol.handle(ACPMessage.request("session/list", {}))
 
     assert response.response is not None
@@ -146,7 +147,7 @@ async def test_session_list_returns_empty_when_no_sessions() -> None:
 @pytest.mark.asyncio
 async def test_session_list_returns_empty_when_cwd_filter_no_match() -> None:
     """Фильтр cwd не находит matching сессий — пустой массив."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -165,7 +166,7 @@ async def test_session_list_returns_empty_when_cwd_filter_no_match() -> None:
 @pytest.mark.asyncio
 async def test_session_list_returns_empty_page_after_last_session() -> None:
     """Cursor указывает точно после последней сессии — пустая страница."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     await protocol.handle(
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
@@ -193,7 +194,7 @@ async def test_session_list_returns_empty_page_after_last_session() -> None:
 @pytest.mark.asyncio
 async def test_session_list_exactly_page_size_returns_no_next_cursor() -> None:
     """Ровно 50 сессий (page size) — одна страница без nextCursor."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     for _ in range(50):
         await protocol.handle(
             ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -209,7 +210,7 @@ async def test_session_list_exactly_page_size_returns_no_next_cursor() -> None:
 @pytest.mark.asyncio
 async def test_session_list_one_less_than_page_size_returns_no_next_cursor() -> None:
     """49 сессий — одна страница без nextCursor."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     for _ in range(49):
         await protocol.handle(
             ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -225,7 +226,7 @@ async def test_session_list_one_less_than_page_size_returns_no_next_cursor() -> 
 @pytest.mark.asyncio
 async def test_session_list_one_more_than_page_size_returns_next_cursor() -> None:
     """51 сессия — первая страница 50, есть nextCursor."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     for _ in range(51):
         await protocol.handle(
             ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
@@ -249,7 +250,7 @@ async def test_session_list_one_more_than_page_size_returns_next_cursor() -> Non
 @pytest.mark.asyncio
 async def test_session_list_cursor_at_exact_page_boundary() -> None:
     """Cursor=50 на 100 сессиях — вторая страница с 50 сессиями."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     for _ in range(100):
         await protocol.handle(
             ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})

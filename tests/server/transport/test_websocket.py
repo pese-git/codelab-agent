@@ -17,15 +17,15 @@ from codelab.server.transport.websocket import (
 
 
 @pytest.fixture
-def mock_ws() -> MagicMock:
-    """Создать мок WebSocketResponse."""
-    ws = MagicMock()
-    ws.closed = False
-    ws.send_str = AsyncMock()
-    ws.send_json = AsyncMock()
-    ws.close = AsyncMock()
-    ws.exception = MagicMock(return_value=None)
-    return ws
+def mock_connection() -> MagicMock:
+    """Создать мок WebSocketConnection."""
+    connection = MagicMock()
+    connection.closed = False
+    connection.send_str = AsyncMock()
+    connection.send_json = AsyncMock()
+    connection.close = AsyncMock()
+    connection.exception = MagicMock(return_value=None)
+    return connection
 
 
 @pytest.fixture
@@ -71,20 +71,20 @@ class TestWebSocketTransportInit:
 
     def test_init_stores_parameters(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """Инициализация сохраняет все параметры."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_123",
             remote_addr="127.0.0.1",
         )
 
-        assert transport._ws is mock_ws
+        assert transport._connection is mock_connection
         assert transport._app_container is mock_container
         assert transport._config is mock_config
         assert transport._connection_id == "conn_123"
@@ -98,13 +98,13 @@ class TestWebSocketTransportSend:
     @pytest.mark.asyncio
     async def test_send_writes_to_websocket(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """send() записывает JSON в WebSocket."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -114,21 +114,21 @@ class TestWebSocketTransportSend:
         message = ACPMessage(jsonrpc="2.0", id="1", method="test")
         await transport.send(message)
 
-        mock_ws.send_str.assert_called_once()
-        sent_data = mock_ws.send_str.call_args[0][0]
+        mock_connection.send_str.assert_called_once()
+        sent_data = mock_connection.send_str.call_args[0][0]
         assert '"jsonrpc":"2.0"' in sent_data
 
     @pytest.mark.asyncio
     async def test_send_does_nothing_when_ws_closed(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """send() не пишет когда WebSocket закрыт."""
-        mock_ws.closed = True
+        mock_connection.closed = True
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -138,18 +138,18 @@ class TestWebSocketTransportSend:
         message = ACPMessage(jsonrpc="2.0", id="1", method="test")
         await transport.send(message)
 
-        mock_ws.send_str.assert_not_called()
+        mock_connection.send_str.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_send_is_thread_safe(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """send() защищён lock для concurrent вызовов."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -163,7 +163,7 @@ class TestWebSocketTransportSend:
             transport.send(message),
         )
 
-        assert mock_ws.send_str.call_count == 3
+        assert mock_connection.send_str.call_count == 3
 
 
 class TestWebSocketTransportClose:
@@ -172,13 +172,13 @@ class TestWebSocketTransportClose:
     @pytest.mark.asyncio
     async def test_close_sets_flag(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """close() устанавливает _closed=True."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -192,13 +192,13 @@ class TestWebSocketTransportClose:
     @pytest.mark.asyncio
     async def test_close_closes_websocket(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """close() закрывает WebSocket."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -207,18 +207,18 @@ class TestWebSocketTransportClose:
 
         await transport.close()
 
-        mock_ws.close.assert_called_once()
+        mock_connection.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_is_idempotent(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """close() идемпотентен."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -233,14 +233,14 @@ class TestWebSocketTransportClose:
     @pytest.mark.asyncio
     async def test_close_skips_if_ws_already_closed(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """close() не закрывает WebSocket если уже закрыт."""
-        mock_ws.closed = True
+        mock_connection.closed = True
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -249,7 +249,7 @@ class TestWebSocketTransportClose:
 
         await transport.close()
 
-        mock_ws.close.assert_not_called()
+        mock_connection.close.assert_not_called()
 
 
 class TestWebSocketTransportSendOutcome:
@@ -258,13 +258,13 @@ class TestWebSocketTransportSendOutcome:
     @pytest.mark.asyncio
     async def test_send_notifications_first(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """Notifications отправляются перед response."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -282,20 +282,20 @@ class TestWebSocketTransportSendOutcome:
 
         await transport._send_outcome(outcome, request_id="1")
 
-        assert mock_ws.send_str.call_count == 2
-        first_call = mock_ws.send_str.call_args_list[0][0][0]
+        assert mock_connection.send_str.call_count == 2
+        first_call = mock_connection.send_str.call_args_list[0][0][0]
         assert "notify" in first_call
 
     @pytest.mark.asyncio
     async def test_send_followup_responses(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """Followup responses отправляются после основного response."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -314,19 +314,19 @@ class TestWebSocketTransportSendOutcome:
 
         await transport._send_outcome(outcome, request_id="1")
 
-        assert mock_ws.send_str.call_count == 3
+        assert mock_connection.send_str.call_count == 3
 
     @pytest.mark.asyncio
     async def test_send_outcome_does_nothing_when_ws_closed(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_send_outcome() не пишет когда WebSocket закрыт."""
-        mock_ws.closed = True
+        mock_connection.closed = True
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -339,7 +339,7 @@ class TestWebSocketTransportSendOutcome:
 
         await transport._send_outcome(outcome, request_id="1")
 
-        mock_ws.send_str.assert_not_called()
+        mock_connection.send_str.assert_not_called()
 
 
 class TestWebSocketTransportSendRpcRequest:
@@ -348,13 +348,13 @@ class TestWebSocketTransportSendRpcRequest:
     @pytest.mark.asyncio
     async def test_send_rpc_request_uses_send_json(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_send_rpc_request() использует send_json."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -364,19 +364,19 @@ class TestWebSocketTransportSendRpcRequest:
         request_dict = {"jsonrpc": "2.0", "id": "rpc_1", "method": "fs/read"}
         await transport._send_rpc_request(request_dict)
 
-        mock_ws.send_json.assert_called_once_with(request_dict)
+        mock_connection.send_json.assert_called_once_with(request_dict)
 
     @pytest.mark.asyncio
     async def test_send_rpc_request_does_nothing_when_ws_closed(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_send_rpc_request() не пишет когда WebSocket закрыт."""
-        mock_ws.closed = True
+        mock_connection.closed = True
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -386,7 +386,7 @@ class TestWebSocketTransportSendRpcRequest:
         request_dict = {"jsonrpc": "2.0", "id": "rpc_1", "method": "fs/read"}
         await transport._send_rpc_request(request_dict)
 
-        mock_ws.send_json.assert_not_called()
+        mock_connection.send_json.assert_not_called()
 
 
 class TestWebSocketTransportSendProtocolMessage:
@@ -395,13 +395,13 @@ class TestWebSocketTransportSendProtocolMessage:
     @pytest.mark.asyncio
     async def test_send_protocol_message_uses_send_str(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_send_protocol_message() использует send_str."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -411,19 +411,19 @@ class TestWebSocketTransportSendProtocolMessage:
         message = ACPMessage(jsonrpc="2.0", method="notify", params={})
         await transport._send_protocol_message(message)
 
-        mock_ws.send_str.assert_called_once()
+        mock_connection.send_str.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_send_protocol_message_does_nothing_when_ws_closed(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_send_protocol_message() не пишет когда WebSocket закрыт."""
-        mock_ws.closed = True
+        mock_connection.closed = True
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -433,7 +433,7 @@ class TestWebSocketTransportSendProtocolMessage:
         message = ACPMessage(jsonrpc="2.0", method="notify", params={})
         await transport._send_protocol_message(message)
 
-        mock_ws.send_str.assert_not_called()
+        mock_connection.send_str.assert_not_called()
 
 
 class TestWebSocketTransportFinalizeOutcome:
@@ -442,13 +442,13 @@ class TestWebSocketTransportFinalizeOutcome:
     @pytest.mark.asyncio
     async def test_finalize_cancels_deferred_on_session_cancel(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """session/cancel отменяет deferred prompt task."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -486,13 +486,13 @@ class TestWebSocketTransportProcessPromptInBackground:
     @pytest.mark.asyncio
     async def test_process_prompt_sends_outcome(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_process_prompt_request_in_background отправляет outcome."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -522,18 +522,18 @@ class TestWebSocketTransportProcessPromptInBackground:
         )
 
         handler.assert_awaited_once_with(prompt_msg)
-        mock_ws.send_str.assert_called()
+        mock_connection.send_str.assert_called()
 
     @pytest.mark.asyncio
     async def test_process_prompt_sends_error_on_exception(
         self,
-        mock_ws: MagicMock,
+        mock_connection: MagicMock,
         mock_container: MagicMock,
         mock_config: MagicMock,
     ) -> None:
         """_process_prompt_request_in_background отправляет error при исключении."""
         transport = WebSocketTransport(
-            ws=mock_ws,
+            connection=mock_connection,
             app_container=mock_container,
             config=mock_config,
             connection_id="conn_1",
@@ -562,6 +562,6 @@ class TestWebSocketTransportProcessPromptInBackground:
             protocol=mock_protocol,
         )
 
-        mock_ws.send_str.assert_called()
-        sent_data = mock_ws.send_str.call_args[0][0]
+        mock_connection.send_str.assert_called()
+        sent_data = mock_connection.send_str.call_args[0][0]
         assert "error" in sent_data.lower()

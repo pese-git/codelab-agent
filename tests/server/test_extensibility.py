@@ -9,8 +9,9 @@
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import InMemoryStorage
 
 # ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ from codelab.server.storage import InMemoryStorage
 @pytest.mark.asyncio
 async def test_initialize_preserves_meta_in_request() -> None:
     """_meta в запросе initialize не ломает handshake."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     request = ACPMessage.request(
         "initialize",
         {
@@ -45,7 +46,7 @@ async def test_initialize_preserves_meta_in_request() -> None:
 @pytest.mark.asyncio
 async def test_session_new_preserves_meta_in_request() -> None:
     """_meta в запросе session/new не ломает создание сессии."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
     # Сначала initialize
     await protocol.handle(
         ACPMessage.request(
@@ -84,7 +85,7 @@ async def test_session_new_preserves_meta_in_request() -> None:
 async def test_session_prompt_preserves_meta_in_request() -> None:
     """_meta в запросе session/prompt не ломает обработку prompt."""
     storage = InMemoryStorage()
-    protocol = ACPProtocol(storage=storage)
+    protocol = build_protocol(storage=storage)
 
     # Initialize
     await protocol.handle(
@@ -136,7 +137,7 @@ async def test_session_prompt_preserves_meta_in_request() -> None:
 async def test_session_list_response_contains_meta() -> None:
     """session/list возвращает _meta в каждом SessionInfo."""
     storage = InMemoryStorage()
-    protocol = ACPProtocol(storage=storage)
+    protocol = build_protocol(storage=storage)
 
     # Initialize
     await protocol.handle(
@@ -180,7 +181,7 @@ async def test_session_list_response_contains_meta() -> None:
 @pytest.mark.asyncio
 async def test_custom_request_method_returns_method_not_found() -> None:
     """Custom method с _ prefix возвращает стандартную ошибку Method not found."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "_zed.dev/workspace/buffers",
@@ -199,7 +200,7 @@ async def test_custom_request_method_returns_method_not_found() -> None:
 @pytest.mark.asyncio
 async def test_custom_notification_is_ignored() -> None:
     """Custom notification с _ prefix игнорируется без ошибки."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     # Notification не имеет id
     notification = ACPMessage.notification(
@@ -217,7 +218,7 @@ async def test_custom_notification_is_ignored() -> None:
 @pytest.mark.asyncio
 async def test_custom_request_with_id_returns_error_with_same_id() -> None:
     """Custom request с id возвращает ошибку с тем же id."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "_custom/method",
@@ -235,7 +236,7 @@ async def test_custom_request_with_id_returns_error_with_same_id() -> None:
 @pytest.mark.asyncio
 async def test_multiple_custom_methods_all_return_method_not_found() -> None:
     """Разные custom methods с _ prefix все возвращают Method not found."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     custom_methods = [
         "_zed.dev/workspace/buffers",
@@ -261,7 +262,7 @@ async def test_multiple_custom_methods_all_return_method_not_found() -> None:
 @pytest.mark.asyncio
 async def test_agent_capabilities_structure() -> None:
     """agentCapabilities имеет ожидаемую структуру."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     outcome = await protocol.handle(
         ACPMessage.request(
@@ -289,7 +290,7 @@ async def test_agent_capabilities_structure() -> None:
 @pytest.mark.asyncio
 async def test_session_capabilities_list() -> None:
     """sessionCapabilities.list присутствует и пустой объект (поддерживается)."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     outcome = await protocol.handle(
         ACPMessage.request(
@@ -313,7 +314,7 @@ async def test_session_capabilities_list() -> None:
 @pytest.mark.asyncio
 async def test_mcp_capabilities_structure() -> None:
     """mcpCapabilities имеет http и sse поля."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     outcome = await protocol.handle(
         ACPMessage.request(
@@ -339,7 +340,7 @@ async def test_mcp_capabilities_structure() -> None:
 @pytest.mark.asyncio
 async def test_prompt_capabilities_structure() -> None:
     """promptCapabilities имеет image, audio, embeddedContext поля."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     outcome = await protocol.handle(
         ACPMessage.request(
@@ -372,7 +373,7 @@ async def test_prompt_capabilities_structure() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_w3c_traceparent() -> None:
     """_meta с W3C traceparent корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -394,7 +395,7 @@ async def test_meta_with_w3c_traceparent() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_w3c_tracestate() -> None:
     """_meta с W3C tracestate корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -416,7 +417,7 @@ async def test_meta_with_w3c_tracestate() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_w3c_baggage() -> None:
     """_meta с W3C baggage корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -438,7 +439,7 @@ async def test_meta_with_w3c_baggage() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_multiple_custom_keys() -> None:
     """_meta с несколькими custom keys корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -469,7 +470,7 @@ async def test_meta_with_multiple_custom_keys() -> None:
 async def test_meta_in_session_load() -> None:
     """_meta в запросе session/load корректно обрабатывается."""
     storage = InMemoryStorage()
-    protocol = ACPProtocol(storage=storage)
+    protocol = build_protocol(storage=storage)
 
     # Initialize
     await protocol.handle(
@@ -516,7 +517,7 @@ async def test_meta_in_session_load() -> None:
 async def test_meta_in_set_config_option() -> None:
     """_meta в запросе session/set_config_option корректно обрабатывается."""
     storage = InMemoryStorage()
-    protocol = ACPProtocol(storage=storage)
+    protocol = build_protocol(storage=storage)
 
     # Initialize
     await protocol.handle(
@@ -562,7 +563,7 @@ async def test_meta_in_set_config_option() -> None:
 async def test_meta_in_set_mode() -> None:
     """_meta в запросе session/set_mode корректно обрабатывается."""
     storage = InMemoryStorage()
-    protocol = ACPProtocol(storage=storage)
+    protocol = build_protocol(storage=storage)
 
     # Initialize
     await protocol.handle(
@@ -610,7 +611,7 @@ async def test_meta_in_set_mode() -> None:
 @pytest.mark.asyncio
 async def test_custom_notification_with_complex_params() -> None:
     """Custom notification с complex params игнорируется."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     notification = ACPMessage.notification(
         "_custom/complex_notification",
@@ -635,7 +636,7 @@ async def test_custom_notification_with_complex_params() -> None:
 @pytest.mark.asyncio
 async def test_empty_meta_object() -> None:
     """Пустой объект _meta корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -655,7 +656,7 @@ async def test_empty_meta_object() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_null_value() -> None:
     """_meta с null value корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -678,7 +679,7 @@ async def test_meta_with_null_value() -> None:
 @pytest.mark.asyncio
 async def test_meta_with_array_value() -> None:
     """_meta с array value корректно обрабатывается."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request(
         "initialize",
@@ -700,7 +701,7 @@ async def test_meta_with_array_value() -> None:
 @pytest.mark.asyncio
 async def test_custom_method_with_underscore_only() -> None:
     """Метод состоящий только из _ возвращает Method not found."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request("_", {})
 
@@ -714,7 +715,7 @@ async def test_custom_method_with_underscore_only() -> None:
 @pytest.mark.asyncio
 async def test_custom_method_with_double_underscore() -> None:
     """Метод с __ prefix возвращает Method not found."""
-    protocol = ACPProtocol()
+    protocol = build_protocol()
 
     request = ACPMessage.request("__custom/method", {})
 

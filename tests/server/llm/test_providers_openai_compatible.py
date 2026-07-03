@@ -12,6 +12,7 @@ import pytest
 from codelab.server.llm.base import LLMConfig, LLMTimeoutConfig
 from codelab.server.llm.models import (
     CompletionRequest,
+    CompletionResponse,
     LLMMessage,
     LLMToolCall,
     StopReason,
@@ -74,6 +75,50 @@ class MockChatCompletion:
     """Мок ChatCompletion из OpenAI API."""
 
     choices: list[MockChoice]
+    usage: MockUsage | None = None
+
+
+# --- Стриминг-моки (дельты) --- #
+
+
+@dataclass
+class MockDeltaFunction:
+    """function внутри delta.tool_calls (фрагмент)."""
+
+    name: str | None = None
+    arguments: str | None = None
+
+
+@dataclass
+class MockDeltaToolCall:
+    """tool_call-фрагмент в delta (id/name — в первом, arguments — по кускам)."""
+
+    index: int
+    id: str | None = None
+    function: MockDeltaFunction | None = None
+
+
+@dataclass
+class MockDelta:
+    """delta стримингового chunk'а."""
+
+    content: str | None = None
+    tool_calls: list[MockDeltaToolCall] | None = None
+
+
+@dataclass
+class MockStreamChoice:
+    """choice стримингового chunk'а."""
+
+    delta: MockDelta
+    finish_reason: str | None = None
+
+
+@dataclass
+class MockStreamChunk:
+    """Стриминговый chunk (ChatCompletionChunk)."""
+
+    choices: list[MockStreamChoice]
     usage: MockUsage | None = None
 
 
@@ -656,42 +701,146 @@ class TestOpenAICompatibleProviderStreamCompletion:
             async for _ in provider.stream_completion(request):
                 pass
 
+    async def _run_stream(
+        self,
+        provider: ConcreteOpenAIProvider,
+        chunks: list[MockStreamChunk],
+        *,
+        tools: list | None = None,
+    ) -> list[CompletionResponse]:
+        """Прогнать stream_completion поверх заданных mock-chunk'ов."""
+        provider._client = MagicMock()
+        provider._client.chat = MagicMock()
+        provider._client.chat.completions = MagicMock()
+        provider._client.chat.completions.create = AsyncMock(
+            return_value=_async_iter(chunks)
+        )
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+            tools=tools,
+        )
+        return [c async for c in provider.stream_completion(request)]
+
     @pytest.mark.asyncio
-    async def test_stream_completion_basic(
+    async def test_stream_text_deltas_then_final(
         self,
         provider: ConcreteOpenAIProvider,
         config: LLMConfig,
     ) -> None:
-        """Базовый streaming."""
+        """Контракт: промежуточные chunk'и = дельты (STREAMING), финальный =
+        полный текст + реальный stop_reason + usage."""
         await provider.initialize(config)
 
-        mock_chunk_1 = MagicMock()
-        mock_chunk_1.choices = [MagicMock()]
-        mock_chunk_1.choices[0].delta.content = "Hello"
+        chunks = [
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(content="Hello"))]),
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(content=" world"))]),
+            MockStreamChunk(
+                choices=[MockStreamChoice(delta=MockDelta(), finish_reason="stop")],
+                usage=MockUsage(10, 5, 15),
+            ),
+        ]
+        result = await self._run_stream(provider, chunks)
 
-        mock_chunk_2 = MagicMock()
-        mock_chunk_2.choices = [MagicMock()]
-        mock_chunk_2.choices[0].delta.content = " world"
+        # 2 дельты (STREAMING) + 1 финальный
+        streaming = [c for c in result if c.stop_reason == StopReason.STREAMING]
+        assert [c.text for c in streaming] == ["Hello", " world"]
 
-        mock_stream = _async_iter([mock_chunk_1, mock_chunk_2])
+        final = result[-1]
+        assert final.stop_reason == StopReason.STOP_SEQUENCE
+        assert final.text == "Hello world"
+        assert final.tool_calls == []
+        assert final.usage == {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        }
 
-        provider._client = MagicMock()
-        provider._client.chat = MagicMock()
-        provider._client.chat.completions = MagicMock()
-        provider._client.chat.completions.create = AsyncMock(return_value=mock_stream)
+    @pytest.mark.asyncio
+    async def test_stream_assembles_fragmented_tool_call(
+        self,
+        provider: ConcreteOpenAIProvider,
+        config: LLMConfig,
+    ) -> None:
+        """tool_call собирается из фрагментов: id/name в первом, arguments по кускам."""
+        await provider.initialize(config)
 
-        request = CompletionRequest(
-            model="gpt-4o",
-            messages=[LLMMessage(role="user", content="Hi")],
-        )
-        chunks = []
-        async for chunk in provider.stream_completion(request):
-            chunks.append(chunk)
+        chunks = [
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
+                tool_calls=[MockDeltaToolCall(
+                    index=0, id="call_1",
+                    function=MockDeltaFunction(name="read_file", arguments=""),
+                )],
+            ))]),
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
+                tool_calls=[MockDeltaToolCall(
+                    index=0, function=MockDeltaFunction(arguments='{"path":'),
+                )],
+            ))]),
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
+                tool_calls=[MockDeltaToolCall(
+                    index=0, function=MockDeltaFunction(arguments=' "a.md"}'),
+                )],
+            ))]),
+            MockStreamChunk(choices=[MockStreamChoice(
+                delta=MockDelta(), finish_reason="tool_calls",
+            )]),
+        ]
+        result = await self._run_stream(provider, chunks, tools=[{"type": "function"}])
 
-        assert len(chunks) == 2
-        assert chunks[0].text == "Hello"
-        assert chunks[1].text == "Hello world"
-        assert all(c.stop_reason == StopReason.STREAMING for c in chunks)
+        final = result[-1]
+        assert final.stop_reason == StopReason.TOOL_USE
+        assert len(final.tool_calls) == 1
+        tc = final.tool_calls[0]
+        assert tc.id == "call_1"
+        assert tc.name == "read_file"
+        assert tc.arguments == {"path": "a.md"}
+
+    @pytest.mark.asyncio
+    async def test_stream_invalid_tool_args_fallback_empty(
+        self,
+        provider: ConcreteOpenAIProvider,
+        config: LLMConfig,
+    ) -> None:
+        """Битый JSON в arguments → пустой dict (не падаем)."""
+        await provider.initialize(config)
+
+        chunks = [
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
+                tool_calls=[MockDeltaToolCall(
+                    index=0, id="c1",
+                    function=MockDeltaFunction(name="f", arguments="{not json"),
+                )],
+            ))]),
+            MockStreamChunk(choices=[MockStreamChoice(
+                delta=MockDelta(), finish_reason="tool_calls",
+            )]),
+        ]
+        result = await self._run_stream(provider, chunks, tools=[{"type": "function"}])
+
+        assert result[-1].tool_calls[0].arguments == {}
+
+    @pytest.mark.asyncio
+    async def test_stream_ignores_usage_only_chunk_choices(
+        self,
+        provider: ConcreteOpenAIProvider,
+        config: LLMConfig,
+    ) -> None:
+        """Финальный usage-chunk без choices не ломает сборку."""
+        await provider.initialize(config)
+
+        chunks = [
+            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(content="hi"))]),
+            MockStreamChunk(choices=[], usage=MockUsage(1, 2, 3)),
+        ]
+        result = await self._run_stream(provider, chunks)
+
+        assert result[-1].usage == {
+            "prompt_tokens": 1,
+            "completion_tokens": 2,
+            "total_tokens": 3,
+        }
+        assert result[-1].text == "hi"
 
 
 async def _async_iter(items):

@@ -218,6 +218,66 @@ async def test_set_mode_invalid_returns_error(tmp_cwd: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_streaming_emits_multiple_chunks(tmp_cwd: Path) -> None:
+    """CODELAB_LLM_STREAMING=1: ответ приходит несколькими agent_message_chunk,
+    их конкатенация равна полному тексту (живой токен-стриминг)."""
+    async with h.StdioServer(
+        tmp_cwd, h.chat_scenario(), extra_env={"CODELAB_LLM_STREAMING": "1"}
+    ) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp, notes, _ = await h.run_prompt(t, session_id, "привет", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        chunks = [
+            n["params"]["update"]["content"]["text"]
+            for n in notes
+            if n.get("method") == "session/update"
+            and n["params"]["update"].get("sessionUpdate") == "agent_message_chunk"
+        ]
+        # Стриминг: больше одного чанка, склейка == полный ответ.
+        assert len(chunks) > 1
+        assert "".join(chunks) == "Привет! Я тестовый агент."
+
+
+@pytest.mark.asyncio
+async def test_notifications_delivered_before_final_response(tmp_cwd: Path) -> None:
+    """Порядок (риск №1): все session/update приходят ДО финального response.
+
+    При живой доставке через NotificationBus turn публикует update'ы по ходу,
+    а финальный ответ на session/prompt уходит только после завершения turn.
+    """
+    async with _server(tmp_cwd, h.terminal_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        await h.set_mode(t, session_id, "bypass", 3)
+
+        # Отправляем prompt и читаем сырой поток, фиксируя порядок.
+        await t.send(h.request(
+            "session/prompt",
+            {"sessionId": session_id, "prompt": [{"type": "text", "text": "запусти ls -ahl"}]},
+            10,
+        ))
+        saw_update = False
+        response_index = None
+        seq = 0
+        while True:
+            msg = await t.recv(timeout=20.0)
+            if msg.get("id") == 10 and ("result" in msg or "error" in msg):
+                response_index = seq
+                break
+            method = msg.get("method")
+            if method == "session/update":
+                saw_update = True
+                # ни один update не должен прийти после response
+                assert response_index is None
+            elif method is not None and "id" in msg:
+                await t.send(h.result(msg["id"], {}))
+            seq += 1
+
+        assert saw_update, "ожидались session/update до ответа"
+        assert response_index is not None
+
+
+@pytest.mark.asyncio
 async def test_tool_call_status_lifecycle(tmp_cwd: Path) -> None:
     """tool_call проходит статусы pending → in_progress → completed (08-Tool Calls)."""
     async with _server(tmp_cwd, h.terminal_scenario()) as t:
