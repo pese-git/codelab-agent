@@ -1166,7 +1166,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph "Prompt Turn"
-        CID[Correlation ID<br/>f'turn_{session_id}_{turn_number}']
+        CID["Correlation ID<br/>f'turn_{session_id}_{turn_number}'"]
     end
     
     subgraph "Structured Logging"
