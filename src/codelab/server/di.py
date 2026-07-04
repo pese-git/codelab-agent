@@ -763,6 +763,8 @@ class PromptOrchestratorProvider(Provider):
         tool_registry: ToolRegistryProtocol,
         agent_registry: AgentRegistry,
         llm_loop_stage: LLMLoopStage,
+        command_registry: CommandRegistry,
+        slash_router: SlashCommandRouter,
         global_policy_manager: GlobalPolicyManager,
     ) -> PromptOrchestratorBuilder:
         """Создаёт PromptOrchestratorBuilder."""
@@ -770,6 +772,8 @@ class PromptOrchestratorProvider(Provider):
             tool_registry=tool_registry,
             agent_registry=agent_registry,
             llm_loop_stage=llm_loop_stage,
+            command_registry=command_registry,
+            slash_router=slash_router,
             global_policy_manager=global_policy_manager,
         )
 

@@ -112,6 +112,15 @@ class _Assembler:
         from codelab.server.protocol.handlers.permission_manager import PermissionManager
         from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
         from codelab.server.protocol.handlers.plan_builder import PlanBuilder
+        from codelab.server.protocol.handlers.slash_commands import (
+            CommandRegistry,
+            SlashCommandRouter,
+        )
+        from codelab.server.protocol.handlers.slash_commands.builtin import (
+            HelpCommandHandler,
+            ModeCommandHandler,
+            StatusCommandHandler,
+        )
         from codelab.server.protocol.handlers.state_manager import StateManager
         from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
         from codelab.server.protocol.orchestrator_builder import PromptOrchestratorBuilder
@@ -132,10 +141,19 @@ class _Assembler:
             ),
             global_policy_manager=self._global_policy_manager,
         )
+
+        command_registry = CommandRegistry()
+        command_registry.register(StatusCommandHandler())
+        command_registry.register(ModeCommandHandler())
+        command_registry.register(HelpCommandHandler(command_registry))
+        slash_router = SlashCommandRouter(command_registry)
+
         builder = PromptOrchestratorBuilder(
             tool_registry=self._tool_registry,
             agent_registry=self._agent_registry,
             llm_loop_stage=llm_loop_stage,
+            command_registry=command_registry,
+            slash_router=slash_router,
             global_policy_manager=self._global_policy_manager,
             client_rpc_service=self._client_rpc_service,
         )
