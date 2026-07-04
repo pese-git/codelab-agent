@@ -442,21 +442,21 @@ flowchart TB
         PE["PlanExtractor\nплан из LLM response"]
     end
     
-    subbus EventBus_Layer["EventBus Layer (INTERNAL)"]
+    subgraph EventBus_Layer["EventBus Layer (INTERNAL)"]
         AB["AgentEventBus\nregister_agent, unregister_agent\nsend_request (point-to-point)\nbroadcast (fan-out)\npublish (fire-and-forget)"]
         
-        subbus Agents["Агенты (LLMAdapter)"]
+        subgraph Agents["Агенты (LLMAdapter)"]
             LA1["LLMAdapter (coder)\nmodel: claude-3-5-sonnet\ntools: fs/read, fs/write"]
             LA2["LLMAdapter (tester)\nmodel: gpt-4o-mini\ntools: terminal/*"]
             LA3["LLMAdapter (orchestrator)\nmodel: gpt-4o\ntools: none"]
         end
     end
     
-    subbus Config_Layer["Configuration Layer"]
+    subgraph Config_Layer["Configuration Layer"]
         ASL["AgentSystemLoader\nagents.yaml + watchdog\nhot reload → publish events"]
         AF["AgentFactory\nсоздаёт LLMAdapter из AgentConfig"]
         
-        subbus Config_Models["Config Models"]
+        subgraph Config_Models["Config Models"]
             AC["AgentConfig\nname, enabled, model,\nsystem_prompt, tools, priority"]
             MAC["MultiAgentConfig\nglobal, orchestrator, agents[]"]
         end
@@ -528,30 +528,30 @@ src/codelab/server/agent/
 
 ```mermaid
 flowchart TB
-    subbus Observability["Observability Layer"]
-        subbus Tracing["Distributed Tracing"]
+    subgraph Observability["Observability Layer"]
+        subgraph Tracing["Distributed Tracing"]
             Tracer["Tracer\nstart_span, end_span\ncontext manager\nupdate_span"]
             Span["Span\ntrace_id, span_id, parent_span_id\noperation, agent_name, duration\nstatus, attributes, error"]
             SpanContext["SpanContext\ntrace_id, span_id"]
         end
         
-        subbus Timeline_Layer["Event Timeline"]
+        subgraph Timeline_Layer["Event Timeline"]
             Timeline["EventTimeline\nrecord, get_trace,\nget_agent_timeline,\nget_full_timeline"]
             TimelineEvent["TimelineEvent\ntimestamp, event_type, session_id\ncorrelation_id, publisher, subscribers\npayload_summary, duration_ms, error"]
         end
         
-        subbus Metrics_Layer["Metrics"]
+        subgraph Metrics_Layer["Metrics"]
             MT["MetricsTracker\ncontext manager\nреализует TelemetrySink\nlog_llm_call, set_success\nget_metrics, save"]
             EM["ExecutionMetrics\nsession_id, mode, timing\ntokens, cost, task_success\nagent_breakdown, coordination_overhead"]
             MS2["MetricsSubscriber\nподписчик на EventBus\nautomatic metrics collection"]
         end
         
-        subbus Correlation["Correlation"]
+        subgraph Correlation["Correlation"]
             CID["CorrelationId\ngeneration, propagation\nf'turn_{session_id}_{turn_number}'"]
             CLogging["Correlation Logging\nstructlog extension\nauto-add correlation_id"]
         end
         
-        subbus Debug["Debug Mode"]
+        subgraph Debug["Debug Mode"]
             DM["DebugMode\nfull payload logging\nLLM prompt/response dump\nbroadcast audit\nconflict resolution details\ntoken slicing diff"]
             Export["Export\ntrace_{session_id}.json\ntimeline_{session_id}.json"]
             Comparative["ComparativeReport\nSingle vs Multi metrics\nfor same task"]
@@ -598,11 +598,11 @@ storage/
 
 ```mermaid
 flowchart TB
-    subbus LLM_Layer["LLM Layer"]
+    subgraph LLM_Layer["LLM Layer"]
         Registry["LLMProviderRegistry\ncreate_provider, list_all_models"]
         Resolver["ModelResolver\nresolve, resolve_for_session\ninvalidate_session, caching"]
         
-        subbus Providers["Providers"]
+        subgraph Providers["Providers"]
             OpenAI["OpenAIProvider"]
             Anthropic["AnthropicProvider"]
             OpenRouter["OpenRouterProvider"]
@@ -614,7 +614,7 @@ flowchart TB
             ScriptedMock["ScriptedMockLLMProvider\n(конечный автомат для e2e)"]
         end
         
-        subbus Models["Models"]
+        subgraph Models["Models"]
             CR["CompletionRequest\nmodel, messages, tools\ntemperature, max_tokens"]
             CResp["CompletionResponse\ntext, tool_calls, stop_reason\nmodel, usage, extra"]
             LM["LLMMessage\nrole, content, tool_calls"]
@@ -624,13 +624,13 @@ flowchart TB
             SR["StopReason\nend_turn, tool_use, max_tokens\nrefusal, cancelled"]
         end
         
-        subbus Telemetry["Telemetry"]
+        subgraph Telemetry["Telemetry"]
             TS["TelemetrySink (ABC)\nrecord_request, record_cost"]
             NoOp["NoOpTelemetry"]
             Hook["Telemetry Hook\nвызывается после каждого LLM call"]
         end
         
-        subbus Fallback["Fallback"]
+        subgraph Fallback["Fallback"]
             FO["FallbackOrchestrator"]
             FS["FallbackStrategy (ABC)"]
             Seq["SequentialFallbackStrategy"]
@@ -677,31 +677,31 @@ src/codelab/server/llm/
 
 ```mermaid
 flowchart TB
-    subbus Tools_Layer["Tools Layer"]
+    subgraph Tools_Layer["Tools Layer"]
         TR["ToolRegistry (ABC)\nregister, get, execute\nglobal/session-scoped"]
         STR["SimpleToolRegistry\nin-memory implementation"]
         
-        subbus Definitions["Tool Definitions"]
+        subgraph Definitions["Tool Definitions"]
             FS["FileSystemToolDefinitions\nfs/read_text_file\nfs/write_text_file"]
             TERM["TerminalToolDefinitions\nterminal/create\nterminal/wait_for_exit\nterminal/release\nterminal/kill"]
             PLAN["PlanToolDefinitions\nupdate_plan"]
             TD["ToolDefinition\nname, description, parameters,\nkind, requires_permission,\ndanger_level (NEW)"]
         end
         
-        subbus Executors["Tool Executors"]
+        subgraph Executors["Tool Executors"]
             TE["ToolExecutor (ABC)"]
             FSE["FileSystemToolExecutor"]
             TERME["TerminalToolExecutor"]
             PE["PlanToolExecutor"]
         end
         
-        subbus Integrations["Integrations"]
+        subgraph Integrations["Integrations"]
             CRB["ClientRPCBridge\nAgent → Client RPC calls"]
             PC["PermissionChecker\nadapter для PermissionManager"]
             TG["ToolsGuardInterceptor (NEW)\nverify_action, register_policy\nSAFE/DANGEROUS/CRITICAL"]
         end
         
-        subbus Mapping["Mapping"]
+        subgraph Mapping["Mapping"]
             M["acp_name_to_llm_name\nllm_name_to_acp_name\n/ ↔ _ conversion"]
         end
     end
@@ -739,31 +739,31 @@ src/codelab/server/tools/
 
 ```mermaid
 flowchart TB
-    subbus Storage_Layer["Storage Layer"]
+    subgraph Storage_Layer["Storage Layer"]
         SS["SessionStorage (ABC)\nsave, load, delete, list, exists"]
         
-        subbus Backends["Backends"]
+        subgraph Backends["Backends"]
             IMS["InMemoryStorage\ndev/test"]
             JFS["JsonFileStorage\nproduction\nPydantic model_dump/validate"]
             CS["CachedSessionStorage\nLRU wrapper (max_size=200)"]
         end
         
-        subbus Metrics_Storage["Metrics Storage (NEW)"]
+        subgraph Metrics_Storage["Metrics Storage (NEW)"]
             MR["MetricsRepository (ABC)\nsave_session_metrics\nget_comparative_report\nclear_history"]
             JMR["JsonMetricsRepository\nappend-only write\n.tmp → atomic rename"]
         end
         
-        subbus Observability_Storage["Observability Storage (NEW)"]
+        subgraph Observability_Storage["Observability Storage (NEW)"]
             OS["ObservabilityStorage (ABC)\nexport_trace, export_timeline"]
             JOS["JsonObservabilityStorage\nstorage/debug/"]
         end
         
-        subbus Config_Storage["Config Storage"]
+        subgraph Config_Storage["Config Storage"]
             ACS["AgentConfigStorage (ABC)\nload, reload, watch"]
             MDACS["MarkdownAgentConfigStorage\n~/.codelab/agents/*.md + .codelab/agents/*.md\nYAML frontmatter + body"]
         end
         
-        subbus Policy_Storage["Policy Storage"]
+        subgraph Policy_Storage["Policy Storage"]
             GPS["GlobalPolicyStorage\n~/.codelab/data/policies/\natomic writes, caching\nschema versioning"]
         end
     end
@@ -806,16 +806,16 @@ src/codelab/server/agent/config/
 
 ```mermaid
 flowchart TB
-    subbus Client_RPC["Client RPC Layer"]
+    subgraph Client_RPC["Client RPC Layer"]
         CRS["ClientRPCService\nAgent → Client RPC calls\nfs/*, terminal/*"]
         CRSH["ClientRPCServiceHolder\nholder для per-request сервиса"]
         
-        subbus RPC_Models["RPC Models"]
+        subgraph RPC_Models["RPC Models"]
             RPCReq["ClientRPCRequest\nrequest_id, kind, arguments"]
             RPCResp["ClientRPCResponse\nresult, error"]
         end
         
-        subbus RPC_Exceptions["RPC Exceptions"]
+        subgraph RPC_Exceptions["RPC Exceptions"]
             RPCE["ClientRPCError"]
             TimeoutE["ClientRPCTimeoutError"]
             CancelE["ClientRPCCancelError"]
@@ -841,7 +841,7 @@ src/codelab/server/rpc_holder.py  # ClientRPCServiceHolder
 
 ```mermaid
 flowchart TB
-    subbus MCP_Layer["MCP Layer"]
+    subgraph MCP_Layer["MCP Layer"]
         MM["MCPManager\nlifecycle, tool discovery\nresource/prompts support"]
         MC["MCPClient\nstdio transport\nserver management"]
         MT2["MCPTool\nMCP tool definition → ACP tool"]
@@ -864,13 +864,13 @@ src/codelab/server/mcp/
 
 ```mermaid
 flowchart TB
-    subbus DI["DI Container (dishka)"]
-        subbus Scopes["Скоупы"]
+    subgraph DI["DI Container (dishka)"]
+        subgraph Scopes["Скоупы"]
             APP["APP scope\nсинглтоны на всё время жизни\nLLM, ToolRegistry, менеджеры,\nстадии пайплайна, стратегии"]
             REQ["REQUEST scope\nна одно WebSocket соединение\nClientRPCService, ACPProtocol"]
         end
         
-        subbus Providers["Провайдеры"]
+        subgraph Providers["Провайдеры"]
             MP["ManagersProvider\nStateManager, PlanBuilder,\nTurnLifecycleManager, etc."]
             SCP["SlashCommandsProvider\nCommandRegistry, SlashCommandRouter"]
             SP["StorageProvider\nGlobalPolicyStorage, GlobalPolicyManager"]
