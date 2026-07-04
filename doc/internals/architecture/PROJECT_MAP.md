@@ -49,13 +49,20 @@ codelab-agent/
 | `transport/base.py` | Протокол `AcpServerTransport` (run, send, close) |
 | `transport/stdio.py` | StdioServerTransport — stdin/stdout, background prompt execution |
 | `transport/stdio_runner.py` | `run_stdio_server()` — запуск с DI, callbacks из protocol |
-| `transport/websocket.py` | WebSocketTransport — aiohttp, deferred prompt, cleanup |
+| `transport/websocket.py` | WebSocketTransport — aiohttp, deferred prompt, cleanup, подписка на NotificationBus |
+| `transport/websocket_connection.py` | WebSocketConnection Protocol + AiohttpWebSocketConnection adapter |
 
 ### Протокол (Protocol Layer)
 
 | Файл | Описание |
 |------|----------|
-| `protocol/core.py` | `ACPProtocol` — диспетчер методов, `handle_and_process`, background tool |
+| `protocol/core.py` | `ACPProtocol` (Facade, ~400 LOC) — диспетчер методов, делегирует CommandHandler-ам |
+| `protocol/notification_bus.py` | `SessionNotificationBus` — per-session Observer (publish → deliver) |
+| `protocol/response_router.py` | `ResponseRouter` — маршрутизация permission и client RPC responses |
+| `protocol/background_executor.py` | `BackgroundExecutor` — фоновое выполнение tools, завершение turns |
+| `protocol/mcp_session_manager.py` | `MCPSessionManager` — MCP lifecycle per session |
+| `protocol/config_spec_builder.py` | `ConfigSpecBuilder` — построение config specs из registries |
+| `protocol/orchestrator_builder.py` | `PromptOrchestratorBuilder` — Builder для PromptOrchestrator |
 | `protocol/state.py` | Dataclasses: `SessionState`, `ProtocolOutcome`, `PendingToolExecution` |
 | `protocol/mode.py` | Режимы: plan, standard, bypass + валидация |
 | `protocol/stop_reasons.py` | Enum `StopReason`: end_turn, max_tokens, cancelled, ... |
@@ -186,6 +193,7 @@ codelab-agent/
 | `llm/errors.py` | Исключения LLM |
 | `llm/events.py` | События LLM |
 | `llm/mock_provider.py` | Mock-провайдер для тестирования |
+| `llm/scripted_mock.py` | ScriptedMockLLMProvider — конечный автомат для e2e-тестов |
 
 #### Провайдеры (llm/providers/)
 
@@ -505,6 +513,7 @@ codelab-agent/
 |------|----------|
 | `messages.py` | `ACPMessage`, `JsonRpcError` — JSON-RPC сообщения |
 | `logging.py` | `setup_logging()` — структурированное логирование (structlog) |
+| `web_ui.py` | `WebUIManager` — управление textual-serve subprocess и HTML генерация |
 
 ### Content Types (`shared/content/`)
 
@@ -690,14 +699,14 @@ AgentLoop.resume_after_permission() → continue_execution()
 
 | Метрика | Значение |
 |---------|----------|
-| **Сервер** | 57 директорий, 301 файл |
+| **Сервер** | 57 директорий, 310+ файлов |
 | **Клиент** | 28 директорий, 160 файлов |
-| **Shared** | 4 директории, 16 файлов |
-| **Тесты** | 21 директория, 153 файла |
-| **Всего LOC (src)** | ~25,000+ строк |
-| **Всего тестов** | ~1,680+ |
-| **Тестов пройдено** | 3,817 (из 3,850, 33 pre-existing failures) |
-| **LLM провайдеров** | 8 (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
+| **Shared** | 4 директории, 17 файлов |
+| **Тесты** | 21 директория, 160+ файлов |
+| **Всего LOC (src)** | ~27,000+ строк |
+| **Всего тестов** | ~3,900+ |
+| **Тестов пройдено** | ~3,896 |
+| **LLM провайдеров** | 9 (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock, ScriptedMock) |
 | **Агентов** | 5 (architect, ask, coder, debug, universal) |
 | **MCP инструментов** | 35+ (codegraph: 8, dart-mcp-server: 27) |
 | **Тем TUI** | 2 (light, dark) |

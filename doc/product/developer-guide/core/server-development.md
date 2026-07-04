@@ -12,10 +12,15 @@ graph TB
         HTTP[ACPHttpServer]
         WS[WebSocketTransport]
         STDIO[StdioServerTransport]
+        WSConn[WebSocketConnection]
     end
     
-    subgraph Protocol["Protocol Layer"]
-        AP["ACPProtocol<br/>REQUEST scope"]
+    subgraph Protocol["Protocol Layer (Facade)"]
+        AP["ACPProtocol (Facade)<br/>REQUEST scope"]
+        CmdReg[CommandRegistry]
+        RespRouter[ResponseRouter]
+        BgExec[BackgroundExecutor]
+        NotifBus[SessionNotificationBus]
         PO["PromptOrchestrator<br/>APP scope"]
     end
     
@@ -55,12 +60,17 @@ graph TB
         MM[MCPManager]
     end
     
-    HTTP --> WS & STDIO --> AP --> PO
+    HTTP --> WS & STDIO --> AP
+    AP --> CmdReg & RespRouter & BgExec
+    CmdReg --> PO
+    BgExec --> NotifBus
     PO --> Pipeline
     PO --> Managers
-    LL --> AO --> LLM
+    LL --> EE --> LLM
     LL --> TR --> FS & TE
     LL --> MM
+    EE -.->|publish| NotifBus
+    NotifBus -.->|deliver| WS & STDIO
 ```
 
 ## DI контейнер
@@ -97,10 +107,11 @@ container = make_container(
 | `StorageProvider` | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | LLMProviderRegistry (8+ провайдеров) |
 | `ToolsProvider` | SimpleToolRegistry |
-| `AgentProvider` | ExecutionEngine, LLMAdapter, AgentEventBus |
+| `AgentProvider` | ExecutionEngine, LLMAdapter, AgentEventBus, AgentRegistry |
 | `PipelineProvider` | LLMLoopStage, PromptPipeline (7 стадий) |
-| `PromptOrchestratorProvider` | ClientRPCServiceHolder, PromptOrchestrator |
-| `RequestProvider` | ACPProtocol (per-connection) |
+| `PromptOrchestratorProvider` | ClientRPCServiceHolder, PromptOrchestratorBuilder, PromptOrchestrator |
+| `ProtocolComponentsProvider` | ResponseRouter, BackgroundExecutor, MCPSessionManager, ConfigSpecBuilder |
+| `RequestProvider` | ACPProtocol (per-connection, Facade) |
 
 ### Holder паттерн
 
@@ -119,16 +130,41 @@ protocol = await request_scope.get(ACPProtocol)
 
 ### ACPProtocol
 
-Транспорт-agnostic диспетчер методов ACP:
+ACPProtocol — **Facade** для ACP-протокола (~400 LOC, было 2190). Делегирует обработку команд зарегистрированным CommandHandler-ам через CommandRegistry, responses — ResponseRouter, фоновые задачи — BackgroundExecutor.
 
 ```python
 class ACPProtocol:
+    def __init__(
+        self,
+        *,
+        method_registry: CommandRegistry,
+        response_router: ResponseRouter,
+        background_executor: BackgroundExecutor,
+        storage: SessionStorage | None = None,
+        pending_registry: PendingRequestRegistry | None = None,
+        runtime_registry: SessionRuntimeRegistry | None = None,
+        middleware: list[MiddlewareFn] | None = None,
+        send_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+        llm_adapter: LLMAdapter | None = None,
+        orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]] | None = None,
+    ) -> None: ...
+
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-        """Диспетчеризация JSON-RPC запросов."""
-        method = message.method
-        handler = self._get_handler(method)
-        return await handler.handle(message)
+        """Маршрутизирует входящее сообщение через CommandRegistry."""
+        ...
 ```
+
+**Декомпозированные компоненты:**
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `CommandRegistry` | `protocol/commands/` | Реестр обработчиков команд (Command Pattern) |
+| `ResponseRouter` | `protocol/response_router.py` | Маршрутизация permission и client RPC responses |
+| `BackgroundExecutor` | `protocol/background_executor.py` | Фоновое выполнение tools, завершение turns |
+| `MCPSessionManager` | `protocol/mcp_session_manager.py` | MCP lifecycle per session (init, reconnect, prompts) |
+| `ConfigSpecBuilder` | `protocol/config_spec_builder.py` | Построение config specs из registries |
+| `PromptOrchestratorBuilder` | `protocol/orchestrator_builder.py` | Builder для PromptOrchestrator (12+ компонентов) |
+| `SessionNotificationBus` | `protocol/notification_bus.py` | Observer: бизнес-логика публикует, транспорт доставляет |
 
 **Зарегистрированные методы:**
 
@@ -168,6 +204,58 @@ class PromptOrchestrator:
     ):
         ...
 ```
+
+## SessionNotificationBus
+
+`SessionNotificationBus` — per-session шина (Observer pattern), разделяющая бизнес-логику и транспорт.
+
+```python
+class SessionNotificationBus:
+    async def publish(self, message: Any) -> None:
+        """Публикует notification. Буферизует до подписки."""
+        ...
+
+    def subscribe(self, callback: Callable[[Any], Awaitable[None]]) -> None:
+        """Транспорт подписывается. Получает буферизованные сообщения."""
+        ...
+
+    def clear_buffer(self) -> None:
+        """Очищает буфер на session/load (reconnect)."""
+        ...
+```
+
+**Использование:**
+
+```python
+# Бизнес-логика публикует
+bus = await runtime_registry.get_notification_bus(session_id)
+await bus.publish(notification)
+
+# Транспорт подписывается при подключении
+bus.subscribe(transport.send)
+```
+
+**Ключевые свойства:**
+- Буферизация сообщений до подписки транспорта
+- `clear_buffer()` на реконнект — реплей истории авторитетен
+- Inline-доставка при наличии подписчиков
+- Автоматическая отписка при закрытии соединения
+
+## Токен-стриминг
+
+Токен-стриминг доставляет ответ агента дельтами вживую (`agent_message_chunk`), а не одним chunk'ом в конце turn.
+
+**Конфигурация:**
+
+| Опция | Значения | По умолчанию |
+|-------|----------|--------------|
+| `CODELAB_LLM_STREAMING` | `1`, `true`, `yes`, `on` | `off` |
+
+**Двойной гейт:**
+1. `config.llm.streaming` — глобальный флаг
+2. `provider.supports_streaming` — capability провайдера
+
+Если провайдер не поддерживает streaming — безопасный фолбэк на `_single_call`.
 
 ## Pipeline система
 

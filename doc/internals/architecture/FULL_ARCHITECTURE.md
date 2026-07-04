@@ -1,12 +1,17 @@
 # Архитектура CodeLab — Полная схема проекта
 
-> Документ отражает архитектуру после реализации мультиагентной экосистемы
-> Версия: 1.1 | Дата: 14 июня 2026
+> Документ отражает архитектуру после декомпозиции ACPProtocol и внедрения токен-стриминга
+> Версия: 2.0 | Дата: 4 июля 2026
 >
 > **Важно:** Диаграмма показывает целевую архитектуру. Из мультиагентных компонентов
 > реализованы только `LLMAdapter` и `SingleStrategy`. `Orchestrator_Agent`, `Coder_Agent`,
 > `Tester_Agent`, `multi_orchestrated`, `multi_choreographed`, `hierarchical` — запланированы,
 > но не реализованы.
+>
+> **Изменения v2.0:** ACPProtocol декомпозирован на Facade + 6 компонентов (CommandRegistry,
+> ResponseRouter, BackgroundExecutor, MCPSessionManager, ConfigSpecBuilder,
+> PromptOrchestratorBuilder). Добавлены SessionNotificationBus (Observer), токен-стриминг,
+> WebSocketConnection (Protocol), WebUIManager.
 
 ---
 
@@ -34,11 +39,16 @@ flowchart TB
     end
 
     subgraph Server["Server Layer (Agent)"]
-        ACP_Protocol["ACPProtocol\nJSON-RPC Dispatcher"]
+        ACP_Protocol["ACPProtocol (Facade)\nJSON-RPC Dispatcher\n~400 LOC"]
+        CmdReg["CommandRegistry\n(Command Pattern)"]
+        RespRouter["ResponseRouter\n(response routing)"]
+        BgExec["BackgroundExecutor\n(async tool execution)"]
+        NotifBus["SessionNotificationBus\n(Observer pattern)"]
         Prompt_Orch["PromptOrchestrator\nPipeline: 7 stages"]
-        AgentLoop["AgentLoop\nLLM tool-calling цикл"]
+        AgentLoop["AgentLoop\nLLM tool-calling цикл\n+ streaming support"]
         Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor"]
         Agent_Bus["AgentEventBus (INTERNAL)\nPoint-to-Point + Broadcast + Pub/Sub"]
+        WebUI["WebUIManager\nsubprocess + HTML"]
         
         subgraph Strategies["LLM Call Strategies"]
             Single["SingleStrategy ✅\n(единственная реализованная)"]
@@ -90,7 +100,10 @@ flowchart TB
     Client_Infra <-->|WebSocket / stdio| Transport
     Transport <-->|JSON-RPC 2.0| ACP_Protocol
     
-    ACP_Protocol --> Prompt_Orch
+    ACP_Protocol --> CmdReg
+    ACP_Protocol --> RespRouter
+    ACP_Protocol --> BgExec
+    CmdReg --> Prompt_Orch
     Prompt_Orch --> AgentLoop
     AgentLoop --> Strategies
     Strategies --> Single
@@ -98,6 +111,10 @@ flowchart TB
     Single --> Execution_Engine
     Execution_Engine --> Agent_Bus
     Agent_Bus --> LLM_Adapter
+    
+    AgentLoop -.->|publish| NotifBus
+    BgExec -.->|publish| NotifBus
+    NotifBus -.->|deliver| Transport
     
     Execution_Engine -.->|tracer spans| Tracer
     Agent_Bus -.->|timeline events| Timeline
@@ -294,7 +311,18 @@ src/codelab/server/
 ```mermaid
 flowchart TB
     subgraph ACP_Layer["ACP Layer (внешний контракт — НЕ меняется)"]
-        ACP_Protocol["ACPProtocol\nJSON-RPC Dispatcher\n• Middleware (onion pattern)\n• Background tool execution\n• MCP integration\n• DI-aware lazy creation"]
+        ACP_Protocol["ACPProtocol (Facade)\nJSON-RPC Dispatcher\n• ~400 LOC (было 2190)\n• Middleware (onion pattern)\n• Делегирует CommandHandler-ам"]
+        
+        subgraph Decomposed["Decomposed Components"]
+            CmdReg2["CommandRegistry\n(Command Pattern)"]
+            RespRouter2["ResponseRouter\n(permission + RPC responses)"]
+            BgExec2["BackgroundExecutor\n(async tool execution)"]
+            MCPSessMgr["MCPSessionManager\n(MCP lifecycle per session)"]
+            ConfigSpec2["ConfigSpecBuilder\n(config specs from registries)"]
+            OrchBuilder2["PromptOrchestratorBuilder\n(Builder, 12+ components)"]
+        end
+        
+        NotifBus2["SessionNotificationBus\n(Observer: publish → deliver)"]
         
         Prompt_Orch["PromptOrchestrator\n• handle_prompt()\n• handle_cancel()\n• handle_permission_response()\n• handle_pending_client_rpc()\n• execute_pending_tool()"]
         
@@ -329,7 +357,13 @@ flowchart TB
         end
     end
     
-    ACP_Protocol --> Prompt_Orch
+    ACP_Protocol --> CmdReg2
+    ACP_Protocol --> RespRouter2
+    ACP_Protocol --> BgExec2
+    CmdReg2 --> Prompt_Orch
+    MCPSessMgr --> NotifBus2
+    BgExec2 --> NotifBus2
+    OrchBuilder2 --> Prompt_Orch
     Prompt_Orch --> Pipeline
     V --> S --> P --> T1 --> D --> L --> T2
     Prompt_Orch --> Managers
@@ -339,7 +373,13 @@ flowchart TB
 **Ключевые файлы:**
 ```
 src/codelab/server/protocol/
-├── core.py                  # ACPProtocol
+├── core.py                  # ACPProtocol (Facade, ~400 LOC)
+├── notification_bus.py      # SessionNotificationBus (Observer)
+├── response_router.py       # ResponseRouter (permission + RPC responses)
+├── background_executor.py   # BackgroundExecutor (async tool execution)
+├── mcp_session_manager.py   # MCPSessionManager (MCP lifecycle)
+├── config_spec_builder.py   # ConfigSpecBuilder (config specs)
+├── orchestrator_builder.py  # PromptOrchestratorBuilder (Builder)
 ├── state.py                 # SessionState, ToolCallState, ActiveTurnState, etc.
 ├── session_factory.py       # Фабрика сессий
 ├── handlers/
@@ -368,8 +408,9 @@ src/codelab/server/protocol/
 │           ├── plan_building.py
 │           ├── turn_lifecycle.py
 │           ├── directives.py
-│           ├── llm_loop.py     # РЕФАКТОРИНГ
-│           └── strategy_selection.py  # NEW
+│           ├── llm_loop.py
+│           ├── agent_loop.py   # AgentLoop (streaming support)
+│           └── strategy_selection.py
 └── middleware/
     └── message_trace.py
 ```
@@ -570,6 +611,7 @@ flowchart TB
             Zen["ZenProvider"]
             Go["GoProvider"]
             Mock["MockLLMProvider"]
+            ScriptedMock["ScriptedMockLLMProvider\n(конечный автомат для e2e)"]
         end
         
         subbus Models["Models"]
@@ -1325,6 +1367,7 @@ src/codelab/
 ├── shared/
 │   ├── messages.py                     # ACPMessage, JsonRpcError
 │   ├── logging.py                      # structlog setup
+│   ├── web_ui.py                       # WebUIManager (subprocess + HTML)
 │   ├── content/                        # ACP Content Types
 │   │   ├── base.py
 │   │   ├── text.py
@@ -1345,7 +1388,7 @@ src/codelab/
 │   ├── config.py                       # AppConfig
 │   ├── di.py                           # DI Container (dishka)
 │   ├── exceptions.py
-│   ├── http_server.py                  # WebSocket server
+│   ├── http_server.py                  # WebSocket server (~200 LOC, WebUI → WebUIManager)
 │   ├── web_app.py                      # Web UI
 │   ├── messages.py                     # ACPMessage (JSON-RPC)
 │   ├── models.py                       # AvailableCommand, HistoryMessage, PlanStep
@@ -1375,7 +1418,13 @@ src/codelab/
 │   │       └── token_slicer.py
 │   │
 │   ├── protocol/
-│   │   ├── core.py                     # ACPProtocol
+│   │   ├── core.py                     # ACPProtocol (Facade, ~400 LOC)
+│   │   ├── notification_bus.py         # SessionNotificationBus (Observer)
+│   │   ├── response_router.py          # ResponseRouter (permission + RPC)
+│   │   ├── background_executor.py      # BackgroundExecutor (async tools)
+│   │   ├── mcp_session_manager.py      # MCPSessionManager (MCP lifecycle)
+│   │   ├── config_spec_builder.py      # ConfigSpecBuilder
+│   │   ├── orchestrator_builder.py     # PromptOrchestratorBuilder
 │   │   ├── state.py                    # SessionState + новые поля
 │   │   ├── session_factory.py
 │   │   ├── handlers/
@@ -1439,6 +1488,7 @@ src/codelab/
 │   │   ├── registry.py
 │   │   ├── resolver.py
 │   │   ├── events.py
+│   │   ├── scripted_mock.py            # ScriptedMockLLMProvider (e2e scenarios)
 │   │   ├── telemetry/
 │   │   ├── fallback/
 │   │   └── providers/

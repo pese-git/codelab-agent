@@ -10,7 +10,7 @@ CodeLab реализует клиент-серверную архитектур�
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
         TUI["TUI App<br/>46 компонентов"]
-        VM[13 ViewModels]
+        VM[14 ViewModels]
         UC[5 Use Cases]
         TS[ACPTransportService]
     end
@@ -21,8 +21,9 @@ graph TB
     end
     
     subgraph Server["Сервер (Dishka DI)"]
-        HTTP[ACPHttpServer]
-        AP[ACPProtocol]
+        HTTP[ACPHttpServer + WebUIManager]
+        AP["ACPProtocol (Facade)"]
+        NotifBus[SessionNotificationBus]
         PO[PromptOrchestrator]
         EE[ExecutionEngine]
         TR[ToolRegistry]
@@ -31,8 +32,10 @@ graph TB
     
     TUI --> VM --> UC --> TS
     TS --> WS & STDIO
-    WS & STDIO --> HTTP --> AP --> PO
-    PO --> EE --> TR
+    WS & STDIO --> HTTP --> AP
+    AP --> NotifBus
+    NotifBus --> WS & STDIO
+    AP --> PO --> EE --> TR
     AP --> Storage
 ```
 
@@ -139,10 +142,15 @@ graph TB
 
         subgraph HTTP_LAYER["HTTP/Transport Layer"]
             HTTP_SERVER["ACPHttpServer<br/>handle_ws_request"]
+            WEB_UI["WebUIManager<br/>subprocess + HTML"]
         end
 
         subgraph PROTOCOL["Protocol Layer (REQUEST scope)"]
-            AP["ACPProtocol<br/>method dispatcher<br/>middleware onion"]
+            AP["ACPProtocol (Facade)<br/>method dispatcher<br/>~400 LOC"]
+            CMD_REG["CommandRegistry<br/>(Command Pattern)"]
+            RESP_ROUTER["ResponseRouter<br/>(response routing)"]
+            BG_EXEC["BackgroundExecutor<br/>(async tool execution)"]
+            NOTIF_BUS["SessionNotificationBus<br/>(Observer pattern)"]
             MIDDLEWARE["Middleware<br/>MessageTraceMiddleware"]
             PENDING_REG[PendingRequestRegistry]
         end
@@ -276,7 +284,11 @@ graph TB
         end
 
         HTTP_SERVER --> AP --> MIDDLEWARE & PENDING_REG
-        AP --> PO --> PIPELINE
+        HTTP_SERVER --> WEB_UI
+        AP --> CMD_REG & RESP_ROUTER & BG_EXEC
+        CMD_REG --> PO --> PIPELINE
+        BG_EXEC --> NOTIF_BUS
+        NOTIF_BUS -.->|deliver| WS_TRANSPORT & STDIO_TRANSPORT
         PIPELINE --> V & SC & PB & TL1 & DS & LL & TL2
         V --> SC --> PB --> TL1 --> DS --> LL --> TL2
         PO --> STM & PLB & TLCM & TCH & PM & CRH & GPM
@@ -682,17 +694,29 @@ chat_vm = ChatViewModel(
 | `StorageProvider` | APP | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
 | `ToolsProvider` | APP | SimpleToolRegistry, MCPToolExecutor |
-| `AgentProvider` | APP | ExecutionEngine, LLMAdapter, AgentEventBus |
+| `AgentProvider` | APP | ExecutionEngine, LLMAdapter, AgentEventBus, AgentRegistry |
 | `PipelineProvider` | APP | LLMLoopStage, PromptPipeline (7 стадий) |
-| `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, PromptOrchestrator |
-| `MCPProvider` | APP | MCPManager factory |
-| `RequestProvider` | REQUEST | ACPProtocol, SessionRuntimeRegistry |
+| `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, PromptOrchestratorBuilder, PromptOrchestrator |
+| `ProtocolComponentsProvider` | APP | ResponseRouter, BackgroundExecutor, MCPSessionManager, ConfigSpecBuilder |
+| `RequestProvider` | REQUEST | ACPProtocol (Facade, per-connection) |
 
 **Holder паттерн:** `ClientRPCServiceHolder` — мост между APP и REQUEST scope. `ClientRPCService` создаётся вручную в `handle_ws_request` и устанавливается в holder перед REQUEST scope.
 
 ### Protocol Layer (`server/protocol/`)
 
-**ACPProtocol** — транспорт-agnostic диспетчер методов ACP. Принимает `ACPMessage`, возвращает `ProtocolOutcome`.
+**ACPProtocol** — Facade для ACP-протокола (~400 LOC). Делегирует обработку команд CommandRegistry, responses — ResponseRouter, фоновые задачи — BackgroundExecutor. Транспорт-agnostic: принимает `ACPMessage`, возвращает `ProtocolOutcome`.
+
+**Декомпозированные компоненты** (извлечены из монолитного ACPProtocol):
+
+| Компонент | Файл | Ответственность |
+|-----------|------|-----------------|
+| `CommandRegistry` | `protocol/commands/` | Command Pattern: реестр обработчиков |
+| `ResponseRouter` | `protocol/response_router.py` | Маршрутизация permission и client RPC responses |
+| `BackgroundExecutor` | `protocol/background_executor.py` | Фоновое выполнение tools, завершение turns |
+| `MCPSessionManager` | `protocol/mcp_session_manager.py` | MCP lifecycle per session |
+| `ConfigSpecBuilder` | `protocol/config_spec_builder.py` | Построение config specs |
+| `PromptOrchestratorBuilder` | `protocol/orchestrator_builder.py` | Builder для PromptOrchestrator |
+| `SessionNotificationBus` | `protocol/notification_bus.py` | Observer: бизнес-логика → транспорт |
 
 **Зарегистрированные методы:**
 
