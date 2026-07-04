@@ -1072,14 +1072,14 @@ flowchart TB
     
     OS -->|step 1| RD[RouteDecision via LLM]
     RD -->|target=coder| EB[AgentEventBus<br/>point-to-point]
-    EB -->|request| CA[LLMAdapter (coder)]
+    EB -->|request| CA["LLMAdapter (coder)"]
     CA -->|response| EB
     EB -->|result| OS
     
     OS -->|Token-Slicing| TS[summarize response]
     TS -->|step 2| RD2[RouteDecision via LLM]
     RD2 -->|target=tester| EB2[AgentEventBus]
-    EB2 -->|request| TA[LLMAdapter (tester)]
+    EB2 -->|request| TA["LLMAdapter (tester)"]
     TA -->|response| EB2
     EB2 -->|result| OS
     
@@ -1103,9 +1103,9 @@ flowchart TB
     SD -->|routing_mode=multi_choreographed| CS[ChoreographyStrategy]
     
     CS -->|step 1| BC[AgentEventBus<br/>broadcast ContextBroadcast]
-    BC -->|parallel| CA[LLMAdapter (coder)]
-    BC -->|parallel| TA[LLMAdapter (tester)]
-    BC -->|parallel| RA[LLMAdapter (reviewer)]
+    BC -->|parallel| CA["LLMAdapter (coder)"]
+    BC -->|parallel| TA["LLMAdapter (tester)"]
+    BC -->|parallel| RA["LLMAdapter (reviewer)"]
     
     CA -->|ChoreographyAnswer<br/>action_taken=True| CR[Conflict Resolution<br/>Priority Queue]
     TA -->|ChoreographyAnswer<br/>action_taken=False| CR
@@ -1114,8 +1114,8 @@ flowchart TB
     CR -->|winner=coder| UC[Update context]
     UC -->|step 2| BC2[AgentEventBus<br/>broadcast]
     
-    BC2 -->|parallel| CA2[LLMAdapter (coder)]
-    BC2 -->|parallel| TA2[LLMAdapter (tester)]
+    BC2 -->|parallel| CA2["LLMAdapter (coder)"]
+    BC2 -->|parallel| TA2["LLMAdapter (tester)"]
     
     CA2 -->|ChoreographyAnswer<br/>action_taken=False| CR2[Conflict Resolution]
     TA2 -->|ChoreographyAnswer<br/>action_taken=True<br/>status=completed| CR2
