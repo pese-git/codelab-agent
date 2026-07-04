@@ -22,14 +22,15 @@
 | [PERFORMANCE_SLO.md](./PERFORMANCE_SLO.md) | Числовые SLO, бенчмарк-сценарии, бюджеты ресурсов | Разработчики, SRE |
 | [TESTING_STRATEGY.md](./TESTING_STRATEGY.md) | Уровни тестов, рисковые места, golden-тесты, тест-матрица по фазам | Разработчики, QA |
 | [COMPETITIVE_BACKLOG.md](./COMPETITIVE_BACKLOG.md) | Идеи из анализа конкурентов (Hermes, OpenCode) для будущих фаз | Все |
+| [SLASH_COMMAND.md](./SLASH_COMMAND.md) | Slash-команда `/context` — наблюдаемость, диагностика, управление | Все |
 | [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md) | Все архитектурные решения и обоснования | Архитекторы, reviewers |
 
 ## Статус готовности к разработке
 
 | Фаза | Спецификация | Статус |
 |------|--------------|--------|
-| Phase 0 — Каркас + контракты | [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) + INTERFACES + DATA_MODELS | ✅ Готово к разработке |
-| Phase 1 — MVP-сбор | [PHASE_1_SPEC.md](./PHASE_1_SPEC.md) | ✅ Готово к разработке |
+| Phase 0 — Каркас + контракты | [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) + INTERFACES + DATA_MODELS | ✅ Реализовано |
+| Phase 1 — MVP-сбор | [PHASE_1_SPEC.md](./PHASE_1_SPEC.md) | ✅ Реализовано |
 | Phase 2 — Слой хранения C | [PHASE_2_SPEC.md](./PHASE_2_SPEC.md) | ✅ Готово к разработке |
 | Phase 3 — Источники + сжатие | [PHASE_3_SPEC.md](./PHASE_3_SPEC.md) | ✅ Готово к разработке |
 | Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | ✅ Готово к разработке |

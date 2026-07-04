@@ -79,6 +79,7 @@ pipx install "git+https://github.com/pese-git/codelab-ai.git"
 | [Руководство разработчика](doc/product/developer-guide/architecture.md) | Архитектура и разработка |
 | [Справочник CLI](doc/product/reference/cli.md) | Команды и опции |
 | [Архитектура](doc/internals/architecture/ARCHITECTURE.md) | Детальная архитектура системы |
+| [Context Manager](doc/internals/context-manager/INDEX.md) | Интеллектуальный сбор и управление контекстом |
 | [ACP Protocol](doc/protocols/Agent%20Client%20Protocol/) | Официальная спецификация протокола |
 
 ## Структура проекта
@@ -97,7 +98,9 @@ codelab-agent/
 │   │   │                   # CommandRegistry, ResponseRouter, BackgroundExecutor
 │   │   │                   # MCPSessionManager, ConfigSpecBuilder, NotificationBus
 │   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
+│   │   │   ├── context/    # Context Manager (сбор, бюджет, наблюдаемость)
 │   │   ├── tools/          # Инструменты (fs, terminal, plan)
+│   │   │   ├── executors/decorators/  # Декораторы инструментов (метрики, трейсинг, структура проекта)
 │   │   ├── storage/        # Хранилище сессий
 │   │   ├── llm/            # LLM-провайдеры (9+, включая ScriptedMock)
 │   │   ├── mcp/            # MCP интеграция (Manager, Client, Adapters)
@@ -366,6 +369,11 @@ graph TD
             CSB[ConfigSpecBuilder]
         end
 
+        subgraph ContextMgr["Context Manager"]
+            CCM[DefaultContextManager]
+            CCfg[ContextConfig]
+        end
+
         NB[SessionNotificationBus]
     end
 
@@ -421,6 +429,12 @@ graph TD
     MSM --> NB
     LL --> NB
 
+    %% Context Manager
+    CCfg --> CCM
+    TR --> CCM
+    LLM --> CCM
+    CCM --> EE
+
     %% ACPProtocol dependencies (Facade)
     S -->|from_context| AP
     CR --> AP
@@ -441,10 +455,12 @@ graph TD
     classDef group fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
     classDef external fill:#fff3e0,stroke:#e65100,stroke-dasharray: 5 5
     classDef decomposed fill:#e8f5e9,stroke:#2e7d32
+    classDef context fill:#fce4ec,stroke:#880e4f
     class CFG,S,LLM,TR,EE,GPS,GPM,SM,PB,TLCM,TCH,PM,CRH,CR,SR,LL,PP,H,OB,PO app
     class AP request
     class Managers,SlashCommands,Pipeline,PromptOrch group
     class RR,BE,MSM,CSB,NB decomposed
+    class CCM,CCfg context
     class CRPC external
 ```
 
@@ -500,6 +516,53 @@ graph TD
 2. `AgentLoop.run()` выполняет цикл итераций: вызов LLM → обработка tool_calls → продолжение.
 3. Цикл завершается при: отсутствии tool_calls (`end_turn`), достижении `max_turn_requests`, отмене (`cancelled`).
 4. При запросе permission цикл приостанавливается и возобновляется через `resume_after_permission()`.
+
+### Context Manager — интеллектуальный сбор контекста
+
+`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0 (каркас + контракты) и Phase 1 (MVP-сбор).
+
+```mermaid
+graph TD
+    EE[ExecutionEngine] -->|"enabled=true"| CM[DefaultContextManager]
+    EE -->|"enabled=false"| LC[LegacyContextCompactor]
+    CM --> TA[TaskAnalyzer<br/>LLM-классификация]
+    TA --> CG[ContextGatherer<br/>сбор файлов]
+    CG --> DG[DependencyGraph<br/>regex-импорты]
+    CG --> BM[TokenBudgetManager<br/>бюджет токенов]
+    CM -->|"PayloadEnvelope<br/>(baseline/tail)"| LLM[LLM-провайдер]
+```
+
+**Слои архитектуры:**
+
+| Слой | Компоненты | Статус |
+|------|-----------|--------|
+| A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | Phase 4 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter` | Phase 2 |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
+
+**Путь формирования payload:**
+1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()`
+2. `TaskAnalyzer` классифицирует задачу → `TaskProfile`
+3. `ContextGatherer` собирает релевантные файлы через ACP `ToolRegistry`
+4. `TokenBudgetManager` аллоцирует бюджет по долям конфига
+5. Возвращается `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM
+
+**Конфигурация:**
+```toml
+# ~/.codelab/codelab.toml
+[agents.context]
+enabled = true                  # Master switch (default: false)
+gather_enabled = true           # Включить сбор файлов
+
+[agents.context.budget]
+max_context_tokens = 128000
+reserved_tokens = 4096
+```
+
+**Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](doc/internals/context-manager/SLASH_COMMAND.md).
+
+**ProjectStructureDecorator** — декоратор инструментов, автоматически извлекающий структуру проекта из вывода `terminal/create` + `terminal/wait_for_exit` (команды `find`/`ls`). Сохраняет в `session.config_values["project_structure"]`.
 
 ### Токен-стриминг
 

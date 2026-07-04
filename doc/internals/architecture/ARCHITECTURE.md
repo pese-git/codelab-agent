@@ -13,8 +13,9 @@
 9. [MCP Integration](#mcp-integration)
 10. [Observability Layer](#observability-layer)
 11. [LLM Call Strategies](#llm-call-strategies)
-12. [Критические архитектурные решения](#критические-архитектурные-решения)
-13. [Расширение и интеграция](#расширение-и-интеграция)
+12. [Context Manager](#context-manager--интеллектуальный-сбор-контекста)
+13. [Критические архитектурные решения](#критические-архитектурные-решения)
+14. [Расширение и интеграция](#расширение-и-интеграция)
 
 ---
 
@@ -101,6 +102,13 @@ graph TB
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
 | **AgentLoop** | Agent | Цикл LLM tool-calling итераций | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py`](src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py) |
 | **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`src/codelab/server/agent/execution_engine.py`](src/codelab/server/agent/execution_engine.py) |
+| **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–1 реализованы | [`src/codelab/server/agent/context/manager.py`](src/codelab/server/agent/context/manager.py) |
+| **ContextGatherer** | Agent | Сбор релевантных файлов через ACP ToolRegistry (пайплайн: project_tree → search → read_file → graph → отбор) | [`src/codelab/server/agent/context/gatherer.py`](src/codelab/server/agent/context/gatherer.py) |
+| **TaskAnalyzer** | Agent | LLM-классификация задач (bug_fix/feature/refactor/architecture) | [`src/codelab/server/agent/context/task_analyzer.py`](src/codelab/server/agent/context/task_analyzer.py) |
+| **PayloadEnvelope** | Agent | Конверт payload с явным разделением baseline (стабильный префикс) и tail (дельты) | [`src/codelab/server/agent/context/models.py`](src/codelab/server/agent/context/models.py) |
+| **ContextConfig** | Agent | Feature-флаги Context Manager (TOML + env-overrides + runtime override) | [`src/codelab/server/agent/context/models.py`](src/codelab/server/agent/context/models.py) |
+| **ContextCommandHandler** | Protocol | Slash-команда `/context` — наблюдаемость, диагностика, управление Context Manager | [`src/codelab/server/protocol/handlers/slash_commands/builtin/context.py`](src/codelab/server/protocol/handlers/slash_commands/builtin/context.py) |
+| **ProjectStructureDecorator** | Tools | Автоизвлечение структуры проекта из terminal output (find/ls) | [`src/codelab/server/tools/executors/decorators/project_structure.py`](src/codelab/server/tools/executors/decorators/project_structure.py) |
 | **ToolRegistry** | Tools | Регистрация и управление инструментами | [`src/codelab/server/tools/registry.py`](src/codelab/server/tools/registry.py) |
 | **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`src/codelab/server/tools/mapping.py`](src/codelab/server/tools/mapping.py) |
 | **MCPManager** | MCP | Управление MCP-серверами (stdio/HTTP/SSE, auto-reconnect, roots) | [`src/codelab/server/mcp/manager.py`](src/codelab/server/mcp/manager.py) |
@@ -855,6 +863,113 @@ graph LR
 | **Отписка** | Автоматическая при закрытии соединения |
 
 **Применённые паттерны:** Observer, Publisher-Subscriber.
+
+---
+
+## Context Manager — интеллектуальный сбор контекста
+
+`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0 (каркас + контракты) и Phase 1 (MVP-сбор).
+
+> Полная документация: [`doc/internals/context-manager/INDEX.md`](../context-manager/INDEX.md)
+
+### 4-слойная архитектура
+
+```mermaid
+graph TD
+    subgraph LayerA["Слой A — Сбор (✅ Phase 1)"]
+        TA[TaskAnalyzer<br/>LLM-классификация]
+        CG[ContextGatherer<br/>пайплайн через ToolRegistry]
+        DG[DependencyGraph<br/>regex-импорты]
+        BM[TokenBudgetManager<br/>бюджет токенов]
+    end
+
+    subgraph LayerB["Слой B — Жизненный цикл (Phase 4)"]
+        CE[ContextEpoch]
+        CS[ContextSnapshot]
+        CR[ContextReconciler]
+    end
+
+    subgraph LayerC["Слой C — Хранение (Phase 2)"]
+        FCC[FileContentCache]
+        SK[CodeSkeletonizer]
+        TC[TokenCounter]
+    end
+
+    subgraph LayerD["Слой D — Мультиагент (Phase 6)"]
+        CSM[ChildSessionManager]
+        PSR[process_subagent_response]
+    end
+
+    EE[ExecutionEngine] --> CM[DefaultContextManager]
+    CM --> LayerA
+    CM --> LayerB
+    CM --> LayerC
+    CM --> LayerD
+    CM -->|"PayloadEnvelope<br/>(baseline/tail)"| LLM[LLM-провайдер]
+```
+
+### Путь формирования payload
+
+1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()` (при `enabled=true`)
+2. `TaskAnalyzer` классифицирует задачу → `TaskProfile` (task_type, search_terms, investigation_depth)
+3. `ContextGatherer` собирает релевантные файлы через ACP `ToolRegistry` (project_tree → search → read_file → graph → отбор)
+4. `TokenBudgetManager` аллоцирует бюджет по долям конфига (system/history/tool/response)
+5. Возвращается `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM
+
+### PayloadEnvelope
+
+`PayloadEnvelope` — конверт payload с явным разделением иммутабельного префикса и дельт. Фундамент инкрементальной модели.
+
+```python
+@dataclass(frozen=True)
+class PayloadEnvelope:
+    baseline: list[LLMMessage]      # стабильный префикс
+    tail: list[LLMMessage]          # дельты текущего хода
+    baseline_fingerprint: str = ""  # для детекта изменений
+    token_count: int = 0
+
+    def to_messages(self) -> list[LLMMessage]:
+        return [*self.baseline, *self.tail]
+```
+
+**Поведение Phase 1 (гидрация):** `baseline` пересобирается каждый ход. Инкрементальность (Phase 4) — baseline отправляется один раз за эпоху, далее только дельты.
+
+### Конфигурация
+
+```toml
+# ~/.codelab/codelab.toml
+[agents.context]
+enabled = true                  # Master switch (default: false)
+gather_enabled = true           # Включить сбор файлов
+
+[agents.context.budget]
+max_context_tokens = 128000
+reserved_tokens = 4096
+system_share = 0.20
+history_share = 0.50
+tool_output_share = 0.20
+response_buffer_share = 0.10
+```
+
+**Приоритет:** Runtime override (`session.config_values`) → Environment variable (`CODELAB_CONTEXT_*`) → TOML → Default.
+
+### Slash-команда /context
+
+Команда `/context` предоставляет интерфейс для наблюдения за состоянием Context Manager:
+
+- `/context` — сводка метрик (время сборки, количество файлов, токены)
+- `/context spans` — последние трассировочные span'ы
+- `/context on|off` — включить/выключить Context Manager
+
+> Полная документация: [`SLASH_COMMAND.md`](../context-manager/SLASH_COMMAND.md)
+
+### ProjectStructureDecorator
+
+Декоратор инструментов, автоматически извлекающий структуру проекта из вывода terminal:
+
+1. Перехватывает `terminal/create` → сохраняет маппинг `terminal_id → command`
+2. Перехватывает `terminal/wait_for_exit` → парсит output (find/ls) → сохраняет в `session.config_values["project_structure"]`
+3. Фильтрует мусорные папки (.git, node_modules, __pycache__, ...)
 
 ---
 

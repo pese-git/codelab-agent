@@ -1,6 +1,6 @@
 # Phase 0 — Каркас + контракты (спецификация для разработки)
 
-> **Статус:** Готово к разработке — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** ✅ Реализовано — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 1 неделя
 > **Цель:** заморозить контракты и заложить фундамент `baseline/tail`, не меняя поведения системы (флаг `enabled=false` → работает legacy).
 
@@ -45,12 +45,12 @@ Phase 0 — это **точка входа** в реализацию. После
 
 ## Definition of Done для Phase 0
 
-- [ ] Пакет `context/` с моделями и ABC создан, типизация проходит.
-- [ ] `PayloadEnvelope` (baseline/tail) — в пути формирования payload.
-- [ ] Флаги `agents.context.*` + env-overrides работают; `enable_fcm` задепрекейчен.
-- [ ] `enabled=false` → legacy-поведение без регрессий (все тесты зелёные).
-- [ ] FCM-доки архивированы, канон един.
-- [ ] Интерфейсы зафиксированы в `INTERFACES.md` и помечены как замороженные.
+- [x] Пакет `context/` с моделями и ABC создан, типизация проходит.
+- [x] `PayloadEnvelope` (baseline/tail) — в пути формирования payload.
+- [x] Флаги `agents.context.*` + env-overrides работают; `enable_fcm` задепрекейчен.
+- [x] `enabled=false` → legacy-поведение без регрессий (все тесты зелёные).
+- [x] FCM-доки архивированы, канон един.
+- [x] Интерфейсы зафиксированы в `INTERFACES.md` и помечены как замороженные.
 
 ---
 

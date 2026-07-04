@@ -351,36 +351,49 @@ federation = false               # КАНДИДАТ НА ОТКАЗ
 
 ```
 src/codelab/server/agent/context/
-├── manager.py            # ContextManager (единая точка входа)
+├── __init__.py             # Пакет Context Manager
+├── models.py               # Модели данных (PayloadEnvelope, TaskProfile, ContextConfig, ...)
+├── interfaces.py           # ABC контракты (замороженные в Phase 0)
+├── manager.py              # DefaultContextManager (единая точка входа)
 │
-├── # Слой A: сбор
-├── task_analyzer.py      # TaskAnalyzer
-├── gatherer.py           # ContextGatherer
-├── dependency_graph.py   # DependencyGraph
-├── budget.py             # TokenBudgetManager
-├── registry.py           # ContextRegistry, ContextSource, SkillContextSource
+├── # Слой A: сбор (реализовано в Phase 1)
+├── task_analyzer.py        # TaskAnalyzer (LLM-классификация)
+├── gatherer.py             # ContextGatherer (пайплайн через ToolRegistry)
+├── dependency_graph.py     # DependencyGraph (regex)
+├── budget.py               # TokenBudgetManager
+├── registry.py             # ContextRegistry, ContextSource
 │
-├── # Слой B: жизненный цикл
-├── epoch.py              # ContextEpoch
-├── snapshot.py           # ContextSnapshot, ContextReconciler
-├── summarizer.py         # ConversationSummarizer
+├── # Инфраструктура (реализовано в Phase 0–1)
+├── config_loader.py        # Загрузчик конфигурации (TOML + env-overrides)
+├── legacy_bridge.py        # Legacy-мост (обёртка вокруг ContextCompactor)
 │
-├── # Слой C: хранение и эффективность
-├── token_counter.py      # TokenCounter, TiktokenCounter
-├── ast_skeletonizer.py   # CodeSkeletonizer, PythonASTSkeletonizer
-├── file_cache.py         # FileContentCache, InMemoryFileCache, SessionFileCacheRegistry
-├── compactor.py          # ContextCompactor (3 фазы)
-├── items.py              # ContextItem
+├── # Слой B: жизненный цикл (Phase 4 — не реализовано)
+├── epoch.py                # ContextEpoch
+├── snapshot.py             # ContextSnapshot, ContextReconciler
+├── summarizer.py           # ConversationSummarizer
 │
-└── # Слой D: мультиагент
-    └── child_session.py  # ChildSessionManager
+├── # Слой C: хранение (Phase 2 — не реализовано)
+├── token_counter.py        # TokenCounter, TiktokenCounter
+├── ast_skeletonizer.py     # CodeSkeletonizer
+├── file_cache.py           # FileContentCache, SessionFileCacheRegistry
+├── compactor.py            # ContextCompactor (3 фазы)
+├── items.py                # ContextItem
+│
+└── # Слой D: мультиагент (Phase 6 — не реализовано)
+    └── child_session.py    # ChildSessionManager
 
 src/codelab/server/tools/executors/decorators/
-└── file_cache.py         # FileCacheDecorator
+├── base.py                 # ToolExecutorDecorator (базовый класс)
+├── project_structure.py    # ProjectStructureDecorator (автоизвлечение структуры)
+├── metrics.py              # MetricsDecorator
+├── tracing.py              # TracingDecorator
+├── retry.py                # RetryDecorator
+└── timeout.py              # TimeoutDecorator
 
 # Изменяемые файлы
 src/codelab/server/agent/execution_engine.py   # единый путь build_context()
-src/codelab/server/protocol/state.py            # +current_agent_scope (если нужно)
+src/codelab/server/di.py                        # DI-интеграция ContextManager
+src/codelab/server/protocol/handlers/slash_commands/builtin/context.py  # /context
 ```
 
 ---

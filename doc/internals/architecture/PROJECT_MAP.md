@@ -2,7 +2,7 @@
 
 > **ACP (Agent Client Protocol)** — унифицированная реализация сервера агента и клиента в одном Python-пакете.
 >
-> **Дата генерации:** 2026-06-13 | **Ветка:** feature/agent
+> **Дата генерации:** 2026-07-05 | **Ветка:** feature/context-manager-sync
 
 ---
 
@@ -102,7 +102,8 @@ codelab-agent/
 
 | Файл | Описание |
 |------|----------|
-| `slash_commands/builtin/` | Встроенные команды (mode, help, ...) |
+| `slash_commands/builtin/` | Встроенные команды (mode, help, status, context) |
+| `slash_commands/builtin/context.py` | `/context` — состояние Context Manager (метрики, span'ы, on/off) |
 | `slash_commands/router.py` | Маршрутизация slash-команд |
 
 #### Стратегии (handlers/strategies/)
@@ -136,7 +137,7 @@ codelab-agent/
 | Файл | Описание |
 |------|----------|
 | `agent/base.py` | `LLMAgent(ABC)` — базовый интерфейс агента |
-| `agent/execution_engine.py` | `ExecutionEngine` — композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor |
+| `agent/execution_engine.py` | `ExecutionEngine` — композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor. При `enabled=true` делегирует `DefaultContextManager` |
 | `agent/llm_adapter.py` | `LLMAdapter` — адаптер LLMProvider (замена NaiveAgent) |
 | `agent/factory.py` | `AgentFactory` — создание LLMAdapter per-agent |
 | `agent/registry.py` | `AgentRegistry` — регистрация агентов с hot reload |
@@ -150,6 +151,24 @@ codelab-agent/
 > ~~`agent/orchestrator.py`~~ — `AgentOrchestrator` удалён, заменён на `ExecutionEngine`
 > ~~`agent/naive.py`~~ — `NaiveAgent` удалён, заменён на `LLMAdapter`
 > ~~`agent/state.py`~~ — `OrchestratorConfig` удалён, конфигурация через TOML/Markdown
+
+#### Context Manager (agent/context/)
+
+| Файл | Описание |
+|------|----------|
+| `context/__init__.py` | Пакет Context Manager (4-слойная архитектура A–D) |
+| `context/models.py` | Модели данных: `PayloadEnvelope`, `TaskProfile`, `ContextConfig`, `ContextItem`, `ContextEpoch`, `ContextSnapshot`, `BudgetAllocation`, `BuildOptions`, `SubagentResult`, `ReconcileResult`, енумы (`TaskType`, `ContextType`, `ChangeState`) |
+| `context/interfaces.py` | ABC контракты (замороженные в Phase 0): `ContextManager`, `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextSource`, `ContextRegistry`, `ConversationSummarizer`, `ContextReconciler`, `TokenCounter`, `CodeSkeletonizer`, `FileContentCache`, `ContextCompactor`, `ChildSessionManager` |
+| `context/manager.py` | `DefaultContextManager` — единая точка входа, оркестрация слоя A (гидрация в Phase 1) |
+| `context/task_analyzer.py` | `LLMBasedTaskAnalyzer` — LLM-классификация задач (bug_fix/feature/refactor/architecture) |
+| `context/gatherer.py` | `ACPContextGatherer` — пайплайн сбора файлов через ACP `ToolRegistry` |
+| `context/dependency_graph.py` | `RegexDependencyGraph` — граф зависимостей (regex-извлечение импортов) |
+| `context/budget.py` | `DefaultTokenBudgetManager` — аллокация бюджета токенов по долям конфига |
+| `context/registry.py` | `ContextRegistry`, `ContextSource` — реестр источников контекста |
+| `context/config_loader.py` | `load_context_config()` — загрузка из TOML + env-overrides `CODELAB_CONTEXT_*` |
+| `context/legacy_bridge.py` | `LegacyContextCompactorAdapter` — обёртка вокруг legacy `ContextCompactor` |
+
+> Документация: [`doc/internals/context-manager/INDEX.md`](../context-manager/INDEX.md)
 
 #### Конфигурация агентов (agent/config/)
 
@@ -266,6 +285,17 @@ codelab-agent/
 |------|----------|
 | `integrations/client_rpc_bridge.py` | Мост для Agent→Client RPC вызовов |
 | `integrations/permission_checker.py` | Проверка разрешений |
+
+#### Декораторы инструментов (tools/executors/decorators/)
+
+| Файл | Описание |
+|------|----------|
+| `decorators/base.py` | `ToolExecutorDecorator` — базовый класс декоратора |
+| `decorators/project_structure.py` | `ProjectStructureDecorator` — автоизвлечение структуры проекта из terminal output (find/ls) |
+| `decorators/metrics.py` | `MetricsDecorator` — сбор метрик выполнения инструментов |
+| `decorators/tracing.py` | `TracingDecorator` — трассировка выполнения инструментов |
+| `decorators/retry.py` | `RetryDecorator` — повторные попытки при ошибках |
+| `decorators/timeout.py` | `TimeoutDecorator` — таймауты выполнения |
 
 ### MCP интеграция (mcp/)
 

@@ -1,6 +1,6 @@
 # Phase 1 — MVP-сбор (спецификация для разработки)
 
-> **Статус:** Готово к разработке после Phase 0 — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** ✅ Реализовано — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 3 недели
 > **Цель:** реализовать слой A (`TaskAnalyzer` → `ContextGatherer` → `DependencyGraph(regex)` → `TokenBudgetManager`) через ACP `ToolRegistry`. Для типовой задачи система сама отбирает релевантные файлы, e2e работает на одной модели, бюджет токенов соблюдается, качество ≥80%.
 
@@ -61,14 +61,14 @@ Phase 1 наполняет замороженные в Phase 0 интерфей�
 
 ## Definition of Done для Phase 1
 
-- [ ] `TaskAnalyzer` классифицирует задачу в `TaskProfile`; деградация без LLM работает.
-- [ ] `DependencyGraph` (regex) извлекает импорты, отдаёт зависимости/зависимых.
-- [ ] `ContextGatherer` проходит пайплайн `project_tree → search → read_file → graph → отбор` строго через ACP `ToolRegistry`.
-- [ ] `TokenBudgetManager` аллоцирует по долям конфига и усекает `bound_content`.
-- [ ] `build_context()` возвращает `PayloadEnvelope` (baseline+tail) с поведением гидрации.
-- [ ] Бюджет токенов соблюдается (`token_count` ≤ `max - reserved`); priority-элементы защищены.
-- [ ] e2e на одной модели зелёный; качество отбора ≥80%.
-- [ ] Сигнатуры из INTERFACES.md §2 и модели DATA_MODELS.md §1–2 не изменены.
+- [x] `TaskAnalyzer` классифицирует задачу в `TaskProfile`; деградация без LLM работает.
+- [x] `DependencyGraph` (regex) извлекает импорты, отдаёт зависимости/зависимых.
+- [x] `ContextGatherer` проходит пайплайн `project_tree → search → read_file → graph → отбор` строго через ACP `ToolRegistry`.
+- [x] `TokenBudgetManager` аллоцирует по долям конфига и усекает `bound_content`.
+- [x] `build_context()` возвращает `PayloadEnvelope` (baseline+tail) с поведением гидрации.
+- [x] Бюджет токенов соблюдается (`token_count` ≤ `max - reserved`); priority-элементы защищены.
+- [x] e2e на одной модели зелёный; качество отбора ≥80%.
+- [x] Сигнатуры из INTERFACES.md §2 и модели DATA_MODELS.md §1–2 не изменены.
 
 ---
 
