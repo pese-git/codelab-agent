@@ -497,6 +497,10 @@ graph TD
     C -->|реализация| D[StrategyDispatcher]
     D -->|маршрутизирует| E[SingleStrategy]
     E -->|вызывает| F[EventBus]
+    E -->|использует| G[ExecutionEngine]
+    G -->|"enabled=true"| H[ContextManager]
+    G -->|"enabled=false"| I[LegacyContextCompactor]
+    H -->|PayloadEnvelope| G
 ```
 
 **Компоненты:**

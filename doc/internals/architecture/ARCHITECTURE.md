@@ -366,6 +366,7 @@ graph LR
     subgraph Processing["Processing"]
         AgentLoop["AgentLoop<br/>LLM итерации + streaming"]
         Engine["ExecutionEngine<br/>HistoryBuilder + ToolFilter + LLMAdapter"]
+        ContextMgr["ContextManager<br/>4-слойная архитектура A–D<br/>(Phase 0–1 реализованы)"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
         Executors["Executors<br/>FS / Terminal / Plan / MCP"]
     end
@@ -404,6 +405,8 @@ graph LR
     Pipeline --> PromptOrch
     PromptOrch --> AgentLoop
     AgentLoop --> Engine
+    Engine -->|"enabled=true"| ContextMgr
+    ContextMgr -->|"PayloadEnvelope<br/>(baseline/tail)"| Engine
     PromptOrch --> ToolReg
     ToolReg --> Executors
     ToolReg --> MCPAdapt
@@ -601,6 +604,7 @@ sequenceDiagram
     participant CmdReg as CommandRegistry
     participant PromptOrch as PromptOrchestrator
     participant Agent as ExecutionEngine
+    participant CM as ContextManager
     participant Tools as ToolRegistry
     participant NotifBus as SessionNotificationBus
     participant ClientRPC as ClientRPCService
@@ -614,7 +618,20 @@ sequenceDiagram
     PromptOrch->>PromptOrch: 1. Валидация и preprocessing
     
     PromptOrch->>Agent: 2. agent.process_prompt(context)
-    Agent->>Agent: Добавляет user message в LLM контекст
+    
+    alt Context Manager enabled (agents.context.enabled=true)
+        Agent->>CM: build_context(session, prompt)
+        CM->>CM: TaskAnalyzer: LLM-классификация задачи
+        CM->>Tools: ContextGatherer: project_tree, search, read_file
+        Tools-->>CM: Релевантные файлы
+        CM->>CM: TokenBudgetManager: аллокация бюджета
+        CM-->>Agent: PayloadEnvelope (baseline + tail)
+        Agent->>Agent: to_messages() → LLM контекст
+    else Context Manager disabled (legacy)
+        Agent->>Agent: HistoryBuilder: session.history → LLMMessage
+        Agent->>Agent: ContextCompactor: сжатие если нужно
+    end
+    
     Agent->>Tools: Получает доступные tools
     Agent->>Agent: Вызывает LLM
     
