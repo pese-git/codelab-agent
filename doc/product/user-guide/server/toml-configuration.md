@@ -120,6 +120,59 @@ max_attempts = 3
 retry_on = ["rate_limit", "timeout"]
 ```
 
+### Конфигурация Context Manager
+
+Context Manager отвечает за интеллектуальный сбор и управление контекстом для LLM. При включении агент автоматически подбирает релевантные файлы для каждой задачи.
+
+```toml
+[agents.context]
+# Master switch: включить Context Manager (default: false)
+# При false используется legacy ContextCompactor
+enabled = false
+
+# Включить автоматический сбор релевантных файлов
+gather_enabled = true
+
+# Рекурсивное разрешение зависимостей (Phase 5)
+recursive_dependencies = false
+
+# Использовать tree-sitter вместо regex для парсинга импортов (Phase 5)
+use_tree_sitter = false
+
+[agents.context.budget]
+# Максимальный размер контекста в токенах
+max_context_tokens = 128000
+
+# Зарезервированные токены для ответа LLM
+reserved_tokens = 4096
+
+# Доли бюджета по категориям (сумма ≤ 1.0)
+system_share = 0.20          # системный промпт
+history_share = 0.50         # история диалога
+tool_output_share = 0.20     # результаты инструментов
+response_buffer_share = 0.10 # буфер ответа LLM
+```
+
+**Env-overrides** (приоритет выше TOML):
+
+```bash
+CODELAB_CONTEXT_ENABLED=true
+CODELAB_CONTEXT_GATHER_ENABLED=true
+CODELAB_CONTEXT_MAX_CONTEXT_TOKENS=128000
+CODELAB_CONTEXT_RESERVED_TOKENS=4096
+```
+
+**Runtime override** (приоритет выше всего, per-session):
+
+```
+/context on     # включить Context Manager
+/context off    # выключить Context Manager
+/context        # показать метрики
+/context spans  # показать трассировочные span'ы
+```
+
+> Подробнее: [SLASH_COMMAND.md](../../../internals/context-manager/SLASH_COMMAND.md)
+
 ## Полные примеры конфигураций
 
 ### Production: OpenAI с fallback
@@ -161,6 +214,14 @@ strategy = "sequential"
 order = ["openai", "openrouter", "ollama"]
 max_attempts = 3
 retry_on = ["rate_limit", "timeout", "service_unavailable"]
+
+[agents.context]
+enabled = true
+gather_enabled = true
+
+[agents.context.budget]
+max_context_tokens = 128000
+reserved_tokens = 4096
 ```
 
 ### Development: Ollama локально
