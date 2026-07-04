@@ -1210,9 +1210,9 @@ flowchart TB
     TE4 -.->|payload_summary| M2[agent_name, tokens, duration]
     EM --> M3[total_time, total_llm_calls,<br/>input_tokens, output_tokens,<br/>estimated_cost, agent_breakdown]
     
-    S7 --> Export[Export to JSON<br/>debug/trace_{id}.json]
-    TE4 --> Export2[Export to JSON<br/>debug/timeline_{id}.json]
-    EM --> Export3[Save to JSON<br/>benchmarks/run_{id}.json]
+    S7 --> Export["Export to JSON<br/>debug/trace_{id}.json"]
+    TE4 --> Export2["Export to JSON<br/>debug/timeline_{id}.json"]
+    EM --> Export3["Save to JSON<br/>benchmarks/run_{id}.json"]
 ```
 
 ---
