@@ -117,6 +117,7 @@ class _Assembler:
             SlashCommandRouter,
         )
         from codelab.server.protocol.handlers.slash_commands.builtin import (
+            ContextCommandHandler,
             HelpCommandHandler,
             ModeCommandHandler,
             StatusCommandHandler,
@@ -142,11 +143,25 @@ class _Assembler:
             global_policy_manager=self._global_policy_manager,
         )
 
+        # Создаём зависимости для slash-команд
+        from codelab.server.agent.context.models import ContextConfig
+        from codelab.server.observability.metrics_tracker import MetricsTracker
+        from codelab.server.observability.tracer import Tracer
+
+        metrics_tracker = MetricsTracker()
+        context_config = ContextConfig()
+        tracer = Tracer()
+
         command_registry = CommandRegistry()
         command_registry.register(StatusCommandHandler())
         command_registry.register(ModeCommandHandler())
+        # StrategyCommandHandler требует StrategyDispatcher — пропускаем в тестах
+        command_registry.register(ContextCommandHandler(metrics_tracker, context_config, tracer))
         command_registry.register(HelpCommandHandler(command_registry))
         slash_router = SlashCommandRouter(command_registry)
+
+        # Сохраняем registry для использования в session/new
+        self._command_registry = command_registry
 
         builder = PromptOrchestratorBuilder(
             tool_registry=self._tool_registry,

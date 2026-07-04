@@ -330,3 +330,21 @@ async def test_session_cancel_during_turn(tmp_cwd: Path) -> None:
         session_id = await h.handshake(t, tmp_cwd)
         final = await h.cancel_on_permission(t, session_id, "запусти sleep", 10)
         assert final["result"]["stopReason"] == "cancelled"
+
+
+# --------------------------------------------------------------------------- #
+# Slash-команды (E2E через stdio)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_slash_context_via_stdio(tmp_cwd: Path) -> None:
+    """/context через stdio-транспорт возвращает метрики Context Manager."""
+    async with _server(tmp_cwd, h.chat_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp, notes, _ = await h.run_prompt(t, session_id, "/context", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        text = h.agent_text(notes)
+        assert "Context Manager" in text
+        assert "enabled=" in text
