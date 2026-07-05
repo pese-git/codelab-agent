@@ -82,6 +82,7 @@ include = ["src"]
 "unknown-argument" = "ignore"
 "missing-argument" = "ignore"
 "unresolved-attribute" = "ignore"
+"unresolved-import" = "ignore"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests/server"]

@@ -108,6 +108,7 @@ class ContextConfig:
     recursive_dependencies: bool = False
     use_tree_sitter: bool = False
     use_tiktoken: bool = True
+    storage_enabled: bool = True
     file_cache: bool = True
     skeletonize: bool = True
     cache_max_files: int = 1000

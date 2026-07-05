@@ -68,33 +68,33 @@
 
 ## Фаза 2: Слой хранения (2 недели)
 
-- [ ] 2.1 Реализовать ABC `TokenCounter` с методами `count()` и `count_messages()`
-- [ ] 2.2 Реализовать `TiktokenCounter` с использованием библиотеки tiktoken
-- [ ] 2.3 Реализовать fallback `ApproximateTokenCounter` (`len(text) // 4`)
-- [ ] 2.4 Реализовать фабрику: попробовать импорт tiktoken, fallback на approximate с предупреждающим логом
-- [ ] 2.5 Написать unit тесты для точности `TokenCounter` и fallback
-- [ ] 2.6 Реализовать ABC `FileContentCache` с методами `get()`, `set()`, `invalidate()`
-- [ ] 2.7 Реализовать `InMemoryFileCache` с LRU eviction при `cache_max_files`
-- [ ] 2.8 Обеспечить, чтобы `invalidate()` публиковал сигнал изменения в единый источник истины
-- [ ] 2.9 Написать unit тесты для `FileContentCache`, включая LRU eviction и сигнал инвалидации
-- [ ] 2.10 Реализовать `SessionFileCacheRegistry` для жизненного цикла кэша каждой сессии
-- [ ] 2.11 Обеспечить, чтобы registry освобождал память кэша при закрытии сессии
-- [ ] 2.12 Написать unit тесты для жизненного цикла `SessionFileCacheRegistry`
-- [ ] 2.13 Реализовать `FileCacheDecorator`, оборачивающий `ToolExecutor`
-- [ ] 2.14 Перехватывать успешный `fs/read` → вызывать `FileContentCache.set(path, content)`
-- [ ] 2.15 Перехватывать успешный `fs/write` → вызывать `FileContentCache.invalidate(path)` + публиковать сигнал
-- [ ] 2.16 Обеспечить, чтобы ошибки decorator логировались, но не распространялись (выполнение инструмента успешно)
-- [ ] 2.17 Написать unit тесты для `FileCacheDecorator` с замоканым `ToolExecutor`
-- [ ] 2.18 Реализовать ABC `CodeSkeletonizer` с методами `can_handle()` и `skeletonize()`
-- [ ] 2.19 Реализовать `PythonASTSkeletonizer` с использованием модуля Python `ast`
-- [ ] 2.20 Обеспечить детерминированность скелетирования: стабильный порядок AST, отсортированные импорты, нормализованные пробелы
-- [ ] 2.21 Реализовать fallback: вернуть оригинальный код при `SyntaxError` или неподдерживаемом языке
-- [ ] 2.22 Реализовать проверку: если количество токенов skeleton >= оригинала, использовать оригинал
-- [ ] 2.23 Написать golden тесты: 100 запусков на одном входе → байт-идентичный вывод
-- [ ] 2.24 Написать unit тесты для `CodeSkeletonizer`, включая детерминизм и fallback
-- [ ] 2.25 Реализовать dataclass `ContextItem` с `id`, `type`, `content`, `priority`, `owner_scope`, `token_count`, `last_accessed`
-- [ ] 2.26 Добавить метрики: `context_file_cache_hits`, `context_file_cache_misses`, `context_file_cache_evictions`, `context_file_cache_size_bytes`, `context_token_count_duration_ms`, `context_skeleton_savings_ratio`
-- [ ] 2.27 Проверить, что feature flag `agents.context.storage.enabled=false` отключает кэширование и скелетирование
+- [x] 2.1 Реализовать ABC `TokenCounter` с методами `count()` и `count_messages()`
+- [x] 2.2 Реализовать `TiktokenCounter` с использованием библиотеки tiktoken
+- [x] 2.3 Реализовать fallback `ApproximateTokenCounter` (`len(text) // 4`)
+- [x] 2.4 Реализовать фабрику: попробовать импорт tiktoken, fallback на approximate с предупреждающим логом
+- [x] 2.5 Написать unit тесты для точности `TokenCounter` и fallback
+- [x] 2.6 Реализовать ABC `FileContentCache` с методами `get()`, `set()`, `invalidate()`
+- [x] 2.7 Реализовать `InMemoryFileCache` с LRU eviction при `cache_max_files`
+- [x] 2.8 Обеспечить, чтобы `invalidate()` публиковал сигнал изменения в единый источник истины
+- [x] 2.9 Написать unit тесты для `FileContentCache`, включая LRU eviction и сигнал инвалидации
+- [x] 2.10 Реализовать `SessionFileCacheRegistry` для жизненного цикла кэша каждой сессии
+- [x] 2.11 Обеспечить, чтобы registry освобождал память кэша при закрытии сессии
+- [x] 2.12 Написать unit тесты для жизненного цикла `SessionFileCacheRegistry`
+- [x] 2.13 Реализовать `FileCacheDecorator`, оборачивающий `ToolExecutor`
+- [x] 2.14 Перехватывать успешный `fs/read` → вызывать `FileContentCache.set(path, content)`
+- [x] 2.15 Перехватывать успешный `fs/write` → вызывать `FileContentCache.invalidate(path)` + публиковать сигнал
+- [x] 2.16 Обеспечить, чтобы ошибки decorator логировались, но не распространялись (выполнение инструмента успешно)
+- [x] 2.17 Написать unit тесты для `FileCacheDecorator` с замоканым `ToolExecutor`
+- [x] 2.18 Реализовать ABC `CodeSkeletonizer` с методами `can_handle()` и `skeletonize()`
+- [x] 2.19 Реализовать `PythonASTSkeletonizer` с использованием модуля Python `ast`
+- [x] 2.20 Обеспечить детерминированность скелетирования: стабильный порядок AST, отсортированные импорты, нормализованные пробелы
+- [x] 2.21 Реализовать fallback: вернуть оригинальный код при `SyntaxError` или неподдерживаемом языке
+- [x] 2.22 Реализовать проверку: если количество токенов skeleton >= оригинала, использовать оригинал
+- [x] 2.23 Написать golden тесты: 100 запусков на одном входе → байт-идентичный вывод
+- [x] 2.24 Написать unit тесты для `CodeSkeletonizer`, включая детерминизм и fallback
+- [x] 2.25 Реализовать dataclass `ContextItem` с `id`, `type`, `content`, `priority`, `owner_scope`, `token_count`, `last_accessed`
+- [x] 2.26 Добавить метрики: `context_file_cache_hits`, `context_file_cache_misses`, `context_file_cache_evictions`, `context_file_cache_size_bytes`, `context_token_count_duration_ms`, `context_skeleton_savings_ratio`
+- [x] 2.27 Проверить, что feature flag `agents.context.storage.enabled=false` отключает кэширование и скелетирование
 
 ## Фаза 3: Источники + сжатие (1 неделя)
 

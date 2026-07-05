@@ -26,6 +26,7 @@ _BOOL_FIELDS = {
     "recursive_dependencies",
     "use_tree_sitter",
     "use_tiktoken",
+    "storage_enabled",
     "file_cache",
     "skeletonize",
     "incremental",
