@@ -22,8 +22,11 @@ from codelab.server.agent.context.interfaces import (
     TokenCounter,
 )
 from codelab.server.agent.context.skeletonizer import (
-    NoOpSkeletonizer,
-    PythonASTSkeletonizer,
+    CompositeSkeletonizer,
+    NoOpStrategy,
+    RegexStrategy,
+    SkeletonizerStrategy,
+    TreeSitterStrategy,
 )
 from codelab.server.agent.context.token_counter import (
     ApproximateTokenCounter,
@@ -34,6 +37,7 @@ from codelab.server.agent.context.token_counter import (
 __all__ = [
     "ApproximateTokenCounter",
     "CodeSkeletonizer",
+    "CompositeSkeletonizer",
     "ContextCompactor",
     "ContextManager",
     "ContextSource",
@@ -41,10 +45,12 @@ __all__ = [
     "FileContentCache",
     "InMemoryFileCache",
     "InvalidationSignalBus",
-    "NoOpSkeletonizer",
-    "PythonASTSkeletonizer",
+    "NoOpStrategy",
+    "RegexStrategy",
     "SessionFileCacheRegistry",
+    "SkeletonizerStrategy",
     "TiktokenCounter",
     "TokenCounter",
+    "TreeSitterStrategy",
     "create_token_counter",
 ]
