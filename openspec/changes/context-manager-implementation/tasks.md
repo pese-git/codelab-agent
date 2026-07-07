@@ -98,27 +98,27 @@
 
 ## Фаза 3: Источники + сжатие (1 неделя)
 
-- [ ] 3.1 Реализовать `SkillContextSource` для каталога навыков в системном промпте
-- [ ] 3.2 Зарегистрировать `SkillContextSource` в `ContextRegistry`
-- [ ] 3.3 Написать unit тесты для рендеринга `SkillContextSource` и обнаружения изменений
-- [ ] 3.4 Реализовать 3-фазный `ContextCompactor`: `compact_if_needed()` с Prune → Skeletonize → Summarize
-- [ ] 3.5 Реализовать фазу Prune: FIFO удаление старых выводов инструментов, сохранение первых 2 и последних N сообщений
-- [ ] 3.6 Обеспечить, чтобы Prune удалял пары `tool_call` + `tool_result` вместе (без сирот)
-- [ ] 3.7 Реализовать фазу Skeletonize: применить `CodeSkeletonizer` к большим файлам только для чтения
-- [ ] 3.8 Реализовать фазу Summarize: вызвать `ConversationSummarizer.summarize()`, если Prune + Skeletonize недостаточно
-- [ ] 3.9 Реализовать graceful degradation: если LLM недоступен, пропустить Summarize, продолжить с Prune + Skeletonize
-- [ ] 3.10 Обеспечить, чтобы сигнатура `compact_if_needed()` соответствовала legacy для бесшовной миграции
-- [ ] 3.11 Написать unit тесты для `ContextCompactor`, включая все три фазы и деградацию
-- [ ] 3.12 Реализовать `ConversationSummarizer.summarize()` с LLM провайдером
-- [ ] 3.13 Реализовать fallback: вернуть усечённый сырой результат при сбое суммаризации
-- [ ] 3.14 Написать unit тесты для `ConversationSummarizer` с замоканым LLM провайдером
-- [ ] 3.15 Реализовать метод `ensure_context_fits()` в `ContextManager`
-- [ ] 3.16 Реализовать жёсткое усечение через `TokenBudgetManager.bound_content()`, если payload всё ещё превышает бюджет после 3 фаз
-- [ ] 3.17 Обеспечить, чтобы элементы с `priority >= 10` не вытеснялись, если нет критического переполнения
-- [ ] 3.18 Реализовать санитизацию осиротевших сообщений: удалить `tool_result` без `tool_call`, добавить placeholder для `tool_call` без `tool_result`
-- [ ] 3.19 Написать unit тесты для `ensure_context_fits()`, включая жёсткое усечение и санитизацию
-- [ ] 3.20 Добавить метрики: `context_compaction_ratio`, `context_compaction_total`, `context_compaction_degraded_total`
-- [ ] 3.21 Добавить span трейсинга: `context.compact` с атрибутами (`phase`, `ratio`, `tokens_before`, `tokens_after`, `degraded`)
+- [x] 3.1 Реализовать `SkillContextSource` для каталога навыков в системном промпте
+- [x] 3.2 Зарегистрировать `SkillContextSource` в `ContextRegistry`
+- [x] 3.3 Написать unit тесты для рендеринга `SkillContextSource` и обнаружения изменений
+- [x] 3.4 Реализовать 3-фазный `ContextCompactor`: `compact_if_needed()` с Prune → Skeletonize → Summarize
+- [x] 3.5 Реализовать фазу Prune: FIFO удаление старых выводов инструментов, сохранение первых 2 и последних N сообщений
+- [x] 3.6 Обеспечить, чтобы Prune удалял пары `tool_call` + `tool_result` вместе (без сирот)
+- [x] 3.7 Реализовать фазу Skeletonize: применить `CodeSkeletonizer` к большим файлам только для чтения
+- [x] 3.8 Реализовать фазу Summarize: вызвать `ConversationSummarizer.summarize()`, если Prune + Skeletonize недостаточно
+- [x] 3.9 Реализовать graceful degradation: если LLM недоступен, пропустить Summarize, продолжить с Prune + Skeletonize
+- [x] 3.10 Обеспечить, чтобы сигнатура `compact_if_needed()` соответствовала legacy для бесшовной миграции
+- [x] 3.11 Написать unit тесты для `ContextCompactor`, включая все три фазы и деградацию
+- [x] 3.12 Реализовать `ConversationSummarizer.summarize()` с LLM провайдером
+- [x] 3.13 Реализовать fallback: вернуть усечённый сырой результат при сбое суммаризации
+- [x] 3.14 Написать unit тесты для `ConversationSummarizer` с замоканым LLM провайдером
+- [x] 3.15 Реализовать метод `ensure_context_fits()` в `ContextManager`
+- [x] 3.16 Реализовать жёсткое усечение через `TokenBudgetManager.bound_content()`, если payload всё ещё превышает бюджет после 3 фаз
+- [x] 3.17 Обеспечить, чтобы элементы с `priority >= 10` не вытеснялись, если нет критического переполнения
+- [x] 3.18 Реализовать санитизацию осиротевших сообщений: удалить `tool_result` без `tool_call`, добавить placeholder для `tool_call` без `tool_result`
+- [x] 3.19 Написать unit тесты для `ensure_context_fits()`, включая жёсткое усечение и санитизацию
+- [x] 3.20 Добавить метрики: `context_compaction_ratio`, `context_compaction_total`, `context_compaction_degraded_total`
+- [x] 3.21 Добавить span трейсинга: `context.compact` с атрибутами (`phase`, `ratio`, `tokens_before`, `tokens_after`, `degraded`)
 
 ## Фаза 4: Инкрементальный жизненный цикл (2 недели)
 
@@ -194,8 +194,8 @@
 - [ ] X.3 Написать дашборд мониторинга canary: сравнение метрик canary vs legacy
 - [ ] X.4 Определить критерии отката: error rate > 0.01, p95 latency > 400ms, cache hit rate < 0.50
 - [ ] X.5 Написать runbook: как включать/отключать функции, как откатывать, как мониторить
-- [ ] X.6 Обновить `README.md` с документацией Context Manager
-- [ ] X.7 Обновить `AGENTS.md` с соглашениями Context Manager
+- [x] X.6 Обновить `README.md` с документацией Context Manager
+- [x] X.7 Обновить `AGENTS.md` с соглашениями Context Manager
 - [ ] X.8 Провести code review: все фазы проверены командой архитектуры
 - [ ] X.9 Провести security review: защита от prompt injection, блокировка чувствительных путей
 - [ ] X.10 Провести performance review: результаты бенчмарков против целей SLO

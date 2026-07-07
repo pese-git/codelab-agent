@@ -120,6 +120,11 @@ class ExecutionEngine:
                 agent_scope="single",
                 system_prompt=system_prompt,
             )
+            envelope = await self.context_manager.ensure_context_fits(
+                envelope,
+                max_context_tokens=self.context_config.max_context_tokens,
+                reserved_tokens=self.context_config.reserved_tokens,
+            )
             history = envelope.to_messages()
         else:
             history = self.history_builder.build(

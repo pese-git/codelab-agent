@@ -7,6 +7,7 @@
 - Слой D: Мультиагент (ChildSessionManager, process_subagent_response)
 """
 
+from codelab.server.agent.context.compactor import ThreePhaseCompactor
 from codelab.server.agent.context.file_cache import (
     InMemoryFileCache,
     InvalidationSignalBus,
@@ -18,8 +19,15 @@ from codelab.server.agent.context.interfaces import (
     ContextCompactor,
     ContextManager,
     ContextSource,
+    ConversationSummarizer,
     FileContentCache,
     TokenCounter,
+)
+from codelab.server.agent.context.registry import (
+    ContextRegistryImpl,
+    FileContextSource,
+    SkillCatalogSource,
+    SkillContextSource,
 )
 from codelab.server.agent.context.skeletonizer import (
     CompositeSkeletonizer,
@@ -28,6 +36,7 @@ from codelab.server.agent.context.skeletonizer import (
     SkeletonizerStrategy,
     TreeSitterStrategy,
 )
+from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.token_counter import (
     ApproximateTokenCounter,
     TiktokenCounter,
@@ -40,15 +49,22 @@ __all__ = [
     "CompositeSkeletonizer",
     "ContextCompactor",
     "ContextManager",
+    "ContextRegistryImpl",
     "ContextSource",
+    "ConversationSummarizer",
     "FileCacheDecorator",
     "FileContentCache",
+    "FileContextSource",
     "InMemoryFileCache",
     "InvalidationSignalBus",
+    "LLMConversationSummarizer",
     "NoOpStrategy",
     "RegexStrategy",
     "SessionFileCacheRegistry",
     "SkeletonizerStrategy",
+    "SkillCatalogSource",
+    "SkillContextSource",
+    "ThreePhaseCompactor",
     "TiktokenCounter",
     "TokenCounter",
     "TreeSitterStrategy",

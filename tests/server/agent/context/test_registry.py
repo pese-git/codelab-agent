@@ -5,6 +5,7 @@ import pytest
 from codelab.server.agent.context.registry import (
     ContextRegistryImpl,
     FileContextSource,
+    SkillCatalogSource,
     SkillContextSource,
 )
 
@@ -209,3 +210,74 @@ class TestContextRegistryImpl:
         assert "def main(): pass" in baseline
         assert "def helper(): pass" in baseline
         assert "Python tips" in baseline
+
+
+class TestSkillCatalogSource:
+    """Тесты для SkillCatalogSource."""
+
+    @pytest.mark.asyncio
+    async def test_source_id_is_skill_catalog(self):
+        """source_id должен быть 'skill_catalog'."""
+        source = SkillCatalogSource([])
+        assert source.source_id == "skill_catalog"
+
+    @pytest.mark.asyncio
+    async def test_render_empty_skills(self):
+        """render() должен возвращать пустую строку для пустого списка."""
+        source = SkillCatalogSource([])
+        content = await source.render()
+        assert content == ""
+
+    @pytest.mark.asyncio
+    async def test_render_with_skills(self):
+        """render() должен рендерить каталог скиллов."""
+        skills = [
+            {"name": "python", "description": "Python tips"},
+            {"name": "testing", "description": "Testing best practices"},
+        ]
+        source = SkillCatalogSource(skills)
+        content = await source.render()
+        
+        assert "<available_skills>" in content
+        assert "</available_skills>" in content
+        assert "python" in content
+        assert "testing" in content
+        assert "Python tips" in content
+
+    @pytest.mark.asyncio
+    async def test_fingerprint_deterministic(self):
+        """fingerprint() должен быть детерминированным."""
+        skills = [{"name": "python", "description": "Python tips"}]
+        source = SkillCatalogSource(skills)
+        fp1 = await source.fingerprint()
+        fp2 = await source.fingerprint()
+        assert fp1 == fp2
+
+    @pytest.mark.asyncio
+    async def test_fingerprint_changes_with_skills(self):
+        """fingerprint() должен меняться при изменении набора скиллов."""
+        source1 = SkillCatalogSource([{"name": "python", "description": "Python tips"}])
+        source2 = SkillCatalogSource([
+            {"name": "python", "description": "Python tips"},
+            {"name": "testing", "description": "Testing practices"},
+        ])
+        
+        fp1 = await source1.fingerprint()
+        fp2 = await source2.fingerprint()
+        
+        assert fp1 != fp2
+
+    @pytest.mark.asyncio
+    async def test_render_sorted_by_name(self):
+        """render() должен сортировать скиллы по имени."""
+        skills = [
+            {"name": "zebra", "description": "Z"},
+            {"name": "alpha", "description": "A"},
+        ]
+        source = SkillCatalogSource(skills)
+        content = await source.render()
+        
+        # alpha должен быть перед zebra
+        alpha_pos = content.find("alpha")
+        zebra_pos = content.find("zebra")
+        assert alpha_pos < zebra_pos

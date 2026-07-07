@@ -63,6 +63,42 @@ class SkillContextSource(ContextSource):
         return hashlib.sha256(self._content.encode()).hexdigest()[:16]
 
 
+class SkillCatalogSource(ContextSource):
+    """Источник контекста — каталог доступных скиллов.
+
+    source_id = "skill_catalog".
+    fingerprint — детерминированный хэш набора скиллов (имя + описание).
+    """
+
+    def __init__(self, skills: list[dict[str, str]]) -> None:
+        self._skills = skills
+
+    @property
+    def source_id(self) -> str:
+        return "skill_catalog"
+
+    async def render(self) -> str:
+        """Отрендерить каталог скиллов."""
+        if not self._skills:
+            return ""
+
+        parts: list[str] = ["<available_skills>"]
+        for skill in sorted(self._skills, key=lambda s: s.get("name", "")):
+            name = skill.get("name", "")
+            description = skill.get("description", "")
+            parts.append(f'<skill name="{name}">{description}</skill>')
+        parts.append("</available_skills>")
+        return "\n".join(parts)
+
+    async def fingerprint(self) -> str:
+        """Детерминированный хэш набора скиллов."""
+        canonical = "|".join(
+            f"{s.get('name', '')}:{s.get('description', '')}"
+            for s in sorted(self._skills, key=lambda s: s.get("name", ""))
+        )
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
 class ContextRegistryImpl(ContextRegistry):
     """Реестр источников контекста с отслеживанием изменений."""
 

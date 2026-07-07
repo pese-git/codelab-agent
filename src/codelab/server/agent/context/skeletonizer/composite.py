@@ -81,6 +81,13 @@ class CompositeSkeletonizer(CodeSkeletonizer):
             if strategy.can_handle(path):
                 try:
                     return strategy.skeletonize(code, path)
+                except SyntaxError:
+                    logger.warning(
+                        "skeletonize_syntax_error",
+                        strategy=type(strategy).__name__,
+                        path=path,
+                    )
+                    return code
                 except Exception:
                     logger.exception(
                         "skeletonize_failed",

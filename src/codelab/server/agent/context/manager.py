@@ -21,9 +21,15 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
+from codelab.server.agent.context.compactor import ThreePhaseCompactor
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 from codelab.server.agent.context.gatherer import ACPContextGatherer
-from codelab.server.agent.context.interfaces import ContextManager
+from codelab.server.agent.context.interfaces import (
+    CodeSkeletonizer,
+    ContextManager,
+    ConversationSummarizer,
+    TokenCounter,
+)
 from codelab.server.agent.context.models import (
     BuildOptions,
     ContextConfig,
@@ -32,8 +38,17 @@ from codelab.server.agent.context.models import (
     PayloadEnvelope,
     SubagentResult,
 )
+from codelab.server.agent.context.registry import (
+    ContextRegistryImpl,
+    FileContextSource,
+    SkillCatalogSource,
+)
+from codelab.server.agent.context.skeletonizer.composite import CompositeSkeletonizer
+from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
+from codelab.server.agent.context.token_counter import create_token_counter
 from codelab.server.agent.history_builder import HistoryBuilder
+from codelab.server.agent.message_sanitizer import MessageSanitizer
 from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
@@ -71,6 +86,9 @@ class DefaultContextManager(ContextManager):
         model: str = "openai/gpt-4o-mini",
         metrics_tracker: MetricsTracker | None = None,
         tracer: Tracer | None = None,
+        token_counter: TokenCounter | None = None,
+        skeletonizer: CodeSkeletonizer | None = None,
+        summarizer: ConversationSummarizer | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._config = config or ContextConfig()
@@ -82,6 +100,10 @@ class DefaultContextManager(ContextManager):
         self._sessions: dict[str, _SessionContext] = {}
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
+        self._token_counter = token_counter or create_token_counter()
+        self._skeletonizer = skeletonizer or CompositeSkeletonizer()
+        self._summarizer = summarizer
+        self._compactor: ThreePhaseCompactor | None = None
 
     def _session_ctx(self, session_id: Any) -> _SessionContext:
         """Вернуть (создав при необходимости) изолированное состояние сессии."""
@@ -188,16 +210,16 @@ class DefaultContextManager(ContextManager):
                 "needs_tests": profile.needs_tests,
             }
 
-        # Этап 3: Формирование baseline
+        # Этап 3: Формирование baseline через ContextRegistry
         baseline_start = time.time()
-        baseline: list[LLMMessage] = []
+        registry = ContextRegistryImpl()
         gathered_files_count = 0
         gathered_items: list[ContextItem] = []
         gather_ms = 0.0
         candidate_count = 0
 
         if system_prompt:
-            baseline.append(LLMMessage(role="system", content=system_prompt))
+            registry.register(FileContextSource("system_prompt", system_prompt))
             logger.debug(
                 "context.build.baseline.system_prompt_added",
                 session_id=session_id,
@@ -229,32 +251,34 @@ class DefaultContextManager(ContextManager):
                 "context.build.gather.complete",
                 session_id=session_id,
                 files_gathered=gathered_files_count,
-                file_paths=[item.id for item in items[:10]],  # Первые 10 файлов
+                file_paths=[item.id for item in items[:10]],
                 total_tokens=sum(item.token_count for item in items),
                 elapsed_ms=gather_ms,
             )
 
-            context_content = self._format_context_items(items)
-            if context_content:
-                baseline.append(
-                    LLMMessage(role="system", content=context_content)
-                )
-                logger.debug(
-                    "context.build.baseline.context_added",
-                    session_id=session_id,
-                    context_length=len(context_content),
-                    context_preview=(
-                        context_content[:200] + "..."
-                        if len(context_content) > 200
-                        else context_content
-                    ),
-                )
+            for item in items:
+                registry.register(FileContextSource(item.id, item.content))
+
+            logger.debug(
+                "context.build.baseline.files_registered",
+                session_id=session_id,
+                files_count=gathered_files_count,
+            )
         else:
             logger.debug(
                 "context.build.gather.skipped",
                 session_id=session_id,
                 reason="gather_enabled=false",
             )
+
+        # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
+        registry.register(SkillCatalogSource([]))
+
+        # Формирование baseline из registry
+        baseline_text = await registry.render_baseline()
+        baseline: list[LLMMessage] = []
+        if baseline_text:
+            baseline.append(LLMMessage(role="system", content=baseline_text))
 
         baseline_ms = (time.time() - baseline_start) * 1000
         logger.debug(
@@ -370,17 +394,11 @@ class DefaultContextManager(ContextManager):
     ) -> PayloadEnvelope:
         """Гарантировать, что payload помещается в окно.
 
-        Phase 1: простое усечение низкоприоритетных элементов.
-
-        Args:
-            envelope: Исходный envelope
-            max_context_tokens: Максимальный размер контекста
-            reserved_tokens: Зарезервированные токены
-
-        Returns:
-            Усечённый PayloadEnvelope
+        Phase 3: использует ThreePhaseCompactor для 3-фазного сжатия.
+        Использует safety margin 0.9 для компенсации недооценки ApproximateTokenCounter.
         """
-        available = max_context_tokens - reserved_tokens
+        safety_margin = 0.9
+        available = int((max_context_tokens - reserved_tokens) * safety_margin)
 
         logger.debug(
             "context.ensure_fits.check",
@@ -388,6 +406,7 @@ class DefaultContextManager(ContextManager):
             max_context_tokens=max_context_tokens,
             reserved_tokens=reserved_tokens,
             available_tokens=available,
+            safety_margin=safety_margin,
             fits=envelope.token_count <= available,
         )
 
@@ -405,12 +424,64 @@ class DefaultContextManager(ContextManager):
             current=envelope.token_count,
             available=available,
             exceeded_by=envelope.token_count - available,
-            action="truncation_needed",
+            action="compaction_needed",
         )
 
-        # TODO: Phase 3 - реализовать усечение низкоприоритетных элементов
-        # Сейчас просто возвращаем envelope как есть
-        return envelope
+        compactor = self._get_or_create_compactor()
+        messages = envelope.to_messages()
+        compacted = await compactor.compact_if_needed(
+            messages,
+            max_context_tokens=max_context_tokens,
+            reserved_tokens=reserved_tokens,
+        )
+
+        baseline: list[LLMMessage] = []
+        tail: list[LLMMessage] = []
+        for msg in compacted:
+            if msg.role == "system" and not tail:
+                baseline.append(msg)
+            else:
+                tail.append(msg)
+
+        new_token_count = self._token_counter.count_messages(compacted)
+        baseline_fingerprint = self._compute_fingerprint(baseline)
+
+        logger.info(
+            "context.ensure_fits.compacted",
+            tokens_before=envelope.token_count,
+            tokens_after=new_token_count,
+            baseline_messages=len(baseline),
+            tail_messages=len(tail),
+        )
+
+        return PayloadEnvelope(
+            baseline=baseline,
+            tail=tail,
+            baseline_fingerprint=baseline_fingerprint,
+            token_count=new_token_count,
+        )
+
+    def _get_or_create_compactor(self) -> ThreePhaseCompactor:
+        """Получить или создать ThreePhaseCompactor."""
+        if self._compactor is None:
+            summarizer = self._summarizer
+            if summarizer is None and self._llm is not None:
+                summarizer = LLMConversationSummarizer(
+                    llm=self._llm,
+                    model=self._model,
+                    token_counter=self._token_counter,
+                )
+
+            self._compactor = ThreePhaseCompactor(
+                token_counter=self._token_counter,
+                skeletonizer=self._skeletonizer,
+                summarizer=summarizer,
+                sanitizer=MessageSanitizer(),
+                config=self._config,
+                metrics_tracker=self._metrics_tracker,
+                tracer=self._tracer,
+            )
+        return self._compactor
 
     async def process_subagent_response(
         self,

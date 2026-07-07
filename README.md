@@ -523,7 +523,7 @@ graph TD
 
 ### Context Manager — интеллектуальный сбор контекста
 
-`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0 (каркас + контракты) и Phase 1 (MVP-сбор).
+`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-3.
 
 ```mermaid
 graph TD
@@ -533,6 +533,8 @@ graph TD
     TA --> CG[ContextGatherer<br/>сбор файлов]
     CG --> DG[DependencyGraph<br/>regex-импорты]
     CG --> BM[TokenBudgetManager<br/>бюджет токенов]
+    CM --> CR[ContextRegistry<br/>реестр источников]
+    CM --> TC[ThreePhaseCompactor<br/>Prune→Skeletonize→Summarize]
     CM -->|"PayloadEnvelope<br/>(baseline/tail)"| LLM[LLM-провайдер]
 ```
 
@@ -540,17 +542,30 @@ graph TD
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
-| A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
+| A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextRegistry` | ✅ Реализовано |
 | B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | Phase 4 |
-| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter` | Phase 2 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
 | D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
 
 **Путь формирования payload:**
 1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()`
 2. `TaskAnalyzer` классифицирует задачу → `TaskProfile`
 3. `ContextGatherer` собирает релевантные файлы через ACP `ToolRegistry`
-4. `TokenBudgetManager` аллоцирует бюджет по долям конфига
-5. Возвращается `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM
+4. `ContextRegistry` регистрирует источники (system prompt, файлы, skill catalog)
+5. `TokenBudgetManager` аллоцирует бюджет по долям конфига
+6. Возвращается `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM
+
+**Трёхфазное сжатие (Phase 3):**
+
+При превышении лимита контекста система применяет 3 фазы сжатия:
+
+1. **Prune** — FIFO удаление tool outputs (priority-based eviction: tool=4 → assistant=6 → user=8 → system=10)
+2. **Skeletonize** — AST-сжатие файлов кода (80-85% экономия, tree-sitter + regex)
+3. **Summarize** — LLM-суммаризация истории (сохраняет ключевые решения)
+
+**Graceful degradation:** если LLM недоступен → Prune + Skeletonize без падения.
+
+**Защита критических элементов:** system messages (priority=10) не вытесняются при обычном переполнении.
 
 **Конфигурация:**
 ```toml
@@ -558,6 +573,9 @@ graph TD
 [agents.context]
 enabled = true                  # Master switch (default: false)
 gather_enabled = true           # Включить сбор файлов
+skeletonize = true              # Включить AST-скелетирование
+file_cache = true               # Включить кэш файлов
+use_tiktoken = true             # Точный подсчёт токенов
 
 [agents.context.budget]
 max_context_tokens = 128000
@@ -565,6 +583,8 @@ reserved_tokens = 4096
 ```
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](doc/internals/context-manager/SLASH_COMMAND.md).
+
+**Документация:** [Руководство пользователя](doc/user-guides/context-manager.md) — полное описание возможностей, конфигурации и troubleshooting.
 
 **ProjectStructureDecorator** — декоратор инструментов, автоматически извлекающий структуру проекта из вывода `terminal/create` + `terminal/wait_for_exit` (команды `find`/`ls`). Сохраняет в `session.config_values["project_structure"]`.
 

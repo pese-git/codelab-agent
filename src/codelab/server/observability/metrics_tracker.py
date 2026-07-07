@@ -61,6 +61,9 @@ class SessionMetrics:
     context_gathered_files: int = 0
     context_baseline_tokens: int = 0
     context_tail_tokens: int = 0
+    context_compaction_count: int = 0
+    context_compaction_total_ratio: float = 0.0
+    context_compaction_degraded_count: int = 0
 
     # Последний профиль задачи (для /context profile)
     last_task_profile: dict[str, Any] | None = None
@@ -267,6 +270,27 @@ class MetricsTracker:
             "fingerprint": fingerprint,
             "timestamp": time.time(),
         })
+
+    def record_context_compaction(
+        self,
+        ratio: float,
+        phase: str,
+        degraded: bool,
+        reason: str,
+        session_id: str,
+    ) -> None:
+        """Записать метрику компактирования контекста."""
+        metrics = self._get_or_create(session_id)
+        metrics.context_compaction_count += 1
+        metrics.context_compaction_total_ratio += ratio
+        if degraded:
+            metrics.context_compaction_degraded_count += 1
+            logger.info(
+                "context_compaction_degraded",
+                phase=phase,
+                reason=reason,
+                session_id=session_id,
+            )
 
     def get_metrics(self, session_id: str) -> SessionMetrics:
         """Получить метрики сессии.

@@ -263,3 +263,40 @@ async def test_context_manager_tail_includes_conversation_history():
     assert len(envelope.tail) == 3
     # system остаётся в baseline, не в tail
     assert all(m.role != "system" for m in envelope.tail)
+
+
+@pytest.mark.asyncio
+async def test_context_manager_ensure_context_fits_with_compaction():
+    """Тест что ensure_context_fits сжимает при превышении лимита."""
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+    )
+
+    from codelab.server.agent.context.models import PayloadEnvelope
+    from codelab.server.llm.models import LLMMessage
+
+    long_content = "x" * 10000
+    envelope = PayloadEnvelope(
+        baseline=[LLMMessage(role="system", content="System prompt")],
+        tail=[
+            LLMMessage(role="user", content=long_content),
+            LLMMessage(role="assistant", content="Response"),
+            LLMMessage(role="user", content="More"),
+            LLMMessage(role="assistant", content="More response"),
+        ],
+        baseline_fingerprint="test",
+        token_count=3000,
+    )
+
+    result = await manager.ensure_context_fits(
+        envelope,
+        max_context_tokens=200,
+        reserved_tokens=10,
+    )
+
+    assert result.token_count <= 200
+    assert result is not envelope
