@@ -64,6 +64,41 @@ class TestLoadContextConfig:
         assert config.max_context_tokens == 64000
         assert config.skeletonize is False
 
+    def test_budget_from_nested_section(self):
+        """Поля бюджета читаются из вложенной [agents.context.budget]."""
+        toml_data = {
+            "agents": {
+                "context": {
+                    "budget": {
+                        "max_context_tokens": 32768,
+                        "reserved_tokens": 8192,
+                        "system_share": 0.25,
+                    },
+                },
+            },
+        }
+
+        config = load_context_config(toml_data)
+
+        assert config.max_context_tokens == 32768
+        assert config.reserved_tokens == 8192
+        assert config.system_share == 0.25
+
+    def test_flat_budget_takes_precedence_over_nested(self):
+        """Плоское значение под [agents.context] важнее вложенного [budget]."""
+        toml_data = {
+            "agents": {
+                "context": {
+                    "max_context_tokens": 16000,
+                    "budget": {"max_context_tokens": 32768},
+                },
+            },
+        }
+
+        config = load_context_config(toml_data)
+
+        assert config.max_context_tokens == 16000
+
     def test_from_toml_context_root(self):
         """Загрузка из TOML [context] (альтернативный путь)."""
         toml_data = {

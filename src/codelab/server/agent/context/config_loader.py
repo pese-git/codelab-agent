@@ -46,6 +46,15 @@ _FLOAT_FIELDS = {
 _STR_FIELDS = {
     "analyzer_model",
 }
+# Поля, которые в TOML могут задаваться во вложенной секции [agents.context.budget]
+_BUDGET_FIELDS = {
+    "max_context_tokens",
+    "reserved_tokens",
+    "system_share",
+    "history_share",
+    "tool_output_share",
+    "response_buffer_share",
+}
 
 
 def load_context_config(
@@ -72,6 +81,14 @@ def load_context_config(
     for field_name in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS:
         if field_name in context_section:
             values[field_name] = context_section[field_name]
+
+    # Поля бюджета могут задаваться во вложенной секции [agents.context.budget].
+    # Плоское значение под [agents.context] имеет приоритет над вложенным.
+    budget_section = context_section.get("budget", {})
+    if isinstance(budget_section, dict):
+        for field_name in _BUDGET_FIELDS:
+            if field_name not in values and field_name in budget_section:
+                values[field_name] = budget_section[field_name]
 
     _handle_deprecated_enable_fcm(context_section, values)
 
