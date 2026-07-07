@@ -17,6 +17,34 @@ class TestLoadContextConfig:
         assert config.enabled is False
         assert config.gather_enabled is True
         assert config.max_context_tokens == 128000
+        assert config.analyzer_model == "openai/gpt-4o-mini"
+
+    def test_analyzer_model_from_toml(self):
+        """analyzer_model загружается из TOML [agents.context]."""
+        toml_data = {
+            "agents": {
+                "context": {"analyzer_model": "lmstudio/qwen3.5-9b-mlx"},
+            },
+        }
+
+        config = load_context_config(toml_data)
+
+        assert config.analyzer_model == "lmstudio/qwen3.5-9b-mlx"
+
+    def test_analyzer_model_env_override(self):
+        """CODELAB_CONTEXT_ANALYZER_MODEL переопределяет TOML."""
+        toml_data = {
+            "agents": {
+                "context": {"analyzer_model": "lmstudio/local"},
+            },
+        }
+        os.environ["CODELAB_CONTEXT_ANALYZER_MODEL"] = "ollama/llama3.1"
+
+        try:
+            config = load_context_config(toml_data)
+            assert config.analyzer_model == "ollama/llama3.1"
+        finally:
+            del os.environ["CODELAB_CONTEXT_ANALYZER_MODEL"]
 
     def test_from_toml_agents_context(self):
         """Загрузка из TOML [agents.context]."""

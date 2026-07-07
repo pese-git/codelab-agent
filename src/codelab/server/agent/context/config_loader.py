@@ -41,6 +41,9 @@ _FLOAT_FIELDS = {
     "tool_output_share",
     "response_buffer_share",
 }
+_STR_FIELDS = {
+    "analyzer_model",
+}
 
 
 def load_context_config(
@@ -64,7 +67,7 @@ def load_context_config(
 
     values: dict[str, Any] = {}
 
-    for field_name in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS:
+    for field_name in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS:
         if field_name in context_section:
             values[field_name] = context_section[field_name]
 
@@ -99,13 +102,15 @@ def _apply_env_overrides(config: ContextConfig) -> ContextConfig:
     """
     overrides: dict[str, Any] = {}
 
-    for field_name in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS:
+    for field_name in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS:
         env_key = _ENV_PREFIX + field_name.upper()
         env_value = os.environ.get(env_key)
         if env_value is None:
             continue
 
-        if field_name in _BOOL_FIELDS:
+        if field_name in _STR_FIELDS:
+            overrides[field_name] = env_value
+        elif field_name in _BOOL_FIELDS:
             overrides[field_name] = env_value.lower() in ("true", "1", "yes")
         elif field_name in _INT_FIELDS:
             try:
@@ -131,7 +136,7 @@ def _apply_env_overrides(config: ContextConfig) -> ContextConfig:
 
     current = {
         f: getattr(config, f)
-        for f in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS
+        for f in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS
     }
     current.update(overrides)
     return ContextConfig(**current)

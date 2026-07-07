@@ -104,6 +104,7 @@ class ContextConfig:
 
     enabled: bool = False
     gather_enabled: bool = True
+    analyzer_model: str = "openai/gpt-4o-mini"
     recursive_dependencies: bool = False
     use_tree_sitter: bool = False
     use_tiktoken: bool = True

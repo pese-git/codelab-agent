@@ -408,6 +408,7 @@ class MultiAgentProvider(Provider):
             tool_registry=tool_registry,
             config=config.agents.context,
             llm=llm_provider,
+            model=config.agents.context.analyzer_model,
             metrics_tracker=metrics_tracker,
             tracer=tracer,
         )
