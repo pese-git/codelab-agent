@@ -710,3 +710,116 @@ class TestGatherBinarySkipBase:
         # И их даже не пытались прочитать (нет RPC-вызова read на бинарник)
         assert "data/cache.mdb" not in tool_registry.read_paths
         assert "data/store.db" not in tool_registry.read_paths
+
+
+class TestBinaryFileFiltering:
+    """Тесты для проверки фильтрации бинарных файлов ПЕРЕД чтением."""
+
+    @pytest.mark.asyncio
+    async def test_gather_skips_binary_files_before_reading(self):
+        """Бинарные файлы должны пропускаться ДО попытки чтения."""
+        read_attempts = []
+
+        class TrackingToolRegistry(MockToolRegistry):
+            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+                if tool_name == "fs/read_text_file":
+                    read_attempts.append(arguments.get("path", ""))
+                return await super().execute_tool(session_id, tool_name, arguments, session)
+
+        files = {
+            "src/main.py": "print('hello')",
+            "data/image.png": "binary data",
+            "data/archive.zip": "binary data",
+        }
+        registry = TrackingToolRegistry(files=files)
+        dep_graph = RegexDependencyGraph()
+        gatherer = ACPContextGatherer(registry, dep_graph, "test")
+
+        project_files = ["src/main.py", "data/image.png", "data/archive.zip"]
+        session = MagicMock()
+        session.config_values = {"project_structure": json.dumps(project_files)}
+
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["main"],
+            target_modules=[],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+
+        await gatherer.gather(profile, session)
+
+        # Бинарные файлы не должны читаться
+        assert "data/image.png" not in read_attempts
+        assert "data/archive.zip" not in read_attempts
+        # Текстовые файлы должны читаться
+        assert "src/main.py" in read_attempts
+
+    @pytest.mark.asyncio
+    async def test_gather_skips_mdb_files(self):
+        """Файлы .mdb (базы данных) должны пропускаться."""
+        read_attempts = []
+
+        class TrackingToolRegistry(MockToolRegistry):
+            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+                if tool_name == "fs/read_text_file":
+                    read_attempts.append(arguments.get("path", ""))
+                return await super().execute_tool(session_id, tool_name, arguments, session)
+
+        files = {
+            "src/main.py": "print('hello')",
+            ".cocoindex_code/cocoindex.db/mdb/lock.mdb": "binary db data",
+            ".cocoindex_code/cocoindex.db/mdb/data.mdb": "binary db data",
+        }
+        registry = TrackingToolRegistry(files=files)
+        dep_graph = RegexDependencyGraph()
+        gatherer = ACPContextGatherer(registry, dep_graph, "test")
+
+        project_files = [
+            "src/main.py",
+            ".cocoindex_code/cocoindex.db/mdb/lock.mdb",
+            ".cocoindex_code/cocoindex.db/mdb/data.mdb",
+        ]
+        session = MagicMock()
+        session.config_values = {"project_structure": json.dumps(project_files)}
+
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["main"],
+            target_modules=[],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+
+        await gatherer.gather(profile, session)
+
+        # MDB файлы не должны читаться
+        assert ".cocoindex_code/cocoindex.db/mdb/lock.mdb" not in read_attempts
+        assert ".cocoindex_code/cocoindex.db/mdb/data.mdb" not in read_attempts
+        # Текстовые файлы должны читаться
+        assert "src/main.py" in read_attempts
+
+    def test_is_binary_mdb_extension(self):
+        """_is_binary должен возвращать True для .mdb файлов."""
+        assert ACPContextGatherer._is_binary("data.mdb") is True
+        assert ACPContextGatherer._is_binary("path/to/lock.mdb") is True
+        assert ACPContextGatherer._is_binary("DATA.MDB") is True
+
+    def test_is_binary_db_extensions(self):
+        """_is_binary должен возвращать True для .db, .sqlite файлов."""
+        assert ACPContextGatherer._is_binary("data.db") is True
+        assert ACPContextGatherer._is_binary("data.sqlite") is True
+        assert ACPContextGatherer._is_binary("data.sqlite3") is True
+
+    def test_filter_paths_cocoindex_code_directory(self):
+        """_filter_paths должен фильтровать директорию .cocoindex_code."""
+        paths = [
+            ".cocoindex_code/cocoindex.db/mdb/lock.mdb",
+            ".cocoindex_code/cocoindex.db/mdb/data.mdb",
+            "lib/main.dart",
+            "pubspec.yaml",
+        ]
+        filtered = ACPContextGatherer._filter_paths(paths)
+        assert "lib/main.dart" in filtered
+        assert "pubspec.yaml" in filtered
+        assert not any(".cocoindex_code" in p for p in filtered)
