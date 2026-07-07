@@ -31,14 +31,15 @@
 |------|--------------|--------|
 | Phase 0 — Каркас + контракты | [PHASE_0_SPEC.md](./PHASE_0_SPEC.md) + INTERFACES + DATA_MODELS | ✅ Реализовано |
 | Phase 1 — MVP-сбор | [PHASE_1_SPEC.md](./PHASE_1_SPEC.md) | ✅ Реализовано |
-| Phase 2 — Слой хранения C | [PHASE_2_SPEC.md](./PHASE_2_SPEC.md) | ✅ Готово к разработке |
-| Phase 3 — Источники + сжатие | [PHASE_3_SPEC.md](./PHASE_3_SPEC.md) | ✅ Готово к разработке |
-| Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | ✅ Готово к разработке |
-| Phase 5 — Полный DependencyGraph | [PHASE_5_SPEC.md](./PHASE_5_SPEC.md) | ✅ Готово к разработке |
-| Phase 6 — Мультиагент | [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | ✅ Готово к разработке |
+| Phase 2 — Слой хранения C | [PHASE_2_SPEC.md](./PHASE_2_SPEC.md) | ✅ Реализовано |
+| Phase 3 — Источники + сжатие | [PHASE_3_SPEC.md](./PHASE_3_SPEC.md) | ✅ Реализовано |
+| Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | 🔲 Готово к разработке |
+| Phase 5 — Полный DependencyGraph | [PHASE_5_SPEC.md](./PHASE_5_SPEC.md) | 🔲 Готово к разработке |
+| Phase 6 — Мультиагент | [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | 🔲 Готово к разработке |
 
-> Все фазы 0–6 специфицированы (задачи, acceptance, DoD, риски). Архитектура
-> и контракты зафиксированы в CONSOLIDATED_ARCHITECTURE / INTERFACES / DATA_MODELS.
+> Фазы 0–3 реализованы и протестированы. Фазы 4–6 специфицированы (задачи, acceptance,
+> DoD, риски) и готовы к разработке. Архитектура и контракты зафиксированы в
+> CONSOLIDATED_ARCHITECTURE / INTERFACES / DATA_MODELS.
 
 ## Ключевые решения (из ADR-002)
 

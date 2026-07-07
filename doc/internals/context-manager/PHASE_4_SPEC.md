@@ -1,6 +1,6 @@
 # Phase 4 — Инкрементальность (спецификация для разработки)
 
-> **Статус:** Готово к разработке после Phase 0–3 — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** 🔲 Готово к разработке после Phase 0–3 — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 2 недели
 > **Цель:** ГЛАВНАЯ оптимизация длинных сессий — отправлять иммутабельный `baseline` один раз за эпоху, далее только дельты (`tail`), за тем же `baseline/tail` API, заложенным в Phase 0. Стабильный префикс → кэш-хит у провайдера/KV. Переключение по флагу `agents.context.lifecycle.incremental` без изменения сигнатур.
 

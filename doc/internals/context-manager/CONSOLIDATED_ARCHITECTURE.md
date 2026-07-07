@@ -372,12 +372,20 @@ src/codelab/server/agent/context/
 ├── snapshot.py             # ContextSnapshot, ContextReconciler
 ├── summarizer.py           # ConversationSummarizer
 │
-├── # Слой C: хранение (Phase 2 — не реализовано)
+├── # Слой C: хранение (реализовано в Phase 2–3)
 ├── token_counter.py        # TokenCounter, TiktokenCounter
-├── ast_skeletonizer.py     # CodeSkeletonizer
+├── skeletonizer/           # CodeSkeletonizer (мультиязыковый, tree-sitter + regex)
+│   ├── __init__.py
+│   ├── composite.py        # CompositeSkeletonizer (роутер)
+│   ├── treesitter.py       # TreeSitterStrategy
+│   ├── regex.py            # RegexStrategy
+│   ├── noop.py             # NoOpStrategy
+│   ├── strategy.py         # SkeletonizerStrategy (ABC)
+│   ├── registry.py         # LanguageRegistry
+│   └── languages/          # Определения языков
 ├── file_cache.py           # FileContentCache, SessionFileCacheRegistry
-├── compactor.py            # ContextCompactor (3 фазы)
-├── items.py                # ContextItem
+├── file_cache_decorator.py # FileCacheDecorator (read-cache + write-invalidation)
+├── compactor.py            # ThreePhaseCompactor (Prune → Skeletonize → Summarize)
 │
 └── # Слой D: мультиагент (Phase 6 — не реализовано)
     └── child_session.py    # ChildSessionManager
@@ -385,6 +393,7 @@ src/codelab/server/agent/context/
 src/codelab/server/tools/executors/decorators/
 ├── base.py                 # ToolExecutorDecorator (базовый класс)
 ├── project_structure.py    # ProjectStructureDecorator (автоизвлечение структуры)
+├── file_cache.py           # FileCacheDecorator (интеграция с FileContentCache)
 ├── metrics.py              # MetricsDecorator
 ├── tracing.py              # TracingDecorator
 ├── retry.py                # RetryDecorator

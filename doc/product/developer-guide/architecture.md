@@ -199,12 +199,15 @@ graph TB
             MS[MessageSanitizer]
             PE[PlanExtractor]
             
-            subgraph CONTEXT_MGR["Context Manager (Phase 0–1)"]
+            subgraph CONTEXT_MGR["Context Manager (Phase 0–3)"]
                 CMgr["DefaultContextManager<br/>(единая точка входа)"]
                 TA["TaskAnalyzer<br/>(LLM-классификация)"]
                 CG["ContextGatherer<br/>(сбор файлов через ToolRegistry)"]
                 DG["DependencyGraph<br/>(regex-импорты)"]
                 BM["TokenBudgetManager<br/>(бюджет токенов)"]
+                CP["ThreePhaseCompactor<br/>(Prune → Skeletonize → Summarize)"]
+                FC["FileContentCache<br/>(LRU кэш файлов)"]
+                SK["CodeSkeletonizer<br/>(tree-sitter + regex)"]
             end
         end
 
@@ -797,14 +800,14 @@ chat_vm = ChatViewModel(
 
 ### Context Manager (`server/agent/context/`)
 
-**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0 (каркас + контракты) и Phase 1 (MVP-сбор).
+**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | Phase 4 |
-| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter` | Phase 2 |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
 
 **Путь формирования payload:**
 1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()` (при `enabled=true`)

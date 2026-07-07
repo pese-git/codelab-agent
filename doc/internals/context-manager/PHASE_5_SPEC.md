@@ -1,6 +1,6 @@
 # Phase 5 — Полный DependencyGraph (спецификация для разработки)
 
-> **Статус:** Готово к разработке после предыдущих фаз — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** 🔲 Готово к разработке после предыдущих фаз — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 2 недели
 > **Цель:** довести `DependencyGraph` до рекурсивного разрешения транзитивных зависимостей (`get_dependencies(recursive=True)`) и опционально заменить regex-парсинг импортов на tree-sitter — всё за флагами, regex остаётся дефолтом.
 

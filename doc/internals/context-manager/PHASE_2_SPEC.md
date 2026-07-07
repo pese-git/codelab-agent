@@ -1,6 +1,6 @@
 # Phase 2 — Слой хранения C (спецификация для разработки)
 
-> **Статус:** Готово к разработке после Phase 0/1 — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** ✅ Реализовано — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 2 недели
 > **Цель:** дать слою C измеримую эффективность — точный подсчёт токенов (`TokenCounter`), устранение дублирующих ACP RPC на чтение файлов (`FileContentCache` + `SessionFileCacheRegistry` + `FileCacheDecorator`) и **детерминированное** скелетирование кода (`CodeSkeletonizer`), закладывающее стабильность baseline под будущий prompt-cache хит.
 

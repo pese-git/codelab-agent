@@ -1,6 +1,6 @@
 # Phase 3 — Источники + сжатие (спецификация для разработки)
 
-> **Статус:** Готово к разработке после Phase 0/1/2 — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Статус:** ✅ Реализовано — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 1 неделя
 > **Цель:** ввести Registry-pattern для источников контекста (`ContextRegistry`/`ContextSource`), отрендерить каталог скиллов как источник (`SkillContextSource`), собрать единый **3-фазный** `ContextCompactor` (Prune → Skeletonize → Summarize) с `ConversationSummarizer` и корректной деградацией без LLM.
 

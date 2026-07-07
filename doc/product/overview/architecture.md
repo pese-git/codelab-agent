@@ -237,16 +237,16 @@ graph TB
 
 ### Context Manager
 
-`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0 (каркас + контракты) и Phase 1 (MVP-сбор).
+`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
 
 **Слои:**
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | Phase 4 |
-| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter` | Phase 2 |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
 
 **Путь формирования payload:** `ExecutionEngine` → `DefaultContextManager.build_context()` → `TaskAnalyzer` → `ContextGatherer` (через `ToolRegistry`) → `TokenBudgetManager` → `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM.
 
