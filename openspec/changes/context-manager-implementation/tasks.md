@@ -130,7 +130,7 @@
 - [x] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
 - [x] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
 - [x] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
-- [x] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе
+- [ ] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе — **НЕ работает**: `reconcile()` возвращает только `UNCHANGED`/`UPDATED`, `defer_changes()` нигде не вызывается (мёртвый путь)
 - [x] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
 - [x] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
 - [x] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
@@ -143,12 +143,31 @@
 - [x] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
 - [x] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
 - [x] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
-- [x] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применяют вместе на следующей границе
+- [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применяют вместе на следующей границе — **НЕ работает**: зависит от `DEFERRED` (4.9), который не задействован
 - [x] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
 - [x] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
 - [x] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline пересобирается каждый ход)
 - [x] 4.26 Проверить, что feature flag `agents.context.lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
 - [x] 4.27 Интегрировать `InvalidationSignalBus` в DI контейнер (app scope)
+
+### Известные дефекты Phase 4 (режим `incremental=true` НЕ production-ready)
+
+Структура данных, реконсиляция, fingerprint, метрики и DI реализованы честно.
+Но следующее заявлено выполненным, а по факту не работает — `incremental=true`
+не готов к проду (по умолчанию выключен):
+
+- [ ] 4.D1 **Накопление истории в эпохе не подключено.** `EpochManager.add_mid_conversation_message()`
+  определён, но нигде не вызывается → `mid_conversation_messages` всегда пуст,
+  `get_full_context()` фактически возвращает только baseline. Нарушает спеку
+  `context-lifecycle` (scenario «Накопление mid-conversation сообщений»).
+- [ ] 4.D2 **Рефреш файла после инвалидации сломан.** `_refresh_source` вызывает
+  `tool_name="fs/read"`, реальный инструмент — `fs/read_text_file` (+ фейковый
+  `session_id="context_refresh"`, рассинхрон путь vs `source_id`). Сигнал/детект работают,
+  но обновлённое содержимое файла не доходит до LLM — при разрыве эпохи baseline
+  пересобирается из устаревших `FileContextSource`.
+- [ ] 4.D3 **Интеграционные тесты 4.14/4.15 — на моках.** Проверяют reconcile/сигнал, но не
+  реальный путь через `ToolRegistry`, поэтому дефект 4.D2 (имя инструмента) не ловят.
+- [ ] 4.D4 **DEFERRED-путь мёртв** (см. 4.9, 4.22).
 - [x] 4.28 Интегрировать `SessionFileCacheRegistry` в DI контейнер (app scope)
 - [x] 4.29 Обернуть `FileSystemToolExecutor` в `FileCacheDecorator` в `PromptOrchestrator`
 - [x] 4.30 Реализовать `FileContextSource.update_content()` для обновления содержимого при инвалидации
