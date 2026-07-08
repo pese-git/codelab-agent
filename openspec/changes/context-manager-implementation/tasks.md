@@ -222,15 +222,13 @@
 
 ## Отклонения от спеки (найдено при ревью, backlog)
 
-- [ ] D.1 **Ретрай при недооценке бюджета не реализован.** Спека `context-compaction/spec.md`
-  (Requirement «Жёсткое усечение…», scenario «Переполнение провайдера с приблизительным
-  счётчиком») требует: при недооценке `ApproximateTokenCounter` и отклонении провайдером —
-  повторить `ensure_context_fits()` с более строгим лимитом и залогировать
-  `budget_underestimated_retry`. В phase-3 после сжатия нет пере-проверки токенов и ретрая,
-  `safety_margin` (0.9) фактически не отрабатывает. Добавить пост-проверку + ретрай.
-- [ ] D.2 **Конфиг бюджета вне спеки (вложенная секция).** Спека `agent-context-models/spec.md`
-  (Requirement «Модель данных ContextConfig») определяет `max_context_tokens`, `reserved_tokens`,
-  `system_share`/`history_share`/`tool_output_share`/`response_buffer_share` как ПЛОСКИЕ поля
-  `ContextConfig`, загружаемые из `[agents.context.*]`. phase-3 добавил чтение вложенной секции
-  `[agents.context.budget]`, которой в спеке нет. Привести к плоской модели (или обновить спеку,
-  если вложенность признана нужной). Затрагивает `config_loader.py` в phase-3/phase-4.
+- [x] D.1 **Ретрай при недооценке бюджета.** `ensure_context_fits` после сжатия делает
+  пост-проверку токенов; если результат выше строгого порога `available` (safety_margin 0.9) —
+  повторяет сжатие со строгим лимитом и логирует `budget_underestimated_retry`
+  (`context-compaction/spec.md`, scenario «Переполнение провайдера с приблизительным счётчиком»).
+  Реализовано в `manager.ensure_context_fits` (+ `_split_baseline_tail`), тест
+  `test_context_manager_ensure_context_fits_retries_on_underestimate`.
+- [x] D.2 **Конфиг бюджета: спека приведена к коду.** Решение — оставить вложенную секцию
+  `[agents.context.budget]` (эргономичнее: группирует budget-ручки, загрузчик сплющивает в
+  плоский `ContextConfig`, плоское значение приоритетнее). Обновлена `agent-context-models/spec.md`:
+  добавлены сценарии чтения вложенной секции и приоритета плоского значения. Код не менялся.
