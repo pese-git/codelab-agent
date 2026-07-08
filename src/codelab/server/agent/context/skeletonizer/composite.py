@@ -59,10 +59,12 @@ class CompositeSkeletonizer(CodeSkeletonizer):
         return ext not in BINARY_EXTENSIONS
 
     def skeletonize(self, code: str) -> str:
-        """Скелетировать код.
+        """Скелетировать код без пути к файлу.
 
-        Для обратной совместимости с CodeSkeletonizer.
-        Путь не доступен, используется RegexStrategy.
+        Метод ABC CodeSkeletonizer. Без пути язык определить нельзя,
+        поэтому выбор стратегии невозможен и код возвращается БЕЗ изменений
+        (no-op). Для реальной скелетизации используйте skeletonize_file(code,
+        path) — именно его вызывает ThreePhaseCompactor.
         """
         return self._noop.skeletonize(code, "")
 

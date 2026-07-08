@@ -67,8 +67,12 @@ class TreeSitterStrategy(SkeletonizerStrategy):
         """Извлечь скелет из AST.
 
         Обходит дерево, заменяет тела функций на placeholder.
+
+        Работает в байтах: tree-sitter start_point[1]/end_point[1] — это
+        БАЙТОВЫЕ смещения внутри строки. Срезы по символам ломали бы
+        многобайтовые символы (кириллица, эмодзи, не-ASCII идентификаторы).
         """
-        lines = source.split("\n")
+        lines = source.encode("utf-8").split(b"\n")
         replacements: list[tuple[int, int, int, int, str]] = []
 
         self._collect_replacements(root, rules, replacements)
@@ -76,18 +80,21 @@ class TreeSitterStrategy(SkeletonizerStrategy):
         replacements.sort(key=lambda r: (r[0], r[1]), reverse=True)
 
         for start_row, start_col, end_row, end_col, placeholder in replacements:
+            placeholder_b = placeholder.encode("utf-8")
             if start_row == end_row:
                 line = lines[start_row]
-                lines[start_row] = line[:start_col] + placeholder + line[end_col:]
+                lines[start_row] = line[:start_col] + placeholder_b + line[end_col:]
             else:
                 first_line = lines[start_row]
                 last_line = lines[end_row]
-                lines[start_row] = first_line[:start_col] + placeholder + last_line[end_col:]
+                lines[start_row] = (
+                    first_line[:start_col] + placeholder_b + last_line[end_col:]
+                )
                 for i in range(start_row + 1, end_row + 1):
-                    lines[i] = ""
+                    lines[i] = b""
 
-        result_lines = [line for line in lines if line.strip() or line == ""]
-        result = "\n".join(result_lines)
+        result_lines = [line for line in lines if line.strip() or line == b""]
+        result = b"\n".join(result_lines).decode("utf-8", errors="replace")
 
         if not result.endswith("\n"):
             result += "\n"

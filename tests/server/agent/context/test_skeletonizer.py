@@ -130,6 +130,29 @@ def helper():
         assert "import sys" in result
         assert "from pathlib import Path" in result
 
+    def test_skeletonize_multibyte_utf8_not_corrupted(self, strategy):
+        """Многобайтовые символы (кириллица) до тела не повреждаются.
+
+        start_point/end_point в tree-sitter — байтовые смещения; при срезах
+        по символам кириллица в сигнатуре/строках ломалась. Проверяем, что
+        сигнатура сохраняется целиком, а тело сворачивается.
+        """
+        code = (
+            "# Комментарий с кириллицей и эмодзи 🚀\n"
+            "def приветствие(имя: str) -> str:\n"
+            '    сообщение = f"Привет, {имя}!"\n'
+            "    return сообщение\n"
+        )
+        result = strategy.skeletonize(code, "test.py")
+
+        # Результат — валидный UTF-8 без символов-замен
+        assert "�" not in result
+        # Сигнатура с кириллицей цела
+        assert "def приветствие(имя: str) -> str:" in result
+        # Тело свёрнуто
+        assert "..." in result
+        assert "Привет" not in result
+
 
 class TestTreeSitterStrategyTypeScript:
     """Тесты для TreeSitterStrategy с TypeScript."""
