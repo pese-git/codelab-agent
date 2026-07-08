@@ -45,6 +45,27 @@
 - [x] 1.24 Добавить span трейсинга: `context.gather` с атрибутами (`task_type`, `search_terms`, `candidate_files`, `selected_files`)
 - [x] 1.25 Проверить, что feature flag `agents.context.gather.enabled=false` отключает автоматический сбор
 
+#### Расширенная наблюдаемость (slash-команда /context)
+
+- [ ] 1.26 Расширить `MetricsTracker.record_context_build()` опциональными параметрами: `task_type: str = ""`, `file_paths: list[str] | None = None`, `candidate_count: int = 0`, `stage_timings: dict[str, float] | None = None`, `graph_stats: dict[str, int] | None = None` (обратно совместимо)
+- [ ] 1.27 Добавить поле `last_task_profile: dict[str, Any] | None = None` в `SessionMetrics` для сохранения последнего профиля задачи
+- [ ] 1.28 Реализовать сохранение `TaskProfile` в `SessionMetrics.last_task_profile` после успешного `TaskAnalyzer.analyze()` в `DefaultContextManager.build_context()`
+- [ ] 1.29 Добавить `DependencyGraph.get_stats()` для экспорта статистики графа: `files_in_graph`, `total_dependencies`, `total_dependents`, `project_files_cached`
+- [ ] 1.30 Расширить `DefaultContextManager.build_context()` — хронометрировать стадии (extract, analyze, gather, baseline, tail, fingerprint), собирать file_paths, candidate_count, graph_stats, передавать в `record_context_build()`
+- [ ] 1.31 Реализовать `/context config` — вывод полной конфигурации `ContextConfig` с budget allocation в токенах (рассчитанные из процентов), runtime overrides из `session.config_values`
+- [ ] 1.32 Реализовать `/context last` — вывод деталей последней сборки из `context_build_details` (stage timings, task_type, fingerprint, candidate vs selected files, tokens)
+- [ ] 1.33 Реализовать `/context files` — вывод списка файлов из последней сборки с токенами на файл из `context_build_details["file_paths"]`
+- [ ] 1.34 Реализовать `/context graph` — вывод статистики графа зависимостей из `DependencyGraph.get_stats()`
+- [ ] 1.35 Реализовать `/context profile` — вывод последнего профиля задачи из `SessionMetrics.last_task_profile`
+- [ ] 1.36 Расширить основную сводку `/context` — добавить секции LLM (calls, input/output tokens) и Агент (responses, errors) из `SessionMetrics`
+- [ ] 1.37 Обновить сообщение об ошибке для неизвестной подкоманды `/context` — включить новые подкоманды: config, last, files, graph, profile
+- [ ] 1.38 Написать unit тесты для новых подкоманд `/context`: config, last, files, graph, profile
+- [ ] 1.39 Написать unit тесты для `DependencyGraph.get_stats()` (пустой граф, граф с файлами)
+- [ ] 1.40 Написать unit тесты для расширенных метрик: `record_context_build()` с новыми параметрами, сохранение `last_task_profile`
+- [ ] 1.41 Написать интеграционный тест: `build_context()` → расширенные метрики → `/context last` выводит корректные данные
+- [ ] 1.42 Обновить `doc/internals/context-manager/SLASH_COMMAND.md` с новыми подкомандами и примерами вывода
+- [ ] 1.43 Обновить `doc/internals/context-manager/OBSERVABILITY.md` — добавить секцию 5 "Интерфейс наблюдаемости (slash-команда /context)"
+
 ## Фаза 2: Слой хранения (2 недели)
 
 - [ ] 2.1 Реализовать ABC `TokenCounter` с методами `count()` и `count_messages()`
