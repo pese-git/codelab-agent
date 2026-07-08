@@ -349,36 +349,6 @@ class ACPContextGatherer(ContextGatherer):
 
         return items
 
-    async def _search_files(self, term: str) -> list[str]:
-        """Поиск файлов по термину через ToolRegistry."""
-        try:
-            tools = self._tool_registry.get_available_tools(self._session_id)
-            search_tool = None
-            for tool in tools:
-                if tool.name == "fs_search" or tool.name == "search":
-                    search_tool = tool
-                    break
-
-            if search_tool is None:
-                logger.debug("Search tool not found, skipping search for '%s'", term)
-                return []
-
-            result = await self._tool_registry.execute_tool(
-                self._session_id,
-                "fs_search",
-                {"pattern": term, "max_results": 10},
-            )
-
-            if result.success and isinstance(result.raw_output, dict):
-                items = result.raw_output.get("results", [])
-                if isinstance(items, list):
-                    return [str(item.get("path", "")) for item in items if item.get("path")]
-
-            return []
-        except Exception:
-            logger.exception("Search failed for term '%s'", term)
-            return []
-
     async def _read_file(self, path: str, session: Any) -> str | None:
         """Прочитать файл через ToolRegistry."""
         try:
@@ -411,7 +381,9 @@ class ACPContextGatherer(ContextGatherer):
         for item in items:
             deps = self._dependency_graph.get_dependents(item.id)
             dependents.update(deps)
-        return list(dependents)
+        # Детерминированный порядок — критично для стабильности
+        # baseline_fingerprint и инкрементальной модели (Phase 4).
+        return sorted(dependents)
 
     @staticmethod
     def _deduplicate(paths: list[str]) -> list[str]:

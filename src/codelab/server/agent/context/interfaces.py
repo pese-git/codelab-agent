@@ -89,7 +89,11 @@ class ContextGatherer(ABC):
 
     @abstractmethod
     async def gather(
-        self, profile: TaskProfile, session: object,
+        self,
+        profile: TaskProfile,
+        session: object,
+        *,
+        options: BuildOptions | None = None,
     ) -> list[ContextItem]:
         """Собрать релевантные файлы через ACP ToolRegistry."""
 
