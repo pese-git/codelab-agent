@@ -13,8 +13,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codelab.server.agent.context.interfaces import TokenBudgetManager
 from codelab.server.agent.context.models import BudgetAllocation, ContextConfig
@@ -22,7 +23,7 @@ from codelab.server.agent.context.models import BudgetAllocation, ContextConfig
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class DefaultTokenBudgetManager(TokenBudgetManager):

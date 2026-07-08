@@ -9,18 +9,19 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codelab.server.agent.context.interfaces import DependencyGraph
 
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 IMPORT_PATTERNS = [
     re.compile(r"^import\s+([a-zA-Z_][a-zA-Z0-9_.]*)", re.MULTILINE),

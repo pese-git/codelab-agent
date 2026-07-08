@@ -8,13 +8,14 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any
 
+import structlog
+
 from codelab.server.agent.context.models import ContextConfig
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _ENV_PREFIX = "CODELAB_CONTEXT_"
 _DEPRECATED_ENABLE_FCM = "agents.context.enable_fcm"
@@ -117,18 +118,18 @@ def _apply_env_overrides(config: ContextConfig) -> ContextConfig:
                 overrides[field_name] = int(env_value)
             except ValueError:
                 logger.warning(
-                    "Invalid integer value for %s: %s",
-                    env_key,
-                    env_value,
+                    "Invalid integer value",
+                    env_key=env_key,
+                    env_value=env_value,
                 )
         elif field_name in _FLOAT_FIELDS:
             try:
                 overrides[field_name] = float(env_value)
             except ValueError:
                 logger.warning(
-                    "Invalid float value for %s: %s",
-                    env_key,
-                    env_value,
+                    "Invalid float value",
+                    env_key=env_key,
+                    env_value=env_value,
                 )
 
     if not overrides:

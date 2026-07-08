@@ -173,9 +173,9 @@ class TestDeprecatedEnableFcm:
 
         assert config.enabled is False
 
-    def test_enable_fcm_logs_warning(self, caplog):
+    def test_enable_fcm_logs_warning(self):
         """enable_fcm логирует warning."""
-        import logging
+        import structlog
 
         toml_data = {
             "agents": {
@@ -185,8 +185,9 @@ class TestDeprecatedEnableFcm:
             },
         }
 
-        with caplog.at_level(logging.WARNING):
+        with structlog.testing.capture_logs() as logs:
             load_context_config(toml_data)
 
-        assert any("enable_fcm" in record.message for record in caplog.records)
-        assert any("deprecated" in record.message for record in caplog.records)
+        events = [entry.get("event", "") for entry in logs]
+        assert any("enable_fcm" in event for event in events)
+        assert any("deprecated" in event for event in events)
