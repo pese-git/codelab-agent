@@ -50,6 +50,7 @@ from codelab.server.agent.context.skeletonizer.composite import CompositeSkeleto
 from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
 from codelab.server.agent.context.token_counter import create_token_counter
+from codelab.server.agent.history_builder import HistoryBuilder
 from codelab.server.agent.message_sanitizer import MessageSanitizer
 from codelab.server.llm.models import LLMMessage
 
@@ -115,6 +116,7 @@ class DefaultContextManager(ContextManager):
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
+        self._history_builder = HistoryBuilder()
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
         self._token_counter = token_counter or create_token_counter()
@@ -384,11 +386,11 @@ class DefaultContextManager(ContextManager):
             # перестроилась со свежим содержимым (4.D2).
             await self._refresh_dirty_sources(ctx, session, session_id)
             baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_incremental(ctx, registry, prompt, session_id)
+                await self._build_incremental(session, ctx, registry, prompt, session_id)
             )
         else:
             baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_hydration(registry, prompt, session_id)
+                await self._build_hydration(session, registry, prompt, session_id)
             )
 
         baseline_ms = (time.time() - baseline_start) * 1000
@@ -637,8 +639,33 @@ class DefaultContextManager(ContextManager):
             return options.incremental
         return self._config.incremental
 
+    def _build_tail(self, session: Any, prompt: list[dict]) -> list[LLMMessage]:
+        """Собрать tail из истории сессии (источник истины) — 4.D1.
+
+        session.history уже содержит текущий промпт (добавлен обработчиком до
+        пайплайна). System-сообщения принадлежат baseline и исключаются.
+        Fallback на prompt — только если history не list (не настоящая сессия).
+        """
+        history = getattr(session, "history", None)
+        if not isinstance(history, list):
+            return self._tail_from_prompt(prompt)
+        messages = self._history_builder.build(history)
+        return [m for m in messages if m.role != "system"]
+
+    @staticmethod
+    def _tail_from_prompt(prompt: list[dict]) -> list[LLMMessage]:
+        """Fallback: собрать tail из prompt-блоков (нет истории сессии)."""
+        tail: list[LLMMessage] = []
+        for block in prompt:
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    tail.append(LLMMessage(role="user", content=text))
+        return tail
+
     async def _build_hydration(
         self,
+        session: Any,
         registry: ContextRegistryImpl,
         prompt: list[dict],
         session_id: Any,
@@ -655,12 +682,7 @@ class DefaultContextManager(ContextManager):
 
         baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
 
-        tail: list[LLMMessage] = []
-        for block in prompt:
-            if block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    tail.append(LLMMessage(role="user", content=text))
+        tail = self._build_tail(session, prompt)
 
         reconcile_info: dict[str, Any] = {"state": "hydration", "epoch_broken": False}
 
@@ -675,6 +697,7 @@ class DefaultContextManager(ContextManager):
 
     async def _build_incremental(
         self,
+        session: Any,
         ctx: _SessionContext,
         registry: ContextRegistryImpl,
         prompt: list[dict],
@@ -687,12 +710,7 @@ class DefaultContextManager(ContextManager):
         """
         ctx.epoch_manager.reset_turn_counter()
 
-        tail: list[LLMMessage] = []
-        for block in prompt:
-            if block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    tail.append(LLMMessage(role="user", content=text))
+        tail = self._build_tail(session, prompt)
 
         if not ctx.epoch_manager.is_active:
             return await self._start_new_epoch(ctx, registry, tail, session_id)
