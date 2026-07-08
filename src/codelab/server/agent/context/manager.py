@@ -428,22 +428,33 @@ class DefaultContextManager(ContextManager):
         )
 
         compactor = self._get_or_create_compactor()
-        messages = envelope.to_messages()
         compacted = await compactor.compact_if_needed(
-            messages,
+            envelope.to_messages(),
             max_context_tokens=max_context_tokens,
             reserved_tokens=reserved_tokens,
         )
-
-        baseline: list[LLMMessage] = []
-        tail: list[LLMMessage] = []
-        for msg in compacted:
-            if msg.role == "system" and not tail:
-                baseline.append(msg)
-            else:
-                tail.append(msg)
-
         new_token_count = self._token_counter.count_messages(compacted)
+
+        # Пост-проверка: компактор сжимает до (max - reserved) без safety
+        # margin, а ApproximateTokenCounter может недооценивать. Если результат
+        # всё ещё выше строгого порога `available` (0.9), повторяем сжатие с
+        # более строгим лимитом — гарантия требования спеки
+        # "ensure_context_fits гарантирует бюджет" (context-compaction).
+        if new_token_count > available:
+            logger.warning(
+                "context.ensure_fits.budget_underestimated_retry",
+                tokens_after=new_token_count,
+                target=available,
+                exceeded_by=new_token_count - available,
+            )
+            compacted = await compactor.compact_if_needed(
+                compacted,
+                max_context_tokens=available,
+                reserved_tokens=0,
+            )
+            new_token_count = self._token_counter.count_messages(compacted)
+
+        baseline, tail = self._split_baseline_tail(compacted)
         baseline_fingerprint = self._compute_fingerprint(baseline)
 
         logger.info(
@@ -460,6 +471,20 @@ class DefaultContextManager(ContextManager):
             baseline_fingerprint=baseline_fingerprint,
             token_count=new_token_count,
         )
+
+    @staticmethod
+    def _split_baseline_tail(
+        messages: list[LLMMessage],
+    ) -> tuple[list[LLMMessage], list[LLMMessage]]:
+        """Разделить плоский список на baseline (ведущие system) и tail."""
+        baseline: list[LLMMessage] = []
+        tail: list[LLMMessage] = []
+        for msg in messages:
+            if msg.role == "system" and not tail:
+                baseline.append(msg)
+            else:
+                tail.append(msg)
+        return baseline, tail
 
     def _get_or_create_compactor(self) -> ThreePhaseCompactor:
         """Получить или создать ThreePhaseCompactor."""

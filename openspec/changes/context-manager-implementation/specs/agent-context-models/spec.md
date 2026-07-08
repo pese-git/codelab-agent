@@ -69,9 +69,25 @@
 - `response_buffer_share: float = 0.10`
 - `federation: bool = False`
 
+`ContextConfig` остаётся ПЛОСКИМ frozen dataclass. Форма входного TOML —
+отдельный слой: поля бюджета (`max_context_tokens`, `reserved_tokens`,
+`system_share`, `history_share`, `tool_output_share`, `response_buffer_share`)
+MAY задаваться либо плоско под `[agents.context]`, либо во вложенной секции
+`[agents.context.budget]`; загрузчик сплющивает вложенную секцию в плоский
+`ContextConfig`. Плоское значение имеет приоритет над вложенным.
+
 #### Scenario: ContextConfig из TOML
 - **WHEN** TOML `[agents.context.*]` загружается
 - **THEN** система создаёт `ContextConfig` со значениями из TOML
+
+#### Scenario: Поля бюджета из вложенной секции
+- **WHEN** поля бюджета заданы во вложенной секции `[agents.context.budget]`
+- **THEN** система читает их и сплющивает в плоский `ContextConfig`
+
+#### Scenario: Плоское значение приоритетнее вложенного
+- **WHEN** одно и то же поле бюджета задано и плоско под `[agents.context]`,
+  и во вложенной `[agents.context.budget]`
+- **THEN** система использует плоское значение
 
 #### Scenario: ContextConfig переопределение через env
 - **WHEN** установлена переменная окружения `CODELAB_CONTEXT_ENABLED=true`

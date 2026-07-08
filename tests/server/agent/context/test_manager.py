@@ -300,3 +300,57 @@ async def test_context_manager_ensure_context_fits_with_compaction():
 
     assert result.token_count <= 200
     assert result is not envelope
+
+
+@pytest.mark.asyncio
+async def test_context_manager_ensure_context_fits_retries_on_underestimate():
+    """При недооценке бюджета выполняется повторное сжатие (budget_underestimated_retry).
+
+    Спека context-compaction: если после сжатия payload всё ещё выше строгого
+    порога, ensure_context_fits повторяет с более строгим лимитом.
+    """
+    import structlog
+
+    from codelab.server.agent.context.models import PayloadEnvelope
+    from codelab.server.llm.models import LLMMessage
+
+    class StubCompactor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def compact_if_needed(
+            self, messages, *, max_context_tokens, reserved_tokens
+        ):
+            self.calls += 1
+            if self.calls == 1:
+                # Первый проход «недооценил» — payload всё ещё крупный
+                return [LLMMessage(role="system", content="word " * 400)]
+            # Ретрай со строгим лимитом — payload маленький
+            return [LLMMessage(role="system", content="ok")]
+
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True),
+    )
+    stub = StubCompactor()
+    manager._compactor = stub  # инъекция
+
+    envelope = PayloadEnvelope(
+        baseline=[LLMMessage(role="system", content="System")],
+        tail=[LLMMessage(role="user", content="x" * 10000)],
+        baseline_fingerprint="test",
+        token_count=5000,
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        result = await manager.ensure_context_fits(
+            envelope, max_context_tokens=50, reserved_tokens=0
+        )
+
+    available = int((50 - 0) * 0.9)
+    assert stub.calls == 2  # был ретрай
+    assert result.token_count <= available
+    assert any(
+        entry.get("event") == "context.ensure_fits.budget_underestimated_retry"
+        for entry in logs
+    )
