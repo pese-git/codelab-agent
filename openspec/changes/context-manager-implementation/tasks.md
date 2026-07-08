@@ -150,24 +150,28 @@
 - [x] 4.26 Проверить, что feature flag `agents.context.lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
 - [x] 4.27 Интегрировать `InvalidationSignalBus` в DI контейнер (app scope)
 
-### Известные дефекты Phase 4 (режим `incremental=true` НЕ production-ready)
+### Дефекты Phase 4 — статус доработки
 
 Структура данных, реконсиляция, fingerprint, метрики и DI реализованы честно.
-Но следующее заявлено выполненным, а по факту не работает — `incremental=true`
-не готов к проду (по умолчанию выключен):
+Найденные при ревью дефекты доработаны:
 
-- [ ] 4.D1 **Накопление истории в эпохе не подключено.** `EpochManager.add_mid_conversation_message()`
-  определён, но нигде не вызывается → `mid_conversation_messages` всегда пуст,
-  `get_full_context()` фактически возвращает только baseline. Нарушает спеку
-  `context-lifecycle` (scenario «Накопление mid-conversation сообщений»).
-- [ ] 4.D2 **Рефреш файла после инвалидации сломан.** `_refresh_source` вызывает
-  `tool_name="fs/read"`, реальный инструмент — `fs/read_text_file` (+ фейковый
-  `session_id="context_refresh"`, рассинхрон путь vs `source_id`). Сигнал/детект работают,
-  но обновлённое содержимое файла не доходит до LLM — при разрыве эпохи baseline
-  пересобирается из устаревших `FileContextSource`.
-- [ ] 4.D3 **Интеграционные тесты 4.14/4.15 — на моках.** Проверяют reconcile/сигнал, но не
-  реальный путь через `ToolRegistry`, поэтому дефект 4.D2 (имя инструмента) не ловят.
-- [ ] 4.D4 **DEFERRED-путь мёртв** (см. 4.9, 4.22).
+- [x] 4.D1 **История диалога теперь в payload.** ContextManager собирал tail только
+  из текущего prompt (баг с Phase 1) → терялись все прошлые ходы, т.к. запрос к LLM =
+  `conversation_history` = `to_messages()`. Исправлено: `tail = _build_tail(session)` из
+  `session.history` (источник истины; system остаётся в baseline) в hydration и
+  incremental. `mid_conversation_messages` оставлены как необязательная server-side
+  оптимизация (в запрос всё равно уходит полная история).
+- [x] 4.D2 **Рефреш файла после инвалидации работает.** Багованный async-колбэк
+  (`fs/read` + фейковый `session_id`) заменён ленивым `_refresh_dirty_sources` в
+  build_context: реальный `fs/read_text_file`, обновление контента → fingerprint
+  меняется → эпоха ломается со свежим содержимым.
+- [x] 4.D3 **Тест реального рефреша добавлен** (`TestDirtySourceRefresh`): регресс-гард
+  на `fs/read_text_file` (не `fs/read`) + обновление контента через ToolRegistry.
+- [ ] 4.D4 **DEFERRED-путь мёртв** (см. 4.9, 4.22) — в текущей архитектуре reconcile
+  вызывается только на границе хода (build_context), поэтому DEFERRED не возникает;
+  оставлено до появления mid-turn reconcile.
+- [ ] 4.D5 **(слой A) граф зависимостей укоренялся в cwd сервера** вместо `session.cwd`.
+  Исправлено (`set_project_root`); относится к gather, не к lifecycle. *(закрыто)*
 - [x] 4.28 Интегрировать `SessionFileCacheRegistry` в DI контейнер (app scope)
 - [x] 4.29 Обернуть `FileSystemToolExecutor` в `FileCacheDecorator` в `PromptOrchestrator`
 - [x] 4.30 Реализовать `FileContextSource.update_content()` для обновления содержимого при инвалидации
