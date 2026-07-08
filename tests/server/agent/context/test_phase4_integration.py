@@ -215,3 +215,70 @@ class TestEpochManagerIntegration:
 
         assert result.epoch_broken is False
         assert result.state == ChangeState.UNCHANGED
+
+
+class _RecordingToolRegistry:
+    """ToolRegistry, записывающий вызовы; читает через fs/read_text_file."""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self.calls: list[tuple[str, str]] = []
+
+    def get_available_tools(self, session_id: str) -> list:
+        return []
+
+    async def execute_tool(
+        self, session_id, tool_name, arguments, session=None
+    ) -> ToolExecutionResult:
+        self.calls.append((tool_name, arguments.get("path", "")))
+        if tool_name == "fs/read_text_file":
+            return ToolExecutionResult(success=True, output=self._content)
+        return ToolExecutionResult(success=False, output=None)
+
+
+class TestDirtySourceRefresh:
+    """4.D2/4.D3: рефреш изменённых файлов идёт через реальный fs/read_text_file."""
+
+    async def test_refresh_uses_real_tool_and_updates_content(self):
+        from codelab.server.agent.context.manager import DefaultContextManager
+        from codelab.server.agent.context.models import ContextConfig
+
+        reg = _RecordingToolRegistry("NEW CONTENT")
+        manager = DefaultContextManager(
+            tool_registry=reg,
+            config=ContextConfig(enabled=True, incremental=True),
+        )
+        ctx = manager._session_ctx("s1")
+        ctx.session_registry = ContextRegistryImpl()
+        ctx.session_registry.register(FileContextSource("src/a.py", "OLD CONTENT"))
+        ctx.dirty_paths.add("src/a.py")
+
+        await manager._refresh_dirty_sources(ctx, MockSession("s1"), "s1")
+
+        # Регресс-гард: используется fs/read_text_file, а не fs/read
+        assert ("fs/read_text_file", "src/a.py") in reg.calls
+        assert all(tool != "fs/read" for tool, _ in reg.calls)
+        # Контент источника обновлён, dirty очищен
+        source = ctx.session_registry.get_source("src/a.py")
+        assert await source.render() == "NEW CONTENT"
+        assert ctx.dirty_paths == set()
+
+    async def test_invalidation_signal_marks_dirty_only_for_known_source(self):
+        from codelab.server.agent.context.manager import DefaultContextManager
+        from codelab.server.agent.context.models import ContextConfig
+
+        reg = _RecordingToolRegistry("X")
+        manager = DefaultContextManager(
+            tool_registry=reg,
+            config=ContextConfig(enabled=True, incremental=True),
+        )
+        ctx = manager._session_ctx("s1")
+        ctx.session_registry = ContextRegistryImpl()
+        ctx.session_registry.register(FileContextSource("src/a.py", "v1"))
+
+        # Сигнал по известному источнику → dirty; по неизвестному → нет
+        manager._signal_bus.publish("src/a.py")
+        manager._signal_bus.publish("src/unknown.py")
+
+        assert "src/a.py" in ctx.dirty_paths
+        assert "src/unknown.py" not in ctx.dirty_paths
