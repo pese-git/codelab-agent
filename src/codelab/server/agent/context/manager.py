@@ -117,6 +117,12 @@ class DefaultContextManager(ContextManager):
         session_id = getattr(session, "session_id", "unknown")
         ctx = self._session_ctx(session_id)
 
+        # Укоренить граф зависимостей в директории проекта сессии, а не в cwd
+        # процесса сервера (иначе разрешение импортов идёт не в той директории).
+        session_cwd = getattr(session, "cwd", None)
+        if session_cwd:
+            ctx.dependency_graph.set_project_root(Path(session_cwd))
+
         span = None
         if self._tracer is not None:
             span = self._tracer.start_span(

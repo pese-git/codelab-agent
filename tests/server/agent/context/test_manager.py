@@ -194,3 +194,18 @@ async def test_context_manager_sessions_have_isolated_dependency_graph():
     # Кэш файлов сессии A не виден сессии B
     ctx_a.dependency_graph.set_project_files(["secret_a.py"])
     assert ctx_b.dependency_graph.get_project_files() is None
+
+
+@pytest.mark.asyncio
+async def test_context_manager_roots_dependency_graph_at_session_cwd():
+    """Граф зависимостей укореняется в session.cwd, а не в cwd сервера."""
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True, gather_enabled=False),
+    )
+    session = type("Session", (), {"session_id": "s1", "cwd": "/home/user/project"})()
+
+    await manager.build_context(session=session, prompt=[{"type": "text", "text": "hi"}])
+
+    ctx = manager._session_ctx("s1")
+    assert str(ctx.dependency_graph._project_root) == "/home/user/project"

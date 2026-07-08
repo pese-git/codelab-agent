@@ -38,6 +38,15 @@ class RegexDependencyGraph(DependencyGraph):
         self._dependents: dict[str, set[str]] = defaultdict(set)
         self._project_files: list[str] | None = None
 
+    def set_project_root(self, project_root: Path) -> None:
+        """Задать корень проекта (директория пользовательской сессии).
+
+        Важно: по умолчанию граф укоренён в cwd процесса сервера, что неверно —
+        разрешение импортов и нормализация путей должны идти относительно
+        директории пользовательского проекта (`session.cwd`).
+        """
+        self._project_root = project_root
+
     def add_file(self, path: str, imports: list[str]) -> None:
         """Добавить файл в граф с его импортами.
 
