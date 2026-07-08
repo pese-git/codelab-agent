@@ -11,18 +11,19 @@
 from __future__ import annotations
 
 import contextlib
-import logging
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codelab.server.agent.context.interfaces import FileContentCache
 
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 InvalidationCallback = Callable[[str], None]
 
@@ -54,9 +55,9 @@ class InvalidationSignalBus:
                 callback(path)
             except Exception:
                 logger.exception(
-                    "invalidation_callback_failed: path=%s callback=%s",
-                    path,
-                    callback.__name__,
+                    "invalidation_callback_failed",
+                    path=path,
+                    callback=callback.__name__,
                 )
 
 
@@ -97,11 +98,11 @@ class InMemoryFileCache(FileContentCache):
         При попадании — перемещает в конец (most recently used).
         """
         if path not in self._cache:
-            logger.debug("file_cache_miss: path=%s", path)
+            logger.debug("file_cache_miss", path=path)
             return None
 
         self._cache.move_to_end(path)
-        logger.debug("file_cache_hit: path=%s", path)
+        logger.debug("file_cache_hit", path=path)
         return self._cache[path]
 
     def set(self, path: str, content: str) -> None:
@@ -116,7 +117,7 @@ class InMemoryFileCache(FileContentCache):
 
         if len(self._cache) >= self._max_files:
             evicted_path, _ = self._cache.popitem(last=False)
-            logger.debug("file_cache_evicted: path=%s", evicted_path)
+            logger.debug("file_cache_evicted", path=evicted_path)
 
         self._cache[path] = content
 
@@ -124,7 +125,7 @@ class InMemoryFileCache(FileContentCache):
         """Сбросить кэш по пути. Публикует сигнал изменения."""
         if path in self._cache:
             del self._cache[path]
-            logger.debug("file_cache_invalidated: path=%s", path)
+            logger.debug("file_cache_invalidated", path=path)
 
         self._signal_bus.publish(path)
 
@@ -156,7 +157,7 @@ class SessionFileCacheRegistry:
                 max_files=self._max_files,
                 signal_bus=self._signal_bus,
             )
-            logger.debug("file_cache_created: session_id=%s", session_id)
+            logger.debug("file_cache_created", session_id=session_id)
 
         return self._caches[session_id]
 
@@ -169,7 +170,7 @@ class SessionFileCacheRegistry:
         cache = self._caches.pop(session_id, None)
         if cache is not None:
             cache.clear()
-            logger.debug("file_cache_closed: session_id=%s", session_id)
+            logger.debug("file_cache_closed", session_id=session_id)
 
     @property
     def active_sessions(self) -> list[str]:

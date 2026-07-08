@@ -5,20 +5,55 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from pathlib import Path
 
 import structlog
-import tree_sitter
-import tree_sitter_cpp
-import tree_sitter_dart
-import tree_sitter_go
-import tree_sitter_java
-import tree_sitter_python
-import tree_sitter_rust
-import tree_sitter_typescript
 
 logger = structlog.get_logger(__name__)
+
+try:
+    import tree_sitter
+except ImportError:
+    tree_sitter = None  # type: ignore[assignment]
+    logger.warning(
+        "tree_sitter_not_available",
+        detail="skeletonizer falls back to regex/noop",
+    )
+
+
+def _load_grammars() -> dict[str, Callable[[], object]]:
+    """Загрузить доступные tree-sitter грамматики, пропуская отсутствующие.
+
+    Отсутствие tree_sitter или отдельной грамматики не является ошибкой:
+    скелетизатор деградирует до regex/noop (см. CompositeSkeletonizer).
+    """
+    loaders: dict[str, Callable[[], object]] = {}
+    if tree_sitter is None:
+        return loaders
+
+    specs = [
+        ("python", "tree_sitter_python", "language"),
+        ("typescript", "tree_sitter_typescript", "language_typescript"),
+        ("dart", "tree_sitter_dart", "language"),
+        ("go", "tree_sitter_go", "language"),
+        ("rust", "tree_sitter_rust", "language"),
+        ("java", "tree_sitter_java", "language"),
+        ("cpp", "tree_sitter_cpp", "language"),
+    ]
+    for language, module_name, attr in specs:
+        try:
+            module = importlib.import_module(module_name)
+            loaders[language] = getattr(module, attr)
+        except (ImportError, AttributeError):
+            logger.warning(
+                "grammar_not_available",
+                language=language,
+                module=module_name,
+            )
+    return loaders
+
 
 EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
@@ -39,15 +74,7 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".hxx": "cpp",
 }
 
-_GRAMMAR_LOADERS: dict[str, Callable[[], object]] = {
-    "python": tree_sitter_python.language,
-    "typescript": tree_sitter_typescript.language_typescript,
-    "dart": tree_sitter_dart.language,
-    "go": tree_sitter_go.language,
-    "rust": tree_sitter_rust.language,
-    "java": tree_sitter_java.language,
-    "cpp": tree_sitter_cpp.language,
-}
+_GRAMMAR_LOADERS: dict[str, Callable[[], object]] = _load_grammars()
 
 
 class LanguageRegistry:

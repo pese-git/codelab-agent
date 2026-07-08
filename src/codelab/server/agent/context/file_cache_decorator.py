@@ -10,8 +10,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from codelab.server.agent.context.interfaces import FileContentCache
 from codelab.server.tools.base import ToolExecutionResult
@@ -23,7 +24,7 @@ from codelab.server.tools.executors.decorators.base import (
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 FS_READ_TOOL = "fs/read"
 FS_WRITE_TOOL = "fs/write"
@@ -70,7 +71,7 @@ class FileCacheDecorator(ToolExecutorDecorator):
             elif tool_name == FS_WRITE_TOOL:
                 self._handle_write(path)
         except Exception:
-            logger.exception("file_cache_decorator_error: tool=%s path=%s", tool_name, path)
+            logger.exception("file_cache_decorator_error", tool=tool_name, path=path)
 
         return result
 
@@ -82,14 +83,14 @@ class FileCacheDecorator(ToolExecutorDecorator):
 
         try:
             self._cache.set(path, content)
-            logger.debug("file_cache_set: path=%s", path)
+            logger.debug("file_cache_set", path=path)
         except Exception:
-            logger.exception("file_cache_set_failed: path=%s", path)
+            logger.exception("file_cache_set_failed", path=path)
 
     def _handle_write(self, path: str) -> None:
         """Обработать успешный fs/write — инвалидировать кэш."""
         try:
             self._cache.invalidate(path)
-            logger.debug("file_cache_invalidate: path=%s", path)
+            logger.debug("file_cache_invalidate", path=path)
         except Exception:
-            logger.exception("file_cache_invalidation_failed: path=%s", path)
+            logger.exception("file_cache_invalidation_failed", path=path)

@@ -10,15 +10,16 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codelab.server.agent.context.interfaces import TokenCounter
 
 if TYPE_CHECKING:
     from codelab.server.llm.models import LLMMessage
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TiktokenCounter(TokenCounter):
