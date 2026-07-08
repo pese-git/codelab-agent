@@ -71,13 +71,22 @@ class _SessionContext:
     состояние ключуется по session_id.
     """
 
-    __slots__ = ("dependency_graph", "epoch_manager", "reconciler", "session_registry")
+    __slots__ = (
+        "dependency_graph",
+        "dirty_paths",
+        "epoch_manager",
+        "reconciler",
+        "session_registry",
+    )
 
     def __init__(self) -> None:
         self.dependency_graph = RegexDependencyGraph(Path.cwd())
         self.epoch_manager = EpochManager()
         self.reconciler = DefaultContextReconciler()
         self.session_registry: ContextRegistryImpl | None = None
+        # Пути файлов, помеченных изменёнными сигналом инвалидации; рефрешатся
+        # лениво в build_context (где доступны session/session_id).
+        self.dirty_paths: set[str] = set()
 
 
 class DefaultContextManager(ContextManager):
@@ -131,70 +140,68 @@ class DefaultContextManager(ContextManager):
         """Маршрутизировать сигнал инвалидации во все активные сессии.
 
         Шина инвалидации — APP-scope, а reconciler/registry — per-session,
-        поэтому сигнал доставляется каждому сессионному контексту.
+        поэтому сигнал доставляется каждому сессионному контексту. Само чтение
+        файла НЕ выполняется здесь (нет session/event loop) — путь помечается
+        «грязным» и перечитывается лениво в build_context.
 
         Args:
             path: Путь к изменённому файлу
         """
         for ctx in list(self._sessions.values()):
             ctx.reconciler.on_file_invalidated(path)
-            self._refresh_source(ctx, path)
+            if ctx.session_registry is not None and (
+                ctx.session_registry.get_source(path) is not None
+            ):
+                ctx.dirty_paths.add(path)
 
-    def _refresh_source(self, ctx: _SessionContext, path: str) -> None:
-        """Перечитать файл через ToolRegistry и обновить FileContextSource.
+    async def _refresh_dirty_sources(
+        self, ctx: _SessionContext, session: Any, session_id: Any
+    ) -> None:
+        """Перечитать помеченные изменёнными файлы и обновить их источники.
 
-        Args:
-            ctx: Сессионный контекст, чей реестр обновляется
-            path: Путь к изменённому файлу
+        Вызывается в build_context перед reconcile: здесь доступны session и
+        session_id, поэтому чтение идёт через реальный инструмент
+        `fs/read_text_file` (не фейковый session_id). После обновления контента
+        fingerprint источника меняется → reconcile корректно ломает эпоху.
         """
-        if ctx.session_registry is None:
+        if not ctx.dirty_paths or ctx.session_registry is None:
             return
 
-        source = ctx.session_registry.get_source(path)
-        if source is None:
-            return
+        for path in sorted(ctx.dirty_paths):
+            source = ctx.session_registry.get_source(path)
+            if not isinstance(source, FileContextSource):
+                continue
+            content = await self._read_file(session, session_id, path)
+            if content is not None:
+                source.update_content(content)
+                logger.debug(
+                    "context.build.dirty_source_refreshed",
+                    session_id=session_id,
+                    path=path,
+                    content_length=len(content),
+                )
+        ctx.dirty_paths.clear()
 
-        if not isinstance(source, FileContextSource):
-            return
-
-        logger.debug(
-            "context_manager.file_invalidated.updating",
-            path=path,
-        )
-
+    async def _read_file(
+        self, session: Any, session_id: Any, path: str
+    ) -> str | None:
+        """Прочитать файл через ToolRegistry (реальный инструмент)."""
         try:
-            import asyncio
-
-            async def _refresh() -> None:
-                try:
-                    result = await self._tool_registry.execute_tool(
-                        session_id="context_refresh",
-                        tool_name="fs/read",
-                        arguments={"path": path},
-                    )
-                    if result.success and result.output:
-                        source.update_content(str(result.output))
-                        logger.info(
-                            "context_manager.file_invalidated.refreshed",
-                            path=path,
-                            content_length=len(str(result.output)),
-                        )
-                except Exception:
-                    logger.exception(
-                        "context_manager.file_invalidated.refresh_failed",
-                        path=path,
-                    )
-
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(_refresh())
-            else:
-                loop.run_until_complete(_refresh())
+            result = await self._tool_registry.execute_tool(
+                session_id,
+                "fs/read_text_file",
+                {"path": path},
+                session=session,
+            )
+            if result.success and result.output:
+                return str(result.output)
         except Exception:
             logger.exception(
-                "context_manager.file_invalidated.error",
+                "context.build.dirty_source_refresh_failed",
+                session_id=session_id,
                 path=path,
             )
+        return None
 
     async def build_context(
         self,
@@ -372,6 +379,10 @@ class DefaultContextManager(ContextManager):
 
         # Выбор режима: инкрементальный или гидрация
         if incremental:
+            # Ленивый рефреш изменённых файлов до reconcile: обновляет контент
+            # источников, чтобы fingerprint отразил изменение и эпоха корректно
+            # перестроилась со свежим содержимым (4.D2).
+            await self._refresh_dirty_sources(ctx, session, session_id)
             baseline, baseline_fingerprint, tail, reconcile_info = (
                 await self._build_incremental(ctx, registry, prompt, session_id)
             )
