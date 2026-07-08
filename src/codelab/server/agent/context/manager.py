@@ -33,6 +33,7 @@ from codelab.server.agent.context.models import (
     SubagentResult,
 )
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
+from codelab.server.agent.history_builder import HistoryBuilder
 from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
@@ -76,6 +77,7 @@ class DefaultContextManager(ContextManager):
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
+        self._history_builder = HistoryBuilder()
         # Per-session состояние вместо общего поля на APP-scope синглтоне.
         self._sessions: dict[str, _SessionContext] = {}
         self._metrics_tracker = metrics_tracker
@@ -246,14 +248,13 @@ class DefaultContextManager(ContextManager):
             elapsed_ms=baseline_ms,
         )
 
-        # Этап 5: Формирование tail
+        # Этап 5: Формирование tail из истории сессии.
+        # session.history — источник истины: обработчик добавляет текущий промпт
+        # в историю ДО пайплайна, поэтому tail = вся переписка (включая текущий
+        # промпт). prompt-параметр в tail не участвует; system-сообщения
+        # принадлежат baseline и исключаются.
         tail_start = time.time()
-        tail: list[LLMMessage] = []
-        for block in prompt:
-            if block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    tail.append(LLMMessage(role="user", content=text))
+        tail = self._build_tail(session, prompt)
 
         tail_ms = (time.time() - tail_start) * 1000
         logger.debug(
@@ -420,6 +421,31 @@ class DefaultContextManager(ContextManager):
         )
 
         return result
+
+    def _build_tail(self, session: Any, prompt: list[dict]) -> list[LLMMessage]:
+        """Собрать tail из истории сессии (источник истины).
+
+        session.history уже содержит текущий промпт (добавлен обработчиком до
+        пайплайна). System-сообщения принадлежат baseline и исключаются.
+        Fallback на prompt — только если у объекта нет атрибута history
+        (не настоящая сессия), чтобы не терять текущий ход.
+        """
+        history = getattr(session, "history", None)
+        if not isinstance(history, list):
+            return self._tail_from_prompt(prompt)
+        messages = self._history_builder.build(history)
+        return [m for m in messages if m.role != "system"]
+
+    @staticmethod
+    def _tail_from_prompt(prompt: list[dict]) -> list[LLMMessage]:
+        """Fallback: собрать tail из prompt-блоков (нет истории сессии)."""
+        tail: list[LLMMessage] = []
+        for block in prompt:
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    tail.append(LLMMessage(role="user", content=text))
+        return tail
 
     @staticmethod
     def _extract_prompt_text(prompt: list[dict]) -> str:

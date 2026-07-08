@@ -65,7 +65,14 @@ async def test_context_manager_build_context_basic():
         llm=llm,
     )
 
-    session = type("Session", (), {"session_id": "test-session"})()
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "test-session",
+            "history": [{"role": "user", "content": "Add authentication feature"}],
+        },
+    )()
     prompt = [{"type": "text", "text": "Add authentication feature"}]
 
     envelope = await manager.build_context(
@@ -94,7 +101,14 @@ async def test_context_manager_build_context_without_gather():
         llm=None,
     )
 
-    session = type("Session", (), {"session_id": "test-session"})()
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "test-session",
+            "history": [{"role": "user", "content": "Simple question"}],
+        },
+    )()
     prompt = [{"type": "text", "text": "Simple question"}]
 
     envelope = await manager.build_context(
@@ -209,3 +223,43 @@ async def test_context_manager_roots_dependency_graph_at_session_cwd():
 
     ctx = manager._session_ctx("s1")
     assert str(ctx.dependency_graph._project_root) == "/home/user/project"
+
+
+@pytest.mark.asyncio
+async def test_context_manager_tail_includes_conversation_history():
+    """tail строится из session.history (прошлые ходы не теряются) — 4.D1."""
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True, gather_enabled=False),
+    )
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "s1",
+            "history": [
+                {"role": "user", "content": "первый вопрос"},
+                {"role": "assistant", "content": "первый ответ"},
+                {"role": "user", "content": "второй вопрос"},
+            ],
+        },
+    )()
+
+    envelope = await manager.build_context(
+        session=session,
+        prompt=[{"type": "text", "text": "второй вопрос"}],
+        system_prompt="SYS",
+    )
+
+    contents = [
+        m.content if isinstance(m.content, str) else str(m.content)
+        for m in envelope.tail
+    ]
+    joined = "\n".join(contents)
+    # Прошлые ходы присутствуют, не только текущий промпт
+    assert "первый вопрос" in joined
+    assert "первый ответ" in joined
+    assert "второй вопрос" in joined
+    assert len(envelope.tail) == 3
+    # system остаётся в baseline, не в tail
+    assert all(m.role != "system" for m in envelope.tail)
