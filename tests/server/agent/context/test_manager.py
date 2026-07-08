@@ -354,3 +354,43 @@ async def test_context_manager_ensure_context_fits_retries_on_underestimate():
         entry.get("event") == "context.ensure_fits.budget_underestimated_retry"
         for entry in logs
     )
+
+
+@pytest.mark.asyncio
+async def test_context_manager_sessions_are_isolated():
+    """Инкрементальный режим: состояние двух сессий не смешивается (#1).
+
+    Регистр/эпоха одной сессии не должны переиспользоваться другой —
+    иначе контекст одной сессии протекает в другую.
+    """
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True, gather_enabled=False, incremental=True)
+
+    manager = DefaultContextManager(tool_registry=tool_registry, config=config)
+
+    session_a = type("Session", (), {"session_id": "session-A"})()
+    session_b = type("Session", (), {"session_id": "session-B"})()
+
+    await manager.build_context(
+        session=session_a,
+        prompt=[{"type": "text", "text": "Prompt A"}],
+        system_prompt="System A — секрет сессии A",
+    )
+    await manager.build_context(
+        session=session_b,
+        prompt=[{"type": "text", "text": "Prompt B"}],
+        system_prompt="System B — секрет сессии B",
+    )
+
+    ctx_a = manager._session_ctx("session-A")
+    ctx_b = manager._session_ctx("session-B")
+
+    # Разные изолированные контейнеры состояния
+    assert ctx_a is not ctx_b
+    assert ctx_a.session_registry is not ctx_b.session_registry
+    assert ctx_a.epoch_manager is not ctx_b.epoch_manager
+
+    # baseline сессии B не содержит секрет сессии A
+    baseline_b = await ctx_b.session_registry.render_baseline()
+    assert "секрет сессии A" not in baseline_b
+    assert "секрет сессии B" in baseline_b

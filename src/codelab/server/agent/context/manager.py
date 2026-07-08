@@ -62,6 +62,24 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class _SessionContext:
+    """Изолированное per-session состояние Context Manager.
+
+    Раньше эти поля жили прямо на APP-scope синглтоне DefaultContextManager,
+    что приводило к перекрёстному заражению контекста между сессиями
+    (эпоха/реестр/граф одной сессии переиспользовались другой). Теперь
+    состояние ключуется по session_id.
+    """
+
+    __slots__ = ("dependency_graph", "epoch_manager", "reconciler", "session_registry")
+
+    def __init__(self) -> None:
+        self.dependency_graph = RegexDependencyGraph(Path.cwd())
+        self.epoch_manager = EpochManager()
+        self.reconciler = DefaultContextReconciler()
+        self.session_registry: ContextRegistryImpl | None = None
+
+
 class DefaultContextManager(ContextManager):
     """Контекст-менеджер с поддержкой гидрации и инкрементального режима.
 
@@ -88,33 +106,51 @@ class DefaultContextManager(ContextManager):
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
-        self._dependency_graph = RegexDependencyGraph(Path.cwd())
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
         self._token_counter = token_counter or create_token_counter()
         self._skeletonizer = skeletonizer or CompositeSkeletonizer()
         self._summarizer = summarizer
         self._compactor: ThreePhaseCompactor | None = None
-        self._epoch_manager = EpochManager()
-        self._reconciler = DefaultContextReconciler()
+        # Per-session состояние (эпоха/реестр/граф/reconciler) вместо
+        # общих полей на APP-scope синглтоне — исключает смешивание сессий.
+        self._sessions: dict[str, _SessionContext] = {}
         self._signal_bus = signal_bus or InvalidationSignalBus()
-        self._signal_bus.subscribe(self._reconciler.on_file_invalidated)
-        self._signal_bus.subscribe(self._on_file_invalidated)
-        self._session_registry: ContextRegistryImpl | None = None
+        self._signal_bus.subscribe(self._dispatch_file_invalidated)
 
-    def _on_file_invalidated(self, path: str) -> None:
-        """Обработчик сигнала инвалидации файла.
+    def _session_ctx(self, session_id: Any) -> _SessionContext:
+        """Вернуть (создав при необходимости) изолированное состояние сессии."""
+        key = str(session_id)
+        ctx = self._sessions.get(key)
+        if ctx is None:
+            ctx = _SessionContext()
+            self._sessions[key] = ctx
+        return ctx
 
-        При получении сигнала — перечитывает файл через ToolRegistry
-        и обновляет FileContextSource в session_registry (если есть).
+    def _dispatch_file_invalidated(self, path: str) -> None:
+        """Маршрутизировать сигнал инвалидации во все активные сессии.
+
+        Шина инвалидации — APP-scope, а reconciler/registry — per-session,
+        поэтому сигнал доставляется каждому сессионному контексту.
 
         Args:
             path: Путь к изменённому файлу
         """
-        if self._session_registry is None:
+        for ctx in list(self._sessions.values()):
+            ctx.reconciler.on_file_invalidated(path)
+            self._refresh_source(ctx, path)
+
+    def _refresh_source(self, ctx: _SessionContext, path: str) -> None:
+        """Перечитать файл через ToolRegistry и обновить FileContextSource.
+
+        Args:
+            ctx: Сессионный контекст, чей реестр обновляется
+            path: Путь к изменённому файлу
+        """
+        if ctx.session_registry is None:
             return
 
-        source = self._session_registry.get_source(path)
+        source = ctx.session_registry.get_source(path)
         if source is None:
             return
 
@@ -187,6 +223,7 @@ class DefaultContextManager(ContextManager):
         """
         start_time = time.time()
         session_id = getattr(session, "session_id", "unknown")
+        ctx = self._session_ctx(session_id)
 
         # Укоренить граф зависимостей в директории проекта сессии, а не в cwd
         # процесса сервера (иначе разрешение импортов идёт не в той директории).
@@ -252,8 +289,8 @@ class DefaultContextManager(ContextManager):
         # Этап 3: Формирование baseline через ContextRegistry
         baseline_start = time.time()
 
-        if incremental and self._session_registry is not None:
-            registry = self._session_registry
+        if incremental and ctx.session_registry is not None:
+            registry = ctx.session_registry
             logger.debug(
                 "context.build.reusing_session_registry",
                 session_id=session_id,
@@ -262,14 +299,14 @@ class DefaultContextManager(ContextManager):
         else:
             registry = ContextRegistryImpl()
             if incremental:
-                self._session_registry = registry
+                ctx.session_registry = registry
 
         gathered_files_count = 0
 
         is_reusing_registry = (
             incremental
-            and self._session_registry is not None
-            and len(self._session_registry.list_sources()) > 0
+            and ctx.session_registry is not None
+            and len(ctx.session_registry.list_sources()) > 0
         )
 
         if not is_reusing_registry:
@@ -292,7 +329,7 @@ class DefaultContextManager(ContextManager):
 
                 gatherer = ACPContextGatherer(
                     tool_registry=self._tool_registry,
-                    dependency_graph=self._dependency_graph,
+                    dependency_graph=ctx.dependency_graph,
                     session_id=session_id,
                     tracer=self._tracer,
                 )
@@ -336,7 +373,7 @@ class DefaultContextManager(ContextManager):
         # Выбор режима: инкрементальный или гидрация
         if incremental:
             baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_incremental(registry, prompt, session_id)
+                await self._build_incremental(ctx, registry, prompt, session_id)
             )
         else:
             baseline, baseline_fingerprint, tail, reconcile_info = (
@@ -627,6 +664,7 @@ class DefaultContextManager(ContextManager):
 
     async def _build_incremental(
         self,
+        ctx: _SessionContext,
         registry: ContextRegistryImpl,
         prompt: list[dict],
         session_id: Any,
@@ -636,7 +674,7 @@ class DefaultContextManager(ContextManager):
         Returns:
             (baseline, baseline_fingerprint, tail, reconcile_info)
         """
-        self._epoch_manager.reset_turn_counter()
+        ctx.epoch_manager.reset_turn_counter()
 
         tail: list[LLMMessage] = []
         for block in prompt:
@@ -645,13 +683,13 @@ class DefaultContextManager(ContextManager):
                 if text:
                     tail.append(LLMMessage(role="user", content=text))
 
-        if not self._epoch_manager.is_active:
-            return await self._start_new_epoch(registry, tail, session_id)
+        if not ctx.epoch_manager.is_active:
+            return await self._start_new_epoch(ctx, registry, tail, session_id)
 
-        epoch = self._epoch_manager.current_epoch
+        epoch = ctx.epoch_manager.current_epoch
         assert epoch is not None
 
-        reconcile_result = await self._reconciler.reconcile(
+        reconcile_result = await ctx.reconciler.reconcile(
             epoch,
             registry,
         )
@@ -669,7 +707,7 @@ class DefaultContextManager(ContextManager):
                 new_baseline.append(LLMMessage(role="system", content=new_baseline_text))
 
             new_fingerprint = EpochManager.compute_baseline_fingerprint(new_baseline)
-            self._epoch_manager.break_epoch(new_baseline, new_fingerprint)
+            ctx.epoch_manager.break_epoch(new_baseline, new_fingerprint)
 
             logger.info(
                 "context.build.incremental.epoch_broken",
@@ -682,7 +720,7 @@ class DefaultContextManager(ContextManager):
         if reconcile_result.state.value == "updated" and reconcile_result.new_tail_messages:
             tail = [*reconcile_result.new_tail_messages, *tail]
 
-        epoch = self._epoch_manager.current_epoch
+        epoch = ctx.epoch_manager.current_epoch
         assert epoch is not None
         baseline = list(epoch.baseline)
         baseline_fingerprint = epoch.baseline_fingerprint
@@ -699,6 +737,7 @@ class DefaultContextManager(ContextManager):
 
     async def _start_new_epoch(
         self,
+        ctx: _SessionContext,
         registry: ContextRegistryImpl,
         tail: list[LLMMessage],
         session_id: Any,
@@ -714,8 +753,8 @@ class DefaultContextManager(ContextManager):
             baseline.append(LLMMessage(role="system", content=baseline_text))
 
         baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
-        self._epoch_manager.start_epoch(baseline, baseline_fingerprint)
-        await self._reconciler.snapshot(registry)
+        ctx.epoch_manager.start_epoch(baseline, baseline_fingerprint)
+        await ctx.reconciler.snapshot(registry)
 
         reconcile_info: dict[str, Any] = {
             "state": "new_epoch",
@@ -727,8 +766,8 @@ class DefaultContextManager(ContextManager):
             "context.build.incremental.new_epoch",
             session_id=session_id,
             epoch_id=(
-                self._epoch_manager.current_epoch.epoch_id
-                if self._epoch_manager.current_epoch
+                ctx.epoch_manager.current_epoch.epoch_id
+                if ctx.epoch_manager.current_epoch
                 else None
             ),
             baseline_fingerprint=baseline_fingerprint,
