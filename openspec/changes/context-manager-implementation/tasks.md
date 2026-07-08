@@ -219,3 +219,18 @@
 - [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты
 - [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80
 - [ ] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md
+
+## Отклонения от спеки (найдено при ревью, backlog)
+
+- [ ] D.1 **Ретрай при недооценке бюджета не реализован.** Спека `context-compaction/spec.md`
+  (Requirement «Жёсткое усечение…», scenario «Переполнение провайдера с приблизительным
+  счётчиком») требует: при недооценке `ApproximateTokenCounter` и отклонении провайдером —
+  повторить `ensure_context_fits()` с более строгим лимитом и залогировать
+  `budget_underestimated_retry`. В phase-3 после сжатия нет пере-проверки токенов и ретрая,
+  `safety_margin` (0.9) фактически не отрабатывает. Добавить пост-проверку + ретрай.
+- [ ] D.2 **Конфиг бюджета вне спеки (вложенная секция).** Спека `agent-context-models/spec.md`
+  (Requirement «Модель данных ContextConfig») определяет `max_context_tokens`, `reserved_tokens`,
+  `system_share`/`history_share`/`tool_output_share`/`response_buffer_share` как ПЛОСКИЕ поля
+  `ContextConfig`, загружаемые из `[agents.context.*]`. phase-3 добавил чтение вложенной секции
+  `[agents.context.budget]`, которой в спеке нет. Привести к плоской модели (или обновить спеку,
+  если вложенность признана нужной). Затрагивает `config_loader.py` в phase-3/phase-4.
