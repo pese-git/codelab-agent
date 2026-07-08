@@ -45,14 +45,14 @@ BINARY_EXTENSIONS = {
     ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
     ".woff", ".woff2", ".ttf", ".eot",
-    ".db", ".sqlite", ".sqlite3",
+    ".db", ".sqlite", ".sqlite3", ".mdb",
 }
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "venv", ".venv", "node_modules",
     ".idea", ".vscode", "build", "dist", ".dart_tool",
     ".fvm", "android", "ios", "macos", "linux", "windows", "web",
-    ".DS_Store", ".gradle", ".codelab",
+    ".DS_Store", ".gradle", ".codelab", ".cocoindex_code",
 }
 
 
@@ -211,21 +211,21 @@ class ACPContextGatherer(ContextGatherer):
         files_skipped_error = 0
 
         for path in unique_candidates[:max_files]:
-            content = await self._read_file(path, session)
-            
-            if content is None:
-                files_skipped_error += 1
+            if self._is_binary(path):
+                files_skipped_binary += 1
                 logger.debug(
-                    "context.gather.file.read_failed",
+                    "context.gather.file.skipped_binary",
                     session_id=self._session_id,
                     path=path,
                 )
                 continue
 
-            if self._is_binary(path):
-                files_skipped_binary += 1
+            content = await self._read_file(path, session)
+
+            if content is None:
+                files_skipped_error += 1
                 logger.debug(
-                    "context.gather.file.skipped_binary",
+                    "context.gather.file.read_failed",
                     session_id=self._session_id,
                     path=path,
                 )
@@ -301,8 +301,11 @@ class ACPContextGatherer(ContextGatherer):
             if any(item.id == dep_path for item in items):
                 continue
 
+            if self._is_binary(dep_path):
+                continue
+
             content = await self._read_file(dep_path, session)
-            if content is None or self._is_binary(dep_path) or self._is_empty(content):
+            if content is None or self._is_empty(content):
                 continue
 
             token_count = DefaultTokenBudgetManager.estimate_tokens(content)

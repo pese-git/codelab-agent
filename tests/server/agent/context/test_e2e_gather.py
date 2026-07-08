@@ -627,3 +627,53 @@ class TestImprovedSearch:
         assert not any(".dart_tool" in p for p in fallback)
         assert not any(".git" in p for p in fallback)
         assert not any("node_modules" in p for p in fallback)
+
+
+class TestGatherBinarySkipBase:
+    """Бинарные файлы не читаются через fs/read_text_file (RPC-safety)."""
+
+    @pytest.mark.asyncio
+    async def test_gather_skips_binary_before_reading_base(self):
+        """Кандидат-бинарник пропускается ДО попытки чтения (не вызывает read)."""
+
+        class RecordingRegistry(MockToolRegistry):
+            def __init__(self, files):
+                super().__init__(files)
+                self.read_paths: list[str] = []
+
+            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+                if tool_name == "fs/read_text_file":
+                    self.read_paths.append(arguments.get("path", ""))
+                return await super().execute_tool(
+                    session_id, tool_name, arguments, session
+                )
+
+        files = {
+            "src/auth.py": "def authenticate(): pass",
+            "data/cache.mdb": "\x00\x01binary",
+            "data/store.db": "\x00\x01binary",
+        }
+        tool_registry = RecordingRegistry(files)
+        gatherer = ACPContextGatherer(
+            tool_registry=tool_registry,
+            dependency_graph=RegexDependencyGraph(),
+            session_id="test_session",
+        )
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["auth"],
+            target_modules=["data/cache.mdb", "data/store.db"],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+        session = _make_session("test_session", file_paths=list(files.keys()))
+
+        items = await gatherer.gather(profile, session)
+
+        paths = [item.id for item in items]
+        # Бинарники не попали в контекст
+        assert "data/cache.mdb" not in paths
+        assert "data/store.db" not in paths
+        # И их даже не пытались прочитать (нет RPC-вызова read на бинарник)
+        assert "data/cache.mdb" not in tool_registry.read_paths
+        assert "data/store.db" not in tool_registry.read_paths
