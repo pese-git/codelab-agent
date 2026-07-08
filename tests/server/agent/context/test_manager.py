@@ -161,3 +161,36 @@ async def test_context_manager_process_subagent_response():
     assert result is not None
     assert result.source_scope == "child"
     assert "child" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_context_manager_sessions_have_isolated_dependency_graph():
+    """Граф зависимостей изолирован между сессиями (#1).
+
+    Кэш структуры проекта и рёбра одной сессии не должны переиспользоваться
+    другой — иначе состояние протекает между сессиями (и разными cwd).
+    """
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True, gather_enabled=False)
+
+    manager = DefaultContextManager(tool_registry=tool_registry, config=config)
+
+    session_a = type("Session", (), {"session_id": "session-A"})()
+    session_b = type("Session", (), {"session_id": "session-B"})()
+
+    await manager.build_context(
+        session=session_a, prompt=[{"type": "text", "text": "A"}]
+    )
+    await manager.build_context(
+        session=session_b, prompt=[{"type": "text", "text": "B"}]
+    )
+
+    ctx_a = manager._session_ctx("session-A")
+    ctx_b = manager._session_ctx("session-B")
+
+    assert ctx_a is not ctx_b
+    assert ctx_a.dependency_graph is not ctx_b.dependency_graph
+
+    # Кэш файлов сессии A не виден сессии B
+    ctx_a.dependency_graph.set_project_files(["secret_a.py"])
+    assert ctx_b.dependency_graph.get_project_files() is None

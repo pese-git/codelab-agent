@@ -44,6 +44,21 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class _SessionContext:
+    """Изолированное per-session состояние Context Manager.
+
+    Раньше граф зависимостей жил прямо на APP-scope синглтоне
+    DefaultContextManager, из-за чего кэш структуры проекта и рёбра
+    зависимостей протекали между сессиями (и разными cwd). Теперь
+    состояние ключуется по session_id.
+    """
+
+    __slots__ = ("dependency_graph",)
+
+    def __init__(self) -> None:
+        self.dependency_graph = RegexDependencyGraph(Path.cwd())
+
+
 class DefaultContextManager(ContextManager):
     """Контекст-менеджер с гидратацией (Phase 1)."""
 
@@ -61,9 +76,19 @@ class DefaultContextManager(ContextManager):
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
-        self._dependency_graph = RegexDependencyGraph(Path.cwd())
+        # Per-session состояние вместо общего поля на APP-scope синглтоне.
+        self._sessions: dict[str, _SessionContext] = {}
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
+
+    def _session_ctx(self, session_id: Any) -> _SessionContext:
+        """Вернуть (создав при необходимости) изолированное состояние сессии."""
+        key = str(session_id)
+        ctx = self._sessions.get(key)
+        if ctx is None:
+            ctx = _SessionContext()
+            self._sessions[key] = ctx
+        return ctx
 
     async def build_context(
         self,
@@ -90,6 +115,7 @@ class DefaultContextManager(ContextManager):
         """
         start_time = time.time()
         session_id = getattr(session, "session_id", "unknown")
+        ctx = self._session_ctx(session_id)
 
         span = None
         if self._tracer is not None:
@@ -167,7 +193,7 @@ class DefaultContextManager(ContextManager):
             
             gatherer = ACPContextGatherer(
                 tool_registry=self._tool_registry,
-                dependency_graph=self._dependency_graph,
+                dependency_graph=ctx.dependency_graph,
                 session_id=session_id,
                 tracer=self._tracer,
             )
