@@ -41,6 +41,19 @@ class FileContextSource(ContextSource):
         """Вычислить fingerprint на основе содержимого."""
         return hashlib.sha256(self._content.encode()).hexdigest()[:16]
 
+    def update_content(self, new_content: str) -> None:
+        """Обновить содержимое файла (для инкрементального режима).
+
+        Args:
+            new_content: Новое содержимое файла
+        """
+        self._content = new_content
+        logger.debug(
+            "file_context_source.updated",
+            path=self._path,
+            content_length=len(new_content),
+        )
+
 
 class SkillContextSource(ContextSource):
     """Источник контекста на основе skill/инструкции."""

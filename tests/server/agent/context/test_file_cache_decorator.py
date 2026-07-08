@@ -40,7 +40,7 @@ class TestFileCacheDecorator:
             output="file content",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 
@@ -56,7 +56,7 @@ class TestFileCacheDecorator:
             output="written",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/write", "path": "/test.py"}
+        arguments = {"operation": "write", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 
@@ -73,7 +73,7 @@ class TestFileCacheDecorator:
             output="written",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/write", "path": "/test.py"}
+        arguments = {"operation": "write", "path": "/test.py"}
 
         await decorator.execute(session, arguments)
 
@@ -87,7 +87,7 @@ class TestFileCacheDecorator:
             error="read error",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 
@@ -102,7 +102,7 @@ class TestFileCacheDecorator:
             output="terminal output",
         )
         session = MagicMock()
-        arguments = {"tool_name": "terminal/run", "command": "ls"}
+        arguments = {"command": "ls"}
 
         result = await decorator.execute(session, arguments)
 
@@ -117,7 +117,7 @@ class TestFileCacheDecorator:
             output="content",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read"}
+        arguments = {"operation": "read"}
 
         result = await decorator.execute(session, arguments)
 
@@ -132,7 +132,7 @@ class TestFileCacheDecorator:
             output="content",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:
             m.setattr(cache, "set", MagicMock(side_effect=Exception("cache error")))
@@ -150,7 +150,7 @@ class TestFileCacheDecorator:
             output="written",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/write", "path": "/test.py"}
+        arguments = {"operation": "write", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:
             m.setattr(cache, "invalidate", MagicMock(side_effect=Exception("cache error")))
@@ -166,7 +166,7 @@ class TestFileCacheDecorator:
             output=None,
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 

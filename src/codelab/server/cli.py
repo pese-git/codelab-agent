@@ -209,6 +209,12 @@ def run_server() -> None:
         default=False,
         help="Включить детальное логирование всех JSON-RPC сообщений (DEBUG level)",
     )
+    parser.add_argument(
+        "--observability-debug",
+        action="store_true",
+        default=False,
+        help="Включить debug mode для observability (детальные записи метрик, span'ов, событий)",
+    )
     # LLM timeout configuration
     parser.add_argument(
         "--llm-timeout-connect",
@@ -369,6 +375,7 @@ def run_server() -> None:
             log_level=args.log_level,
             log_json=args.log_json,
             log_file=args.log_file,
+            observability_debug=args.observability_debug,
         )
         return
 
@@ -389,6 +396,7 @@ def run_server() -> None:
         config=config,
         enable_web=True,
         trace_messages=args.trace_messages,
+        observability_debug=args.observability_debug,
     )
     logger.debug("http server initialized, preparing to start")
 
@@ -412,6 +420,7 @@ def _run_stdio_server(
     log_level: str,
     log_json: bool,
     log_file: str | None,
+    observability_debug: bool,
 ) -> None:
     """Запускает ACP-сервер в stdio режиме.
 
@@ -423,6 +432,7 @@ def _run_stdio_server(
         log_level: Уровень логирования.
         log_json: Использовать JSON формат для логов.
         log_file: Путь к файлу логов.
+        observability_debug: Включить debug mode для observability.
     """
     from codelab.server.transport.stdio_runner import run_stdio_server
 
@@ -442,6 +452,7 @@ def _run_stdio_server(
                 config=config,
                 require_auth=require_auth,
                 auth_api_key=auth_api_key,
+                observability_debug=observability_debug,
             )
         )
     except KeyboardInterrupt:

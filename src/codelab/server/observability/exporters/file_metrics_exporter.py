@@ -122,6 +122,19 @@ class FileMetricsExporter:
                     "context_gathered_files": session_metrics.context_gathered_files,
                     "context_baseline_tokens": session_metrics.context_baseline_tokens,
                     "context_tail_tokens": session_metrics.context_tail_tokens,
+                    "context_compaction_count": (
+                        session_metrics.context_compaction_count
+                    ),
+                    "context_compaction_total_ratio": (
+                        session_metrics.context_compaction_total_ratio
+                    ),
+                    "context_compaction_degraded_count": (
+                        session_metrics.context_compaction_degraded_count
+                    ),
+                    "context_reconcile_count": session_metrics.context_reconcile_count,
+                    "context_epoch_breaks_total": (
+                        session_metrics.context_epoch_breaks_total
+                    ),
                     "avg_bus_dispatch_ms": session_metrics.avg_bus_dispatch_ms,
                     "avg_compression_ratio": session_metrics.avg_compression_ratio,
                 }

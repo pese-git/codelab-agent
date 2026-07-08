@@ -40,6 +40,7 @@ async def run_stdio_server(
     require_auth: bool = False,
     auth_api_key: str | None = None,
     trace_messages: bool = False,
+    observability_debug: bool = False,
 ) -> None:
     """Запускает ACP-сервер в stdio режиме.
 
@@ -58,6 +59,7 @@ async def run_stdio_server(
         require_auth: Требовать аутентификацию.
         auth_api_key: API ключ для аутентификации.
         trace_messages: Включить детальное логирование всех JSON-RPC сообщений.
+        observability_debug: Включить debug mode для observability.
     """
     logger.info(
         "starting stdio server",
@@ -65,6 +67,7 @@ async def run_stdio_server(
         storage_type=type(storage).__name__,
         require_auth=require_auth,
         trace_messages=trace_messages,
+        observability_debug=observability_debug,
     )
 
     # Создаём DI контейнер
@@ -74,6 +77,7 @@ async def run_stdio_server(
         require_auth=require_auth,
         auth_api_key=auth_api_key,
         trace_messages=trace_messages,
+        observability_debug=observability_debug,
     )
 
     # Запуск background services (observability flush)

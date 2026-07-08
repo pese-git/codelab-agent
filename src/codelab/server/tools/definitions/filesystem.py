@@ -10,7 +10,7 @@ from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
-    from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
+    from codelab.server.tools.executors.decorators.base import ToolExecutorProtocol
 
 
 def _normalize_path(cwd: str, path: str) -> str:
@@ -145,7 +145,7 @@ class FileSystemToolDefinitions:
     @staticmethod
     def register_all(
         tool_registry: ToolRegistry,
-        executor: FileSystemToolExecutor,
+        executor: ToolExecutorProtocol,
     ) -> None:
         """Зарегистрировать все файловые инструменты в реестре.
         
@@ -155,7 +155,7 @@ class FileSystemToolDefinitions:
         
         Args:
             tool_registry: Реестр инструментов для регистрации
-            executor: Executor для выполнения операций с файлами
+            executor: Executor для выполнения операций с файлами (поддерживает декораторы)
         """
         # Создать обработчик для чтения файлов
         async def read_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:

@@ -28,6 +28,7 @@ from .tool_call_handler import ToolCallHandler
 from .turn_lifecycle_manager import TurnLifecycleManager
 
 if TYPE_CHECKING:
+    from codelab.server.agent.context.file_cache import SessionFileCacheRegistry
     from codelab.server.mcp.manager import MCPManager
 
     from .global_policy_manager import GlobalPolicyManager
@@ -61,6 +62,7 @@ class PromptOrchestrator:
         client_rpc_service_holder: ClientRPCServiceHolder | None = None,
         client_rpc_service: ClientRPCService | None = None,  # backward compatibility
         global_policy_manager: GlobalPolicyManager | None = None,
+        session_file_cache_registry: SessionFileCacheRegistry | None = None,
     ):
         self.state_manager = state_manager
         self.plan_builder = plan_builder
@@ -70,6 +72,7 @@ class PromptOrchestrator:
         self.client_rpc_handler = client_rpc_handler
         self.tool_registry = tool_registry
         self.global_policy_manager = global_policy_manager
+        self._session_file_cache_registry = session_file_cache_registry
         self._tools_registered = False
 
         # Поддерживаем оба способа передачи сервиса
@@ -119,16 +122,28 @@ class PromptOrchestrator:
 
             bridge = ClientRPCBridge(self.client_rpc_service)
             checker = PermissionChecker(self.permission_manager)
+
+            fs_executor = FileSystemToolExecutor(bridge, checker)
+
+            if self._session_file_cache_registry is not None:
+                from ...agent.context.file_cache_decorator import FileCacheDecorator
+
+                fs_executor = FileCacheDecorator(
+                    wrapped=fs_executor,
+                    session_registry=self._session_file_cache_registry,
+                )
+
             FileSystemToolDefinitions.register_all(
-                self.tool_registry, FileSystemToolExecutor(bridge, checker)
+                self.tool_registry, fs_executor
             )
             terminal_executor = TerminalToolExecutor(bridge, checker)
             TerminalToolDefinitions.register_all(
                 self.tool_registry, ProjectStructureDecorator(terminal_executor)
             )
             logger.debug(
-                "PromptOrchestrator registered tool executors",
+                "PromptOrchestrator_registered tool executors",
                 tools_registered=len(self.tool_registry.get_available_tools("")),
+                file_cache_enabled=self._session_file_cache_registry is not None,
             )
 
         self._tools_registered = True

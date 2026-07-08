@@ -23,6 +23,8 @@ import structlog
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
 from codelab.server.agent.context.compactor import ThreePhaseCompactor
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
+from codelab.server.agent.context.epoch import EpochManager
+from codelab.server.agent.context.file_cache import InvalidationSignalBus
 from codelab.server.agent.context.gatherer import ACPContextGatherer
 from codelab.server.agent.context.interfaces import (
     CodeSkeletonizer,
@@ -38,6 +40,7 @@ from codelab.server.agent.context.models import (
     PayloadEnvelope,
     SubagentResult,
 )
+from codelab.server.agent.context.reconciler import DefaultContextReconciler
 from codelab.server.agent.context.registry import (
     ContextRegistryImpl,
     FileContextSource,
@@ -47,7 +50,6 @@ from codelab.server.agent.context.skeletonizer.composite import CompositeSkeleto
 from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
 from codelab.server.agent.context.token_counter import create_token_counter
-from codelab.server.agent.history_builder import HistoryBuilder
 from codelab.server.agent.message_sanitizer import MessageSanitizer
 from codelab.server.llm.models import LLMMessage
 
@@ -60,23 +62,13 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class _SessionContext:
-    """Изолированное per-session состояние Context Manager.
-
-    Раньше граф зависимостей жил прямо на APP-scope синглтоне
-    DefaultContextManager, из-за чего кэш структуры проекта и рёбра
-    зависимостей протекали между сессиями (и разными cwd). Теперь
-    состояние ключуется по session_id.
-    """
-
-    __slots__ = ("dependency_graph",)
-
-    def __init__(self) -> None:
-        self.dependency_graph = RegexDependencyGraph(Path.cwd())
-
-
 class DefaultContextManager(ContextManager):
-    """Контекст-менеджер с гидратацией (Phase 1)."""
+    """Контекст-менеджер с поддержкой гидрации и инкрементального режима.
+
+    Phase 1-3 (гидрация): baseline пересобирается каждый ход.
+    Phase 4 (инкрементальный): baseline фиксируется в ContextEpoch,
+    отправляются только дельты при стабильном baseline.
+    """
 
     def __init__(
         self,
@@ -89,30 +81,84 @@ class DefaultContextManager(ContextManager):
         token_counter: TokenCounter | None = None,
         skeletonizer: CodeSkeletonizer | None = None,
         summarizer: ConversationSummarizer | None = None,
+        signal_bus: InvalidationSignalBus | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._config = config or ContextConfig()
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
-        self._history_builder = HistoryBuilder()
-        # Per-session состояние вместо общего поля на APP-scope синглтоне.
-        self._sessions: dict[str, _SessionContext] = {}
+        self._dependency_graph = RegexDependencyGraph(Path.cwd())
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
         self._token_counter = token_counter or create_token_counter()
         self._skeletonizer = skeletonizer or CompositeSkeletonizer()
         self._summarizer = summarizer
         self._compactor: ThreePhaseCompactor | None = None
+        self._epoch_manager = EpochManager()
+        self._reconciler = DefaultContextReconciler()
+        self._signal_bus = signal_bus or InvalidationSignalBus()
+        self._signal_bus.subscribe(self._reconciler.on_file_invalidated)
+        self._signal_bus.subscribe(self._on_file_invalidated)
+        self._session_registry: ContextRegistryImpl | None = None
 
-    def _session_ctx(self, session_id: Any) -> _SessionContext:
-        """Вернуть (создав при необходимости) изолированное состояние сессии."""
-        key = str(session_id)
-        ctx = self._sessions.get(key)
-        if ctx is None:
-            ctx = _SessionContext()
-            self._sessions[key] = ctx
-        return ctx
+    def _on_file_invalidated(self, path: str) -> None:
+        """Обработчик сигнала инвалидации файла.
+
+        При получении сигнала — перечитывает файл через ToolRegistry
+        и обновляет FileContextSource в session_registry (если есть).
+
+        Args:
+            path: Путь к изменённому файлу
+        """
+        if self._session_registry is None:
+            return
+
+        source = self._session_registry.get_source(path)
+        if source is None:
+            return
+
+        if not isinstance(source, FileContextSource):
+            return
+
+        logger.debug(
+            "context_manager.file_invalidated.updating",
+            path=path,
+        )
+
+        try:
+            import asyncio
+
+            async def _refresh() -> None:
+                try:
+                    result = await self._tool_registry.execute_tool(
+                        session_id="context_refresh",
+                        tool_name="fs/read",
+                        arguments={"path": path},
+                    )
+                    if result.success and result.output:
+                        source.update_content(str(result.output))
+                        logger.info(
+                            "context_manager.file_invalidated.refreshed",
+                            path=path,
+                            content_length=len(str(result.output)),
+                        )
+                except Exception:
+                    logger.exception(
+                        "context_manager.file_invalidated.refresh_failed",
+                        path=path,
+                    )
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_refresh())
+            else:
+                loop.run_until_complete(_refresh())
+        except Exception:
+            logger.exception(
+                "context_manager.file_invalidated.error",
+                path=path,
+            )
 
     async def build_context(
         self,
@@ -125,7 +171,9 @@ class DefaultContextManager(ContextManager):
     ) -> PayloadEnvelope:
         """Собрать payload для LLM-вызова.
 
-        Phase 1 (гидрация): baseline пересобирается каждый ход.
+        Поддерживает два режима:
+        - incremental=false (гидрация): baseline пересобирается каждый ход
+        - incremental=true (эпохи): baseline фиксирован, отправляются только дельты
 
         Args:
             session: Состояние сессии
@@ -139,7 +187,6 @@ class DefaultContextManager(ContextManager):
         """
         start_time = time.time()
         session_id = getattr(session, "session_id", "unknown")
-        ctx = self._session_ctx(session_id)
 
         # Укоренить граф зависимостей в директории проекта сессии, а не в cwd
         # процесса сервера (иначе разрешение импортов идёт не в той директории).
@@ -154,19 +201,22 @@ class DefaultContextManager(ContextManager):
                 session_id=str(session_id),
             )
 
+        incremental = self._resolve_incremental(options)
+
         logger.info(
             "context.build.start",
             session_id=session_id,
             agent_scope=agent_scope,
             has_system_prompt=system_prompt is not None,
             gather_enabled=self._config.gather_enabled,
+            incremental=incremental,
         )
 
         # Этап 1: Извлечение текста из prompt
         extract_start = time.time()
         prompt_text = self._extract_prompt_text(prompt)
         extract_ms = (time.time() - extract_start) * 1000
-        
+
         logger.debug(
             "context.build.prompt_extracted",
             session_id=session_id,
@@ -183,7 +233,7 @@ class DefaultContextManager(ContextManager):
             llm_available=self._llm is not None,
             model=self._model,
         )
-        
+
         analyzer = LLMBasedTaskAnalyzer(llm=self._llm, model=self._model)
         profile = await analyzer.analyze(prompt_text, session)
         analyze_ms = (time.time() - analyze_start) * 1000
@@ -199,133 +249,111 @@ class DefaultContextManager(ContextManager):
             elapsed_ms=analyze_ms,
         )
 
-        # Сохранить TaskProfile для /context profile
-        if self._metrics_tracker is not None:
-            session_metrics = self._metrics_tracker.get_metrics(str(session_id))
-            session_metrics.last_task_profile = {
-                "task_type": str(profile.task_type),
-                "search_terms": list(profile.search_terms),
-                "target_modules": list(profile.target_modules),
-                "investigation_depth": profile.investigation_depth,
-                "needs_tests": profile.needs_tests,
-            }
-
         # Этап 3: Формирование baseline через ContextRegistry
         baseline_start = time.time()
-        registry = ContextRegistryImpl()
-        gathered_files_count = 0
-        gathered_items: list[ContextItem] = []
-        gather_ms = 0.0
-        candidate_count = 0
 
-        if system_prompt:
-            registry.register(FileContextSource("system_prompt", system_prompt))
+        if incremental and self._session_registry is not None:
+            registry = self._session_registry
             logger.debug(
-                "context.build.baseline.system_prompt_added",
+                "context.build.reusing_session_registry",
                 session_id=session_id,
-                system_prompt_length=len(system_prompt),
-            )
-
-        # Этап 4: Сбор файлов (если включено)
-        if self._config.gather_enabled:
-            gather_start = time.time()
-            logger.info(
-                "context.build.gather.start",
-                session_id=session_id,
-                max_files=options.max_files if options else None,
-            )
-            
-            gatherer = ACPContextGatherer(
-                tool_registry=self._tool_registry,
-                dependency_graph=ctx.dependency_graph,
-                session_id=session_id,
-                tracer=self._tracer,
-            )
-            items = await gatherer.gather(profile, session, options=options)
-            gathered_items = items
-            gathered_files_count = len(items)
-            candidate_count = gatherer.last_candidate_count
-            gather_ms = (time.time() - gather_start) * 1000
-
-            logger.info(
-                "context.build.gather.complete",
-                session_id=session_id,
-                files_gathered=gathered_files_count,
-                file_paths=[item.id for item in items[:10]],
-                total_tokens=sum(item.token_count for item in items),
-                elapsed_ms=gather_ms,
-            )
-
-            for item in items:
-                registry.register(FileContextSource(item.id, item.content))
-
-            logger.debug(
-                "context.build.baseline.files_registered",
-                session_id=session_id,
-                files_count=gathered_files_count,
+                sources_count=len(registry.list_sources()),
             )
         else:
+            registry = ContextRegistryImpl()
+            if incremental:
+                self._session_registry = registry
+
+        gathered_files_count = 0
+
+        is_reusing_registry = (
+            incremental
+            and self._session_registry is not None
+            and len(self._session_registry.list_sources()) > 0
+        )
+
+        if not is_reusing_registry:
+            if system_prompt:
+                registry.register(FileContextSource("system_prompt", system_prompt))
+                logger.debug(
+                    "context.build.baseline.system_prompt_added",
+                    session_id=session_id,
+                    system_prompt_length=len(system_prompt),
+                )
+
+            # Этап 4: Сбор файлов (если включено)
+            if self._config.gather_enabled:
+                gather_start = time.time()
+                logger.info(
+                    "context.build.gather.start",
+                    session_id=session_id,
+                    max_files=options.max_files if options else None,
+                )
+
+                gatherer = ACPContextGatherer(
+                    tool_registry=self._tool_registry,
+                    dependency_graph=self._dependency_graph,
+                    session_id=session_id,
+                    tracer=self._tracer,
+                )
+                items = await gatherer.gather(profile, session, options=options)
+                gathered_files_count = len(items)
+                gather_ms = (time.time() - gather_start) * 1000
+
+                logger.info(
+                    "context.build.gather.complete",
+                    session_id=session_id,
+                    files_gathered=gathered_files_count,
+                    file_paths=[item.id for item in items[:10]],
+                    total_tokens=sum(item.token_count for item in items),
+                    elapsed_ms=gather_ms,
+                )
+
+                for item in items:
+                    registry.register(FileContextSource(item.id, item.content))
+
+                logger.debug(
+                    "context.build.baseline.files_registered",
+                    session_id=session_id,
+                    files_count=gathered_files_count,
+                )
+            else:
+                logger.debug(
+                    "context.build.gather.skipped",
+                    session_id=session_id,
+                    reason="gather_enabled=false",
+                )
+
+            # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
+            registry.register(SkillCatalogSource([]))
+        else:
             logger.debug(
-                "context.build.gather.skipped",
+                "context.build.skipping_registration.reusing_registry",
                 session_id=session_id,
-                reason="gather_enabled=false",
+                sources_count=len(registry.list_sources()),
             )
 
-        # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
-        registry.register(SkillCatalogSource([]))
-
-        # Формирование baseline из registry
-        baseline_text = await registry.render_baseline()
-        baseline: list[LLMMessage] = []
-        if baseline_text:
-            baseline.append(LLMMessage(role="system", content=baseline_text))
+        # Выбор режима: инкрементальный или гидрация
+        if incremental:
+            baseline, baseline_fingerprint, tail, reconcile_info = (
+                await self._build_incremental(registry, prompt, session_id)
+            )
+        else:
+            baseline, baseline_fingerprint, tail, reconcile_info = (
+                await self._build_hydration(registry, prompt, session_id)
+            )
 
         baseline_ms = (time.time() - baseline_start) * 1000
         logger.debug(
             "context.build.baseline.complete",
             session_id=session_id,
             baseline_messages=len(baseline),
+            mode="incremental" if incremental else "hydration",
             elapsed_ms=baseline_ms,
         )
 
-        # Этап 5: Формирование tail из истории сессии.
-        # session.history — источник истины: обработчик добавляет текущий промпт
-        # в историю ДО пайплайна, поэтому tail = вся переписка (включая текущий
-        # промпт). prompt-параметр в tail не участвует; system-сообщения
-        # принадлежат baseline и исключаются.
-        tail_start = time.time()
-        tail = self._build_tail(session, prompt)
-
-        tail_ms = (time.time() - tail_start) * 1000
-        logger.debug(
-            "context.build.tail.complete",
-            session_id=session_id,
-            tail_messages=len(tail),
-            elapsed_ms=tail_ms,
-        )
-
-        # Этап 6: Вычисление fingerprint
-        fingerprint_start = time.time()
-        baseline_fingerprint = self._compute_fingerprint(baseline)
-        fingerprint_ms = (time.time() - fingerprint_start) * 1000
-        
-        logger.debug(
-            "context.build.fingerprint.computed",
-            session_id=session_id,
-            fingerprint=baseline_fingerprint,
-            elapsed_ms=fingerprint_ms,
-        )
-
-        # Этап 7: Оценка токенов
+        # Оценка токенов
         token_count = self._estimate_total_tokens(baseline, tail)
-        
-        logger.debug(
-            "context.build.tokens.estimated",
-            session_id=session_id,
-            baseline_tokens=self._estimate_total_tokens(baseline, []),
-            tail_tokens=self._estimate_total_tokens([], tail),
-            total_tokens=token_count,
-        )
 
         elapsed_ms = (time.time() - start_time) * 1000
         baseline_tokens = self._estimate_total_tokens(baseline, [])
@@ -338,6 +366,9 @@ class DefaultContextManager(ContextManager):
             tail_messages=len(tail),
             token_count=token_count,
             baseline_fingerprint=baseline_fingerprint,
+            mode="incremental" if incremental else "hydration",
+            epoch_broken=reconcile_info.get("epoch_broken", False),
+            reconcile_state=reconcile_info.get("state", "n/a"),
             total_elapsed_ms=elapsed_ms,
         )
 
@@ -348,35 +379,25 @@ class DefaultContextManager(ContextManager):
                 "gathered_files": gathered_files_count,
                 "baseline_tokens": baseline_tokens,
                 "tail_tokens": tail_tokens,
+                "incremental": incremental,
+                "epoch_broken": reconcile_info.get("epoch_broken", False),
             })
 
         if self._metrics_tracker is not None:
-            file_paths = [item.id for item in gathered_items]
-            file_tokens = [item.token_count for item in gathered_items]
-            stage_timings = {
-                "extract_ms": extract_ms,
-                "analyze_ms": analyze_ms,
-                "gather_ms": gather_ms,
-                "baseline_ms": baseline_ms,
-                "tail_ms": tail_ms,
-                "fingerprint_ms": fingerprint_ms,
-            }
-            graph_stats = ctx.dependency_graph.get_stats()
-
             self._metrics_tracker.record_context_build(
                 build_duration_ms=elapsed_ms,
                 gathered_files=gathered_files_count,
                 baseline_tokens=baseline_tokens,
                 tail_tokens=tail_tokens,
                 session_id=str(session_id),
-                task_type=str(profile.task_type),
-                file_paths=file_paths,
-                file_tokens=file_tokens,
-                candidate_count=candidate_count,
-                stage_timings=stage_timings,
-                graph_stats=graph_stats,
-                fingerprint=baseline_fingerprint,
             )
+            if incremental:
+                self._metrics_tracker.record_context_reconcile(
+                    state=reconcile_info.get("state", "unknown"),
+                    epoch_broken=reconcile_info.get("epoch_broken", False),
+                    changed_sources=reconcile_info.get("changed_sources", []),
+                    session_id=str(session_id),
+                )
 
         return PayloadEnvelope(
             baseline=baseline,
@@ -534,7 +555,7 @@ class DefaultContextManager(ContextManager):
         )
 
         summary = f"[Subagent {subagent_scope} response placeholder]"
-        
+
         result = SubagentResult(
             summary=summary,
             token_count=0,
@@ -553,30 +574,167 @@ class DefaultContextManager(ContextManager):
 
         return result
 
-    def _build_tail(self, session: Any, prompt: list[dict]) -> list[LLMMessage]:
-        """Собрать tail из истории сессии (источник истины).
+    def _resolve_incremental(self, options: BuildOptions | None) -> bool:
+        """Определить режим сборки: инкрементальный или гидрация.
 
-        session.history уже содержит текущий промпт (добавлен обработчиком до
-        пайплайна). System-сообщения принадлежат baseline и исключаются.
-        Fallback на prompt — только если у объекта нет атрибута history
-        (не настоящая сессия), чтобы не терять текущий ход.
+        Приоритет: BuildOptions.incremental → ContextConfig.incremental.
+
+        Args:
+            options: Per-call опции (может быть None)
+
+        Returns:
+            True для инкрементального режима
         """
-        history = getattr(session, "history", None)
-        if not isinstance(history, list):
-            return self._tail_from_prompt(prompt)
-        messages = self._history_builder.build(history)
-        return [m for m in messages if m.role != "system"]
+        if options is not None and options.incremental is not None:
+            return options.incremental
+        return self._config.incremental
 
-    @staticmethod
-    def _tail_from_prompt(prompt: list[dict]) -> list[LLMMessage]:
-        """Fallback: собрать tail из prompt-блоков (нет истории сессии)."""
+    async def _build_hydration(
+        self,
+        registry: ContextRegistryImpl,
+        prompt: list[dict],
+        session_id: Any,
+    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
+        """Режим гидрации: baseline пересобирается каждый ход.
+
+        Returns:
+            (baseline, baseline_fingerprint, tail, reconcile_info)
+        """
+        baseline_text = await registry.render_baseline()
+        baseline: list[LLMMessage] = []
+        if baseline_text:
+            baseline.append(LLMMessage(role="system", content=baseline_text))
+
+        baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
+
         tail: list[LLMMessage] = []
         for block in prompt:
             if block.get("type") == "text":
                 text = block.get("text", "")
                 if text:
                     tail.append(LLMMessage(role="user", content=text))
-        return tail
+
+        reconcile_info: dict[str, Any] = {"state": "hydration", "epoch_broken": False}
+
+        logger.debug(
+            "context.build.hydration",
+            session_id=session_id,
+            baseline_messages=len(baseline),
+            tail_messages=len(tail),
+        )
+
+        return baseline, baseline_fingerprint, tail, reconcile_info
+
+    async def _build_incremental(
+        self,
+        registry: ContextRegistryImpl,
+        prompt: list[dict],
+        session_id: Any,
+    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
+        """Инкрементальный режим: baseline из эпохи, только дельты в tail.
+
+        Returns:
+            (baseline, baseline_fingerprint, tail, reconcile_info)
+        """
+        self._epoch_manager.reset_turn_counter()
+
+        tail: list[LLMMessage] = []
+        for block in prompt:
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    tail.append(LLMMessage(role="user", content=text))
+
+        if not self._epoch_manager.is_active:
+            return await self._start_new_epoch(registry, tail, session_id)
+
+        epoch = self._epoch_manager.current_epoch
+        assert epoch is not None
+
+        reconcile_result = await self._reconciler.reconcile(
+            epoch,
+            registry,
+        )
+
+        reconcile_info: dict[str, Any] = {
+            "state": reconcile_result.state.value,
+            "epoch_broken": reconcile_result.epoch_broken,
+            "changed_sources": reconcile_result.updated_sources,
+        }
+
+        if reconcile_result.epoch_broken:
+            new_baseline_text = await registry.render_baseline()
+            new_baseline: list[LLMMessage] = []
+            if new_baseline_text:
+                new_baseline.append(LLMMessage(role="system", content=new_baseline_text))
+
+            new_fingerprint = EpochManager.compute_baseline_fingerprint(new_baseline)
+            self._epoch_manager.break_epoch(new_baseline, new_fingerprint)
+
+            logger.info(
+                "context.build.incremental.epoch_broken",
+                session_id=session_id,
+                changed_sources=reconcile_result.updated_sources,
+            )
+
+            return new_baseline, new_fingerprint, tail, reconcile_info
+
+        if reconcile_result.state.value == "updated" and reconcile_result.new_tail_messages:
+            tail = [*reconcile_result.new_tail_messages, *tail]
+
+        epoch = self._epoch_manager.current_epoch
+        assert epoch is not None
+        baseline = list(epoch.baseline)
+        baseline_fingerprint = epoch.baseline_fingerprint
+
+        logger.debug(
+            "context.build.incremental.stable",
+            session_id=session_id,
+            epoch_id=epoch.epoch_id,
+            baseline_fingerprint=baseline_fingerprint,
+            reconcile_state=reconcile_result.state.value,
+        )
+
+        return baseline, baseline_fingerprint, tail, reconcile_info
+
+    async def _start_new_epoch(
+        self,
+        registry: ContextRegistryImpl,
+        tail: list[LLMMessage],
+        session_id: Any,
+    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
+        """Создать новую эпоху с текущим baseline.
+
+        Returns:
+            (baseline, baseline_fingerprint, tail, reconcile_info)
+        """
+        baseline_text = await registry.render_baseline()
+        baseline: list[LLMMessage] = []
+        if baseline_text:
+            baseline.append(LLMMessage(role="system", content=baseline_text))
+
+        baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
+        self._epoch_manager.start_epoch(baseline, baseline_fingerprint)
+        await self._reconciler.snapshot(registry)
+
+        reconcile_info: dict[str, Any] = {
+            "state": "new_epoch",
+            "epoch_broken": False,
+            "changed_sources": [],
+        }
+
+        logger.info(
+            "context.build.incremental.new_epoch",
+            session_id=session_id,
+            epoch_id=(
+                self._epoch_manager.current_epoch.epoch_id
+                if self._epoch_manager.current_epoch
+                else None
+            ),
+            baseline_fingerprint=baseline_fingerprint,
+        )
+
+        return baseline, baseline_fingerprint, tail, reconcile_info
 
     @staticmethod
     def _extract_prompt_text(prompt: list[dict]) -> str:

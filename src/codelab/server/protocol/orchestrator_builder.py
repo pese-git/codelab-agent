@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..agent.context.file_cache import SessionFileCacheRegistry
     from ..agent.registry import AgentRegistry
     from ..client_rpc.service import ClientRPCService
     from ..tools.base import ToolRegistry
@@ -46,6 +47,7 @@ class PromptOrchestratorBuilder:
         slash_router: SlashCommandRouter,
         global_policy_manager: GlobalPolicyManager | None = None,
         client_rpc_service: ClientRPCService | None = None,
+        session_file_cache_registry: SessionFileCacheRegistry | None = None,
     ) -> None:
         """Инициализирует PromptOrchestratorBuilder.
 
@@ -57,6 +59,7 @@ class PromptOrchestratorBuilder:
             slash_router: Маршрутизатор slash-команд.
             global_policy_manager: Менеджер глобальных политик (опционально).
             client_rpc_service: Сервис для agent->client RPC (опционально).
+            session_file_cache_registry: Реестр кэша файлов по сессиям (опционально).
         """
         self._tool_registry = tool_registry
         self._agent_registry = agent_registry
@@ -65,6 +68,7 @@ class PromptOrchestratorBuilder:
         self._slash_router = slash_router
         self._global_policy_manager = global_policy_manager
         self._client_rpc_service = client_rpc_service
+        self._session_file_cache_registry = session_file_cache_registry
 
     def build(self) -> PromptOrchestrator:
         """Собирает PromptOrchestrator со всеми зависимостями.
@@ -122,4 +126,5 @@ class PromptOrchestratorBuilder:
             global_policy_manager=self._global_policy_manager,
             command_registry=self._command_registry,
             pipeline=pipeline,
+            session_file_cache_registry=self._session_file_cache_registry,
         )

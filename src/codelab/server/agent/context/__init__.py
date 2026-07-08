@@ -8,6 +8,7 @@
 """
 
 from codelab.server.agent.context.compactor import ThreePhaseCompactor
+from codelab.server.agent.context.epoch import EpochManager
 from codelab.server.agent.context.file_cache import (
     InMemoryFileCache,
     InvalidationSignalBus,
@@ -23,6 +24,7 @@ from codelab.server.agent.context.interfaces import (
     FileContentCache,
     TokenCounter,
 )
+from codelab.server.agent.context.reconciler import DefaultContextReconciler
 from codelab.server.agent.context.registry import (
     ContextRegistryImpl,
     FileContextSource,
@@ -52,6 +54,8 @@ __all__ = [
     "ContextRegistryImpl",
     "ContextSource",
     "ConversationSummarizer",
+    "DefaultContextReconciler",
+    "EpochManager",
     "FileCacheDecorator",
     "FileContentCache",
     "FileContextSource",

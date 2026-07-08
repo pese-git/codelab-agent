@@ -78,6 +78,7 @@ class TestRunServerWebSocket:
             config=cli_mocks.config,
             enable_web=True,
             trace_messages=False,
+            observability_debug=False,
         )
         cli_mocks.server_mock.run.assert_awaited_once()
 
@@ -96,6 +97,7 @@ class TestRunServerWebSocket:
             config=cli_mocks.config,
             enable_web=True,
             trace_messages=False,
+            observability_debug=False,
         )
 
     def test_run_server_log_options(self, cli_mocks: SimpleNamespace, tmp_path: Path) -> None:
@@ -147,6 +149,7 @@ class TestRunServerWebSocket:
             config=cli_mocks.config,
             enable_web=True,
             trace_messages=True,
+            observability_debug=False,
         )
 
     def test_run_server_llm_overrides(self, cli_mocks: SimpleNamespace) -> None:
@@ -263,6 +266,7 @@ class TestRunServerWebSocket:
             config=cli_mocks.config,
             enable_web=True,
             trace_messages=False,
+            observability_debug=False,
         )
 
     def test_run_server_auth_api_key_from_env(self, cli_mocks: SimpleNamespace) -> None:
@@ -283,6 +287,7 @@ class TestRunServerWebSocket:
             config=cli_mocks.config,
             enable_web=True,
             trace_messages=False,
+            observability_debug=False,
         )
 
     def test_run_server_require_auth_without_key_warns(self, cli_mocks: SimpleNamespace) -> None:
@@ -348,6 +353,7 @@ class TestRunServerStdio:
             config=cli_mocks.config,
             require_auth=False,
             auth_api_key=None,
+            observability_debug=False,
         )
         cli_mocks.acp_http_class.assert_not_called()
 
@@ -375,6 +381,7 @@ class TestRunStdioServerDirect:
                 log_level="DEBUG",
                 log_json=True,
                 log_file="/tmp/log",
+                observability_debug=False,
             )
 
         logger.info.assert_any_call(
@@ -387,6 +394,7 @@ class TestRunStdioServerDirect:
             config=config,
             require_auth=True,
             auth_api_key="key",
+            observability_debug=False,
         )
 
     def test_run_stdio_server_keyboard_interrupt(self) -> None:
@@ -407,6 +415,7 @@ class TestRunStdioServerDirect:
                 log_level="INFO",
                 log_json=False,
                 log_file=None,
+                observability_debug=False,
             )
 
         logger.info.assert_any_call("stdio server interrupted by user")
@@ -430,6 +439,7 @@ class TestRunStdioServerDirect:
                     log_level="INFO",
                     log_json=False,
                     log_file=None,
+                    observability_debug=False,
                 )
 
         logger.error.assert_called_once_with(

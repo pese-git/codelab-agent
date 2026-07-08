@@ -122,32 +122,39 @@
 
 ## Фаза 4: Инкрементальный жизненный цикл (2 недели)
 
-- [ ] 4.1 Реализовать dataclass `ContextEpoch` с `epoch_id`, `baseline`, `baseline_fingerprint`, `mid_conversation_messages`
-- [ ] 4.2 Реализовать `ContextEpoch.get_full_context()`, возвращающий `[*baseline, *mid_conversation_messages]`
-- [ ] 4.3 Реализовать dataclass `ContextSnapshot` с `fingerprints: dict[str, str]`
-- [ ] 4.4 Реализовать `ContextSnapshot.diff()`, сравнивающий fingerprints и возвращающий список изменённых `source_id`
-- [ ] 4.5 Реализовать `ContextReconciler.snapshot()`, собирающий fingerprints всех источников
-- [ ] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
-- [ ] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
-- [ ] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
-- [ ] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе
-- [ ] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
-- [ ] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
-- [ ] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
-- [ ] 4.13 Обеспечить, чтобы `ContextSnapshot.diff()` обнаруживал изменения независимо от сигнала кэша (двойная защита)
-- [ ] 4.14 Написать интеграционный тест: `fs/write` → `invalidate()` → `reconcile()` обнаруживает изменение
-- [ ] 4.15 Написать интеграционный тест: потерянный сигнал инвалидации обнаруживается сравнением snapshot
-- [ ] 4.16 Реализовать вычисление `baseline_fingerprint` по канонизированному содержимому baseline
-- [ ] 4.17 Обеспечить, чтобы идентичный baseline производил идентичный fingerprint (детерминированный хэш)
-- [ ] 4.18 Реализовать инкрементальный режим: отправлять только `tail`, когда baseline не изменён (попадание в prompt cache)
-- [ ] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
-- [ ] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
-- [ ] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
-- [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применять вместе на следующей границе
-- [ ] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
-- [ ] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
-- [ ] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline перестраивается каждый ход)
-- [ ] 4.26 Проверить, что feature flag `agents.context.lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
+- [x] 4.1 Реализовать dataclass `ContextEpoch` с `epoch_id`, `baseline`, `baseline_fingerprint`, `mid_conversation_messages`
+- [x] 4.2 Реализовать `ContextEpoch.get_full_context()`, возвращающий `[*baseline, *mid_conversation_messages]`
+- [x] 4.3 Реализовать dataclass `ContextSnapshot` с `fingerprints: dict[str, str]`
+- [x] 4.4 Реализовать `ContextSnapshot.diff()`, сравнивающий fingerprints и возвращающий список изменённых `source_id`
+- [x] 4.5 Реализовать `ContextReconciler.snapshot()`, собирающий fingerprints всех источников
+- [x] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
+- [x] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
+- [x] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
+- [x] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе
+- [x] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
+- [x] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
+- [x] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
+- [x] 4.13 Обеспечить, чтобы `ContextSnapshot.diff()` обнаруживал изменения независимо от сигнала кэша (двойная защита)
+- [x] 4.14 Написать интеграционный тест: `fs/write` → `invalidate()` → `reconcile()` обнаруживает изменение
+- [x] 4.15 Написать интеграционный тест: потерянный сигнал инвалидации обнаруживается сравнением snapshot
+- [x] 4.16 Реализовать вычисление `baseline_fingerprint` по канонизированному содержимому baseline
+- [x] 4.17 Обеспечить, чтобы идентичный baseline производил идентичный fingerprint (детерминированный хэш)
+- [x] 4.18 Реализовать инкрементальный режим: отправлять только `tail`, когда baseline не изменён (попадание в prompt cache)
+- [x] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
+- [x] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
+- [x] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
+- [x] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применяют вместе на следующей границе
+- [x] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
+- [x] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
+- [x] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline пересобирается каждый ход)
+- [x] 4.26 Проверить, что feature flag `agents.context.lifecycle.incremental=true` использует режим эпох (baseline стабилен, отправка только tail)
+- [x] 4.27 Интегрировать `InvalidationSignalBus` в DI контейнер (app scope)
+- [x] 4.28 Интегрировать `SessionFileCacheRegistry` в DI контейнер (app scope)
+- [x] 4.29 Обернуть `FileSystemToolExecutor` в `FileCacheDecorator` в `PromptOrchestrator`
+- [x] 4.30 Реализовать `FileContextSource.update_content()` для обновления содержимого при инвалидации
+- [x] 4.31 Реализовать `_on_file_invalidated()` в `DefaultContextManager` для перечитывания файлов через `ToolRegistry`
+- [x] 4.32 Реализовать переиспользование `_session_registry` в инкрементальном режиме между ходами
+- [x] 4.33 Написать интеграционные тесты полного пути: `FileCacheDecorator` → `InvalidationSignalBus` → `DefaultContextReconciler`
 
 ## Фаза 5: Полный DependencyGraph (2 недели)
 

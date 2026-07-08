@@ -59,6 +59,7 @@ class ACPHttpServer:
         config: AppConfig | None = None,
         enable_web: bool = True,
         trace_messages: bool = False,
+        observability_debug: bool = False,
     ) -> None:
         """Создает транспортный сервер с адресом прослушивания.
 
@@ -71,6 +72,7 @@ class ACPHttpServer:
             config: Глобальная конфигурация приложения (LLM, агент и т.д.).
             enable_web: Включить Web UI на корневом пути "/" (по умолчанию True).
             trace_messages: Включить детальное логирование всех JSON-RPC сообщений.
+            observability_debug: Включить debug mode для observability.
 
         Пример использования:
             ACPHttpServer(host="0.0.0.0", port=8080)
@@ -84,6 +86,7 @@ class ACPHttpServer:
         self.config = config or AppConfig()
         self.enable_web = enable_web
         self.trace_messages = trace_messages
+        self.observability_debug = observability_debug
         # DI контейнер приложения
         self._app_container: AsyncContainer | None = None
         # Web UI менеджер
@@ -124,6 +127,7 @@ class ACPHttpServer:
             require_auth=self.require_auth,
             auth_api_key=self.auth_api_key,
             trace_messages=self.trace_messages,
+            observability_debug=self.observability_debug,
         )
 
         # Запуск background services (observability flush)

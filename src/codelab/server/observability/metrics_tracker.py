@@ -64,6 +64,8 @@ class SessionMetrics:
     context_compaction_count: int = 0
     context_compaction_total_ratio: float = 0.0
     context_compaction_degraded_count: int = 0
+    context_reconcile_count: int = 0
+    context_epoch_breaks_total: int = 0
 
     # Последний профиль задачи (для /context profile)
     last_task_profile: dict[str, Any] | None = None
@@ -291,6 +293,26 @@ class MetricsTracker:
                 reason=reason,
                 session_id=session_id,
             )
+
+    def record_context_reconcile(
+        self,
+        state: str,
+        epoch_broken: bool,
+        changed_sources: list[str],
+        session_id: str,
+    ) -> None:
+        """Записать метрику реконсиляции контекста."""
+        metrics = self._get_or_create(session_id)
+        metrics.context_reconcile_count += 1
+        if epoch_broken:
+            metrics.context_epoch_breaks_total += 1
+        logger.debug(
+            "context_reconcile_recorded",
+            state=state,
+            epoch_broken=epoch_broken,
+            changed_sources=len(changed_sources),
+            session_id=session_id,
+        )
 
     def get_metrics(self, session_id: str) -> SessionMetrics:
         """Получить метрики сессии.
