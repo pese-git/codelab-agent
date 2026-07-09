@@ -128,6 +128,12 @@ class DefaultContextManager(ContextManager):
         self._sessions: dict[str, _SessionContext] = {}
         self._signal_bus = signal_bus or InvalidationSignalBus()
         self._signal_bus.subscribe(self._dispatch_file_invalidated)
+        # Тайминги стадий tail/fingerprint последней сборки (для /context last).
+        # Заполняются в _build_tail и _timed_fingerprint, сбрасываются в
+        # начале build_context. Стадии живут внутри хелперов режима, поэтому
+        # экспортируются через поля, а не как локальные переменные.
+        self._last_tail_ms = 0.0
+        self._last_fingerprint_ms = 0.0
 
     def _session_ctx(self, session_id: Any) -> _SessionContext:
         """Вернуть (создав при необходимости) изолированное состояние сессии."""
@@ -307,6 +313,9 @@ class DefaultContextManager(ContextManager):
             }
 
         # Этап 3: Формирование baseline через ContextRegistry
+        # Сброс таймингов tail/fingerprint — заполнятся внутри хелперов режима.
+        self._last_tail_ms = 0.0
+        self._last_fingerprint_ms = 0.0
         baseline_start = time.time()
 
         if incremental and ctx.session_registry is not None:
@@ -457,6 +466,8 @@ class DefaultContextManager(ContextManager):
                 "analyze_ms": analyze_ms,
                 "gather_ms": gather_ms,
                 "baseline_ms": baseline_ms,
+                "tail_ms": self._last_tail_ms,
+                "fingerprint_ms": self._last_fingerprint_ms,
             }
             self._metrics_tracker.record_context_build(
                 build_duration_ms=elapsed_ms,
@@ -677,11 +688,22 @@ class DefaultContextManager(ContextManager):
         пайплайна). System-сообщения принадлежат baseline и исключаются.
         Fallback на prompt — только если history не list (не настоящая сессия).
         """
+        tail_start = time.time()
         history = getattr(session, "history", None)
         if not isinstance(history, list):
-            return self._tail_from_prompt(prompt)
-        messages = self._history_builder.build(history)
-        return [m for m in messages if m.role != "system"]
+            result = self._tail_from_prompt(prompt)
+        else:
+            messages = self._history_builder.build(history)
+            result = [m for m in messages if m.role != "system"]
+        self._last_tail_ms = (time.time() - tail_start) * 1000
+        return result
+
+    def _timed_fingerprint(self, messages: list[LLMMessage]) -> str:
+        """Вычислить fingerprint baseline с замером длительности (/context last)."""
+        fp_start = time.time()
+        fingerprint = EpochManager.compute_baseline_fingerprint(messages)
+        self._last_fingerprint_ms = (time.time() - fp_start) * 1000
+        return fingerprint
 
     @staticmethod
     def _tail_from_prompt(prompt: list[dict]) -> list[LLMMessage]:
@@ -711,7 +733,7 @@ class DefaultContextManager(ContextManager):
         if baseline_text:
             baseline.append(LLMMessage(role="system", content=baseline_text))
 
-        baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
+        baseline_fingerprint = self._timed_fingerprint(baseline)
 
         tail = self._build_tail(session, prompt)
 
@@ -766,7 +788,7 @@ class DefaultContextManager(ContextManager):
             if new_baseline_text:
                 new_baseline.append(LLMMessage(role="system", content=new_baseline_text))
 
-            new_fingerprint = EpochManager.compute_baseline_fingerprint(new_baseline)
+            new_fingerprint = self._timed_fingerprint(new_baseline)
             ctx.epoch_manager.break_epoch(new_baseline, new_fingerprint)
 
             logger.info(
@@ -812,7 +834,7 @@ class DefaultContextManager(ContextManager):
         if baseline_text:
             baseline.append(LLMMessage(role="system", content=baseline_text))
 
-        baseline_fingerprint = EpochManager.compute_baseline_fingerprint(baseline)
+        baseline_fingerprint = self._timed_fingerprint(baseline)
         ctx.epoch_manager.start_epoch(baseline, baseline_fingerprint)
         await ctx.reconciler.snapshot(registry)
 
