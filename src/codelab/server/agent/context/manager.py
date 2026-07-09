@@ -295,6 +295,17 @@ class DefaultContextManager(ContextManager):
             elapsed_ms=analyze_ms,
         )
 
+        # Сохранить TaskProfile для /context profile
+        if self._metrics_tracker is not None:
+            session_metrics = self._metrics_tracker.get_metrics(str(session_id))
+            session_metrics.last_task_profile = {
+                "task_type": str(profile.task_type),
+                "search_terms": list(profile.search_terms),
+                "target_modules": list(profile.target_modules),
+                "investigation_depth": profile.investigation_depth,
+                "needs_tests": profile.needs_tests,
+            }
+
         # Этап 3: Формирование baseline через ContextRegistry
         baseline_start = time.time()
 
@@ -311,6 +322,9 @@ class DefaultContextManager(ContextManager):
                 ctx.session_registry = registry
 
         gathered_files_count = 0
+        gather_ms = 0.0
+        gathered_file_paths: list[str] = []
+        gathered_file_tokens: list[int] = []
 
         is_reusing_registry = (
             incremental
@@ -344,6 +358,8 @@ class DefaultContextManager(ContextManager):
                 )
                 items = await gatherer.gather(profile, session, options=options)
                 gathered_files_count = len(items)
+                gathered_file_paths = [item.id for item in items]
+                gathered_file_tokens = [item.token_count for item in items]
                 gather_ms = (time.time() - gather_start) * 1000
 
                 logger.info(
@@ -434,12 +450,24 @@ class DefaultContextManager(ContextManager):
             })
 
         if self._metrics_tracker is not None:
+            stage_timings = {
+                "extract_ms": extract_ms,
+                "analyze_ms": analyze_ms,
+                "gather_ms": gather_ms,
+                "baseline_ms": baseline_ms,
+            }
             self._metrics_tracker.record_context_build(
                 build_duration_ms=elapsed_ms,
                 gathered_files=gathered_files_count,
                 baseline_tokens=baseline_tokens,
                 tail_tokens=tail_tokens,
                 session_id=str(session_id),
+                task_type=str(profile.task_type),
+                file_paths=gathered_file_paths,
+                file_tokens=gathered_file_tokens,
+                stage_timings=stage_timings,
+                graph_stats=ctx.dependency_graph.get_stats(),
+                fingerprint=baseline_fingerprint,
             )
             if incremental:
                 self._metrics_tracker.record_context_reconcile(
