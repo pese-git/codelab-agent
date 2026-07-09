@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from _protocol_factory import build_protocol
+
 from codelab.server.mcp import MCPManager
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.background_executor import BackgroundExecutor

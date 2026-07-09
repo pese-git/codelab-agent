@@ -14,7 +14,6 @@ import base64
 import json
 
 import pytest
-
 from _protocol_factory import build_protocol
 
 from codelab.server.messages import ACPMessage

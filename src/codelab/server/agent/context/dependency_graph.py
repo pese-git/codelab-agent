@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -185,3 +185,17 @@ class RegexDependencyGraph(DependencyGraph):
             Список путей или None если кэш не загружен
         """
         return self._project_files
+
+    def get_stats(self) -> dict[str, Any]:
+        """Экспортировать статистику графа зависимостей.
+
+        Returns:
+            Dict с агрегированной статистикой: files_in_graph, total_dependencies,
+            total_dependents, project_files_cached.
+        """
+        return {
+            "files_in_graph": len(self._dependencies),
+            "total_dependencies": sum(len(deps) for deps in self._dependencies.values()),
+            "total_dependents": sum(len(deps) for deps in self._dependents.values()),
+            "project_files_cached": len(self._project_files) if self._project_files else 0,
+        }

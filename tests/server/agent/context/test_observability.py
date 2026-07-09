@@ -87,9 +87,9 @@ class TestContextMetrics:
         assert metrics.context_baseline_tokens == 300
         assert metrics.context_tail_tokens == 150
 
-    def test_record_context_build_debug_mode(self):
-        """В debug mode record_context_build() сохраняет детали."""
-        tracker = MetricsTracker(debug=True)
+    def test_record_context_build_always_saves_details(self):
+        """record_context_build() сохраняет детали всегда, не только в debug mode."""
+        tracker = MetricsTracker(debug=False)
 
         tracker.record_context_build(25.0, 5, 1000, 200, "s1")
 
@@ -101,6 +101,69 @@ class TestContextMetrics:
         assert detail["baseline_tokens"] == 1000
         assert detail["tail_tokens"] == 200
         assert "timestamp" in detail
+
+    def test_record_context_build_extended_params(self):
+        """record_context_build() с расширенными параметрами сохраняет детали."""
+        tracker = MetricsTracker()
+
+        tracker.record_context_build(
+            build_duration_ms=100.0,
+            gathered_files=3,
+            baseline_tokens=1500,
+            tail_tokens=300,
+            session_id="s1",
+            task_type="feature",
+            file_paths=["src/a.py", "src/b.py", "src/c.py"],
+            candidate_count=10,
+            stage_timings={"extract_ms": 5.0, "analyze_ms": 20.0, "gather_ms": 50.0},
+            graph_stats={"files_in_graph": 50, "total_dependencies": 120},
+        )
+
+        metrics = tracker.get_metrics("s1")
+        detail = metrics.context_build_details[0]
+        assert detail["task_type"] == "feature"
+        assert detail["file_paths"] == ["src/a.py", "src/b.py", "src/c.py"]
+        assert detail["candidate_count"] == 10
+        assert detail["stage_timings"]["extract_ms"] == 5.0
+        assert detail["graph_stats"]["files_in_graph"] == 50
+
+    def test_record_context_build_backward_compatible(self):
+        """record_context_build() без новых параметров работает (обратная совместимость)."""
+        tracker = MetricsTracker(debug=True)
+
+        tracker.record_context_build(25.0, 5, 1000, 200, "s1")
+
+        metrics = tracker.get_metrics("s1")
+        detail = metrics.context_build_details[0]
+        assert detail["task_type"] == ""
+        assert detail["file_paths"] == []
+        assert detail["candidate_count"] == 0
+        assert detail["stage_timings"] == {}
+        assert detail["graph_stats"] == {}
+
+    def test_last_task_profile_default_none(self):
+        """last_task_profile по умолчанию None."""
+        tracker = MetricsTracker()
+        metrics = tracker.get_metrics("s1")
+        assert metrics.last_task_profile is None
+
+    def test_last_task_profile_set_and_read(self):
+        """last_task_profile можно установить и прочитать."""
+        tracker = MetricsTracker()
+        tracker.record_context_build(0.0, 0, 0, 0, "s1")
+        metrics = tracker.get_metrics("s1")
+        metrics.last_task_profile = {
+            "task_type": "bug_fix",
+            "search_terms": ["auth", "crash"],
+            "target_modules": ["src/auth"],
+            "investigation_depth": 2,
+            "needs_tests": True,
+        }
+
+        loaded = tracker.get_metrics("s1")
+        assert loaded.last_task_profile is not None
+        assert loaded.last_task_profile["task_type"] == "bug_fix"
+        assert loaded.last_task_profile["needs_tests"] is True
 
 
 class TestContextBuildTracing:

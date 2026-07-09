@@ -62,6 +62,9 @@ class SessionMetrics:
     context_baseline_tokens: int = 0
     context_tail_tokens: int = 0
 
+    # Последний профиль задачи (для /context profile)
+    last_task_profile: dict[str, Any] | None = None
+
     # Debug mode — детальные записи
     dispatch_details: list[dict[str, Any]] = field(default_factory=list)
     llm_call_details: list[dict[str, Any]] = field(default_factory=list)
@@ -217,8 +220,27 @@ class MetricsTracker:
         baseline_tokens: int,
         tail_tokens: int,
         session_id: str,
+        *,
+        task_type: str = "",
+        file_paths: list[str] | None = None,
+        candidate_count: int = 0,
+        stage_timings: dict[str, float] | None = None,
+        graph_stats: dict[str, int] | None = None,
     ) -> None:
-        """Записать метрику сборки контекста."""
+        """Записать метрику сборки контекста.
+
+        Args:
+            build_duration_ms: Общая длительность сборки в мс.
+            gathered_files: Количество собранных файлов.
+            baseline_tokens: Токены baseline.
+            tail_tokens: Токены tail.
+            session_id: ID сессии.
+            task_type: Тип задачи из TaskProfile (опционально).
+            file_paths: Пути собранных файлов (опционально).
+            candidate_count: Количество кандидатов до отбора (опционально).
+            stage_timings: Длительность стадий в мс (опционально).
+            graph_stats: Статистика графа зависимостей (опционально).
+        """
         metrics = self._get_or_create(session_id)
         metrics.context_build_count += 1
         metrics.context_build_total_ms += build_duration_ms
@@ -226,14 +248,19 @@ class MetricsTracker:
         metrics.context_baseline_tokens += baseline_tokens
         metrics.context_tail_tokens += tail_tokens
 
-        if self.debug:
-            metrics.context_build_details.append({
-                "build_duration_ms": build_duration_ms,
-                "gathered_files": gathered_files,
-                "baseline_tokens": baseline_tokens,
-                "tail_tokens": tail_tokens,
-                "timestamp": time.time(),
-            })
+        # Сохраняем детали всегда для /context files, /context last, /context graph
+        metrics.context_build_details.append({
+            "build_duration_ms": build_duration_ms,
+            "gathered_files": gathered_files,
+            "baseline_tokens": baseline_tokens,
+            "tail_tokens": tail_tokens,
+            "task_type": task_type,
+            "file_paths": file_paths or [],
+            "candidate_count": candidate_count,
+            "stage_timings": stage_timings or {},
+            "graph_stats": graph_stats or {},
+            "timestamp": time.time(),
+        })
 
     def get_metrics(self, session_id: str) -> SessionMetrics:
         """Получить метрики сессии.

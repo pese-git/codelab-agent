@@ -57,8 +57,35 @@ class TestContextCommandHandler:
         result = handler.execute([], session)
 
         text = result.content[0]["text"]
-        assert "Сборок контекста" in text
+        assert "Контекст" in text
         assert "5" in text or "2,000" in text
+
+    def test_show_summary_llm_and_agent_sections(self):
+        """/context показывает секции LLM и Агент."""
+        tracker = MetricsTracker()
+        tracker.record_llm_call(
+            latency_ms=100.0,
+            model="gpt-4",
+            input_tokens=1000,
+            output_tokens=500,
+            session_id="test-session",
+        )
+        tracker.record_agent_response(
+            agent_name="test-agent",
+            stop_reason="end_turn",
+            usage=MagicMock(input_tokens=1000, output_tokens=500, total_tokens=1500),
+            session_id="test-session",
+        )
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute([], session)
+
+        text = result.content[0]["text"]
+        assert "LLM" in text
+        assert "Агент" in text
+        assert "1,000" in text
 
     def test_show_summary_enabled_status(self):
         """/context показывает правильный статус из конфигурации."""
@@ -192,9 +219,190 @@ class TestContextCommandHandler:
 
         text = result.content[0]["text"]
         assert "Неизвестная подкоманда" in text
+        assert "config" in text
+        assert "last" in text
+        assert "files" in text
+        assert "graph" in text
+        assert "profile" in text
         assert "spans" in text
         assert "on" in text
         assert "off" in text
+
+    def test_show_config(self):
+        """/context config показывает полную конфигурацию."""
+        tracker = MetricsTracker()
+        config = self._make_config(enabled=True)
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["config"], session)
+
+        text = result.content[0]["text"]
+        assert "Конфигурация" in text
+        assert "enabled" in text
+        assert "gather_enabled" in text
+        assert "max_context_tokens" in text
+        assert "system" in text
+        assert "history" in text
+
+    def test_show_config_with_runtime_overrides(self):
+        """/context config показывает runtime overrides."""
+        tracker = MetricsTracker()
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+        session.config_values["context_enabled"] = "true"
+
+        result = handler.execute(["config"], session)
+
+        text = result.content[0]["text"]
+        assert "Runtime overrides" in text
+        assert "context_enabled" in text
+
+    def test_show_last_no_details(self):
+        """/context last без debug details показывает сообщение."""
+        tracker = MetricsTracker()
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["last"], session)
+
+        text = result.content[0]["text"]
+        assert "Детали недоступны" in text
+
+    def test_show_last_with_details(self):
+        """/context last показывает детали последней сборки."""
+        tracker = MetricsTracker()
+        tracker.record_context_build(
+            build_duration_ms=100.0,
+            gathered_files=3,
+            baseline_tokens=1500,
+            tail_tokens=300,
+            session_id="test-session",
+            task_type="feature",
+            file_paths=["src/a.py", "src/b.py"],
+            stage_timings={"extract_ms": 5.0, "analyze_ms": 20.0},
+            graph_stats={"files_in_graph": 10},
+        )
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["last"], session)
+
+        text = result.content[0]["text"]
+        assert "Последняя сборка" in text
+        assert "feature" in text
+        assert "100ms" in text
+
+    def test_show_files_no_details(self):
+        """/context files без debug details показывает сообщение."""
+        tracker = MetricsTracker()
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["files"], session)
+
+        text = result.content[0]["text"]
+        assert "недоступен" in text
+
+    def test_show_files_with_files(self):
+        """/context files показывает список файлов."""
+        tracker = MetricsTracker()
+        tracker.record_context_build(
+            build_duration_ms=100.0,
+            gathered_files=2,
+            baseline_tokens=1000,
+            tail_tokens=200,
+            session_id="test-session",
+            file_paths=["src/a.py", "src/b.py"],
+        )
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["files"], session)
+
+        text = result.content[0]["text"]
+        assert "src/a.py" in text
+        assert "src/b.py" in text
+
+    def test_show_graph_no_details(self):
+        """/context graph без debug details показывает сообщение."""
+        tracker = MetricsTracker()
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["graph"], session)
+
+        text = result.content[0]["text"]
+        assert "не инициализирован" in text
+
+    def test_show_graph_with_stats(self):
+        """/context graph показывает статистику графа."""
+        tracker = MetricsTracker()
+        tracker.record_context_build(
+            build_duration_ms=100.0,
+            gathered_files=2,
+            baseline_tokens=1000,
+            tail_tokens=200,
+            session_id="test-session",
+            graph_stats={
+                "files_in_graph": 50,
+                "total_dependencies": 120,
+                "total_dependents": 120,
+                "project_files_cached": 200,
+            },
+        )
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["graph"], session)
+
+        text = result.content[0]["text"]
+        assert "Граф зависимостей" in text
+        assert "50" in text
+        assert "120" in text
+
+    def test_show_profile_no_profile(self):
+        """/context profile без профиля показывает сообщение."""
+        tracker = MetricsTracker()
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["profile"], session)
+
+        text = result.content[0]["text"]
+        assert "Профиль задачи недоступен" in text
+
+    def test_show_profile_with_profile(self):
+        """/context profile показывает последний профиль задачи."""
+        tracker = MetricsTracker()
+        # Сначала создаём сессию через record, чтобы она сохранилась
+        tracker.record_context_build(0.0, 0, 0, 0, "test-session")
+        metrics = tracker.get_metrics("test-session")
+        metrics.last_task_profile = {
+            "task_type": "bug_fix",
+            "search_terms": ["auth", "crash"],
+            "target_modules": ["src/auth"],
+            "investigation_depth": 2,
+            "needs_tests": True,
+        }
+        config = self._make_config()
+        handler = ContextCommandHandler(tracker, config)
+        session = self._make_session()
+
+        result = handler.execute(["profile"], session)
+
+        text = result.content[0]["text"]
+        assert "последний профиль задачи" in text.lower()
+        assert "bug_fix" in text
+        assert "auth" in text
 
     def test_get_definition(self):
         """get_definition() возвращает корректное определение."""
@@ -207,4 +415,9 @@ class TestContextCommandHandler:
         assert definition.name == "context"
         assert "Context Manager" in definition.description
         assert definition.input is not None
+        assert "config" in definition.input.hint
+        assert "last" in definition.input.hint
+        assert "files" in definition.input.hint
+        assert "graph" in definition.input.hint
+        assert "profile" in definition.input.hint
         assert "spans" in definition.input.hint

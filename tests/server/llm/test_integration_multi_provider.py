@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from _protocol_factory import build_protocol
 
 from codelab.server.llm.base import LLMCapabilities, LLMConfig, LLMProvider
 from codelab.server.llm.errors import ProviderError, ProviderErrorType
@@ -27,8 +28,6 @@ from codelab.server.llm.models import (
 )
 from codelab.server.llm.registry import LLMProviderRegistry
 from codelab.server.llm.resolver import ModelResolver
-from _protocol_factory import build_protocol
-
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder

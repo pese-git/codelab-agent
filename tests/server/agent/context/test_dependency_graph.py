@@ -116,3 +116,30 @@ from collections.abc import Callable
     assert "typing" in imports
     assert "os.path" in imports
     assert "collections.abc" in imports
+
+
+def test_dependency_graph_get_stats_empty():
+    """Тест get_stats() для пустого графа."""
+    graph = RegexDependencyGraph()
+    stats = graph.get_stats()
+
+    assert stats["files_in_graph"] == 0
+    assert stats["total_dependencies"] == 0
+    assert stats["total_dependents"] == 0
+    assert stats["project_files_cached"] == 0
+
+
+def test_dependency_graph_get_stats_with_files():
+    """Тест get_stats() с добавленными файлами."""
+    graph = RegexDependencyGraph()
+
+    graph.add_file("src/main.py", ["src/utils.py", "src/config.py"])
+    graph.add_file("src/utils.py", ["src/helpers.py"])
+    graph.set_project_files(["src/main.py", "src/utils.py", "src/config.py", "src/helpers.py"])
+
+    stats = graph.get_stats()
+
+    assert stats["files_in_graph"] == 2
+    assert stats["total_dependencies"] == 3
+    assert stats["total_dependents"] == 3
+    assert stats["project_files_cached"] == 4

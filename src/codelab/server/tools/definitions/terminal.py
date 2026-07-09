@@ -168,7 +168,9 @@ class TerminalToolDefinitions:
             return await executor.execute(session, arguments)
 
         # Создать обработчик для ожидания завершения
-        async def wait_for_exit_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
+        async def wait_for_exit_handler(
+            session: SessionState, **arguments: Any,
+        ) -> ToolExecutionResult:
             """Обработчик для terminal/wait_for_exit."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "wait_for_exit"

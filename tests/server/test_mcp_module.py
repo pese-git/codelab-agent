@@ -14,7 +14,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from _protocol_factory import build_protocol
 
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState

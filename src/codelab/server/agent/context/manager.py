@@ -177,10 +177,23 @@ class DefaultContextManager(ContextManager):
             elapsed_ms=analyze_ms,
         )
 
+        # Сохранить TaskProfile для /context profile
+        if self._metrics_tracker is not None:
+            session_metrics = self._metrics_tracker.get_metrics(str(session_id))
+            session_metrics.last_task_profile = {
+                "task_type": str(profile.task_type),
+                "search_terms": list(profile.search_terms),
+                "target_modules": list(profile.target_modules),
+                "investigation_depth": profile.investigation_depth,
+                "needs_tests": profile.needs_tests,
+            }
+
         # Этап 3: Формирование baseline
         baseline_start = time.time()
         baseline: list[LLMMessage] = []
         gathered_files_count = 0
+        gathered_items: list[ContextItem] = []
+        gather_ms = 0.0
 
         if system_prompt:
             baseline.append(LLMMessage(role="system", content=system_prompt))
@@ -206,6 +219,7 @@ class DefaultContextManager(ContextManager):
                 tracer=self._tracer,
             )
             items = await gatherer.gather(profile, session, options=options)
+            gathered_items = items
             gathered_files_count = len(items)
             gather_ms = (time.time() - gather_start) * 1000
 
@@ -311,12 +325,27 @@ class DefaultContextManager(ContextManager):
             })
 
         if self._metrics_tracker is not None:
+            file_paths = [item.id for item in gathered_items]
+            stage_timings = {
+                "extract_ms": extract_ms,
+                "analyze_ms": analyze_ms,
+                "gather_ms": gather_ms,
+                "baseline_ms": baseline_ms,
+                "tail_ms": tail_ms,
+                "fingerprint_ms": fingerprint_ms,
+            }
+            graph_stats = ctx.dependency_graph.get_stats()
+
             self._metrics_tracker.record_context_build(
                 build_duration_ms=elapsed_ms,
                 gathered_files=gathered_files_count,
                 baseline_tokens=baseline_tokens,
                 tail_tokens=tail_tokens,
                 session_id=str(session_id),
+                task_type=str(profile.task_type),
+                file_paths=file_paths,
+                stage_timings=stage_timings,
+                graph_stats=graph_stats,
             )
 
         return PayloadEnvelope(
