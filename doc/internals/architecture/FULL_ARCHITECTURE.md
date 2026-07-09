@@ -47,8 +47,20 @@ flowchart TB
         Prompt_Orch["PromptOrchestrator\nPipeline: 7 stages"]
         AgentLoop["AgentLoop\nLLM tool-calling цикл\n+ streaming support"]
         Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor"]
+        Context_Manager["ContextManager\n4-слойная архитектура A–D\nPhase 0–3 реализованы"]
         Agent_Bus["AgentEventBus (INTERNAL)\nPoint-to-Point + Broadcast + Pub/Sub"]
         WebUI["WebUIManager\nsubprocess + HTML"]
+        
+        subgraph ContextManager_Layer["Context Manager (Phase 0–3)"]
+            CM_Manager["DefaultContextManager\n(единая точка входа)"]
+            CM_TaskAnalyzer["TaskAnalyzer\n(LLM-классификация)"]
+            CM_Gatherer["ContextGatherer\n(сбор файлов через ToolRegistry)"]
+            CM_Graph["DependencyGraph\n(regex-импорты)"]
+            CM_Budget["TokenBudgetManager\n(бюджет токенов)"]
+            CM_Compactor["ThreePhaseCompactor\n(Prune → Skeletonize → Summarize)"]
+            CM_Cache["FileContentCache\n(LRU кэш файлов)"]
+            CM_Skeletonizer["CodeSkeletonizer\n(tree-sitter + regex)"]
+        end
         
         subgraph Strategies["LLM Call Strategies"]
             Single["SingleStrategy ✅\n(единственная реализованная)"]
@@ -109,6 +121,13 @@ flowchart TB
     Strategies --> Single
     Strategies -.-> MultiOrch & MultiChor & Hierarchical
     Single --> Execution_Engine
+    Execution_Engine -->|"enabled=true"| Context_Manager
+    Execution_Engine -->|"enabled=false"| ContextCompactor_Legacy["LegacyContextCompactor"]
+    Context_Manager --> CM_TaskAnalyzer
+    CM_TaskAnalyzer --> CM_Gatherer
+    CM_Gatherer --> CM_Graph
+    CM_Gatherer --> CM_Budget
+    Context_Manager -->|"PayloadEnvelope\n(baseline/tail)"| Execution_Engine
     Execution_Engine --> Agent_Bus
     Agent_Bus --> LLM_Adapter
     
@@ -440,6 +459,17 @@ flowchart TB
         TF["ToolFilter\nфильтрация по capabilities"]
         MS["MessageSanitizer\norphaned tool calls recovery"]
         PE["PlanExtractor\nплан из LLM response"]
+        
+        subgraph ContextManager_Layer["Context Manager (Phase 0–3)"]
+            CM["DefaultContextManager\n(единая точка входа)"]
+            TA["TaskAnalyzer\n(LLM-классификация)"]
+            CG["ContextGatherer\n(сбор файлов через ToolRegistry)"]
+            DG["DependencyGraph\n(regex-импорты)"]
+            BM["TokenBudgetManager\n(бюджет токенов)"]
+            CP["ThreePhaseCompactor\n(Prune → Skeletonize → Summarize)"]
+            FC["FileContentCache\n(LRU кэш файлов)"]
+            SK["CodeSkeletonizer\n(tree-sitter + regex)"]
+        end
     end
     
     subgraph EventBus_Layer["EventBus Layer (INTERNAL)"]
@@ -474,6 +504,12 @@ flowchart TB
     EE --> TF
     EE --> MS
     EE --> PE
+    EE -->|"enabled=true"| CM
+    CM --> TA
+    TA --> CG
+    CG --> DG
+    CG --> BM
+    CM -->|"PayloadEnvelope\n(baseline/tail)"| EE
     
     EE --> AB
     AB --> LA1

@@ -56,11 +56,25 @@ class SessionMetrics:
     strategy_execution_total_ms: float = 0.0
     agent_responses: int = 0
     agent_errors: int = 0
+    context_build_count: int = 0
+    context_build_total_ms: float = 0.0
+    context_gathered_files: int = 0
+    context_baseline_tokens: int = 0
+    context_tail_tokens: int = 0
+    context_compaction_count: int = 0
+    context_compaction_total_ratio: float = 0.0
+    context_compaction_degraded_count: int = 0
+    context_reconcile_count: int = 0
+    context_epoch_breaks_total: int = 0
+
+    # Последний профиль задачи (для /context profile)
+    last_task_profile: dict[str, Any] | None = None
 
     # Debug mode — детальные записи
     dispatch_details: list[dict[str, Any]] = field(default_factory=list)
     llm_call_details: list[dict[str, Any]] = field(default_factory=list)
     agent_response_details: list[dict[str, Any]] = field(default_factory=list)
+    context_build_details: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def avg_bus_dispatch_ms(self) -> float:
@@ -204,6 +218,102 @@ class MetricsTracker:
         metrics.strategy_execution_count += 1
         metrics.strategy_execution_total_ms += total_time_ms
 
+    def record_context_build(
+        self,
+        build_duration_ms: float,
+        gathered_files: int,
+        baseline_tokens: int,
+        tail_tokens: int,
+        session_id: str,
+        *,
+        task_type: str = "",
+        file_paths: list[str] | None = None,
+        file_tokens: list[int] | None = None,
+        candidate_count: int = 0,
+        stage_timings: dict[str, float] | None = None,
+        graph_stats: dict[str, int] | None = None,
+        fingerprint: str = "",
+    ) -> None:
+        """Записать метрику сборки контекста.
+
+        Args:
+            build_duration_ms: Общая длительность сборки в мс.
+            gathered_files: Количество собранных файлов.
+            baseline_tokens: Токены baseline.
+            tail_tokens: Токены tail.
+            session_id: ID сессии.
+            task_type: Тип задачи из TaskProfile (опционально).
+            file_paths: Пути собранных файлов (опционально).
+            file_tokens: Токены на файл, параллельно file_paths (опционально).
+            candidate_count: Количество кандидатов до отбора (опционально).
+            stage_timings: Длительность стадий в мс (опционально).
+            graph_stats: Статистика графа зависимостей (опционально).
+            fingerprint: Fingerprint baseline последней сборки (опционально).
+        """
+        metrics = self._get_or_create(session_id)
+        metrics.context_build_count += 1
+        metrics.context_build_total_ms += build_duration_ms
+        metrics.context_gathered_files += gathered_files
+        metrics.context_baseline_tokens += baseline_tokens
+        metrics.context_tail_tokens += tail_tokens
+
+        # Сохраняем детали всегда для /context files, /context last, /context graph
+        metrics.context_build_details.append({
+            "build_duration_ms": build_duration_ms,
+            "gathered_files": gathered_files,
+            "baseline_tokens": baseline_tokens,
+            "tail_tokens": tail_tokens,
+            "task_type": task_type,
+            "file_paths": file_paths or [],
+            "file_tokens": file_tokens or [],
+            "candidate_count": candidate_count,
+            "stage_timings": stage_timings or {},
+            "graph_stats": graph_stats or {},
+            "fingerprint": fingerprint,
+            "timestamp": time.time(),
+        })
+
+    def record_context_compaction(
+        self,
+        ratio: float,
+        phase: str,
+        degraded: bool,
+        reason: str,
+        session_id: str,
+    ) -> None:
+        """Записать метрику компактирования контекста."""
+        metrics = self._get_or_create(session_id)
+        metrics.context_compaction_count += 1
+        metrics.context_compaction_total_ratio += ratio
+        if degraded:
+            metrics.context_compaction_degraded_count += 1
+            logger.info(
+                "context_compaction_degraded",
+                phase=phase,
+                reason=reason,
+                session_id=session_id,
+            )
+
+    def record_context_reconcile(
+        self,
+        state: str,
+        epoch_broken: bool,
+        changed_sources: list[str],
+        session_id: str,
+    ) -> None:
+        """Записать метрику реконсиляции контекста."""
+        metrics = self._get_or_create(session_id)
+        metrics.context_reconcile_count += 1
+        if epoch_broken:
+            metrics.context_epoch_breaks_total += 1
+        logger.debug(
+            "context_reconcile_recorded",
+            state=state,
+            epoch_broken=epoch_broken,
+            changed_sources=len(changed_sources),
+            session_id=session_id,
+        )
+
     def get_metrics(self, session_id: str) -> SessionMetrics:
         """Получить метрики сессии.
 
@@ -216,6 +326,20 @@ class MetricsTracker:
         return self._sessions.get(
             session_id, SessionMetrics(session_id=session_id)
         )
+
+    def get_or_create_metrics(self, session_id: str) -> SessionMetrics:
+        """Получить или создать метрики сессии с сохранением.
+
+        Используется для записи метрик, когда нужно напрямую
+        модифицировать поля (например, last_task_profile).
+
+        Args:
+            session_id: ID сессии.
+
+        Returns:
+            SessionMetrics (существующий или новый сохранённый).
+        """
+        return self._get_or_create(session_id)
 
     def subscribe_to_bus(self, bus: AbstractEventBus) -> None:
         """Подписаться на EventBus для автосбора метрик."""

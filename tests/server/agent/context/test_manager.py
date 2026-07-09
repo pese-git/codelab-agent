@@ -1,0 +1,396 @@
+"""Интеграционные тесты для ContextManager."""
+
+import pytest
+
+from codelab.server.agent.context.manager import DefaultContextManager
+from codelab.server.agent.context.models import ContextConfig
+from codelab.server.llm.models import CompletionResponse, StopReason
+
+
+class MockToolRegistry:
+    """Mock ToolRegistry для тестирования."""
+
+    def __init__(self):
+        self.tools = []
+
+    def get_available_tools(self, session_id: str):
+        return self.tools
+
+    async def execute_tool(self, session_id: str, tool_name: str, arguments: dict):
+        class Result:
+            def __init__(self, success, result):
+                self.success = success
+                self.result = result
+
+        if tool_name == "fs_search":
+            return Result(True, [{"path": "src/main.py"}, {"path": "src/utils.py"}])
+        elif tool_name == "fs_read":
+            path = arguments.get("path", "")
+            return Result(True, {"content": f"# Content of {path}\ndef example():\n    pass\n"})
+        return Result(False, None)
+
+
+class MockLLMForManager:
+    """Mock LLM провайдер для тестирования ContextManager."""
+
+    def __init__(self, response_text: str) -> None:
+        self._response_text = response_text
+
+    async def create_completion(self, request):
+        return CompletionResponse(
+            text=self._response_text,
+            tool_calls=[],
+            stop_reason=StopReason.END_TURN,
+            model=request.model,
+        )
+
+
+@pytest.mark.asyncio
+async def test_context_manager_build_context_basic():
+    """Тест базовой сборки контекста."""
+    tool_registry = MockToolRegistry()
+    response = """{
+        "task_type": "feature",
+        "search_terms": ["authentication"],
+        "target_modules": ["src/auth.py"],
+        "investigation_depth": 1,
+        "needs_tests": false
+    }"""
+    llm = MockLLMForManager(response)
+    config = ContextConfig(enabled=True, gather_enabled=True)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+        llm=llm,
+    )
+
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "test-session",
+            "history": [{"role": "user", "content": "Add authentication feature"}],
+        },
+    )()
+    prompt = [{"type": "text", "text": "Add authentication feature"}]
+
+    envelope = await manager.build_context(
+        session=session,
+        prompt=prompt,
+        agent_scope="single",
+        system_prompt="You are a helpful assistant.",
+    )
+
+    assert envelope is not None
+    assert len(envelope.baseline) > 0
+    assert len(envelope.tail) > 0
+    assert envelope.baseline_fingerprint != ""
+    assert envelope.token_count > 0
+
+
+@pytest.mark.asyncio
+async def test_context_manager_build_context_without_gather():
+    """Тест сборки контекста без сбора файлов."""
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True, gather_enabled=False)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+        llm=None,
+    )
+
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "test-session",
+            "history": [{"role": "user", "content": "Simple question"}],
+        },
+    )()
+    prompt = [{"type": "text", "text": "Simple question"}]
+
+    envelope = await manager.build_context(
+        session=session,
+        prompt=prompt,
+        agent_scope="single",
+        system_prompt="You are helpful.",
+    )
+
+    assert envelope is not None
+    assert len(envelope.baseline) == 1
+    assert envelope.baseline[0].role == "system"
+    assert len(envelope.tail) == 1
+    assert envelope.tail[0].role == "user"
+
+
+@pytest.mark.asyncio
+async def test_context_manager_ensure_context_fits_no_truncation():
+    """Тест что ensure_context_fits не обрезает если всё помещается."""
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+    )
+
+    from codelab.server.agent.context.models import PayloadEnvelope
+    from codelab.server.llm.models import LLMMessage
+
+    envelope = PayloadEnvelope(
+        baseline=[LLMMessage(role="system", content="Short system prompt")],
+        tail=[LLMMessage(role="user", content="Short question")],
+        baseline_fingerprint="test",
+        token_count=10,
+    )
+
+    result = await manager.ensure_context_fits(
+        envelope,
+        max_context_tokens=100000,
+        reserved_tokens=4096,
+    )
+
+    assert result is envelope
+
+
+@pytest.mark.asyncio
+async def test_context_manager_process_subagent_response():
+    """Тест обработки ответа субагента."""
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+    )
+
+    result = await manager.process_subagent_response(
+        parent_scope="parent",
+        subagent_scope="child",
+        response=None,
+    )
+
+    assert result is not None
+    assert result.source_scope == "child"
+    assert "child" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_context_manager_sessions_have_isolated_dependency_graph():
+    """Граф зависимостей изолирован между сессиями (#1).
+
+    Кэш структуры проекта и рёбра одной сессии не должны переиспользоваться
+    другой — иначе состояние протекает между сессиями (и разными cwd).
+    """
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True, gather_enabled=False)
+
+    manager = DefaultContextManager(tool_registry=tool_registry, config=config)
+
+    session_a = type("Session", (), {"session_id": "session-A"})()
+    session_b = type("Session", (), {"session_id": "session-B"})()
+
+    await manager.build_context(
+        session=session_a, prompt=[{"type": "text", "text": "A"}]
+    )
+    await manager.build_context(
+        session=session_b, prompt=[{"type": "text", "text": "B"}]
+    )
+
+    ctx_a = manager._session_ctx("session-A")
+    ctx_b = manager._session_ctx("session-B")
+
+    assert ctx_a is not ctx_b
+    assert ctx_a.dependency_graph is not ctx_b.dependency_graph
+
+    # Кэш файлов сессии A не виден сессии B
+    ctx_a.dependency_graph.set_project_files(["secret_a.py"])
+    assert ctx_b.dependency_graph.get_project_files() is None
+
+
+@pytest.mark.asyncio
+async def test_context_manager_roots_dependency_graph_at_session_cwd():
+    """Граф зависимостей укореняется в session.cwd, а не в cwd сервера."""
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True, gather_enabled=False),
+    )
+    session = type("Session", (), {"session_id": "s1", "cwd": "/home/user/project"})()
+
+    await manager.build_context(session=session, prompt=[{"type": "text", "text": "hi"}])
+
+    ctx = manager._session_ctx("s1")
+    assert str(ctx.dependency_graph._project_root) == "/home/user/project"
+
+
+@pytest.mark.asyncio
+async def test_context_manager_tail_includes_conversation_history():
+    """tail строится из session.history (прошлые ходы не теряются) — 4.D1."""
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True, gather_enabled=False),
+    )
+    session = type(
+        "Session",
+        (),
+        {
+            "session_id": "s1",
+            "history": [
+                {"role": "user", "content": "первый вопрос"},
+                {"role": "assistant", "content": "первый ответ"},
+                {"role": "user", "content": "второй вопрос"},
+            ],
+        },
+    )()
+
+    envelope = await manager.build_context(
+        session=session,
+        prompt=[{"type": "text", "text": "второй вопрос"}],
+        system_prompt="SYS",
+    )
+
+    contents = [
+        m.content if isinstance(m.content, str) else str(m.content)
+        for m in envelope.tail
+    ]
+    joined = "\n".join(contents)
+    # Прошлые ходы присутствуют, не только текущий промпт
+    assert "первый вопрос" in joined
+    assert "первый ответ" in joined
+    assert "второй вопрос" in joined
+    assert len(envelope.tail) == 3
+    # system остаётся в baseline, не в tail
+    assert all(m.role != "system" for m in envelope.tail)
+
+
+@pytest.mark.asyncio
+async def test_context_manager_ensure_context_fits_with_compaction():
+    """Тест что ensure_context_fits сжимает при превышении лимита."""
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True)
+
+    manager = DefaultContextManager(
+        tool_registry=tool_registry,
+        config=config,
+    )
+
+    from codelab.server.agent.context.models import PayloadEnvelope
+    from codelab.server.llm.models import LLMMessage
+
+    long_content = "x" * 10000
+    envelope = PayloadEnvelope(
+        baseline=[LLMMessage(role="system", content="System prompt")],
+        tail=[
+            LLMMessage(role="user", content=long_content),
+            LLMMessage(role="assistant", content="Response"),
+            LLMMessage(role="user", content="More"),
+            LLMMessage(role="assistant", content="More response"),
+        ],
+        baseline_fingerprint="test",
+        token_count=3000,
+    )
+
+    result = await manager.ensure_context_fits(
+        envelope,
+        max_context_tokens=200,
+        reserved_tokens=10,
+    )
+
+    assert result.token_count <= 200
+    assert result is not envelope
+
+
+@pytest.mark.asyncio
+async def test_context_manager_ensure_context_fits_retries_on_underestimate():
+    """При недооценке бюджета выполняется повторное сжатие (budget_underestimated_retry).
+
+    Спека context-compaction: если после сжатия payload всё ещё выше строгого
+    порога, ensure_context_fits повторяет с более строгим лимитом.
+    """
+    import structlog
+
+    from codelab.server.agent.context.models import PayloadEnvelope
+    from codelab.server.llm.models import LLMMessage
+
+    class StubCompactor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def compact_if_needed(
+            self, messages, *, max_context_tokens, reserved_tokens
+        ):
+            self.calls += 1
+            if self.calls == 1:
+                # Первый проход «недооценил» — payload всё ещё крупный
+                return [LLMMessage(role="system", content="word " * 400)]
+            # Ретрай со строгим лимитом — payload маленький
+            return [LLMMessage(role="system", content="ok")]
+
+    manager = DefaultContextManager(
+        tool_registry=MockToolRegistry(),
+        config=ContextConfig(enabled=True),
+    )
+    stub = StubCompactor()
+    manager._compactor = stub  # инъекция
+
+    envelope = PayloadEnvelope(
+        baseline=[LLMMessage(role="system", content="System")],
+        tail=[LLMMessage(role="user", content="x" * 10000)],
+        baseline_fingerprint="test",
+        token_count=5000,
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        result = await manager.ensure_context_fits(
+            envelope, max_context_tokens=50, reserved_tokens=0
+        )
+
+    available = int((50 - 0) * 0.9)
+    assert stub.calls == 2  # был ретрай
+    assert result.token_count <= available
+    assert any(
+        entry.get("event") == "context.ensure_fits.budget_underestimated_retry"
+        for entry in logs
+    )
+
+
+@pytest.mark.asyncio
+async def test_context_manager_sessions_are_isolated():
+    """Инкрементальный режим: состояние двух сессий не смешивается (#1).
+
+    Регистр/эпоха одной сессии не должны переиспользоваться другой —
+    иначе контекст одной сессии протекает в другую.
+    """
+    tool_registry = MockToolRegistry()
+    config = ContextConfig(enabled=True, gather_enabled=False, incremental=True)
+
+    manager = DefaultContextManager(tool_registry=tool_registry, config=config)
+
+    session_a = type("Session", (), {"session_id": "session-A"})()
+    session_b = type("Session", (), {"session_id": "session-B"})()
+
+    await manager.build_context(
+        session=session_a,
+        prompt=[{"type": "text", "text": "Prompt A"}],
+        system_prompt="System A — секрет сессии A",
+    )
+    await manager.build_context(
+        session=session_b,
+        prompt=[{"type": "text", "text": "Prompt B"}],
+        system_prompt="System B — секрет сессии B",
+    )
+
+    ctx_a = manager._session_ctx("session-A")
+    ctx_b = manager._session_ctx("session-B")
+
+    # Разные изолированные контейнеры состояния
+    assert ctx_a is not ctx_b
+    assert ctx_a.session_registry is not ctx_b.session_registry
+    assert ctx_a.epoch_manager is not ctx_b.epoch_manager
+
+    # baseline сессии B не содержит секрет сессии A
+    baseline_b = await ctx_b.session_registry.render_baseline()
+    assert "секрет сессии A" not in baseline_b
+    assert "секрет сессии B" in baseline_b

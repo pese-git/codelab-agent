@@ -7,8 +7,9 @@
 | Директория | Описание |
 |------------|----------|
 | [`architecture/`](architecture/) | Архитектура, ADR, карта проекта |
+| [`context-manager/`](context-manager/) | Context Manager — каноническая документация (консолидированная архитектура, slash-команда `/context`) |
 | [`roadmap/`](roadmap/) | Планы развития кодовой базы (фазы: security → architecture → quality) |
-| [`archive/`](archive/) | Исторические документы, выполненные планы |
+| [`archive/`](archive/) | Исторические документы, выполненные планы (включая `archive/fcm/`) |
 
 ## Связанные разделы
 

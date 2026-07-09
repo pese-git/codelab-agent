@@ -10,7 +10,7 @@ from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
-    from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
+    from codelab.server.tools.executors.decorators.base import ToolExecutorProtocol
 
 
 def _normalize_path(cwd: str, path: str) -> str:
@@ -30,6 +30,28 @@ def _normalize_path(cwd: str, path: str) -> str:
     if p.is_absolute():
         return path
     return str(Path(cwd) / p)
+
+
+def _validate_path_in_cwd(path: str, cwd: str) -> None:
+    """Проверяет что путь находится внутри cwd.
+    
+    Args:
+        path: Абсолютный путь к файлу.
+        cwd: Текущая рабочая директория сессии.
+        
+    Raises:
+        ValueError: Если путь находится вне cwd.
+    """
+    path_resolved = Path(path).resolve()
+    cwd_resolved = Path(cwd).resolve()
+    
+    # Проверяем что путь начинается с cwd
+    # Используем str() для сравнения чтобы избежать проблем с symlink
+    if not str(path_resolved).startswith(str(cwd_resolved)):
+        raise ValueError(
+            f"Path '{path}' is outside working directory '{cwd}'. "
+            f"Use relative paths or terminal commands (ls, find) to discover files."
+        )
 
 
 class FileSystemToolDefinitions:
@@ -123,7 +145,7 @@ class FileSystemToolDefinitions:
     @staticmethod
     def register_all(
         tool_registry: ToolRegistry,
-        executor: FileSystemToolExecutor,
+        executor: ToolExecutorProtocol,
     ) -> None:
         """Зарегистрировать все файловые инструменты в реестре.
         
@@ -133,7 +155,7 @@ class FileSystemToolDefinitions:
         
         Args:
             tool_registry: Реестр инструментов для регистрации
-            executor: Executor для выполнения операций с файлами
+            executor: Executor для выполнения операций с файлами (поддерживает декораторы)
         """
         # Создать обработчик для чтения файлов
         async def read_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
@@ -143,6 +165,15 @@ class FileSystemToolDefinitions:
             # Нормализовать путь относительно session.cwd
             if "path" in arguments and session.cwd:
                 arguments["path"] = _normalize_path(session.cwd, arguments["path"])
+                # Валидировать что путь внутри cwd
+                try:
+                    _validate_path_in_cwd(arguments["path"], session.cwd)
+                except ValueError as e:
+                    from codelab.server.tools.base import ToolExecutionResult
+                    return ToolExecutionResult(
+                        success=False,
+                        error=str(e),
+                    )
             return await executor.execute(session, arguments)
 
         # Создать обработчик для записи файлов
@@ -153,6 +184,15 @@ class FileSystemToolDefinitions:
             # Нормализовать путь относительно session.cwd
             if "path" in arguments and session.cwd:
                 arguments["path"] = _normalize_path(session.cwd, arguments["path"])
+                # Валидировать что путь внутри cwd
+                try:
+                    _validate_path_in_cwd(arguments["path"], session.cwd)
+                except ValueError as e:
+                    from codelab.server.tools.base import ToolExecutionResult
+                    return ToolExecutionResult(
+                        success=False,
+                        error=str(e),
+                    )
             return await executor.execute(session, arguments)
 
         # Зарегистрировать инструменты в реестре

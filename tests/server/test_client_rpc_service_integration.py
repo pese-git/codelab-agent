@@ -7,9 +7,8 @@
 
 from unittest.mock import AsyncMock
 
-from factories import make_orchestrator
-
 from _protocol_factory import build_protocol
+from factories import make_orchestrator
 
 from codelab.server.client_rpc.service import ClientRPCService
 from codelab.server.storage import InMemoryStorage

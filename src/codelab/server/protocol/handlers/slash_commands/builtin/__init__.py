@@ -1,8 +1,9 @@
 """Встроенные slash commands.
 
-Содержит handlers для базовых команд: /status, /mode, /help, MCP prompts.
+Содержит handlers для базовых команд: /status, /mode, /help, /context, MCP prompts.
 """
 
+from .context import ContextCommandHandler
 from .help import HelpCommandHandler
 from .mcp_prompt import MCPPromptCommandHandler
 from .mode import ModeCommandHandler
@@ -13,4 +14,5 @@ __all__ = [
     "ModeCommandHandler",
     "HelpCommandHandler",
     "MCPPromptCommandHandler",
+    "ContextCommandHandler",
 ]

@@ -76,19 +76,26 @@ class TaskResult(DomainEvent):
 
 1. Primary Agent получает пользовательский запрос
 2. Primary LLM решает: ответить самому или делегировать через Task tool
-3. При делегировании: check permissions → child session → TaskInvocation → AgentRequest
+3. При делегировании: check permissions → `SubAgentCoordinator.process_subagent_response()` → child session → TaskInvocation → AgentRequest
 4. Subagent выполняет в child session: свой prompt, свои инструменты, свои permissions
 5. Subagent возвращает AgentResponse → TaskResult
-6. TokenSlicer суммаризирует результат для parent context
+6. SubAgentCoordinator: TokenSlicer суммаризирует результат + FCM.add_to_scope() сохраняет summary в primary scope
 7. Primary интегрирует summary, продолжает или завершает
+
+**Управление контекстом:**
+- `FCM.create_scope("primary")` + `FCM.hydrate_from_history()` — при старте стратегии
+- `FCM.share_item("primary", subagent_name, item_id)` — передача релевантного контекста субагенту перед делегированием
+- `FCM.optimize_and_build_payload()` — автоматическое сжатие через `DefaultContextCompactor` (без явного вызова compaction)
+- `SubAgentCoordinator` НЕ выполняет compaction — это делает FCM автоматически
 
 #### Сценарий: Успешное делегирование
 - **КОГДА** primary agent решает делегировать задачу
-- **ТОГДА** создаётся child session
+- **ТОГДА** создаётся child session через SubAgentCoordinator
+- **И** FCM.share_item() передаёт релевантный контекст субагенту
 - **И** TaskInvocation конвертируется в AgentRequest
 - **И** subagent выполняет задачу
 - **И** TaskResult возвращается primary agent
-- **И** TokenSlicer суммаризирует результат
+- **И** SubAgentCoordinator.process_subagent_response(): TokenSlicer суммаризирует + FCM.add_to_scope() сохраняет summary
 
 #### Сценарий: Ответ без делегирования
 - **КОГДА** primary agent решает ответить сам

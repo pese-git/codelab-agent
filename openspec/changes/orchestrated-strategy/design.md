@@ -20,16 +20,26 @@
 - ✅ Skip threshold экономит токены на маленьких ответах
 - ⚠️ Дополнительный LLM call на каждом шаге
 
-## Decision 3: HybridContextManager — единый интерфейс
+## Decision 3: SubAgentCoordinator вместо HybridContextManager
 
-**Контекст:** Управление контекстом включает TokenSlicer, ContextCompactor, Child Sessions.
+**Контекст:** Управление контекстом в мультиагентных стратегиях включает TokenSlicer, ContextCompactor и Child Sessions.
 
-**Решение:** Единый HybridContextManager координирует все три механизма.
+**Решение:** `HybridContextManager` упразднён. Его ответственности разделены:
+- **Context management** → `FederatedContextManager` (FCM): хранение скоупов, шеринг, compaction через `DefaultContextCompactor`
+- **Sub-agent lifecycle** → `SubAgentCoordinator`: только TokenSlicer + child session creation
+
+```python
+class SubAgentCoordinator:
+    _slicer: TokenSlicer      # суммаризация ответов субагентов
+    _storage: SessionStorage  # создание и связывание child sessions
+    # ContextCompactor УДАЛЁН — FCM.optimize_and_build_payload() покрывает
+```
 
 **Tradeoffs:**
-- ✅ Один интерфейс для всех стратегий
-- ✅ Инкапсулированная логика создания child sessions
-- ⚠️ Дополнительный слой абстракции
+- ✅ Нет дублирования: FCM уже содержит DefaultContextCompactor
+- ✅ Чистое разделение: FCM = "что хранить", SubAgentCoordinator = "как вызвать и записать"
+- ✅ Стратегии явно управляют контекстом через FCM API
+- ⚠️ Стратегии зависят от FCM напрямую (не через посредника)
 
 ## Decision 4: max_steps = 7 по умолчанию
 

@@ -28,6 +28,8 @@ from dishka import (
     provide,
 )
 
+from .agent.context.file_cache import InvalidationSignalBus, SessionFileCacheRegistry
+from .agent.context.manager import DefaultContextManager
 from .agent.context_compactor import ContextCompactor
 from .agent.event_bus.bus import AgentEventBus, RetryConfig
 from .agent.execution_engine import ExecutionEngine
@@ -390,20 +392,76 @@ class MultiAgentProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_invalidation_signal_bus(self) -> InvalidationSignalBus:
+        """Создаёт InvalidationSignalBus — единый источник сигналов изменения файлов.
+
+        Интеграция Фаза 2 ↔ Фаза 4: FileCacheDecorator публикует сигналы при fs/write,
+        DefaultContextManager подписывается для обнаружения изменений baseline.
+        """
+        return InvalidationSignalBus()
+
+    @provide(scope=Scope.APP)
+    def get_session_file_cache_registry(
+        self,
+        config: AppConfig,
+        signal_bus: InvalidationSignalBus,
+    ) -> SessionFileCacheRegistry:
+        """Создаёт SessionFileCacheRegistry с общим signal_bus.
+
+        Управляет жизненным циклом кэша файлов для каждой сессии.
+        """
+        return SessionFileCacheRegistry(
+            max_files_per_session=config.agents.context.cache_max_files,
+            signal_bus=signal_bus,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_context_manager(
+        self,
+        tool_registry: ToolRegistryProtocol,
+        config: AppConfig,
+        metrics_tracker: MetricsTracker,
+        tracer: Tracer,
+        llm_provider: LLMProvider,
+        signal_bus: InvalidationSignalBus,
+    ) -> DefaultContextManager:
+        """Создаёт DefaultContextManager с метриками и трейсингом.
+
+        ContextManager автоматически собирает релевантные файлы через
+        TaskAnalyzer + ContextGatherer, записывает метрики и span'ы.
+        Подписывается на signal_bus для обнаружения изменений файлов (Фаза 4).
+        """
+        return DefaultContextManager(
+            tool_registry=tool_registry,
+            config=config.agents.context,
+            llm=llm_provider,
+            model=config.agents.context.analyzer_model,
+            metrics_tracker=metrics_tracker,
+            tracer=tracer,
+            signal_bus=signal_bus,
+        )
+
+    @provide(scope=Scope.APP)
     def get_execution_engine(
         self,
         tool_registry: ToolRegistryProtocol,
         compactor: ContextCompactor,
+        config: AppConfig,
+        context_manager: DefaultContextManager,
     ) -> ExecutionEngine:
-        """Создаёт ExecutionEngine с ContextCompactor.
+        """Создаёт ExecutionEngine с ContextCompactor и ContextManager.
 
         Compactor автоматически сжимает историю в build_context() и
         build_continuation_context() — это работает для всех стратегий
         (Single, Orchestrated, Hierarchical, Choreography) без дублирования.
+
+        ContextManager собирает релевантные файлы при enabled=true.
         """
         return ExecutionEngine(
             tool_registry=tool_registry,
             compactor=compactor,
+            context_config=config.agents.context,
+            context_manager=context_manager,
         )
 
     @provide(scope=Scope.APP)
@@ -539,8 +597,14 @@ class SlashCommandsProvider(Provider):
     def get_command_registry(
         self,
         strategy_dispatcher: StrategyDispatcher,
+        metrics_tracker: MetricsTracker,
+        tracer: Tracer,
+        config: AppConfig,
     ) -> CommandRegistry:
         """Реестр команд."""
+        from codelab.server.protocol.handlers.slash_commands.builtin.context import (
+            ContextCommandHandler,
+        )
         from codelab.server.protocol.handlers.slash_commands.builtin.strategy import (
             StrategyCommandHandler,
         )
@@ -549,6 +613,7 @@ class SlashCommandsProvider(Provider):
         registry.register(StatusCommandHandler())
         registry.register(ModeCommandHandler())
         registry.register(StrategyCommandHandler(strategy_dispatcher))
+        registry.register(ContextCommandHandler(metrics_tracker, config.agents.context, tracer))
         registry.register(HelpCommandHandler(registry))
         return registry
 
@@ -727,14 +792,20 @@ class PromptOrchestratorProvider(Provider):
         tool_registry: ToolRegistryProtocol,
         agent_registry: AgentRegistry,
         llm_loop_stage: LLMLoopStage,
+        command_registry: CommandRegistry,
+        slash_router: SlashCommandRouter,
         global_policy_manager: GlobalPolicyManager,
+        session_file_cache_registry: SessionFileCacheRegistry,
     ) -> PromptOrchestratorBuilder:
         """Создаёт PromptOrchestratorBuilder."""
         return PromptOrchestratorBuilder(
             tool_registry=tool_registry,
             agent_registry=agent_registry,
             llm_loop_stage=llm_loop_stage,
+            command_registry=command_registry,
+            slash_router=slash_router,
             global_policy_manager=global_policy_manager,
+            session_file_cache_registry=session_file_cache_registry,
         )
 
     @provide(scope=Scope.APP)

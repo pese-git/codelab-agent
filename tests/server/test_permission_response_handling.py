@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-
 from _protocol_factory import build_protocol
 
 from codelab.server.messages import ACPMessage

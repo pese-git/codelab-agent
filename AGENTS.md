@@ -156,6 +156,38 @@ uv run python -m pytest
 
 **Сервер:** не обходить ACP Protocol Layer. Не обращаться напрямую к состоянию сессий при наличии менеджера. Использовать существующие Registry, Factory, Manager. Соблюдать границы protocol, storage, agent, tools, llm.
 
+### Context Manager
+
+**Пакет:** `src/codelab/server/agent/context/`
+
+**4-слойная архитектура (A-D):**
+- **Слой A (Сбор):** `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextRegistry`
+- **Слой B (Жизненный цикл):** `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` (Phase 4)
+- **Слой C (Хранение):** `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor`
+- **Слой D (Мультиагент):** `ChildSessionManager`, `process_subagent_response()` (Phase 6)
+
+**Правила:**
+- Все I/O через ACP `ToolRegistry` — запрещён прямой доступ к файловой системе
+- `PayloadEnvelope` — единственная форма payload в пути формирования
+- `to_messages()` — единственная точка конвертации в плоский `list[LLMMessage]` на границе с `LLMAdapter`
+- Graceful degradation: горячий путь никогда не должен падать
+- Детерминированный вывод: `CodeSkeletonizer` и `FileContentCache` должны производить байт-идентичный вывод для стабильности prompt cache
+- Priority-based eviction: system (10) > user (8) > assistant (6) > tool (4)
+- Feature flags: `[agents.context.*]` с master switch `enabled` (default: false)
+
+**Запрещено:**
+- Менять сигнатуры ABC интерфейсов из `interfaces.py` (заморожены в Phase 0)
+- Обходить `ContextManager` и обращаться к компонентам напрямую из стратегий
+- Использовать timestamps для fingerprint — только Codec-based хэши
+- Создавать новые реализации `ContextCompactor` — использовать `ThreePhaseCompactor`
+
+**Тестирование:**
+- Unit тесты для каждого компонента в `tests/server/agent/context/`
+- Интеграционные тесты: `test_manager.py`, `test_integration.py`
+- Golden тесты для детерминизма: `test_skeletonizer.py::TestDeterminism`
+
+**Документация:** `doc/internals/context-manager/` (канон), `doc/user-guides/context-manager.md` (пользователь)
+
 ---
 
 ## Структура проекта

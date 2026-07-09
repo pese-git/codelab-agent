@@ -65,6 +65,7 @@ class SystemPromptBuilder:
         """Собрать system prompt.
 
         Формирует system prompt из:
+        0. Рабочая директория проекта (cwd) — контекст для агента
         1. Agent prompt (роль агента из ~/.codelab/agents/*.md)
         2. Глобального системного промпта (если задан)
         3. Информации о MCP серверах (если mcp_manager подключён и имеет серверы)
@@ -77,6 +78,24 @@ class SystemPromptBuilder:
             Текст system prompt или None если ничего не задано.
         """
         parts: list[str] = []
+
+        # 0. Рабочая директория проекта (контекст для агента)
+        if session.cwd:
+            parts.append(
+                f"Working directory: {session.cwd}\n\n"
+                "CRITICAL FILE SYSTEM CONSTRAINTS:\n"
+                "1. You MUST ONLY work within the working directory shown above\n"
+                "2. NEVER use absolute paths outside this directory\n"
+                "3. NEVER invent or guess file paths — use terminal commands "
+                "(ls, find) to discover files first\n"
+                "4. All file operations (fs/read_text_file, fs/write_text_file) "
+                "MUST be relative to the working directory\n"
+                "5. If unsure about a path, use 'ls -la' or 'find . -name <pattern>' first\n"
+                "6. Do NOT use fs/read_text_file on directories — it will fail with EISDIR error\n"
+                "7. Attempts to access files outside the working directory will be REJECTED\n"
+                "8. terminal/create automatically runs in the working directory — "
+                "you do NOT need to 'cd' first"
+            )
 
         # 1. Agent prompt (роль агента)
         agent_prompt = self._resolve_agent_prompt(session)
@@ -102,6 +121,7 @@ class SystemPromptBuilder:
         logger.debug(
             "system_prompt built",
             agent_name=agent_name or "default",
+            cwd=session.cwd,
             has_agent_prompt=bool(agent_prompt),
             has_global_prompt=bool(self._global_prompt),
             has_mcp_info=mcp_manager is not None,

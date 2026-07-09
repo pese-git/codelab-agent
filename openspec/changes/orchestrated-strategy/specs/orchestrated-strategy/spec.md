@@ -45,24 +45,37 @@ class RouteDecision(BaseModel):
 - **КОГДА** LLM для суммаризации недоступна
 - **ТОГДА** TokenSlicer применяет truncate: первые 60% + последние 40% + ellipsis
 
-### Требование: HybridContextManager
+### Требование: SubAgentCoordinator
 
-Система ДОЛЖНА предоставлять `HybridContextManager` для координации управления контекстом:
+Система ДОЛЖНА предоставлять `SubAgentCoordinator` для координации вызова субагентов.
 
-- `process_subagent_response()` — создать child session + TokenSlicer
-- `ensure_context_fits()` — проверить лимит контекста, выполнить compaction если нужно
+**Ответственности SubAgentCoordinator:**
+- `process_subagent_response()` — создать child session + вызвать TokenSlicer + добавить summary в FCM scope
 - Связывание parent ↔ child sessions в storage
+
+**НЕ отвечает за:**
+- Context compaction — это делает `FCM.optimize_and_build_payload()` через `DefaultContextCompactor`
+- Хранение контекста агентов — это делает `FederatedContextManager`
+
+```python
+class SubAgentCoordinator:
+    _slicer: TokenSlicer      # суммаризация ответов субагентов
+    _storage: SessionStorage  # создание и связывание child sessions
+    # ContextCompactor УДАЛЁН — FCM покрывает через DefaultContextCompactor
+```
 
 #### Сценарий: Обработка ответа субагента
 - **КОГДА** субагент возвращает ответ
 - **ТОГДА** создаётся child session с полным контекстом
 - **И** TokenSlicer суммаризирует ответ
-- **И** parent session получает sliced summary
+- **И** FCM.add_to_scope() сохраняет summary в orchestrator scope с priority=9
 - **И** child_session_ids обновляется у parent
 
-#### Сценарий: Compaction при длинной сессии
-- **КОГДА** контекст достигает (context_window_limit - compaction_reserved_tokens)
-- **ТОГДА** выполняется двухфазный compaction: Prune → LLM Summarize
+#### Сценарий: Context compaction
+- **КОГДА** контекст достигает лимита токенов
+- **ТОГДА** `FCM.optimize_and_build_payload()` автоматически вызывает `DefaultContextCompactor`
+- **И** выполняется трёхфазный compaction: Prune → Skeletonize → LLM Summarize
+- **Замечание:** SubAgentCoordinator НЕ вызывает compaction напрямую — это происходит автоматически в FCM
 
 ### Требование: OrchestratedStrategy
 
@@ -70,8 +83,8 @@ class RouteDecision(BaseModel):
 
 1. Orchestrator LLM делает RouteDecision (Structured Outputs)
 2. Point-to-point вызов субагента через EventBus.send_request()
-3. Создать child session для субагента
-4. TokenSlicer суммаризирует ответ
+3. SubAgentCoordinator создаёт child session и вызывает TokenSlicer
+4. FCM.add_to_scope() сохраняет sliced summary в orchestrator scope
 5. max_steps предохранитель (default 7)
 6. Race condition guard: проверка available_agents перед каждым шагом
 

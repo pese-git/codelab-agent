@@ -26,6 +26,7 @@ graph TB
         NotifBus[SessionNotificationBus]
         PO[PromptOrchestrator]
         EE[ExecutionEngine]
+        CM[ContextManager]
         TR[ToolRegistry]
         Storage[(SessionStorage)]
     end
@@ -36,6 +37,7 @@ graph TB
     AP --> NotifBus
     NotifBus --> WS & STDIO
     AP --> PO --> EE --> TR
+    EE --> CM
     AP --> Storage
 ```
 
@@ -185,7 +187,7 @@ graph TB
         subgraph SLASH_CMDS["Slash Commands"]
             CR[CommandRegistry]
             SR[SlashCommandRouter]
-            CMDS[Help / Mode / Status]
+            CMDS[Help / Mode / Status / Context]
         end
 
         subgraph AGENT["Agent Layer"]
@@ -196,6 +198,17 @@ graph TB
             TF[ToolFilter]
             MS[MessageSanitizer]
             PE[PlanExtractor]
+            
+            subgraph CONTEXT_MGR["Context Manager (Phase 0–3)"]
+                CMgr["DefaultContextManager<br/>(единая точка входа)"]
+                TA["TaskAnalyzer<br/>(LLM-классификация)"]
+                CG["ContextGatherer<br/>(сбор файлов через ToolRegistry)"]
+                DG["DependencyGraph<br/>(regex-импорты)"]
+                BM["TokenBudgetManager<br/>(бюджет токенов)"]
+                CP["ThreePhaseCompactor<br/>(Prune → Skeletonize → Summarize)"]
+                FC["FileContentCache<br/>(LRU кэш файлов)"]
+                SK["CodeSkeletonizer<br/>(tree-sitter + regex)"]
+            end
         end
 
         subgraph LLM["LLM Layer"]
@@ -294,6 +307,10 @@ graph TB
         PO --> STM & PLB & TLCM & TCH & PM & CRH & GPM
         SC --> CR & SR --> CMDS
         LL --> EE --> LA & HB & TF & MS & PE
+        EE -->|"enabled=true"| CMgr
+        CMgr --> TA & CG & DG & BM
+        CG --> TOOL_REG
+        CMgr -->|"PayloadEnvelope<br/>(baseline/tail)"| EE
         LL --> TOOL_REG --> TOOL_DEF & TOOL_RESULT & TOOL_MAP
         TOOL_REG --> FS_EXEC & TERM_EXEC & PLAN_EXEC & MCP_EXEC & TOOL_INT
         MCP_EXEC --> MM --> MC & TA & MCP_MODELS & MCP_RETRY
@@ -740,7 +757,7 @@ chat_vm = ChatViewModel(
 **7 стадий обработки промпта:**
 
 1. `ValidationStage` — валидация входных данных
-2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`
+2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`, `/context`
 3. `PlanBuildingStage` — построение плана выполнения
 4. `TurnLifecycleStage(open)` — открытие turn, отправка session/started
 5. `DirectivesStage` — обработка директив промпта, фильтрация инструментов
@@ -759,6 +776,7 @@ chat_vm = ChatViewModel(
 - `/help` — список доступных команд
 - `/mode` — переключение режима сессии
 - `/status` — текущее состояние сессии
+- `/context` — состояние Context Manager (метрики, span'ы, on/off)
 
 **Архитектура:** CommandRegistry → SlashCommandRouter → CommandHandler
 
@@ -779,6 +797,41 @@ chat_vm = ChatViewModel(
 | `system_prompt_builder.py` | `SystemPromptBuilder` | Построение системного промпта |
 
 **Фильтрация инструментов:** `_SERVER_SIDE_TOOL_KINDS = {"think", "plan"}` — всегда доступны. Остальные (fs_read, fs_write, terminal) требуют matching client capabilities.
+
+### Context Manager (`server/agent/context/`)
+
+**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+
+| Слой | Компоненты | Статус |
+|------|-----------|--------|
+| A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
+
+**Путь формирования payload:**
+1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()` (при `enabled=true`)
+2. `TaskAnalyzer` классифицирует задачу → `TaskProfile` (task_type, search_terms, investigation_depth)
+3. `ContextGatherer` собирает релевантные файлы через ACP `ToolRegistry` (project_tree → search → read_file → graph → отбор)
+4. `TokenBudgetManager` аллоцирует бюджет по долям конфига (system/history/tool/response)
+5. Возвращается `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM
+
+**PayloadEnvelope** — конверт payload с явным разделением иммутабельного префикса (baseline) и дельт (tail). Фундамент инкрементальной модели.
+
+**Конфигурация:**
+```toml
+[agents.context]
+enabled = true                  # Master switch (default: false)
+gather_enabled = true           # Включить сбор файлов
+
+[agents.context.budget]
+max_context_tokens = 128000
+reserved_tokens = 4096
+```
+
+**Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](../../internals/context-manager/SLASH_COMMAND.md).
+
+> Полная документация: [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
 
 ### Tool System (`server/tools/`)
 

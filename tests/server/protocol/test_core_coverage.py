@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.config_spec_builder import (
     _DEFAULT_CONFIG_SPECS,

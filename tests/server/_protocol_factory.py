@@ -112,6 +112,16 @@ class _Assembler:
         from codelab.server.protocol.handlers.permission_manager import PermissionManager
         from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
         from codelab.server.protocol.handlers.plan_builder import PlanBuilder
+        from codelab.server.protocol.handlers.slash_commands import (
+            CommandRegistry,
+            SlashCommandRouter,
+        )
+        from codelab.server.protocol.handlers.slash_commands.builtin import (
+            ContextCommandHandler,
+            HelpCommandHandler,
+            ModeCommandHandler,
+            StatusCommandHandler,
+        )
         from codelab.server.protocol.handlers.state_manager import StateManager
         from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
         from codelab.server.protocol.orchestrator_builder import PromptOrchestratorBuilder
@@ -132,10 +142,33 @@ class _Assembler:
             ),
             global_policy_manager=self._global_policy_manager,
         )
+
+        # Создаём зависимости для slash-команд
+        from codelab.server.agent.context.models import ContextConfig
+        from codelab.server.observability.metrics_tracker import MetricsTracker
+        from codelab.server.observability.tracer import Tracer
+
+        metrics_tracker = MetricsTracker()
+        context_config = ContextConfig()
+        tracer = Tracer()
+
+        command_registry = CommandRegistry()
+        command_registry.register(StatusCommandHandler())
+        command_registry.register(ModeCommandHandler())
+        # StrategyCommandHandler требует StrategyDispatcher — пропускаем в тестах
+        command_registry.register(ContextCommandHandler(metrics_tracker, context_config, tracer))
+        command_registry.register(HelpCommandHandler(command_registry))
+        slash_router = SlashCommandRouter(command_registry)
+
+        # Сохраняем registry для использования в session/new
+        self._command_registry = command_registry
+
         builder = PromptOrchestratorBuilder(
             tool_registry=self._tool_registry,
             agent_registry=self._agent_registry,
             llm_loop_stage=llm_loop_stage,
+            command_registry=command_registry,
+            slash_router=slash_router,
             global_policy_manager=self._global_policy_manager,
             client_rpc_service=self._client_rpc_service,
         )

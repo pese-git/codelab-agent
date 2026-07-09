@@ -8,8 +8,6 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
 from codelab.server.storage import JsonFileStorage
 
-from _protocol_factory import build_protocol
-
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 

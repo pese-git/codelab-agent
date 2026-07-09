@@ -26,6 +26,7 @@ graph TB
         AP[ACPProtocol]
         PO[PromptOrchestrator]
         EE[ExecutionEngine]
+        CM[ContextManager]
         TR[ToolRegistry]
         MCP[MCPManager]
         Storage["SessionStorage<br/>LRU Cache"]
@@ -42,6 +43,7 @@ graph TB
     TS --> WS & STDIO
     WS & STDIO --> HTTP --> AP --> PO
     PO --> EE --> LLM
+    EE --> CM
     PO --> TR --> FS & TERM
     PO --> MCP
     AP --> Storage
@@ -162,6 +164,7 @@ graph TB
     subgraph Agent["Agent Layer"]
         AO[AgentOrchestrator]
         EE[ExecutionEngine]
+        CM[ContextManager]
         AL[AgentLoop]
         LLM["LLM Registry<br/>8+ Providers"]
     end
@@ -198,6 +201,7 @@ graph TB
     V --> SC --> PB --> TL1 --> DS --> LL --> TL2
     PO --> SM & PBuilder & TLCM & TCH & PM & CRH & GPM
     LL --> AO --> EE --> LLM
+    EE --> CM
     LL --> TR --> FS & TE --> Bridge
     LL --> MM --> MT
     LL --> MTE
@@ -224,12 +228,33 @@ graph TB
 
 **Pipeline стадии:**
 1. `ValidationStage` — валидация входных данных
-2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`, `/strategy`
+2. `SlashCommandStage` — обработка `/help`, `/mode`, `/status`, `/strategy`, `/context`
 3. `PlanBuildingStage` — построение плана
 4. `TurnLifecycleStage(open)` — открытие turn
 5. `DirectivesStage` — обработка директив промпта
 6. `LLMLoopStage` — основной цикл LLM с tool calls
 7. `TurnLifecycleStage(close)` — закрытие turn
+
+### Context Manager
+
+`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+
+**Слои:**
+
+| Слой | Компоненты | Статус |
+|------|-----------|--------|
+| A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
+
+**Путь формирования payload:** `ExecutionEngine` → `DefaultContextManager.build_context()` → `TaskAnalyzer` → `ContextGatherer` (через `ToolRegistry`) → `TokenBudgetManager` → `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM.
+
+**Конфигурация:** `[agents.context]` в `codelab.toml` (enabled, gather_enabled, budget).
+
+**Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением.
+
+> Полная документация: [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
 
 ## Background Receive Loop (Клиент)
 
