@@ -12,12 +12,12 @@
 
 #### Scenario: /context last показывает детали последней сборки
 - **WHEN** пользователь выполняет `/context last`
-- **THEN** система выводит stage timings (extract, analyze, gather, baseline, tail, fingerprint), task_type, fingerprint, candidate vs selected files, baseline/tail tokens из последнего элемента `context_build_details`
-- **AND** если `context_build_details` пуст (debug mode выключен или сборок не было) — выводит сообщение "Детали недоступны. Включите debug mode: `--observability-debug`"
+- **THEN** система выводит stage timings (extract, analyze, gather, baseline, tail, fingerprint), task_type, fingerprint (реальный fingerprint baseline из `context_build_details["fingerprint"]`), candidate vs selected files, baseline/tail tokens из последнего элемента `context_build_details`
+- **AND** если `context_build_details` пуст (сборок ещё не было) — выводит сообщение "Детали недоступны. Сборок контекста ещё не было."
 
 #### Scenario: /context files показывает список собранных файлов
 - **WHEN** пользователь выполняет `/context files`
-- **THEN** система выводит список файлов из последней сборки с токенами на файл (из `context_build_details["file_paths"]`), общее количество токенов и файлов
+- **THEN** система выводит список файлов из последней сборки с токенами на файл (пути из `context_build_details["file_paths"]`, токены из параллельного списка `context_build_details["file_tokens"]`), общее количество токенов и файлов
 - **AND** если `file_paths` отсутствует или пуст — выводит сообщение "Список файлов недоступен"
 
 #### Scenario: /context graph показывает статистику графа зависимостей
@@ -40,16 +40,16 @@
 - **THEN** система выводит ошибку и список всех доступных подкоманд, включая новые: config, last, files, graph, profile
 
 ### Requirement: MetricsTracker сохраняет расширенные данные сборки
-Система MUST сохранять расширенные данные сборки контекста в debug-режиме для диагностики через slash-команду.
+Система MUST сохранять расширенные данные сборки контекста для диагностики через slash-команду. Данные сохраняются всегда (не требуют debug-режима), чтобы `/context files`, `/context last`, `/context graph` работали без дополнительных флагов.
 
 #### Scenario: record_context_build() принимает расширенные параметры
 - **WHEN** `DefaultContextManager.build_context()` завершает сборку
-- **THEN** система вызывает `record_context_build()` с опциональными параметрами: `task_type: str = ""`, `file_paths: list[str] | None = None`, `candidate_count: int = 0`, `stage_timings: dict[str, float] | None = None`, `graph_stats: dict[str, int] | None = None`
+- **THEN** система вызывает `record_context_build()` с опциональными параметрами: `task_type: str = ""`, `file_paths: list[str] | None = None`, `file_tokens: list[int] | None = None`, `candidate_count: int = 0`, `stage_timings: dict[str, float] | None = None`, `graph_stats: dict[str, int] | None = None`, `fingerprint: str = ""`
 - **AND** все новые параметры опциональны с дефолтными значениями для обратной совместимости
 
 #### Scenario: context_build_details содержит все расширенные данные
-- **WHEN** `metrics_tracker.debug == True` и вызывается `record_context_build()`
-- **THEN** `context_build_details` содержит dict с полями: `build_duration_ms`, `gathered_files`, `baseline_tokens`, `tail_tokens`, `task_type`, `file_paths`, `candidate_count`, `stage_timings`, `graph_stats`, `timestamp`
+- **WHEN** вызывается `record_context_build()`
+- **THEN** `context_build_details` содержит dict с полями: `build_duration_ms`, `gathered_files`, `baseline_tokens`, `tail_tokens`, `task_type`, `file_paths`, `file_tokens`, `candidate_count`, `stage_timings`, `graph_stats`, `fingerprint`, `timestamp`
 - **AND** если параметр не передан — соответствующее поле содержит дефолтное значение (пустая строка, пустой список, 0, пустой dict)
 
 ### Requirement: DependencyGraph экспортирует статистику
@@ -71,10 +71,14 @@
 - **THEN** система измеряет длительность каждой стадии в миллисекундах: `extract_ms` (извлечение текста промпта), `analyze_ms` (TaskAnalyzer.analyze), `gather_ms` (ContextGatherer.gather), `baseline_ms` (формирование baseline), `tail_ms` (формирование tail из истории), `fingerprint_ms` (вычисление fingerprint)
 - **AND** передаёт `stage_timings` dict в `record_context_build()`
 
-#### Scenario: build_context() собирает file_paths и candidate_count
+#### Scenario: build_context() собирает file_paths, file_tokens и candidate_count
 - **WHEN** `ContextGatherer.gather()` завершается
-- **THEN** система собирает `file_paths` из `items` (список `item.id` для каждого `ContextItem`), `candidate_count` из gatherer (количество уникальных кандидатов до отбора по бюджету)
+- **THEN** система собирает `file_paths` из `items` (список `item.id` для каждого `ContextItem`), `file_tokens` (параллельный список `item.token_count`), `candidate_count` из gatherer (количество уникальных кандидатов до отбора по бюджету)
 - **AND** передаёт эти данные в `record_context_build()`
+
+#### Scenario: build_context() передаёт fingerprint
+- **WHEN** сборка завершается и вычислен `baseline_fingerprint`
+- **THEN** система передаёт его в `record_context_build(fingerprint=...)` для отображения в `/context last`
 
 #### Scenario: build_context() собирает graph_stats
 - **WHЕН** сборка завершается

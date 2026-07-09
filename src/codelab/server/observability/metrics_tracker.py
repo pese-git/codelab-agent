@@ -223,9 +223,11 @@ class MetricsTracker:
         *,
         task_type: str = "",
         file_paths: list[str] | None = None,
+        file_tokens: list[int] | None = None,
         candidate_count: int = 0,
         stage_timings: dict[str, float] | None = None,
         graph_stats: dict[str, int] | None = None,
+        fingerprint: str = "",
     ) -> None:
         """Записать метрику сборки контекста.
 
@@ -237,9 +239,11 @@ class MetricsTracker:
             session_id: ID сессии.
             task_type: Тип задачи из TaskProfile (опционально).
             file_paths: Пути собранных файлов (опционально).
+            file_tokens: Токены на файл, параллельно file_paths (опционально).
             candidate_count: Количество кандидатов до отбора (опционально).
             stage_timings: Длительность стадий в мс (опционально).
             graph_stats: Статистика графа зависимостей (опционально).
+            fingerprint: Fingerprint baseline последней сборки (опционально).
         """
         metrics = self._get_or_create(session_id)
         metrics.context_build_count += 1
@@ -256,9 +260,11 @@ class MetricsTracker:
             "tail_tokens": tail_tokens,
             "task_type": task_type,
             "file_paths": file_paths or [],
+            "file_tokens": file_tokens or [],
             "candidate_count": candidate_count,
             "stage_timings": stage_timings or {},
             "graph_stats": graph_stats or {},
+            "fingerprint": fingerprint,
             "timestamp": time.time(),
         })
 

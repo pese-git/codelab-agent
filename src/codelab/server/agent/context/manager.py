@@ -326,6 +326,7 @@ class DefaultContextManager(ContextManager):
 
         if self._metrics_tracker is not None:
             file_paths = [item.id for item in gathered_items]
+            file_tokens = [item.token_count for item in gathered_items]
             stage_timings = {
                 "extract_ms": extract_ms,
                 "analyze_ms": analyze_ms,
@@ -344,8 +345,10 @@ class DefaultContextManager(ContextManager):
                 session_id=str(session_id),
                 task_type=str(profile.task_type),
                 file_paths=file_paths,
+                file_tokens=file_tokens,
                 stage_timings=stage_timings,
                 graph_stats=graph_stats,
+                fingerprint=baseline_fingerprint,
             )
 
         return PayloadEnvelope(

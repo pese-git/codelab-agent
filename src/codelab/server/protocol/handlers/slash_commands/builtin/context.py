@@ -100,7 +100,7 @@ class ContextCommandHandler(CommandHandler):
                 {
                     "type": "text",
                     "text": (
-                        "❌ Неизвестная подкоманда: `/context {subcommand}`\n\n"
+                        f"❌ Неизвестная подкоманда: `/context {subcommand}`\n\n"
                         "Доступные:\n"
                         "• `/context` — расширенная сводка (Контекст, LLM, Агент)\n"
                         "• `/context config` — полная конфигурация\n"
@@ -275,6 +275,8 @@ class ContextCommandHandler(CommandHandler):
         stage_timings = last.get("stage_timings", {})
         graph_stats = last.get("graph_stats", {})
         file_paths = last.get("file_paths", [])
+        file_tokens = last.get("file_tokens", [])
+        fingerprint = last.get("fingerprint", "")
 
         lines = [
             "🔬 **Последняя сборка контекста:**",
@@ -282,7 +284,7 @@ class ContextCommandHandler(CommandHandler):
             "**Общее:**",
             f"• Длительность: `{last.get('build_duration_ms', 0):.0f}ms`",
             f"• task_type: `{last.get('task_type', '?')}`",
-            f"• fingerprint: `{last.get('baseline_tokens', 0):,} baseline tokens`",
+            f"• fingerprint: `{fingerprint or '—'}`",
         ]
 
         if stage_timings:
@@ -328,8 +330,10 @@ class ContextCommandHandler(CommandHandler):
 
         if file_paths:
             lines.extend(["", f"**Файлы ({len(file_paths)}):**"])
-            for fp in file_paths[:10]:
-                lines.append(f"• `{fp}`")
+            for i, fp in enumerate(file_paths[:10]):
+                tokens = file_tokens[i] if i < len(file_tokens) else None
+                suffix = f" — `{tokens:,} tokens`" if tokens is not None else ""
+                lines.append(f"• `{fp}`{suffix}")
             if len(file_paths) > 10:
                 lines.append(f"• ... и ещё {len(file_paths) - 10}")
 
@@ -351,6 +355,7 @@ class ContextCommandHandler(CommandHandler):
 
         last = metrics.context_build_details[-1]
         file_paths = last.get("file_paths", [])
+        file_tokens = last.get("file_tokens", [])
 
         if not file_paths:
             return CommandResult(
@@ -362,12 +367,17 @@ class ContextCommandHandler(CommandHandler):
                 ]
             )
 
-        lines = [
-            f"📁 **Собранные файлы** (последняя сборка, {len(file_paths)} файлов):",
-            "",
-        ]
+        total_tokens = sum(file_tokens)
+        header = f"📁 **Собранные файлы** (последняя сборка, {len(file_paths)} файлов"
+        if total_tokens:
+            header += f", {total_tokens:,} tokens"
+        header += "):"
+
+        lines = [header, ""]
         for i, fp in enumerate(file_paths, 1):
-            lines.append(f"{i}. `{fp}`")
+            tokens = file_tokens[i - 1] if i - 1 < len(file_tokens) else None
+            suffix = f" — `{tokens:,} tokens`" if tokens is not None else ""
+            lines.append(f"{i}. `{fp}`{suffix}")
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
