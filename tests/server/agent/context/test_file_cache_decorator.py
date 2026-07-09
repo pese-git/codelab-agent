@@ -179,7 +179,7 @@ class TestFileCacheDecorator:
         # Предварительно заполняем кэш
         cache.set("/test.py", "cached content")
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 
@@ -198,7 +198,7 @@ class TestFileCacheDecorator:
             output="fresh content",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
 
@@ -219,7 +219,7 @@ class TestFileCacheDecorator:
             output="rpc content",
         )
         session = MagicMock()
-        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+        arguments = {"operation": "read", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:
             m.setattr(cache, "get", MagicMock(side_effect=Exception("cache get error")))
