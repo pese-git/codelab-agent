@@ -1017,11 +1017,13 @@ class RequestProvider(Provider):
         self,
         runtime_registry: SessionRuntimeRegistry,
         tool_registry: ToolRegistryProtocol,
+        command_registry: CommandRegistry,
     ) -> MCPSessionManager:
         """Создаёт MCPSessionManager для текущего соединения."""
         return MCPSessionManager(
             runtime_registry=runtime_registry,
             tool_registry=tool_registry,
+            command_registry=command_registry,
         )
 
     @provide(scope=Scope.REQUEST)

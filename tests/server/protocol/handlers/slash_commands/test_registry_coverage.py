@@ -82,3 +82,19 @@ class TestCommandRegistryCoverage:
         assert len(dicts) == 1
         assert dicts[0]["name"] == "search"
         assert dicts[0]["input"] == {"hint": "query"}
+
+    def test_builtin_commands_returns_only_handlers(self, registry: CommandRegistry) -> None:
+        """builtin_commands возвращает только команды с handlers, без dynamic."""
+        registry.register(DummyHandler())
+        registry.add_dynamic_command(AvailableCommand(name="dyn", description="Dynamic"))
+
+        builtin = registry.builtin_commands
+
+        assert "dummy" in builtin
+        assert "dyn" not in builtin
+
+    def test_builtin_commands_empty_when_no_handlers(self, registry: CommandRegistry) -> None:
+        """builtin_commands пуст когда нет handlers."""
+        registry.add_dynamic_command(AvailableCommand(name="dyn", description="Dynamic"))
+
+        assert registry.builtin_commands == []

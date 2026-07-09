@@ -19,6 +19,7 @@ from ..mcp.prompt_mapper import mcp_prompts_to_available_commands
 from ..messages import ACPMessage
 
 if TYPE_CHECKING:
+    from ..protocol.handlers.slash_commands.registry import CommandRegistry
     from ..protocol.session_runtime import SessionRuntimeRegistry
     from ..protocol.state import SessionState
     from ..tools.base import ToolRegistry
@@ -48,21 +49,35 @@ class MCPSessionManager:
     Attributes:
         runtime_registry: Реестр runtime-состояний сессий.
         tool_registry: Глобальный реестр инструментов (для native tools).
+        command_registry: Реестр slash-команд (для получения списка built-in).
     """
 
     def __init__(
         self,
         runtime_registry: SessionRuntimeRegistry,
         tool_registry: ToolRegistry | None = None,
+        command_registry: CommandRegistry | None = None,
     ) -> None:
         """Инициализирует MCPSessionManager.
 
         Args:
             runtime_registry: Реестр runtime-состояний сессий.
             tool_registry: Глобальный реестр инструментов (опционально).
+            command_registry: Реестр slash-команд (опционально).
         """
         self._runtime_registry = runtime_registry
         self._tool_registry = tool_registry
+        self._command_registry = command_registry
+
+    def _get_builtin_command_names(self) -> set[str]:
+        """Возвращает множество имён built-in команд.
+
+        Использует CommandRegistry как единый источник правды.
+        Если registry не передан, возвращает fallback набор.
+        """
+        if self._command_registry is not None:
+            return set(self._command_registry.builtin_commands)
+        return {"status", "mode", "help", "strategy", "context"}
 
     async def setup_if_needed(
         self,
@@ -159,7 +174,7 @@ class MCPSessionManager:
             return
 
         # Очищаем старые MCP prompts из available_commands (оставляем built-in)
-        builtin_names = {"status", "mode", "help"}
+        builtin_names = self._get_builtin_command_names()
         session.available_commands = [
             cmd for cmd in session.available_commands
             if _get_command_name(cmd) in builtin_names
@@ -342,7 +357,7 @@ class MCPSessionManager:
                     return
 
                 # Очищаем старые MCP prompts (оставляем built-in)
-                builtin_names = {"status", "mode", "help"}
+                builtin_names = self._get_builtin_command_names()
                 session_state.available_commands = [
                     cmd for cmd in session_state.available_commands
                     if _get_command_name(cmd) in builtin_names
