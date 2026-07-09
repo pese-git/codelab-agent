@@ -3,8 +3,8 @@
 Слой C — Хранение (Phase 2).
 
 Декоратор оборачивает ToolExecutor и:
-- При успешном fs/read → сохраняет содержимое в FileContentCache
-- При успешном fs/write → инвалидирует кэш и публикует сигнал
+- При fs/read → сначала проверяет кэш, при промахе выполняет RPC и сохраняет в кэш
+- При fs/write → инвалидирует кэш
 - Ошибки кэша логируются, но не распространяются
 """
 
@@ -34,6 +34,7 @@ class FileCacheDecorator(ToolExecutorDecorator):
     """Декоратор для кэширования содержимого файлов.
 
     Перехватывает fs/read и fs/write, обновляя FileContentCache.
+    При fs/read сначала проверяет кэш — при попадании возвращает без RPC.
     Ошибки кэша не влияют на результат инструмента.
 
     Attributes:
@@ -53,14 +54,34 @@ class FileCacheDecorator(ToolExecutorDecorator):
         session: SessionState,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
-        """Выполнить инструмент с кэшированием файловых операций."""
+        """Выполнить инструмент с кэшированием файловых операций.
+        
+        При fs/read сначала проверяет кэш. При попадании возвращает
+        содержимое из кэша без вызова wrapped.execute(). При промахе
+        выполняет RPC и сохраняет результат в кэш.
+        """
+        tool_name = arguments.get("tool_name", "")
+        path = arguments.get("path", "")
+
+        # Проверка кэша перед чтением файла
+        if tool_name == FS_READ_TOOL and path:
+            try:
+                cached_content = self._cache.get(path)
+                if cached_content is not None:
+                    logger.debug("file_cache_hit", path=path)
+                    return ToolExecutionResult(
+                        success=True,
+                        output=cached_content,
+                        metadata={"from_cache": True, "path": path},
+                    )
+            except Exception:
+                logger.exception("file_cache_get_failed", path=path)
+
+        # Кэш не содержит файл — выполняем RPC
         result = await self._wrapped.execute(session, arguments)
 
         if not result.success:
             return result
-
-        tool_name = arguments.get("tool_name", "")
-        path = arguments.get("path", "")
 
         if not path:
             return result

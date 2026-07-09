@@ -172,3 +172,60 @@ class TestFileCacheDecorator:
 
         assert result.success is True
         assert cache.size == 0
+
+    @pytest.mark.asyncio
+    async def test_fs_read_returns_cached_content_without_rpc(self, decorator, mock_executor, cache):
+        """fs/read возвращает содержимое из кэша без вызова wrapped.execute()."""
+        # Предварительно заполняем кэш
+        cache.set("/test.py", "cached content")
+        session = MagicMock()
+        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+
+        result = await decorator.execute(session, arguments)
+
+        # Проверяем, что результат из кэша
+        assert result.success is True
+        assert result.output == "cached content"
+        assert result.metadata == {"from_cache": True, "path": "/test.py"}
+        # Проверяем, что wrapped.execute() НЕ вызывался
+        mock_executor.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fs_read_cache_miss_calls_rpc(self, decorator, mock_executor, cache):
+        """fs/read при промахе кэша вызывает wrapped.execute() и сохраняет в кэш."""
+        mock_executor.execute.return_value = ToolExecutionResult(
+            success=True,
+            output="fresh content",
+        )
+        session = MagicMock()
+        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+
+        result = await decorator.execute(session, arguments)
+
+        # Проверяем, что wrapped.execute() был вызван
+        mock_executor.execute.assert_called_once()
+        # Проверяем, что результат сохранён в кэш
+        assert cache.get("/test.py") == "fresh content"
+        assert result.success is True
+        assert result.output == "fresh content"
+        # metadata не должен содержать from_cache при промахе
+        assert result.metadata is None or not result.metadata.get("from_cache")
+
+    @pytest.mark.asyncio
+    async def test_fs_read_cache_get_error_falls_back_to_rpc(self, decorator, mock_executor, cache):
+        """Ошибка при получении из кэша fallback на RPC."""
+        mock_executor.execute.return_value = ToolExecutionResult(
+            success=True,
+            output="rpc content",
+        )
+        session = MagicMock()
+        arguments = {"tool_name": "fs/read", "path": "/test.py"}
+
+        with pytest.MonkeyPatch().context() as m:
+            m.setattr(cache, "get", MagicMock(side_effect=Exception("cache get error")))
+            result = await decorator.execute(session, arguments)
+
+        # Проверяем, что wrapped.execute() был вызван (fallback)
+        mock_executor.execute.assert_called_once()
+        assert result.success is True
+        assert result.output == "rpc content"
