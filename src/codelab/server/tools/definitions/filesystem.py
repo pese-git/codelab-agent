@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.tools.base import ToolDefinition
+from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
@@ -136,7 +136,7 @@ class FileSystemToolDefinitions:
             executor: Executor для выполнения операций с файлами
         """
         # Создать обработчик для чтения файлов
-        async def read_handler(session: SessionState, **arguments: Any) -> Any:
+        async def read_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для fs/read_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "read"
@@ -146,7 +146,7 @@ class FileSystemToolDefinitions:
             return await executor.execute(session, arguments)
 
         # Создать обработчик для записи файлов
-        async def write_handler(session: SessionState, **arguments: Any) -> Any:
+        async def write_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для fs/write_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "write"

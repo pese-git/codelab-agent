@@ -14,8 +14,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from codelab.server.agent.base import AgentResponse
     from codelab.server.protocol.state import SessionState
+
+    OnDelta = Callable[[str], Awaitable[None]]
 
 
 @runtime_checkable
@@ -41,6 +45,8 @@ class LLMCallStrategy(Protocol):
         session: SessionState,
         prompt: str | None,
         mcp_manager: Any | None = None,
+        *,
+        on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Выполнить вызов LLM с начальным prompt.
 
@@ -61,6 +67,8 @@ class LLMCallStrategy(Protocol):
         self,
         session: SessionState,
         mcp_manager: Any | None = None,
+        *,
+        on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Продолжить выполнение после tool_results.
 

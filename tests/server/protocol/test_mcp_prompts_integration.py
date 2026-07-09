@@ -17,7 +17,6 @@ from codelab.server.mcp.models import (
     MCPPrompt,
     MCPPromptArgument,
 )
-from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.handlers.slash_commands import (
     CommandRegistry,
     SlashCommandRouter,
@@ -25,14 +24,9 @@ from codelab.server.protocol.handlers.slash_commands import (
 from codelab.server.protocol.handlers.slash_commands.builtin.mcp_prompt import (
     MCPPromptCommandHandler,
 )
+from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.session_runtime import SessionRuntimeState
 from codelab.server.protocol.state import SessionState
-
-
-@pytest.fixture
-def mock_storage() -> AsyncMock:
-    """Создаёт mock storage."""
-    return AsyncMock()
 
 
 @pytest.fixture
@@ -42,11 +36,11 @@ def mock_runtime_registry() -> AsyncMock:
 
 
 @pytest.fixture
-def protocol(mock_storage: AsyncMock, mock_runtime_registry: AsyncMock) -> ACPProtocol:
-    """Создаёт ACPProtocol с mock зависимостями."""
-    return ACPProtocol(
-        storage=mock_storage,
+def manager(mock_runtime_registry: AsyncMock) -> MCPSessionManager:
+    """Создаёт MCPSessionManager с mock зависимостями."""
+    return MCPSessionManager(
         runtime_registry=mock_runtime_registry,
+        tool_registry=None,
     )
 
 
@@ -72,7 +66,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
     @pytest.mark.asyncio
     async def test_registers_prompts_in_runtime_registry(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
         runtime_state: SessionRuntimeState,
     ) -> None:
@@ -90,9 +84,9 @@ class TestRegisterMcpPromptsAsSlashCommands:
         })
 
         # Настраиваем runtime registry чтобы возвращал runtime_state
-        protocol._runtime_registry.get = AsyncMock(return_value=runtime_state)
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
-        await protocol._register_mcp_prompts_as_slash_commands(
+        await manager._register_mcp_prompts_as_slash_commands(
             session, mock_manager, "test_server"
         )
 
@@ -107,7 +101,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
     @pytest.mark.asyncio
     async def test_adds_prompts_to_available_commands(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Добавляет MCP prompts в session_state.available_commands."""
@@ -118,7 +112,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
             ],
         })
 
-        await protocol._register_mcp_prompts_as_slash_commands(
+        await manager._register_mcp_prompts_as_slash_commands(
             session, mock_manager, "test_server"
         )
 
@@ -133,14 +127,14 @@ class TestRegisterMcpPromptsAsSlashCommands:
     @pytest.mark.asyncio
     async def test_handles_empty_prompts(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Обрабатывает случай без prompts."""
         mock_manager = MagicMock()
         mock_manager.get_all_prompts = AsyncMock(return_value={"test_server": []})
 
-        await protocol._register_mcp_prompts_as_slash_commands(
+        await manager._register_mcp_prompts_as_slash_commands(
             session, mock_manager, "test_server"
         )
 
@@ -149,14 +143,14 @@ class TestRegisterMcpPromptsAsSlashCommands:
     @pytest.mark.asyncio
     async def test_handles_missing_server(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Обрабатывает случай когда сервер не найден в prompts."""
         mock_manager = MagicMock()
         mock_manager.get_all_prompts = AsyncMock(return_value={"other_server": []})
 
-        await protocol._register_mcp_prompts_as_slash_commands(
+        await manager._register_mcp_prompts_as_slash_commands(
             session, mock_manager, "test_server"
         )
 
@@ -165,7 +159,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
     @pytest.mark.asyncio
     async def test_handles_error_gracefully(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Обрабатывает ошибки при получении prompts без прерывания."""
@@ -173,7 +167,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
         mock_manager.get_all_prompts = AsyncMock(side_effect=Exception("Connection failed"))
 
         # Не должно выбрасывать исключение
-        await protocol._register_mcp_prompts_as_slash_commands(
+        await manager._register_mcp_prompts_as_slash_commands(
             session, mock_manager, "test_server"
         )
 
@@ -257,7 +251,7 @@ class TestInitializeMcpServersWithPrompts:
     @pytest.mark.asyncio
     async def test_calls_register_prompts_after_add_server(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Вызывает _register_mcp_prompts_as_slash_commands после add_server."""
@@ -269,21 +263,25 @@ class TestInitializeMcpServersWithPrompts:
         mock_manager.get_all_prompts = AsyncMock(return_value={})
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
+        mock_manager.register_prompt_change_callback = MagicMock()
 
         with (
-            patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager),
+            patch(
+                "codelab.server.protocol.mcp_session_manager.MCPManager",
+                return_value=mock_manager,
+            ),
             patch.object(
-                protocol, "_register_mcp_prompts_as_slash_commands", new_callable=AsyncMock
+                manager, "_register_mcp_prompts_as_slash_commands", new_callable=AsyncMock
             ) as mock_register,
         ):
-            await protocol._initialize_mcp_servers(session, mcp_servers)
+            await manager._initialize_mcp_servers(session, mcp_servers)
 
             mock_register.assert_called_once_with(session, mock_manager, "test")
 
     @pytest.mark.asyncio
     async def test_includes_prompts_in_available_commands_update(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Включает MCP prompts в available_commands_update."""
@@ -292,10 +290,10 @@ class TestInitializeMcpServersWithPrompts:
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
         # Мокаем зависимости
         mock_manager = MagicMock()
@@ -304,17 +302,21 @@ class TestInitializeMcpServersWithPrompts:
         mock_manager.get_all_tools = MagicMock(return_value=[])
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
+        mock_manager.register_prompt_change_callback = MagicMock()
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
         with (
-            patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager),
+            patch(
+                "codelab.server.protocol.mcp_session_manager.MCPManager",
+                return_value=mock_manager,
+            ),
             patch.object(
-                protocol, "_register_mcp_prompts_as_slash_commands", new_callable=AsyncMock
+                manager, "_register_mcp_prompts_as_slash_commands", new_callable=AsyncMock
             ),
         ):
-            await protocol._initialize_mcp_servers(session, mcp_servers=[])
+            await manager._initialize_mcp_servers(session, mcp_servers=[])
 
         # Проверяем что available_commands_update включает slash commands
         # (в реальном тесте нужно проверить содержимое отправленных сообщений)
@@ -326,7 +328,7 @@ class TestRestoreMcpPrompts:
     @pytest.mark.asyncio
     async def test_restores_prompts_from_configured_servers(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
         runtime_state: SessionRuntimeState,
     ) -> None:
@@ -345,9 +347,9 @@ class TestRestoreMcpPrompts:
         })
 
         # Настраиваем runtime registry
-        protocol._runtime_registry.get = AsyncMock(return_value=runtime_state)
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
-        await protocol._restore_mcp_prompts(session, mock_manager)
+        await manager._restore_mcp_prompts(session, mock_manager)
 
         # get_all_prompts() должен вызваться один раз
         assert mock_manager.get_all_prompts.call_count == 1
@@ -360,7 +362,7 @@ class TestRestoreMcpPrompts:
     @pytest.mark.asyncio
     async def test_skips_invalid_server_configs(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
         runtime_state: SessionRuntimeState,
     ) -> None:
@@ -378,9 +380,9 @@ class TestRestoreMcpPrompts:
         })
 
         # Настраиваем runtime registry
-        protocol._runtime_registry.get = AsyncMock(return_value=runtime_state)
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
-        await protocol._restore_mcp_prompts(session, mock_manager)
+        await manager._restore_mcp_prompts(session, mock_manager)
 
         # Только один валидный сервер — один handler
         assert "valid_prompt" in runtime_state.mcp_prompt_handlers
@@ -389,7 +391,7 @@ class TestRestoreMcpPrompts:
     @pytest.mark.asyncio
     async def test_clears_old_mcp_prompts_before_restore(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
         runtime_state: SessionRuntimeState,
     ) -> None:
@@ -410,9 +412,9 @@ class TestRestoreMcpPrompts:
         })
 
         # Настраиваем runtime registry
-        protocol._runtime_registry.get = AsyncMock(return_value=runtime_state)
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
-        await protocol._restore_mcp_prompts(session, mock_manager)
+        await manager._restore_mcp_prompts(session, mock_manager)
 
         # Старые MCP prompts удалены из runtime
         assert "old_prompt" not in runtime_state.mcp_prompt_handlers
@@ -428,12 +430,12 @@ class TestRestoreMcpPrompts:
 
 
 class TestEnsureMcpInitializedWithRestore:
-    """Тесты для _ensure_mcp_initialized с восстановлением prompts."""
+    """Тесты для ensure_initialized с восстановлением prompts."""
 
     @pytest.mark.asyncio
     async def test_restores_prompts_when_handlers_empty(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Восстанавливает prompts если runtime.mcp_prompt_handlers пуст."""
@@ -444,12 +446,12 @@ class TestEnsureMcpInitializedWithRestore:
         mock_runtime.mcp_manager = mock_manager
         mock_runtime.mcp_prompt_handlers = {}  # Пустые handlers
 
-        protocol._runtime_registry.get = AsyncMock(return_value=mock_runtime)
+        manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
         with patch.object(
-            protocol, "_restore_mcp_prompts", new_callable=AsyncMock
+            manager, "_restore_mcp_prompts", new_callable=AsyncMock
         ) as mock_restore:
-            result = await protocol._ensure_mcp_initialized(session)
+            result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
             mock_restore.assert_called_once_with(session, mock_manager)
@@ -457,7 +459,7 @@ class TestEnsureMcpInitializedWithRestore:
     @pytest.mark.asyncio
     async def test_does_not_restore_when_handlers_exist(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Не восстанавливает prompts если handlers уже есть в runtime."""
@@ -468,12 +470,12 @@ class TestEnsureMcpInitializedWithRestore:
         mock_runtime.mcp_manager = mock_manager
         mock_runtime.mcp_prompt_handlers = {"existing": MagicMock()}  # Handlers есть
 
-        protocol._runtime_registry.get = AsyncMock(return_value=mock_runtime)
+        manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
         with patch.object(
-            protocol, "_restore_mcp_prompts", new_callable=AsyncMock
+            manager, "_restore_mcp_prompts", new_callable=AsyncMock
         ) as mock_restore:
-            result = await protocol._ensure_mcp_initialized(session)
+            result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
             mock_restore.assert_not_called()
@@ -481,7 +483,7 @@ class TestEnsureMcpInitializedWithRestore:
     @pytest.mark.asyncio
     async def test_does_not_restore_when_no_mcp_servers(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Не восстанавливает prompts если нет mcp_servers."""
@@ -492,12 +494,12 @@ class TestEnsureMcpInitializedWithRestore:
         mock_runtime.mcp_manager = mock_manager
         mock_runtime.mcp_prompt_handlers = {}
 
-        protocol._runtime_registry.get = AsyncMock(return_value=mock_runtime)
+        manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
         with patch.object(
-            protocol, "_restore_mcp_prompts", new_callable=AsyncMock
+            manager, "_restore_mcp_prompts", new_callable=AsyncMock
         ) as mock_restore:
-            result = await protocol._ensure_mcp_initialized(session)
+            result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
             mock_restore.assert_not_called()
@@ -531,12 +533,12 @@ class TestSessionStateMcpPromptHandlers:
 
 
 class TestSendAvailableCommandsUpdate:
-    """Тесты для метода _send_available_commands_update."""
+    """Тесты для метода send_available_commands_update."""
 
     @pytest.mark.asyncio
     async def test_combines_native_and_mcp_tools(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Объединяет native tools, MCP tools и slash commands."""
@@ -549,8 +551,8 @@ class TestSendAvailableCommandsUpdate:
             parameters={},
             kind="other",
         )
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[native_tool])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[native_tool])
 
         # Mock MCP tools
         mcp_tool = ToolDefinition(
@@ -567,12 +569,12 @@ class TestSendAvailableCommandsUpdate:
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
-        await protocol._send_available_commands_update(session, mock_manager)
+        await manager.send_available_commands_update(session, mock_manager)
 
         assert len(sent_messages) == 1
         notification = sent_messages[0]
@@ -589,24 +591,24 @@ class TestSendAvailableCommandsUpdate:
     @pytest.mark.asyncio
     async def test_sends_correct_notification_format(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Формат notification соответствует ACP спецификации."""
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
         mock_manager = MagicMock()
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
-        await protocol._send_available_commands_update(session, mock_manager)
+        await manager.send_available_commands_update(session, mock_manager)
 
         assert len(sent_messages) == 1
         notification = sent_messages[0]
@@ -624,23 +626,23 @@ class TestSendAvailableCommandsUpdate:
     @pytest.mark.asyncio
     async def test_handles_send_error_gracefully(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Ошибка отправки не ломает работу."""
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
         mock_manager = MagicMock()
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
-        async def failing_send(msg):
+        async def failing_send(msg, session_id=None):
             raise RuntimeError("Connection lost")
 
-        protocol._send_message = failing_send
+        manager._send_message = failing_send
 
         # Не должно выбрасывать исключение
-        await protocol._send_available_commands_update(session, mock_manager)
+        await manager.send_available_commands_update(session, mock_manager)
 
 
 class TestMcpPromptChangeCallback:
@@ -649,7 +651,7 @@ class TestMcpPromptChangeCallback:
     @pytest.mark.asyncio
     async def test_callback_registered_on_init(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
     ) -> None:
         """Callback регистрируется при инициализации MCP серверов."""
@@ -663,18 +665,21 @@ class TestMcpPromptChangeCallback:
         mock_manager.register_server_status_callback = MagicMock()
         mock_manager.register_prompt_change_callback = MagicMock()
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager):
-            await protocol._initialize_mcp_servers(session, mcp_servers)
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mock_manager,
+        ):
+            await manager._initialize_mcp_servers(session, mcp_servers)
 
         mock_manager.register_prompt_change_callback.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_clears_old_mcp_prompts(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
         runtime_state: SessionRuntimeState,
     ) -> None:
@@ -688,31 +693,37 @@ class TestMcpPromptChangeCallback:
         session.mcp_servers = [{"name": "test", "command": "cmd"}]
 
         mock_manager = MagicMock()
+        mock_manager.add_server = AsyncMock(return_value=[])
         mock_manager.get_all_prompts = AsyncMock(return_value={
             "test": [MCPPrompt(name="new_prompt", description="New")],
         })
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
         # Настраиваем runtime registry
-        protocol._runtime_registry.get = AsyncMock(return_value=runtime_state)
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
         # Получаем callback и вызываем его
+        mock_manager.register_tool_change_callback = MagicMock()
+        mock_manager.register_server_status_callback = MagicMock()
         mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
             mock_manager, "_prompt_callback", cb
         ))
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager):
-            await protocol._initialize_mcp_servers(
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mock_manager,
+        ):
+            await manager._initialize_mcp_servers(
                 session, [{"name": "test", "command": "cmd"}]
             )
 
@@ -729,8 +740,9 @@ class TestMcpPromptChangeCallback:
     @pytest.mark.asyncio
     async def test_preserves_builtin_commands(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
+        runtime_state: SessionRuntimeState,
     ) -> None:
         """Built-in команды (status, mode, help) сохраняются."""
         session.available_commands = [
@@ -743,25 +755,34 @@ class TestMcpPromptChangeCallback:
         session.mcp_servers = [{"name": "test", "command": "cmd"}]
 
         mock_manager = MagicMock()
+        mock_manager.add_server = AsyncMock(return_value=[])
         mock_manager.get_all_prompts = AsyncMock(return_value={})
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
+
+        # Настраиваем runtime registry
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
+        mock_manager.register_tool_change_callback = MagicMock()
+        mock_manager.register_server_status_callback = MagicMock()
         mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
             mock_manager, "_prompt_callback", cb
         ))
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager):
-            await protocol._initialize_mcp_servers(
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mock_manager,
+        ):
+            await manager._initialize_mcp_servers(
                 session, [{"name": "test", "command": "cmd"}]
             )
 
@@ -780,34 +801,44 @@ class TestMcpPromptChangeCallback:
     @pytest.mark.asyncio
     async def test_sends_available_commands_update(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
+        runtime_state: SessionRuntimeState,
     ) -> None:
         """После изменения prompts отправляется available_commands_update."""
         session.mcp_servers = [{"name": "test", "command": "cmd"}]
 
         mock_manager = MagicMock()
+        mock_manager.add_server = AsyncMock(return_value=[])
         mock_manager.get_all_prompts = AsyncMock(return_value={
             "test": [MCPPrompt(name="new_prompt", description="New prompt")],
         })
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
+
+        # Настраиваем runtime registry
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
         sent_messages = []
 
-        async def mock_send(msg):
+        async def mock_send(msg, session_id=None):
             sent_messages.append(msg)
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
+        mock_manager.register_tool_change_callback = MagicMock()
+        mock_manager.register_server_status_callback = MagicMock()
         mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
             mock_manager, "_prompt_callback", cb
         ))
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager):
-            await protocol._initialize_mcp_servers(
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mock_manager,
+        ):
+            await manager._initialize_mcp_servers(
                 session, [{"name": "test", "command": "cmd"}]
             )
 
@@ -831,30 +862,39 @@ class TestMcpPromptChangeCallback:
     @pytest.mark.asyncio
     async def test_handles_error_gracefully(
         self,
-        protocol: ACPProtocol,
+        manager: MCPSessionManager,
         session: SessionState,
+        runtime_state: SessionRuntimeState,
     ) -> None:
         """Ошибка в callback не ломает работу."""
         session.mcp_servers = [{"name": "test", "command": "cmd"}]
 
         mock_manager = MagicMock()
+        mock_manager.add_server = AsyncMock(return_value=[])
         mock_manager.get_all_prompts = AsyncMock(side_effect=Exception("Connection failed"))
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
-        protocol._tool_registry = MagicMock()
-        protocol._tool_registry.get_available_tools = MagicMock(return_value=[])
+        manager._tool_registry = MagicMock()
+        manager._tool_registry.get_available_tools = MagicMock(return_value=[])
 
-        async def mock_send(msg):
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
+
+        async def mock_send(msg, session_id=None):
             pass
 
-        protocol._send_message = mock_send
+        manager._send_message = mock_send
 
+        mock_manager.register_tool_change_callback = MagicMock()
+        mock_manager.register_server_status_callback = MagicMock()
         mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
             mock_manager, "_prompt_callback", cb
         ))
 
-        with patch("codelab.server.protocol.core.MCPManager", return_value=mock_manager):
-            await protocol._initialize_mcp_servers(
+        with patch(
+            "codelab.server.protocol.mcp_session_manager.MCPManager",
+            return_value=mock_manager,
+        ):
+            await manager._initialize_mcp_servers(
                 session, [{"name": "test", "command": "cmd"}]
             )
 

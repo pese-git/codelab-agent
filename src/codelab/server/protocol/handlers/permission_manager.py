@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from ...messages import ACPMessage, JsonRpcId
-from ..state import SessionState
+from ..state import SessionState, ToolCallState
 from .tool_policy import decide_tool_policy
 
 # Тип возвращаемого значения для decision
@@ -356,7 +356,7 @@ class PermissionManager:
     def request_tool_permission(
         self,
         session: SessionState,
-        tool_call: Any,
+        tool_call: ToolCallState,
         tool_kind: str,
         session_id: str,
     ) -> JsonRpcId:

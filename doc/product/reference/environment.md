@@ -90,6 +90,33 @@ export CODELAB_LLM_TEMPERATURE=0.3
 export CODELAB_LLM_MAX_TOKENS=16384
 ```
 
+### CODELAB_LLM_STREAMING
+
+Включает токен-стриминг ответа агента. При включении ответ доставляется клиенту дельтами вживую (`agent_message_chunk`), а не одним chunk'ом в конце turn.
+
+**По умолчанию:** `off`
+
+| Значение | Описание |
+|----------|----------|
+| `1`, `true`, `yes`, `on` | Включить стриминг |
+| `0`, `false`, `no`, `off` | Выключить (default) |
+
+```bash
+export CODELAB_LLM_STREAMING=1
+```
+
+> **Примечание:** Реальный эффект — только если провайдер объявил `supports_streaming`. Иначе безопасный фолбэк на single call.
+
+### CODELAB_MOCK_SCENARIO
+
+Путь к JSON-файлу сценария для `ScriptedMockLLMProvider` (конечный автомат для e2e-тестов).
+
+**По умолчанию:** не задано
+
+```bash
+export CODELAB_MOCK_SCENARIO=/path/to/scenario.json
+```
+
 ## Сервер
 
 ### CODELAB_PORT
@@ -157,10 +184,12 @@ export CODELAB_LOG_LEVEL=DEBUG
 | `CODELAB_LLM_MODEL` | `gpt-4o` | Нет |
 | `CODELAB_LLM_TEMPERATURE` | `0.7` | Нет |
 | `CODELAB_LLM_MAX_TOKENS` | `8192` | Нет |
+| `CODELAB_LLM_STREAMING` | `off` | Нет |
 | `CODELAB_PORT` | `8765` | Нет |
 | `CODELAB_HOST` | `127.0.0.1` | Нет |
 | `CODELAB_HOME` | `~/.codelab` | Нет |
 | `CODELAB_LOG_LEVEL` | `INFO` | Нет |
+| `CODELAB_MOCK_SCENARIO` | - | Нет |
 
 \* Обязательна для провайдеров `openai` и `anthropic`
 

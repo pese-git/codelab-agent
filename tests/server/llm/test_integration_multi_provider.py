@@ -27,8 +27,9 @@ from codelab.server.llm.models import (
 )
 from codelab.server.llm.registry import LLMProviderRegistry
 from codelab.server.llm.resolver import ModelResolver
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol import ACPProtocol
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder
 from codelab.server.protocol.state import SessionState
@@ -405,7 +406,7 @@ async def test_e2e_initialize_session_prompt_with_mock_provider() -> None:
     )
     mock_handle_prompt = AsyncMock(return_value=mock_outcome)
 
-    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol = build_protocol(storage=InMemoryStorage())
     protocol._prompt_orchestrator = MagicMock()
     protocol._prompt_orchestrator.handle_prompt = mock_handle_prompt
 

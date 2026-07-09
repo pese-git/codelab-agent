@@ -12,9 +12,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState
 from codelab.server.mcp.models import MCPServerConfig
-from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.handlers import auth
 from codelab.shared.messages import ACPMessage
 
@@ -186,7 +187,7 @@ class TestMCPCapabilitiesConfig:
     @pytest.mark.asyncio
     async def test_default_capabilities_enabled(self) -> None:
         """По умолчанию HTTP и SSE capabilities включены."""
-        protocol = ACPProtocol()
+        protocol = build_protocol()
 
         response = await protocol.handle(
             ACPMessage.request(
@@ -208,7 +209,7 @@ class TestMCPCapabilitiesConfig:
     @pytest.mark.asyncio
     async def test_http_capability_disabled(self) -> None:
         """HTTP capability можно отключить через конфигурацию."""
-        protocol = ACPProtocol(mcp_http_enabled=False)
+        protocol = build_protocol(mcp_http_enabled=False)
 
         response = await protocol.handle(
             ACPMessage.request(
@@ -230,7 +231,7 @@ class TestMCPCapabilitiesConfig:
     @pytest.mark.asyncio
     async def test_sse_capability_disabled(self) -> None:
         """SSE capability можно отключить через конфигурацию."""
-        protocol = ACPProtocol(mcp_sse_enabled=False)
+        protocol = build_protocol(mcp_sse_enabled=False)
 
         response = await protocol.handle(
             ACPMessage.request(
@@ -252,7 +253,7 @@ class TestMCPCapabilitiesConfig:
     @pytest.mark.asyncio
     async def test_both_capabilities_disabled(self) -> None:
         """Оба capability можно отключить через конфигурацию."""
-        protocol = ACPProtocol(mcp_http_enabled=False, mcp_sse_enabled=False)
+        protocol = build_protocol(mcp_http_enabled=False, mcp_sse_enabled=False)
 
         response = await protocol.handle(
             ACPMessage.request(

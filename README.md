@@ -8,7 +8,7 @@ CodeLab — AI-ассистент для разработчиков, котор�
 
 Проект объединяет:
 
-- **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock)
+- **ACP-сервер** — интеллектуальный агент с поддержкой 9+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock, ScriptedMock)
 - **TUI-клиент** — терминальный интерфейс на базе Textual
 - **Web UI** — браузерный интерфейс для удаленной работы
 - **stdio транспорт** — основной транспорт ACP (stdin/stdout JSON-RPC)
@@ -93,16 +93,18 @@ codelab-agent/
 │   │   ├── presentation/   # ViewModels (MVVM, 14 штук)
 │   │   └── tui/            # Textual UI компоненты
 │   ├── server/             # ACP-сервер
-│   │   ├── protocol/       # Обработчики методов ACP + Pipeline
+│   │   ├── protocol/       # ACPProtocol (Facade) + decomposed компоненты
+│   │   │                   # CommandRegistry, ResponseRouter, BackgroundExecutor
+│   │   │                   # MCPSessionManager, ConfigSpecBuilder, NotificationBus
 │   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
 │   │   ├── tools/          # Инструменты (fs, terminal, plan)
 │   │   ├── storage/        # Хранилище сессий
-│   │   ├── llm/            # LLM-провайдеры (8+)
+│   │   ├── llm/            # LLM-провайдеры (9+, включая ScriptedMock)
 │   │   ├── mcp/            # MCP интеграция (Manager, Client, Adapters)
 │   │   └── observability/  # Tracing, Metrics, Timeline
-│   ├── shared/             # Общие модули (messages, logging, content)
+│   ├── shared/             # Общие модули (messages, logging, content, web_ui)
 │   └── cli.py              # CLI точка входа
-├── tests/                  # Тесты (~3300 тестов)
+├── tests/                  # Тесты (~6900 тестов)
 ├── doc/
 │   ├── product/            # Продуктовая документация (для website)
 │   │   ├── overview/       # Введение, архитектура, сценарии
@@ -139,7 +141,7 @@ codelab connect --host localhost --port 8765
 
 ### Web UI
 
-При запуске сервера командой `codelab serve` доступен Web UI на корневом пути `/`:
+При запуске сервера командой `codelab serve` доступен Web UI на корневом пути `/`. Управление Web UI инкапсулировано в `WebUIManager` (`shared/web_ui.py`), который запускает textual-serve subprocess и генерирует HTML responses:
 
 ```bash
 # Запуск сервера с Web UI
@@ -208,6 +210,8 @@ cp .env.example .env
 | `CODELAB_PORT` | Порт сервера | `8765` |
 | `CODELAB_HOST` | Хост сервера | `127.0.0.1` |
 | `CODELAB_LOG_LEVEL` | Уровень логирования | `INFO` |
+| `CODELAB_LLM_STREAMING` | Токен-стриминг ответа агента (дельты вживую) | `off` |
+| `CODELAB_HOME` | Домашняя директория приложения | `~/.codelab` |
 
 ### TOML конфигурация
 
@@ -252,6 +256,7 @@ max_output_tokens = 64000
 | Ollama | `ollama` | `llama3.1:70b`, `mistral` | `http://localhost:11434/v1` |
 | LMStudio | `lmstudio` | local models | `http://localhost:1234/v1` |
 | Mock | `mock` | `mock-model` | N/A |
+| ScriptedMock | `scripted` | scenario-based | N/A (e2e tests) |
 
 ### Fallback система
 
@@ -325,7 +330,7 @@ graph TD
         S[SessionStorage]
         LLM[LLMProvider]
         TR[ToolRegistry]
-        AO[AgentOrchestrator]
+        EE[ExecutionEngine]
         GPS[GlobalPolicyStorage]
         GPM[GlobalPolicyManager]
 
@@ -350,21 +355,31 @@ graph TD
 
         subgraph PromptOrch["PromptOrchestratorProvider"]
             H[ClientRPCServiceHolder]
+            OB[PromptOrchestratorBuilder]
             PO[PromptOrchestrator]
         end
+
+        subgraph Decomposed["Decomposed Components"]
+            RR[ResponseRouter]
+            BE[BackgroundExecutor]
+            MSM[MCPSessionManager]
+            CSB[ConfigSpecBuilder]
+        end
+
+        NB[SessionNotificationBus]
     end
 
     subgraph Request Scope["REQUEST Scope — одно на WS-подключение"]
-        AP[ACPProtocol]
+        AP["ACPProtocol (Facade)"]
     end
 
     CRPC["ClientRPCService\n(создаётся вручную\nв handle_ws_request)"]
 
     %% APP scope dependencies
     CFG -->|from_context| LLM
-    CFG -->|from_context| AO
-    LLM --> AO
-    TR --> AO
+    CFG -->|from_context| EE
+    LLM --> EE
+    TR --> EE
     GPS --> GPM
 
     %% SlashCommands
@@ -399,31 +414,48 @@ graph TD
     GPM --> PO
     CR --> PO
     PP --> PO
+    OB --> PO
 
-    %% ACPProtocol dependencies
+    %% Decomposed components
+    BE --> NB
+    MSM --> NB
+    LL --> NB
+
+    %% ACPProtocol dependencies (Facade)
     S -->|from_context| AP
-    AO --> AP
+    CR --> AP
+    RR --> AP
+    BE --> AP
+    EE --> AP
     TR --> AP
     H -->|holder| AP
     PO --> AP
     CRPC -. "set в holder\nперед REQUEST scope" .-> H
 
+    %% NotificationBus → Transport
+    NB -. "publish" .-> WS[WebSocketTransport]
+    NB -. "publish" .-> STDIO[StdioServerTransport]
+
     classDef app fill:#e1f5fe,stroke:#01579b
     classDef request fill:#f3e5f5,stroke:#4a148c
     classDef group fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
     classDef external fill:#fff3e0,stroke:#e65100,stroke-dasharray: 5 5
-    class CFG,S,LLM,TR,AO,GPS,GPM,SM,PB,TLCM,TCH,PM,CRH,CR,SR,LL,PP,H,PO app
+    classDef decomposed fill:#e8f5e9,stroke:#2e7d32
+    class CFG,S,LLM,TR,EE,GPS,GPM,SM,PB,TLCM,TCH,PM,CRH,CR,SR,LL,PP,H,OB,PO app
     class AP request
     class Managers,SlashCommands,Pipeline,PromptOrch group
+    class RR,BE,MSM,CSB,NB decomposed
     class CRPC external
 ```
 
 ### Как это работает
 
-1. При запуске `codelab serve` создаётся DI-контейнер (`di.make_container`) со всеми APP-зависимостями: менеджеры, pipeline-стадии, провайдеры LLM, инструменты, агент.
-2. `PromptOrchestrator` и `PromptPipeline` создаются один раз в APP scope со всеми зависимостями.
-3. При каждом WebSocket-подключении создаётся `ClientRPCService`, устанавливается в `ClientRPCServiceHolder`, и REQUEST scope получает `ACPProtocol` с уже настроенным holder.
-4. `ClientRPCServiceHolder` — мост между APP и REQUEST scope: сервис обновляется per-request, а `PromptOrchestrator` и `ACPProtocol` используют holder без пересоздания.
+1. При запуске `codelab serve` создаётся DI-контейнер (`di.make_container`) со всеми APP-зависимостями: менеджеры, pipeline-стадии, провайдеры LLM, инструменты, ExecutionEngine, decomposed компоненты.
+2. `PromptOrchestratorBuilder` создаёт `PromptOrchestrator` с 12+ зависимостями.
+3. При каждом WebSocket-подключении создаётся `ClientRPCService`, устанавливается в `ClientRPCServiceHolder`, и REQUEST scope получает `ACPProtocol` (Facade) с уже настроенным holder.
+4. `ACPProtocol` делегирует обработку команд `CommandRegistry`, responses — `ResponseRouter`, фоновые задачи — `BackgroundExecutor`.
+5. `SessionNotificationBus` (Observer pattern) разделяет бизнес-логику и транспорт: компоненты публикуют notifications, транспорт подписывается и доставляет клиенту.
+6. `ClientRPCServiceHolder` — мост между APP и REQUEST scope: сервис обновляется per-request, а `PromptOrchestrator` и `ACPProtocol` используют holder без пересоздания.
 
 ### Транспортный слой
 
@@ -433,8 +465,9 @@ graph TD
 
 | Транспорт | Файл | Особенности |
 |-----------|------|-------------|
-| `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI |
-| `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC |
+| `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI, подписка на NotificationBus |
+| `WebSocketConnection` | `server/transport/websocket_connection.py` | Protocol-абстракция для тестируемости |
+| `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC, подписка на NotificationBus |
 | `StdioRunner` | `server/transport/stdio_runner.py` | Запуск stdio сервера с DI |
 
 ### AgentLoop — унифицированный цикл итераций LLM
@@ -467,6 +500,27 @@ graph TD
 2. `AgentLoop.run()` выполняет цикл итераций: вызов LLM → обработка tool_calls → продолжение.
 3. Цикл завершается при: отсутствии tool_calls (`end_turn`), достижении `max_turn_requests`, отмене (`cancelled`).
 4. При запросе permission цикл приостанавливается и возобновляется через `resume_after_permission()`.
+
+### Токен-стриминг
+
+При включённом флаге `CODELAB_LLM_STREAMING=1` ответ агента доставляется клиенту дельтами вживую (`agent_message_chunk` по мере генерации), а не одним chunk'ом в конце turn.
+
+**Двойной гейт:**
+1. `config.llm.streaming` — глобальный флаг в конфигурации
+2. `provider.supports_streaming` — capability провайдера
+
+Если провайдер не поддерживает streaming — безопасный фолбэк на `_single_call` (без дельт).
+
+```toml
+# codelab.toml
+[llm]
+streaming = true
+```
+
+```bash
+# Или через переменную окружения
+CODELAB_LLM_STREAMING=1 codelab serve
+```
 
 ## Архитектура клиента
 

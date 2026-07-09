@@ -10,8 +10,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from _protocol_factory import build_protocol
+
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.core import ACPProtocol
 from codelab.server.protocol.state import ProtocolOutcome
 from codelab.server.storage import InMemoryStorage
 
@@ -54,7 +55,7 @@ async def test_session_prompt_with_strategy_dispatcher() -> None:
         plan=None,
     ))
 
-    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol = build_protocol(storage=InMemoryStorage())
     protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)
 
     # Act — initialize
@@ -117,7 +118,7 @@ async def test_session_prompt_sets_session_title() -> None:
         plan=None,
     ))
 
-    protocol = ACPProtocol(storage=InMemoryStorage())
+    protocol = build_protocol(storage=InMemoryStorage())
     protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)
 
     # Initialize
@@ -156,8 +157,9 @@ async def test_session_prompt_sets_session_title() -> None:
 @pytest.mark.asyncio
 async def test_acp_protocol_without_prompt_orchestrator() -> None:
     """Тест что ACPProtocol работает без PromptOrchestrator (demo mode)."""
-    protocol = ACPProtocol(storage=InMemoryStorage())
-    assert protocol._prompt_orchestrator is None
+    protocol = build_protocol(storage=InMemoryStorage())
+    # оркестратор строится лениво — заранее его нет
+    assert protocol._assembler._prompt_orchestrator is None
 
     # Initialize должен работать
     init_outcome = await protocol.handle(

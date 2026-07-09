@@ -192,3 +192,8 @@ class CommandRegistry:
     def registered_commands(self) -> list[str]:
         """Возвращает список имён зарегистрированных команд."""
         return list(self._handlers.keys()) + list(self._dynamic_commands.keys())
+
+    @property
+    def builtin_commands(self) -> list[str]:
+        """Возвращает список built-in команд (с handlers, не динамические)."""
+        return list(self._handlers.keys())

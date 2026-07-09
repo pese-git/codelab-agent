@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.tools.base import ToolDefinition
+from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 if TYPE_CHECKING:
     from codelab.server.protocol.state import SessionState
@@ -158,21 +158,21 @@ class TerminalToolDefinitions:
             executor: Executor для выполнения терминальных операций
         """
         # Создать обработчик для создания терминала и запуска команды
-        async def create_handler(session: SessionState, **arguments: Any) -> Any:
+        async def create_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/execute_command (create)."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "create"
             return await executor.execute(session, arguments)
 
         # Создать обработчик для ожидания завершения
-        async def wait_for_exit_handler(session: SessionState, **arguments: Any) -> Any:
+        async def wait_for_exit_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/wait_for_exit."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "wait_for_exit"
             return await executor.execute(session, arguments)
 
         # Создать обработчик для освобождения терминала
-        async def release_handler(session: SessionState, **arguments: Any) -> Any:
+        async def release_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/release_terminal (release)."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "release"

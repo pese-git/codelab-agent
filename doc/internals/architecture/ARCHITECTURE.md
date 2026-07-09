@@ -88,7 +88,14 @@ graph TB
 | **MessageRouter** | Infrastructure | Маршрутизация сообщений | [`src/codelab/client/infrastructure/services/message_router.py`](src/codelab/client/infrastructure/services/message_router.py:26) |
 | **EventBus** | Infrastructure | Pub/Sub система событий | [`src/codelab/client/infrastructure/events/bus.py`](src/codelab/client/infrastructure/events/bus.py) |
 | **StdioClientTransport** | Infrastructure | stdio транспорт (subprocess) | [`src/codelab/client/infrastructure/stdio_transport.py`](src/codelab/client/infrastructure/stdio_transport.py) |
-| **ACPProtocol** | Protocol | Диспетчер методов ACP, `handle_and_process` для фоновых задач | [`src/codelab/server/protocol/core.py`](src/codelab/server/protocol/core.py:39) |
+| **ACPProtocol** | Protocol | Facade: маршрутизация через CommandRegistry, middleware, lifecycle. Делегирует обработку CommandHandler-ам | [`src/codelab/server/protocol/core.py`](src/codelab/server/protocol/core.py:52) |
+| **CommandRegistry** | Protocol | Реестр обработчиков команд (Command Pattern) | [`src/codelab/server/protocol/commands/`](src/codelab/server/protocol/commands/) |
+| **ResponseRouter** | Protocol | Маршрутизация ответов от клиента (permission, client RPC) | [`src/codelab/server/protocol/response_router.py`](src/codelab/server/protocol/response_router.py:27) |
+| **BackgroundExecutor** | Protocol | Фоновое выполнение tools после permission approval, завершение turns | [`src/codelab/server/protocol/background_executor.py`](src/codelab/server/protocol/background_executor.py:30) |
+| **MCPSessionManager** | Protocol | Управление MCP серверами для сессий (init, reconnect, prompts) | [`src/codelab/server/protocol/mcp_session_manager.py`](src/codelab/server/protocol/mcp_session_manager.py:36) |
+| **ConfigSpecBuilder** | Protocol | Построение конфигурационных спецификаций из AgentRegistry, StrategyRegistry, LLMProviderRegistry | [`src/codelab/server/protocol/config_spec_builder.py`](src/codelab/server/protocol/config_spec_builder.py) |
+| **PromptOrchestratorBuilder** | Protocol | Builder для PromptOrchestrator (12+ компонентов) | [`src/codelab/server/protocol/orchestrator_builder.py`](src/codelab/server/protocol/orchestrator_builder.py:19) |
+| **SessionNotificationBus** | Protocol | Per-session Observer: бизнес-логика публикует, транспорт доставляет. Буферизация до подписки | [`src/codelab/server/protocol/notification_bus.py`](src/codelab/server/protocol/notification_bus.py:32) |
 | **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`src/codelab/server/protocol/handlers/`](src/codelab/server/protocol/handlers/) |
 | **PromptPipeline** | Protocol | 7-stage pipeline: Validation → SlashCommand → PlanBuilding → TurnLifecycle(open) → Directives → LLMLoop → TurnLifecycle(close) | [`src/codelab/server/protocol/handlers/pipeline/`](src/codelab/server/protocol/handlers/pipeline/) |
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
@@ -98,7 +105,9 @@ graph TB
 | **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`src/codelab/server/tools/mapping.py`](src/codelab/server/tools/mapping.py) |
 | **MCPManager** | MCP | Управление MCP-серверами (stdio/HTTP/SSE, auto-reconnect, roots) | [`src/codelab/server/mcp/manager.py`](src/codelab/server/mcp/manager.py) |
 | **Storage** | Storage | Persistence для сессий | [`src/codelab/server/storage/`](src/codelab/server/storage/) |
-| **WebSocketTransport** | Transport | WebSocket endpoint | [`src/codelab/server/transport/websocket.py`](src/codelab/server/transport/websocket.py) |
+| **WebSocketTransport** | Transport | WebSocket endpoint, подписка на NotificationBus | [`src/codelab/server/transport/websocket.py`](src/codelab/server/transport/websocket.py) |
+| **WebSocketConnection** | Transport | Protocol-абстракция WebSocket соединения (тестируемость) | [`src/codelab/server/transport/websocket_connection.py`](src/codelab/server/transport/websocket_connection.py:26) |
+| **WebUIManager** | Shared | Управление textual-serve subprocess и HTML generation | [`src/codelab/shared/web_ui.py`](src/codelab/shared/web_ui.py:33) |
 | **StdioServerTransport** | Transport | stdio транспорт (stdin/stdout) | [`src/codelab/server/transport/stdio.py`](src/codelab/server/transport/stdio.py) |
 | **StdioRunner** | Transport | Запуск stdio сервера с DI | [`src/codelab/server/transport/stdio_runner.py`](src/codelab/server/transport/stdio_runner.py) |
 | **Tracer** | Observability | Distributed tracing | [`src/codelab/server/observability/tracer.py`](src/codelab/server/observability/tracer.py) |
@@ -323,17 +332,31 @@ graph LR
         WS["WebSocket<br/>Endpoint"]
         STDIO["stdio<br/>stdin/stdout"]
         Base["AcpServerTransport<br/>Protocol Interface"]
+        WSConn["WebSocketConnection<br/>Protocol Abstraction"]
     end
     
-    subgraph Protocol["Protocol Layer"]
-        Core["ACPProtocol"]
-        Handlers["Handlers<br/>auth / session / prompt"]
+    subgraph Protocol["Protocol Layer (Facade)"]
+        Core["ACPProtocol<br/>(Facade ~400 LOC)"]
+        CmdReg["CommandRegistry<br/>(Command Pattern)"]
+        RespRouter["ResponseRouter<br/>(response routing)"]
+        BgExec["BackgroundExecutor<br/>(async tool execution)"]
+        NotifBus["SessionNotificationBus<br/>(Observer pattern)"]
+    end
+    
+    subgraph Components["Decomposed Components"]
+        MCPSessMgr["MCPSessionManager<br/>(MCP lifecycle)"]
+        ConfigSpec["ConfigSpecBuilder<br/>(config specs)"]
+        OrchBuilder["PromptOrchestratorBuilder<br/>(Builder pattern)"]
+    end
+    
+    subgraph Handlers["Handlers"]
+        HandlersDir["auth / session / prompt<br/>/ permissions / config"]
         Pipeline["PromptPipeline<br/>7 stages"]
         PromptOrch["PromptOrchestrator<br/>(Главный координатор)"]
     end
     
     subgraph Processing["Processing"]
-        AgentLoop["AgentLoop<br/>LLM итерации"]
+        AgentLoop["AgentLoop<br/>LLM итерации + streaming"]
         Engine["ExecutionEngine<br/>HistoryBuilder + ToolFilter + LLMAdapter"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
         Executors["Executors<br/>FS / Terminal / Plan / MCP"]
@@ -362,11 +385,14 @@ graph LR
         ClientRPCService["ClientRPCService<br/>Асинхронные вызовы"]
     end
     
-    WS --> Base
+    WS --> WSConn --> Base
     STDIO --> Base
     Base --> Core
-    Core --> Handlers
-    Handlers --> Pipeline
+    Core --> CmdReg
+    Core --> RespRouter
+    Core --> BgExec
+    CmdReg --> HandlersDir
+    HandlersDir --> Pipeline
     Pipeline --> PromptOrch
     PromptOrch --> AgentLoop
     AgentLoop --> Engine
@@ -379,6 +405,16 @@ graph LR
     Executors --> ClientRPCService
     ClientRPCService --> Base
     
+    MCPSessMgr --> NotifBus
+    BgExec --> NotifBus
+    AgentLoop --> NotifBus
+    NotifBus --> WS
+    NotifBus --> STDIO
+    
+    MCPSessMgr --> MCPMgr
+    OrchBuilder --> PromptOrch
+    ConfigSpec --> CmdReg
+    
     Core --> SessionStore
     SessionStore --> InMem
     SessionStore --> JsonFile
@@ -390,11 +426,13 @@ graph LR
     
     style Transport fill:#fff3e0
     style Protocol fill:#f3e5f5
+    style Components fill:#e8eaf6
+    style Handlers fill:#fce4ec
     style Processing fill:#e8f5e9
     style MCP fill:#e0f7fa
     style Persistence fill:#e0f2f1
-    style Observability fill:#fce4ec
-    style RPC fill:#f1f8e9
+    style Observability fill:#f1f8e9
+    style RPC fill:#fff9c4
 ```
 
 ### codelab-client: Clean Architecture в 5 слоев
@@ -551,16 +589,19 @@ sequenceDiagram
 sequenceDiagram
     participant Client
     participant HttpServer
-    participant ACPProtocol
+    participant ACP as ACPProtocol (Facade)
+    participant CmdReg as CommandRegistry
     participant PromptOrch as PromptOrchestrator
     participant Agent as ExecutionEngine
     participant Tools as ToolRegistry
+    participant NotifBus as SessionNotificationBus
     participant ClientRPC as ClientRPCService
 
     Client->>HttpServer: session/prompt request
-    HttpServer->>ACPProtocol: handle(message)
+    HttpServer->>ACP: handle(message)
     
-    ACPProtocol->>PromptOrch: process_prompt_turn(session_id, text)
+    ACP->>CmdReg: dispatch(method="session/prompt")
+    CmdReg->>PromptOrch: process_prompt_turn(session_id, text)
     
     PromptOrch->>PromptOrch: 1. Валидация и preprocessing
     
@@ -569,15 +610,22 @@ sequenceDiagram
     Agent->>Tools: Получает доступные tools
     Agent->>Agent: Вызывает LLM
     
+    alt Streaming enabled (CODELAB_LLM_STREAMING=1)
+        Agent->>NotifBus: publish(agent_message_chunk) для каждой дельты
+        NotifBus->>Client: Живая доставка дельт
+    end
+    
     Agent->>Tools: 3. Выполнение tool calls
     Tools->>ClientRPC: Запрос инструмента (fs/*, terminal/*)
     ClientRPC->>Client: RPC вызов (fs/readTextFile и т.д.)
     Client->>ClientRPC: Результат инструмента
     
-    PromptOrch->>PromptOrch: 4. Обновление session/history
-    PromptOrch->>PromptOrch: 5. Отправка session/update
+    Agent->>NotifBus: publish(tool_call_update, plan_update, ...)
+    NotifBus->>Client: Доставка notifications
     
-    HttpServer->>Client: Итоговый результат
+    PromptOrch->>PromptOrch: 4. Обновление session/history
+    
+    HttpServer->>Client: Итоговый результат (response)
 ```
 
 ### 3. Обработка permission request на клиенте
@@ -712,8 +760,9 @@ class AcpServerTransport(Protocol):
 
 | Транспорт | Файл | Особенности |
 |-----------|------|-------------|
-| `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI |
-| `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC |
+| `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI, подписка на NotificationBus |
+| `WebSocketConnection` | `server/transport/websocket_connection.py` | Protocol-абстракция для тестируемости |
+| `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC, подписка на NotificationBus |
 
 **Ключевые детали stdio сервера:**
 
@@ -755,6 +804,111 @@ class Transport(Protocol):
 | **stderr reader** | Background task → логирование |
 | **Graceful shutdown** | Close stdin → wait 5s → kill if needed |
 | **Process exit** | Если процесс завершился → error при `receive_text()` |
+
+---
+
+## SessionNotificationBus
+
+### Архитектура Observer для доставки notifications
+
+`SessionNotificationBus` — per-session шина, разделяющая бизнес-логику и транспорт. Компоненты публикуют notifications в шину, транспорт подписывается и доставляет сообщения клиенту.
+
+```mermaid
+graph LR
+    subgraph Publishers["Бизнес-логика (Publishers)"]
+        MCPSessMgr["MCPSessionManager"]
+        BgExec["BackgroundExecutor"]
+        AgentLoop["AgentLoop"]
+    end
+    
+    subgraph Bus["SessionNotificationBus"]
+        Publish["publish()"]
+        Subscribe["subscribe()"]
+        Buffer["buffer (до подписки)"]
+        ClearBuf["clear_buffer() (reconnect)"]
+    end
+    
+    subgraph Subscribers["Транспорт (Subscribers)"]
+        WS["WebSocketTransport"]
+        STDIO["StdioServerTransport"]
+    end
+    
+    MCPSessMgr -->|publish| Bus
+    BgExec -->|publish| Bus
+    AgentLoop -->|publish| Bus
+    Bus -->|deliver| WS
+    Bus -->|deliver| STDIO
+    
+    style Publishers fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    style Bus fill:#e8eaf6,stroke:#283593,stroke-width:2px
+    style Subscribers fill:#fff3e0,stroke:#e65100,stroke-width:2px
+```
+
+**Ключевые особенности:**
+
+| Аспект | Решение |
+|--------|---------|
+| **Буферизация** | Сообщения буферизуются до подписки транспорта |
+| **Реконнект** | `clear_buffer()` на `session/load` — реплей истории авторитетен |
+| **Двойная доставка** | Исключена: `outcome.notifications` пуст для turn'а |
+| **Порядок** | `bus.publish` awaited внутри turn → inline доставка |
+| **Отписка** | Автоматическая при закрытии соединения |
+
+**Применённые паттерны:** Observer, Publisher-Subscriber.
+
+---
+
+## Токен-стриминг
+
+### Живая доставка дельт ответа (CODELAB_LLM_STREAMING)
+
+При включённом флаге `CODELAB_LLM_STREAMING=1` ответ агента доставляется клиенту дельтами вживую (`agent_message_chunk` по мере генерации), а не одним chunk'ом в конце turn.
+
+```mermaid
+sequenceDiagram
+    participant Agent as AgentLoop
+    participant LLM as LLMAdapter
+    participant Provider as LLM Provider
+    participant NotifBus as NotificationBus
+    participant Client
+
+    Agent->>LLM: stream_completion(messages, tools)
+    
+    loop Streaming (пока провайдер генерирует)
+        Provider-->>LLM: delta (text chunk)
+        LLM-->>Agent: on_delta(text)
+        Agent->>NotifBus: publish(agent_message_chunk)
+        NotifBus->>Client: Живая доставка дельты
+    end
+    
+    Provider-->>LLM: finish (tool_calls, usage)
+    LLM-->>Agent: CompletionResponse (полный)
+    
+    alt Были дельты
+        Note over Agent: Полный текст НЕ эмитится повторно
+    else Не было дельт (fallback)
+        Agent->>NotifBus: publish(agent_message_chunk) полный текст
+        NotifBus->>Client: Доставка
+    end
+```
+
+**Двойной гейт:**
+1. `config.llm.streaming` (в `AgentLoop`) — глобальный флаг
+2. `provider.supports_streaming` (в `LLMAdapter`) — capability провайдера
+
+Если провайдер не поддерживает streaming — безопасный фолбэк на `_single_call` (без дельт).
+
+**Конфигурация:**
+
+| Опция | Значения | По умолчанию | Описание |
+|-------|----------|--------------|----------|
+| `CODELAB_LLM_STREAMING` | `1`, `true`, `yes`, `on` | `off` | Включить токен-стриминг |
+
+**TOML:**
+```toml
+[llm]
+streaming = true
+```
 
 ---
 
@@ -1065,33 +1219,44 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph Protocol["ACPProtocol (transport-agnostic)"]
+    subgraph Protocol["ACPProtocol (Facade, transport-agnostic)"]
         Handle["handle(message) → outcome"]
-        HandleAndProcess["handle_and_process(message)\n→ handle() + background tasks"]
-        BackgroundTool["_execute_tool_in_background()\n(фоновая задача)"]
-        SendCallback["_send_callback()\n(отправка из фона)"]
+        CmdReg["CommandRegistry<br/>(Command Pattern)"]
+        RespRouter["ResponseRouter<br/>(response routing)"]
+        BgExec["BackgroundExecutor<br/>(async tool execution)"]
+    end
+    
+    subgraph NotifBus["SessionNotificationBus (Observer)"]
+        Publish["publish(notification)"]
+        Subscribe["subscribe(callback)"]
+        Buffer["buffer до подписки"]
     end
     
     subgraph Transports["Transport Implementations"]
-        WS["WebSocketTransport\naiohttp WebSocket"]
-        STDIO["StdioServerTransport\nstdin/stdout"]
+        WSConn["WebSocketConnection<br/>(Protocol abstraction)"]
+        WS["WebSocketTransport<br/>aiohttp WebSocket + subscribe(bus)"]
+        STDIO["StdioServerTransport<br/>stdin/stdout + subscribe(bus)"]
     end
     
-    WS --> HandleAndProcess
-    STDIO --> HandleAndProcess
-    HandleAndProcess --> Handle
-    HandleAndProcess --> BackgroundTool
-    BackgroundTool --> SendCallback
-    SendCallback --> WS
-    SendCallback --> STDIO
+    WS --> Handle
+    STDIO --> Handle
+    Handle --> CmdReg
+    Handle --> RespRouter
+    BgExec --> Publish
+    Publish --> Subscribe
+    Subscribe --> WS
+    Subscribe --> STDIO
+    WS --> WSConn
     
     style Protocol fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    style NotifBus fill:#e8eaf6,stroke:#283593,stroke-width:2px
     style Transports fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style HandleAndProcess fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
 ```
 
 **Преимущества:**
-- ✅ Единая бизнес-логика для всех транспортов
+- ✅ Единая бизнес-логика для всех транспортов (Facade pattern)
+- ✅ Декомпозиция: CommandRegistry, ResponseRouter, BackgroundExecutor — тестируются независимо
+- ✅ SessionNotificationBus разделяет бизнес-логику и транспорт (Observer pattern)
 - ✅ Локальный режим использует stdio (соответствует spec ACP)
 - ✅ `codelab serve --stdio` для интеграции с IDE plugins
 - ✅ Изолированный процесс сервера в local mode

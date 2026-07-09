@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -19,13 +20,18 @@ from codelab.server.agent.contracts.base import (
     AgentRegistered,
     AgentRequest,
     AgentResponse,
+    AgentResult,
     AgentUnregistered,
     BroadcastPartialFailure,
     ChoreographyAnswer,
     ContextBroadcast,
 )
 from codelab.server.agent.event_bus.abstract import AbstractEventBus, Handler, Subscription
-from codelab.server.agent.event_bus.routing import AgentRoutingInterface, RequestHandler
+from codelab.server.agent.event_bus.routing import (
+    AgentRoutingInterface,
+    RequestHandler,
+    StreamingRequestHandler,
+)
 
 if TYPE_CHECKING:
     from codelab.server.agent.contracts.base import DomainEvent
@@ -65,6 +71,7 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
     def __init__(self, retry_config: RetryConfig | None = None) -> None:
         self._subscribers: dict[type[DomainEvent], list[tuple[Handler, bool]]] = {}
         self._agents: dict[str, RequestHandler] = {}
+        self._stream_agents: dict[str, StreamingRequestHandler] = {}
         self._retry_config = retry_config or RetryConfig()
 
     # ─────────────────────────────────────────────
@@ -126,9 +133,16 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
     # AgentRoutingInterface implementation
     # ─────────────────────────────────────────────
 
-    async def register_agent(self, agent_name: str, handler: RequestHandler) -> None:
+    async def register_agent(
+        self,
+        agent_name: str,
+        handler: RequestHandler,
+        stream_handler: StreamingRequestHandler | None = None,
+    ) -> None:
         """Зарегистрировать обработчик для агента."""
         self._agents[agent_name] = handler
+        if stream_handler is not None:
+            self._stream_agents[agent_name] = stream_handler
         logger.info("Registered agent: %s", agent_name)
         await self.publish(AgentRegistered(agent_name=agent_name))
 
@@ -139,6 +153,7 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
             return
 
         del self._agents[agent_name]
+        self._stream_agents.pop(agent_name, None)
         logger.info("Unregistered agent: %s", agent_name)
         await self.publish(AgentUnregistered(agent_name=agent_name))
 
@@ -188,6 +203,56 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
         raise AgentDispatchError(
             f"Failed to dispatch to '{target}' after {self._retry_config.max_attempts} attempts"
         ) from last_error
+
+    async def send_request_streaming(
+        self,
+        request: AgentRequest,
+        parent_span: SpanContext | None = None,
+    ) -> AsyncGenerator[str | AgentResponse, None]:
+        """Отправить запрос со стримингом ответа.
+
+        Контракт генератора:
+        - промежуточные элементы — str (текстовые дельты);
+        - последний элемент — AgentResponse (финал).
+
+        Если у агента нет зарегистрированного stream_handler — деградирует
+        к send_request(): дельт нет, отдаётся только финальный AgentResponse.
+        Retry применяется только к нестриминговому фолбэку; стриминговый путь
+        не ретраится (частично доставленные дельты нельзя переиграть).
+        """
+        target = request.target_agent
+        if target not in self._agents:
+            raise AgentNotFoundError(f"Agent '{target}' is not registered")
+
+        stream_handler = self._stream_agents.get(target)
+        if stream_handler is None:
+            # Фолбэк: стриминг не поддержан агентом — один финальный ответ.
+            yield await self.send_request(request, parent_span)
+            return
+
+        final_result: AgentResult | None = None
+        async for item in stream_handler(request, parent_span):
+            if isinstance(item, AgentResult):
+                final_result = item
+            else:
+                yield item
+
+        if final_result is None:
+            raise AgentDispatchError(
+                f"Streaming handler for '{target}' did not yield a final AgentResult"
+            )
+
+        response = AgentResponse(
+            request_id=request.correlation_id,
+            text=final_result.text,
+            tool_calls=final_result.tool_calls,
+            usage=final_result.usage,
+            stop_reason=final_result.stop_reason,
+            agent_name=final_result.agent_name,
+            session_id=request.session_id,
+        )
+        await self.publish(response)
+        yield response
 
     async def broadcast(
         self,

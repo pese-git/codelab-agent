@@ -6,8 +6,78 @@
 
 ## [Unreleased]
 
-### Added
-- **Audio валидация в prompt (ACP compliance)**: Добавлена валидация audio контента согласно ACP спецификации
+### Added — ACP Protocol Refactoring (feature/acp-ref)
+
+#### Декомпозиция ACPProtocol (God Object → Facade + 6 компонентов)
+- **ACPProtocol** сокращён с 2190 до ~400 LOC — теперь Facade, делегирующий обработку:
+  - `CommandRegistry` — Command Pattern: реестр обработчиков команд
+  - `ResponseRouter` — маршрутизация permission и client RPC responses
+  - `BackgroundExecutor` — фоновое выполнение tools, завершение turns
+  - `MCPSessionManager` — MCP lifecycle per session (init, reconnect, prompts)
+  - `ConfigSpecBuilder` — построение config specs из AgentRegistry, StrategyRegistry, LLMProviderRegistry
+  - `PromptOrchestratorBuilder` — Builder для PromptOrchestrator (12+ компонентов)
+- Применённые паттерны: Facade, Command, Builder, Strategy, Chain of Responsibility, Observer
+- Файлы: `protocol/core.py`, `protocol/notification_bus.py`, `protocol/response_router.py`, `protocol/background_executor.py`, `protocol/mcp_session_manager.py`, `protocol/config_spec_builder.py`, `protocol/orchestrator_builder.py`
+
+#### SessionNotificationBus (Observer pattern)
+- Per-session шина: бизнес-логика публикует notifications, транспорт доставляет
+- Буферизация сообщений до подписки транспорта
+- `clear_buffer()` на `session/load` — реплей истории авторитетен, предотвращает двойную доставку
+- Inline-доставка при наличии подписчиков
+- Файл: `protocol/notification_bus.py`
+
+#### Токен-стриминг (CODELAB_LLM_STREAMING)
+- Живая доставка дельт ответа (`agent_message_chunk` по мере генерации)
+- Двойной гейт: `config.llm.streaming` AND `provider.supports_streaming`
+- Безопасный фолбэк на `_single_call` если провайдер без streaming
+- `stream_completion` переписан: сборка `tool_calls` из дельт, `finish_reason`, `usage`
+- Флаг: `CODELAB_LLM_STREAMING` (default off)
+- Файлы: `agent/llm_adapter.py`, `protocol/handlers/pipeline/stages/agent_loop.py`, `llm/providers/openai_compatible.py`
+
+#### WebSocket абстракция
+- `WebSocketConnection` Protocol + `AiohttpWebSocketConnection` адаптер
+- Улучшена тестируемость WebSocketTransport
+- Файл: `transport/websocket_connection.py`
+
+#### WebUIManager
+- Извлечён из `http_server.py` (558 → ~200 LOC)
+- Перенесён в `shared/web_ui.py` для избежания server→client зависимости
+- Управление textual-serve subprocess и HTML generation
+- Файл: `shared/web_ui.py`
+
+#### ScriptedMockLLMProvider
+- Сценарный mock-провайдер (конечный автомат) для e2e-тестов
+- Сценарий через env `CODELAB_MOCK_SCENARIO` (JSON)
+- Подстановка `${terminal_id}` из tool-результатов
+- Файл: `llm/scripted_mock.py`
+
+#### Дефолтный primary-агент
+- `AgentRegistry` авто-регистрирует встроенного primary-агента если ни одного не определено
+- `agents.default_model` теперь `None` по умолчанию, выводится из `config.llm` как `"provider/model"`
+- Единая цепочка: `CODELAB_LLM_*` → `agents.default_model` → модель агента
+
+#### CODELAB_HOME полная поддержка
+- Все захардкоженные `Path.home()/.codelab` переведены на `resolve_codelab_home()`
+- Полное изолирование глобального состояния: конфиг, auth, агенты, политики, история, TUI
+
+#### Типизация
+- ~20 замен `Any` на конкретные типы: `MCPManager`, `ToolCallState`, `SessionState`, callback-типы
+- Все импорты через `TYPE_CHECKING` для избежания circular dependencies
+
+#### Тестовая инфраструктура
+- `agent_flow_harness.py` (597 LOC) — общий каркас e2e-тестов (stdio + ws)
+- E2E-тесты: flow с разрешениями, multi-tool, plan mode, MCP, auth, multimodal, негативные ветки
+- ~3,896 тестов passing
+
+### Fixed
+- **stream_completion**: корректная сборка `tool_calls` из дельт, `finish_reason`, `usage`
+- **Race condition** при shutdown MCP серверов в `manager.py`
+- **TimeoutError** `'Task exception was never retrieved'` в `acp_transport_service.py`
+- **Missing handlers** для `available_commands_update` и `session_info_update`
+- **Валидация content-блоков** `session/prompt` (ACP -32602)
+- **Legacy notification** `session/mode_changed` удалён
+
+### Audio валидация в prompt (ACP compliance): Добавлена валидация audio контента согласно ACP спецификации
   - Константа `MAX_AUDIO_DATA_SIZE` (25 MB) для ограничения размера audio данных
   - Валидация обязательных полей: `data` (str) и `mimeType` (str)
   - Проверка размера данных с возвратом стандартизированной ошибки

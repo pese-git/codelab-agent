@@ -33,6 +33,7 @@ CodeLab поддерживает два формата конфигурации:
 |-------|----------|--------------|----------|
 | `CODELAB_LLM_PROVIDER` | `openai`, `anthropic`, `openrouter`, `zen`, `go`, `ollama`, `lmstudio`, `mock` | `mock` | Тип LLM провайдера |
 | `CODELAB_LLM_MODEL` | `provider/model` | `mock/mock-model` | Модель в формате `"provider/model"` |
+| `CODELAB_LLM_STREAMING` | `1`, `true`, `yes`, `on` | `off` | Токен-стриминг ответа агента (дельты вживую) |
 
 ### Аутентификация
 
@@ -94,7 +95,7 @@ pool = 30.0
 |-------|--------------|----------|
 | `CODELAB_AGENTS_STRATEGY` | `single` | Стратегия выполнения: `single`, `multi_orchestrated`, `hierarchical` |
 | `CODELAB_AGENTS_FALLBACK_STRATEGY` | `single` | Fallback стратегия если нет нужных агентов |
-| `CODELAB_AGENTS_DEFAULT_MODEL` | `openai/gpt-4o` | Модель по умолчанию для агентов |
+| `CODELAB_AGENTS_DEFAULT_MODEL` | `provider/model` | _(выводится из `CODELAB_LLM_PROVIDER`/`CODELAB_LLM_MODEL`)_ | Модель по умолчанию для агентов. Явное значение переопределя derivation |
 | `CODELAB_AGENTS_MAX_STEPS` | `7` | Максимальное количество шагов мультиагентного выполнения |
 
 ### TOML секция `[agents]`
@@ -103,7 +104,8 @@ pool = 30.0
 [agents]
 strategy = "single"
 fallback_strategy = "single"
-default_model = "openai/gpt-4o"
+# default_model выводится из [llm] если не задан явно
+# default_model = "openai/gpt-4o"
 max_steps = 7
 debug = false
 
@@ -252,6 +254,7 @@ provider = "openai"
 model = "openai/gpt-4o"
 temperature = 0.7
 max_tokens = 8192
+streaming = false
 
 [llm.providers.openai]
 api_key = "${OPENAI_API_KEY}"

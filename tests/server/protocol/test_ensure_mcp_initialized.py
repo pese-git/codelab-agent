@@ -1,4 +1,4 @@
-"""Тесты для _ensure_mcp_initialized — defensive MCP re-initialization.
+"""Тесты для MCPSessionManager.ensure_initialized — defensive MCP re-initialization.
 
 Проверяют:
 - Возврат mcp_manager если уже инициализирован
@@ -13,14 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.core import ACPProtocol
+from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.state import SessionState
-
-
-@pytest.fixture
-def mock_storage() -> AsyncMock:
-    """Создаёт mock storage."""
-    return AsyncMock()
 
 
 @pytest.fixture
@@ -30,17 +24,17 @@ def mock_runtime_registry() -> AsyncMock:
 
 
 @pytest.fixture
-def protocol(mock_storage: AsyncMock, mock_runtime_registry: AsyncMock) -> ACPProtocol:
-    """Создаёт ACPProtocol с mock зависимостями."""
-    return ACPProtocol(
-        storage=mock_storage,
+def manager(mock_runtime_registry: AsyncMock) -> MCPSessionManager:
+    """Создаёт MCPSessionManager с mock зависимостями."""
+    return MCPSessionManager(
         runtime_registry=mock_runtime_registry,
+        tool_registry=MagicMock(),
     )
 
 
 @pytest.mark.asyncio
 async def test_ensure_mcp_returns_existing_manager(
-    protocol: ACPProtocol,
+    manager: MCPSessionManager,
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Возвращает существующий mcp_manager без переинициализации."""
@@ -51,7 +45,7 @@ async def test_ensure_mcp_returns_existing_manager(
     mock_runtime.mcp_manager = mock_manager
     mock_runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
-    result = await protocol._ensure_mcp_initialized(session)
+    result = await manager.ensure_initialized(session)
 
     assert result is mock_manager
     # _initialize_mcp_servers не должен вызываться
@@ -60,7 +54,7 @@ async def test_ensure_mcp_returns_existing_manager(
 
 @pytest.mark.asyncio
 async def test_ensure_mcp_reinitializes_when_missing(
-    protocol: ACPProtocol,
+    manager: MCPSessionManager,
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Переинициализирует MCP если mcp_manager отсутствует но есть mcp_servers."""
@@ -80,17 +74,17 @@ async def test_ensure_mcp_reinitializes_when_missing(
     mock_runtime_registry.get = AsyncMock(side_effect=[None, mock_runtime])
 
     # Мокаем _initialize_mcp_servers
-    protocol._initialize_mcp_servers = AsyncMock()
+    manager._initialize_mcp_servers = AsyncMock()
 
-    result = await protocol._ensure_mcp_initialized(session)
+    result = await manager.ensure_initialized(session)
 
     assert result is mock_manager
-    protocol._initialize_mcp_servers.assert_called_once_with(session, mcp_servers)
+    manager._initialize_mcp_servers.assert_called_once_with(session, mcp_servers)
 
 
 @pytest.mark.asyncio
 async def test_ensure_mcp_returns_none_when_no_config(
-    protocol: ACPProtocol,
+    manager: MCPSessionManager,
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Возвращает None если нет ни mcp_manager ни mcp_servers."""
@@ -98,17 +92,18 @@ async def test_ensure_mcp_returns_none_when_no_config(
 
     mock_runtime_registry.get = AsyncMock(return_value=None)
 
-    result = await protocol._ensure_mcp_initialized(session)
+    # _initialize_mcp_servers не должен вызываться
+    manager._initialize_mcp_servers = AsyncMock()
+
+    result = await manager.ensure_initialized(session)
 
     assert result is None
-    # _initialize_mcp_servers не должен вызываться
-    protocol._initialize_mcp_servers = AsyncMock()
-    protocol._initialize_mcp_servers.assert_not_called()
+    manager._initialize_mcp_servers.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_ensure_mcp_reinit_calls_initialize(
-    protocol: ACPProtocol,
+    manager: MCPSessionManager,
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Вызывает _initialize_mcp_servers при переинициализации."""
@@ -124,9 +119,9 @@ async def test_ensure_mcp_reinit_calls_initialize(
     mock_runtime.mcp_manager = mock_manager
 
     mock_runtime_registry.get = AsyncMock(side_effect=[None, mock_runtime])
-    protocol._initialize_mcp_servers = AsyncMock()
+    manager._initialize_mcp_servers = AsyncMock()
 
-    await protocol._ensure_mcp_initialized(session)
+    await manager.ensure_initialized(session)
 
     # Проверить что _initialize_mcp_servers был вызван с правильными аргументами
-    protocol._initialize_mcp_servers.assert_called_once_with(session, mcp_servers)
+    manager._initialize_mcp_servers.assert_called_once_with(session, mcp_servers)

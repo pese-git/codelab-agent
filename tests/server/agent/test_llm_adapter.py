@@ -529,3 +529,65 @@ class TestCancelMethods:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+async def _agen(items):
+    for item in items:
+        yield item
+
+
+class TestStreamingHandler:
+    """Тесты стриминг-handler'а адаптера (_handle_request_streaming)."""
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_text_deltas_then_agent_result(
+        self, adapter, mock_llm_provider
+    ):
+        """Дельты провайдера → str-дельты, финал → AgentResult с полными данными."""
+        from codelab.server.agent.contracts.base import AgentResult
+
+        chunks = [
+            CompletionResponse(text="Hel", stop_reason=StopReason.STREAMING),
+            CompletionResponse(text="lo", stop_reason=StopReason.STREAMING),
+            CompletionResponse(
+                text="Hello", stop_reason=StopReason.END_TURN,
+                usage={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+            ),
+        ]
+        mock_llm_provider.stream_completion = lambda request: _agen(chunks)
+
+        request = AgentRequest(target_agent="test_adapter", session_id="s1")
+        items = [item async for item in adapter._handle_request_streaming(request)]
+
+        deltas = [i for i in items if isinstance(i, str)]
+        final = items[-1]
+        assert deltas == ["Hel", "lo"]
+        assert isinstance(final, AgentResult)
+        assert final.text == "Hello"
+        assert final.stop_reason == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_stream_assembles_tool_calls_in_final(
+        self, adapter, mock_llm_provider
+    ):
+        """tool_calls из финального chunk'а попадают в AgentResult."""
+        from codelab.server.agent.contracts.base import AgentResult
+
+        chunks = [
+            CompletionResponse(
+                text="",
+                tool_calls=[LLMToolCall(id="c1", name="read", arguments={"p": "a"})],
+                stop_reason=StopReason.TOOL_USE,
+            ),
+        ]
+        mock_llm_provider.stream_completion = lambda request: _agen(chunks)
+
+        request = AgentRequest(target_agent="test_adapter", session_id="s1")
+        items = [item async for item in adapter._handle_request_streaming(request)]
+
+        final = items[-1]
+        assert isinstance(final, AgentResult)
+        assert final.stop_reason == "tool_use"
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].name == "read"
+        assert final.tool_calls[0].arguments == {"p": "a"}

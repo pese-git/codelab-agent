@@ -22,6 +22,7 @@ from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
     from codelab.server.agent.context_compactor import ContextCompactor
+    from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
 
@@ -61,7 +62,7 @@ class ExecutionEngine:
         session: SessionState,
         prompt: str,
         system_prompt: str | None = None,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
         content_parts: list[Any] | None = None,
     ) -> AgentContext:
         """Собрать AgentContext из сессии и промпта.
@@ -138,7 +139,7 @@ class ExecutionEngine:
     async def build_continuation_context(
         self,
         session: SessionState,
-        mcp_manager: Any | None = None,
+        mcp_manager: MCPManager | None = None,
     ) -> ContinuationContext:
         """Собрать ContinuationContext для продолжения после tool_results.
 
