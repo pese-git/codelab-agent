@@ -303,7 +303,7 @@ class DefaultContextManager(ContextManager):
 
         # Сохранить TaskProfile для /context profile
         if self._metrics_tracker is not None:
-            session_metrics = self._metrics_tracker.get_metrics(str(session_id))
+            session_metrics = self._metrics_tracker.get_or_create_metrics(str(session_id))
             session_metrics.last_task_profile = {
                 "task_type": str(profile.task_type),
                 "search_terms": list(profile.search_terms),

@@ -327,6 +327,20 @@ class MetricsTracker:
             session_id, SessionMetrics(session_id=session_id)
         )
 
+    def get_or_create_metrics(self, session_id: str) -> SessionMetrics:
+        """Получить или создать метрики сессии с сохранением.
+
+        Используется для записи метрик, когда нужно напрямую
+        модифицировать поля (например, last_task_profile).
+
+        Args:
+            session_id: ID сессии.
+
+        Returns:
+            SessionMetrics (существующий или новый сохранённый).
+        """
+        return self._get_or_create(session_id)
+
     def subscribe_to_bus(self, bus: AbstractEventBus) -> None:
         """Подписаться на EventBus для автосбора метрик."""
         from codelab.server.agent.contracts.base import (

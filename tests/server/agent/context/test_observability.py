@@ -165,6 +165,57 @@ class TestContextMetrics:
         assert loaded.last_task_profile["task_type"] == "bug_fix"
         assert loaded.last_task_profile["needs_tests"] is True
 
+    def test_get_metrics_does_not_persist(self):
+        """get_metrics() не создаёт объект — read-only семантика."""
+        tracker = MetricsTracker()
+        
+        # get_metrics для несуществующей сессии
+        metrics = tracker.get_metrics("nonexistent")
+        assert metrics.session_id == "nonexistent"
+        
+        # Модифицируем полученный объект
+        metrics.last_task_profile = {"task_type": "test"}
+        
+        # Получаем снова — модификация потеряна
+        metrics_again = tracker.get_metrics("nonexistent")
+        assert metrics_again.last_task_profile is None
+
+    def test_get_or_create_metrics_persists(self):
+        """get_or_create_metrics() создаёт и сохраняет объект."""
+        tracker = MetricsTracker()
+        
+        # get_or_create_metrics для несуществующей сессии
+        metrics = tracker.get_or_create_metrics("new-session")
+        metrics.last_task_profile = {"task_type": "feature"}
+        
+        # Получаем через get_metrics — модификация сохранена
+        loaded = tracker.get_metrics("new-session")
+        assert loaded.last_task_profile is not None
+        assert loaded.last_task_profile["task_type"] == "feature"
+
+    def test_last_task_profile_persisted_via_get_or_create(self):
+        """last_task_profile сохраняется при использовании get_or_create_metrics."""
+        tracker = MetricsTracker()
+        
+        # Симулируем поведение manager.py с get_or_create_metrics
+        session_metrics = tracker.get_or_create_metrics("s1")
+        session_metrics.last_task_profile = {
+            "task_type": "architecture",
+            "search_terms": ["lib", "main.dart"],
+            "target_modules": ["lib/main.dart"],
+            "investigation_depth": 3,
+            "needs_tests": False,
+        }
+        
+        # Затем record_context_build (как в manager.py)
+        tracker.record_context_build(100.0, 5, 1000, 200, "s1")
+        
+        # Проверяем через get_metrics (как делает /context profile)
+        loaded = tracker.get_metrics("s1")
+        assert loaded.last_task_profile is not None
+        assert loaded.last_task_profile["task_type"] == "architecture"
+        assert loaded.context_build_count == 1
+
 
 class TestContextBuildTracing:
     """Тесты span трейсинга context.build."""
