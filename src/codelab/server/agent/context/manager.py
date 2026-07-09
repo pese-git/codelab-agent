@@ -325,6 +325,7 @@ class DefaultContextManager(ContextManager):
         gather_ms = 0.0
         gathered_file_paths: list[str] = []
         gathered_file_tokens: list[int] = []
+        candidate_count = 0
 
         is_reusing_registry = (
             incremental
@@ -360,6 +361,7 @@ class DefaultContextManager(ContextManager):
                 gathered_files_count = len(items)
                 gathered_file_paths = [item.id for item in items]
                 gathered_file_tokens = [item.token_count for item in items]
+                candidate_count = gatherer.last_candidate_count
                 gather_ms = (time.time() - gather_start) * 1000
 
                 logger.info(
@@ -465,6 +467,7 @@ class DefaultContextManager(ContextManager):
                 task_type=str(profile.task_type),
                 file_paths=gathered_file_paths,
                 file_tokens=gathered_file_tokens,
+                candidate_count=candidate_count,
                 stage_timings=stage_timings,
                 graph_stats=ctx.dependency_graph.get_stats(),
                 fingerprint=baseline_fingerprint,
