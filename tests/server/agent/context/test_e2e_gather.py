@@ -147,6 +147,39 @@ class TestContextGathererE2E:
         assert any("user" in p for p in paths)
 
     @pytest.mark.asyncio
+    async def test_gather_exposes_candidate_count(self):
+        """Gatherer экспортирует число уникальных кандидатов до отбора по бюджету."""
+        files = {
+            "src/auth.py": "def authenticate(): pass",
+            "src/user.py": "class User: pass",
+            "src/main.py": "def main(): pass",
+        }
+        tool_registry = MockToolRegistry(files)
+        dep_graph = RegexDependencyGraph()
+
+        gatherer = ACPContextGatherer(
+            tool_registry=tool_registry,
+            dependency_graph=dep_graph,
+            session_id="test_session",
+        )
+        assert gatherer.last_candidate_count == 0
+
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["auth", "user"],
+            target_modules=[],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+        session = _make_session("test_session", file_paths=list(files.keys()))
+
+        items = await gatherer.gather(profile, session)
+
+        # Кандидатов не меньше, чем отобранных файлов, и больше нуля.
+        assert gatherer.last_candidate_count > 0
+        assert gatherer.last_candidate_count >= len(items)
+
+    @pytest.mark.asyncio
     async def test_gather_respects_max_files(self):
         """Gatherer должен уважать лимит max_files."""
         files = {f"src/file{i}.py": f"content {i}" for i in range(20)}

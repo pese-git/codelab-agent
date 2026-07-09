@@ -70,6 +70,9 @@ class ACPContextGatherer(ContextGatherer):
         self._dependency_graph = dependency_graph
         self._session_id = session_id
         self._tracer = tracer
+        # Число уникальных кандидатов последней сборки (до отбора по бюджету).
+        # Экспортируется для наблюдаемости (/context last).
+        self.last_candidate_count = 0
 
     async def gather(
         self,
@@ -201,6 +204,9 @@ class ACPContextGatherer(ContextGatherer):
                 count=len(fallback_files),
                 files=fallback_files[:10],
             )
+
+        # Число уникальных кандидатов до отбора по бюджету (для /context last).
+        self.last_candidate_count = len(unique_candidates)
 
         # Этап 4: Чтение файлов и построение графа зависимостей
         read_start = time.time()

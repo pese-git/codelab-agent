@@ -196,8 +196,8 @@ Slash-команда `/context` предоставляет интерфейс д
 |------------|----------|-----------------|------|
 | `/context` | Расширенная сводка метрик: Контекст (сборки, файлы, токены), LLM (calls, input/output tokens), Агент (responses, errors) | `SessionMetrics` | Phase 1 |
 | `/context config` | Полная конфигурация `ContextConfig` с budget allocation в токенах, runtime overrides | `ContextConfig`, `session.config_values` | Phase 1 |
-| `/context last` | Детали последней сборки: stage timings (extract, analyze, gather, baseline, tail, fingerprint), task_type, fingerprint, candidate vs selected files, tokens | `context_build_details` (debug mode) | Phase 1 |
-| `/context files` | Список собранных файлов с токенами на файл, общее количество токенов и файлов | `context_build_details["file_paths"]` | Phase 1 |
+| `/context last` | Детали последней сборки: stage timings (extract, analyze, gather, baseline, tail, fingerprint), task_type, fingerprint, candidate vs selected files, tokens | `context_build_details` | Phase 1 |
+| `/context files` | Список собранных файлов с токенами на файл, общее количество токенов и файлов | `context_build_details["file_paths"]` + `["file_tokens"]` | Phase 1 |
 | `/context graph` | Статистика графа зависимостей: files_in_graph, total_dependencies, total_dependents, project_files_cached | `DependencyGraph.get_stats()` | Phase 1 |
 | `/context profile` | Последний профиль задачи: task_type, search_terms, target_modules, investigation_depth, needs_tests | `SessionMetrics.last_task_profile` | Phase 1 |
 | `/context spans` | Последние 10 трассировочных span'ов (context.build, context.gather) | `Tracer.get_completed_spans()` | Phase 1 |
@@ -205,14 +205,14 @@ Slash-команда `/context` предоставляет интерфейс д
 
 ### 5.2. Требования к данным
 
-- `/context last`, `/context files` требуют `metrics_tracker.debug=True` для сохранения расширенных данных в `context_build_details`. Без debug mode выводится сообщение "Детали недоступны. Включите debug mode: `--observability-debug`"
+- `/context last`, `/context files` используют расширенные данные из `context_build_details`, которые сохраняются **всегда** (не требуют debug mode). Без сборок выводится "Детали недоступны. Сборок контекста ещё не было."
 - `/context graph` требует инициализированного `DependencyGraph` (после первой сборки). Без сборок выводится "Граф зависимостей не инициализирован"
 - `/context profile` требует сохранения `TaskProfile` в `SessionMetrics.last_task_profile` после `TaskAnalyzer.analyze()`. Без сборок выводится "Профиль задачи недоступен"
 - `/context config` всегда доступен — данные берутся из `ContextConfig` (инжектируется через DI) и `session.config_values` (runtime overrides)
 
-### 5.3. Расширенные метрики в debug mode
+### 5.3. Расширенные метрики сборки
 
-При `metrics_tracker.debug=True` `record_context_build()` сохраняет расширенные данные в `context_build_details`:
+`record_context_build()` всегда сохраняет расширенные данные в `context_build_details` (не требуют debug mode):
 
 | Поле | Тип | Описание |
 |------|-----|----------|
@@ -222,9 +222,11 @@ Slash-команда `/context` предоставляет интерфейс д
 | `tail_tokens` | int | Токены tail |
 | `task_type` | str | Тип задачи из `TaskProfile` |
 | `file_paths` | list[str] | Пути собранных файлов |
-| `candidate_count` | int | Количество кандидатов до отбора |
+| `file_tokens` | list[int] | Токены на файл (параллельно `file_paths`) |
+| `candidate_count` | int | Количество уникальных кандидатов до отбора по бюджету |
 | `stage_timings` | dict[str, float] | Длительность стадий: extract, analyze, gather, baseline, tail, fingerprint |
 | `graph_stats` | dict[str, int] | Статистика графа: files_in_graph, total_dependencies, total_dependents, project_files_cached |
+| `fingerprint` | str | Fingerprint baseline последней сборки |
 | `timestamp` | float | Время сборки (time.time()) |
 
 ### 5.4. Формат вывода

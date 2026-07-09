@@ -194,6 +194,7 @@ class DefaultContextManager(ContextManager):
         gathered_files_count = 0
         gathered_items: list[ContextItem] = []
         gather_ms = 0.0
+        candidate_count = 0
 
         if system_prompt:
             baseline.append(LLMMessage(role="system", content=system_prompt))
@@ -221,6 +222,7 @@ class DefaultContextManager(ContextManager):
             items = await gatherer.gather(profile, session, options=options)
             gathered_items = items
             gathered_files_count = len(items)
+            candidate_count = gatherer.last_candidate_count
             gather_ms = (time.time() - gather_start) * 1000
 
             logger.info(
@@ -346,6 +348,7 @@ class DefaultContextManager(ContextManager):
                 task_type=str(profile.task_type),
                 file_paths=file_paths,
                 file_tokens=file_tokens,
+                candidate_count=candidate_count,
                 stage_timings=stage_timings,
                 graph_stats=graph_stats,
                 fingerprint=baseline_fingerprint,
