@@ -480,7 +480,13 @@ class ContextCommandHandler(CommandHandler):
                 content=[
                     {
                         "type": "text",
-                        "text": "📭 Нет span'ов контекста для этой сессии.",
+                        "text": (
+                            "📭 Нет span'ов контекста для этой сессии.\n\n"
+                            "Возможные причины:\n"
+                            "• Context Manager не выполнял сборки (нет LLM-вызовов)\n"
+                            "• Span'ы были экспортированы и очищены из памяти\n"
+                            "• Observability отключён в конфигурации"
+                        ),
                     }
                 ]
             )

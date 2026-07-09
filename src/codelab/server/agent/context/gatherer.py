@@ -128,20 +128,27 @@ class ACPContextGatherer(ContextGatherer):
 
         # Этап 1: Сбор кандидатов из target_modules с адаптивным поиском
         candidates: list[str] = []
+        
+        # Получаем корень проекта для нормализации путей
+        project_root = getattr(session, "cwd", None)
 
         if profile.target_modules:
             for module in profile.target_modules:
+                # Нормализуем путь модуля
+                normalized_module = self._normalize_path(module, project_root)
+                
                 # Проверяем существование файла в реальной структуре
-                if module in project_files:
-                    candidates.append(module)
+                if normalized_module in project_files:
+                    candidates.append(normalized_module)
                 else:
                     # Fallback: ищем похожие файлы
-                    similar = self._find_similar_files(module, project_files)
+                    similar = self._find_similar_files(normalized_module, project_files)
                     candidates.extend(similar)
                     logger.info(
                         "context.gather.target_module.fallback",
                         session_id=self._session_id,
                         original=module,
+                        normalized=normalized_module,
                         found_count=len(similar),
                         found=similar[:5],
                     )
@@ -439,12 +446,18 @@ class ACPContextGatherer(ContextGatherer):
 
         config_values = getattr(session, "config_values", {}) or {}
         structure_json = config_values.get("project_structure")
+        project_root = getattr(session, "cwd", None)
 
         if structure_json:
             try:
                 raw_files = json.loads(structure_json)
                 if isinstance(raw_files, list):
-                    filtered = self._filter_paths([str(f) for f in raw_files])
+                    # Нормализуем все пути относительно корня проекта
+                    normalized_files = [
+                        self._normalize_path(str(f), project_root) 
+                        for f in raw_files
+                    ]
+                    filtered = self._filter_paths(normalized_files)
                     self._dependency_graph.set_project_files(filtered)
                     logger.info(
                         "context.gather.project_files.from_session",
@@ -521,7 +534,12 @@ class ACPContextGatherer(ContextGatherer):
                 return []
 
             raw_files = self._parse_find_output(wait_result.output)
-            filtered = self._filter_paths(raw_files)
+            project_root = getattr(session, "cwd", None)
+            # Нормализуем пути относительно корня проекта
+            normalized_files = [
+                self._normalize_path(f, project_root) for f in raw_files
+            ]
+            filtered = self._filter_paths(normalized_files)
 
             if filtered:
                 self._dependency_graph.set_project_files(filtered)
@@ -612,6 +630,54 @@ class ACPContextGatherer(ContextGatherer):
             if line:
                 paths.append(line)
         return paths
+
+    @staticmethod
+    def _normalize_path(path: str, project_root: str | None = None) -> str:
+        """Нормализовать путь к относительному формату.
+
+        Удаляет абсолютные пути, приводя их к относительным от корня проекта.
+        Убирает префиксы ./, заменяет \\ на /.
+
+        Args:
+            path: Путь для нормализации
+            project_root: Корень проекта (опционально)
+
+        Returns:
+            Нормализованный относительный путь
+        """
+        if not path:
+            return ""
+
+        # Заменяем backslash на forward slash
+        normalized = path.replace("\\", "/").strip()
+
+        # Убираем префикс ./
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+
+        # Если путь абсолютный, пытаемся сделать его относительным
+        if normalized.startswith("/"):
+            if project_root:
+                # Убираем project_root из начала пути
+                project_root_normalized = project_root.replace("\\", "/").rstrip("/")
+                if normalized.startswith(project_root_normalized + "/"):
+                    normalized = normalized[len(project_root_normalized) + 1:]
+                elif normalized.startswith(project_root_normalized):
+                    normalized = normalized[len(project_root_normalized):]
+            # Если не удалось сделать относительным, берем только последнюю часть
+            # Это fallback для случаев, когда project_root не совпадает
+            if normalized.startswith("/"):
+                # Берем только имя файла или последние компоненты пути
+                parts = normalized.split("/")
+                # Ищем первые осмысленные компоненты (не корень /)
+                meaningful_parts = [p for p in parts if p]
+                if len(meaningful_parts) >= 2:
+                    # Берем последние 2-3 компонента (например, lib/main.dart)
+                    normalized = "/".join(meaningful_parts[-2:])
+                elif meaningful_parts:
+                    normalized = meaningful_parts[-1]
+
+        return normalized
 
     @staticmethod
     def _filter_paths(paths: list[str]) -> list[str]:
