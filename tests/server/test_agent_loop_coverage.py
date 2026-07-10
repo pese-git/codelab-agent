@@ -129,9 +129,7 @@ class TestAgentLoopResume:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(_LOGGER_PATH) as mock_logger:
-            result = await loop.resume_after_permission(
-                mock_session, "test_session", "tc_1"
-            )
+            result = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_strategy.select_strategy.assert_called_once()
@@ -238,9 +236,7 @@ class TestAgentLoopToolProcessing:
 
         assert result.stop_reason == StopReason.END_TURN
         mock_logger.warning.assert_called_once()
-        assert "tool_result_content_validation_failed" in str(
-            mock_logger.warning.call_args
-        )
+        assert "tool_result_content_validation_failed" in str(mock_logger.warning.call_args)
 
 
 class TestAgentLoopExecutePendingTool:
@@ -259,9 +255,7 @@ class TestAgentLoopExecutePendingTool:
         mock_session.tool_calls = {"tc_1": state}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(
-            mock_session, "test_session", "tc_1", None
-        )
+        result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
 
         assert result is None
 
@@ -285,9 +279,7 @@ class TestAgentLoopExecutePendingTool:
             "codelab.server.protocol.handlers.pipeline.stages.agent_loop.MCPToolExecutor.is_mcp_tool",
             return_value=True,
         ):
-            result = await loop._execute_pending_tool(
-                mock_session, "test_session", "tc_1", None
-            )
+            result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
 
         assert isinstance(result, ToolResult)
         assert result.success is False
@@ -318,15 +310,11 @@ class TestAgentLoopExecutePendingTool:
         mock_dependencies["content_extractor"].extract_from_result.return_value = extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(
-            mock_session, "test_session", "tc_1", None
-        )
+        result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
 
         assert isinstance(result, ToolResult)
         assert result.success is False
         assert result.error == "execution failed"
-        update_call = mock_dependencies[
-            "tool_call_handler"
-        ].update_tool_call_status.call_args
+        update_call = mock_dependencies["tool_call_handler"].update_tool_call_status.call_args
         assert update_call is not None
         assert update_call.kwargs.get("content") is not None

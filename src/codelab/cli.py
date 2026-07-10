@@ -140,7 +140,7 @@ def main() -> None:
     """Главная точка входа CLI.
 
     Парсит аргументы командной строки и запускает соответствующий режим.
-    
+
     Загрузка переменных окружения (порядок приоритета, от низкого к высокому):
     1. ~/.codelab/config/.env (глобальные настройки)
     2. .env в текущей директории (локальный проект)
@@ -151,10 +151,10 @@ def main() -> None:
     home_env = CODELAB_HOME / "config" / ".env"
     if home_env.exists():
         load_dotenv(home_env)
-    
+
     # Локальный .env перезаписывает глобальный (override=True)
     load_dotenv(override=True)
-    
+
     parser = argparse.ArgumentParser(
         prog="codelab",
         description="CodeLab - AI-powered coding assistant",
@@ -275,9 +275,7 @@ def main() -> None:
 
     # Для stdio режима: настраиваем логирование в stderr ДО ensure_home_directory(),
     # чтобы логи не попадали в stdout (который используется для JSON-RPC)
-    is_stdio_mode = (
-        args.command == "serve" and getattr(args, "stdio", False)
-    )
+    is_stdio_mode = args.command == "serve" and getattr(args, "stdio", False)
     if is_stdio_mode:
         from codelab.shared.logging import setup_logging
 

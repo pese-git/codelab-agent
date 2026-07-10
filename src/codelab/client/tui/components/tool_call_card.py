@@ -56,12 +56,12 @@ STATUS_ICONS: dict[ToolCallStatus, str] = {
 
 class ToolCallCard(Static):
     """Карточка для отображения отдельного tool call.
-    
+
     Показывает информацию о вызове инструмента с возможностью
     раскрытия деталей (параметры, результат).
-    
+
     Интегрируется с ChatViewModel для получения обновлений статуса.
-    
+
     Пример использования:
         >>> card = ToolCallCard(
         ...     tool_call_id="call_123",
@@ -74,10 +74,10 @@ class ToolCallCard(Static):
     # Сообщение о клике на карточку
     class Selected(Message):
         """Событие выбора карточки."""
-        
+
         def __init__(self, card: ToolCallCard) -> None:
             """Создать событие выбора.
-            
+
             Args:
                 card: Выбранная карточка
             """
@@ -172,7 +172,7 @@ class ToolCallCard(Static):
         classes: str | None = None,
     ) -> None:
         """Создаёт карточку tool call.
-        
+
         Args:
             tool_call_id: Уникальный ID вызова инструмента
             tool_name: Название инструмента
@@ -189,9 +189,9 @@ class ToolCallCard(Static):
         css_classes = status
         if classes:
             css_classes = f"{status} {classes}"
-        
+
         super().__init__(name=name, id=id or f"tool-{tool_call_id}", classes=css_classes)
-        
+
         self._tool_call_id = tool_call_id
         self._tool_name = tool_name
         self._parameters = parameters or {}
@@ -200,56 +200,56 @@ class ToolCallCard(Static):
         self._error = error
         self._chat_vm = chat_vm
         self._expanded = False
-    
+
     @property
     def tool_call_id(self) -> str:
         """ID вызова инструмента."""
         return self._tool_call_id
-    
+
     @property
     def tool_name(self) -> str:
         """Название инструмента."""
         return self._tool_name
-    
+
     @property
     def status(self) -> ToolCallStatus:
         """Текущий статус выполнения."""
         return self._status
-    
+
     @status.setter
     def status(self, value: ToolCallStatus) -> None:
         """Установить новый статус.
-        
+
         Args:
             value: Новый статус
         """
         # Удаляем старый класс статуса
         self.remove_class(self._status)
-        
+
         # Устанавливаем новый
         self._status = value
         self.add_class(value)
-        
+
         # Обновляем отображение статуса
         try:
             status_widget = self.query_one("#tool-status", PermissionBadge)
             # Мапим статус tool call на статус permission badge
-            badge_status = "granted" if value == "success" else \
-                          "denied" if value == "error" else \
-                          "pending"
+            badge_status = (
+                "granted" if value == "success" else "denied" if value == "error" else "pending"
+            )
             status_widget.status = badge_status
         except Exception:
             pass  # Виджет ещё не смонтирован
-    
+
     @property
     def result(self) -> str | None:
         """Результат выполнения."""
         return self._result
-    
+
     @result.setter
     def result(self, value: str | None) -> None:
         """Установить результат выполнения.
-        
+
         Args:
             value: Результат или None
         """
@@ -263,16 +263,16 @@ class ToolCallCard(Static):
                 result_widget.display = False
         except Exception:
             pass
-    
+
     @property
     def error(self) -> str | None:
         """Сообщение об ошибке."""
         return self._error
-    
+
     @error.setter
     def error(self, value: str | None) -> None:
         """Установить сообщение об ошибке.
-        
+
         Args:
             value: Текст ошибки или None
         """
@@ -286,7 +286,7 @@ class ToolCallCard(Static):
                 error_widget.display = False
         except Exception:
             pass
-    
+
     def compose(self) -> ComposeResult:
         """Создаёт структуру карточки."""
         # Определяем иконку инструмента
@@ -295,24 +295,28 @@ class ToolCallCard(Static):
             icon = MCP_TOOL_ICON
         else:
             icon = TOOL_ICONS.get(self._tool_name, TOOL_ICONS["default"])
-        
+
         # Заголовок с иконкой, названием и статусом
         with Vertical(id="tool-header"):
             yield Static(icon, id="tool-icon")
             yield Static(self._tool_name, id="tool-name")
-            
+
             # Badge статуса (маппим на permission status)
-            badge_status = "granted" if self._status == "success" else \
-                          "denied" if self._status == "error" else \
-                          "pending"
+            badge_status = (
+                "granted"
+                if self._status == "success"
+                else "denied"
+                if self._status == "error"
+                else "pending"
+            )
             yield PermissionBadge(badge_status, show_label=True, id="tool-status")
-        
+
         # Параметры в сворачиваемом блоке
         if self._parameters:
             with Collapsible(title="Параметры", collapsed=not self._expanded):
                 params_text = self._format_parameters()
                 yield Static(params_text, id="tool-params")
-        
+
         # Результат (изначально скрыт)
         result_widget = Static(
             self._truncate(self._result, 200) if self._result else "",
@@ -320,7 +324,7 @@ class ToolCallCard(Static):
         )
         result_widget.display = bool(self._result)
         yield result_widget
-        
+
         # Ошибка (изначально скрыта)
         error_widget = Static(
             f"Ошибка: {self._error}" if self._error else "",
@@ -328,10 +332,10 @@ class ToolCallCard(Static):
         )
         error_widget.display = bool(self._error)
         yield error_widget
-    
+
     def _format_parameters(self) -> str:
         """Форматировать параметры для отображения.
-        
+
         Returns:
             Строка с форматированными параметрами
         """
@@ -343,14 +347,14 @@ class ToolCallCard(Static):
                 str_value = str_value[:47] + "..."
             lines.append(f"  {key}: {str_value}")
         return "\n".join(lines)
-    
+
     def _truncate(self, text: str | None, max_length: int) -> str:
         """Укоротить текст до максимальной длины.
-        
+
         Args:
             text: Исходный текст
             max_length: Максимальная длина
-            
+
         Returns:
             Укороченный текст с многоточием если нужно
         """
@@ -358,12 +362,12 @@ class ToolCallCard(Static):
             return ""
         if len(text) <= max_length:
             return text
-        return text[:max_length - 3] + "..."
-    
+        return text[: max_length - 3] + "..."
+
     def on_click(self) -> None:
         """Обработчик клика - отправляет событие Selected."""
         self.post_message(self.Selected(self))
-    
+
     def toggle_expanded(self) -> None:
         """Переключить раскрытое/свёрнутое состояние."""
         self._expanded = not self._expanded

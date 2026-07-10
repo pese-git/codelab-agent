@@ -10,13 +10,13 @@
 
 Example:
     >>> from codelab.server.mcp import MCPClient, MCPServerConfig
-    >>> 
+    >>>
     >>> config = MCPServerConfig(
     ...     name="filesystem",
     ...     command="mcp-server-filesystem",
     ...     args=["--stdio"]
     ... )
-    >>> 
+    >>>
     >>> async with MCPClient(config) as client:
     ...     tools = await client.list_tools()
     ...     result = await client.call_tool("read_file", {"path": "/tmp/test.txt"})

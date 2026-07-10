@@ -156,7 +156,7 @@ class PermissionModal(ModalScreen[str | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Обрабатывает нажатие кнопки выбора разрешения.
-        
+
         Вызывает on_choice callback если он установлен, затем закрывает модал.
         """
 
@@ -179,20 +179,20 @@ class PermissionModal(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         """Обрабатывает отмену выбора разрешения клавишей Escape.
-        
+
         Вызывает on_choice callback с "cancelled" если он установлен.
         """
 
         # Вызвать callback если есть
         if self._on_choice and self._request_id is not None:
             self._on_choice(self._request_id, "cancelled")
-        
+
         self.permission_vm.hide()
         self.dismiss(None)
 
     def action_allow_once(self) -> None:
         """Выбирает разрешение по горячей клавише A.
-        
+
         Вызывает on_choice callback если установлен.
         """
 
@@ -205,7 +205,7 @@ class PermissionModal(ModalScreen[str | None]):
 
     def action_reject_once(self) -> None:
         """Выбирает отклонение по горячей клавише R.
-        
+
         Вызывает on_choice callback если установлен.
         """
 

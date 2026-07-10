@@ -268,9 +268,7 @@ class TestHelpCommandHandler:
         assert "status" in text
         assert "Описание" in text
 
-    def test_help_unknown_command(
-        self, registry: CommandRegistry, session: SessionState
-    ) -> None:
+    def test_help_unknown_command(self, registry: CommandRegistry, session: SessionState) -> None:
         """Справка по несуществующей команде."""
         help_handler = HelpCommandHandler(registry)
 

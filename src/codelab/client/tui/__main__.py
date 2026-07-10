@@ -25,8 +25,7 @@ def main() -> None:
         "--history-dir",
         default=None,
         help=(
-            "Путь к локальной истории чата "
-            "(default: ACP_CLIENT_HISTORY_DIR или ~/.codelab/history)"
+            "Путь к локальной истории чата (default: ACP_CLIENT_HISTORY_DIR или ~/.codelab/history)"
         ),
     )
     parser.add_argument(

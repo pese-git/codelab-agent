@@ -48,7 +48,7 @@ class TestChunkAggregation:
         # Arrange
         vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
-        
+
         replay_updates = [
             {
                 "params": {
@@ -69,10 +69,10 @@ class TestChunkAggregation:
                 },
             },
         ]
-        
+
         # Act
         vm.restore_session_from_replay("test_session", replay_updates)
-        
+
         # Assert
         messages = vm.messages.value
         assert len(messages) == 1
@@ -84,7 +84,7 @@ class TestChunkAggregation:
         # Arrange
         vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
-        
+
         replay_updates = [
             {
                 "params": {
@@ -105,10 +105,10 @@ class TestChunkAggregation:
                 },
             },
         ]
-        
+
         # Act
         vm.restore_session_from_replay("test_session", replay_updates)
-        
+
         # Assert
         messages = vm.messages.value
         assert len(messages) == 1
@@ -120,7 +120,7 @@ class TestChunkAggregation:
         # Arrange
         vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
-        
+
         replay_updates = [
             {
                 "params": {
@@ -141,10 +141,10 @@ class TestChunkAggregation:
                 },
             },
         ]
-        
+
         # Act
         vm.restore_session_from_replay("test_session", replay_updates)
-        
+
         # Assert
         messages = vm.messages.value
         assert len(messages) == 2
@@ -158,7 +158,7 @@ class TestChunkAggregation:
         # Arrange
         vm = _create_chat_view_model()
         vm._active_session_id = "test_session"
-        
+
         # Имитация streaming: много маленьких chunks
         chunks = ["I", "'ll", " help", " you", " with", " that."]
         replay_updates = [
@@ -173,10 +173,10 @@ class TestChunkAggregation:
             }
             for chunk in chunks
         ]
-        
+
         # Act
         vm.restore_session_from_replay("test_session", replay_updates)
-        
+
         # Assert
         messages = vm.messages.value
         assert len(messages) == 1
@@ -188,7 +188,7 @@ class TestChunkAggregation:
         # Arrange
         vm = _create_chat_view_model()
         vm._active_session_id = "s"
-        
+
         replay_updates = [
             # User message (2 chunks)
             {
@@ -267,22 +267,22 @@ class TestChunkAggregation:
                 },
             },
         ]
-        
+
         # Act
         vm.restore_session_from_replay("s", replay_updates)
-        
+
         # Assert
         messages = vm.messages.value
         assert len(messages) == 4
-        
+
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == "Hello World"
-        
+
         assert messages[1]["role"] == "assistant"
         assert messages[1]["content"] == "Hi there!"
-        
+
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "How are you?"
-        
+
         assert messages[3]["role"] == "assistant"
         assert messages[3]["content"] == "I'm good!"

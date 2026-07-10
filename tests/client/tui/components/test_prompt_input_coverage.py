@@ -27,6 +27,7 @@ class TestPromptTextArea:
 
     async def test_ctrl_enter_submits(self) -> None:
         """Ctrl+Enter находит родительский PromptInput и вызывает submit."""
+
         class TestApp(App):
             pass
 
@@ -43,6 +44,7 @@ class TestPromptTextArea:
 
     async def test_ctrl_j_submits(self) -> None:
         """Ctrl+J находит родительский PromptInput и вызывает submit."""
+
         class TestApp(App):
             pass
 
@@ -59,6 +61,7 @@ class TestPromptTextArea:
 
     async def test_other_key_calls_super(self) -> None:
         """Обычная клавиша передается родительскому обработчику."""
+
         class TestApp(App):
             pass
 
@@ -73,6 +76,7 @@ class TestPromptTextArea:
 
     async def test_key_without_prompt_input_parent(self) -> None:
         """Если нет PromptInput в родителях, вызывается super."""
+
         class TestApp(App):
             pass
 
@@ -104,6 +108,7 @@ class TestPromptInput:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создает поле ввода и кнопки после монтирования."""
+
         class TestApp(App):
             pass
 
@@ -120,6 +125,7 @@ class TestPromptInput:
 
     async def test_text_setter_and_getter(self) -> None:
         """Свойство text устанавливает и возвращает текст."""
+
         class TestApp(App):
             pass
 
@@ -134,6 +140,7 @@ class TestPromptInput:
 
     async def test_set_active_session(self) -> None:
         """Переключение активной сессии сбрасывает историю."""
+
         class TestApp(App):
             pass
 
@@ -150,6 +157,7 @@ class TestPromptInput:
 
     async def test_remember_prompt_empty(self) -> None:
         """Пустой prompt не сохраняется в историю."""
+
         class TestApp(App):
             pass
 
@@ -165,6 +173,7 @@ class TestPromptInput:
 
     async def test_remember_prompt_duplicate(self) -> None:
         """Дублирующий prompt не сохраняется."""
+
         class TestApp(App):
             pass
 
@@ -181,6 +190,7 @@ class TestPromptInput:
 
     async def test_remember_prompt_trims_history(self) -> None:
         """История обрезается до 100 записей."""
+
         class TestApp(App):
             pass
 
@@ -199,6 +209,7 @@ class TestPromptInput:
 
     async def test_action_submit_empty(self) -> None:
         """Пустой текст не отправляет сообщение."""
+
         class TestApp(App):
             pass
 
@@ -215,6 +226,7 @@ class TestPromptInput:
 
     async def test_action_submit_posts_submitted(self) -> None:
         """Не пустой текст отправляет Submitted сообщение."""
+
         class TestApp(App):
             pass
 
@@ -235,6 +247,7 @@ class TestPromptInput:
 
     async def test_action_history_previous_empty(self) -> None:
         """history_previous без истории ничего не делает."""
+
         class TestApp(App):
             pass
 
@@ -249,6 +262,7 @@ class TestPromptInput:
 
     async def test_action_history_previous_and_next(self) -> None:
         """history_previous/next перебирают историю и черновик."""
+
         class TestApp(App):
             pass
 
@@ -277,6 +291,7 @@ class TestPromptInput:
 
     async def test_action_history_next_no_history(self) -> None:
         """history_next без истории или индекса ничего не делает."""
+
         class TestApp(App):
             pass
 
@@ -291,6 +306,7 @@ class TestPromptInput:
 
     async def test_on_button_pressed_submit(self) -> None:
         """Нажатие submit-button вызывает action_submit."""
+
         class TestApp(App):
             pass
 
@@ -312,6 +328,7 @@ class TestPromptInput:
 
     async def test_on_button_pressed_stop(self) -> None:
         """Нажатие stop-button отправляет Cancelled сообщение."""
+
         class TestApp(App):
             pass
 
@@ -334,6 +351,7 @@ class TestPromptInput:
 
     async def test_on_button_pressed_unknown(self) -> None:
         """Нажатие неизвестной кнопки ничего не делает."""
+
         class TestApp(App):
             pass
 
@@ -352,6 +370,7 @@ class TestPromptInput:
 
     async def test_on_streaming_changed(self) -> None:
         """Изменение is_streaming переключает кнопки и блокирует поле."""
+
         class TestApp(App):
             pass
 

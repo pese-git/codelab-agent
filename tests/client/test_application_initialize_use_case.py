@@ -18,15 +18,17 @@ class TestInitializeUseCase:
         transport = AsyncMock()
         transport.connect = AsyncMock()
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {
-                "protocolVersion": "1.0",
-                "serverCapabilities": {"sessionCapabilities": {"create": True}},
-                "authMethods": [],
-            },
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {
+                    "protocolVersion": "1.0",
+                    "serverCapabilities": {"sessionCapabilities": {"create": True}},
+                    "authMethods": [],
+                },
+            }
+        )
         transport.set_server_capabilities = Mock()
 
         use_case = InitializeUseCase(transport=transport)
@@ -48,14 +50,16 @@ class TestInitializeUseCase:
         transport = AsyncMock()
         transport.connect = AsyncMock()
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "error": {
-                "code": -32600,
-                "message": "Invalid Request",
-            },
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+        )
         transport.disconnect = AsyncMock()
 
         use_case = InitializeUseCase(transport=transport)
@@ -97,15 +101,17 @@ class TestInitializeUseCase:
         transport = AsyncMock()
         transport.connect = AsyncMock()
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {
-                "protocolVersion": "1.0",
-                "serverCapabilities": {},
-                "authMethods": ["api_key", "oauth"],
-            },
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {
+                    "protocolVersion": "1.0",
+                    "serverCapabilities": {},
+                    "authMethods": ["api_key", "oauth"],
+                },
+            }
+        )
         transport.set_server_capabilities = Mock()
 
         use_case = InitializeUseCase(transport=transport)
@@ -119,11 +125,13 @@ class TestInitializeUseCase:
         transport = AsyncMock()
         transport.connect = AsyncMock()
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": None,
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": None,
+            }
+        )
         transport.set_server_capabilities = Mock()
 
         use_case = InitializeUseCase(transport=transport)

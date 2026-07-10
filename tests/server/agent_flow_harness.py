@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 # JSON-RPC билдеры
 # --------------------------------------------------------------------------- #
 
+
 def request(method: str, params: dict, request_id: int) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
 
@@ -57,6 +58,7 @@ class RpcError:
 # Транспорт
 # --------------------------------------------------------------------------- #
 
+
 class Transport(Protocol):
     """Двунаправленный JSON-канал (один объект = один JSON-RPC фрейм)."""
 
@@ -83,9 +85,7 @@ class StdioTransport:
             remaining = deadline - asyncio.get_event_loop().time()
             if remaining <= 0:
                 raise TimeoutError("No JSON message from server")
-            line = await asyncio.wait_for(
-                self._proc.stdout.readline(), timeout=remaining
-            )
+            line = await asyncio.wait_for(self._proc.stdout.readline(), timeout=remaining)
             if not line:
                 raise TimeoutError("Server stdout closed")
             text = line.decode().strip()
@@ -101,6 +101,7 @@ class StdioTransport:
 # --------------------------------------------------------------------------- #
 # Окружение сервера / сценарий / агент
 # --------------------------------------------------------------------------- #
+
 
 def server_env(tmp_cwd: Path, scenario_path: Path) -> dict[str, str]:
     """Окружение subprocess-сервера: mock-провайдер + изолированный HOME."""
@@ -127,8 +128,7 @@ def default_primary_agent(tmp_cwd: Path) -> None:
     agents_dir = tmp_cwd / ".codelab" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "primary.md").write_text(
-        "---\nname: primary\nrole: primary\nmodel: mock/mock-model\n"
-        "---\n\nТестовый агент.\n",
+        "---\nname: primary\nrole: primary\nmodel: mock/mock-model\n---\n\nТестовый агент.\n",
         encoding="utf-8",
     )
 
@@ -136,6 +136,7 @@ def default_primary_agent(tmp_cwd: Path) -> None:
 # --------------------------------------------------------------------------- #
 # Запуск stdio-сервера
 # --------------------------------------------------------------------------- #
+
 
 class StdioServer:
     """Async context manager: поднять stdio-сервер codelab и отдать transport.
@@ -167,8 +168,14 @@ class StdioServer:
         env = server_env(self._tmp_cwd, scenario_path)
         env.update(self._extra_env)
         self._proc = await asyncio.create_subprocess_exec(
-            "uv", "run", "--directory", str(PROJECT_ROOT),
-            "codelab", "serve", "--stdio", *self._extra_args,
+            "uv",
+            "run",
+            "--directory",
+            str(PROJECT_ROOT),
+            "codelab",
+            "serve",
+            "--stdio",
+            *self._extra_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -290,9 +297,7 @@ async def send_set_mode(
             return resp
 
 
-async def set_mode(
-    transport: Transport, session_id: str, mode_id: str, request_id: int
-) -> None:
+async def set_mode(transport: Transport, session_id: str, mode_id: str, request_id: int) -> None:
     """Сменить режим сессии (plan / standard / bypass); ожидает успех."""
     resp = await send_set_mode(transport, session_id, mode_id, request_id)
     assert "result" in resp
@@ -316,11 +321,7 @@ async def run_prompt(
         (prompt_response, notifications, rpc_methods).
     """
     responders = {**DEFAULT_RESPONDERS, **(responders or {})}
-    blocks = (
-        prompt_blocks
-        if prompt_blocks is not None
-        else [{"type": "text", "text": prompt_text}]
-    )
+    blocks = prompt_blocks if prompt_blocks is not None else [{"type": "text", "text": prompt_text}]
     await transport.send(
         request(
             "session/prompt",
@@ -455,6 +456,7 @@ def agent_text(notifications: list[dict]) -> str:
 # Готовые сценарии
 # --------------------------------------------------------------------------- #
 
+
 def chat_scenario() -> dict:
     return {
         "turns": [
@@ -470,9 +472,11 @@ def fs_read_scenario() -> dict:
             {
                 "when_user": ["README", "прочти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_read_text_file", "arguments": {"path": "README.md"}}
-                    ]},
+                    {
+                        "tool_calls": [
+                            {"name": "fs_read_text_file", "arguments": {"path": "README.md"}}
+                        ]
+                    },
                     {"text": "Прочитал README, всё на месте."},
                 ],
             },
@@ -482,15 +486,13 @@ def fs_read_scenario() -> dict:
 
 def _terminal_replies(final_text: str) -> list[dict]:
     return [
-        {"tool_calls": [
-            {"name": "terminal_create", "arguments": {"command": "ls", "args": ["-ahl"]}}
-        ]},
-        {"tool_calls": [
-            {"name": "terminal_wait_for_exit", "arguments": {"terminalId": "term-1"}}
-        ]},
-        {"tool_calls": [
-            {"name": "terminal_release", "arguments": {"terminalId": "term-1"}}
-        ]},
+        {
+            "tool_calls": [
+                {"name": "terminal_create", "arguments": {"command": "ls", "args": ["-ahl"]}}
+            ]
+        },
+        {"tool_calls": [{"name": "terminal_wait_for_exit", "arguments": {"terminalId": "term-1"}}]},
+        {"tool_calls": [{"name": "terminal_release", "arguments": {"terminalId": "term-1"}}]},
         {"text": final_text},
     ]
 
@@ -510,9 +512,7 @@ def terminal_single_scenario() -> dict:
             {
                 "when_user": ["ls", "запусти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "terminal_create", "arguments": {"command": "ls"}}
-                    ]},
+                    {"tool_calls": [{"name": "terminal_create", "arguments": {"command": "ls"}}]},
                     {"text": "Не должно быть достигнуто."},
                 ],
             },
@@ -526,9 +526,11 @@ def fs_error_scenario() -> dict:
             {
                 "when_user": ["прочти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_read_text_file", "arguments": {"path": "missing.md"}}
-                    ]},
+                    {
+                        "tool_calls": [
+                            {"name": "fs_read_text_file", "arguments": {"path": "missing.md"}}
+                        ]
+                    },
                     {"text": "Не удалось прочитать файл, обработал ошибку."},
                 ],
             },
@@ -542,13 +544,15 @@ def multi_tool_scenario() -> dict:
             {
                 "when_user": ["обработай"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_read_text_file", "arguments": {"path": "in.md"}}
-                    ]},
-                    {"tool_calls": [
-                        {"name": "fs_write_text_file",
-                         "arguments": {"path": "out.md", "content": "результат"}}
-                    ]},
+                    {"tool_calls": [{"name": "fs_read_text_file", "arguments": {"path": "in.md"}}]},
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "fs_write_text_file",
+                                "arguments": {"path": "out.md", "content": "результат"},
+                            }
+                        ]
+                    },
                     {"text": "Прочитал in.md и записал out.md."},
                 ],
             },
@@ -567,22 +571,48 @@ def plan_scenario() -> dict:
             {
                 "when_user": ["запланируй", "план"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "update_plan", "arguments": {"entries": [
-                            {"content": "Изучить код", "priority": "high",
-                             "status": "pending"},
-                            {"content": "Написать тесты", "priority": "medium",
-                             "status": "pending"},
-                        ]}}
-                    ]},
-                    {"tool_calls": [
-                        {"name": "update_plan", "arguments": {"entries": [
-                            {"content": "Изучить код", "priority": "high",
-                             "status": "completed"},
-                            {"content": "Написать тесты", "priority": "medium",
-                             "status": "in_progress"},
-                        ]}}
-                    ]},
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "update_plan",
+                                "arguments": {
+                                    "entries": [
+                                        {
+                                            "content": "Изучить код",
+                                            "priority": "high",
+                                            "status": "pending",
+                                        },
+                                        {
+                                            "content": "Написать тесты",
+                                            "priority": "medium",
+                                            "status": "pending",
+                                        },
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "update_plan",
+                                "arguments": {
+                                    "entries": [
+                                        {
+                                            "content": "Изучить код",
+                                            "priority": "high",
+                                            "status": "completed",
+                                        },
+                                        {
+                                            "content": "Написать тесты",
+                                            "priority": "medium",
+                                            "status": "in_progress",
+                                        },
+                                    ]
+                                },
+                            }
+                        ]
+                    },
                     {"text": "План выполнен."},
                 ],
             },

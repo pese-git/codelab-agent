@@ -88,8 +88,7 @@ class GlobalPolicyManager:
         """
         if decision not in self.VALID_DECISIONS:
             raise ValueError(
-                f"Invalid decision '{decision}'. "
-                f"Must be one of {self.VALID_DECISIONS}"
+                f"Invalid decision '{decision}'. Must be one of {self.VALID_DECISIONS}"
             )
 
         if self._cache is None:

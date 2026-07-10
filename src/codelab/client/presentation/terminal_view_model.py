@@ -14,22 +14,22 @@ from codelab.client.presentation.observable import Observable
 
 class TerminalViewModel(BaseViewModel):
     """ViewModel для отображения терминального вывода.
-    
+
     Хранит состояние терминала:
     - output: текущий текст вывода
     - has_output: есть ли непустой вывод
     - is_running: выполняется ли команда
-    
+
     Пример использования:
         >>> vm = TerminalViewModel()
-        >>> 
+        >>>
         >>> # Подписаться на изменения вывода
         >>> vm.output.subscribe(lambda text: print(f"Output: {text}"))
-        >>> 
+        >>>
         >>> # Добавить вывод
         >>> vm.append_output("Hello ")
         >>> vm.append_output("World!")
-        >>> 
+        >>>
         >>> # Установить статус выполнения
         >>> vm.set_running(True)
         >>> vm.set_running(False)
@@ -41,13 +41,13 @@ class TerminalViewModel(BaseViewModel):
         logger: Any | None = None,
     ) -> None:
         """Инициализировать TerminalViewModel.
-        
+
         Args:
             event_bus: EventBus для публикации/подписки на события (опционально)
             logger: Logger для логирования (опционально)
         """
         super().__init__(event_bus, logger)
-        
+
         # Observable свойства для состояния терминала
         self._output: Observable[str] = Observable("")
         self._has_output: Observable[bool] = Observable(False)
@@ -70,7 +70,7 @@ class TerminalViewModel(BaseViewModel):
 
     def append_output(self, text: str) -> None:
         """Добавить текст к выводу.
-        
+
         Args:
             text: Текст для добавления в конец вывода
         """
@@ -80,7 +80,7 @@ class TerminalViewModel(BaseViewModel):
 
     def set_output(self, text: str) -> None:
         """Установить весь вывод.
-        
+
         Args:
             text: Новый текст вывода (заменяет предыдущий)
         """
@@ -94,7 +94,7 @@ class TerminalViewModel(BaseViewModel):
 
     def set_running(self, running: bool) -> None:
         """Установить статус выполнения команды.
-        
+
         Args:
             running: True если команда выполняется, False если завершена
         """

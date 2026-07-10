@@ -241,15 +241,17 @@ class TestPermissionFlowIntegration:
         command_registry.register(ModeCommandHandler())
         command_registry.register(HelpCommandHandler(command_registry))
 
-        pipeline = PromptPipeline(stages=[
-            ValidationStage(state_manager),
-            SlashCommandStage(slash_router),
-            PlanBuildingStage(plan_builder),
-            TurnLifecycleStage(turn_lifecycle_manager, action="open"),
-            DirectivesStage(tool_registry, permission_manager),
-            llm_loop_stage,
-            TurnLifecycleStage(turn_lifecycle_manager, action="close"),
-        ])
+        pipeline = PromptPipeline(
+            stages=[
+                ValidationStage(state_manager),
+                SlashCommandStage(slash_router),
+                PlanBuildingStage(plan_builder),
+                TurnLifecycleStage(turn_lifecycle_manager, action="open"),
+                DirectivesStage(tool_registry, permission_manager),
+                llm_loop_stage,
+                TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+            ]
+        )
 
         return PromptOrchestrator(
             state_manager=state_manager,

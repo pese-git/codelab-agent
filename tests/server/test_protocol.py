@@ -1828,7 +1828,8 @@ async def test_cancel_during_terminal_flow_emits_kill_and_release_requests() -> 
     assert "session/update" in methods
     # Проверяем, что есть update со статусом cancelled
     cancelled_updates = [
-        n for n in cancel_outcome.notifications
+        n
+        for n in cancel_outcome.notifications
         if n.method == "session/update"
         and n.params is not None
         and n.params.get("update", {}).get("status") == "cancelled"
@@ -2867,7 +2868,8 @@ async def test_session_set_mode_updates_current_mode() -> None:
     assert outcome.response.result == {}
     # current_mode_update notification отправляется через session/update
     mode_updates = [
-        n for n in outcome.notifications
+        n
+        for n in outcome.notifications
         if n.method == "session/update"
         and n.params is not None
         and n.params.get("update", {}).get("sessionUpdate") == "current_mode_update"
@@ -3215,7 +3217,7 @@ async def test_orchestrator_recreated_with_different_policy_manager():
     from codelab.server.tools.registry import ToolRegistry
 
     tool_registry = MagicMock(spec=ToolRegistry)
-    
+
     # Создаём два разных policy manager
     mock_gpm1 = AsyncMock(spec=GlobalPolicyManager)
     mock_gpm1.initialize = AsyncMock()
@@ -3276,9 +3278,7 @@ async def test_session_list_filters_by_cwd() -> None:
         ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
     )
 
-    result = await protocol.handle(
-        ACPMessage.request("session/list", {"cwd": "/project-a"})
-    )
+    result = await protocol.handle(ACPMessage.request("session/list", {"cwd": "/project-a"}))
     assert result.response is not None
     assert result.response.error is None
     sessions = result.response.result["sessions"]
@@ -3295,9 +3295,7 @@ async def test_session_list_cwd_filter_returns_empty_on_no_match() -> None:
         ACPMessage.request("session/new", {"cwd": "/project-a", "mcpServers": []})
     )
 
-    result = await protocol.handle(
-        ACPMessage.request("session/list", {"cwd": "/nonexistent"})
-    )
+    result = await protocol.handle(ACPMessage.request("session/list", {"cwd": "/nonexistent"}))
     assert result.response is not None
     assert result.response.error is None
     assert result.response.result["sessions"] == []
@@ -3309,9 +3307,7 @@ async def test_session_list_rejects_relative_cwd() -> None:
     """session/list отклоняет относительный путь в cwd."""
     protocol = build_protocol()
 
-    result = await protocol.handle(
-        ACPMessage.request("session/list", {"cwd": "relative/path"})
-    )
+    result = await protocol.handle(ACPMessage.request("session/list", {"cwd": "relative/path"}))
     assert result.response is not None
     assert result.response.error is not None
     assert result.response.error.code == -32602
@@ -3322,9 +3318,7 @@ async def test_session_list_session_info_structure() -> None:
     """SessionInfo содержит все обязательные поля: sessionId, cwd, title, updatedAt, _meta."""
     protocol = build_protocol()
 
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     result = await protocol.handle(ACPMessage.request("session/list", {}))
     assert result.response is not None
@@ -3572,9 +3566,7 @@ async def test_config_options_mode_has_mode_category() -> None:
         ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     )
     config_options = created.response.result.get("configOptions", [])
-    mode_option = next(
-        (opt for opt in config_options if opt["id"] == "mode"), None
-    )
+    mode_option = next((opt for opt in config_options if opt["id"] == "mode"), None)
     assert mode_option is not None
     assert mode_option["category"] == "mode"
 
@@ -3638,8 +3630,7 @@ async def test_available_commands_update_structure() -> None:
         n
         for n in outcome.notifications
         if n.params is not None
-        and n.params.get("update", {}).get("sessionUpdate")
-        == "available_commands_update"
+        and n.params.get("update", {}).get("sessionUpdate") == "available_commands_update"
     ]
     assert len(cmd_updates) >= 1
     update = cmd_updates[0].params["update"]
@@ -3691,8 +3682,7 @@ async def test_fs_read_tool_call_contains_locations() -> None:
     tool_calls = [
         n
         for n in outcome.notifications
-        if n.params is not None
-        and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
+        if n.params is not None and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
     ]
     assert len(tool_calls) >= 1
     update = tool_calls[0].params["update"]
@@ -3743,8 +3733,7 @@ async def test_fs_write_tool_call_contains_locations() -> None:
     tool_calls = [
         n
         for n in outcome.notifications
-        if n.params is not None
-        and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
+        if n.params is not None and n.params.get("update", {}).get("sessionUpdate") == "tool_call"
     ]
     assert len(tool_calls) >= 1
     update = tool_calls[0].params["update"]

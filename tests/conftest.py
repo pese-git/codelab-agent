@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 @pytest.fixture(autouse=True)
 def reset_structlog_cache():
     """Сбросить кэш structlog перед каждым тестом.
-    
+
     Structlog кэширует logger instances, что может вызывать проблемы
     при перехвате вывода в тестах (caplog/capsys).
     """

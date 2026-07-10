@@ -1,6 +1,5 @@
 """Тесты для Tracer — span hierarchy и context propagation."""
 
-
 import pytest
 
 from codelab.server.observability.tracer import SpanContext, Tracer
@@ -164,11 +163,14 @@ class TestTracerAttributes:
 
     def test_attributes_set_at_end(self, tracer):
         span = tracer.start_span("llm_call")
-        tracer.end_span(span, {
-            "model": "gpt-4",
-            "input_tokens": 100,
-            "output_tokens": 50,
-        })
+        tracer.end_span(
+            span,
+            {
+                "model": "gpt-4",
+                "input_tokens": 100,
+                "output_tokens": 50,
+            },
+        )
         assert span.attributes["model"] == "gpt-4"
         assert span.attributes["input_tokens"] == 100
 

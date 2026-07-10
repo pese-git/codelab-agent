@@ -151,10 +151,13 @@ class DefaultContextReconciler(ContextReconciler):
             new_tail: list[LLMMessage] = []
             if updates_text:
                 from codelab.server.llm.models import LLMMessage
-                new_tail.append(LLMMessage(
-                    role="system",
-                    content=f"<context_updates>\n{updates_text}\n</context_updates>",
-                ))
+
+                new_tail.append(
+                    LLMMessage(
+                        role="system",
+                        content=f"<context_updates>\n{updates_text}\n</context_updates>",
+                    )
+                )
 
             logger.info(
                 "reconciler.reconcile.updated",

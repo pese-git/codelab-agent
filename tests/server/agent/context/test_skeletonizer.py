@@ -85,11 +85,11 @@ class TestTreeSitterStrategyPython:
 
     def test_skeletonize_simple_function(self, strategy):
         """Скелетирование простой функции."""
-        code = '''
+        code = """
 def hello():
     print("Hello")
     return "World"
-'''
+"""
         result = strategy.skeletonize(code, "test.py")
 
         assert "def hello():" in result
@@ -98,14 +98,14 @@ def hello():
 
     def test_skeletonize_class_with_methods(self, strategy):
         """Скелетирование класса с методами."""
-        code = '''
+        code = """
 class MyClass:
     def __init__(self, value: int):
         self.value = value
 
     def get_value(self) -> int:
         return self.value
-'''
+"""
         result = strategy.skeletonize(code, "test.py")
 
         assert "class MyClass:" in result
@@ -116,14 +116,14 @@ class MyClass:
 
     def test_skeletonize_preserves_imports(self, strategy):
         """Скелетирование сохраняет импорты."""
-        code = '''
+        code = """
 import os
 import sys
 from pathlib import Path
 
 def helper():
     pass
-'''
+"""
         result = strategy.skeletonize(code, "test.py")
 
         assert "import os" in result
@@ -168,11 +168,11 @@ class TestTreeSitterStrategyTypeScript:
 
     def test_skeletonize_function(self, strategy):
         """Скелетирование функции TypeScript."""
-        code = '''
+        code = """
 function greet(name: string): string {
     return `Hello, ${name}!`;
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.ts")
 
         assert "function greet(name: string): string" in result
@@ -181,7 +181,7 @@ function greet(name: string): string {
 
     def test_skeletonize_class(self, strategy):
         """Скелетирование класса TypeScript."""
-        code = '''
+        code = """
 class Person {
     constructor(public name: string) {}
 
@@ -189,7 +189,7 @@ class Person {
         return `Hello, ${this.name}!`;
     }
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.ts")
 
         assert "class Person" in result
@@ -209,11 +209,11 @@ class TestTreeSitterStrategyDart:
 
     def test_skeletonize_function(self, strategy):
         """Скелетирование функции Dart."""
-        code = '''
+        code = """
 String greet(String name) {
     return 'Hello, $name!';
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.dart")
 
         assert "String greet(String name)" in result
@@ -233,11 +233,11 @@ class TestTreeSitterStrategyGo:
 
     def test_skeletonize_function(self, strategy):
         """Скелетирование функции Go."""
-        code = '''
+        code = """
 func greet(name string) string {
     return "Hello, " + name
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.go")
 
         assert "func greet(name string) string" in result
@@ -257,11 +257,11 @@ class TestTreeSitterStrategyRust:
 
     def test_skeletonize_function(self, strategy):
         """Скелетирование функции Rust."""
-        code = '''
+        code = """
 fn greet(name: &str) -> String {
     format!("Hello, {}!", name)
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.rs")
 
         assert "fn greet(name: &str) -> String" in result
@@ -281,13 +281,13 @@ class TestTreeSitterStrategyJava:
 
     def test_skeletonize_method(self, strategy):
         """Скелетирование метода Java."""
-        code = '''
+        code = """
 public class Person {
     public String greet(String name) {
         return "Hello, " + name;
     }
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.java")
 
         assert "public String greet(String name)" in result
@@ -308,11 +308,11 @@ class TestTreeSitterStrategyCpp:
 
     def test_skeletonize_function(self, strategy):
         """Скелетирование функции C++."""
-        code = '''
+        code = """
 int add(int a, int b) {
     return a + b;
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.cpp")
 
         assert "int add(int a, int b)" in result
@@ -332,12 +332,12 @@ class TestRegexStrategy:
 
     def test_skeletonize_c_like(self, strategy):
         """Скелетирование C-подобного кода."""
-        code = '''
+        code = """
 int main() {
     printf("Hello");
     return 0;
 }
-'''
+"""
         result = strategy.skeletonize(code, "test.c")
 
         assert "int main()" in result
@@ -379,10 +379,10 @@ class TestCompositeSkeletonizer:
 
     def test_skeletonize_file_python(self, skeletonizer):
         """skeletonize_file() скелетирует Python код."""
-        code = '''
+        code = """
 def hello():
     print("Hello")
-'''
+"""
         result = skeletonizer.skeletonize_file(code, "test.py")
 
         assert "def hello():" in result
@@ -390,11 +390,11 @@ def hello():
 
     def test_skeletonize_file_typescript(self, skeletonizer):
         """skeletonize_file() скелетирует TypeScript код."""
-        code = '''
+        code = """
 function greet(): string {
     return "Hello";
 }
-'''
+"""
         result = skeletonizer.skeletonize_file(code, "test.ts")
 
         assert "function greet()" in result
@@ -410,7 +410,7 @@ class TestDeterminism:
 
     def test_python_deterministic(self, skeletonizer):
         """Python: 100 запусков дают одинаковый результат."""
-        code = '''
+        code = """
 import os
 
 def hello():
@@ -419,13 +419,13 @@ def hello():
 class World:
     def method(self):
         pass
-'''
+"""
         results = [skeletonizer.skeletonize_file(code, "test.py") for _ in range(100)]
         assert len(set(results)) == 1
 
     def test_typescript_deterministic(self, skeletonizer):
         """TypeScript: 100 запусков дают одинаковый результат."""
-        code = '''
+        code = """
 import { foo } from 'bar';
 
 function hello(): void {
@@ -437,6 +437,6 @@ class World {
         console.log("World");
     }
 }
-'''
+"""
         results = [skeletonizer.skeletonize_file(code, "test.ts") for _ in range(100)]
         assert len(set(results)) == 1

@@ -813,9 +813,7 @@ class TestHttpTransportErrorHandling:
         transport._pending_requests[1] = future
 
         with patch.object(MCPResponse, "model_validate", side_effect=ValueError("bad")):
-            await transport._handle_response_message(
-                {"jsonrpc": "2.0", "id": 1, "result": {}}
-            )
+            await transport._handle_response_message({"jsonrpc": "2.0", "id": 1, "result": {}})
 
         with pytest.raises(HttpTransportError, match="Invalid response"):
             future.result()
@@ -826,9 +824,7 @@ class TestHttpTransportErrorHandling:
         transport = HttpTransport(url="http://test")
 
         with caplog.at_level("WARNING"):
-            await transport._handle_response_message(
-                {"jsonrpc": "2.0", "id": 999, "result": {}}
-            )
+            await transport._handle_response_message({"jsonrpc": "2.0", "id": 999, "result": {}})
             assert "unknown request id" in caplog.text
 
     @pytest.mark.asyncio
@@ -887,9 +883,7 @@ class TestHttpTransportErrorHandling:
         transport = HttpTransport(url="http://test")
         transport.send_response = AsyncMock()
         transport.send_error = AsyncMock()
-        transport.register_request_handler(
-            "roots/list", AsyncMock(side_effect=ValueError("fail"))
-        )
+        transport.register_request_handler("roots/list", AsyncMock(side_effect=ValueError("fail")))
 
         await transport._handle_incoming_request(
             {"jsonrpc": "2.0", "method": "roots/list", "id": 1, "params": {}}
@@ -1201,9 +1195,7 @@ class TestSseTransportParsingAndErrors:
         transport._handle_sse_event.assert_any_await(
             event="custom", data="line1\nline2", event_id="42"
         )
-        transport._handle_sse_event.assert_any_await(
-            event="message", data="single", event_id=None
-        )
+        transport._handle_sse_event.assert_any_await(event="message", data="single", event_id=None)
 
     @pytest.mark.asyncio
     async def test_read_sse_loop_exception(self):
@@ -1285,9 +1277,7 @@ class TestSseTransportParsingAndErrors:
         transport = SseTransport(url="http://test/sse")
 
         with caplog.at_level("WARNING"):
-            await transport._handle_sse_event(
-                "message", json.dumps({"foo": "bar"})
-            )
+            await transport._handle_sse_event("message", json.dumps({"foo": "bar"}))
             assert "Unknown SSE message format" in caplog.text
 
     @pytest.mark.asyncio
@@ -1307,9 +1297,7 @@ class TestSseTransportParsingAndErrors:
         transport._pending_requests[1] = future
 
         with patch.object(MCPResponse, "model_validate", side_effect=ValueError("bad")):
-            await transport._handle_response_message(
-                {"jsonrpc": "2.0", "id": 1, "result": {}}
-            )
+            await transport._handle_response_message({"jsonrpc": "2.0", "id": 1, "result": {}})
 
         with pytest.raises(SseTransportError, match="Invalid response"):
             future.result()
@@ -1320,9 +1308,7 @@ class TestSseTransportParsingAndErrors:
         transport = SseTransport(url="http://test/sse")
 
         with caplog.at_level("WARNING"):
-            await transport._handle_response_message(
-                {"jsonrpc": "2.0", "id": 999, "result": {}}
-            )
+            await transport._handle_response_message({"jsonrpc": "2.0", "id": 999, "result": {}})
             assert "unknown request id" in caplog.text
 
     @pytest.mark.asyncio
@@ -1368,9 +1354,7 @@ class TestSseTransportParsingAndErrors:
         transport = SseTransport(url="http://test/sse")
         transport.send_response = AsyncMock()
         transport.send_error = AsyncMock()
-        transport.register_request_handler(
-            "roots/list", AsyncMock(side_effect=ValueError("fail"))
-        )
+        transport.register_request_handler("roots/list", AsyncMock(side_effect=ValueError("fail")))
 
         await transport._handle_incoming_request(
             {"jsonrpc": "2.0", "method": "roots/list", "id": 1, "params": {}}

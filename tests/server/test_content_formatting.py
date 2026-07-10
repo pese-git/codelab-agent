@@ -414,15 +414,11 @@ class TestContentFormatter:
         assert result["role"] == "tool"
         assert result["content"] == ""
 
-    def test_format_content_with_special_characters(
-        self, formatter: ContentFormatter
-    ) -> None:
+    def test_format_content_with_special_characters(self, formatter: ContentFormatter) -> None:
         """Форматирование content со спецсимволами."""
         extracted = ExtractedContent(
             tool_call_id="tc1",
-            content_items=[
-                {"type": "text", "text": 'Text with "quotes" and \\backslashes\\'}
-            ],
+            content_items=[{"type": "text", "text": 'Text with "quotes" and \\backslashes\\'}],
             has_content=True,
         )
 
@@ -441,9 +437,7 @@ class TestContentFormatter:
                     "content": [
                         {
                             "type": "embedded",
-                            "content": [
-                                {"type": "text", "text": "Deep content"}
-                            ],
+                            "content": [{"type": "text", "text": "Deep content"}],
                         }
                     ],
                 }
@@ -494,7 +488,7 @@ class TestContentFormatter:
     def test_format_large_diff_content(self, formatter: ContentFormatter) -> None:
         """Форматирование большого diff."""
         large_old = "\n".join([f"line {i}" for i in range(100)])
-        large_new = "\n".join([f"line {i+1}" for i in range(100)])
+        large_new = "\n".join([f"line {i + 1}" for i in range(100)])
 
         extracted = ExtractedContent(
             tool_call_id="tc1",
@@ -527,9 +521,7 @@ class TestContentFormatter:
 
         assert result["role"] == "tool"
 
-    def test_format_anthropic_structure_correctness(
-        self, formatter: ContentFormatter
-    ) -> None:
+    def test_format_anthropic_structure_correctness(self, formatter: ContentFormatter) -> None:
         """Проверка корректности структуры Anthropic response."""
         extracted = ExtractedContent(
             tool_call_id="my_tool_call",

@@ -266,9 +266,7 @@ class TestTerminalOutputPanel:
         posted: list[object] = []
         panel.post_message = posted.append
         with patch.object(panel, "reset"):
-            panel.on_terminal_output_toolbar_clear_requested(
-                TerminalOutputToolbar.ClearRequested()
-            )
+            panel.on_terminal_output_toolbar_clear_requested(TerminalOutputToolbar.ClearRequested())
         assert any(isinstance(m, TerminalOutputPanel.OutputCleared) for m in posted)
 
     def test_on_toolbar_copy(self) -> None:
@@ -278,9 +276,7 @@ class TestTerminalOutputPanel:
         panel = TerminalOutputPanel(vm)
         posted: list[object] = []
         panel.post_message = posted.append
-        panel.on_terminal_output_toolbar_copy_requested(
-            TerminalOutputToolbar.CopyRequested()
-        )
+        panel.on_terminal_output_toolbar_copy_requested(TerminalOutputToolbar.CopyRequested())
         copied = [m for m in posted if isinstance(m, TerminalOutputPanel.OutputCopied)]
         assert len(copied) == 1
         assert copied[0].text == "data"
@@ -291,9 +287,7 @@ class TestTerminalOutputPanel:
         panel = TerminalOutputPanel(vm)
         posted: list[object] = []
         panel.post_message = posted.append
-        panel.on_terminal_output_toolbar_copy_requested(
-            TerminalOutputToolbar.CopyRequested()
-        )
+        panel.on_terminal_output_toolbar_copy_requested(TerminalOutputToolbar.CopyRequested())
         assert len(posted) == 0
 
     def test_reset(self) -> None:

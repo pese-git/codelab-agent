@@ -25,11 +25,11 @@ logger = structlog.get_logger(__name__)
 class HotkeyCategory(Enum):
     """Категории горячих клавиш для группировки в справке."""
 
-    NAVIGATION = "navigation"      # Навигация
-    SESSION = "session"            # Управление сессиями
-    EDITING = "editing"            # Редактирование
-    VIEW = "view"                  # Отображение
-    SYSTEM = "system"              # Системные
+    NAVIGATION = "navigation"  # Навигация
+    SESSION = "session"  # Управление сессиями
+    EDITING = "editing"  # Редактирование
+    VIEW = "view"  # Отображение
+    SYSTEM = "system"  # Системные
 
 
 @dataclass

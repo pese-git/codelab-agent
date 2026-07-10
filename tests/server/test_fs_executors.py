@@ -30,15 +30,13 @@ class TestFileSystemExecutorInit:
         # Arrange
         mock_bridge = MagicMock(spec=ClientRPCBridge)
         mock_checker = MagicMock(spec=PermissionChecker)
-        
+
         # Act
         executor = FileSystemToolExecutor(mock_bridge, mock_checker)
-        
+
         # Assert
         assert executor._bridge == mock_bridge
         assert executor._permission_checker == mock_checker
-
-
 
 
 class TestFileSystemExecutorRead:
@@ -73,13 +71,13 @@ class TestFileSystemExecutorRead:
         file_content = "Hello, World!"
         executor._bridge.read_file = AsyncMock(return_value=file_content)  # type: ignore
         executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
             path="/tmp/test.txt",
         )
-        
+
         # Assert
         assert result.success is True
         assert result.output == file_content
@@ -101,7 +99,7 @@ class TestFileSystemExecutorRead:
         # Arrange
         file_content = "Line 5\nLine 6\nLine 7"
         executor._bridge.read_file = AsyncMock(return_value=file_content)  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
@@ -109,7 +107,7 @@ class TestFileSystemExecutorRead:
             line=5,
             limit=3,
         )
-        
+
         # Assert
         assert result.success is True
         assert result.output == file_content
@@ -129,13 +127,13 @@ class TestFileSystemExecutorRead:
         """Обработка ошибки 'файл не найден'."""
         # Arrange
         executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
             path="/nonexistent/file.txt",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -151,13 +149,13 @@ class TestFileSystemExecutorRead:
         """Обработка ошибки доступа."""
         # Arrange
         executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
             path="/root/secret.txt",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -173,13 +171,13 @@ class TestFileSystemExecutorRead:
         executor._bridge.read_file = AsyncMock(  # type: ignore
             side_effect=Exception("Network error")
         )
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
             path="/tmp/test.txt",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -199,13 +197,13 @@ class TestFileSystemExecutorRead:
                 message="Not a file: /tmp/directory",
             )
         )
-        
+
         # Act
         result = await executor.execute_read(
             session=session,
             path="/tmp/directory",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -244,14 +242,14 @@ class TestFileSystemExecutorWrite:
         content = "New file content"
         executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore
         executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
-        
+
         # Act
         result = await executor.execute_write(
             session=session,
             path="/tmp/new_file.txt",
             content=content,
         )
-        
+
         # Assert
         assert result.success is True
         executor._bridge.write_file.assert_called_once_with(  # type: ignore
@@ -269,14 +267,14 @@ class TestFileSystemExecutorWrite:
         """Обработка ошибки доступа при записи."""
         # Arrange
         executor._bridge.write_file = AsyncMock(return_value=False)  # type: ignore
-        
+
         # Act
         result = await executor.execute_write(
             session=session,
             path="/root/protected.txt",
             content="content",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -292,14 +290,14 @@ class TestFileSystemExecutorWrite:
         executor._bridge.write_file = AsyncMock(  # type: ignore
             side_effect=Exception("Disk full")
         )
-        
+
         # Act
         result = await executor.execute_write(
             session=session,
             path="/tmp/file.txt",
             content="content",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -318,14 +316,14 @@ class TestFileSystemExecutorWrite:
                 message="Permission denied: /etc/passwd",
             )
         )
-        
+
         # Act
         result = await executor.execute_write(
             session=session,
             path="/etc/passwd",
             content="malicious content",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -368,10 +366,10 @@ class TestFileSystemExecutorDispatch:
             "line": None,
             "limit": None,
         }
-        
+
         # Act
         result = await executor.execute(session=session, arguments=arguments)
-        
+
         # Assert
         assert result.success is True
         assert result.output == "content"
@@ -391,10 +389,10 @@ class TestFileSystemExecutorDispatch:
             "path": "/tmp/file.txt",
             "content": "new content",
         }
-        
+
         # Act
         result = await executor.execute(session=session, arguments=arguments)
-        
+
         # Assert
         assert result.success is True
 
@@ -410,10 +408,10 @@ class TestFileSystemExecutorDispatch:
             "operation": "delete",
             "path": "/tmp/file.txt",
         }
-        
+
         # Act
         result = await executor.execute(session=session, arguments=arguments)
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -430,10 +428,10 @@ class TestFileSystemExecutorDispatch:
         arguments = {
             "path": "/tmp/file.txt",
         }
-        
+
         # Act
         result = await executor.execute(session=session, arguments=arguments)
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -469,10 +467,10 @@ class TestFileSystemExecutorToolExecutionResult:
         """Результат имеет поле success."""
         # Arrange
         executor._bridge.read_file = AsyncMock(return_value="content")  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(session, "/tmp/file.txt")
-        
+
         # Assert
         assert isinstance(result, ToolExecutionResult)
         assert isinstance(result.success, bool)
@@ -486,10 +484,10 @@ class TestFileSystemExecutorToolExecutionResult:
         """Успешный результат имеет output."""
         # Arrange
         executor._bridge.read_file = AsyncMock(return_value="content")  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(session, "/tmp/file.txt")
-        
+
         # Assert
         assert result.success is True
         assert result.output is not None
@@ -504,10 +502,10 @@ class TestFileSystemExecutorToolExecutionResult:
         """Неудачный результат имеет error."""
         # Arrange
         executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
-        
+
         # Act
         result = await executor.execute_read(session, "/tmp/file.txt")
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -522,14 +520,14 @@ class TestFileSystemExecutorToolExecutionResult:
         """Результат write содержит metadata с bytes."""
         # Arrange
         executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore
-        
+
         # Act
         result = await executor.execute_write(
             session,
             "/tmp/file.txt",
             "new\ncontent",
         )
-        
+
         # Assert
         assert result.success is True
         assert result.metadata is not None

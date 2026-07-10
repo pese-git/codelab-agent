@@ -138,6 +138,7 @@ class WebSocketTransport(AcpServerTransport):
 
             # Получаем runtime registry для подписки на notification bus
             from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+
             runtime_registry = await request_scope.get(SessionRuntimeRegistry)
 
             # Настраиваем send_callback для отправки сообщений из фоновых задач
@@ -159,11 +160,7 @@ class WebSocketTransport(AcpServerTransport):
                         try:
                             acp_request = ACPMessage.from_json(message.data)
                             method_name = acp_request.method
-                            request_id = (
-                                str(acp_request.id)
-                                if acp_request.id is not None
-                                else None
-                            )
+                            request_id = str(acp_request.id) if acp_request.id is not None else None
 
                             self._conn_logger.debug(
                                 "message received",
@@ -207,10 +204,7 @@ class WebSocketTransport(AcpServerTransport):
                                     session_id = raw_session_id
 
                             # Подписываемся на notification bus при получении session_id
-                            if (
-                                session_id is not None
-                                and session_id != current_session_id
-                            ):
+                            if session_id is not None and session_id != current_session_id:
                                 # Отписываемся от старого bus если был
                                 if current_session_id is not None:
                                     old_bus = await runtime_registry.get_notification_bus(
@@ -220,9 +214,7 @@ class WebSocketTransport(AcpServerTransport):
 
                                 # Подписываемся на новый bus
                                 current_session_id = session_id
-                                new_bus = await runtime_registry.get_notification_bus(
-                                    session_id
-                                )
+                                new_bus = await runtime_registry.get_notification_bus(session_id)
                                 # Реконнект (session/load): реплей истории
                                 # авторитетен, чистим буфер ДО подписки, чтобы
                                 # не было двойной доставки при повторной подписке.
@@ -320,9 +312,7 @@ class WebSocketTransport(AcpServerTransport):
                 # Отписываемся от notification bus при закрытии
                 if notification_bus_subscribed and current_session_id is not None:
                     try:
-                        bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
+                        bus = await runtime_registry.get_notification_bus(current_session_id)
                         bus.unsubscribe(self._send_protocol_message)
                         self._conn_logger.info(
                             "unsubscribed_from_notification_bus",
@@ -637,9 +627,7 @@ class WebSocketTransport(AcpServerTransport):
             await asyncio.sleep(0.05)
 
             try:
-                response = await protocol.complete_active_turn(
-                    session_id, stop_reason="end_turn"
-                )
+                response = await protocol.complete_active_turn(session_id, stop_reason="end_turn")
             except TimeoutError:
                 conn_logger.warning(
                     "deferred prompt completion timeout",

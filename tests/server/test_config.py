@@ -715,9 +715,7 @@ class TestMultiFileTomlChain:
         (tmp_path / "codelab.toml").write_text(
             "[llm]\nprovider = 'openai'\nmodel = 'openai/gpt-4o'"
         )
-        (tmp_path / "codelab.local.toml").write_text(
-            "[llm]\nprovider = 'anthropic'"
-        )
+        (tmp_path / "codelab.local.toml").write_text("[llm]\nprovider = 'anthropic'")
 
         old_cwd = os.getcwd()
         try:
@@ -734,9 +732,7 @@ class TestMultiFileTomlChain:
         (tmp_path / "codelab.toml").write_text(
             "[llm]\nprovider = 'openai'\nmodel = 'openai/gpt-4o'"
         )
-        (tmp_path / "codelab.local.toml").write_text(
-            "[llm]\nprovider = 'anthropic'"
-        )
+        (tmp_path / "codelab.local.toml").write_text("[llm]\nprovider = 'anthropic'")
         custom_toml = tmp_path / "custom.toml"
         custom_toml.write_text("[llm]\nprovider = 'mock'\nmodel = 'mock-model'")
 

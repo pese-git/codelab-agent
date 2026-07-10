@@ -176,5 +176,5 @@ class Tracer:
         Активные span'ы не затрагиваются.
         """
         if self._exported_count > 0:
-            self._completed_spans = self._completed_spans[self._exported_count:]
+            self._completed_spans = self._completed_spans[self._exported_count :]
             self._exported_count = 0

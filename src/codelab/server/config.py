@@ -376,8 +376,13 @@ class AppConfig(BaseSettings):
         toml_llm = toml_data.get("llm", {})
         if isinstance(toml_llm, dict):
             for key in (
-                "provider", "model", "temperature", "max_tokens",
-                "api_key", "base_url", "streaming",
+                "provider",
+                "model",
+                "temperature",
+                "max_tokens",
+                "api_key",
+                "base_url",
+                "streaming",
             ):
                 if key in toml_llm:
                     llm_data[key] = toml_llm[key]
@@ -527,6 +532,7 @@ class AppConfig(BaseSettings):
             if isinstance(agents_data, dict):
                 # Загружаем Context Manager конфигурацию из [agents.context]
                 from codelab.server.agent.context.config_loader import load_context_config
+
                 context_data = agents_data.pop("context", {})
                 context_config = load_context_config({"agents": {"context": context_data}})
                 agents_config = AgentsConfig(context=context_config, **agents_data)

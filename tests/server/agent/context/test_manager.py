@@ -192,12 +192,8 @@ async def test_context_manager_sessions_have_isolated_dependency_graph():
     session_a = type("Session", (), {"session_id": "session-A"})()
     session_b = type("Session", (), {"session_id": "session-B"})()
 
-    await manager.build_context(
-        session=session_a, prompt=[{"type": "text", "text": "A"}]
-    )
-    await manager.build_context(
-        session=session_b, prompt=[{"type": "text", "text": "B"}]
-    )
+    await manager.build_context(session=session_a, prompt=[{"type": "text", "text": "A"}])
+    await manager.build_context(session=session_b, prompt=[{"type": "text", "text": "B"}])
 
     ctx_a = manager._session_ctx("session-A")
     ctx_b = manager._session_ctx("session-B")
@@ -251,10 +247,7 @@ async def test_context_manager_tail_includes_conversation_history():
         system_prompt="SYS",
     )
 
-    contents = [
-        m.content if isinstance(m.content, str) else str(m.content)
-        for m in envelope.tail
-    ]
+    contents = [m.content if isinstance(m.content, str) else str(m.content) for m in envelope.tail]
     joined = "\n".join(contents)
     # Прошлые ходы присутствуют, не только текущий промпт
     assert "первый вопрос" in joined
@@ -318,9 +311,7 @@ async def test_context_manager_ensure_context_fits_retries_on_underestimate():
         def __init__(self) -> None:
             self.calls = 0
 
-        async def compact_if_needed(
-            self, messages, *, max_context_tokens, reserved_tokens
-        ):
+        async def compact_if_needed(self, messages, *, max_context_tokens, reserved_tokens):
             self.calls += 1
             if self.calls == 1:
                 # Первый проход «недооценил» — payload всё ещё крупный
@@ -351,8 +342,7 @@ async def test_context_manager_ensure_context_fits_retries_on_underestimate():
     assert stub.calls == 2  # был ретрай
     assert result.token_count <= available
     assert any(
-        entry.get("event") == "context.ensure_fits.budget_underestimated_retry"
-        for entry in logs
+        entry.get("event") == "context.ensure_fits.budget_underestimated_retry" for entry in logs
     )
 
 

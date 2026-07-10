@@ -52,14 +52,16 @@ class ReplayManager:
     """
 
     # Типы updates, которые должны реплеиться в порядке их возникновения
-    _REPLAYABLE_UPDATE_TYPES: frozenset[str] = frozenset({
-        "user_message_chunk",
-        "agent_message_chunk",
-        "tool_call",
-        "tool_call_update",
-        "plan",
-        "session_info",
-    })
+    _REPLAYABLE_UPDATE_TYPES: frozenset[str] = frozenset(
+        {
+            "user_message_chunk",
+            "agent_message_chunk",
+            "tool_call",
+            "tool_call_update",
+            "plan",
+            "session_info",
+        }
+    )
 
     def save_user_message_chunk(
         self,

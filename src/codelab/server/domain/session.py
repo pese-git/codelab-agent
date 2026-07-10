@@ -132,6 +132,7 @@ class AgentPlan:
         if 0 <= index < len(self.steps):
             old = self.steps[index]
             from .value_objects import PlanStatus
+
             try:
                 new_status = PlanStatus(status)
             except ValueError:

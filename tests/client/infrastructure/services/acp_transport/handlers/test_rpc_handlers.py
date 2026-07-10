@@ -94,9 +94,7 @@ class TestFsReadHandler:
         assert handler.can_handle("terminal/create") is False
         assert handler.can_handle("unknown") is False
 
-    async def test_handle_success(
-        self, handler: FsReadHandler, mock_executor: AsyncMock
-    ) -> None:
+    async def test_handle_success(self, handler: FsReadHandler, mock_executor: AsyncMock) -> None:
         mock_executor.read_file.return_value = ("file content", None)
 
         result = await handler.handle("rpc-1", {"path": "test.txt"})
@@ -157,9 +155,7 @@ class TestFsWriteHandler:
         assert handler.can_handle("fs/read_text_file") is False
         assert handler.can_handle("terminal/create") is False
 
-    async def test_handle_success(
-        self, handler: FsWriteHandler, mock_executor: AsyncMock
-    ) -> None:
+    async def test_handle_success(self, handler: FsWriteHandler, mock_executor: AsyncMock) -> None:
         mock_executor.write_file.return_value = (True, None)
 
         result = await handler.handle("rpc-1", {"path": "test.txt", "content": "hello"})

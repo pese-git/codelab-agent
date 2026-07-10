@@ -126,9 +126,7 @@ async def test_write_text_file_success(
     assert request["params"]["path"] == "/test.txt"
     assert request["params"]["content"] == "new content"
 
-    rpc_service.handle_response(
-        {"jsonrpc": "2.0", "id": request["id"], "result": {}}
-    )
+    rpc_service.handle_response({"jsonrpc": "2.0", "id": request["id"], "result": {}})
 
     result = await task
     assert result is True
@@ -351,9 +349,7 @@ async def test_kill_terminal(rpc_service: ClientRPCService, mock_send_request: A
     assert request["params"]["terminalId"] == "term_456"
     assert request["params"]["signal"] == "SIGKILL"
 
-    rpc_service.handle_response(
-        {"jsonrpc": "2.0", "id": request["id"], "result": {}}
-    )
+    rpc_service.handle_response({"jsonrpc": "2.0", "id": request["id"], "result": {}})
 
     result = await task
     assert result is True
@@ -373,9 +369,7 @@ async def test_kill_terminal_default_signal(
     request = mock_send_request.sent_requests[0]
     assert request["params"]["signal"] == "SIGTERM"
 
-    rpc_service.handle_response(
-        {"jsonrpc": "2.0", "id": request["id"], "result": {}}
-    )
+    rpc_service.handle_response({"jsonrpc": "2.0", "id": request["id"], "result": {}})
 
     result = await task
     assert result is True
@@ -395,9 +389,7 @@ async def test_release_terminal(rpc_service: ClientRPCService, mock_send_request
     assert request["params"]["sessionId"] == "sess_123"
     assert request["params"]["terminalId"] == "term_456"
 
-    rpc_service.handle_response(
-        {"jsonrpc": "2.0", "id": request["id"], "result": {}}
-    )
+    rpc_service.handle_response({"jsonrpc": "2.0", "id": request["id"], "result": {}})
 
     result = await task
     assert result is True
@@ -418,9 +410,7 @@ async def test_terminal_capability_missing(rpc_service: ClientRPCService) -> Non
 
 
 @pytest.mark.asyncio
-async def test_request_cancellation(
-    rpc_service: ClientRPCService, mock_send_request: Any
-) -> None:
+async def test_request_cancellation(rpc_service: ClientRPCService, mock_send_request: Any) -> None:
     """Тест отмены конкретного RPC запроса через cancel_request."""
     task = asyncio.create_task(rpc_service.read_text_file("sess_123", "/test.txt"))
 
@@ -462,11 +452,9 @@ async def test_cancel_all_pending_requests_finishes_waiters(
 
 
 @pytest.mark.asyncio
-async def test_no_timeout_waiting(
-    rpc_service: ClientRPCService, mock_send_request: Any
-) -> None:
+async def test_no_timeout_waiting(rpc_service: ClientRPCService, mock_send_request: Any) -> None:
     """Тест что RPC ожидает бессрочно до получения ответа или отмены.
-    
+
     Проверяет, что запрос не завершается по timeout, а ждёт ответа.
     """
     task = asyncio.create_task(rpc_service.read_text_file("sess_123", "/test.txt"))

@@ -108,9 +108,7 @@ class BackgroundExecutor:
 
             # Завершаем turn и отправляем финальный response
             stop_reason = llm_result.stop_reason or "end_turn"
-            turn_completion = await self.complete_active_turn(
-                session_id, stop_reason=stop_reason
-            )
+            turn_completion = await self.complete_active_turn(session_id, stop_reason=stop_reason)
             if turn_completion is not None:
                 await self._send_message(turn_completion, session_id)
                 logger.debug(
@@ -186,9 +184,7 @@ class BackgroundExecutor:
                 "session_saved_after_execute_pending_tool",
                 session_id=session_id,
                 active_turn_perm_request_id=(
-                    session.active_turn.permission_request_id
-                    if session.active_turn
-                    else None
+                    session.active_turn.permission_request_id if session.active_turn else None
                 ),
             )
         except Exception as save_exc:

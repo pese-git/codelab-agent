@@ -45,18 +45,12 @@ class TestFileChatPersistence:
     def test_sanitize_session_id(self, persistence: FileChatPersistence) -> None:
         """_sanitize_session_id должен заменять '/' и '\\' на '_'."""
         assert persistence._sanitize_session_id("normal-id") == "normal-id"
-        assert (
-            persistence._sanitize_session_id("session/with/slashes")
-            == "session_with_slashes"
-        )
+        assert persistence._sanitize_session_id("session/with/slashes") == "session_with_slashes"
         assert (
             persistence._sanitize_session_id("session\\with\\backslashes")
             == "session_with_backslashes"
         )
-        assert (
-            persistence._sanitize_session_id("mixed/path\\separators")
-            == "mixed_path_separators"
-        )
+        assert persistence._sanitize_session_id("mixed/path\\separators") == "mixed_path_separators"
 
     def test_get_file_path(self, persistence: FileChatPersistence) -> None:
         """_get_file_path должен возвращать правильный путь к файлу."""
@@ -205,9 +199,7 @@ class TestFileChatPersistence:
         assert loaded[1] == {"valid": "update"}
 
     @pytest.mark.asyncio
-    async def test_save_messages_unicode(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_save_messages_unicode(self, persistence: FileChatPersistence) -> None:
         """save_messages должен корректно сохранять Unicode символы."""
         messages = [
             {"role": "user", "content": "Привет, мир!"},
@@ -220,9 +212,7 @@ class TestFileChatPersistence:
         assert loaded == messages
 
     @pytest.mark.asyncio
-    async def test_round_trip_complex_data(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_round_trip_complex_data(self, persistence: FileChatPersistence) -> None:
         """Полный цикл save/load должен сохранять сложные данные."""
         messages = [
             {"role": "user", "content": "Question 1"},

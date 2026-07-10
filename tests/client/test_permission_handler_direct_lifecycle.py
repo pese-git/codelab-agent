@@ -404,10 +404,12 @@ class TestPermissionHandlerAdditionalCoverage:
         assert isinstance(result, list)
 
     def test_get_request_manager_returns_manager(
-        self, permission_handler: PermissionHandler,
+        self,
+        permission_handler: PermissionHandler,
     ) -> None:
         """get_request_manager возвращает PermissionRequestManager."""
         from codelab.client.application.permission_handler import PermissionRequestManager
+
         manager = permission_handler.get_request_manager()
         assert isinstance(manager, PermissionRequestManager)
 
@@ -418,6 +420,7 @@ class TestPermissionHandlerAdditionalCoverage:
         sample_permission_request: RequestPermissionRequest,
     ) -> None:
         """handle_request обрабатывает CancelledError."""
+
         def callback_that_cancels(req_id, tool_call, options, on_choice):
             on_choice(req_id, "cancelled")
 
@@ -444,6 +447,7 @@ class TestPermissionHandlerAdditionalCoverage:
         sample_permission_request: RequestPermissionRequest,
     ) -> None:
         """handle_request обрабатывает Exception."""
+
         def callback_that_raises(req_id, tool_call, options, on_choice):
             raise RuntimeError("test error")
 

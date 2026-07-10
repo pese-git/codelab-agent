@@ -119,9 +119,7 @@ class AgentFactory:
             providers = self._llm_registry.get_registered_providers()
             if providers:
                 return await self._llm_registry.get_provider(providers[0])
-            raise ValueError(
-                f"No LLM providers registered. Cannot resolve '{model_ref}'"
-            ) from None
+            raise ValueError(f"No LLM providers registered. Cannot resolve '{model_ref}'") from None
 
     def get_adapter(self, agent_name: str) -> LLMAdapter | None:
         """Получить кэшированный адаптер по имени агента.

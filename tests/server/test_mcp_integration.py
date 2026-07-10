@@ -140,13 +140,19 @@ class TestMCPToolAdapterIntegration:
             assert unknown_def.kind == "other"  # Нет аннотаций, имя не маппится
 
     @pytest.mark.asyncio
-    async def test_all_kinds_are_valid_acp_kinds(
-        self, mcp_server_config: MCPServerConfig
-    ) -> None:
+    async def test_all_kinds_are_valid_acp_kinds(self, mcp_server_config: MCPServerConfig) -> None:
         """Проверяет что все inferred kind — валидные ACP ToolKind."""
         valid_kinds = {
-            "read", "edit", "delete", "move", "search",
-            "execute", "think", "fetch", "switch_mode", "other",
+            "read",
+            "edit",
+            "delete",
+            "move",
+            "search",
+            "execute",
+            "think",
+            "fetch",
+            "switch_mode",
+            "other",
         }
 
         async with MCPClient(mcp_server_config) as client:
@@ -158,9 +164,7 @@ class TestMCPToolAdapterIntegration:
                 assert td.kind in valid_kinds, f"Invalid kind '{td.kind}' for tool {td.name}"
 
     @pytest.mark.asyncio
-    async def test_tool_definition_structure(
-        self, mcp_server_config: MCPServerConfig
-    ) -> None:
+    async def test_tool_definition_structure(self, mcp_server_config: MCPServerConfig) -> None:
         """Проверяет структуру ToolDefinition после адаптации."""
         async with MCPClient(mcp_server_config) as client:
             mcp_tools = await client.list_tools()
@@ -211,9 +215,7 @@ class TestMCPKindInferenceRealWorld:
             assert kind == "edit"
 
     @pytest.mark.asyncio
-    async def test_unknown_tool_kind_fallback(
-        self, mcp_server_config: MCPServerConfig
-    ) -> None:
+    async def test_unknown_tool_kind_fallback(self, mcp_server_config: MCPServerConfig) -> None:
         """Проверяет fallback на 'other' для неизвестного инструмента."""
         async with MCPClient(mcp_server_config) as client:
             tools = await client.list_tools()

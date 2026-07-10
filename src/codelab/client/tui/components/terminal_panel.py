@@ -408,15 +408,11 @@ class TerminalPanel(Container):
         """Создаёт новую сессию."""
         self.create_session()
 
-    def on_terminal_toolbar_clear_requested(
-        self, event: TerminalToolbar.ClearRequested
-    ) -> None:
+    def on_terminal_toolbar_clear_requested(self, event: TerminalToolbar.ClearRequested) -> None:
         """Очищает активную сессию."""
         self.clear_active()
 
-    def on_terminal_toolbar_copy_requested(
-        self, event: TerminalToolbar.CopyRequested
-    ) -> None:
+    def on_terminal_toolbar_copy_requested(self, event: TerminalToolbar.CopyRequested) -> None:
         """Копирует содержимое в буфер обмена."""
         # TODO: реализовать копирование через pyperclip или системный буфер
         pass

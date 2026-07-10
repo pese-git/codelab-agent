@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 class _TestApp(App):
     """Минимальный app для создания Textual контекста в тестах."""
+
     pass
 
 
@@ -149,13 +150,13 @@ async def test_tool_panel_contains_tool_call_list(
 ) -> None:
     """ToolPanel содержит ToolCallList компонент."""
     from codelab.client.tui.components.tool_call_list import ToolCallList
-    
+
     app = _TestApp()
     async with app.run_test() as pilot:
         panel = ToolPanel(mock_chat_view_model, mock_terminal_view_model)
         await app.mount(panel)
         await pilot.pause()
-        
+
         # Проверяем наличие ToolCallList
         tool_call_list = panel.query_one("#tool-call-list", ToolCallList)
         assert tool_call_list is not None
@@ -168,13 +169,13 @@ async def test_tool_panel_tool_call_list_receives_chat_vm(
 ) -> None:
     """ToolCallList в ToolPanel получает ChatViewModel."""
     from codelab.client.tui.components.tool_call_list import ToolCallList
-    
+
     app = _TestApp()
     async with app.run_test() as pilot:
         panel = ToolPanel(mock_chat_view_model, mock_terminal_view_model)
         await app.mount(panel)
         await pilot.pause()
-        
+
         tool_call_list = panel.query_one("#tool-call-list", ToolCallList)
         # ToolCallList должен иметь ссылку на тот же ChatViewModel
         assert tool_call_list._chat_vm is mock_chat_view_model  # noqa: SLF001
@@ -187,22 +188,22 @@ async def test_tool_panel_reset_clears_tool_call_list(
 ) -> None:
     """reset() очищает ToolCallList."""
     from codelab.client.tui.components.tool_call_list import ToolCallList
-    
+
     app = _TestApp()
     async with app.run_test() as pilot:
         panel = ToolPanel(mock_chat_view_model, mock_terminal_view_model)
         await app.mount(panel)
         await pilot.pause()
-        
+
         tool_call_list = panel.query_one("#tool-call-list", ToolCallList)
-        
+
         # Добавляем tool call
         tool_call_list.add_tool_call("test_call_1", "read_file", {"path": "/test"})
         assert tool_call_list.count == 1
-        
+
         # Сбрасываем панель
         panel.reset()
-        
+
         # ToolCallList должен быть очищен
         assert tool_call_list.count == 0
 
@@ -214,12 +215,12 @@ async def test_tool_panel_has_tool_call_list_property(
 ) -> None:
     """ToolPanel имеет property _tool_call_list."""
     from codelab.client.tui.components.tool_call_list import ToolCallList
-    
+
     app = _TestApp()
     async with app.run_test() as pilot:
         panel = ToolPanel(mock_chat_view_model, mock_terminal_view_model)
         await app.mount(panel)
         await pilot.pause()
-        
+
         # Проверяем что property возвращает ToolCallList
         assert isinstance(panel._tool_call_list, ToolCallList)  # noqa: SLF001

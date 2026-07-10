@@ -15,14 +15,14 @@ if TYPE_CHECKING:
 
 def _normalize_path(cwd: str, path: str) -> str:
     """Нормализует путь относительно cwd.
-    
+
     Если путь уже абсолютный — возвращает как есть.
     Если относительный — присоединяет к cwd.
-    
+
     Args:
         cwd: Текущая рабочая директория сессии.
         path: Путь к файлу (абсолютный или относительный).
-        
+
     Returns:
         Нормализованный абсолютный путь.
     """
@@ -34,17 +34,17 @@ def _normalize_path(cwd: str, path: str) -> str:
 
 def _validate_path_in_cwd(path: str, cwd: str) -> None:
     """Проверяет что путь находится внутри cwd.
-    
+
     Args:
         path: Абсолютный путь к файлу.
         cwd: Текущая рабочая директория сессии.
-        
+
     Raises:
         ValueError: Если путь находится вне cwd.
     """
     path_resolved = Path(path).resolve()
     cwd_resolved = Path(cwd).resolve()
-    
+
     # Проверяем что путь начинается с cwd
     # Используем str() для сравнения чтобы избежать проблем с symlink
     if not str(path_resolved).startswith(str(cwd_resolved)):
@@ -56,7 +56,7 @@ def _validate_path_in_cwd(path: str, cwd: str) -> None:
 
 class FileSystemToolDefinitions:
     """Фабрика для создания определений файловых инструментов.
-    
+
     Поддерживает:
     - fs/read_text_file: Чтение текстовых файлов
     - fs/write_text_file: Запись текстовых файлов с diff tracking
@@ -65,10 +65,10 @@ class FileSystemToolDefinitions:
     @staticmethod
     def read_text_file() -> ToolDefinition:
         """Создать определение для инструмента fs/read_text_file.
-        
+
         Позволяет LLM читать содержимое текстовых файлов в окружении клиента
         с поддержкой partial reads (line и limit).
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -107,10 +107,10 @@ class FileSystemToolDefinitions:
     @staticmethod
     def write_text_file() -> ToolDefinition:
         """Создать определение для инструмента fs/write_text_file.
-        
+
         Позволяет LLM создавать и обновлять текстовые файлы в окружении клиента
         с автоматическим отслеживанием изменений (diff).
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -148,15 +148,16 @@ class FileSystemToolDefinitions:
         executor: ToolExecutorProtocol,
     ) -> None:
         """Зарегистрировать все файловые инструменты в реестре.
-        
+
         Регистрирует:
         - fs/read_text_file с executor для чтения
         - fs/write_text_file с executor для записи
-        
+
         Args:
             tool_registry: Реестр инструментов для регистрации
             executor: Executor для выполнения операций с файлами (поддерживает декораторы)
         """
+
         # Создать обработчик для чтения файлов
         async def read_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для fs/read_text_file."""
@@ -170,6 +171,7 @@ class FileSystemToolDefinitions:
                     _validate_path_in_cwd(arguments["path"], session.cwd)
                 except ValueError as e:
                     from codelab.server.tools.base import ToolExecutionResult
+
                     return ToolExecutionResult(
                         success=False,
                         error=str(e),
@@ -189,6 +191,7 @@ class FileSystemToolDefinitions:
                     _validate_path_in_cwd(arguments["path"], session.cwd)
                 except ValueError as e:
                     from codelab.server.tools.base import ToolExecutionResult
+
                     return ToolExecutionResult(
                         success=False,
                         error=str(e),

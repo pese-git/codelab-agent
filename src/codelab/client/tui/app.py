@@ -167,13 +167,13 @@ class ACPClientApp(App[None]):
         self._theme_manager.register_textual_themes()
         # Применяем тему из конфига или CLI
         self._apply_initial_theme(theme)
-        
+
         # Флаг видимости sidebar
         self._sidebar_visible = True
 
         # NavigationManager будет инициализирован в on_mount
         self._navigation_manager: NavigationManager | None = None
-        
+
         # MainLayout будет инициализирован в compose()
         self._main_layout: MainLayout | None = None
 
@@ -214,7 +214,7 @@ class ACPClientApp(App[None]):
             self._permission_vm = self._container.get(PermissionViewModel)
             self._terminal_vm = self._container.get(TerminalViewModel)
             self._model_selector_vm = self._container.get(ModelSelectorViewModel)
-            
+
             # Специализированные ConfigOptionSelectorViewModel
             self._mode_selector_vm = self._container.get(ModeSelectorViewModel)
             self._agent_selector_vm = self._container.get(AgentSelectorViewModel)
@@ -249,7 +249,7 @@ class ACPClientApp(App[None]):
 
     def compose(self) -> ComposeResult:
         """Собирает базовый layout приложения в стиле OpenCode.
-        
+
         Структура (OpenCode-style):
         - HeaderBar (titlebar)
         - MainLayout (id="body"):
@@ -312,9 +312,9 @@ class ACPClientApp(App[None]):
 
     def _mount_main_layout_children(self) -> None:
         """Монтирует дочерние компоненты в контейнеры MainLayout (OpenCode-style).
-        
+
         Эта функция вызывается в on_ready после того как MainLayout создан в compose().
-        
+
         OpenCode-style layout:
         - sidebar-column: Sidebar, FileTree
         - main-column:
@@ -325,7 +325,7 @@ class ACPClientApp(App[None]):
         if self._main_layout is None:
             self._app_logger.error("main_layout_not_initialized")
             return
-        
+
         # Монтируем компоненты в sidebar
         sidebar_column = self._main_layout.sidebar_column
         if sidebar_column is not None:
@@ -337,7 +337,7 @@ class ACPClientApp(App[None]):
                 )
             )
             self._app_logger.debug("sidebar_components_mounted")
-        
+
         # Монтируем компоненты в content-area
         content_area = self._main_layout.content_area
         if content_area is not None:
@@ -345,7 +345,7 @@ class ACPClientApp(App[None]):
             content_area.mount(self._chat_view)
             content_area.mount(PlanPanel(self._plan_vm))
             self._app_logger.debug("content_area_components_mounted")
-        
+
         # Монтируем PromptInput в dock-region (OpenCode-style)
         dock_region = self._main_layout.dock_region
         if dock_region is not None:
@@ -363,7 +363,7 @@ class ACPClientApp(App[None]):
                 )
             )
             self._app_logger.debug("dock_region_components_mounted")
-        
+
         # Монтируем ToolPanel в right-panel-column
         right_panel = self._main_layout.right_panel_column
         if right_panel is not None:
@@ -576,6 +576,7 @@ class ACPClientApp(App[None]):
             if result is not None:
                 # Выполняем action команды
                 from .components import Command
+
                 if isinstance(result, Command) and result.action:
                     self._app_logger.debug(
                         "command_selected",
@@ -600,7 +601,7 @@ class ACPClientApp(App[None]):
             self._theme_manager.set_theme("light")
         else:
             self._theme_manager.set_theme("dark")
-        
+
         # Сохраняем тему в конфиг
         config = self._config_store.load()
         config.theme = cast(TUITheme, self._theme_manager.current_theme_name)
@@ -881,9 +882,7 @@ class ACPClientApp(App[None]):
                     tool_call_title=tool_call.title,
                     options_count=len(options),
                 )
-                self._chat_view.show_permission_request(
-                    request_id, tool_call, options, on_choice
-                )
+                self._chat_view.show_permission_request(request_id, tool_call, options, on_choice)
             else:
                 self._app_logger.warning(
                     "chat_view_not_available_for_permission_widget",
@@ -920,23 +919,23 @@ class ACPClientApp(App[None]):
 
     def on_tool_call_card_selected(self, event: ToolCallCard.Selected) -> None:
         """Обработчик выбора карточки tool call.
-        
+
         Показывает модальное окно FileChangePreviewModal для инструментов
         типа write_file, file_edit и подобных, которые изменяют файлы.
-        
+
         Args:
             event: Событие выбора карточки tool call
         """
         card = event.card
         tool_name = card.tool_name
         tool_call_id = card.tool_call_id
-        
+
         self._app_logger.debug(
             "tool_call_card_selected",
             tool_call_id=tool_call_id,
             tool_name=tool_name,
         )
-        
+
         # Проверяем, является ли инструмент файловым
         file_tools = {"write_file", "file_edit", "create_file", "edit_file", "patch_file"}
         if tool_name not in file_tools:
@@ -947,51 +946,49 @@ class ACPClientApp(App[None]):
                 tool_name=tool_name,
             )
             return
-        
+
         # Получаем данные о tool call из ChatViewModel
         tool_calls = self._chat_vm.tool_calls.value
         tool_call_data = None
-        
+
         for tc in tool_calls:
             if isinstance(tc, dict):
                 tc_id = tc.get("toolCallId") or tc.get("id")
             else:
                 tc_id = getattr(tc, "toolCallId", None) or getattr(tc, "id", None)
-            
+
             if tc_id == tool_call_id:
                 tool_call_data = tc
                 break
-        
+
         if tool_call_data is None:
             self._app_logger.warning(
                 "tool_call_data_not_found",
                 tool_call_id=tool_call_id,
             )
             return
-        
+
         # Извлекаем параметры для FileChangePreview
         if isinstance(tool_call_data, dict):
             params = tool_call_data.get("parameters") or tool_call_data.get("rawInput") or {}
         else:
             params = getattr(tool_call_data, "parameters", {}) or {}
-        
+
         file_path = (
-            params.get("path") or params.get("file_path")
-            or params.get("filePath") or "unknown"
+            params.get("path") or params.get("file_path") or params.get("filePath") or "unknown"
         )
         old_content = params.get("old_content") or params.get("oldContent") or ""
         new_content = (
-            params.get("content") or params.get("new_content")
-            or params.get("newContent") or ""
+            params.get("content") or params.get("new_content") or params.get("newContent") or ""
         )
-        
+
         # Показываем модальное окно предпросмотра изменений
         self._app_logger.info(
             "showing_file_change_preview_modal",
             tool_call_id=tool_call_id,
             file_path=file_path,
         )
-        
+
         modal = FileChangePreviewModal(
             file_path=file_path,
             old_content=old_content,
@@ -1086,7 +1083,9 @@ def run_tui_app(
         theme: Тема интерфейса ("light" или "dark", если None — из конфига)
     """
     resolved_host, resolved_port, resolved_theme = resolve_tui_connection(
-        host=host, port=port, theme=cast(TUITheme, theme) if theme in ("light", "dark") else None,
+        host=host,
+        port=port,
+        theme=cast(TUITheme, theme) if theme in ("light", "dark") else None,
     )
     app = ACPClientApp(
         host=resolved_host,

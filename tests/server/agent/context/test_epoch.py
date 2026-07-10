@@ -8,7 +8,6 @@
 - reset_turn_counter
 """
 
-
 from codelab.server.agent.context.epoch import EpochManager
 from codelab.server.llm.models import LLMMessage
 

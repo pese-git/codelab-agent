@@ -13,9 +13,7 @@ class ToolCallMapper:
     @staticmethod
     def to_protocol(domain: ToolCall) -> ToolCallState:
         """Конвертировать domain ToolCall в protocol ToolCallState."""
-        locations = [
-            {"path": loc.path, "line": loc.line} for loc in domain.locations
-        ]
+        locations = [{"path": loc.path, "line": loc.line} for loc in domain.locations]
         return ToolCallState(
             tool_call_id=domain.id,
             title=domain.tool_name,
@@ -47,9 +45,7 @@ class ToolCallMapper:
             id=protocol.tool_call_id,
             tool_name=protocol.title,
             arguments=(
-                dict(protocol.raw_input)
-                if protocol.raw_input
-                else dict(protocol.tool_arguments)
+                dict(protocol.raw_input) if protocol.raw_input else dict(protocol.tool_arguments)
             ),
             status=status,
             result=result,

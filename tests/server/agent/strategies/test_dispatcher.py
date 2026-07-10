@@ -316,7 +316,7 @@ class TestStrategyDispatcherLLMCallStrategy:
     async def test_execute_delegates_to_strategy(self) -> None:
         """execute делегирует выполнение стратегии."""
         from unittest.mock import AsyncMock
-        
+
         strategy_registry = MagicMock(spec=StrategyRegistry)
         agent_registry = MagicMock()
 
@@ -364,7 +364,7 @@ class TestStrategyDispatcherLLMCallStrategy:
     async def test_continue_execution_delegates_to_strategy(self) -> None:
         """continue_execution делегирует выполнение стратегии."""
         from unittest.mock import AsyncMock
-        
+
         strategy_registry = MagicMock(spec=StrategyRegistry)
         agent_registry = MagicMock()
 

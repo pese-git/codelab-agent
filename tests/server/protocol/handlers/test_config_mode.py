@@ -68,8 +68,7 @@ class TestSessionSetModeValidModes:
                 for n in outcome.notifications
                 if n.method == "session/update"
                 and n.params is not None
-                and n.params.get("update", {}).get("sessionUpdate")
-                == "current_mode_update"
+                and n.params.get("update", {}).get("sessionUpdate") == "current_mode_update"
             ),
             None,
         )
@@ -128,8 +127,7 @@ class TestSessionSetModeOldModeNormalization:
                 for n in outcome.notifications
                 if n.method == "session/update"
                 and n.params is not None
-                and n.params.get("update", {}).get("sessionUpdate")
-                == "current_mode_update"
+                and n.params.get("update", {}).get("sessionUpdate") == "current_mode_update"
             ),
             None,
         )

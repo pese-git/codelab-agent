@@ -89,9 +89,7 @@ class TestHandleAndProcess:
 
         with patch.object(protocol, "handle", return_value=outcome):
             with patch("asyncio.create_task") as mock_create_task:
-                result = await protocol.handle_and_process(
-                    ACPMessage.request("session/prompt", {})
-                )
+                result = await protocol.handle_and_process(ACPMessage.request("session/prompt", {}))
 
         assert result is outcome
         mock_create_task.assert_called_once()
@@ -102,9 +100,7 @@ class TestHandleAndProcess:
         outcome = ProtocolOutcome()
 
         with patch.object(protocol, "handle", return_value=outcome):
-            result = await protocol.handle_and_process(
-                ACPMessage.request("session/prompt", {})
-            )
+            result = await protocol.handle_and_process(ACPMessage.request("session/prompt", {}))
 
         assert result is outcome
 
@@ -161,9 +157,7 @@ class TestExecuteToolInBackground:
             "execute_pending_tool",
             side_effect=RuntimeError("boom"),
         ):
-            with patch(
-                "codelab.server.protocol.background_executor.logger"
-            ) as mock_logger:
+            with patch("codelab.server.protocol.background_executor.logger") as mock_logger:
                 await executor.execute_tool_in_background(
                     session_id="sess_1",
                     tool_call_id="call_1",
@@ -508,9 +502,7 @@ class TestHandleSessionPrompt:
             "save_session",
             side_effect=RuntimeError("save failed"),
         ):
-            with patch(
-                "codelab.server.protocol.commands.session_prompt.logger"
-            ) as mock_logger:
+            with patch("codelab.server.protocol.commands.session_prompt.logger") as mock_logger:
                 message = ACPMessage.request(
                     "session/prompt",
                     {
@@ -889,9 +881,7 @@ class TestExecutePendingTool:
             "save_session",
             side_effect=RuntimeError("save failed"),
         ):
-            with patch(
-                "codelab.server.protocol.background_executor.logger"
-            ) as mock_logger:
+            with patch("codelab.server.protocol.background_executor.logger") as mock_logger:
                 result = await executor.execute_pending_tool(
                     session.session_id,
                     "call_1",
@@ -905,9 +895,7 @@ class TestExecutePendingTool:
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
-        expected = LLMLoopResult(
-            notifications=[ACPMessage.notification("session/update", {})]
-        )
+        expected = LLMLoopResult(notifications=[ACPMessage.notification("session/update", {})])
         orchestrator = AsyncMock()
         orchestrator.execute_pending_tool.return_value = expected
         executor = _make_background_executor(storage, orchestrator=orchestrator)
@@ -977,9 +965,7 @@ class TestInitializeMcpServersCallbacks:
         status_callback = callbacks[0][0][0]
         mcp_manager.get_servers_info.side_effect = RuntimeError("info failed")
 
-        with patch(
-            "codelab.server.protocol.mcp_session_manager.logger"
-        ) as mock_logger:
+        with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
             with patch.object(manager, "_send_message", new=AsyncMock()) as send:
                 await status_callback()
 
@@ -1000,9 +986,7 @@ class TestInitializeMcpServersCallbacks:
         # Удаляем runtime, чтобы callback не нашёл состояние
         await registry.remove(session.session_id)
 
-        with patch(
-            "codelab.server.protocol.mcp_session_manager.logger"
-        ) as mock_logger:
+        with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
             await prompts_callback()
 
         mock_logger.warning.assert_called_once()
@@ -1071,9 +1055,7 @@ class TestInitializeMcpServersCallbacks:
             "codelab.server.protocol.mcp_session_manager.MCPManager",
             return_value=mcp_manager,
         ):
-            with patch(
-                "codelab.server.protocol.mcp_session_manager.logger"
-            ) as mock_logger:
+            with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
                 await manager._initialize_mcp_servers(session, raw_configs)
 
         assert mock_logger.warning.call_count == 3

@@ -126,7 +126,7 @@ class ClientRPCService:
             ClientRPCError: Некорректный ответ от клиента.
         """
         request_id = str(uuid.uuid4())
-        
+
         # Создаём PendingRequest с cancellation_event для координированной отмены
         pending_request = PendingRequest(
             future=asyncio.Future(),
@@ -195,10 +195,10 @@ class ClientRPCService:
 
     async def _wrap_future(self, future: asyncio.Future) -> Any:
         """Обёртка для ожидания Future как корутины.
-        
+
         Args:
             future: Future для ожидания.
-            
+
         Returns:
             Результат Future.
         """
@@ -256,7 +256,7 @@ class ClientRPCService:
         """
         if not isinstance(request_id, str):
             return False
-        
+
         is_pending = request_id in self._pending_requests
         if is_pending:
             logger.debug(
@@ -279,10 +279,10 @@ class ClientRPCService:
         """
         if request_id not in self._pending_requests:
             return False
-        
+
         pending_request = self._pending_requests[request_id]
         pending_request.cancellation_event.set()
-        
+
         logger.debug(
             "RPC запрос отменён",
             extra={"request_id": request_id, "method": pending_request.method},
@@ -306,7 +306,7 @@ class ClientRPCService:
             # Пропускаем уже завершённые
             if pending_request.future.done():
                 continue
-            
+
             # Устанавливаем event отмены - _call_method обработает и выбросит исключение
             pending_request.cancellation_event.set()
             cancelled_count += 1
@@ -346,9 +346,7 @@ class ClientRPCService:
         """
         self._check_capability("fs.readTextFile")
 
-        request = ReadTextFileRequest(
-            sessionId=session_id, path=path, line=line, limit=limit
-        )
+        request = ReadTextFileRequest(sessionId=session_id, path=path, line=line, limit=limit)
 
         response = await self._call_method(
             method="fs/read_text_file",
@@ -381,9 +379,7 @@ class ClientRPCService:
         """
         self._check_capability("fs.writeTextFile")
 
-        request = WriteTextFileRequest(
-            sessionId=session_id, path=path, content=content
-        )
+        request = WriteTextFileRequest(sessionId=session_id, path=path, content=content)
 
         await self._call_method(
             method="fs/write_text_file",
@@ -465,9 +461,7 @@ class ClientRPCService:
         """
         self._check_capability("terminal")
 
-        request = TerminalOutputRequest(
-            sessionId=session_id, terminalId=terminal_id
-        )
+        request = TerminalOutputRequest(sessionId=session_id, terminalId=terminal_id)
 
         response = await self._call_method(
             method="terminal/output",
@@ -537,9 +531,7 @@ class ClientRPCService:
         """
         self._check_capability("terminal")
 
-        request = TerminalKillRequest(
-            sessionId=session_id, terminalId=terminal_id, signal=signal
-        )
+        request = TerminalKillRequest(sessionId=session_id, terminalId=terminal_id, signal=signal)
 
         await self._call_method(
             method="terminal/kill",
@@ -571,9 +563,7 @@ class ClientRPCService:
         """
         self._check_capability("terminal")
 
-        request = TerminalReleaseRequest(
-            sessionId=session_id, terminalId=terminal_id
-        )
+        request = TerminalReleaseRequest(sessionId=session_id, terminalId=terminal_id)
 
         await self._call_method(
             method="terminal/release",

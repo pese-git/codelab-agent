@@ -280,9 +280,7 @@ class TestReceive:
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001
 
-        await queues.put_notification(
-            {"jsonrpc": "2.0", "method": "session/update", "params": {}}
-        )
+        await queues.put_notification({"jsonrpc": "2.0", "method": "session/update", "params": {}})
 
         message = await service.receive()
         assert message["method"] == "session/update"
@@ -547,9 +545,7 @@ class TestDrainRemainingNotifications:
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001
 
-        await queues.put_notification(
-            {"jsonrpc": "2.0", "method": "session/update", "params": {}}
-        )
+        await queues.put_notification({"jsonrpc": "2.0", "method": "session/update", "params": {}})
 
         with patch.object(
             queues.notification_queue,
@@ -577,9 +573,7 @@ class TestProcessResponse:
         future.set_result({"jsonrpc": "2.0", "id": "other", "result": {}})
 
         with pytest.raises(RuntimeError, match="Response id mismatch"):
-            await service._process_response(
-                future, method="m", request_id="req-1", on_update=None
-            )
+            await service._process_response(future, method="m", request_id="req-1", on_update=None)
 
     @pytest.mark.asyncio
     async def test_process_response_error_payload_logs(self) -> None:
@@ -756,9 +750,7 @@ class TestPermissionHandling:
             }
         )
 
-        error_events = [
-            call.args[0] for call in service._logger.error.call_args_list if call.args
-        ]
+        error_events = [call.args[0] for call in service._logger.error.call_args_list if call.args]
         assert "failed_to_send_error_response" in error_events
 
     @pytest.mark.asyncio
@@ -859,9 +851,7 @@ class TestSessionUpdate:
             },
         }
 
-        await service._handle_session_update(
-            data, method="m", request_id="r", on_update=on_update
-        )
+        await service._handle_session_update(data, method="m", request_id="r", on_update=on_update)
 
         on_update.assert_called_once_with(data)
         service._logger.debug.assert_any_call(  # noqa: SLF001
@@ -879,9 +869,7 @@ class TestSessionUpdate:
             "params": {"sessionId": "s", "update": {}},
         }
 
-        await service._handle_session_update(
-            data, method="m", request_id="r", on_update=None
-        )
+        await service._handle_session_update(data, method="m", request_id="r", on_update=None)
 
         service._logger.warning.assert_any_call(  # noqa: SLF001
             "session_update_received_but_no_callback", method="m", request_id="r"

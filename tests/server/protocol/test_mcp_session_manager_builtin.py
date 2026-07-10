@@ -87,9 +87,7 @@ class TestGetBuiltinCommandNames:
     ) -> None:
         """Исключает динамические команды (без handlers)."""
         registry = CommandRegistry()
-        registry.add_dynamic_command(
-            AvailableCommand(name="dynamic_cmd", description="Dynamic")
-        )
+        registry.add_dynamic_command(AvailableCommand(name="dynamic_cmd", description="Dynamic"))
 
         manager = MCPSessionManager(
             runtime_registry=mock_runtime_registry,

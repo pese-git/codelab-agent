@@ -154,8 +154,7 @@ def _apply_env_overrides(config: ContextConfig) -> ContextConfig:
         return config
 
     current = {
-        f: getattr(config, f)
-        for f in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS
+        f: getattr(config, f) for f in _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS | _STR_FIELDS
     }
     current.update(overrides)
     return ContextConfig(**current)

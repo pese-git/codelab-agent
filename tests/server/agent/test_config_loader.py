@@ -102,7 +102,7 @@ class TestBackwardCompatibility:
 
         assert cfg.role == AgentRole.SUBAGENT
         assert cfg.model == "openai/gpt-4o"
-        
+
         # Проверяем что warning был выведен (structlog пишет в stdout)
         captured = capsys.readouterr()
         assert "agent_mode_deprecated_in_markdown" in captured.out
@@ -121,9 +121,7 @@ class TestBackwardCompatibility:
     def test_role_takes_precedence_over_mode(self, temp_dir, caplog):
         """Когда есть и role и mode — role имеет приоритет, warning не генерируется."""
         md_file = temp_dir / "coder.md"
-        md_file.write_text(
-            "---\nname: coder\nrole: subagent\nmode: orchestrator\n---\nPrompt."
-        )
+        md_file.write_text("---\nname: coder\nrole: subagent\nmode: orchestrator\n---\nPrompt.")
 
         loader = AgentConfigLoader(project_config_dir=temp_dir)
         with caplog.at_level("WARNING"):
@@ -151,7 +149,7 @@ class TestBackwardCompatibility:
         assert "coder" in result
         assert result["coder"].role == AgentRole.SUBAGENT
         assert result["coder"].model == "openai/gpt-4o"
-        
+
         # Проверяем что warning был выведен (structlog пишет в stdout)
         captured = capsys.readouterr()
         assert "agent_mode_deprecated_in_toml" in captured.out
@@ -233,9 +231,7 @@ class TestLoadAll:
         # Project MD (высший приоритет)
         agents_dir = temp_dir / "agents"
         agents_dir.mkdir()
-        (agents_dir / "coder.md").write_text(
-            "---\nname: coder\nrole: subagent\n---\nCoder prompt."
-        )
+        (agents_dir / "coder.md").write_text("---\nname: coder\nrole: subagent\n---\nCoder prompt.")
 
         result = loader.load_all(project_toml=project_toml)
         assert result["coder"].role == AgentRole.SUBAGENT  # Из MD, не TOML

@@ -16,8 +16,17 @@ from codelab.server.agent.context.skeletonizer.strategy import SkeletonizerStrat
 logger = structlog.get_logger(__name__)
 
 C_LIKE_EXTENSIONS = {
-    ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx",
-    ".cs", ".php", ".swift", ".kt", ".scala",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cc",
+    ".cxx",
+    ".cs",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
 }
 
 PYTHON_LIKE_EXTENSIONS = {".py", ".pyx", ".pyi"}

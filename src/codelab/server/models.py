@@ -108,7 +108,6 @@ class AgentPlan(BaseModel):
     updated_at: str | None = None
 
 
-
 # Модели для разрешений (permissions)
 class Permission(BaseModel):
     """Разрешение на выполнение операции."""

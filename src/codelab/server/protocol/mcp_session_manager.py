@@ -176,8 +176,7 @@ class MCPSessionManager:
         # Очищаем старые MCP prompts из available_commands (оставляем built-in)
         builtin_names = self._get_builtin_command_names()
         session.available_commands = [
-            cmd for cmd in session.available_commands
-            if _get_command_name(cmd) in builtin_names
+            cmd for cmd in session.available_commands if _get_command_name(cmd) in builtin_names
         ]
         runtime.mcp_prompt_handlers.clear()
         session.mcp_prompt_handlers.clear()
@@ -205,9 +204,7 @@ class MCPSessionManager:
             if not server_prompts:
                 continue
 
-            self._register_mcp_prompts_from_list(
-                session, mcp_manager, server_name, server_prompts
-            )
+            self._register_mcp_prompts_from_list(session, mcp_manager, server_name, server_prompts)
 
         # Копируем handlers из session в runtime (основное хранилище)
         runtime.mcp_prompt_handlers.update(session.mcp_prompt_handlers)
@@ -237,16 +234,13 @@ class MCPSessionManager:
             # Собираем все инструменты
             mcp_tools = mcp_manager.get_all_tools()
             native_tools = (
-                self._tool_registry.get_available_tools("")
-                if self._tool_registry
-                else []
+                self._tool_registry.get_available_tools("") if self._tool_registry else []
             )
             all_tools = native_tools + mcp_tools
 
             # Формируем availableCommands
             available_commands: list[dict[str, Any]] = [
-                {"name": tool.name, "description": tool.description or ""}
-                for tool in all_tools
+                {"name": tool.name, "description": tool.description or ""} for tool in all_tools
             ]
 
             # Добавляем slash-команды из session_state
@@ -303,9 +297,7 @@ class MCPSessionManager:
 
         # Создаём MCPManager для этой сессии
         mcp_manager = MCPManager(session_state.session_id)
-        await self._runtime_registry.set_mcp_manager(
-            session_state.session_id, mcp_manager
-        )
+        await self._runtime_registry.set_mcp_manager(session_state.session_id, mcp_manager)
 
         # Регистрируем callback для отправки available_commands_update при изменении инструментов
         async def _on_mcp_tools_changed() -> None:
@@ -319,8 +311,7 @@ class MCPSessionManager:
                 servers_info = mcp_manager.get_servers_info()
                 for server_info in servers_info:
                     status_text = (
-                        f"MCP server '{server_info['name']}' "
-                        f"status: {server_info['state']}"
+                        f"MCP server '{server_info['name']}' status: {server_info['state']}"
                     )
                     notification = ACPMessage.notification(
                         "session/update",
@@ -359,7 +350,8 @@ class MCPSessionManager:
                 # Очищаем старые MCP prompts (оставляем built-in)
                 builtin_names = self._get_builtin_command_names()
                 session_state.available_commands = [
-                    cmd for cmd in session_state.available_commands
+                    cmd
+                    for cmd in session_state.available_commands
                     if _get_command_name(cmd) in builtin_names
                 ]
                 runtime.mcp_prompt_handlers.clear()
@@ -442,9 +434,7 @@ class MCPSessionManager:
                 )
 
                 # Получаем prompts от MCP сервера и регистрируем как slash-команды
-                await self._register_mcp_prompts_as_slash_commands(
-                    session_state, mcp_manager, name
-                )
+                await self._register_mcp_prompts_as_slash_commands(session_state, mcp_manager, name)
 
                 # Отправляем initial available_commands_update клиенту
                 await _on_mcp_tools_changed()

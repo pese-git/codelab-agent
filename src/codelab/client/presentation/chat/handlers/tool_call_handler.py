@@ -70,9 +70,7 @@ class ToolCallHandler:
         elif update_type == "tool_call_result":
             self._handle_tool_call_result(update, context)
 
-    def _handle_tool_call_created(
-        self, update: dict[str, Any], context: ChatUpdateContext
-    ) -> None:
+    def _handle_tool_call_created(self, update: dict[str, Any], context: ChatUpdateContext) -> None:
         """Обрабатывает создание нового вызова инструмента.
 
         Args:
@@ -116,9 +114,7 @@ class ToolCallHandler:
             kind=kind,
         )
 
-    def _handle_tool_call_updated(
-        self, update: dict[str, Any], context: ChatUpdateContext
-    ) -> None:
+    def _handle_tool_call_updated(self, update: dict[str, Any], context: ChatUpdateContext) -> None:
         """Обрабатывает обновление статуса вызова инструмента.
 
         Args:
@@ -161,6 +157,7 @@ class ToolCallHandler:
         if self._follow_along is not None:
             # Создаем asyncio task для async вызова
             import asyncio
+
             asyncio.create_task(self._follow_along.on_tool_call_updated(update))
 
         context.logger.info(
@@ -169,16 +166,10 @@ class ToolCallHandler:
             tool_call_id=tool_call_id,
             updates=updates,
             has_content=content is not None,
-            content_types=(
-                [item.get("type") for item in content]
-                if content
-                else []
-            ),
+            content_types=([item.get("type") for item in content] if content else []),
         )
 
-    def _handle_tool_call_result(
-        self, update: dict[str, Any], context: ChatUpdateContext
-    ) -> None:
+    def _handle_tool_call_result(self, update: dict[str, Any], context: ChatUpdateContext) -> None:
         """Обрабатывает результат выполнения инструмента.
 
         Args:

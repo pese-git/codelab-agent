@@ -33,14 +33,10 @@ from codelab.server.storage import InMemoryStorage
 async def test_session_list_rejects_cursor_with_valid_base64_but_invalid_json() -> None:
     """Cursor декодируется из base64, но не является валидным JSON."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     invalid_cursor = base64.urlsafe_b64encode(b"not-json").decode("ascii")
-    response = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": invalid_cursor})
-    )
+    response = await protocol.handle(ACPMessage.request("session/list", {"cursor": invalid_cursor}))
 
     assert response.response is not None
     assert response.response.error is not None
@@ -51,15 +47,11 @@ async def test_session_list_rejects_cursor_with_valid_base64_but_invalid_json() 
 async def test_session_list_rejects_cursor_with_valid_json_but_missing_index() -> None:
     """Cursor — валидный JSON, но без поля index."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     payload = json.dumps({"page": 1}).encode("utf-8")
     invalid_cursor = base64.urlsafe_b64encode(payload).decode("ascii")
-    response = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": invalid_cursor})
-    )
+    response = await protocol.handle(ACPMessage.request("session/list", {"cursor": invalid_cursor}))
 
     assert response.response is not None
     assert response.response.error is not None
@@ -70,15 +62,11 @@ async def test_session_list_rejects_cursor_with_valid_json_but_missing_index() -
 async def test_session_list_rejects_cursor_with_non_int_index() -> None:
     """Cursor имеет index, но он не int (строка)."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     payload = json.dumps({"index": "not-an-int"}).encode("utf-8")
     invalid_cursor = base64.urlsafe_b64encode(payload).decode("ascii")
-    response = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": invalid_cursor})
-    )
+    response = await protocol.handle(ACPMessage.request("session/list", {"cursor": invalid_cursor}))
 
     assert response.response is not None
     assert response.response.error is not None
@@ -89,15 +77,11 @@ async def test_session_list_rejects_cursor_with_non_int_index() -> None:
 async def test_session_list_rejects_cursor_with_negative_index() -> None:
     """Cursor имеет index < 0."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     payload = json.dumps({"index": -1}).encode("utf-8")
     invalid_cursor = base64.urlsafe_b64encode(payload).decode("ascii")
-    response = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": invalid_cursor})
-    )
+    response = await protocol.handle(ACPMessage.request("session/list", {"cursor": invalid_cursor}))
 
     assert response.response is not None
     assert response.response.error is not None
@@ -108,15 +92,11 @@ async def test_session_list_rejects_cursor_with_negative_index() -> None:
 async def test_session_list_returns_empty_page_when_cursor_beyond_total() -> None:
     """Cursor указывает за пределы общего числа сессий — пустая страница, не ошибка."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     payload = json.dumps({"index": 9999}).encode("utf-8")
     beyond_cursor = base64.urlsafe_b64encode(payload).decode("ascii")
-    response = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": beyond_cursor})
-    )
+    response = await protocol.handle(ACPMessage.request("session/list", {"cursor": beyond_cursor}))
 
     assert response.response is not None
     assert response.response.error is None
@@ -147,9 +127,7 @@ async def test_session_list_returns_empty_when_no_sessions() -> None:
 async def test_session_list_returns_empty_when_cwd_filter_no_match() -> None:
     """Фильтр cwd не находит matching сессий — пустой массив."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     response = await protocol.handle(
         ACPMessage.request("session/list", {"cwd": "/nonexistent/path"})
@@ -166,9 +144,7 @@ async def test_session_list_returns_empty_when_cwd_filter_no_match() -> None:
 async def test_session_list_returns_empty_page_after_last_session() -> None:
     """Cursor указывает точно после последней сессии — пустая страница."""
     protocol = build_protocol()
-    await protocol.handle(
-        ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-    )
+    await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     first_page = await protocol.handle(ACPMessage.request("session/list", {}))
     assert first_page.response is not None
@@ -195,9 +171,7 @@ async def test_session_list_exactly_page_size_returns_no_next_cursor() -> None:
     """Ровно 50 сессий (page size) — одна страница без nextCursor."""
     protocol = build_protocol()
     for _ in range(50):
-        await protocol.handle(
-            ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-        )
+        await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     response = await protocol.handle(ACPMessage.request("session/list", {}))
     assert response.response is not None
@@ -211,9 +185,7 @@ async def test_session_list_one_less_than_page_size_returns_no_next_cursor() -> 
     """49 сессий — одна страница без nextCursor."""
     protocol = build_protocol()
     for _ in range(49):
-        await protocol.handle(
-            ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-        )
+        await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     response = await protocol.handle(ACPMessage.request("session/list", {}))
     assert response.response is not None
@@ -227,9 +199,7 @@ async def test_session_list_one_more_than_page_size_returns_next_cursor() -> Non
     """51 сессия — первая страница 50, есть nextCursor."""
     protocol = build_protocol()
     for _ in range(51):
-        await protocol.handle(
-            ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-        )
+        await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     response = await protocol.handle(ACPMessage.request("session/list", {}))
     assert response.response is not None
@@ -251,9 +221,7 @@ async def test_session_list_cursor_at_exact_page_boundary() -> None:
     """Cursor=50 на 100 сессиях — вторая страница с 50 сессиями."""
     protocol = build_protocol()
     for _ in range(100):
-        await protocol.handle(
-            ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []})
-        )
+        await protocol.handle(ACPMessage.request("session/new", {"cwd": "/tmp", "mcpServers": []}))
 
     first_page = await protocol.handle(ACPMessage.request("session/list", {}))
     assert first_page.response is not None
@@ -262,9 +230,7 @@ async def test_session_list_cursor_at_exact_page_boundary() -> None:
     next_cursor = first_page.response.result["nextCursor"]
     assert next_cursor is not None
 
-    second_page = await protocol.handle(
-        ACPMessage.request("session/list", {"cursor": next_cursor})
-    )
+    second_page = await protocol.handle(ACPMessage.request("session/list", {"cursor": next_cursor}))
     assert second_page.response is not None
     assert second_page.response.result is not None
     assert len(second_page.response.result["sessions"]) == 50
@@ -381,8 +347,6 @@ async def test_storage_list_sessions_cursor_for_nonexistent_session() -> None:
         session = SessionState(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
         await storage.save_session(session)
 
-    page, next_cursor = await storage.list_sessions(
-        cursor="nonexistent_session", limit=10
-    )
+    page, next_cursor = await storage.list_sessions(cursor="nonexistent_session", limit=10)
     assert len(page) == 3
     assert next_cursor is None

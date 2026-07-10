@@ -433,9 +433,7 @@ class TestAccuracyBenchmark:
             "src/utils/string.py": "def concat(): pass",
             "src/models/user.py": "class User: pass",
         }
-        tool_registry = MockToolRegistry(
-            {k: v for k, v in files.items() if "auth" in k}
-        )
+        tool_registry = MockToolRegistry({k: v for k, v in files.items() if "auth" in k})
         dep_graph = RegexDependencyGraph()
 
         gatherer = ACPContextGatherer(
@@ -677,9 +675,7 @@ class TestGatherBinarySkipBase:
             async def execute_tool(self, session_id, tool_name, arguments, session=None):
                 if tool_name == "fs/read_text_file":
                     self.read_paths.append(arguments.get("path", ""))
-                return await super().execute_tool(
-                    session_id, tool_name, arguments, session
-                )
+                return await super().execute_tool(session_id, tool_name, arguments, session)
 
         files = {
             "src/auth.py": "def authenticate(): pass",

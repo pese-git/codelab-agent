@@ -69,7 +69,7 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
             TaskProfile с классификацией и стратегией поиска
         """
         start_time = time.time()
-        
+
         logger.info(
             "context.task_analyze.start",
             prompt_length=len(prompt),
@@ -99,12 +99,12 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
                 "context.task_analyze.llm_call.start",
                 model=self._model,
             )
-            
+
             profile = await self._llm_classify(prompt)
-            
+
             llm_ms = (time.time() - llm_start) * 1000
             elapsed_ms = (time.time() - start_time) * 1000
-            
+
             logger.info(
                 "context.task_analyze.complete",
                 method="llm",
@@ -285,10 +285,39 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
         words = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b", prompt)
 
         stop_words = {
-            "the", "and", "for", "with", "that", "this", "from", "have", "was",
-            "are", "been", "will", "can", "should", "would", "could", "might",
-            "must", "need", "want", "like", "just", "about", "into", "your",
-            "you", "our", "their", "its", "some", "any", "all", "each",
+            "the",
+            "and",
+            "for",
+            "with",
+            "that",
+            "this",
+            "from",
+            "have",
+            "was",
+            "are",
+            "been",
+            "will",
+            "can",
+            "should",
+            "would",
+            "could",
+            "might",
+            "must",
+            "need",
+            "want",
+            "like",
+            "just",
+            "about",
+            "into",
+            "your",
+            "you",
+            "our",
+            "their",
+            "its",
+            "some",
+            "any",
+            "all",
+            "each",
         }
 
         keywords = [w.lower() for w in words if w.lower() not in stop_words]

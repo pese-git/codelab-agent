@@ -110,11 +110,7 @@ class ToolCallHandler:
         # Локально монотонный ID делает тесты предсказуемыми и читабельными
         session.tool_call_counter += 1
         tool_call_id = f"call_{session.tool_call_counter:03d}"
-        loc_dicts = (
-            [{"path": loc.path, "line": loc.line} for loc in locations]
-            if locations
-            else []
-        )
+        loc_dicts = [{"path": loc.path, "line": loc.line} for loc in locations] if locations else []
         session.tool_calls[tool_call_id] = ToolCallState(
             tool_call_id=tool_call_id,
             title=title,

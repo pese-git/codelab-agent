@@ -33,9 +33,7 @@ class SessionRuntimeState:
     # и не могут быть сериализованы.
     mcp_prompt_handlers: dict[str, Any] = field(default_factory=dict)
     # Шина для notifications. Бизнес-логика публикует, транспорт доставляет.
-    notification_bus: SessionNotificationBus = field(
-        default_factory=SessionNotificationBus
-    )
+    notification_bus: SessionNotificationBus = field(default_factory=SessionNotificationBus)
 
 
 class SessionRuntimeRegistry:
@@ -76,9 +74,7 @@ class SessionRuntimeRegistry:
                 self._states[session_id] = SessionRuntimeState()
             return self._states[session_id]
 
-    async def set_mcp_manager(
-        self, session_id: str, mcp_manager: MCPManager
-    ) -> None:
+    async def set_mcp_manager(self, session_id: str, mcp_manager: MCPManager) -> None:
         """Установить MCP manager для сессии.
 
         Args:
@@ -90,9 +86,7 @@ class SessionRuntimeRegistry:
                 self._states[session_id] = SessionRuntimeState()
             self._states[session_id].mcp_manager = mcp_manager
 
-    async def get_notification_bus(
-        self, session_id: str
-    ) -> SessionNotificationBus:
+    async def get_notification_bus(self, session_id: str) -> SessionNotificationBus:
         """Получить или создать notification bus для сессии.
 
         Args:

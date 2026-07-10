@@ -99,6 +99,7 @@ class TestFullSessionLifecycle:
 
         # Сохраняем сессию в storage
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         await storage.save_session(session)
 
@@ -221,6 +222,7 @@ class TestFullSessionLifecycle:
 
         # Сохраняем сессию в storage
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         await storage.save_session(session)
 
@@ -314,6 +316,7 @@ class TestFullSessionLifecycle:
 
         # Сохраняем сессию в storage
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         await storage.save_session(session)
 

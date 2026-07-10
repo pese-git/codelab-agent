@@ -210,9 +210,7 @@ class StdioClientTransport:
             message = await self._stdout_queue.get()
             if not message:
                 # Sentinel от _stdout_reader — subprocess закрыл stdout
-                returncode = (
-                    self._process.returncode if self._process is not None else None
-                )
+                returncode = self._process.returncode if self._process is not None else None
                 if returncode is not None:
                     msg = f"Subprocess exited with code {returncode}"
                     self._logger.error("subprocess exited", returncode=returncode)

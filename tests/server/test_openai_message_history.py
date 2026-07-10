@@ -48,7 +48,7 @@ class TestOpenAIMessageHistory:
         assert openai_messages[1]["content"] == "I'll read the files"
         assert "tool_calls" in openai_messages[1]
         assert len(openai_messages[1]["tool_calls"]) == 2
-        
+
         # Проверить структуру первого tool call
         tc1 = openai_messages[1]["tool_calls"][0]
         assert tc1["id"] == "call_1"
@@ -79,7 +79,7 @@ class TestOpenAIMessageHistory:
         openai_messages = provider._convert_to_openai_format(messages)
 
         assert len(openai_messages) == 3
-        
+
         # Проверить tool message
         tool_msg = openai_messages[2]
         assert tool_msg["role"] == "tool"
@@ -163,7 +163,7 @@ class TestOpenAIMessageHistory:
     def test_full_conversation_with_tool_calls(self) -> None:
         """Проверить полный цикл преобразования и валидации."""
         provider = OpenAIProvider()
-        
+
         # Создать историю с tool calls
         messages = [
             LLMMessage(role="system", content="You are helpful"),
@@ -205,9 +205,7 @@ class TestOpenAIMessageHistory:
             LLMMessage(
                 role="assistant",
                 content=None,  # Пустой content
-                tool_calls=[
-                    LLMToolCall(id="call_1", name="action", arguments={})
-                ],
+                tool_calls=[LLMToolCall(id="call_1", name="action", arguments={})],
             ),
             LLMMessage(
                 role="tool",

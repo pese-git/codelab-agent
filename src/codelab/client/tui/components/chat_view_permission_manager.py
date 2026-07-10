@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 @dataclass
 class PermissionWidgetInfo:
     """Информация о текущем виджете разрешения для пересоздания."""
-    
+
     request_id: str | int
     tool_call: PermissionToolCall
     options: list[PermissionOption]
@@ -46,11 +46,11 @@ class PermissionWidgetInfo:
 
 class PermissionWidgetType(Enum):
     """Тип виджета разрешения.
-    
+
     - INLINE: базовый виджет с кнопками (InlinePermissionWidget)
     - REQUEST: расширенный виджет с иконками и автоотклонением (PermissionRequest)
     """
-    
+
     INLINE = "inline"
     REQUEST = "request"
 
@@ -168,13 +168,13 @@ class ChatViewPermissionManager:
             # Определяем тип разрешения из tool_call.kind
             kind = tool_call.kind or "unknown"
             permission_type = self._get_permission_type(kind)
-            
+
             self._logger.info(
                 "creating_permission_request_widget",
                 permission_type=permission_type,
                 resource=tool_call.title or "",
             )
-            
+
             self._current_widget = PermissionRequest(
                 permission_vm=self.permission_vm,
                 request_id=request_id,
@@ -204,7 +204,7 @@ class ChatViewPermissionManager:
                 widget_type=type(self._current_widget).__name__,
             )
             self.chat_view._permission_container.mount(self._current_widget)
-            
+
             self._logger.info(
                 "permission_widget_mounted",
                 request_id=request_id,
@@ -217,13 +217,13 @@ class ChatViewPermissionManager:
                 request_id=request_id,
                 chat_view_id=self.chat_view.id,
             )
-    
+
     def _get_permission_type(self, kind: str) -> PermissionType:
         """Преобразовать tool_call.kind в PermissionType.
-        
+
         Args:
             kind: Тип tool call
-            
+
         Returns:
             Соответствующий PermissionType
         """
@@ -251,7 +251,7 @@ class ChatViewPermissionManager:
                     has_parent=widget_parent is not None,
                     parent_type=type(widget_parent).__name__ if widget_parent else None,
                 )
-                
+
                 if widget_parent is not None:
                     # Удаляем виджет напрямую
                     widget.remove()
@@ -309,7 +309,7 @@ class ChatViewPermissionManager:
 
     def get_widget_info(self) -> PermissionWidgetInfo | None:
         """Получить информацию о текущем виджете для пересоздания.
-        
+
         Returns:
             PermissionWidgetInfo если виджет существует, None иначе
         """
@@ -317,9 +317,9 @@ class ChatViewPermissionManager:
 
     def recreate_widget(self, info: PermissionWidgetInfo) -> None:
         """Пересоздать виджет разрешения с сохранённой информацией.
-        
+
         Используется при _update_display() для перемещения виджета в конец.
-        
+
         Args:
             info: Информация о виджете для пересоздания
         """
@@ -328,18 +328,18 @@ class ChatViewPermissionManager:
             request_id=info.request_id,
             widget_type=self.widget_type.value,
         )
-        
+
         # Скрыть текущий виджет если есть
         if self._current_widget is not None:
             self.hide_permission_request()
-        
+
         # Создать новый виджет с уникальным ID
         unique_id = f"perm-req-{info.request_id}-{int(time.time() * 1000000)}"
-        
+
         if self.widget_type == PermissionWidgetType.REQUEST:
             kind = info.tool_call.kind or "unknown"
             permission_type = self._get_permission_type(kind)
-            
+
             self._current_widget = PermissionRequest(
                 permission_vm=self.permission_vm,
                 request_id=info.request_id,
@@ -360,7 +360,7 @@ class ChatViewPermissionManager:
                 on_choice=info.on_choice,
                 id=unique_id,
             )
-        
+
         # Монтировать в контейнер ChatView
         if self.chat_view._content_container is not None:
             self.chat_view._content_container.mount(self._current_widget)

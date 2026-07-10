@@ -154,6 +154,7 @@ class TestSessionCancelStage5:
     async def storage(self, sessions: dict[str, SessionState]) -> InMemoryStorage:
         """Создает storage с тестовой сессией."""
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         for session in sessions.values():
             await storage.save_session(session)
@@ -206,6 +207,7 @@ class TestSessionCancelStage5:
             active_turn=None,
         )
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         await storage.save_session(session)
         params = {"sessionId": "sess_1"}
@@ -225,6 +227,7 @@ class TestSessionCancelStage5:
         """Обрабатывает cancel с невалидным sessionId."""
         # Arrange
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         params = {"sessionId": "nonexistent"}
         protocol = build_protocol(storage=storage)
@@ -242,6 +245,7 @@ class TestSessionCancelStage5:
         """Обрабатывает cancel без sessionId в params."""
         # Arrange
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         params: dict[str, Any] = {}  # Missing sessionId
         protocol = build_protocol(storage=storage)

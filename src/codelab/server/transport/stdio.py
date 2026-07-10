@@ -195,9 +195,7 @@ class StdioServerTransport:
 
                 # Извлекаем метаданные для маршрутизации/логирования
                 method_name = acp_request.method
-                request_id = (
-                    str(acp_request.id) if acp_request.id is not None else None
-                )
+                request_id = str(acp_request.id) if acp_request.id is not None else None
                 session_id: str | None = None
                 if isinstance(acp_request.params, dict):
                     raw_session_id = acp_request.params.get("sessionId")

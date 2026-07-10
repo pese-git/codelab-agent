@@ -25,6 +25,7 @@ async def find_session_by_permission_request_id(
         session = await find_session_by_permission_request_id("perm_1", storage)
     """
     import structlog
+
     logger = structlog.get_logger()
 
     cursor = None

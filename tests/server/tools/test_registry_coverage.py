@@ -78,6 +78,7 @@ class TestRegistryExecuteToolAsyncSession:
         registry: SimpleToolRegistry,
     ) -> None:
         """Async executor получает session, если принимает её (строка 235)."""
+
         async def async_handler(session: SessionState, value: int) -> ToolExecutionResult:
             return ToolExecutionResult(
                 success=True,
@@ -113,6 +114,7 @@ class TestRegistryExecuteToolException:
         registry: SimpleToolRegistry,
     ) -> None:
         """Исключение синхронного executor оборачивается в результат (строки 264-274)."""
+
         def failing_handler() -> str:
             raise RuntimeError("boom")
 

@@ -98,12 +98,14 @@ class TestStdioRunnerSendRpcCallback:
             await run_stdio_server(storage=MagicMock(), config=MagicMock())
 
         assert captured_callback is not None
-        await captured_callback({
-            "jsonrpc": "2.0",
-            "id": "1",
-            "method": "test",
-            "params": {},
-        })
+        await captured_callback(
+            {
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "test",
+                "params": {},
+            }
+        )
 
         transport_mock.send.assert_awaited_once()
 
@@ -183,9 +185,7 @@ class TestStdioRunnerProtocolCallbacks:
 
         await callbacks["complete_active_turn"]("sess_1", "end_turn")
 
-        protocol.complete_active_turn.assert_awaited_once_with(
-            "sess_1", stop_reason="end_turn"
-        )
+        protocol.complete_active_turn.assert_awaited_once_with("sess_1", stop_reason="end_turn")
 
 
 class TestStdioRunnerLoadPendingPromptResponse:

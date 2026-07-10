@@ -696,9 +696,7 @@ class ChatViewModel(BaseViewModel):
         # Планируем новое сохранение с задержкой
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(
-                self._debounced_save(session_id, messages, replay_updates)
-            )
+            task = loop.create_task(self._debounced_save(session_id, messages, replay_updates))
             self._pending_saves[session_id] = task
         except RuntimeError:
             # Нет running event loop - сохраняем синхронно через legacy fallback

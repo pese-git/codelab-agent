@@ -30,9 +30,7 @@ SCENARIO = {
         {
             "when_user": ["README", "прочти"],
             "replies": [
-                {"tool_calls": [
-                    {"name": "fs_read_text_file", "arguments": {"path": "README.md"}}
-                ]},
+                {"tool_calls": [{"name": "fs_read_text_file", "arguments": {"path": "README.md"}}]},
                 {"text": "Готово."},
             ],
         },
@@ -97,13 +95,15 @@ async def test_terminal_id_placeholder_resolution():
             {
                 "when_user": ["ls"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "terminal_create", "arguments": {"command": "ls"}}
-                    ]},
-                    {"tool_calls": [
-                        {"name": "terminal_wait_for_exit",
-                         "arguments": {"terminalId": "${terminal_id}"}}
-                    ]},
+                    {"tool_calls": [{"name": "terminal_create", "arguments": {"command": "ls"}}]},
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "terminal_wait_for_exit",
+                                "arguments": {"terminalId": "${terminal_id}"},
+                            }
+                        ]
+                    },
                     {"text": "done"},
                 ],
             }

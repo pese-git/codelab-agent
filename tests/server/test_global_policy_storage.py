@@ -472,9 +472,7 @@ class TestGlobalPolicyStorageConcurrency:
         storage = GlobalPolicyStorage(policy_path)
 
         # Устанавливать policies одновременно
-        await asyncio.gather(
-            *(storage.set_policy(f"tool_{i}", "allow_always") for i in range(5))
-        )
+        await asyncio.gather(*(storage.set_policy(f"tool_{i}", "allow_always") for i in range(5)))
 
         # Все должны быть сохранены
         policies = await storage.list_policies()

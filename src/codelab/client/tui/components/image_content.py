@@ -20,17 +20,17 @@ from textual.widgets import Static
 
 class ImageContentWidget(Vertical):
     """Виджет для отображения placeholder изображения.
-    
+
     Отображает иконку и информацию о изображении вместо реального
     контента, так как терминал не поддерживает отображение картинок.
-    
+
     Пример:
         >>> widget = ImageContentWidget(
         ...     data="base64data...",
         ...     mime_type="image/png",
         ... )
     """
-    
+
     DEFAULT_CSS = """
     ImageContentWidget {
         width: 100%;
@@ -63,7 +63,7 @@ class ImageContentWidget(Vertical):
         color: $primary 70%;
     }
     """
-    
+
     def __init__(
         self,
         data: str,
@@ -75,7 +75,7 @@ class ImageContentWidget(Vertical):
         classes: str | None = None,
     ) -> None:
         """Инициализирует ImageContentWidget.
-        
+
         Args:
             data: Base64-кодированные данные изображения
             mime_type: MIME тип изображения (например, "image/png")
@@ -88,18 +88,18 @@ class ImageContentWidget(Vertical):
         self._data = data
         self._mime_type = mime_type
         self._uri = uri
-    
+
     def compose(self) -> ComposeResult:
         """Создает структуру placeholder."""
         # Иконка изображения
         yield Static("🖼️  [IMAGE]", classes="image-icon")
-        
+
         # Заголовок
         yield Static("Изображение", classes="image-header")
-        
+
         # Информация о файле
         info_parts = [f"Тип: {self._mime_type}"]
-        
+
         # Размер данных в KB/MB
         data_size = len(self._data)
         if data_size < 1024:
@@ -108,22 +108,22 @@ class ImageContentWidget(Vertical):
             info_parts.append(f"Размер: {data_size / 1024:.1f} KB")
         else:
             info_parts.append(f"Размер: {data_size / (1024 * 1024):.1f} MB")
-        
+
         if self._uri:
             info_parts.append(f"Источник: {self._uri}")
-        
+
         yield Static(" | ".join(info_parts), classes="image-info")
-    
+
     @property
     def mime_type(self) -> str:
         """Возвращает MIME тип изображения."""
         return self._mime_type
-    
+
     @property
     def data_size(self) -> int:
         """Возвращает размер данных в байтах."""
         return len(self._data)
-    
+
     @classmethod
     def from_content_block(
         cls,
@@ -131,11 +131,11 @@ class ImageContentWidget(Vertical):
         **kwargs: Any,
     ) -> ImageContentWidget:
         """Создает виджет из content block словаря.
-        
+
         Args:
             block: Словарь с ключами type, data, mimeType, uri (опц.)
             **kwargs: Дополнительные аргументы для виджета
-            
+
         Returns:
             Экземпляр ImageContentWidget
         """

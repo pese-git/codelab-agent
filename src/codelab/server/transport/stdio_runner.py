@@ -124,12 +124,8 @@ async def run_stdio_server(
             async def _should_auto_complete(session_id: str) -> bool:
                 return await protocol.should_auto_complete_active_turn(session_id)
 
-            async def _complete_active_turn(
-                session_id: str, stop_reason: str
-            ) -> ACPMessage | None:
-                return await protocol.complete_active_turn(
-                    session_id, stop_reason=stop_reason
-                )
+            async def _complete_active_turn(session_id: str, stop_reason: str) -> ACPMessage | None:
+                return await protocol.complete_active_turn(session_id, stop_reason=stop_reason)
 
             async def _load_pending_prompt_response(
                 session_id: str,
@@ -182,6 +178,7 @@ async def run_stdio_server(
 
             # Получаем runtime registry для подписки на notification bus
             from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+
             runtime_registry = await request_scope.get(SessionRuntimeRegistry)
 
             # Отслеживаем текущую сессию для подписки на notification bus
@@ -203,9 +200,7 @@ async def run_stdio_server(
                 if session_id is not None and session_id != current_session_id:
                     # Отписываемся от старого bus если был
                     if current_session_id is not None:
-                        old_bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
+                        old_bus = await runtime_registry.get_notification_bus(current_session_id)
                         old_bus.unsubscribe(transport.send)
 
                     # Подписываемся на новый bus
@@ -230,9 +225,7 @@ async def run_stdio_server(
                 # Отписываемся от notification bus при закрытии
                 if current_session_id is not None:
                     try:
-                        bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
+                        bus = await runtime_registry.get_notification_bus(current_session_id)
                         bus.unsubscribe(transport.send)
                         logger.info(
                             "unsubscribed_from_notification_bus",

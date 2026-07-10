@@ -178,13 +178,10 @@ class SystemPromptBuilder:
             tools = mcp_manager.get_tools_for_server(server_id)
             tool_names = [t.name.split(":")[-1] for t in tools]
             names_str = ", ".join(tool_names)
-            lines.append(
-                f"- **{server_id}** ({len(tools)} tools): {names_str}"
-            )
+            lines.append(f"- **{server_id}** ({len(tools)} tools): {names_str}")
 
         lines.append(
-            "\nWhen the user asks about MCP capabilities, "
-            "reference these servers and their tools."
+            "\nWhen the user asks about MCP capabilities, reference these servers and their tools."
         )
 
         return "\n".join(lines)

@@ -24,14 +24,16 @@ class TestSendPromptUseCase:
     async def test_execute_sends_prompt_and_returns_result(self) -> None:
         """UseCase отправляет prompt и возвращает результат."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {
-                "stopReason": "end_turn",
-                "content": [{"type": "text", "text": "Response"}],
-            },
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {
+                    "stopReason": "end_turn",
+                    "content": [{"type": "text", "text": "Response"}],
+                },
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -78,14 +80,16 @@ class TestSendPromptUseCase:
     async def test_execute_raises_on_prompt_error(self) -> None:
         """UseCase поднимает ошибку при ошибке prompt."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "error": {
-                "code": -32600,
-                "message": "Invalid Request",
-            },
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -120,16 +124,20 @@ class TestSendPromptUseCase:
             **kwargs,
         ) -> dict:
             # Имитируем получение updates
-            on_update({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
-            })
-            on_update({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
-            })
+            on_update(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
+                }
+            )
+            on_update(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
+                }
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": "prompt_req",
@@ -171,11 +179,13 @@ class TestSendPromptUseCase:
             on_update,
             **kwargs,
         ) -> dict:
-            on_update({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
-            })
+            on_update(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
+                }
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": "prompt_req",
@@ -221,11 +231,13 @@ class TestSendPromptUseCase:
             on_update,
             **kwargs,
         ) -> dict:
-            on_update({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
-            })
+            on_update(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {"sessionId": "sess_123", "update": {"type": "chunk"}},
+                }
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": "prompt_req",
@@ -264,11 +276,13 @@ class TestSendPromptUseCase:
     async def test_execute_passes_terminal_callbacks(self) -> None:
         """UseCase передаёт terminal callbacks в transport."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -306,11 +320,13 @@ class TestSendPromptUseCase:
     async def test_execute_marks_session_authenticated(self) -> None:
         """UseCase помечает сессию как аутентифицированную после успешного prompt."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -398,11 +414,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_sends_image_when_supported(self) -> None:
         """UseCase отправляет изображение когда агент поддерживает image."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -473,11 +491,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_sends_audio_when_supported(self) -> None:
         """UseCase отправляет аудио когда агент поддерживает audio."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -541,11 +561,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_sends_resource_when_supported(self) -> None:
         """UseCase отправляет embedded resource когда агент поддерживает embeddedContext."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -616,11 +638,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_sends_resource_link_always(self) -> None:
         """UseCase отправляет resource_link без проверки capabilities (baseline)."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         # Нет promptCapabilities - resource_link всё равно должен работать
         session = Session.create(
@@ -661,11 +685,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_sends_multimodal_prompt(self) -> None:
         """UseCase отправляет промпт с несколькими типами контента."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         session = Session.create(
             server_host="127.0.0.1",
@@ -711,11 +737,13 @@ class TestSendPromptUseCaseMultimodal:
     async def test_execute_handles_missing_capabilities_gracefully(self) -> None:
         """UseCase работает когда server_capabilities отсутствует."""
         transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "prompt_req",
-            "result": {"stopReason": "end_turn"},
-        })
+        transport.request_with_callbacks = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "prompt_req",
+                "result": {"stopReason": "end_turn"},
+            }
+        )
 
         # session без server_capabilities
         session = Session.create(

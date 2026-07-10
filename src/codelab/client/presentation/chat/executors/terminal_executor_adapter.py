@@ -37,9 +37,7 @@ class TerminalExecutorAdapter(TerminalExecutorPort):
         """
         return await self._executor.create_terminal(command)
 
-    async def get_output(
-        self, terminal_id: str
-    ) -> tuple[str, bool, int | None, bool]:
+    async def get_output(self, terminal_id: str) -> tuple[str, bool, int | None, bool]:
         """Получает вывод терминала.
 
         Args:

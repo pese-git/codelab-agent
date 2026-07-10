@@ -25,9 +25,7 @@ class TerminalExecutorPort(Protocol):
         """Создаёт новый терминал и возвращает его ID."""
         ...
 
-    async def get_output(
-        self, terminal_id: str
-    ) -> tuple[str, bool, int | None, bool]:
+    async def get_output(self, terminal_id: str) -> tuple[str, bool, int | None, bool]:
         """Получает вывод терминала.
 
         Returns:

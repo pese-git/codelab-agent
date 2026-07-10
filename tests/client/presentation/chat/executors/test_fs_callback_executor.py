@@ -50,9 +50,7 @@ class TestFsCallbackExecutor:
         assert str(validated).startswith(str(executor._base_path))
         assert validated.name == "test.txt"
 
-    def test_validate_path_absolute_within_sandbox(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    def test_validate_path_absolute_within_sandbox(self, executor: FsCallbackExecutor) -> None:
         """_validate_path должен принимать абсолютные пути в пределах sandbox."""
         abs_path = executor._base_path / "test.txt"
         validated = executor._validate_path(str(abs_path))
@@ -63,9 +61,7 @@ class TestFsCallbackExecutor:
         with pytest.raises(ValueError, match="Path traversal detected"):
             executor._validate_path("../../etc/passwd")
 
-    def test_validate_path_absolute_outside_sandbox(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    def test_validate_path_absolute_outside_sandbox(self, executor: FsCallbackExecutor) -> None:
         """_validate_path должен блокировать абсолютные пути вне sandbox."""
         with pytest.raises(ValueError, match="Path traversal detected"):
             executor._validate_path("/etc/passwd")
@@ -92,9 +88,7 @@ class TestFsCallbackExecutor:
         assert "not found" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_read_file_path_traversal(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_read_file_path_traversal(self, executor: FsCallbackExecutor) -> None:
         """read_file должен блокировать path traversal."""
         content, error = await executor.read_file("../../etc/passwd")
 
@@ -103,9 +97,7 @@ class TestFsCallbackExecutor:
         assert "path validation" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_read_file_is_directory(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_read_file_is_directory(self, executor: FsCallbackExecutor) -> None:
         """read_file должен возвращать ошибку если путь является директорией."""
         # Создаём поддиректорию
         subdir = executor._base_path / "subdir"
@@ -135,9 +127,7 @@ class TestFsCallbackExecutor:
         self, executor: FsCallbackExecutor
     ) -> None:
         """write_file должен создавать родительские директории."""
-        success, error = await executor.write_file(
-            "subdir/nested/test.txt", "Content"
-        )
+        success, error = await executor.write_file("subdir/nested/test.txt", "Content")
 
         assert success is True
         assert error is None
@@ -147,9 +137,7 @@ class TestFsCallbackExecutor:
         assert test_file.read_text(encoding="utf-8") == "Content"
 
     @pytest.mark.asyncio
-    async def test_write_file_path_traversal(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_write_file_path_traversal(self, executor: FsCallbackExecutor) -> None:
         """write_file должен блокировать path traversal."""
         success, error = await executor.write_file("../../etc/passwd", "malicious")
 
@@ -169,9 +157,7 @@ class TestFsCallbackExecutor:
         assert test_file.read_text(encoding="utf-8") == "Привет, мир!"
 
     @pytest.mark.asyncio
-    async def test_read_write_round_trip(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_read_write_round_trip(self, executor: FsCallbackExecutor) -> None:
         """Полный цикл write/read должен сохранять данные."""
         # Используем только \n и \t, так как \r может конвертироваться
         content = "Test content with special chars: \n\t"
@@ -231,6 +217,7 @@ class TestFsCallbackExecutor:
         self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """write_file должен обрабатывать PermissionError."""
+
         # Патчим _write_file_sync чтобы он вызывал PermissionError
         def mock_write_file_sync(path: Path, content: str) -> None:
             raise PermissionError("Permission denied")
@@ -244,9 +231,7 @@ class TestFsCallbackExecutor:
         assert "permission denied" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_write_file_is_directory_error(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_write_file_is_directory_error(self, executor: FsCallbackExecutor) -> None:
         """write_file должен возвращать ошибку если путь является директорией."""
         # Создаём поддиректорию
         subdir = executor._base_path / "subdir"
@@ -263,6 +248,7 @@ class TestFsCallbackExecutor:
         self, executor: FsCallbackExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """write_file должен обрабатывать общие исключения."""
+
         # Патчим _write_file_sync чтобы он вызывал общее исключение
         def mock_write_file_sync(path: Path, content: str) -> None:
             raise RuntimeError("Unexpected error")

@@ -104,6 +104,7 @@ class TestStatusLine:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент монтируется и содержит три секции."""
+
         class TestApp(App):
             pass
 
@@ -188,9 +189,7 @@ class TestStatusLine:
         """Пользовательские индикаторы отображаются с маркировкой активности."""
         status = StatusLine()
         status.add_indicator(StatusIndicator(name="sync", icon="↻", label="Sync"))
-        status.add_indicator(
-            StatusIndicator(name="err", icon="✕", label="Err", active=False)
-        )
+        status.add_indicator(StatusIndicator(name="err", icon="✕", label="Err", active=False))
         indicators = status._create_indicators()
 
         text = str(indicators.render())
@@ -299,6 +298,7 @@ class TestCompactStatusLine:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент монтируется и отображает сообщение."""
+
         class TestApp(App):
             pass
 

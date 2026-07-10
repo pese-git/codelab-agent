@@ -96,6 +96,7 @@ class TestInitialization:
 
         logger = MagicMock()
         import builtins as _builtins
+
         original_import = _builtins.__import__
         try:
             _builtins.__import__ = fake_import
@@ -107,9 +108,7 @@ class TestInitialization:
         finally:
             _builtins.__import__ = original_import
 
-        logger.debug.assert_any_call(
-            "DomainEvents not available, skipping event subscriptions"
-        )
+        logger.debug.assert_any_call("DomainEvents not available, skipping event subscriptions")
 
 
 class TestSendPrompt:
@@ -175,9 +174,7 @@ class TestSendPrompt:
         assert "on_fs_write" in call_kwargs
         assert "on_terminal_create" in call_kwargs
         mock_terminal_cb.create_terminal.assert_awaited_once_with("echo hi")
-        assert chat_view_model.messages.value == [
-            {"role": "assistant", "content": " partial"}
-        ]
+        assert chat_view_model.messages.value == [{"role": "assistant", "content": " partial"}]
         assert chat_view_model.is_streaming.value is False
 
     async def test_send_prompt_without_terminal_executor(
@@ -426,9 +423,7 @@ class TestSessionUpdate:
     ) -> None:
         """_handle_session_update с невалидными данными не вызывает crash."""
         # Dispatcher обрабатывает исключения внутри себя
-        chat_view_model._handle_session_update(
-            {"params": {"sessionId": "s", "update": {}}}
-        )
+        chat_view_model._handle_session_update({"params": {"sessionId": "s", "update": {}}})
 
 
 class TestCommands:
@@ -487,9 +482,7 @@ class TestCommands:
 
         await chat_view_model.approve_permission_cmd.execute("s", "p1")
 
-        coordinator.handle_permission.assert_awaited_once_with(
-            "s", "p1", approved=True
-        )
+        coordinator.handle_permission.assert_awaited_once_with("s", "p1", approved=True)
         assert chat_view_model.pending_permissions.value == []
 
     async def test_approve_permission_exception_reraises(
@@ -531,9 +524,7 @@ class TestCommands:
 
         await chat_view_model.reject_permission_cmd.execute("s", "p1")
 
-        coordinator.handle_permission.assert_awaited_once_with(
-            "s", "p1", approved=False
-        )
+        coordinator.handle_permission.assert_awaited_once_with("s", "p1", approved=False)
         assert chat_view_model.pending_permissions.value == []
 
     async def test_clear_chat_resets_observables(
@@ -544,9 +535,7 @@ class TestCommands:
         chat_view_model.set_active_session("s")
         chat_view_model.messages.value = [{"role": "user", "content": "hi"}]
         chat_view_model.tool_calls.value = [{"toolCallId": "t1"}]
-        chat_view_model.pending_permissions.value = [
-            PermissionRequest("p1", "s", "read", "/file")
-        ]
+        chat_view_model.pending_permissions.value = [PermissionRequest("p1", "s", "read", "/file")]
         chat_view_model.streaming_text.value = "stream"
         chat_view_model.last_stop_reason.value = "end"
 
@@ -806,9 +795,7 @@ class TestEventHandlers:
 
         chat_view_model._handle_prompt_completed(event)
 
-        assert chat_view_model.messages.value == [
-            {"role": "assistant", "content": "response"}
-        ]
+        assert chat_view_model.messages.value == [{"role": "assistant", "content": "response"}]
         assert chat_view_model.is_streaming.value is False
         assert chat_view_model.last_stop_reason.value == "end_turn"
 

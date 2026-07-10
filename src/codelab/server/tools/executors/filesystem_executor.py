@@ -18,11 +18,11 @@ logger = structlog.get_logger()
 
 class FileSystemToolExecutor(ToolExecutor):
     """Executor для файловых операций через ClientRPC.
-    
+
     Поддерживает:
     - fs/read_text_file (с line и limit)
     - fs/write_text_file (создание и обновление файлов)
-    
+
     Интегрирует проверку разрешений и логирование.
     """
 
@@ -32,7 +32,7 @@ class FileSystemToolExecutor(ToolExecutor):
         permission_checker: PermissionChecker,
     ) -> None:
         """Инициализировать executor с зависимостями.
-        
+
         Args:
             client_rpc_bridge: Адаптер для ClientRPCService.
             permission_checker: Адаптер для PermissionManager.
@@ -46,17 +46,17 @@ class FileSystemToolExecutor(ToolExecutor):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент на основе аргументов.
-        
+
         Args:
             session: Состояние сессии.
             arguments: Словарь аргументов инструмента.
                 Ожидается поле 'operation' для выбора метода.
-                
+
         Returns:
             ToolExecutionResult с результатом выполнения.
         """
         operation = arguments.get("operation")
-        
+
         if operation == "read":
             return await self.execute_read(
                 session=session,
@@ -84,13 +84,13 @@ class FileSystemToolExecutor(ToolExecutor):
         limit: int | None = None,
     ) -> ToolExecutionResult:
         """Чтение текстового файла через ClientRPC.
-        
+
         Args:
             session: Состояние сессии.
             path: Путь к файлу.
             line: Начальная строка (1-based, опционально).
             limit: Максимум строк (опционально).
-            
+
         Returns:
             ToolExecutionResult с содержимым файла.
         """
@@ -99,11 +99,11 @@ class FileSystemToolExecutor(ToolExecutor):
                 "Начало выполнения read_text_file",
                 extra={"session_id": session.session_id, "path": path},
             )
-            
+
             # Примечание: Проверка разрешений выполняется в
             # PromptOrchestrator._decide_tool_execution() перед вызовом executor.
             # Здесь мы только выполняем операцию.
-            
+
             # Вызов ClientRPC
             content = await self._bridge.read_file(
                 session=session,
@@ -111,13 +111,13 @@ class FileSystemToolExecutor(ToolExecutor):
                 line=line,
                 limit=limit,
             )
-            
+
             if content is None:
                 return ToolExecutionResult(
                     success=False,
                     error=f"Ошибка при чтении файла: {path}",
                 )
-            
+
             logger.debug(
                 "Файл успешно прочитан",
                 extra={
@@ -126,12 +126,12 @@ class FileSystemToolExecutor(ToolExecutor):
                     "bytes": len(content),
                 },
             )
-            
+
             return ToolExecutionResult(
                 success=True,
                 output=content,
             )
-            
+
         except ClientRPCResponseError as e:
             logger.error(
                 "RPC ошибка при чтении файла",
@@ -167,14 +167,14 @@ class FileSystemToolExecutor(ToolExecutor):
         content: str,
     ) -> ToolExecutionResult:
         """Запись текстового файла через ClientRPC.
-        
+
         Создает файл если он не существует (согласно ACP протоколу).
-        
+
         Args:
             session: Состояние сессии.
             path: Путь к файлу.
             content: Содержимое для записи.
-            
+
         Returns:
             ToolExecutionResult с результатом записи.
         """
@@ -187,24 +187,24 @@ class FileSystemToolExecutor(ToolExecutor):
                     "bytes": len(content),
                 },
             )
-            
+
             # Примечание: Проверка разрешений выполняется в
             # PromptOrchestrator._decide_tool_execution() перед вызовом executor.
             # Здесь мы только выполняем операцию.
-            
+
             # Вызов ClientRPC для записи
             success = await self._bridge.write_file(
                 session=session,
                 path=path,
                 content=content,
             )
-            
+
             if not success:
                 return ToolExecutionResult(
                     success=False,
                     error=f"Ошибка при записи файла: {path}",
                 )
-            
+
             logger.debug(
                 "Файл успешно записан",
                 extra={
@@ -213,7 +213,7 @@ class FileSystemToolExecutor(ToolExecutor):
                     "bytes": len(content),
                 },
             )
-            
+
             return ToolExecutionResult(
                 success=True,
                 output=f"Файл {path} успешно записан",
@@ -221,7 +221,7 @@ class FileSystemToolExecutor(ToolExecutor):
                     "bytes": len(content),
                 },
             )
-            
+
         except ClientRPCResponseError as e:
             logger.error(
                 "RPC ошибка при записи файла",

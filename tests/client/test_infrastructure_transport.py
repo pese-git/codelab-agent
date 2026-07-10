@@ -155,7 +155,9 @@ class TestWebSocketTransportAEnter:
 
         with patch("codelab.client.infrastructure.transport.ClientSession", return_value=session):
             transport = WebSocketTransport(host="localhost", port=9000, path="/ws")
-            with pytest.raises(RuntimeError, match="Failed to connect to WebSocket at ws://localhost:9000/ws"):
+            with pytest.raises(
+                RuntimeError, match="Failed to connect to WebSocket at ws://localhost:9000/ws"
+            ):
                 await transport.__aenter__()
 
             assert transport._http_session is None

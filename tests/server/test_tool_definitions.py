@@ -22,7 +22,7 @@ class TestFileSystemDefinitions:
         """Проверка структуры определения fs/read_text_file."""
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
-        
+
         # Assert
         assert isinstance(definition, ToolDefinition)
         assert definition.name == "fs/read_text_file"
@@ -35,18 +35,18 @@ class TestFileSystemDefinitions:
         """Проверка JSON Schema параметров fs/read_text_file."""
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
-        
+
         # Assert
         assert "properties" in definition.parameters
         assert "required" in definition.parameters
         assert definition.parameters["type"] == "object"
-        
+
         # Проверка свойств
         props = definition.parameters["properties"]
         assert "path" in props
         assert "line" in props
         assert "limit" in props
-        
+
         # Проверка обязательных полей
         assert "path" in definition.parameters["required"]
         assert "line" not in definition.parameters["required"]
@@ -57,7 +57,7 @@ class TestFileSystemDefinitions:
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
         path_prop = definition.parameters["properties"]["path"]
-        
+
         # Assert
         assert path_prop["type"] == "string"
         assert "description" in path_prop
@@ -68,7 +68,7 @@ class TestFileSystemDefinitions:
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
         line_prop = definition.parameters["properties"]["line"]
-        
+
         # Assert
         assert line_prop["type"] == "integer"
         assert "description" in line_prop
@@ -78,7 +78,7 @@ class TestFileSystemDefinitions:
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
         limit_prop = definition.parameters["properties"]["limit"]
-        
+
         # Assert
         assert limit_prop["type"] == "integer"
         assert "description" in limit_prop
@@ -87,7 +87,7 @@ class TestFileSystemDefinitions:
         """Проверка структуры определения fs/write_text_file."""
         # Act
         definition = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert isinstance(definition, ToolDefinition)
         assert definition.name == "fs/write_text_file"
@@ -99,17 +99,17 @@ class TestFileSystemDefinitions:
         """Проверка JSON Schema параметров fs/write_text_file."""
         # Act
         definition = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert "properties" in definition.parameters
         assert "required" in definition.parameters
         assert definition.parameters["type"] == "object"
-        
+
         # Проверка свойств
         props = definition.parameters["properties"]
         assert "path" in props
         assert "content" in props
-        
+
         # Проверка обязательных полей
         assert "path" in definition.parameters["required"]
         assert "content" in definition.parameters["required"]
@@ -119,7 +119,7 @@ class TestFileSystemDefinitions:
         # Act
         definition = FileSystemToolDefinitions.write_text_file()
         path_prop = definition.parameters["properties"]["path"]
-        
+
         # Assert
         assert path_prop["type"] == "string"
         assert "description" in path_prop
@@ -129,7 +129,7 @@ class TestFileSystemDefinitions:
         # Act
         definition = FileSystemToolDefinitions.write_text_file()
         content_prop = definition.parameters["properties"]["content"]
-        
+
         # Assert
         assert content_prop["type"] == "string"
         assert "description" in content_prop
@@ -138,7 +138,7 @@ class TestFileSystemDefinitions:
         """Проверка что read имеет kind='read'."""
         # Act
         definition = FileSystemToolDefinitions.read_text_file()
-        
+
         # Assert
         assert definition.kind == "read"
 
@@ -146,7 +146,7 @@ class TestFileSystemDefinitions:
         """Проверка что write имеет kind='write'."""
         # Act
         definition = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert definition.kind == "edit"
 
@@ -155,7 +155,7 @@ class TestFileSystemDefinitions:
         # Act
         read_def = FileSystemToolDefinitions.read_text_file()
         write_def = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert read_def.requires_permission is True
         assert write_def.requires_permission is True
@@ -168,7 +168,7 @@ class TestTerminalDefinitions:
         """Проверка структуры определения terminal/create."""
         # Act
         definition = TerminalToolDefinitions.create()
-        
+
         # Assert
         assert isinstance(definition, ToolDefinition)
         assert definition.name == "terminal/create"
@@ -180,12 +180,12 @@ class TestTerminalDefinitions:
         """Проверка JSON Schema параметров terminal/create."""
         # Act
         definition = TerminalToolDefinitions.create()
-        
+
         # Assert
         assert "properties" in definition.parameters
         assert "required" in definition.parameters
         assert definition.parameters["type"] == "object"
-        
+
         # Проверка свойств
         props = definition.parameters["properties"]
         assert "command" in props
@@ -193,7 +193,7 @@ class TestTerminalDefinitions:
         assert "env" in props
         assert "cwd" in props
         assert "output_byte_limit" in props
-        
+
         # Проверка обязательных полей
         assert "command" in definition.parameters["required"]
 
@@ -202,7 +202,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.create()
         command_prop = definition.parameters["properties"]["command"]
-        
+
         # Assert
         assert command_prop["type"] == "string"
         assert "description" in command_prop
@@ -212,7 +212,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.create()
         args_prop = definition.parameters["properties"]["args"]
-        
+
         # Assert
         assert args_prop["type"] == "array"
         assert "items" in args_prop
@@ -223,7 +223,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.create()
         env_prop = definition.parameters["properties"]["env"]
-        
+
         # Assert
         assert env_prop["type"] == "object"
         assert "additionalProperties" in env_prop
@@ -233,7 +233,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.create()
         cwd_prop = definition.parameters["properties"]["cwd"]
-        
+
         # Assert
         assert cwd_prop["type"] == "string"
         assert "description" in cwd_prop
@@ -243,7 +243,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.create()
         limit_prop = definition.parameters["properties"]["output_byte_limit"]
-        
+
         # Assert
         assert limit_prop["type"] == "integer"
         assert "description" in limit_prop
@@ -252,7 +252,7 @@ class TestTerminalDefinitions:
         """Проверка структуры определения terminal/wait_for_exit."""
         # Act
         definition = TerminalToolDefinitions.wait_for_exit()
-        
+
         # Assert
         assert isinstance(definition, ToolDefinition)
         assert definition.name == "terminal/wait_for_exit"
@@ -264,16 +264,16 @@ class TestTerminalDefinitions:
         """Проверка JSON Schema параметров terminal/wait_for_exit."""
         # Act
         definition = TerminalToolDefinitions.wait_for_exit()
-        
+
         # Assert
         assert "properties" in definition.parameters
         assert "required" in definition.parameters
         assert definition.parameters["type"] == "object"
-        
+
         # Проверка свойств
         props = definition.parameters["properties"]
         assert "terminal_id" in props
-        
+
         # Проверка обязательных полей
         assert "terminal_id" in definition.parameters["required"]
 
@@ -282,7 +282,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.wait_for_exit()
         term_prop = definition.parameters["properties"]["terminal_id"]
-        
+
         # Assert
         assert term_prop["type"] == "string"
         assert "description" in term_prop
@@ -291,7 +291,7 @@ class TestTerminalDefinitions:
         """Проверка что wait_for_exit не требует разрешения."""
         # Act
         definition = TerminalToolDefinitions.wait_for_exit()
-        
+
         # Assert
         assert definition.requires_permission is False
 
@@ -299,7 +299,7 @@ class TestTerminalDefinitions:
         """Проверка структуры определения terminal/release."""
         # Act
         definition = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert isinstance(definition, ToolDefinition)
         assert definition.name == "terminal/release"
@@ -311,16 +311,16 @@ class TestTerminalDefinitions:
         """Проверка JSON Schema параметров terminal/release."""
         # Act
         definition = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert "properties" in definition.parameters
         assert "required" in definition.parameters
         assert definition.parameters["type"] == "object"
-        
+
         # Проверка свойств
         props = definition.parameters["properties"]
         assert "terminal_id" in props
-        
+
         # Проверка обязательных полей
         assert "terminal_id" in definition.parameters["required"]
 
@@ -329,7 +329,7 @@ class TestTerminalDefinitions:
         # Act
         definition = TerminalToolDefinitions.release()
         term_prop = definition.parameters["properties"]["terminal_id"]
-        
+
         # Assert
         assert term_prop["type"] == "string"
         assert "description" in term_prop
@@ -338,7 +338,7 @@ class TestTerminalDefinitions:
         """Проверка что create имеет kind='execute'."""
         # Act
         definition = TerminalToolDefinitions.create()
-        
+
         # Assert
         assert definition.kind == "execute"
 
@@ -346,7 +346,7 @@ class TestTerminalDefinitions:
         """Проверка что wait_for_exit имеет kind='read'."""
         # Act
         definition = TerminalToolDefinitions.wait_for_exit()
-        
+
         # Assert
         assert definition.kind == "read"
 
@@ -354,7 +354,7 @@ class TestTerminalDefinitions:
         """Проверка что release имеет kind='delete'."""
         # Act
         definition = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert definition.kind == "delete"
 
@@ -362,7 +362,7 @@ class TestTerminalDefinitions:
         """Проверка что create требует разрешения."""
         # Act
         definition = TerminalToolDefinitions.create()
-        
+
         # Assert
         assert definition.requires_permission is True
 
@@ -375,7 +375,7 @@ class TestToolDefinitionsConsistency:
         # Act
         read_def = FileSystemToolDefinitions.read_text_file()
         write_def = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert isinstance(read_def, ToolDefinition)
         assert isinstance(write_def, ToolDefinition)
@@ -386,7 +386,7 @@ class TestToolDefinitionsConsistency:
         create_def = TerminalToolDefinitions.create()
         wait_def = TerminalToolDefinitions.wait_for_exit()
         release_def = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert isinstance(create_def, ToolDefinition)
         assert isinstance(wait_def, ToolDefinition)
@@ -397,7 +397,7 @@ class TestToolDefinitionsConsistency:
         # Act
         read_def = FileSystemToolDefinitions.read_text_file()
         write_def = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert read_def.name is not None
         assert read_def.name != ""
@@ -411,7 +411,7 @@ class TestToolDefinitionsConsistency:
         create_def = TerminalToolDefinitions.create()
         wait_def = TerminalToolDefinitions.wait_for_exit()
         release_def = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert create_def.name is not None
         assert create_def.name != ""
@@ -435,7 +435,7 @@ class TestToolDefinitionsConsistency:
             TerminalToolDefinitions.wait_for_exit(),
             TerminalToolDefinitions.release(),
         ]
-        
+
         # Assert
         for definition in fs_defs + term_defs:
             assert definition.description is not None
@@ -453,7 +453,7 @@ class TestToolDefinitionsConsistency:
             TerminalToolDefinitions.wait_for_exit(),
             TerminalToolDefinitions.release(),
         ]
-        
+
         # Assert
         for definition in fs_defs + term_defs:
             assert definition.kind is not None
@@ -471,7 +471,7 @@ class TestToolDefinitionsConsistency:
             TerminalToolDefinitions.wait_for_exit(),
             TerminalToolDefinitions.release(),
         ]
-        
+
         # Assert
         for definition in fs_defs + term_defs:
             assert definition.parameters is not None
@@ -490,7 +490,7 @@ class TestToolDefinitionsConsistency:
             TerminalToolDefinitions.wait_for_exit(),
             TerminalToolDefinitions.release(),
         ]
-        
+
         # Assert
         for definition in fs_defs + term_defs:
             params = definition.parameters
@@ -504,7 +504,7 @@ class TestToolDefinitionsConsistency:
         # Act
         read_def = FileSystemToolDefinitions.read_text_file()
         write_def = FileSystemToolDefinitions.write_text_file()
-        
+
         # Assert
         assert read_def.kind == "read"
         assert write_def.kind == "edit"
@@ -515,7 +515,7 @@ class TestToolDefinitionsConsistency:
         create_def = TerminalToolDefinitions.create()
         wait_def = TerminalToolDefinitions.wait_for_exit()
         release_def = TerminalToolDefinitions.release()
-        
+
         # Assert
         assert create_def.kind == "execute"
         assert wait_def.kind == "read"

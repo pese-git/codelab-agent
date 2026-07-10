@@ -95,20 +95,24 @@ def llm_loop_stage(
     mock_dispatcher = MagicMock(spec=StrategyDispatcher)
     mock_dispatcher.select_strategy.return_value = ("single", None)
     mock_dispatcher.set_current_strategy.return_value = True
-    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
-    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
+    mock_dispatcher.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            text="",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
+    mock_dispatcher.continue_execution = AsyncMock(
+        return_value=SimpleNamespace(
+            text="",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
 
     return LLMLoopStage(
         tool_registry=tool_registry,
@@ -143,15 +147,17 @@ def pipeline(
 ) -> PromptPipeline:
     """Собирает PromptPipeline из стадий."""
     slash_router = SlashCommandRouter(command_registry)
-    return PromptPipeline(stages=[
-        ValidationStage(state_manager),
-        SlashCommandStage(slash_router),
-        PlanBuildingStage(plan_builder),
-        TurnLifecycleStage(turn_lifecycle_manager, action="open"),
-        DirectivesStage(tool_registry, permission_manager),
-        llm_loop_stage,
-        TurnLifecycleStage(turn_lifecycle_manager, action="close"),
-    ])
+    return PromptPipeline(
+        stages=[
+            ValidationStage(state_manager),
+            SlashCommandStage(slash_router),
+            PlanBuildingStage(plan_builder),
+            TurnLifecycleStage(turn_lifecycle_manager, action="open"),
+            DirectivesStage(tool_registry, permission_manager),
+            llm_loop_stage,
+            TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+        ]
+    )
 
 
 @pytest.fixture
@@ -229,7 +235,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         assert session.active_turn is None  # Должен быть очищен после завершения
@@ -248,7 +253,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         # Проверяем что история обновлена
@@ -269,7 +273,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         assert outcome.notifications is not None
@@ -293,7 +296,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": []},
             session,
             sessions,
-
         )
 
         # Должны быть notifications даже при пустом промпте
@@ -314,7 +316,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         # Должны быть notifications с ошибкой
@@ -336,7 +337,6 @@ class TestPromptOrchestratorHandlePrompt:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         assert session.title == "My test prompt"
@@ -611,7 +611,6 @@ class TestPromptOrchestratorComponentIntegration:
             {"prompt": prompt},
             session,
             sessions,
-
         )
 
         # Проверяем что StateManager обновил состояние

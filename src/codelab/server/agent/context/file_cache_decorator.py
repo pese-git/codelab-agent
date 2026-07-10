@@ -72,7 +72,7 @@ class FileCacheDecorator(ToolExecutorDecorator):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с кэшированием файловых операций.
-        
+
         При fs/read сначала проверяет кэш. При попадании возвращает
         содержимое из кэша без вызова wrapped.execute(). При промахе
         выполняет RPC и сохраняет результат в кэш.

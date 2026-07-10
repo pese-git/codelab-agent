@@ -96,11 +96,11 @@ def llm_name_to_acp_name(llm_name: str) -> str:
     if llm_name.startswith(_MCP_LLM_PREFIX):
         # mcp_server_tool → mcp:server:tool
         # Убираем "mcp_" и восстанавливаем ":"
-        rest = llm_name[len(_MCP_LLM_PREFIX):]
+        rest = llm_name[len(_MCP_LLM_PREFIX) :]
         if "_" in rest:
             first_underscore = rest.index("_")
             server_id = rest[:first_underscore]
-            tool_name = rest[first_underscore + 1:]  # Пропускаем underscore
+            tool_name = rest[first_underscore + 1 :]  # Пропускаем underscore
             return f"{_MCP_PREFIX}{server_id}:{tool_name}"
         # Если нет underscore, возвращаем как есть (некорректный формат)
         return llm_name
@@ -109,5 +109,5 @@ def llm_name_to_acp_name(llm_name: str) -> str:
         llm_prefix = prefix.replace("/", "_")
         if llm_name.startswith(llm_prefix) and llm_name != llm_prefix:
             # Заменяем первое вхождение `_` после префикса на `/`
-            return prefix + llm_name[len(llm_prefix):]
+            return prefix + llm_name[len(llm_prefix) :]
     return llm_name

@@ -51,14 +51,17 @@ class TestMessageList:
     def test_set_messages(self) -> None:
         """Установка списка сообщений."""
         msg_list = MessageList()
-        msg_list.set_messages([
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi"},
-        ])
+        msg_list.set_messages(
+            [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ]
+        )
         assert msg_list.message_count == 2
 
     async def test_compose_and_mount_empty(self) -> None:
         """Пустой список показывает empty-state после монтирования."""
+
         class TestApp(App):
             pass
 
@@ -71,6 +74,7 @@ class TestMessageList:
 
     async def test_add_message(self) -> None:
         """Добавление сообщения в смонтированный список."""
+
         class TestApp(App):
             pass
 
@@ -85,20 +89,24 @@ class TestMessageList:
 
     async def test_clear_messages(self) -> None:
         """Очистка списка сообщений."""
+
         class TestApp(App):
             pass
 
         app = TestApp()
         async with app.run_test() as pilot:
-            msg_list = MessageList(messages=[
-                {"role": "user", "content": "hello"},
-            ])
+            msg_list = MessageList(
+                messages=[
+                    {"role": "user", "content": "hello"},
+                ]
+            )
             await pilot.app.mount(msg_list)
             msg_list.clear()
             assert msg_list.message_count == 0
 
     async def test_group_by_date(self) -> None:
         """Группировка сообщений по датам добавляет разделители."""
+
         class TestApp(App):
             pass
 
@@ -114,6 +122,7 @@ class TestMessageList:
 
     async def test_streaming_lifecycle(self) -> None:
         """Полный жизненный цикл streaming."""
+
         class TestApp(App):
             pass
 
@@ -134,6 +143,7 @@ class TestMessageList:
 
     async def test_stop_streaming_with_final_text(self) -> None:
         """Завершение streaming с финальным текстом."""
+
         class TestApp(App):
             pass
 
@@ -147,6 +157,7 @@ class TestMessageList:
 
     async def test_stop_streaming_empty_text(self) -> None:
         """Завершение streaming без текста не добавляет сообщение."""
+
         class TestApp(App):
             pass
 
@@ -160,6 +171,7 @@ class TestMessageList:
 
     async def test_thinking_indicator(self) -> None:
         """Показ и скрытие индикатора thinking."""
+
         class TestApp(App):
             pass
 
@@ -174,6 +186,7 @@ class TestMessageList:
 
     async def test_scroll_to_bottom(self) -> None:
         """Прокрутка к последнему сообщению."""
+
         class TestApp(App):
             pass
 

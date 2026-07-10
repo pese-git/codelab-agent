@@ -110,9 +110,7 @@ class ExecutionEngine:
         if self.context_config.enabled and self.context_manager is not None:
             prompt_blocks = [{"type": "text", "text": prompt}]
             if content_parts:
-                prompt_blocks = [
-                    self._content_part_to_dict(part) for part in content_parts
-                ]
+                prompt_blocks = [self._content_part_to_dict(part) for part in content_parts]
 
             envelope = await self.context_manager.build_context(
                 session=session,
@@ -139,9 +137,7 @@ class ExecutionEngine:
             history = envelope.to_messages()
 
         if content_parts and not (self.context_config.enabled and self.context_manager):
-            prompt_blocks = [
-                self._content_part_to_dict(part) for part in content_parts
-            ]
+            prompt_blocks = [self._content_part_to_dict(part) for part in content_parts]
         elif not (self.context_config.enabled and self.context_manager):
             prompt_blocks = [{"type": "text", "text": prompt}]
 

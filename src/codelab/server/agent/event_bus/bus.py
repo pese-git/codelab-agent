@@ -288,13 +288,12 @@ class AgentEventBus(AbstractEventBus, AgentRoutingInterface):
                 logger.exception("Broadcast to '%s' failed", agent_name)
                 return (agent_name, exc)
 
-        tasks = [
-            _dispatch_agent(name, handler) for name, handler in self._agents.items()
-        ]
+        tasks = [_dispatch_agent(name, handler) for name, handler in self._agents.items()]
         results: list[
             tuple[str, ChoreographyAnswer | Exception] | BaseException
         ] = await asyncio.gather(
-            *tasks, return_exceptions=True,
+            *tasks,
+            return_exceptions=True,
         )
 
         answers: list[ChoreographyAnswer] = []

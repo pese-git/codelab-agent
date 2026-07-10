@@ -26,14 +26,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         self.synced_messages.append((session_id, messages))
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         self.synced_tool_calls.append((session_id, tool_calls))
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         self.synced_streaming.append((session_id, text, is_streaming))
 
 

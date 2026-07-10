@@ -71,9 +71,7 @@ class PermissionResponseCommandHandler:
         session_id = params.get("sessionId", "")
 
         # Найти сессию по permission request ID
-        session = await permissions.find_session_by_permission_request_id(
-            request_id, self._storage
-        )
+        session = await permissions.find_session_by_permission_request_id(request_id, self._storage)
 
         if session is None:
             # Проверить, был ли request отменен (late response handling)

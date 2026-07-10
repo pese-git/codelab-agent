@@ -113,9 +113,7 @@ def mcp_embedded_to_acp(item: dict[str, Any]) -> dict[str, Any]:
     """
     resource = item.get("resource")
     if resource is None:
-        raise ContentMapperError(
-            "MCP embedded resource content missing 'resource' field"
-        )
+        raise ContentMapperError("MCP embedded resource content missing 'resource' field")
 
     if not isinstance(resource, dict):
         raise ContentMapperError(
@@ -137,9 +135,7 @@ def mcp_embedded_to_acp(item: dict[str, Any]) -> dict[str, Any]:
     elif "blob" in resource:
         acp_resource["blob"] = str(resource["blob"])
     else:
-        raise ContentMapperError(
-            "MCP embedded resource must contain either 'text' or 'blob' field"
-        )
+        raise ContentMapperError("MCP embedded resource must contain either 'text' or 'blob' field")
 
     result: dict[str, Any] = {"type": "resource", "resource": acp_resource}
 
@@ -194,9 +190,7 @@ def mcp_content_to_acp_list(
 
     for item in content:
         if not isinstance(item, dict):
-            logger.warning(
-                "Skipping non-dict MCP content item: %s", type(item).__name__
-            )
+            logger.warning("Skipping non-dict MCP content item: %s", type(item).__name__)
             continue
 
         try:

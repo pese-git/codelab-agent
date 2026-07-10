@@ -91,6 +91,7 @@ class SessionNotificationBus:
             try:
                 # Используем asyncio для async доставки
                 import asyncio
+
                 loop = asyncio.get_running_loop()
                 loop.create_task(callback(message))
             except RuntimeError:

@@ -87,9 +87,7 @@ class TreeSitterStrategy(SkeletonizerStrategy):
             else:
                 first_line = lines[start_row]
                 last_line = lines[end_row]
-                lines[start_row] = (
-                    first_line[:start_col] + placeholder_b + last_line[end_col:]
-                )
+                lines[start_row] = first_line[:start_col] + placeholder_b + last_line[end_col:]
                 for i in range(start_row + 1, end_row + 1):
                     lines[i] = b""
 
@@ -111,13 +109,15 @@ class TreeSitterStrategy(SkeletonizerStrategy):
         if node.type in rules.function_types:
             body = self._find_body(node, rules.body_field)
             if body is not None:
-                replacements.append((
-                    body.start_point[0],
-                    body.start_point[1],
-                    body.end_point[0],
-                    body.end_point[1],
-                    rules.body_placeholder,
-                ))
+                replacements.append(
+                    (
+                        body.start_point[0],
+                        body.start_point[1],
+                        body.end_point[0],
+                        body.end_point[1],
+                        rules.body_placeholder,
+                    )
+                )
                 return
 
         for child in node.children:

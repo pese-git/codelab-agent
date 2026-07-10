@@ -41,11 +41,13 @@ class TestCreateSessionUseCaseMcpServers:
         transport.is_initialized = Mock(return_value=True)
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {"sessionId": "sess_abc", "configOptions": [], "modes": {}},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {"sessionId": "sess_abc", "configOptions": [], "modes": {}},
+            }
+        )
 
         mcp_servers = [
             {
@@ -89,11 +91,13 @@ class TestCreateSessionUseCaseMcpServers:
         transport.is_initialized = Mock(return_value=True)
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {"sessionId": "sess_def", "configOptions": [], "modes": {}},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {"sessionId": "sess_def", "configOptions": [], "modes": {}},
+            }
+        )
 
         request = CreateSessionRequest(
             server_host="127.0.0.1",
@@ -125,11 +129,13 @@ class TestCreateSessionUseCaseMcpServers:
         transport.is_initialized = Mock(return_value=True)
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {"sessionId": "sess_ghi", "configOptions": [], "modes": {}},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {"sessionId": "sess_ghi", "configOptions": [], "modes": {}},
+            }
+        )
 
         mcp_servers = [
             {"name": "filesystem", "type": "stdio", "command": "npx", "args": ["fs-server"]},
@@ -292,9 +298,7 @@ class TestSessionCoordinatorMcpServers:
         return Mock(spec=SessionRepository)
 
     @pytest.fixture
-    def coordinator(
-        self, mock_transport: Mock, mock_session_repo: Mock
-    ) -> SessionCoordinator:
+    def coordinator(self, mock_transport: Mock, mock_session_repo: Mock) -> SessionCoordinator:
         return SessionCoordinator(
             transport=mock_transport,
             session_repo=mock_session_repo,

@@ -48,6 +48,7 @@ class TestSearchInputCompose:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создаёт Input, Label и Button."""
+
         class TestApp(App):
             pass
 
@@ -63,6 +64,7 @@ class TestSearchInputCompose:
 
     async def test_input_and_clear_button_properties(self) -> None:
         """Свойства input и clear_button возвращают виджеты."""
+
         class TestApp(App):
             pass
 
@@ -80,6 +82,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_changed_no_debounce(self) -> None:
         """Изменение ввода без debounce сразу отправляет SearchChanged."""
+
         class TestApp(App):
             pass
 
@@ -95,7 +98,8 @@ class TestSearchInputEvents:
 
             assert widget.value == "hello"
             search_changed_calls = [
-                call for call in mock_post.call_args_list
+                call
+                for call in mock_post.call_args_list
                 if isinstance(call[0][0], SearchInput.SearchChanged)
             ]
             assert len(search_changed_calls) == 1
@@ -104,6 +108,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_changed_with_debounce(self) -> None:
         """Изменение ввода с debounce планирует задачу."""
+
         class TestApp(App):
             pass
 
@@ -126,6 +131,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_submitted_with_value(self) -> None:
         """Подтверждение ввода добавляет в историю и отправляет сообщение."""
+
         class TestApp(App):
             pass
 
@@ -142,7 +148,8 @@ class TestSearchInputEvents:
             assert widget.value == "search text"
             assert widget._history == ["search text"]
             submitted_calls = [
-                call for call in mock_post.call_args_list
+                call
+                for call in mock_post.call_args_list
                 if isinstance(call[0][0], SearchInput.SearchSubmitted)
             ]
             assert len(submitted_calls) == 1
@@ -150,6 +157,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_submitted_duplicate_not_added(self) -> None:
         """Дублирующееся значение не добавляется в историю."""
+
         class TestApp(App):
             pass
 
@@ -168,6 +176,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_submitted_empty(self) -> None:
         """Пустое значение не добавляется в историю."""
+
         class TestApp(App):
             pass
 
@@ -187,6 +196,7 @@ class TestSearchInputEvents:
 
     async def test_on_input_submitted_cancels_debounce(self) -> None:
         """Подтверждение ввода отменяет задачу debounce."""
+
         class TestApp(App):
             pass
 
@@ -209,6 +219,7 @@ class TestSearchInputEvents:
 
     async def test_on_button_pressed_clear(self) -> None:
         """Нажатие кнопки очистки вызывает clear."""
+
         class TestApp(App):
             pass
 
@@ -227,6 +238,7 @@ class TestSearchInputEvents:
 
     async def test_on_button_pressed_other_button(self) -> None:
         """Нажатие другой кнопки игнорируется."""
+
         class TestApp(App):
             pass
 
@@ -248,6 +260,7 @@ class TestSearchInputMethods:
 
     async def test_schedule_search_cancels_previous(self) -> None:
         """Планирование поиска отменяет предыдущую задачу."""
+
         class TestApp(App):
             pass
 
@@ -282,6 +295,7 @@ class TestSearchInputMethods:
 
     async def test_clear(self) -> None:
         """clear очищает поле и отправляет SearchCleared."""
+
         class TestApp(App):
             pass
 
@@ -302,6 +316,7 @@ class TestSearchInputMethods:
 
     async def test_focus_input(self) -> None:
         """focus_input фокусирует поле ввода."""
+
         class TestApp(App):
             pass
 
@@ -315,6 +330,7 @@ class TestSearchInputMethods:
 
     async def test_set_value(self) -> None:
         """set_value устанавливает значение и управляет кнопкой очистки."""
+
         class TestApp(App):
             pass
 
@@ -337,6 +353,7 @@ class TestSearchInputHistory:
 
     async def test_previous_history_empty(self) -> None:
         """previous_history без истории возвращает None."""
+
         class TestApp(App):
             pass
 
@@ -348,6 +365,7 @@ class TestSearchInputHistory:
 
     async def test_previous_history_navigation(self) -> None:
         """previous_history перебирает историю назад."""
+
         class TestApp(App):
             pass
 
@@ -364,6 +382,7 @@ class TestSearchInputHistory:
 
     async def test_next_history_navigation(self) -> None:
         """next_history перебирает историю вперёд."""
+
         class TestApp(App):
             pass
 
@@ -379,6 +398,7 @@ class TestSearchInputHistory:
 
     async def test_next_history_at_top_clears(self) -> None:
         """next_history на вершине истории очищает поле."""
+
         class TestApp(App):
             pass
 
@@ -395,6 +415,7 @@ class TestSearchInputHistory:
 
     async def test_next_history_no_history(self) -> None:
         """next_history без истории возвращает None."""
+
         class TestApp(App):
             pass
 

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 class ContainerVariant(Enum):
     """Варианты оформления контейнера."""
-    
+
     DEFAULT = "default"
     BORDERED = "bordered"
     ROUNDED = "rounded"
@@ -33,19 +33,19 @@ class ContainerVariant(Enum):
 
 class StyledContainer(TextualContainer):
     """Универсальный стилизованный контейнер.
-    
+
     Поддерживает несколько вариантов оформления:
     - default: базовый контейнер без рамки
     - bordered: контейнер с прямоугольной рамкой
     - rounded: контейнер со скругленной рамкой
     - panel: контейнер с фоном и рамкой для панелей
-    
+
     Может включать заголовок в верхней части.
-    
+
     Примеры использования:
         >>> container = StyledContainer(variant=ContainerVariant.BORDERED)
         >>> container.mount(Static("Контент"))
-        
+
         >>> container_with_title = StyledContainer(
         ...     title="Мой контейнер",
         ...     variant=ContainerVariant.ROUNDED
@@ -54,7 +54,7 @@ class StyledContainer(TextualContainer):
 
     # Reactive свойство для заголовка
     title: reactive[str] = reactive("")
-    
+
     DEFAULT_CSS = """
     StyledContainer {
         width: 100%;
@@ -109,12 +109,12 @@ class StyledContainer(TextualContainer):
         # Добавляем класс варианта к классам
         variant_class = variant.value
         all_classes = f"{variant_class} {classes}" if classes else variant_class
-        
+
         super().__init__(*children, name=name, id=id, classes=all_classes)
         self._title = title
         self._variant = variant
         self._header_widget: Static | None = None
-        
+
         # Устанавливаем начальное значение reactive свойства
         self.title = title
 
@@ -126,7 +126,7 @@ class StyledContainer(TextualContainer):
 
     def watch_title(self, new_title: str) -> None:
         """Реагирует на изменение заголовка.
-        
+
         Args:
             new_title: Новый заголовок
         """
@@ -135,7 +135,7 @@ class StyledContainer(TextualContainer):
 
     def set_variant(self, variant: ContainerVariant) -> None:
         """Изменяет вариант оформления контейнера.
-        
+
         Args:
             variant: Новый вариант оформления
         """
@@ -153,11 +153,11 @@ class StyledContainer(TextualContainer):
 
 class Card(StyledContainer):
     """Контейнер-карточка с предустановленным стилем.
-    
+
     Карточка - это bordered контейнер с padding.
     Используется для группировки связанного контента.
     """
-    
+
     DEFAULT_CSS = """
     Card {
         padding: 1;

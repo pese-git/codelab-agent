@@ -32,9 +32,11 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=False)
 
-        await service.on_tool_call_updated({
-            "locations": [{"path": "/tmp/test.py", "line": 10}],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [{"path": "/tmp/test.py", "line": 10}],
+            }
+        )
 
         assert len(stub.calls) == 0
 
@@ -44,9 +46,11 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=True)
 
-        await service.on_tool_call_updated({
-            "locations": [],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [],
+            }
+        )
 
         assert len(stub.calls) == 0
 
@@ -66,9 +70,11 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=True)
 
-        await service.on_tool_call_updated({
-            "locations": [{"path": "/tmp/test.py", "line": 42}],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [{"path": "/tmp/test.py", "line": 42}],
+            }
+        )
 
         assert len(stub.calls) == 1
         assert stub.calls[0] == {"path": "/tmp/test.py", "line": 42}
@@ -79,12 +85,14 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=True)
 
-        await service.on_tool_call_updated({
-            "locations": [
-                {"path": "/tmp/first.py", "line": 10},
-                {"path": "/tmp/second.py", "line": 20},
-            ],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [
+                    {"path": "/tmp/first.py", "line": 10},
+                    {"path": "/tmp/second.py", "line": 20},
+                ],
+            }
+        )
 
         assert len(stub.calls) == 1
         assert stub.calls[0] == {"path": "/tmp/first.py", "line": 10}
@@ -95,9 +103,11 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=True)
 
-        await service.on_tool_call_updated({
-            "locations": [{"path": "/tmp/test.py"}],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [{"path": "/tmp/test.py"}],
+            }
+        )
 
         assert len(stub.calls) == 1
         assert stub.calls[0] == {"path": "/tmp/test.py", "line": None}
@@ -108,8 +118,10 @@ class TestFollowAlongService:
         stub = StubFileOpener()
         service = FollowAlongService(stub, enabled=True)
 
-        await service.on_tool_call_updated({
-            "locations": [{"line": 10}],
-        })
+        await service.on_tool_call_updated(
+            {
+                "locations": [{"line": 10}],
+            }
+        )
 
         assert len(stub.calls) == 0

@@ -9,17 +9,17 @@ from typing import Any, TypeVar
 
 import structlog
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 logger = structlog.get_logger()
 
 
 class Observable[T]:
     """Реактивное свойство с поддержкой observers.
-    
+
     Когда значение изменяется, все подписанные observers уведомляются
     о новом значении. Используется для привязки ViewModels к UI компонентам.
-    
+
     Пример:
         >>> name = Observable("Alice")
         >>> name.subscribe(lambda x: print(f"Name: {x}"))
@@ -28,7 +28,7 @@ class Observable[T]:
 
     def __init__(self, initial_value: T) -> None:
         """Инициализировать Observable с начальным значением.
-        
+
         Args:
             initial_value: Начальное значение свойства
         """
@@ -44,9 +44,9 @@ class Observable[T]:
     @value.setter
     def value(self, new_value: T) -> None:
         """Установить новое значение и уведомить observers.
-        
+
         Уведомление происходит только если значение действительно изменилось.
-        
+
         Args:
             new_value: Новое значение свойства
         """
@@ -56,13 +56,13 @@ class Observable[T]:
 
     def subscribe(self, observer: Callable[[Any], None]) -> Callable[[], None]:
         """Подписаться на изменения значения.
-        
+
         Args:
             observer: Функция, которая будет вызвана с новым значением
-            
+
         Returns:
             Функция для отписки (unsubscribe)
-            
+
         Пример:
             >>> obs = Observable(42)
             >>> unsubscribe = obs.subscribe(print)
@@ -75,7 +75,7 @@ class Observable[T]:
 
     def _notify_observers(self) -> None:
         """Уведомить всех observers об изменении значения.
-        
+
         Обработка ошибок в observers — они не должны останавливать
         цепочку уведомлений других observers.
         """
@@ -83,7 +83,7 @@ class Observable[T]:
             try:
                 observer(self._value)
             except Exception as e:
-                observer_name = getattr(observer, '__name__', repr(observer))
+                observer_name = getattr(observer, "__name__", repr(observer))
                 logger.exception(
                     "Error in observable observer",
                     error=str(e),
@@ -97,15 +97,15 @@ class Observable[T]:
 
 class ObservableCommand:
     """Команда с отслеживанием статуса выполнения.
-    
+
     Используется для асинхронных операций, которые могут быть
     долгими и требуют отображения состояния (loading, error, etc.).
-    
+
     Пример:
         >>> async def fetch_data():
         ...     await asyncio.sleep(1)
         ...     return "data"
-        
+
         >>> cmd = ObservableCommand(fetch_data)
         >>> cmd.is_executing.subscribe(lambda x: print(f"Loading: {x}"))
         >>> await cmd.execute()  # Выведет: Loading: True, Loading: False
@@ -113,7 +113,7 @@ class ObservableCommand:
 
     def __init__(self, handler: Callable[..., Any]) -> None:
         """Инициализировать команду с обработчиком.
-        
+
         Args:
             handler: Асинхронная функция для выполнения
         """
@@ -126,20 +126,20 @@ class ObservableCommand:
 
     async def execute(self, *args: Any, **kwargs: Any) -> Any | None:
         """Выполнить команду с обработкой ошибок.
-        
+
         Устанавливает is_executing в True, выполняет handler,
         затем возвращает результат или ошибку.
-        
+
         Args:
             *args: Позиционные аргументы для handler
             **kwargs: Именованные аргументы для handler
-            
+
         Returns:
             Результат выполнения handler или None при ошибке
-            
+
         Raises:
             Любое исключение, возникшее в handler
-            
+
         Пример:
             >>> cmd = ObservableCommand(async_func)
             >>> try:

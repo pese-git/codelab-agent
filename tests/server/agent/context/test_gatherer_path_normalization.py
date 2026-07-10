@@ -51,9 +51,7 @@ class TestNormalizePath:
         result = gatherer._normalize_path("lib\\main.dart")
         assert result == "lib/main.dart"
 
-    def test_absolute_path_with_project_root(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_absolute_path_with_project_root(self, gatherer: ACPContextGatherer) -> None:
         """Абсолютный путь нормализуется относительно project_root."""
         result = gatherer._normalize_path(
             "/Users/user/project/lib/main.dart",
@@ -61,17 +59,13 @@ class TestNormalizePath:
         )
         assert result == "lib/main.dart"
 
-    def test_absolute_path_without_project_root(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_absolute_path_without_project_root(self, gatherer: ACPContextGatherer) -> None:
         """Абсолютный путь без project_root берёт последние компоненты."""
         result = gatherer._normalize_path("/Users/user/project/lib/main.dart")
         # Берёт последние 2 компонента: lib/main.dart
         assert result == "lib/main.dart"
 
-    def test_absolute_path_single_component(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_absolute_path_single_component(self, gatherer: ACPContextGatherer) -> None:
         """Абсолютный путь с одним компонентом."""
         result = gatherer._normalize_path("/main.dart")
         assert result == "main.dart"
@@ -81,9 +75,7 @@ class TestNormalizePath:
         result = gatherer._normalize_path("")
         assert result == ""
 
-    def test_path_with_trailing_slash(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_path_with_trailing_slash(self, gatherer: ACPContextGatherer) -> None:
         """Путь с trailing slash нормализуется."""
         result = gatherer._normalize_path("lib/main.dart/")
         # normalize_path не убирает trailing slash, это делает _filter_paths
@@ -120,48 +112,40 @@ class TestFilterPaths:
 class TestTargetModulesMatching:
     """Тесты для матчинга target_modules с project_files."""
 
-    def test_relative_target_matches_project_files(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_relative_target_matches_project_files(self, gatherer: ACPContextGatherer) -> None:
         """Относительный target_module матчится с project_files."""
         # Симулируем project_files из _list_project_files
         project_files = ["lib/main.dart", "lib/weather_service.dart"]
-        
+
         target_module = "lib/main.dart"
         normalized = gatherer._normalize_path(target_module)
-        
+
         assert normalized in project_files
 
-    def test_absolute_target_matches_project_files(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_absolute_target_matches_project_files(self, gatherer: ACPContextGatherer) -> None:
         """Абсолютный target_module нормализуется и матчится."""
         project_files = ["lib/main.dart", "lib/weather_service.dart"]
         project_root = "/Users/user/project"
-        
+
         target_module = "/Users/user/project/lib/main.dart"
         normalized = gatherer._normalize_path(target_module, project_root)
-        
+
         assert normalized in project_files
 
-    def test_dot_slash_target_matches_project_files(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_dot_slash_target_matches_project_files(self, gatherer: ACPContextGatherer) -> None:
         """Target с ./ матчится после нормализации."""
         project_files = ["lib/main.dart", "lib/weather_service.dart"]
-        
+
         target_module = "./lib/main.dart"
         normalized = gatherer._normalize_path(target_module)
-        
+
         assert normalized in project_files
 
-    def test_backslash_target_matches_project_files(
-        self, gatherer: ACPContextGatherer
-    ) -> None:
+    def test_backslash_target_matches_project_files(self, gatherer: ACPContextGatherer) -> None:
         """Target с backslash матчится после нормализации."""
         project_files = ["lib/main.dart", "lib/weather_service.dart"]
-        
+
         target_module = "lib\\main.dart"
         normalized = gatherer._normalize_path(target_module)
-        
+
         assert normalized in project_files

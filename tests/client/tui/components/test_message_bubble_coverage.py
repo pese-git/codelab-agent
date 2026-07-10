@@ -58,11 +58,13 @@ class TestMessageBubbleCoverage:
     def test_from_dict_with_string_timestamp(self) -> None:
         """from_dict парсит timestamp из ISO-строки."""
         ts = datetime(2025, 1, 15, 12, 30, 0)
-        bubble = MessageBubble.from_dict({
-            "role": "assistant",
-            "content": "hello",
-            "timestamp": ts.isoformat(),
-        })
+        bubble = MessageBubble.from_dict(
+            {
+                "role": "assistant",
+                "content": "hello",
+                "timestamp": ts.isoformat(),
+            }
+        )
 
         assert bubble.role == MessageRole.ASSISTANT
         assert bubble.content == "hello"

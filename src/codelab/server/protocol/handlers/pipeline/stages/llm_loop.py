@@ -218,6 +218,7 @@ class LLMLoopStage(PromptStage):
                 ack_text = f"ACK: {context.raw_text[:80]}"
                 ack_content = {"type": "text", "text": ack_text}
                 from codelab.server.messages import ACPMessage
+
                 context.notifications.append(
                     ACPMessage.notification(
                         "session/update",
@@ -302,6 +303,7 @@ class LLMLoopStage(PromptStage):
                     session_id=session_id,
                 )
                 from codelab.server.protocol.state import LLMLoopResult
+
                 return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
             self._agent_loop = AgentLoop(
@@ -343,6 +345,7 @@ class LLMLoopStage(PromptStage):
 
         # Конвертировать AgentLoopResult → LLMLoopResult
         from codelab.server.protocol.state import LLMLoopResult
+
         stop_reason = (
             result.stop_reason.value
             if isinstance(result.stop_reason, StopReason)

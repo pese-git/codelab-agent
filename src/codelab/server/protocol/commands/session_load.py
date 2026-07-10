@@ -43,8 +43,7 @@ class SessionLoadCommandHandler:
         authenticated: bool,
         runtime_capabilities: ClientRuntimeCapabilities | None = None,
         pending_registry: PendingRequestRegistry | None = None,
-        on_session_loaded: Callable[[SessionState, dict[str, Any]], Awaitable[None]]
-        | None = None,
+        on_session_loaded: Callable[[SessionState, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         """Инициализирует обработчик.
 
@@ -89,10 +88,7 @@ class SessionLoadCommandHandler:
                     await self._on_session_loaded(session_obj, params)
 
                 # Обработка orphaned permission requests
-                if (
-                    session_obj.active_turn
-                    and session_obj.active_turn.permission_request_id
-                ):
+                if session_obj.active_turn and session_obj.active_turn.permission_request_id:
                     perm_req_id = session_obj.active_turn.permission_request_id
                     if not self._pending_registry.has(perm_req_id):
                         logger.warning(

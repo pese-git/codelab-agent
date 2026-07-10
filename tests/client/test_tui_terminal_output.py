@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 class _TestApp(App):
     """Минимальный app для создания Textual контекста в тестах."""
+
     pass
 
 
@@ -40,7 +41,7 @@ async def test_terminal_output_panel_renders_output_and_exit_code(
     async with app.run_test() as _:
         # Создаем панель с ViewModel
         panel = TerminalOutputPanel(mock_terminal_view_model)
-        
+
         # Обновляем ViewModel output напрямую (в отличие от append_output)
         mock_terminal_view_model.output.value = "hello\n"
         panel.append_output("hello\n")

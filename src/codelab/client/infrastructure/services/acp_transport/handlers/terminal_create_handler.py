@@ -24,9 +24,7 @@ class TerminalCreateHandler:
     def can_handle(self, method: str) -> bool:
         return method == "terminal/create"
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any]:
         command = params.get("command")
         if not isinstance(command, str):
             self._logger.warning("missing_command_parameter", rpc_id=rpc_id)

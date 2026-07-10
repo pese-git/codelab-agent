@@ -35,7 +35,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест регистрации одного модального окна."""
         modal_id = tracker.register_modal(mock_screen, "test_modal", modal_id="explicit_id")
-        
+
         assert modal_id == "explicit_id"
         assert tracker.get_modal_count() == 1
         assert tracker.is_modal_visible("test_modal")
@@ -47,7 +47,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест автоматической генерации ID для модального окна."""
         modal_id = tracker.register_modal(mock_screen, "test_modal")
-        
+
         # ID должен содержать тип и быть уникальным
         assert modal_id.startswith("test_modal_")
         assert len(modal_id) > len("test_modal_")
@@ -64,7 +64,7 @@ class TestModalWindowTracker:
             "test_modal",
             modal_id=explicit_id,
         )
-        
+
         assert modal_id == explicit_id
 
     def test_unregister_modal(
@@ -75,7 +75,7 @@ class TestModalWindowTracker:
         """Тест отмены регистрации модального окна."""
         modal_id = tracker.register_modal(mock_screen, "test_modal")
         assert tracker.get_modal_count() == 1
-        
+
         tracker.unregister_modal(modal_id)
         assert tracker.get_modal_count() == 0
         assert not tracker.is_modal_visible("test_modal")
@@ -96,9 +96,9 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест отмены регистрации по экрану."""
         modal_id = tracker.register_modal(mock_screen, "test_modal")
-        
+
         result_id = tracker.unregister_by_screen(mock_screen)
-        
+
         assert result_id == modal_id
         assert tracker.get_modal_count() == 0
 
@@ -108,7 +108,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест отмены регистрации несуществующего экрана."""
         result_id = tracker.unregister_by_screen(Mock(spec=Screen))
-        
+
         assert result_id is None
         assert tracker.get_modal_count() == 0
 
@@ -119,9 +119,9 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест получения модального окна по типу."""
         tracker.register_modal(mock_screen, "test_modal")
-        
+
         result_screen = tracker.get_modal_by_type("test_modal")
-        
+
         assert result_screen is mock_screen
 
     def test_get_modal_by_type_nonexistent(
@@ -130,7 +130,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест получения несуществующего модального окна по типу."""
         result = tracker.get_modal_by_type("nonexistent")
-        
+
         assert result is None
 
     def test_get_modal_by_type_returns_last(
@@ -141,11 +141,11 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "test_modal", modal_id="id1")
         tracker.register_modal(screen2, "test_modal", modal_id="id2")
         tracker.register_modal(screen3, "test_modal", modal_id="id3")
-        
+
         # Должно вернуть последнее добавленное
         result = tracker.get_modal_by_type("test_modal")
         assert result is screen3
@@ -158,13 +158,13 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "test_modal", modal_id="id1")
         tracker.register_modal(screen2, "test_modal", modal_id="id2")
         tracker.register_modal(screen3, "other_modal", modal_id="id3")
-        
+
         result = tracker.get_all_modals_by_type("test_modal")
-        
+
         assert len(result) == 2
         assert screen1 in result
         assert screen2 in result
@@ -176,7 +176,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест получения пустого списка для несуществующего типа."""
         result = tracker.get_all_modals_by_type("nonexistent")
-        
+
         assert result == []
 
     def test_is_modal_visible(
@@ -186,9 +186,9 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест проверки видимости модального окна."""
         assert not tracker.is_modal_visible("test_modal")
-        
+
         tracker.register_modal(mock_screen, "test_modal")
-        
+
         assert tracker.is_modal_visible("test_modal")
 
     def test_is_modal_visible_after_unregister(
@@ -199,9 +199,9 @@ class TestModalWindowTracker:
         """Тест видимости модального окна после отмены регистрации."""
         modal_id = tracker.register_modal(mock_screen, "test_modal")
         assert tracker.is_modal_visible("test_modal")
-        
+
         tracker.unregister_modal(modal_id)
-        
+
         assert not tracker.is_modal_visible("test_modal")
 
     def test_get_all_modals(
@@ -212,13 +212,13 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "modal_1", modal_id="id1")
         tracker.register_modal(screen2, "modal_2", modal_id="id2")
         tracker.register_modal(screen3, "modal_3", modal_id="id3")
-        
+
         all_modals = tracker.get_all_modals()
-        
+
         assert len(all_modals) == 3
         assert ("id1", "modal_1", screen1) in all_modals
         assert ("id2", "modal_2", screen2) in all_modals
@@ -230,7 +230,7 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест получения пустого списка всех модалей."""
         all_modals = tracker.get_all_modals()
-        
+
         assert all_modals == []
 
     def test_get_modal_count_total(
@@ -241,11 +241,11 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "modal_1")
         tracker.register_modal(screen2, "modal_2")
         tracker.register_modal(screen3, "modal_3")
-        
+
         assert tracker.get_modal_count() == 3
 
     def test_get_modal_count_by_type(
@@ -256,11 +256,11 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "test_modal", modal_id="id1")
         tracker.register_modal(screen2, "test_modal", modal_id="id2")
         tracker.register_modal(screen3, "other_modal", modal_id="id3")
-        
+
         assert tracker.get_modal_count("test_modal") == 2
         assert tracker.get_modal_count("other_modal") == 1
         assert tracker.get_modal_count("nonexistent") == 0
@@ -273,15 +273,15 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "modal_1")
         tracker.register_modal(screen2, "modal_2")
         tracker.register_modal(screen3, "modal_3")
-        
+
         assert tracker.get_modal_count() == 3
-        
+
         tracker.clear()
-        
+
         assert tracker.get_modal_count() == 0
         assert tracker.get_all_modals() == []
 
@@ -292,13 +292,13 @@ class TestModalWindowTracker:
         """Тест что регистрация с одинаковым ID перезаписывает старый modal."""
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "modal_type", modal_id="same_id")
         tracker.register_modal(screen2, "modal_type", modal_id="same_id")
-        
+
         # Должно быть только одно модальное окно
         assert tracker.get_modal_count() == 1
-        
+
         # Должно быть новое значение
         result = tracker.get_modal_by_type("modal_type")
         assert result is screen2
@@ -310,13 +310,13 @@ class TestModalWindowTracker:
         """Тест независимости разных типов модальных окон."""
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "type_a", modal_id="id1")
         tracker.register_modal(screen2, "type_b", modal_id="id2")
-        
+
         # Удаляем type_a
         tracker.unregister_modal("id1")
-        
+
         # type_b должен остаться
         assert not tracker.is_modal_visible("type_a")
         assert tracker.is_modal_visible("type_b")
@@ -328,18 +328,18 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест регистрации множественных модальных окон одного типа."""
         screens = [Mock(spec=Screen) for _ in range(5)]
-        
+
         ids = []
         for screen in screens:
             modal_id = tracker.register_modal(screen, "same_type")
             ids.append(modal_id)
-        
+
         # Все должны быть уникальными
         assert len(set(ids)) == 5
-        
+
         # Все должны быть видимыми
         assert tracker.get_modal_count("same_type") == 5
-        
+
         # get_all_modals_by_type должен вернуть все
         all_screens = tracker.get_all_modals_by_type("same_type")
         assert len(all_screens) == 5
@@ -352,14 +352,14 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "type", modal_id="id1")
         id2 = tracker.register_modal(screen2, "type", modal_id="id2")
         tracker.register_modal(screen3, "type", modal_id="id3")
-        
+
         # Удаляем среднее
         tracker.unregister_modal(id2)
-        
+
         # Остальные должны оставаться
         all_screens = tracker.get_all_modals_by_type("type")
         assert len(all_screens) == 2
@@ -375,10 +375,10 @@ class TestModalWindowTracker:
         """Тест что индекс типов очищается после удаления последнего модаля."""
         modal_id = tracker.register_modal(mock_screen, "test_modal")
         assert tracker.is_modal_visible("test_modal")
-        
+
         # Удаляем единственное модальное окно
         tracker.unregister_modal(modal_id)
-        
+
         # После удаления последнего окна тип должен исчезнуть из индекса
         assert not tracker.is_modal_visible("test_modal")
         assert tracker.get_all_modals_by_type("test_modal") == []
@@ -391,11 +391,11 @@ class TestModalWindowTracker:
         screen1 = Mock(spec=Screen)
         screen2 = Mock(spec=Screen)
         screen3 = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen1, "type_a", modal_id="id1")
         tracker.register_modal(screen2, "type_b", modal_id="id2")
         tracker.register_modal(screen3, "type_c", modal_id="id3")
-        
+
         # Без аргумента должно вернуть общее количество
         total = tracker.get_modal_count(None)
         assert total == 3
@@ -406,11 +406,11 @@ class TestModalWindowTracker:
     ) -> None:
         """Тест что трекер сохраняет идентичность объектов Screen."""
         screen = Mock(spec=Screen)
-        
+
         tracker.register_modal(screen, "test_modal")
-        
+
         retrieved = tracker.get_modal_by_type("test_modal")
-        
+
         # Должна быть точно та же ссылка
         assert retrieved is screen
 
@@ -421,15 +421,15 @@ class TestModalWindowTracker:
         """Тест регистрации из разных потоков (синхронный код)."""
         # Поскольку это синхронный класс, тестируем просто быстрые регистрации
         screens = [Mock(spec=Screen) for _ in range(10)]
-        
+
         for i, screen in enumerate(screens):
             tracker.register_modal(screen, f"type_{i % 3}")
-        
+
         assert tracker.get_modal_count() == 10
-        
+
         # Проверяем что группировка по типам работает правильно
         type_0_count = tracker.get_modal_count("type_0")
         type_1_count = tracker.get_modal_count("type_1")
         type_2_count = tracker.get_modal_count("type_2")
-        
+
         assert type_0_count + type_1_count + type_2_count == 10

@@ -129,9 +129,7 @@ def session_new(
 
     # Динамическая генерация available_commands из CommandRegistry
     available_commands = (
-        command_registry.get_commands_as_dicts()
-        if command_registry is not None
-        else []
+        command_registry.get_commands_as_dicts() if command_registry is not None else []
     )
 
     session_state = SessionFactory.create_session(

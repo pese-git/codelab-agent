@@ -29,9 +29,7 @@ class ContentExtractor:
     """Извлекает content из ToolExecutionResult для отправки клиенту и LLM."""
 
     async def extract_from_result(
-        self,
-        tool_call_id: str,
-        result: ToolExecutionResult
+        self, tool_call_id: str, result: ToolExecutionResult
     ) -> ExtractedContent:
         """
         Извлечь content из tool execution result.
@@ -50,19 +48,14 @@ class ContentExtractor:
         logger.debug(
             "extracting_content_from_result",
             tool_call_id=tool_call_id,
-            has_content=bool(content_items)
+            has_content=bool(content_items),
         )
 
         return ExtractedContent(
-            tool_call_id=tool_call_id,
-            content_items=content_items,
-            has_content=bool(content_items)
+            tool_call_id=tool_call_id, content_items=content_items, has_content=bool(content_items)
         )
 
-    def _create_fallback_content(
-        self,
-        result: ToolExecutionResult
-    ) -> list[dict[str, Any]]:
+    def _create_fallback_content(self, result: ToolExecutionResult) -> list[dict[str, Any]]:
         """
         Создать fallback content из output для backward compatibility.
 
@@ -73,16 +66,10 @@ class ContentExtractor:
             Список с одним text content элементом
         """
         text_content = result.output or (result.error if not result.success else "")
-        return [
-            {
-                "type": "text",
-                "text": text_content
-            }
-        ]
+        return [{"type": "text", "text": text_content}]
 
     async def extract_batch(
-        self,
-        results: list[tuple[str, ToolExecutionResult]]
+        self, results: list[tuple[str, ToolExecutionResult]]
     ) -> list[ExtractedContent]:
         """
         Извлечь content из нескольких results.
@@ -101,7 +88,7 @@ class ContentExtractor:
         logger.debug(
             "batch_extraction_complete",
             total=len(extracted),
-            with_content=sum(1 for e in extracted if e.has_content)
+            with_content=sum(1 for e in extracted if e.has_content),
         )
 
         return extracted

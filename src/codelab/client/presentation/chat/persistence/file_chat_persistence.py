@@ -222,9 +222,7 @@ class FileChatPersistence:
                 return []
 
             # Фильтрация валидных updates
-            valid_updates = [
-                update for update in replay_updates if isinstance(update, dict)
-            ]
+            valid_updates = [update for update in replay_updates if isinstance(update, dict)]
 
             self._logger.debug(
                 "replay_updates_loaded",
@@ -315,9 +313,7 @@ class FileChatPersistence:
                 return []
 
             # Фильтрация валидных updates
-            valid_updates = [
-                update for update in replay_updates if isinstance(update, dict)
-            ]
+            valid_updates = [update for update in replay_updates if isinstance(update, dict)]
 
             return valid_updates
 

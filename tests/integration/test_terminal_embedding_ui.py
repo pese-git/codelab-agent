@@ -157,7 +157,7 @@ class TestTerminalEmbeddingUIIntegration:
         terminal_content = [
             {"type": "terminal", "terminalId": "term_apply_test"},
         ]
-        
+
         # Создаём ToolCallStateUpdate с terminal content
         update = ToolCallStateUpdate(
             sessionUpdate="tool_call_update",
@@ -170,12 +170,12 @@ class TestTerminalEmbeddingUIIntegration:
 
         # Создаём mock ToolPanel для тестирования apply_update
         mock_terminal_vm = MagicMock()
-        
+
         # Создаём ToolPanel без монтирования
         panel = ToolPanel.__new__(ToolPanel)
         panel._tool_calls = {}
         panel._terminal_vm = mock_terminal_vm
-        
+
         # Вызываем apply_update
         panel.apply_update(update)
 

@@ -147,9 +147,7 @@ async def test_select_model_success(
             ],
         }
     ]
-    mock_coordinator.set_config_option.return_value = {
-        "configOptions": updated_config_options
-    }
+    mock_coordinator.set_config_option.return_value = {"configOptions": updated_config_options}
 
     await model_selector_vm.select_model_cmd.execute(
         session_id="sess_1",

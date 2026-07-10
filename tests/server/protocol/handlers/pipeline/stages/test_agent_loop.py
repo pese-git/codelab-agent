@@ -396,8 +396,11 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Initial prompt")
 
         mock_strategy.execute.assert_called_once_with(
-            mock_session, "Initial prompt", None,
-            system_prompt="You are a helpful assistant.", on_delta=None,
+            mock_session,
+            "Initial prompt",
+            None,
+            system_prompt="You are a helpful assistant.",
+            on_delta=None,
         )
         mock_strategy.continue_execution.assert_not_called()
 
@@ -448,9 +451,7 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
-        mock_strategy.continue_execution.assert_called_once_with(
-            mock_session, None, on_delta=None
-        )
+        mock_strategy.continue_execution.assert_called_once_with(mock_session, None, on_delta=None)
 
     def test_add_tool_result_to_history_success(
         self, mock_strategy, mock_session, mock_dependencies
@@ -976,17 +977,17 @@ class TestAgentLoopNotificationCallback:
     def test_set_notification_callback_updates_callback(self, mock_strategy, mock_dependencies):
         """set_notification_callback обновляет callback в AgentLoop."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        
+
         # Изначально callback равен None
         assert loop._notification_callback is None
-        
+
         # Устанавливаем callback
         async def mock_callback(msg):
             pass
-        
+
         loop.set_notification_callback(mock_callback)
         assert loop._notification_callback is mock_callback
-        
+
         # Можно установить None
         loop.set_notification_callback(None)
         assert loop._notification_callback is None
@@ -1027,6 +1028,7 @@ class TestAgentLoopNotificationCallback:
 
         # Создаём callback и передаём в AgentLoop
         sent_notifications = []
+
         async def mock_callback(msg):
             sent_notifications.append(msg)
 
@@ -1035,10 +1037,10 @@ class TestAgentLoopNotificationCallback:
             **mock_dependencies,
             notification_callback=mock_callback,
         )
-        
+
         # Запускаем loop с tool call
         await loop.run(mock_session, "test_session", "Read file")
-        
+
         # Проверяем что callback был вызван для tool call notification
         assert len(sent_notifications) > 0, "Callback должен быть вызван хотя бы один раз"
 
@@ -1090,7 +1092,7 @@ class TestAgentLoopNotificationCallback:
             **mock_dependencies,
             notification_callback=failing_callback,
         )
-        
+
         # Loop должен завершиться успешно несмотря на ошибку в callback
         result = await loop.run(mock_session, "test_session", "Read file")
 

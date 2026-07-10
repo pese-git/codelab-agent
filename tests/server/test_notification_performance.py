@@ -45,9 +45,7 @@ class TestNotificationPerformanceBenchmark:
     """Performance benchmarks для notification delivery."""
 
     @pytest.mark.asyncio
-    async def test_notification_latency_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_notification_latency_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить latency для 100 notifications."""
         latencies = []
 
@@ -107,9 +105,7 @@ class TestNotificationPerformanceBenchmark:
         assert p99_latency < 200, f"P99 latency {p99_latency}ms > 200ms"
 
     @pytest.mark.asyncio
-    async def test_terminal_embedding_latency_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_terminal_embedding_latency_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить latency для terminal embedding notifications."""
         latencies = []
 
@@ -176,9 +172,7 @@ class TestNotificationPerformanceBenchmark:
         assert p99_latency < 200, f"P99 latency {p99_latency}ms > 200ms"
 
     @pytest.mark.asyncio
-    async def test_callback_overhead_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_callback_overhead_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить overhead от использования callback."""
         # Измерение без callback
         loop_without_callback = AgentLoop(
@@ -225,7 +219,7 @@ class TestNotificationPerformanceBenchmark:
         # Вычисление overhead
         overhead_ms = time_with_callback_ms - time_without_callback_ms
         if time_without_callback_ms > 0:
-            overhead_percent = (overhead_ms / time_without_callback_ms * 100)
+            overhead_percent = overhead_ms / time_without_callback_ms * 100
         else:
             overhead_percent = 0
 
@@ -237,7 +231,7 @@ class TestNotificationPerformanceBenchmark:
         # Overhead должен быть приемлемым (< 500% для async callback)
         # Note: async callback добавляет overhead, но absolute latency всё ещё очень низкая
         assert overhead_percent < 500, f"Callback overhead {overhead_percent}% > 500%"
-        
+
         # Absolute latency с callback должна быть < 1ms (1000 микросекунд)
         # Порог 1ms выбран как реалистичный для async Python кода,
         # обеспечивающий real-time UX (человеческий глаз не замечает задержки < 100ms)

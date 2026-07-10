@@ -32,10 +32,10 @@ class TestTerminalExecutorInit:
         # Arrange
         mock_bridge = MagicMock(spec=ClientRPCBridge)
         mock_checker = MagicMock(spec=PermissionChecker)
-        
+
         # Act
         executor = TerminalToolExecutor(mock_bridge, mock_checker)
-        
+
         # Assert
         assert executor._bridge == mock_bridge
         assert executor._permission_checker == mock_checker
@@ -43,7 +43,7 @@ class TestTerminalExecutorInit:
 
 class TestTerminalExecutorWaitForExitFlow:
     """Интеграционные тесты flow execute_wait_for_exit.
-    
+
     По ACP spec terminal/wait_for_exit возвращает только exitCode/signal.
     Output получается через отдельный вызов terminal/output.
     Правильный flow: output → (wait_for_exit) → output
@@ -74,17 +74,21 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Если terminal/output показывает завершённый статус — wait_for_exit не вызывается."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(return_value={  # type: ignore
-            "output": "command output",
-            "truncated": False,
-            "is_complete": True,
-            "exit_code": 0,
-            "signal": None,
-        })
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 0,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={  # type: ignore
+                "output": "command output",
+                "truncated": False,
+                "is_complete": True,
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -97,7 +101,7 @@ class TestTerminalExecutorWaitForExitFlow:
         assert result.output == "command output"
         assert result.metadata["exit_code"] == 0
         assert result.metadata["signal"] is None
-        
+
         # terminal/output вызван один раз
         executor._bridge.terminal_output.assert_called_once_with(
             session=session,
@@ -114,28 +118,32 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Если терминал ещё работает — вызывается output → wait → output."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(side_effect=[  # type: ignore
-            # Первый вызов — терминал ещё работает
-            {
-                "output": "partial output",
-                "truncated": False,
-                "is_complete": False,
-                "exit_code": None,
-                "signal": None,
-            },
-            # Третий вызов (после wait) — финальный output
-            {
-                "output": "final output",
-                "truncated": False,
-                "is_complete": True,
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[  # type: ignore
+                # Первый вызов — терминал ещё работает
+                {
+                    "output": "partial output",
+                    "truncated": False,
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                },
+                # Третий вызов (после wait) — финальный output
+                {
+                    "output": "final output",
+                    "truncated": False,
+                    "is_complete": True,
+                    "exit_code": 0,
+                    "signal": None,
+                },
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
                 "exit_code": 0,
                 "signal": None,
-            },
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 0,
-            "signal": None,
-        })
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -147,7 +155,7 @@ class TestTerminalExecutorWaitForExitFlow:
         assert result.success is True
         assert result.output == "final output"
         assert result.metadata["exit_code"] == 0
-        
+
         # terminal/output вызван дважды
         assert executor._bridge.terminal_output.call_count == 2
         # wait_terminal_exit вызван один раз между вызовами output
@@ -164,13 +172,15 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Корректная обработка сигнала завершения."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(return_value={  # type: ignore
-            "output": "killed",
-            "truncated": False,
-            "is_complete": True,
-            "exit_code": None,
-            "signal": "SIGTERM",
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={  # type: ignore
+                "output": "killed",
+                "truncated": False,
+                "is_complete": True,
+                "exit_code": None,
+                "signal": "SIGTERM",
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -191,20 +201,30 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Ненулевой exit_code возвращает success=False."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(side_effect=[  # type: ignore
-            {
-                "output": "", "is_complete": False,
-                "exit_code": None, "signal": None, "truncated": False,
-            },
-            {
-                "output": "error output", "is_complete": True,
-                "exit_code": 1, "signal": None, "truncated": False,
-            },
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 1,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[  # type: ignore
+                {
+                    "output": "",
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                    "truncated": False,
+                },
+                {
+                    "output": "error output",
+                    "is_complete": True,
+                    "exit_code": 1,
+                    "signal": None,
+                    "truncated": False,
+                },
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
+                "exit_code": 1,
+                "signal": None,
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -225,13 +245,15 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Если wait_terminal_exit возвращает None — ошибка."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(return_value={  # type: ignore
-            "output": "",
-            "is_complete": False,
-            "exit_code": None,
-            "signal": None,
-            "truncated": False,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={  # type: ignore
+                "output": "",
+                "is_complete": False,
+                "exit_code": None,
+                "signal": None,
+                "truncated": False,
+            }
+        )
         executor._bridge.wait_terminal_exit = AsyncMock(return_value=None)  # type: ignore
 
         # Act
@@ -253,17 +275,24 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Если первый terminal_output возвращает None — продолжается wait."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(side_effect=[  # type: ignore
-            None,  # Первый вызов — None
-            {
-                "output": "final", "is_complete": True,
-                "exit_code": 0, "signal": None, "truncated": False,
-            },
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 0,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[  # type: ignore
+                None,  # Первый вызов — None
+                {
+                    "output": "final",
+                    "is_complete": True,
+                    "exit_code": 0,
+                    "signal": None,
+                    "truncated": False,
+                },
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -285,17 +314,24 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Если финальный terminal_output возвращает None — output остаётся пустым."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(side_effect=[  # type: ignore
-            {
-                "output": "", "is_complete": False,
-                "exit_code": None, "signal": None, "truncated": False,
-            },
-            None,  # Финальный вызов — None
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 0,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[  # type: ignore
+                {
+                    "output": "",
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                    "truncated": False,
+                },
+                None,  # Финальный вызов — None
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -317,24 +353,30 @@ class TestTerminalExecutorWaitForExitFlow:
         """Проверка точной последовательности вызовов: output → wait → output."""
         # Arrange
         call_order: list[str] = []
-        
+
         async def mock_output(**kwargs: object) -> dict:
             if len(call_order) == 0:
                 call_order.append("output_1")
                 return {
-                    "output": "", "is_complete": False,
-                    "exit_code": None, "signal": None, "truncated": False,
+                    "output": "",
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                    "truncated": False,
                 }
             call_order.append("output_2")
             return {
-                "output": "done", "is_complete": True,
-                "exit_code": 0, "signal": None, "truncated": False,
+                "output": "done",
+                "is_complete": True,
+                "exit_code": 0,
+                "signal": None,
+                "truncated": False,
             }
-        
+
         async def mock_wait(**kwargs: object) -> dict:
             call_order.append("wait")
             return {"exit_code": 0, "signal": None}
-        
+
         executor._bridge.terminal_output = mock_output  # type: ignore
         executor._bridge.wait_terminal_exit = mock_wait  # type: ignore
 
@@ -355,13 +397,15 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Content содержит сообщение о завершении с exit code."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(return_value={  # type: ignore
-            "output": "test output",
-            "truncated": False,
-            "is_complete": True,
-            "exit_code": 42,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={  # type: ignore
+                "output": "test output",
+                "truncated": False,
+                "is_complete": True,
+                "exit_code": 42,
+                "signal": None,
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -382,13 +426,15 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """Content содержит сообщение о сигнале завершения."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(return_value={  # type: ignore
-            "output": "killed output",
-            "truncated": False,
-            "is_complete": True,
-            "exit_code": None,
-            "signal": "SIGKILL",
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={  # type: ignore
+                "output": "killed output",
+                "truncated": False,
+                "is_complete": True,
+                "exit_code": None,
+                "signal": "SIGKILL",
+            }
+        )
 
         # Act
         result = await executor.execute_wait_for_exit(
@@ -409,20 +455,30 @@ class TestTerminalExecutorWaitForExitFlow:
     ) -> None:
         """terminal_id корректно передаётся во все вызовы."""
         # Arrange
-        executor._bridge.terminal_output = AsyncMock(side_effect=[  # type: ignore
-            {
-                "output": "", "is_complete": False,
-                "exit_code": None, "signal": None, "truncated": False,
-            },
-            {
-                "output": "out", "is_complete": True,
-                "exit_code": 0, "signal": None, "truncated": False,
-            },
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={  # type: ignore
-            "exit_code": 0,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[  # type: ignore
+                {
+                    "output": "",
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                    "truncated": False,
+                },
+                {
+                    "output": "out",
+                    "is_complete": True,
+                    "exit_code": 0,
+                    "signal": None,
+                    "truncated": False,
+                },
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={  # type: ignore
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
 
         # Act
         await executor.execute_wait_for_exit(
@@ -435,7 +491,7 @@ class TestTerminalExecutorWaitForExitFlow:
         assert len(calls) == 2
         for c in calls:
             assert c.kwargs["terminal_id"] == "term_abc123"
-        
+
         wait_call = executor._bridge.wait_terminal_exit.call_args
         assert wait_call.kwargs["terminal_id"] == "term_abc123"
 
@@ -459,4 +515,3 @@ class TestTerminalExecutorWaitForExitFlow:
         assert result.success is False
         assert result.error is not None
         assert "bridge error" in result.error
-

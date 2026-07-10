@@ -150,7 +150,7 @@ class ChatView(VerticalScroll):
 
     def _update_display(self) -> None:
         """Обновить отображение чата на основе текущего состояния.
-        
+
         Очищает контент и пересоздает сообщения/streaming/tool calls.
         Permission widget находится в отдельном контейнере и не затрагивается.
         """
@@ -243,6 +243,7 @@ class ChatView(VerticalScroll):
         # Используем Content API для безопасного комбинирования styled prefix
         # с literal user text (избегаем crash на markup-like символах в тексте LLM)
         from textual.content import Content
+
         prefix = Content.from_markup("[bold green]⟳ [/]")
         safe_text = Content.from_text(text, markup=False)
         streaming_widget = Static(
@@ -264,6 +265,7 @@ class ChatView(VerticalScroll):
         # Используем Content API для безопасного комбинирования styled prefix
         # с literal user text (избегаем crash на markup-like символах)
         from textual.content import Content
+
         prefix = Content.from_markup("[italic]Tool: [/]")
         safe_text = Content.from_text(str(tool_call), markup=False)
         tool_widget = Static(

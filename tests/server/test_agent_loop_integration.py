@@ -149,7 +149,7 @@ class TestAgentLoopEventBusPath:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
-        system_prompt_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
 
         # Act
@@ -255,7 +255,7 @@ class TestAgentLoopPermissionFlow:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
-        system_prompt_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
 
         # Act 1: Запуск — должен приостановиться на permission
@@ -326,7 +326,7 @@ class TestAgentLoopCancellation:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
-        system_prompt_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
 
         # Устанавливаем cancel_requested после обработки tool_calls
@@ -436,7 +436,7 @@ class TestAgentLoopErrorHandling:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
-        system_prompt_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
 
         # Act
@@ -494,7 +494,7 @@ class TestAgentLoopErrorHandling:
             content_formatter=MagicMock(),
             replay_manager=MagicMock(),
             plan_builder=MagicMock(),
-        system_prompt_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
         )
 
         # Act

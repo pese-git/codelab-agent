@@ -133,9 +133,7 @@ class PromptOrchestrator:
                     session_registry=self._session_file_cache_registry,
                 )
 
-            FileSystemToolDefinitions.register_all(
-                self.tool_registry, fs_executor
-            )
+            FileSystemToolDefinitions.register_all(self.tool_registry, fs_executor)
             terminal_executor = TerminalToolExecutor(bridge, checker)
             TerminalToolDefinitions.register_all(
                 self.tool_registry, ProjectStructureDecorator(terminal_executor)

@@ -30,10 +30,26 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 IGNORE_DIRS = {
-    ".git", "__pycache__", "venv", ".venv", "node_modules",
-    ".idea", ".vscode", "build", "dist", ".dart_tool",
-    ".fvm", "android", "ios", "macos", "linux", "windows", "web",
-    ".DS_Store", ".gradle", ".codelab",
+    ".git",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "node_modules",
+    ".idea",
+    ".vscode",
+    "build",
+    "dist",
+    ".dart_tool",
+    ".fvm",
+    "android",
+    "ios",
+    "macos",
+    "linux",
+    "windows",
+    "web",
+    ".DS_Store",
+    ".gradle",
+    ".codelab",
 }
 
 STRUCTURE_COMMANDS = {"find", "ls"}

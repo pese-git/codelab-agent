@@ -76,9 +76,9 @@ class TestTerminalOutputSuccess:
         """Получение output от работающего терминала (без exit status)."""
         mock_rpc_service.terminal_output.return_value = (
             "command output here",  # output
-            False,                   # truncated
-            None,                    # exit_code
-            None,                    # signal
+            False,  # truncated
+            None,  # exit_code
+            None,  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_001")
@@ -102,9 +102,9 @@ class TestTerminalOutputSuccess:
         """Получение output от завершенного терминала с exit code."""
         mock_rpc_service.terminal_output.return_value = (
             "finished successfully",  # output
-            False,                     # truncated
-            0,                         # exit_code
-            None,                      # signal
+            False,  # truncated
+            0,  # exit_code
+            None,  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_002")
@@ -123,9 +123,9 @@ class TestTerminalOutputSuccess:
         """Получение output от терминала с ненулевым exit code."""
         mock_rpc_service.terminal_output.return_value = (
             "error: file not found",  # output
-            False,                     # truncated
-            1,                         # exit_code
-            None,                      # signal
+            False,  # truncated
+            1,  # exit_code
+            None,  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_003")
@@ -140,10 +140,10 @@ class TestTerminalOutputSuccess:
     ) -> None:
         """Получение output от терминала завершенного сигналом."""
         mock_rpc_service.terminal_output.return_value = (
-            "killed",                 # output
-            False,                     # truncated
-            None,                      # exit_code
-            "SIGTERM",                 # signal
+            "killed",  # output
+            False,  # truncated
+            None,  # exit_code
+            "SIGTERM",  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_004")
@@ -159,10 +159,10 @@ class TestTerminalOutputSuccess:
     ) -> None:
         """Получение output с exit code и signal (редкий случай)."""
         mock_rpc_service.terminal_output.return_value = (
-            "core dumped",            # output
-            False,                     # truncated
-            139,                       # exit_code (SIGSEGV)
-            "SIGSEGV",                 # signal
+            "core dumped",  # output
+            False,  # truncated
+            139,  # exit_code (SIGSEGV)
+            "SIGSEGV",  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_005")
@@ -178,10 +178,10 @@ class TestTerminalOutputSuccess:
     ) -> None:
         """Получение truncated output."""
         mock_rpc_service.terminal_output.return_value = (
-            "a" * 10000,              # output (большой)
-            True,                      # truncated
-            None,                      # exit_code
-            None,                      # signal
+            "a" * 10000,  # output (большой)
+            True,  # truncated
+            None,  # exit_code
+            None,  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_006")
@@ -197,10 +197,10 @@ class TestTerminalOutputSuccess:
     ) -> None:
         """Получение пустого output."""
         mock_rpc_service.terminal_output.return_value = (
-            "",                        # output (пустой)
-            False,                     # truncated
-            None,                      # exit_code
-            None,                      # signal
+            "",  # output (пустой)
+            False,  # truncated
+            None,  # exit_code
+            None,  # signal
         )
 
         result = await bridge.terminal_output(session, terminal_id="term_007")
@@ -251,9 +251,7 @@ class TestTerminalOutputErrors:
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
         """Обработка отсутствия capability terminal."""
-        mock_rpc_service.terminal_output.side_effect = ClientCapabilityMissingError(
-            "terminal"
-        )
+        mock_rpc_service.terminal_output.side_effect = ClientCapabilityMissingError("terminal")
 
         result = await bridge.terminal_output(session, terminal_id="term_001")
 
@@ -290,9 +288,7 @@ class TestTerminalOutputErrors:
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
         """Обработка общей ошибки ClientRPCError."""
-        mock_rpc_service.terminal_output.side_effect = ClientRPCError(
-            "Internal client error"
-        )
+        mock_rpc_service.terminal_output.side_effect = ClientRPCError("Internal client error")
 
         result = await bridge.terminal_output(session, terminal_id="term_004")
 
@@ -339,9 +335,7 @@ class TestTerminalOutputIntegration:
         bridge = ClientRPCBridge(client_rpc_service=rpc_service)
 
         # Запустить вызов
-        task = asyncio.create_task(
-            bridge.terminal_output(session, terminal_id="term_001")
-        )
+        task = asyncio.create_task(bridge.terminal_output(session, terminal_id="term_001"))
 
         # Дать время на отправку request
         await asyncio.sleep(0.01)
@@ -355,18 +349,20 @@ class TestTerminalOutputIntegration:
 
         # Симулировать ответ от клиента
         request_id = request["id"]
-        rpc_service.handle_response({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "output": "hello world",
-                "truncated": False,
-                "exitStatus": {
-                    "exitCode": 0,
-                    "signal": None,
+        rpc_service.handle_response(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "output": "hello world",
+                    "truncated": False,
+                    "exitStatus": {
+                        "exitCode": 0,
+                        "signal": None,
+                    },
                 },
-            },
-        })
+            }
+        )
 
         # Проверить результат
         result = await task
@@ -399,9 +395,7 @@ class TestTerminalOutputIntegration:
 
         bridge = ClientRPCBridge(client_rpc_service=rpc_service)
 
-        task = asyncio.create_task(
-            bridge.terminal_output(session, terminal_id="term_002")
-        )
+        task = asyncio.create_task(bridge.terminal_output(session, terminal_id="term_002"))
 
         await asyncio.sleep(0.01)
 
@@ -409,14 +403,16 @@ class TestTerminalOutputIntegration:
         request_id = request["id"]
 
         # Ответ без exitStatus (терминал еще работает)
-        rpc_service.handle_response({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "output": "still running...",
-                "truncated": False,
-            },
-        })
+        rpc_service.handle_response(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "output": "still running...",
+                    "truncated": False,
+                },
+            }
+        )
 
         result = await task
 
@@ -472,9 +468,7 @@ class TestTerminalOutputIntegration:
 
         bridge = ClientRPCBridge(client_rpc_service=rpc_service)
 
-        task = asyncio.create_task(
-            bridge.terminal_output(session, terminal_id="term_005")
-        )
+        task = asyncio.create_task(bridge.terminal_output(session, terminal_id="term_005"))
 
         await asyncio.sleep(0.01)
 
@@ -482,18 +476,20 @@ class TestTerminalOutputIntegration:
         request_id = request["id"]
 
         # Ответ с signal
-        rpc_service.handle_response({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "output": "terminated",
-                "truncated": False,
-                "exitStatus": {
-                    "exitCode": None,
-                    "signal": "SIGKILL",
+        rpc_service.handle_response(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "output": "terminated",
+                    "truncated": False,
+                    "exitStatus": {
+                        "exitCode": None,
+                        "signal": "SIGKILL",
+                    },
                 },
-            },
-        })
+            }
+        )
 
         result = await task
 
@@ -536,9 +532,7 @@ class TestClientRPCBridgeOtherMethods:
         """Чтение файла с line и limit."""
         mock_rpc_service.read_text_file = AsyncMock(return_value="lines 10-20")
 
-        result = await bridge.read_file(
-            session, path="/tmp/test.txt", line=10, limit=10
-        )
+        result = await bridge.read_file(session, path="/tmp/test.txt", line=10, limit=10)
 
         assert result == "lines 10-20"
         mock_rpc_service.read_text_file.assert_called_once_with(
@@ -553,9 +547,7 @@ class TestClientRPCBridgeOtherMethods:
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
         """Ошибка чтения файла пробрасывает исключение."""
-        mock_rpc_service.read_text_file = AsyncMock(
-            side_effect=ClientRPCError("error")
-        )
+        mock_rpc_service.read_text_file = AsyncMock(side_effect=ClientRPCError("error"))
 
         with pytest.raises(ClientRPCError, match="error"):
             await bridge.read_file(session, path="/tmp/test.txt")
@@ -576,9 +568,7 @@ class TestClientRPCBridgeOtherMethods:
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
         """Ошибка записи файла пробрасывает исключение."""
-        mock_rpc_service.write_text_file = AsyncMock(
-            side_effect=ClientRPCError("error")
-        )
+        mock_rpc_service.write_text_file = AsyncMock(side_effect=ClientRPCError("error"))
 
         with pytest.raises(ClientRPCError, match="error"):
             await bridge.write_file(session, path="/tmp/test.txt", content="data")
@@ -625,9 +615,7 @@ class TestClientRPCBridgeOtherMethods:
         self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
     ) -> None:
         """Ошибка ожидания завершения возвращает None."""
-        mock_rpc_service.wait_for_exit = AsyncMock(
-            side_effect=ClientRPCTimeoutError("timeout")
-        )
+        mock_rpc_service.wait_for_exit = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
 
         result = await bridge.wait_terminal_exit(session, terminal_id="term_001")
 

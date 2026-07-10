@@ -140,9 +140,7 @@ class NavigationManager:
             on_success=callback,
             metadata={
                 "screen_class": (
-                    type(screen_or_id).__name__
-                    if not isinstance(screen_or_id, str)
-                    else screen_id
+                    type(screen_or_id).__name__ if not isinstance(screen_or_id, str) else screen_id
                 ),
             },
         )
@@ -277,9 +275,7 @@ class NavigationManager:
                 sync_in_progress = False
 
         # Подписаться на изменения (если есть Observable)
-        if hasattr(view_model, "is_visible") and hasattr(
-            view_model.is_visible, "subscribe"
-        ):
+        if hasattr(view_model, "is_visible") and hasattr(view_model.is_visible, "subscribe"):
             view_model.is_visible.subscribe(on_visibility_changed)
 
             # Вернуть функцию отписки
@@ -357,9 +353,7 @@ class NavigationManager:
             elif operation.operation_type == OperationType.RESET:
                 await self._handle_reset(operation)
             else:
-                raise NavigationError(
-                    f"Unknown operation type: {operation.operation_type}"
-                )
+                raise NavigationError(f"Unknown operation type: {operation.operation_type}")
 
             return None
 
@@ -387,9 +381,7 @@ class NavigationManager:
         try:
             # Зарегистрировать модаль если нужно
             if operation.modal and isinstance(operation.screen, ModalScreen):
-                modal_type = operation.metadata.get(
-                    "screen_class", type(operation.screen).__name__
-                )
+                modal_type = operation.metadata.get("screen_class", type(operation.screen).__name__)
                 self._tracker.register_modal(operation.screen, modal_type)
 
             # Показать экран

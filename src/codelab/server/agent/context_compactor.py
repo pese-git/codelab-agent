@@ -99,9 +99,7 @@ class ContextCompactor:
                     total += len(str(tc.arguments)) // 4
         return total
 
-    def _prune_old_tool_outputs(
-        self, history: list[LLMMessage]
-    ) -> list[LLMMessage]:
+    def _prune_old_tool_outputs(self, history: list[LLMMessage]) -> list[LLMMessage]:
         """Фаза 1: FIFO удаление старых tool results.
 
         Сохраняет первые 2 сообщения, последние 3, prune middle tool results.
@@ -122,9 +120,7 @@ class ContextCompactor:
 
         return start + pruned_middle + end
 
-    async def _summarize_conversation(
-        self, history: list[LLMMessage]
-    ) -> list[LLMMessage]:
+    async def _summarize_conversation(self, history: list[LLMMessage]) -> list[LLMMessage]:
         """Фаза 2: LLM суммаризация средних сообщений.
 
         Сохраняет начало + конец, суммаризирует середину.
@@ -143,9 +139,7 @@ class ContextCompactor:
             return list(history)
 
         # Формируем текст для суммаризации
-        middle_text = "\n".join(
-            f"[{msg.role}] {msg.content or ''}" for msg in middle
-        )
+        middle_text = "\n".join(f"[{msg.role}] {msg.content or ''}" for msg in middle)
 
         if not self.llm:
             # Без LLM — просто удаляем середину

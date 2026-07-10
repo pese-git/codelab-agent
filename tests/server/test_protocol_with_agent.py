@@ -39,20 +39,24 @@ async def test_session_prompt_with_strategy_dispatcher() -> None:
     mock_dispatcher = MagicMock()
     mock_dispatcher.select_strategy.return_value = ("single", None)
     mock_dispatcher.set_current_strategy.return_value = True
-    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
-        text="Hello from agent",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
-    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
+    mock_dispatcher.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            text="Hello from agent",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
+    mock_dispatcher.continue_execution = AsyncMock(
+        return_value=SimpleNamespace(
+            text="",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
 
     protocol = build_protocol(storage=InMemoryStorage())
     protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)
@@ -102,20 +106,24 @@ async def test_session_prompt_sets_session_title() -> None:
     mock_dispatcher = MagicMock()
     mock_dispatcher.select_strategy.return_value = ("single", None)
     mock_dispatcher.set_current_strategy.return_value = True
-    mock_dispatcher.execute = AsyncMock(return_value=SimpleNamespace(
-        text="Hello",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
-    mock_dispatcher.continue_execution = AsyncMock(return_value=SimpleNamespace(
-        text="",
-        tool_calls=[],
-        stop_reason="end_turn",
-        usage=None,
-        plan=None,
-    ))
+    mock_dispatcher.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            text="Hello",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
+    mock_dispatcher.continue_execution = AsyncMock(
+        return_value=SimpleNamespace(
+            text="",
+            tool_calls=[],
+            stop_reason="end_turn",
+            usage=None,
+            plan=None,
+        )
+    )
 
     protocol = build_protocol(storage=InMemoryStorage())
     protocol._prompt_orchestrator = _create_mock_orchestrator(mock_dispatcher)

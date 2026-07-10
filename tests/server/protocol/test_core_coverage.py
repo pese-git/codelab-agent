@@ -151,6 +151,7 @@ class TestBuildAgentConfigSpec:
 
     def test_build_agent_config_spec_full_path_sorted_by_priority(self) -> None:
         """Агенты сортируются по priority и превращаются в options."""
+
         class Agent:
             def __init__(self, name: str, model: str, priority: int) -> None:
                 self.name = name
@@ -217,6 +218,4 @@ class TestDefaultConfigSpecs:
         assert model_spec["name"] == "Model"
         assert model_spec["category"] == "model"
         assert model_spec["default"] == "openai/gpt-4o"
-        assert any(
-            opt["value"] == "openai/gpt-4o" for opt in model_spec["options"]
-        )
+        assert any(opt["value"] == "openai/gpt-4o" for opt in model_spec["options"])

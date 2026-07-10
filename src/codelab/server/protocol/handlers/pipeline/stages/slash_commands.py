@@ -31,13 +31,11 @@ class SlashCommandStage(PromptStage):
         mcp_prompt_handlers = context.meta.get("mcp_prompt_handlers", {})
 
         # Пробуем обработать через router (async для поддержки MCP prompts)
-        outcome = await self._router.route(
-            command_name, args, context.session, mcp_prompt_handlers
-        )
+        outcome = await self._router.route(command_name, args, context.session, mcp_prompt_handlers)
         if outcome is not None:
             context.notifications.extend(outcome.notifications)
             context.should_stop = True  # slash-команда обработана, LLM не нужен
-            
+
             # Если была выполнена команда /strategy, установить active_strategy в meta
             # для использования в следующем prompt turn
             if command_name == "strategy" and args:

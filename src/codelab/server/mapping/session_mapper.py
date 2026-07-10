@@ -49,11 +49,13 @@ class SessionMapper:
             role_value = msg.role.value
             if role_value == "tool":
                 role_value = "assistant"
-            history.append(HistoryMessage(
-                role=role_value,  # type: ignore[arg-type]
-                content=msg.content.text,
-                timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
-            ))
+            history.append(
+                HistoryMessage(
+                    role=role_value,  # type: ignore[arg-type]
+                    content=msg.content.text,
+                    timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
+                )
+            )
 
         # Конвертируем tool calls
         tool_calls = {}
@@ -70,11 +72,13 @@ class SessionMapper:
         # Конвертируем plan
         latest_plan = []
         for step in session.plan.get_steps():
-            latest_plan.append({
-                "content": step.content,
-                "priority": step.priority.value,
-                "status": step.status.value,
-            })
+            latest_plan.append(
+                {
+                    "content": step.content,
+                    "priority": step.priority.value,
+                    "status": step.status.value,
+                }
+            )
 
         # Создаем SessionState
         state = SessionState(
@@ -97,6 +101,7 @@ class SessionMapper:
         # Runtime capabilities
         if session.config.runtime_capabilities:
             from codelab.server.protocol.state import ClientRuntimeCapabilities
+
             state.runtime_capabilities = ClientRuntimeCapabilities(
                 fs_read=session.config.runtime_capabilities.fs_read,
                 fs_write=session.config.runtime_capabilities.fs_write,

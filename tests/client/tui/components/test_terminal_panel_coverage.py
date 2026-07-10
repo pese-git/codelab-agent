@@ -201,8 +201,7 @@ class TestTerminalPanel:
         panel.post_message = posted.append
         sid = panel.create_session()
         assert any(
-            isinstance(m, TerminalPanel.SessionCreated) and m.session_id == sid
-            for m in posted
+            isinstance(m, TerminalPanel.SessionCreated) and m.session_id == sid for m in posted
         )
 
     def test_close_session(self) -> None:
@@ -322,18 +321,14 @@ class TestTerminalPanel:
         panel._content = MagicMock()
         panel._tab_bar = MagicMock()
         with patch.object(panel, "create_session") as create_mock:
-            panel.on_terminal_toolbar_new_session_requested(
-                TerminalToolbar.NewSessionRequested()
-            )
+            panel.on_terminal_toolbar_new_session_requested(TerminalToolbar.NewSessionRequested())
         create_mock.assert_called_once_with()
 
     def test_on_toolbar_clear(self) -> None:
         """Запрос toolbar на очистку вызывает clear_active."""
         panel = TerminalPanel()
         with patch.object(panel, "clear_active") as clear_mock:
-            panel.on_terminal_toolbar_clear_requested(
-                TerminalToolbar.ClearRequested()
-            )
+            panel.on_terminal_toolbar_clear_requested(TerminalToolbar.ClearRequested())
         clear_mock.assert_called_once()
 
     def test_on_toolbar_copy(self) -> None:

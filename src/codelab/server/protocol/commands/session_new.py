@@ -43,8 +43,7 @@ class SessionNewCommandHandler:
         authenticated: bool,
         runtime_capabilities: ClientRuntimeCapabilities | None = None,
         command_registry: Any | None = None,
-        on_session_created: Callable[[SessionState, dict[str, Any]], Awaitable[None]]
-        | None = None,
+        on_session_created: Callable[[SessionState, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         """Инициализирует обработчик.
 

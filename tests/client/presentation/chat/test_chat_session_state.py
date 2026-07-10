@@ -102,11 +102,13 @@ class TestChatSessionState:
     def test_update_tool_call(self) -> None:
         """update_tool_call должен обновлять существующий tool call."""
         state = ChatSessionState()
-        state.add_tool_call({
-            "toolCallId": "tc-1",
-            "title": "Read file",
-            "status": "pending",
-        })
+        state.add_tool_call(
+            {
+                "toolCallId": "tc-1",
+                "title": "Read file",
+                "status": "pending",
+            }
+        )
 
         state.update_tool_call("tc-1", status="completed", title="Read file.py")
 
@@ -116,11 +118,13 @@ class TestChatSessionState:
     def test_update_tool_call_nonexistent(self) -> None:
         """update_tool_call не должен делать ничего для несуществующего ID."""
         state = ChatSessionState()
-        state.add_tool_call({
-            "toolCallId": "tc-1",
-            "title": "Read file",
-            "status": "pending",
-        })
+        state.add_tool_call(
+            {
+                "toolCallId": "tc-1",
+                "title": "Read file",
+                "status": "pending",
+            }
+        )
 
         state.update_tool_call("tc-999", status="completed")
 

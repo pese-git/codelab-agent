@@ -767,7 +767,7 @@ class TestACPClientAppPermission:
                 mock_chat_view = MagicMock()
                 mock_chat_view.show_permission_request.side_effect = RuntimeError("no chat")
                 app._chat_view = mock_chat_view
-                
+
                 tool_call = PermissionToolCall(toolCallId="call_1", title="Run")
                 options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
                 callback = MagicMock()
@@ -1045,6 +1045,7 @@ class TestACPClientAppAdditionalCoverage:
                 app.action_select_mode()
                 await pilot.pause()
                 from codelab.client.tui.components import ConfigOptionSelectorModal
+
                 modal = app.screen
                 assert isinstance(modal, ConfigOptionSelectorModal)
                 with patch.object(app, "run_worker"):
@@ -1061,6 +1062,7 @@ class TestACPClientAppAdditionalCoverage:
                 app.action_select_mode()
                 await pilot.pause()
                 from codelab.client.tui.components import ConfigOptionSelectorModal
+
                 modal = app.screen
                 assert isinstance(modal, ConfigOptionSelectorModal)
                 with patch.object(app, "run_worker") as mock_worker:

@@ -53,16 +53,22 @@ def _make_tool_messages(count: int) -> list[LLMMessage]:
     ]
     for i in range(count):
         tc_id = f"tc_{i}"
-        messages.append(LLMMessage(
-            role="assistant",
-            content=None,
-            tool_calls=[LLMToolCall(id=tc_id, name="fs_read", arguments={"path": f"file_{i}.py"})],
-        ))
-        messages.append(LLMMessage(
-            role="tool",
-            content=f"Content of file {i} " * 50,
-            tool_call_id=tc_id,
-        ))
+        messages.append(
+            LLMMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    LLMToolCall(id=tc_id, name="fs_read", arguments={"path": f"file_{i}.py"})
+                ],
+            )
+        )
+        messages.append(
+            LLMMessage(
+                role="tool",
+                content=f"Content of file {i} " * 50,
+                tool_call_id=tc_id,
+            )
+        )
     messages.append(LLMMessage(role="assistant", content="Done!"))
     messages.append(LLMMessage(role="user", content="Continue"))
     messages.append(LLMMessage(role="assistant", content="Working..."))
@@ -93,7 +99,9 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=1000, reserved_tokens=100,
+            messages,
+            max_context_tokens=1000,
+            reserved_tokens=100,
         )
 
         assert result == messages
@@ -106,7 +114,9 @@ class TestThreePhaseCompactor:
         messages = _make_long_messages(100)
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=100000, reserved_tokens=100,
+            messages,
+            max_context_tokens=100000,
+            reserved_tokens=100,
         )
 
         assert result == messages
@@ -122,7 +132,9 @@ class TestThreePhaseCompactor:
         trigger = total_tokens // 2
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=trigger + 100, reserved_tokens=100,
+            messages,
+            max_context_tokens=trigger + 100,
+            reserved_tokens=100,
         )
 
         result_tokens = token_counter.count_messages(result)
@@ -137,7 +149,9 @@ class TestThreePhaseCompactor:
         messages = _make_tool_messages(10)
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=50, reserved_tokens=10,
+            messages,
+            max_context_tokens=50,
+            reserved_tokens=10,
         )
 
         tool_call_ids: set[str] = set()
@@ -174,7 +188,9 @@ class TestThreePhaseCompactor:
         total_tokens = token_counter.count_messages(messages)
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=total_tokens // 2, reserved_tokens=10,
+            messages,
+            max_context_tokens=total_tokens // 2,
+            reserved_tokens=10,
         )
 
         result_tokens = token_counter.count_messages(result)
@@ -182,9 +198,11 @@ class TestThreePhaseCompactor:
 
     async def test_summarize_when_needed(self, token_counter, skeletonizer, summarizer, config):
         mock_llm = MagicMock()
-        mock_llm.create_completion = AsyncMock(return_value=CompletionResponse(
-            text="Summary of conversation",
-        ))
+        mock_llm.create_completion = AsyncMock(
+            return_value=CompletionResponse(
+                text="Summary of conversation",
+            )
+        )
         summarizer._llm = mock_llm
 
         compactor = ThreePhaseCompactor(
@@ -198,7 +216,9 @@ class TestThreePhaseCompactor:
         total_tokens = token_counter.count_messages(messages)
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=100, reserved_tokens=10,
+            messages,
+            max_context_tokens=100,
+            reserved_tokens=10,
         )
 
         result_tokens = token_counter.count_messages(result)
@@ -216,7 +236,9 @@ class TestThreePhaseCompactor:
         total_tokens = token_counter.count_messages(messages)
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=100, reserved_tokens=10,
+            messages,
+            max_context_tokens=100,
+            reserved_tokens=10,
         )
 
         result_tokens = token_counter.count_messages(result)
@@ -238,7 +260,9 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=50, reserved_tokens=10,
+            messages,
+            max_context_tokens=50,
+            reserved_tokens=10,
         )
 
         result_tokens = token_counter.count_messages(result)
@@ -265,12 +289,13 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=100000, reserved_tokens=100,
+            messages,
+            max_context_tokens=100000,
+            reserved_tokens=100,
         )
 
         tool_result_ids = {
-            msg.tool_call_id for msg in result
-            if msg.role == "tool" and msg.tool_call_id
+            msg.tool_call_id for msg in result if msg.role == "tool" and msg.tool_call_id
         }
         assert "tc_orphan" not in tool_result_ids
 
@@ -289,7 +314,9 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=200, reserved_tokens=10,
+            messages,
+            max_context_tokens=200,
+            reserved_tokens=10,
         )
 
         assert result[0].role == "system"
@@ -308,7 +335,9 @@ class TestThreePhaseCompactor:
         messages = _make_tool_messages(20)
 
         await compactor.compact_if_needed(
-            messages, max_context_tokens=50, reserved_tokens=10,
+            messages,
+            max_context_tokens=50,
+            reserved_tokens=10,
         )
 
         metrics_tracker.record_context_compaction.assert_called_once()
@@ -327,7 +356,9 @@ class TestThreePhaseCompactor:
         messages = _make_tool_messages(20)
 
         await compactor.compact_if_needed(
-            messages, max_context_tokens=50, reserved_tokens=10,
+            messages,
+            max_context_tokens=50,
+            reserved_tokens=10,
         )
 
         tracer.start_span.assert_called_once_with(name="context.compact")
@@ -351,7 +382,9 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=50, reserved_tokens=10,
+            messages,
+            max_context_tokens=50,
+            reserved_tokens=10,
         )
 
         # Tool messages должны быть удалены
@@ -374,7 +407,9 @@ class TestThreePhaseCompactor:
         ]
 
         result = await compactor.compact_if_needed(
-            messages, max_context_tokens=200, reserved_tokens=10,
+            messages,
+            max_context_tokens=200,
+            reserved_tokens=10,
         )
 
         # System message должен остаться

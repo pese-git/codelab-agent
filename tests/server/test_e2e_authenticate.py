@@ -74,9 +74,7 @@ async def test_session_new_requires_auth_when_enabled(tmp_cwd: Path) -> None:
     async with _auth_server(tmp_cwd, api_key="secret") as transport:
         await h.initialize(transport, client_capabilities={})
 
-        await transport.send(
-            h.request("session/new", {"cwd": str(tmp_cwd), "mcpServers": []}, 2)
-        )
+        await transport.send(h.request("session/new", {"cwd": str(tmp_cwd), "mcpServers": []}, 2))
         new = await transport.recv()
         assert new["id"] == 2
         assert "error" in new

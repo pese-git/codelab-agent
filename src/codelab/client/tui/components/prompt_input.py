@@ -251,9 +251,7 @@ class PromptInput(Vertical):
                     label="Model",
                     get_label_fn=self._get_model_label,
                     observable=(
-                        self._model_selector_vm.current_model
-                        if self._model_selector_vm
-                        else None
+                        self._model_selector_vm.current_model if self._model_selector_vm else None
                     ),
                     open_callback=self._open_model_callback,
                     hotkey="ctrl+m",
@@ -265,9 +263,7 @@ class PromptInput(Vertical):
                     label="Session Mode",
                     get_label_fn=self._get_mode_label,
                     observable=(
-                        self._mode_selector_vm.current_value
-                        if self._mode_selector_vm
-                        else None
+                        self._mode_selector_vm.current_value if self._mode_selector_vm else None
                     ),
                     open_callback=self._open_mode_callback,
                     hotkey="ctrl+shift+m",
@@ -279,9 +275,7 @@ class PromptInput(Vertical):
                     label="Agent",
                     get_label_fn=self._get_agent_label,
                     observable=(
-                        self._agent_selector_vm.current_value
-                        if self._agent_selector_vm
-                        else None
+                        self._agent_selector_vm.current_value if self._agent_selector_vm else None
                     ),
                     open_callback=self._open_agent_callback,
                     hotkey="ctrl+a",

@@ -274,7 +274,6 @@ async def test_json_file_format(temp_storage_dir: Path) -> None:
     assert "updated_at" in data
 
 
-
 @pytest.mark.asyncio
 async def test_invalid_json_file_error(temp_storage_dir: Path) -> None:
     """Тест обработки битого JSON файла."""

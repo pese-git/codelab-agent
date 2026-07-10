@@ -56,6 +56,7 @@ class TestCollapsiblePanelCompose:
 
     async def test_compose_creates_header_and_content(self) -> None:
         """compose создаёт header, иконку, заголовок, кнопку и контент."""
+
         class TestApp(App):
             pass
 
@@ -72,6 +73,7 @@ class TestCollapsiblePanelCompose:
 
     async def test_compose_collapsed_initially(self) -> None:
         """compose добавляет hidden класс если панель свёрнута."""
+
         class TestApp(App):
             pass
 
@@ -85,6 +87,7 @@ class TestCollapsiblePanelCompose:
 
     async def test_on_mount_adds_children(self) -> None:
         """on_mount монтирует переданных детей в контент."""
+
         class TestApp(App):
             pass
 
@@ -105,6 +108,7 @@ class TestCollapsiblePanelInteractions:
 
     async def test_toggle_button_pressed(self) -> None:
         """Нажатие кнопки toggle переключает панель."""
+
         class TestApp(App):
             pass
 
@@ -118,6 +122,7 @@ class TestCollapsiblePanelInteractions:
 
     async def test_click_on_header_toggles(self) -> None:
         """Клик по header сворачивает/разворачивает панель."""
+
         class TestApp(App):
             pass
 
@@ -137,6 +142,7 @@ class TestCollapsiblePanelInteractions:
 
     async def test_toggle_changes_state(self) -> None:
         """toggle меняет состояние collapsed."""
+
         class TestApp(App):
             pass
 
@@ -152,6 +158,7 @@ class TestCollapsiblePanelInteractions:
 
     async def test_expand_and_collapse(self) -> None:
         """expand и collapse устанавливают состояние."""
+
         class TestApp(App):
             pass
 
@@ -172,6 +179,7 @@ class TestCollapsiblePanelWatchers:
 
     async def test_watch_collapsed_updates_ui(self) -> None:
         """watch_collapsed обновляет UI и отправляет событие."""
+
         class TestApp(App):
             pass
 
@@ -191,6 +199,7 @@ class TestCollapsiblePanelWatchers:
 
     async def test_watch_title_updates_widget(self) -> None:
         """watch_title обновляет виджет заголовка."""
+
         class TestApp(App):
             pass
 
@@ -204,6 +213,7 @@ class TestCollapsiblePanelWatchers:
 
     async def test_watch_icon_updates_widget(self) -> None:
         """watch_icon обновляет виджет иконки."""
+
         class TestApp(App):
             pass
 
@@ -228,6 +238,7 @@ class TestCollapsiblePanelContent:
 
     async def test_content_property(self) -> None:
         """content возвращает контейнер контента."""
+
         class TestApp(App):
             pass
 
@@ -249,6 +260,7 @@ class TestAccordionPanel:
 
     async def test_toggled_collapses_other_panels(self) -> None:
         """При разворачивании одной панели остальные сворачиваются."""
+
         class TestApp(App):
             pass
 
@@ -268,6 +280,7 @@ class TestAccordionPanel:
 
     async def test_toggled_allow_multiple_no_collapse(self) -> None:
         """При allow_multiple другие панели не сворачиваются."""
+
         class TestApp(App):
             pass
 
@@ -288,6 +301,7 @@ class TestAccordionPanel:
 
     async def test_toggled_collapsed_event_ignored(self) -> None:
         """Событие сворачивания панели игнорируется."""
+
         class TestApp(App):
             pass
 

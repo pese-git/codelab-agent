@@ -40,6 +40,7 @@ def agent_factory(mock_llm_registry, mock_tool_registry):
     )
     # Pre-create a mock adapter for tests
     from codelab.server.agent.llm_adapter import LLMAdapter
+
     mock_adapter = MagicMock(spec=LLMAdapter)
     mock_adapter.register_with_bus = AsyncMock()
     factory.create_adapter = AsyncMock(return_value=mock_adapter)
@@ -87,9 +88,7 @@ class TestInitialize:
         assert "reviewer" in registry.get_all()
 
     @pytest.mark.asyncio
-    async def test_initialize_creates_adapters_via_factory(
-        self, registry, agent_factory
-    ):
+    async def test_initialize_creates_adapters_via_factory(self, registry, agent_factory):
         """При инициализации адаптеры создаются через AgentFactory."""
         with patch.object(
             registry._resolver,
@@ -112,9 +111,7 @@ class TestInitialize:
         assert agent.model == "openai/gpt-4o"
 
     @pytest.mark.asyncio
-    async def test_initialize_registers_adapter_in_bus(
-        self, registry, agent_factory
-    ):
+    async def test_initialize_registers_adapter_in_bus(self, registry, agent_factory):
         """Адаптер регистрируется в EventBus."""
         mock_adapter = MagicMock()
         mock_adapter.register_with_bus = AsyncMock()
@@ -238,9 +235,7 @@ class TestGetMethods:
             "resolve_all",
             return_value={
                 "coder": ResolvedAgent(name="coder", role=AgentRole.PRIMARY),
-                "orchestrator": ResolvedAgent(
-                    name="orchestrator", role=AgentRole.ORCHESTRATOR
-                ),
+                "orchestrator": ResolvedAgent(name="orchestrator", role=AgentRole.ORCHESTRATOR),
             },
         ):
             await registry.initialize()

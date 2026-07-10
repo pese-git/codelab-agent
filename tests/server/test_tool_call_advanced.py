@@ -201,9 +201,7 @@ class TestToolCallRawInputOutput:
                 },
             }
         ]
-        handler.update_tool_call_status(
-            session, tool_call_id, "completed", content=raw_output
-        )
+        handler.update_tool_call_status(session, tool_call_id, "completed", content=raw_output)
 
         tool_call = session.tool_calls[tool_call_id]
         assert tool_call.status == "completed"
@@ -230,9 +228,7 @@ class TestToolCallRawInputOutput:
                 },
             },
         ]
-        handler.update_tool_call_status(
-            session, tool_call_id, "completed", content=raw_output
-        )
+        handler.update_tool_call_status(session, tool_call_id, "completed", content=raw_output)
 
         tool_call = session.tool_calls[tool_call_id]
         assert tool_call.status == "completed"
@@ -295,25 +291,19 @@ class TestToolCallRawInputOutput:
 class TestToolCallStatusTransitions:
     """Тесты полной матрицы переходов статусов."""
 
-    def test_pending_to_in_progress(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_pending_to_in_progress(self, handler: ToolCallHandler, session: SessionState) -> None:
         """pending → in_progress: допустимый переход."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
         assert session.tool_calls[tool_call_id].status == "in_progress"
 
-    def test_pending_to_cancelled(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_pending_to_cancelled(self, handler: ToolCallHandler, session: SessionState) -> None:
         """pending → cancelled: допустимый переход."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "cancelled")
         assert session.tool_calls[tool_call_id].status == "cancelled"
 
-    def test_pending_to_failed(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_pending_to_failed(self, handler: ToolCallHandler, session: SessionState) -> None:
         """pending → failed: допустимый переход."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "failed")
@@ -337,18 +327,14 @@ class TestToolCallStatusTransitions:
         handler.update_tool_call_status(session, tool_call_id, "cancelled")
         assert session.tool_calls[tool_call_id].status == "cancelled"
 
-    def test_in_progress_to_failed(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_in_progress_to_failed(self, handler: ToolCallHandler, session: SessionState) -> None:
         """in_progress → failed: допустимый переход."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
         handler.update_tool_call_status(session, tool_call_id, "failed")
         assert session.tool_calls[tool_call_id].status == "failed"
 
-    def test_completed_is_terminal(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_completed_is_terminal(self, handler: ToolCallHandler, session: SessionState) -> None:
         """completed: терминальное состояние, нет переходов."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
@@ -362,9 +348,7 @@ class TestToolCallStatusTransitions:
 
         assert session.tool_calls[tool_call_id].status == "completed"
 
-    def test_cancelled_is_terminal(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_cancelled_is_terminal(self, handler: ToolCallHandler, session: SessionState) -> None:
         """cancelled: терминальное состояние, нет переходов."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "cancelled")
@@ -376,9 +360,7 @@ class TestToolCallStatusTransitions:
 
         assert session.tool_calls[tool_call_id].status == "cancelled"
 
-    def test_failed_is_terminal(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_failed_is_terminal(self, handler: ToolCallHandler, session: SessionState) -> None:
         """failed: терминальное состояние, нет переходов."""
         tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
         handler.update_tool_call_status(session, tool_call_id, "failed")
@@ -424,9 +406,7 @@ class TestToolCallStatusTransitions:
 class TestToolCallContentTypes:
     """Тесты различных типов контента в tool calls."""
 
-    def test_text_content(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_text_content(self, handler: ToolCallHandler, session: SessionState) -> None:
         """tool call с text content."""
         tool_call_id = handler.create_tool_call(session, title="Read", kind="read")
 
@@ -444,9 +424,7 @@ class TestToolCallContentTypes:
 
         assert session.tool_calls[tool_call_id].content == content
 
-    def test_diff_content(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_diff_content(self, handler: ToolCallHandler, session: SessionState) -> None:
         """tool call с diff content."""
         tool_call_id = handler.create_tool_call(session, title="Edit", kind="edit")
 
@@ -466,9 +444,7 @@ class TestToolCallContentTypes:
         assert session.tool_calls[tool_call_id].content[0]["oldText"] == "old line"
         assert session.tool_calls[tool_call_id].content[0]["newText"] == "new line"
 
-    def test_terminal_content(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_terminal_content(self, handler: ToolCallHandler, session: SessionState) -> None:
         """tool call с terminal content."""
         tool_call_id = handler.create_tool_call(session, title="Run", kind="execute")
 
@@ -492,9 +468,7 @@ class TestToolCallContentTypes:
         assert session.tool_calls[tool_call_id].content[0]["type"] == "terminal"
         assert session.tool_calls[tool_call_id].content[0]["terminalId"] == "term_001"
 
-    def test_multiple_content_items(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_multiple_content_items(self, handler: ToolCallHandler, session: SessionState) -> None:
         """tool call с несколькими content items."""
         tool_call_id = handler.create_tool_call(session, title="Complex", kind="edit")
 
@@ -599,9 +573,7 @@ class TestToolCallLifecycleIntegration:
     ) -> None:
         """Полный lifecycle fs/read_text_file."""
         # 1. Создание tool call
-        tool_call_id = handler.create_tool_call(
-            session, title="Read text file", kind="read"
-        )
+        tool_call_id = handler.create_tool_call(session, title="Read text file", kind="read")
         assert tool_call_id == "call_001"
         assert session.tool_calls[tool_call_id].status == "pending"
 
@@ -649,9 +621,7 @@ class TestToolCallLifecycleIntegration:
         self, handler: ToolCallHandler, session: SessionState
     ) -> None:
         """Полный lifecycle fs/write_text_file."""
-        tool_call_id = handler.create_tool_call(
-            session, title="Write text file", kind="edit"
-        )
+        tool_call_id = handler.create_tool_call(session, title="Write text file", kind="edit")
 
         # Создание с location
         create_notif = handler.build_tool_call_notification(
@@ -675,16 +645,12 @@ class TestToolCallLifecycleIntegration:
                 "newText": "New file content",
             }
         ]
-        handler.update_tool_call_status(
-            session, tool_call_id, "completed", content=diff_content
-        )
+        handler.update_tool_call_status(session, tool_call_id, "completed", content=diff_content)
 
         assert session.tool_calls[tool_call_id].status == "completed"
         assert session.tool_calls[tool_call_id].content[0]["type"] == "diff"
 
-    def test_full_terminal_lifecycle(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_full_terminal_lifecycle(self, handler: ToolCallHandler, session: SessionState) -> None:
         """Полный lifecycle terminal/create."""
         tool_call_id = handler.create_tool_call(
             session, title="Run terminal command", kind="execute"
@@ -727,9 +693,7 @@ class TestToolCallLifecycleIntegration:
         self, handler: ToolCallHandler, session: SessionState
     ) -> None:
         """Отмена tool call во время выполнения."""
-        tool_call_id = handler.create_tool_call(
-            session, title="Long running task", kind="execute"
-        )
+        tool_call_id = handler.create_tool_call(session, title="Long running task", kind="execute")
 
         # Начало выполнения
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
@@ -792,9 +756,7 @@ class TestToolCallLifecycleIntegration:
         assert tool_call.tool_arguments["cwd"] == "/tmp"
         assert len(tool_call.tool_arguments["env"]) == 1
 
-    def test_tool_call_with_llm_id(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_tool_call_with_llm_id(self, handler: ToolCallHandler, session: SessionState) -> None:
         """tool call с tool_call_id_from_llm для связки в истории."""
         tool_call_id = handler.create_tool_call(
             session,
@@ -816,9 +778,7 @@ class TestToolCallLifecycleIntegration:
 class TestToolCallStateSerialization:
     """Тесты сериализации ToolCallState."""
 
-    def test_tool_call_state_to_dict(
-        self, handler: ToolCallHandler, session: SessionState
-    ) -> None:
+    def test_tool_call_state_to_dict(self, handler: ToolCallHandler, session: SessionState) -> None:
         """ToolCallState сериализуется в dict."""
         tool_call_id = handler.create_tool_call(
             session,

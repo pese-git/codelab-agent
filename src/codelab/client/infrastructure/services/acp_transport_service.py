@@ -95,10 +95,7 @@ class ACPTransportService(TransportService):
         # Типизация:
         # Callable[[request_id, tool_call, options, on_choice], None] | None
         self._permission_callback: (
-            Callable[
-                [str | int, Any, list[Any], Callable[[str | int, str], None]], None
-            ]
-            | None
+            Callable[[str | int, Any, list[Any], Callable[[str | int, str], None]], None] | None
         ) = None
         # Сохраняем server capabilities после инициализации
         self._server_capabilities: dict[str, Any] | None = None
@@ -252,7 +249,7 @@ class ACPTransportService(TransportService):
         # Проверяем тип сообщения для лучшего логирования
         is_response = "result" in message or "error" in message
         message_type = "response" if is_response else "request"
-        
+
         # Для permission response добавляем дополнительный контекст
         extra_context = {}
         if is_response and "result" in message:
@@ -262,7 +259,7 @@ class ACPTransportService(TransportService):
                     "outcome": result.get("outcome"),
                     "option_id": result.get("optionId"),
                 }
-        
+
         self._logger.debug(
             "sending_message",
             message_id=message_id,
@@ -275,7 +272,7 @@ class ACPTransportService(TransportService):
             json_message = json.dumps(message)
             assert self._transport is not None
             await self._transport.send_str(json_message)
-            
+
             # Логируем успешную отправку с дополнительным контекстом
             if extra_context:  # Это permission response
                 self._logger.info(
@@ -655,7 +652,8 @@ class ACPTransportService(TransportService):
                 )
 
                 tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [
-                    response_task, notification_task,
+                    response_task,
+                    notification_task,
                 ]
                 if permission_task is not None:
                     tasks_to_wait.append(permission_task)
@@ -680,7 +678,9 @@ class ACPTransportService(TransportService):
                         request_id=request_id,
                     )
                     self._handle_permission_task(
-                        permission_task, method=method, request_id=request_id,
+                        permission_task,
+                        method=method,
+                        request_id=request_id,
                     )
                     # Сразу создаём новый permission task для ожидания следующего request.
                     # Это критично для предотвращения race condition: если второй permission
@@ -781,9 +781,7 @@ class ACPTransportService(TransportService):
             request_id=request_id,
             permission_id=permission_data.get("id"),
         )
-        asyncio.ensure_future(
-            self._handle_permission_request_with_handler(permission_data)
-        )
+        asyncio.ensure_future(self._handle_permission_request_with_handler(permission_data))
 
     async def _handle_notification_task(
         self,
@@ -1070,7 +1068,10 @@ class ACPTransportService(TransportService):
 
         if notification.method == "session/update":
             await self._handle_session_update(
-                notification_data, method=method, request_id=request_id, on_update=on_update,
+                notification_data,
+                method=method,
+                request_id=request_id,
+                on_update=on_update,
             )
             return
 
@@ -1105,25 +1106,39 @@ class ACPTransportService(TransportService):
 
         handlers: dict[str, Callable[[], Any]] = {
             "fs/read_text_file": lambda: self._handle_fs_read(
-                rpc_id, rpc_params, on_fs_read,
+                rpc_id,
+                rpc_params,
+                on_fs_read,
             ),
             "fs/write_text_file": lambda: self._handle_fs_write(
-                rpc_id, rpc_params, on_fs_write,
+                rpc_id,
+                rpc_params,
+                on_fs_write,
             ),
             "terminal/create": lambda: self._handle_terminal_create(
-                rpc_id, rpc_params, on_terminal_create,
+                rpc_id,
+                rpc_params,
+                on_terminal_create,
             ),
             "terminal/output": lambda: self._handle_terminal_output(
-                rpc_id, rpc_params, on_terminal_output,
+                rpc_id,
+                rpc_params,
+                on_terminal_output,
             ),
             "terminal/wait_for_exit": lambda: self._handle_terminal_wait(
-                rpc_id, rpc_params, on_terminal_wait,
+                rpc_id,
+                rpc_params,
+                on_terminal_wait,
             ),
             "terminal/release": lambda: self._handle_terminal_release(
-                rpc_id, rpc_params, on_terminal_release,
+                rpc_id,
+                rpc_params,
+                on_terminal_release,
             ),
             "terminal/kill": lambda: self._handle_terminal_kill(
-                rpc_id, rpc_params, on_terminal_kill,
+                rpc_id,
+                rpc_params,
+                on_terminal_kill,
             ),
         }
 
@@ -1233,11 +1248,13 @@ class ACPTransportService(TransportService):
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            await self.send({
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "error": {"code": -32603, "message": str(e)},
-            })
+            await self.send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rpc_id,
+                    "error": {"code": -32603, "message": str(e)},
+                }
+            )
 
     async def _handle_terminal_create(
         self,
@@ -1260,9 +1277,7 @@ class ACPTransportService(TransportService):
                 ).to_dict()
             )
         else:
-            await self.send(
-                ACPMessage.response(rpc_id, {"terminalId": terminal_id}).to_dict()
-            )
+            await self.send(ACPMessage.response(rpc_id, {"terminalId": terminal_id}).to_dict())
 
     async def _handle_terminal_output(
         self,

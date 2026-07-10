@@ -20,7 +20,7 @@ from codelab.server.tools.executors.decorators import RetryDecorator
 
 class MockExecutor:
     """Mock executor для тестирования retry логики."""
-    
+
     def __init__(
         self,
         fail_count: int = 0,
@@ -28,7 +28,7 @@ class MockExecutor:
         result: ToolExecutionResult | None = None,
     ) -> None:
         """Инициализация mock executor.
-        
+
         Args:
             fail_count: Количество неудачных попыток перед успехом.
             error_type: Тип ошибки для генерации.
@@ -38,14 +38,14 @@ class MockExecutor:
         self.error_type = error_type or MCPTimeoutError
         self.result = result or ToolExecutionResult(success=True, output="success")
         self.call_count = 0
-    
+
     async def execute(
         self,
         session: SessionState,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         self.call_count += 1
-        
+
         if self.call_count <= self.fail_count:
             # Генерируем ошибку
             if self.error_type == MCPTimeoutError:
@@ -58,7 +58,7 @@ class MockExecutor:
                 raise MCPServerError("test_server", "test_tool", "Server error")
             else:
                 raise Exception("Unknown error")
-        
+
         return self.result
 
 
@@ -78,7 +78,7 @@ def mock_arguments() -> dict[str, Any]:
 
 class TestRetryDecorator:
     """Тесты для RetryDecorator."""
-    
+
     @pytest.mark.asyncio
     async def test_execute_success_first_attempt(
         self,
@@ -88,12 +88,12 @@ class TestRetryDecorator:
         """Успех с первой попытки."""
         mock_executor = MockExecutor(fail_count=0)
         decorator = RetryDecorator(mock_executor, max_retries=3)
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         assert result.success is True
         assert mock_executor.call_count == 1
-    
+
     @pytest.mark.asyncio
     async def test_execute_success_after_retry(
         self,
@@ -107,12 +107,12 @@ class TestRetryDecorator:
             max_retries=3,
             backoff_factor=1.0,  # Ускоряем тест
         )
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         assert result.success is True
         assert mock_executor.call_count == 3  # 2 failures + 1 success
-    
+
     @pytest.mark.asyncio
     async def test_execute_all_retries_exhausted(
         self,
@@ -126,14 +126,14 @@ class TestRetryDecorator:
             max_retries=3,
             backoff_factor=1.0,
         )
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         # RetryDecorator возвращает ToolExecutionResult с ошибкой
         assert result.success is False
         assert "failed after 3 attempts" in result.error
         assert mock_executor.call_count == 3
-    
+
     @pytest.mark.asyncio
     async def test_execute_non_retryable_error(
         self,
@@ -143,14 +143,14 @@ class TestRetryDecorator:
         """Non-retryable ошибка не повторяется."""
         mock_executor = MockExecutor(fail_count=10, error_type=MCPValidationError)
         decorator = RetryDecorator(mock_executor, max_retries=3)
-        
+
         # MCPValidationError не retryable — должно подняться исключение
         with pytest.raises(MCPValidationError):
             await decorator.execute(mock_session, mock_arguments)
-        
+
         # Только одна попытка
         assert mock_executor.call_count == 1
-    
+
     @pytest.mark.asyncio
     async def test_execute_server_error_not_retried(
         self,
@@ -160,12 +160,12 @@ class TestRetryDecorator:
         """MCPServerError не повторяется."""
         mock_executor = MockExecutor(fail_count=10, error_type=MCPServerError)
         decorator = RetryDecorator(mock_executor, max_retries=3)
-        
+
         with pytest.raises(MCPServerError):
             await decorator.execute(mock_session, mock_arguments)
-        
+
         assert mock_executor.call_count == 1
-    
+
     @pytest.mark.asyncio
     async def test_execute_connection_error_is_retried(
         self,
@@ -179,12 +179,12 @@ class TestRetryDecorator:
             max_retries=3,
             backoff_factor=1.0,
         )
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         assert result.success is True
         assert mock_executor.call_count == 3
-    
+
     @pytest.mark.asyncio
     async def test_default_max_retries_is_3(
         self,
@@ -194,9 +194,9 @@ class TestRetryDecorator:
         """Default max_retries равен 3."""
         mock_executor = MockExecutor()
         decorator = RetryDecorator(mock_executor)
-        
+
         assert decorator._max_retries == 3
-    
+
     @pytest.mark.asyncio
     async def test_default_backoff_factor_is_2(
         self,
@@ -206,29 +206,29 @@ class TestRetryDecorator:
         """Default backoff_factor равен 2.0."""
         mock_executor = MockExecutor()
         decorator = RetryDecorator(mock_executor)
-        
+
         assert decorator._backoff_factor == 2.0
-    
+
     def test_is_retryable_error_timeout(self) -> None:
         """MCPTimeoutError является retryable."""
         error = MCPTimeoutError("tool", 30.0)
         assert RetryDecorator.is_retryable_error(error) is True
-    
+
     def test_is_retryable_error_connection(self) -> None:
         """MCPConnectionError является retryable."""
         error = MCPConnectionError("server")
         assert RetryDecorator.is_retryable_error(error) is True
-    
+
     def test_is_retryable_error_validation(self) -> None:
         """MCPValidationError не является retryable."""
         error = MCPValidationError("tool")
         assert RetryDecorator.is_retryable_error(error) is False
-    
+
     def test_is_retryable_error_server(self) -> None:
         """MCPServerError не является retryable."""
         error = MCPServerError("server", "tool", "error")
         assert RetryDecorator.is_retryable_error(error) is False
-    
+
     @pytest.mark.asyncio
     async def test_execute_preserves_result_on_success(
         self,
@@ -243,13 +243,13 @@ class TestRetryDecorator:
         )
         mock_executor = MockExecutor(result=expected_result)
         decorator = RetryDecorator(mock_executor, max_retries=3)
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         assert result.success == expected_result.success
         assert result.output == expected_result.output
         assert result.raw_output == expected_result.raw_output
-    
+
     @pytest.mark.asyncio
     async def test_execute_with_custom_max_retries(
         self,
@@ -263,9 +263,9 @@ class TestRetryDecorator:
             max_retries=5,
             backoff_factor=1.0,
         )
-        
+
         result = await decorator.execute(mock_session, mock_arguments)
-        
+
         assert result.success is False
         assert "failed after 5 attempts" in result.error
         assert mock_executor.call_count == 5

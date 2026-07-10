@@ -97,25 +97,17 @@ class TestMCPClientCallTool:
             await ready_client.call_tool("test_tool")
 
     @pytest.mark.asyncio
-    async def test_call_tool_stdio_transport_error(
-        self, ready_client: MCPClient
-    ) -> None:
+    async def test_call_tool_stdio_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError при вызове инструмента превращается в MCPToolCallError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("lost")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("lost"))
 
         with pytest.raises(MCPToolCallError, match="Tool call test_tool failed"):
             await ready_client.call_tool("test_tool")
 
     @pytest.mark.asyncio
-    async def test_call_tool_http_transport_error(
-        self, ready_client: MCPClient
-    ) -> None:
+    async def test_call_tool_http_transport_error(self, ready_client: MCPClient) -> None:
         """HttpTransportError при вызове инструмента превращается в MCPToolCallError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=HttpTransportError("timeout")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=HttpTransportError("timeout"))
 
         with pytest.raises(MCPToolCallError, match="Tool call test_tool failed"):
             await ready_client.call_tool("test_tool")
@@ -220,13 +212,9 @@ class TestMCPClientConnectErrors:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_factory.create = MagicMock(
-                side_effect=StdioTransportError("spawn failed")
-            )
+            mock_factory.create = MagicMock(side_effect=StdioTransportError("spawn failed"))
 
-            with pytest.raises(
-                MCPClientError, match="Failed to connect to MCP server"
-            ):
+            with pytest.raises(MCPClientError, match="Failed to connect to MCP server"):
                 await client.connect()
 
             assert client._state == MCPClientState.FAILED
@@ -249,9 +237,7 @@ class TestMCPClientAsyncContextManager:
             return MCPCapabilities(tools={})
 
         with patch.object(client, "connect", side_effect=fake_connect) as mock_connect:
-            with patch.object(
-                client, "initialize", side_effect=fake_initialize
-            ) as mock_initialize:
+            with patch.object(client, "initialize", side_effect=fake_initialize) as mock_initialize:
                 async with client as entered:
                     assert entered is client
                     assert client._state == MCPClientState.READY
@@ -286,9 +272,7 @@ class TestMCPClientRootsListRequest:
         return MCPClient(config)
 
     @pytest.mark.asyncio
-    async def test_handle_roots_list_request_returns_roots(
-        self, client: MCPClient
-    ) -> None:
+    async def test_handle_roots_list_request_returns_roots(self, client: MCPClient) -> None:
         """Запрос roots/list возвращает установленные roots."""
         client._roots = [
             MCPRoot(uri="file:///project", name="Project"),

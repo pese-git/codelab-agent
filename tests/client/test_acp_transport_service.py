@@ -29,7 +29,7 @@ class TestACPTransportServiceRequestWithCallbacks:
     async def test_permission_request_routing_via_handler(self) -> None:
         """Permission requests маршрутизируются через PermissionHandler."""
         service = _create_service_for_test()
-        
+
         # Проверяем что request_with_callbacks не принимает on_permission параметр
         # Если попытаться передать on_permission, будет TypeError
         try:
@@ -245,9 +245,7 @@ class TestACPTransportServiceRequestWithCallbacks:
 
         assert response["result"]["status"] == "ok"
         # Ошибки в fs/read callback теперь логируются как error с именем fs_read_rpc_error
-        error_events = [
-            call.args[0] for call in service._logger.error.call_args_list if call.args
-        ]
+        error_events = [call.args[0] for call in service._logger.error.call_args_list if call.args]
         assert "fs_read_rpc_error" in error_events
 
 

@@ -27,7 +27,7 @@ from .image_content import ImageContentWidget
 
 class MessageRole(Enum):
     """Роли отправителей сообщений."""
-    
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -36,10 +36,10 @@ class MessageRole(Enum):
 
 class Avatar(Static):
     """Аватар отправителя сообщения.
-    
+
     Отображает символ/эмодзи в зависимости от роли.
     """
-    
+
     DEFAULT_CSS = """
     Avatar {
         width: 3;
@@ -65,7 +65,7 @@ class Avatar(Static):
         color: $error;
     }
     """
-    
+
     # Иконки для разных ролей
     ROLE_ICONS = {
         MessageRole.USER: "👤",
@@ -73,7 +73,7 @@ class Avatar(Static):
         MessageRole.SYSTEM: "⚙️",
         MessageRole.ERROR: "❌",
     }
-    
+
     def __init__(
         self,
         role: MessageRole = MessageRole.USER,
@@ -83,7 +83,7 @@ class Avatar(Static):
         classes: str | None = None,
     ) -> None:
         """Инициализирует Avatar.
-        
+
         Args:
             role: Роль отправителя
             name: Имя виджета
@@ -94,7 +94,7 @@ class Avatar(Static):
         role_class = role.value if classes is None else f"{classes} {role.value}"
         super().__init__(icon, name=name, id=id, classes=role_class)
         self._role = role
-    
+
     @property
     def role(self) -> MessageRole:
         """Возвращает роль."""
@@ -103,7 +103,7 @@ class Avatar(Static):
 
 class MessageHeader(Horizontal):
     """Заголовок сообщения с именем отправителя и timestamp."""
-    
+
     DEFAULT_CSS = """
     MessageHeader {
         height: 1;
@@ -134,7 +134,7 @@ class MessageHeader(Horizontal):
         margin-left: 1;
     }
     """
-    
+
     # Имена отправителей по ролям
     ROLE_NAMES = {
         MessageRole.USER: "Ты",
@@ -142,7 +142,7 @@ class MessageHeader(Horizontal):
         MessageRole.SYSTEM: "Система",
         MessageRole.ERROR: "Ошибка",
     }
-    
+
     def __init__(
         self,
         role: MessageRole = MessageRole.USER,
@@ -154,7 +154,7 @@ class MessageHeader(Horizontal):
         classes: str | None = None,
     ) -> None:
         """Инициализирует MessageHeader.
-        
+
         Args:
             role: Роль отправителя
             timestamp: Время сообщения
@@ -167,13 +167,13 @@ class MessageHeader(Horizontal):
         self._role = role
         self._timestamp = timestamp
         self._custom_name = custom_name
-    
+
     def compose(self) -> ComposeResult:
         """Создает элементы заголовка."""
         # Имя отправителя
         sender_name = self._custom_name or self.ROLE_NAMES.get(self._role, "Unknown")
         yield Static(sender_name, classes=f"sender-name {self._role.value}")
-        
+
         # Timestamp (если есть)
         if self._timestamp is not None:
             time_str = self._timestamp.strftime("%H:%M")
@@ -182,11 +182,11 @@ class MessageHeader(Horizontal):
 
 class MessageContent(TextualMarkdown):
     """Контент сообщения с поддержкой Markdown.
-    
+
     Использует textual.widgets.Markdown для корректного парсинга Markdown
     без смешения уровней абстракции.
     """
-    
+
     DEFAULT_CSS = """
     MessageContent {
         width: 100%;
@@ -214,7 +214,7 @@ class MessageContent(TextualMarkdown):
         margin: 0;
     }
     """
-    
+
     def __init__(
         self,
         content: str = "",
@@ -225,7 +225,7 @@ class MessageContent(TextualMarkdown):
         classes: str | None = None,
     ) -> None:
         """Инициализирует MessageContent.
-        
+
         Args:
             content: Текст сообщения
             use_markdown: Использовать ли Markdown форматирование
@@ -235,17 +235,17 @@ class MessageContent(TextualMarkdown):
         """
         self._raw_content = content
         self._use_markdown = use_markdown
-        
+
         super().__init__(content, name=name, id=id, classes=classes)
-    
+
     @property
     def raw_content(self) -> str:
         """Возвращает исходный контент."""
         return self._raw_content
-    
+
     def update_content(self, content: str) -> None:
         """Обновляет контент.
-        
+
         Args:
             content: Новый текст
         """
@@ -255,10 +255,10 @@ class MessageContent(TextualMarkdown):
 
 class MessageBubble(Vertical):
     """Виджет для отображения одного сообщения в чате.
-    
+
     Объединяет аватар, заголовок и контент сообщения
     в едином стилизованном контейнере.
-    
+
     Пример:
         >>> msg = MessageBubble(
         ...     role=MessageRole.ASSISTANT,
@@ -266,7 +266,7 @@ class MessageBubble(Vertical):
         ...     timestamp=datetime.now(),
         ... )
     """
-    
+
     DEFAULT_CSS = """
     MessageBubble {
         width: 100%;
@@ -307,7 +307,7 @@ class MessageBubble(Vertical):
         height: auto;
     }
     """
-    
+
     def __init__(
         self,
         role: MessageRole = MessageRole.USER,
@@ -324,7 +324,7 @@ class MessageBubble(Vertical):
         classes: str | None = None,
     ) -> None:
         """Инициализирует MessageBubble.
-        
+
         Args:
             role: Роль отправителя (user, assistant, system, error)
             content: Текст сообщения
@@ -340,7 +340,7 @@ class MessageBubble(Vertical):
         """
         role_class = role.value if classes is None else f"{classes} {role.value}"
         super().__init__(name=name, id=id, classes=role_class)
-        
+
         self._role = role
         self._content = content
         self._timestamp = timestamp
@@ -350,7 +350,7 @@ class MessageBubble(Vertical):
         self._use_markdown = use_markdown
         self._content_blocks = content_blocks or []
         self._content_widget: MessageContent | None = None
-    
+
     def compose(self) -> ComposeResult:
         """Создает структуру сообщения."""
         # Горизонтальный контейнер: Avatar + Body
@@ -358,7 +358,7 @@ class MessageBubble(Vertical):
             # Аватар (опционально)
             if self._show_avatar:
                 yield Avatar(self._role)
-            
+
             # Тело сообщения
             with Vertical(classes="message-body"):
                 # Заголовок (опционально)
@@ -368,7 +368,7 @@ class MessageBubble(Vertical):
                         timestamp=self._timestamp,
                         custom_name=self._sender_name,
                     )
-                
+
                 # Если есть content_blocks, рендерим их
                 if self._content_blocks:
                     yield from self._render_content_blocks()
@@ -379,16 +379,16 @@ class MessageBubble(Vertical):
                         use_markdown=self._use_markdown,
                     )
                     yield self._content_widget
-    
+
     def _render_content_blocks(self) -> ComposeResult:
         """Рендерит content blocks (текст, изображения, аудио).
-        
+
         Yields:
             Виджеты для каждого content block
         """
         for block in self._content_blocks:
             block_type = block.get("type")
-            
+
             if block_type == "text":
                 text = block.get("text", "")
                 if text:
@@ -396,13 +396,13 @@ class MessageBubble(Vertical):
                         content=text,
                         use_markdown=self._use_markdown,
                     )
-            
+
             elif block_type == "image":
                 yield ImageContentWidget.from_content_block(block)
-            
+
             elif block_type == "audio":
                 yield AudioContentWidget.from_content_block(block)
-            
+
             elif block_type == "resource":
                 # Ресурсы отображаем как текст
                 resource = block.get("resource", {})
@@ -413,7 +413,7 @@ class MessageBubble(Vertical):
                         content=f"[Resource: {uri}]\n{text}",
                         use_markdown=self._use_markdown,
                     )
-            
+
             elif block_type == "resource_link":
                 # Ссылки на ресурсы отображаем как текст
                 uri = block.get("uri", "")
@@ -422,42 +422,42 @@ class MessageBubble(Vertical):
                     content=f"[Resource link: {name}]({uri})",
                     use_markdown=self._use_markdown,
                 )
-    
+
     @property
     def role(self) -> MessageRole:
         """Возвращает роль отправителя."""
         return self._role
-    
+
     @property
     def content(self) -> str:
         """Возвращает текст сообщения."""
         return self._content
-    
+
     @property
     def timestamp(self) -> datetime | None:
         """Возвращает timestamp сообщения."""
         return self._timestamp
-    
+
     def update_content(self, content: str) -> None:
         """Обновляет контент сообщения.
-        
+
         Args:
             content: Новый текст
         """
         self._content = content
         if self._content_widget is not None:
             self._content_widget.update_content(content)
-    
+
     def update_content_blocks(self, blocks: list[dict[str, Any]]) -> None:
         """Обновляет content blocks сообщения.
-        
+
         Args:
             blocks: Новый список content blocks
         """
         self._content_blocks = blocks
         # Пересоздаем виджет для применения изменений
         self.refresh()
-    
+
     @classmethod
     def from_dict(
         cls,
@@ -466,12 +466,12 @@ class MessageBubble(Vertical):
         show_header: bool = True,
     ) -> MessageBubble:
         """Создает MessageBubble из словаря сообщения.
-        
+
         Args:
             message: Словарь с ключами role, content/content_blocks, timestamp (опц.)
             show_avatar: Показывать ли аватар
             show_header: Показывать ли заголовок
-            
+
         Returns:
             Экземпляр MessageBubble
         """
@@ -481,13 +481,13 @@ class MessageBubble(Vertical):
             role = MessageRole(role_str)
         except ValueError:
             role = MessageRole.USER
-        
+
         # Извлекаем контент или content_blocks
         content_blocks = message.get("content_blocks")
         content = ""
         if not content_blocks:
             content = str(message.get("content", ""))
-        
+
         # Извлекаем timestamp (если есть)
         ts_value = message.get("timestamp")
         timestamp = None
@@ -495,9 +495,10 @@ class MessageBubble(Vertical):
             timestamp = ts_value
         elif isinstance(ts_value, str):
             import contextlib
+
             with contextlib.suppress(ValueError):
                 timestamp = datetime.fromisoformat(ts_value)
-        
+
         return cls(
             role=role,
             content=content,

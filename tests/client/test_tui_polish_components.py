@@ -88,14 +88,14 @@ class TestKeyboardManager:
         """Регистрация нового binding."""
         manager = KeyboardManager()
         initial_count = len(manager.get_all_bindings())
-        
+
         binding = HotkeyBinding(
             key="ctrl+x",
             action="custom_action",
             description="Custom",
         )
         manager.register(binding)
-        
+
         assert len(manager.get_all_bindings()) == initial_count + 1
         assert manager.get_binding("ctrl+x") == binding
 
@@ -108,7 +108,7 @@ class TestKeyboardManager:
             description="Отменить",
         )
         manager.register(binding)
-        
+
         assert manager.get_binding("ctrl+z") is not None
         assert manager.unregister("ctrl+z") is True
         assert manager.get_binding("ctrl+z") is None
@@ -122,7 +122,7 @@ class TestKeyboardManager:
         """Получение bindings по категориям."""
         manager = KeyboardManager()
         by_category = manager.get_bindings_by_category()
-        
+
         # Должны быть категории из DEFAULT_BINDINGS
         assert len(by_category) > 0
         # Все binding'и должны быть show_in_help=True
@@ -134,7 +134,7 @@ class TestKeyboardManager:
         """Получение групп для справки."""
         manager = KeyboardManager()
         groups = manager.get_help_groups()
-        
+
         assert len(groups) > 0
         for group in groups:
             assert isinstance(group, HotkeyGroup)
@@ -143,7 +143,7 @@ class TestKeyboardManager:
     def test_format_key(self) -> None:
         """Форматирование клавиш для отображения."""
         manager = KeyboardManager()
-        
+
         assert manager.format_key("ctrl+b") == "Ctrl+B"
         assert manager.format_key("ctrl+shift+tab") == "Ctrl+Shift+Tab"
         assert manager.format_key("escape") == "Esc"
@@ -153,7 +153,7 @@ class TestKeyboardManager:
         """Получение bindings в формате Textual."""
         manager = KeyboardManager()
         textual_bindings = manager.get_textual_bindings()
-        
+
         assert len(textual_bindings) > 0
         for key, action, description in textual_bindings:
             assert isinstance(key, str)
@@ -169,7 +169,7 @@ class TestKeyboardManager:
             description="Test",
         )
         manager.register(binding)
-        
+
         assert manager.get_binding("ctrl+m") is not None
         assert manager.get_binding("CTRL+M") is not None
 
@@ -334,21 +334,21 @@ class TestCommandPaletteIntegration:
         """Добавление команды в палитру."""
         palette = CommandPalette()
         initial = len(palette._commands)
-        
+
         cmd = Command(
             id="new_cmd",
             name="New Command",
             action="new_action",
         )
         palette.add_command(cmd)
-        
+
         assert len(palette._commands) == initial + 1
 
     def test_remove_command(self) -> None:
         """Удаление команды из палитры."""
         palette = CommandPalette()
         initial = len(palette._commands)
-        
+
         # Удаляем одну из существующих команд
         assert palette.remove_command("quit") is True
         assert len(palette._commands) == initial - 1
@@ -357,7 +357,7 @@ class TestCommandPaletteIntegration:
     def test_fuzzy_match(self) -> None:
         """Fuzzy matching в палитре."""
         palette = CommandPalette()
-        
+
         # Тест fuzzy match
         assert palette._fuzzy_match("ns", "new session") is True
         assert palette._fuzzy_match("nsn", "new session") is True
@@ -405,7 +405,7 @@ class TestStatusLineIntegration:
         status_line = StatusLine()
         indicator = StatusIndicator(name="test", icon="T")
         status_line.add_indicator(indicator)
-        
+
         assert status_line.remove_indicator("test") is True
         assert status_line.remove_indicator("test") is False
 
@@ -414,8 +414,8 @@ class TestStatusLineIntegration:
         status_line = StatusLine()
         indicator = StatusIndicator(name="status", icon="●", active=True)
         status_line.add_indicator(indicator)
-        
+
         assert status_line.update_indicator("status", active=False) is True
         assert status_line._indicators[0].active is False
-        
+
         assert status_line.update_indicator("nonexistent") is False

@@ -27,9 +27,7 @@ class ConcreteToolRegistry(ToolRegistry):
         executor: Callable,
         requires_permission: bool = True,
     ) -> None:
-        super().register_tool(
-            name, description, parameters, kind, executor, requires_permission
-        )
+        super().register_tool(name, description, parameters, kind, executor, requires_permission)
 
     def get_available_tools(
         self,

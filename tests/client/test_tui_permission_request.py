@@ -129,8 +129,12 @@ def test_permission_request_is_not_resolved_initially(
 def test_permission_request_icons_exist_for_all_types() -> None:
     """Проверить что иконки определены для всех типов разрешений."""
     expected_types = [
-        "file_read", "file_write", "file_delete",
-        "execute_command", "mcp_access", "unknown",
+        "file_read",
+        "file_write",
+        "file_delete",
+        "execute_command",
+        "mcp_access",
+        "unknown",
     ]
     for perm_type in expected_types:
         assert perm_type in PERMISSION_ICONS
@@ -140,8 +144,12 @@ def test_permission_request_icons_exist_for_all_types() -> None:
 def test_permission_request_descriptions_exist_for_all_types() -> None:
     """Проверить что описания определены для всех типов разрешений."""
     expected_types = [
-        "file_read", "file_write", "file_delete",
-        "execute_command", "mcp_access", "unknown",
+        "file_read",
+        "file_write",
+        "file_delete",
+        "execute_command",
+        "mcp_access",
+        "unknown",
     ]
     for perm_type in expected_types:
         assert perm_type in PERMISSION_DESCRIPTIONS

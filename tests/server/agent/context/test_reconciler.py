@@ -8,7 +8,6 @@
 - Консервативный fallback при неопределённом изменении
 """
 
-
 from codelab.server.agent.context.models import (
     ChangeState,
     ContextEpoch,

@@ -150,9 +150,7 @@ class ScriptedMockLLMProvider(LLMProvider):
         self._config = config
         logger.debug("scripted mock llm provider initialized")
 
-    async def create_completion(
-        self, request: CompletionRequest
-    ) -> CompletionResponse:
+    async def create_completion(self, request: CompletionRequest) -> CompletionResponse:
         self.last_request = request
         reply = self._next_reply(request.messages)
         return self._to_response(reply, request)
@@ -222,9 +220,7 @@ class ScriptedMockLLMProvider(LLMProvider):
                     return content
                 if isinstance(content, list):
                     # Мультимодальный контент: собираем текстовые части
-                    parts = [
-                        getattr(p, "text", "") for p in content if hasattr(p, "text")
-                    ]
+                    parts = [getattr(p, "text", "") for p in content if hasattr(p, "text")]
                     return " ".join(parts)
                 return ""
         return ""
@@ -237,15 +233,11 @@ class ScriptedMockLLMProvider(LLMProvider):
                     return turn
         return None
 
-    def _to_response(
-        self, reply: ScriptedReply, request: CompletionRequest
-    ) -> CompletionResponse:
+    def _to_response(self, reply: ScriptedReply, request: CompletionRequest) -> CompletionResponse:
         tool_calls: list[LLMToolCall] = []
         for tc in reply.tool_calls:
             self._call_counter += 1
-            arguments = self._resolve_placeholders(
-                tc.get("arguments", {}), request.messages
-            )
+            arguments = self._resolve_placeholders(tc.get("arguments", {}), request.messages)
             tool_calls.append(
                 LLMToolCall(
                     id=tc.get("id") or f"call_{self._call_counter}",

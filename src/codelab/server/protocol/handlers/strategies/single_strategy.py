@@ -113,9 +113,7 @@ class SingleStrategy:
             return await self.event_bus.send_request(request=request, parent_span=span)
 
         final: AgentResponse | None = None
-        async for item in self.event_bus.send_request_streaming(
-            request=request, parent_span=span
-        ):
+        async for item in self.event_bus.send_request_streaming(request=request, parent_span=span):
             if isinstance(item, str):
                 await on_delta(item)
             else:
@@ -279,6 +277,7 @@ class SingleStrategy:
 # ============================================================================
 # StrategyDescriptor для SingleStrategy
 # ============================================================================
+
 
 def _create_single_strategy(deps) -> SingleStrategy:
     """Factory для создания SingleStrategy из StrategyDependencies."""

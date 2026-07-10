@@ -116,6 +116,7 @@ class TestFileTree:
 
     async def test_on_root_path_changed_mounted(self, tmp_path: Path) -> None:
         """После монтирования смена root обновляет дерево."""
+
         class TestApp(App):
             pass
 
@@ -219,6 +220,7 @@ class TestFileTree:
 
     async def test_refresh_tree_mounted(self, tmp_path: Path) -> None:
         """refresh_tree вызывает reload после монтирования."""
+
         class TestApp(App):
             pass
 

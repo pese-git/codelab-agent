@@ -55,10 +55,10 @@ class TestValidatePathInCwd:
         """Путь вне cwd выбрасывает ValueError."""
         cwd = "/home/user/project"
         path = "/home/user/other/file.txt"
-        
+
         with pytest.raises(ValueError) as exc_info:
             _validate_path_in_cwd(path, cwd)
-        
+
         assert "outside working directory" in str(exc_info.value)
         assert path in str(exc_info.value)
         assert cwd in str(exc_info.value)
@@ -67,10 +67,10 @@ class TestValidatePathInCwd:
         """Путь в родительской директории выбрасывает ValueError."""
         cwd = "/home/user/project"
         path = "/home/user/file.txt"
-        
+
         with pytest.raises(ValueError) as exc_info:
             _validate_path_in_cwd(path, cwd)
-        
+
         assert "outside working directory" in str(exc_info.value)
 
     def test_path_with_dotdot_raises_error(self):
@@ -78,10 +78,10 @@ class TestValidatePathInCwd:
         cwd = "/home/user/project"
         # После resolve() путь станет /home/user/file.txt
         path = "/home/user/project/../file.txt"
-        
+
         with pytest.raises(ValueError) as exc_info:
             _validate_path_in_cwd(path, cwd)
-        
+
         assert "outside working directory" in str(exc_info.value)
 
     def test_path_with_dotdot_inside_cwd_valid(self):
@@ -89,7 +89,7 @@ class TestValidatePathInCwd:
         cwd = "/home/user/project"
         # После resolve() путь станет /home/user/project/src/main.py
         path = "/home/user/project/src/../src/main.py"
-        
+
         # Не должно выбрасывать исключение
         _validate_path_in_cwd(path, cwd)
 
@@ -97,20 +97,20 @@ class TestValidatePathInCwd:
         """Совершенно другой путь выбрасывает ValueError."""
         cwd = "/Users/penkovsky_sa/Downloads/flutter_app"
         path = "/Users/sergey/Projects/OpenIdeaLab/CodeLab/README.md"
-        
+
         with pytest.raises(ValueError) as exc_info:
             _validate_path_in_cwd(path, cwd)
-        
+
         assert "outside working directory" in str(exc_info.value)
 
     def test_error_message_includes_helpful_hint(self):
         """Сообщение об ошибке содержит подсказку."""
         cwd = "/home/user/project"
         path = "/etc/passwd"
-        
+
         with pytest.raises(ValueError) as exc_info:
             _validate_path_in_cwd(path, cwd)
-        
+
         error_msg = str(exc_info.value)
         assert "ls" in error_msg or "find" in error_msg
         assert "discover files" in error_msg
@@ -123,19 +123,19 @@ class TestValidatePathEdgeCases:
         """Cwd с trailing slash работает корректно."""
         cwd = "/home/user/project/"
         path = "/home/user/project/file.txt"
-        
+
         # Не должно выбрасывать исключение
         _validate_path_in_cwd(path, cwd)
 
     def test_path_equals_cwd_raises_error(self):
         """Путь равный cwd (директория) проходит валидацию.
-        
+
         Edge case: путь равный cwd не содержит файлов, но валидация
         проверяет только принадлежность к директории, не тип объекта.
         """
         cwd = "/home/user/project"
         path = "/home/user/project"
-        
+
         # Путь равный cwd проходит валидацию (принадлежит cwd)
         _validate_path_in_cwd(path, cwd)
 
@@ -145,5 +145,5 @@ class TestValidatePathEdgeCases:
         # Предположим что /tmp/link -> /etc/passwd
         # Но мы проверяем строковое представление, не реальные пути
         path = "/home/user/project/file.txt"
-        
+
         _validate_path_in_cwd(path, cwd)

@@ -134,11 +134,13 @@ class TestHttpTransportSendRequest:
         mock_session.closed = False
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {"status": "ok"},
-        })
+        mock_response.json = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"status": "ok"},
+            }
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
         mock_session.post = MagicMock(return_value=mock_response)
@@ -150,10 +152,13 @@ class TestHttpTransportSendRequest:
             future = transport._pending_requests.get(1)
             if future and not future.done():
                 from codelab.server.mcp.models import MCPResponse
-                future.set_result(MCPResponse(
-                    id=1,
-                    result={"status": "ok"},
-                ))
+
+                future.set_result(
+                    MCPResponse(
+                        id=1,
+                        result={"status": "ok"},
+                    )
+                )
 
         asyncio.create_task(simulate_response())
 
@@ -178,11 +183,13 @@ class TestHttpTransportSendRequest:
         mock_session.closed = False
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {},
-        })
+        mock_response.json = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {},
+            }
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
         mock_session.post = MagicMock(return_value=mock_response)
@@ -295,9 +302,7 @@ class TestHttpTransportNotificationHandler:
         def handler(data):
             handler_calls.append(data)
 
-        transport.register_notification_handler(
-            "notifications/tools/list_changed", handler
-        )
+        transport.register_notification_handler("notifications/tools/list_changed", handler)
 
         notification_data = {
             "method": "notifications/tools/list_changed",
@@ -337,6 +342,7 @@ class TestSseTransportInit:
     async def test_init_logs_deprecation_warning(self, caplog):
         """Инициализация логирует warning о deprecated."""
         import logging
+
         with caplog.at_level(logging.WARNING):
             transport = SseTransport(url="http://localhost:8080/sse")
             assert "deprecated" in caplog.text.lower() or transport is not None
@@ -374,6 +380,7 @@ class TestSseTransportConnection:
     async def test_connect_server_error(self):
         """Ошибка подключения к серверу."""
         import aiohttp
+
         with patch("aiohttp.ClientSession", side_effect=aiohttp.ClientError("Connection refused")):
             transport = SseTransport(url="http://localhost:8080/sse")
             with pytest.raises(SseTransportError):
@@ -478,6 +485,7 @@ class TestSseTransportNotificationHandler:
     async def test_handle_sse_event_invalid_json(self, caplog):
         """Обработка SSE event с invalid JSON."""
         import logging
+
         transport = SseTransport(url="http://localhost:8080/sse")
 
         with caplog.at_level(logging.WARNING):

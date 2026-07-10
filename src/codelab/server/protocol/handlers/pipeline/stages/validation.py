@@ -42,9 +42,9 @@ class ValidationStage(PromptStage):
                 context.request_id,
                 code=-32602,
                 message=(
-                f"Prompt text too long: {len(context.raw_text)} characters "
-                f"(max {MAX_PROMPT_TEXT_LENGTH})"
-            ),
+                    f"Prompt text too long: {len(context.raw_text)} characters "
+                    f"(max {MAX_PROMPT_TEXT_LENGTH})"
+                ),
             )
             context.should_stop = True
             return context

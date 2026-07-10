@@ -227,8 +227,7 @@ class TestResolvePendingClientRpcTerminalGuards:
 
         assert result is not None
         assert any(
-            n.params.get("update", {}).get("status") == "failed"
-            for n in result.notifications
+            n.params.get("update", {}).get("status") == "failed" for n in result.notifications
         )
 
     def test_terminal_output_invalid_signal_type_fails(
@@ -256,8 +255,7 @@ class TestResolvePendingClientRpcTerminalGuards:
 
         assert result is not None
         assert any(
-            n.params.get("update", {}).get("status") == "failed"
-            for n in result.notifications
+            n.params.get("update", {}).get("status") == "failed" for n in result.notifications
         )
 
     def test_terminal_output_release_request_without_id_returns_none(
@@ -359,8 +357,7 @@ class TestResolvePendingClientRpcTerminalGuards:
 
         assert result is not None
         assert any(
-            n.params.get("update", {}).get("status") == "failed"
-            for n in result.notifications
+            n.params.get("update", {}).get("status") == "failed" for n in result.notifications
         )
 
     def test_terminal_wait_for_exit_valid_signal(
@@ -385,10 +382,7 @@ class TestResolvePendingClientRpcTerminalGuards:
         )
 
         assert result is not None
-        assert any(
-            n.method == "terminal/release"
-            for n in result.notifications
-        )
+        assert any(n.method == "terminal/release" for n in result.notifications)
         next_pending = session.active_turn.pending_client_request
         assert next_pending is not None
         assert next_pending.terminal_signal == "SIGTERM"
@@ -465,6 +459,5 @@ class TestResolvePendingClientRpcTerminalGuards:
 
         assert result is not None
         assert any(
-            n.params.get("update", {}).get("status") == "failed"
-            for n in result.notifications
+            n.params.get("update", {}).get("status") == "failed" for n in result.notifications
         )

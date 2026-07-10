@@ -59,9 +59,7 @@ class TestInitialization:
         assert manager._cache == {}
 
     @pytest.mark.asyncio
-    async def test_initialize_propagates_storage_error(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_initialize_propagates_storage_error(self, mock_storage: AsyncMock) -> None:
         """Проверить что initialize пробрасывает ошибки хранилища."""
         from codelab.server.exceptions import StorageError
 
@@ -113,9 +111,7 @@ class TestGetGlobalPolicy:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_policy_loads_cache_if_none(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_get_policy_loads_cache_if_none(self, mock_storage: AsyncMock) -> None:
         """Получить policy загружает кэш если он None."""
         mock_storage.load.return_value = {"execute": "allow_always"}
 
@@ -163,9 +159,7 @@ class TestSetGlobalPolicy:
             await manager.set_global_policy("execute", "invalid_decision")
 
     @pytest.mark.asyncio
-    async def test_set_policy_loads_cache_if_none(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_set_policy_loads_cache_if_none(self, mock_storage: AsyncMock) -> None:
         """Установить policy загружает кэш если он None."""
         mock_storage.load.return_value = {}
 
@@ -178,9 +172,7 @@ class TestSetGlobalPolicy:
         mock_storage.load.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_policy_propagates_storage_error(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_set_policy_propagates_storage_error(self, mock_storage: AsyncMock) -> None:
         """Проверить что set_policy пробрасывает ошибки хранилища."""
         from codelab.server.exceptions import StorageError
 
@@ -224,9 +216,7 @@ class TestDeleteGlobalPolicy:
         mock_storage.delete_policy.assert_called_once_with("nonexistent")
 
     @pytest.mark.asyncio
-    async def test_delete_policy_loads_cache_if_none(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_delete_policy_loads_cache_if_none(self, mock_storage: AsyncMock) -> None:
         """Удалить policy загружает кэш если он None."""
         mock_storage.load.return_value = {}
         mock_storage.delete_policy.return_value = False
@@ -239,9 +229,7 @@ class TestDeleteGlobalPolicy:
         mock_storage.load.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_delete_policy_propagates_storage_error(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_delete_policy_propagates_storage_error(self, mock_storage: AsyncMock) -> None:
         """Проверить что delete_policy пробрасывает ошибки хранилища."""
         from codelab.server.exceptions import StorageError
 
@@ -284,9 +272,7 @@ class TestListGlobalPolicies:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_list_policies_loads_cache_if_none(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_list_policies_loads_cache_if_none(self, mock_storage: AsyncMock) -> None:
         """Получить список policies загружает кэш если он None."""
         mock_storage.load.return_value = {"execute": "allow_always"}
 
@@ -328,9 +314,7 @@ class TestClearAllPolicies:
         mock_storage.clear_all.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_clear_propagates_storage_error(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_clear_propagates_storage_error(self, mock_storage: AsyncMock) -> None:
         """Проверить что clear_all_policies пробрасывает ошибки хранилища."""
         from codelab.server.exceptions import StorageError
 
@@ -366,9 +350,7 @@ class TestCacheInvalidation:
         assert mock_storage.load.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_invalidate_cache_propagates_error(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_invalidate_cache_propagates_error(self, mock_storage: AsyncMock) -> None:
         """Проверить что _invalidate_cache пробрасывает ошибки хранилища."""
         from codelab.server.exceptions import StorageError
 
@@ -385,9 +367,7 @@ class TestConcurrentAccess:
     """Тесты concurrent access."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_get_operations(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_concurrent_get_operations(self, mock_storage: AsyncMock) -> None:
         """Concurrent get операции на одном manager."""
         manager = GlobalPolicyManager(mock_storage)
         manager._cache = {
@@ -404,9 +384,7 @@ class TestConcurrentAccess:
         assert results == ["allow_always", "reject_always", None]
 
     @pytest.mark.asyncio
-    async def test_concurrent_set_operations(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_concurrent_set_operations(self, mock_storage: AsyncMock) -> None:
         """Concurrent set операции на одном manager."""
         manager = GlobalPolicyManager(mock_storage)
         manager._cache = {}
@@ -422,9 +400,7 @@ class TestConcurrentAccess:
         }
 
     @pytest.mark.asyncio
-    async def test_concurrent_mixed_operations(
-        self, mock_storage: AsyncMock
-    ) -> None:
+    async def test_concurrent_mixed_operations(self, mock_storage: AsyncMock) -> None:
         """Concurrent mixed операции."""
         mock_storage.load.return_value = {"execute": "allow_always"}
         mock_storage.delete_policy.return_value = True
@@ -460,9 +436,7 @@ class TestDIIntegration:
         assert manager._cache is not None
 
     @pytest.mark.asyncio
-    async def test_multiple_independent_managers(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_multiple_independent_managers(self, tmp_path: Path) -> None:
         """Проверить что можно создать несколько независимых manager."""
         from codelab.server.storage.global_policy_storage import GlobalPolicyStorage
 

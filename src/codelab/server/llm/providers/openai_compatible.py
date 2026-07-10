@@ -237,9 +237,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
             if delta.tool_calls:
                 for tc in delta.tool_calls:
-                    frag = tool_frags.setdefault(
-                        tc.index, {"id": None, "name": None, "args": ""}
-                    )
+                    frag = tool_frags.setdefault(tc.index, {"id": None, "name": None, "args": ""})
                     if tc.id:
                         frag["id"] = tc.id
                     if tc.function is not None:
@@ -259,9 +257,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     args = json.loads(frag["args"])
                 except (json.JSONDecodeError, TypeError):
                     args = {}
-            tool_calls.append(
-                LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args)
-            )
+            tool_calls.append(LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args))
 
         yield CompletionResponse(
             text=full_text,
@@ -292,9 +288,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
             if msg.content is not None:
                 if isinstance(msg.content, list):
-                    openai_msg["content"] = self._convert_content_parts_to_openai(
-                        msg.content
-                    )
+                    openai_msg["content"] = self._convert_content_parts_to_openai(msg.content)
                 else:
                     openai_msg["content"] = msg.content
 
@@ -496,6 +490,6 @@ class OpenAICompatibleProvider(LLMProvider):
 
         prefix = f"{self.name}/"
         if model.startswith(prefix):
-            return model[len(prefix):]
+            return model[len(prefix) :]
 
         return model

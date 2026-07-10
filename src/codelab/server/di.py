@@ -124,9 +124,11 @@ def _make_async_provider(value: Any) -> Callable[[], Awaitable[Any]]:
 
     return _provider
 
+
 # Тип для observability debug mode (чтобы отличить от require_auth)
 class ObservabilityDebug:
     """Marker type for observability debug mode."""
+
     def __init__(self, enabled: bool = False):
         self.enabled = enabled
 
@@ -477,7 +479,7 @@ class MultiAgentProvider(Provider):
     @provide(scope=Scope.APP)
     def get_strategy_registry(self) -> StrategyRegistry:
         """Создаёт и заполняет StrategyRegistry.
-        
+
         Регистрирует все доступные стратегии:
         - SingleStrategy (всегда доступна)
         - Будущие стратегии: OrchestratedStrategy, HierarchicalStrategy
@@ -488,12 +490,12 @@ class MultiAgentProvider(Provider):
 
         registry = StrategyRegistry()
         registry.register(SINGLE_STRATEGY_DESCRIPTOR)
-        
+
         logger.info(
             "StrategyRegistry created",
             registered_strategies=len(registry.list_all()),
         )
-        
+
         return registry
 
     @provide(scope=Scope.APP)
@@ -520,7 +522,7 @@ class MultiAgentProvider(Provider):
         strategy_dependencies: StrategyDependencies,
     ) -> StrategyDispatcher:
         """Создаёт StrategyDispatcher.
-        
+
         StrategyDispatcher теперь ТОЛЬКО маршрутизация (priority chain + fallback).
         Использует StrategyRegistry для получения списка доступных стратегий.
         """
@@ -540,7 +542,7 @@ class MultiAgentProvider(Provider):
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
     ) -> AgentRegistry:
         """Создаёт и инициализирует AgentRegistry.
-        
+
         Инициализация загружает конфигурации агентов из:
         - ~/.codelab/agents/*.md (глобальные)
         - .codelab/agents/*.md (проектные)
@@ -655,7 +657,7 @@ class LLMProvider_(Provider):
         registry: LLMProviderRegistry,
     ) -> LLMProvider:
         """Создаёт LLM провайдера через Registry.
-        
+
         Registry автоматически инициализирует провайдер через default_config,
         установленный в RegistryProvider.get_llm_registry().
         """
@@ -666,17 +668,19 @@ class LLMProvider_(Provider):
         except ProviderNotFoundError:
             # Fallback на mock если провайдер не зарегистрирован
             provider = MockLLMProvider()
-            await provider.initialize(LLMConfig(
-                model=config.llm.model,
-                temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens,
-                timeout=LLMTimeoutConfig(
-                    connect=config.llm.timeout.connect,
-                    read=config.llm.timeout.read,
-                    write=config.llm.timeout.write,
-                    pool=config.llm.timeout.pool,
-                ),
-            ))
+            await provider.initialize(
+                LLMConfig(
+                    model=config.llm.model,
+                    temperature=config.llm.temperature,
+                    max_tokens=config.llm.max_tokens,
+                    timeout=LLMTimeoutConfig(
+                        connect=config.llm.timeout.connect,
+                        read=config.llm.timeout.read,
+                        write=config.llm.timeout.write,
+                        pool=config.llm.timeout.pool,
+                    ),
+                )
+            )
             return provider
 
 
@@ -734,6 +738,7 @@ class PipelineProvider(Provider):
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
         from .protocol.handlers.pipeline.stages import LLMLoopStage
+
         return LLMLoopStage(
             tool_registry=tool_registry,
             tool_call_handler=tool_call_handler,
@@ -767,15 +772,17 @@ class PipelineProvider(Provider):
         )
         from .protocol.handlers.pipeline.stages.directives import DirectivesStage
 
-        return PromptPipeline(stages=[
-            ValidationStage(state_manager),
-            SlashCommandStage(slash_router),
-            PlanBuildingStage(plan_builder),
-            TurnLifecycleStage(turn_lifecycle_manager, action="open"),
-            DirectivesStage(tool_registry, permission_manager),
-            llm_loop_stage,
-            TurnLifecycleStage(turn_lifecycle_manager, action="close"),
-        ])
+        return PromptPipeline(
+            stages=[
+                ValidationStage(state_manager),
+                SlashCommandStage(slash_router),
+                PlanBuildingStage(plan_builder),
+                TurnLifecycleStage(turn_lifecycle_manager, action="open"),
+                DirectivesStage(tool_registry, permission_manager),
+                llm_loop_stage,
+                TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+            ]
+        )
 
 
 class PromptOrchestratorProvider(Provider):
@@ -1039,47 +1046,63 @@ class RequestProvider(Provider):
             session_load_handler._authenticated = authenticated
 
         registry = MethodCommandRegistry()
-        registry.register(InitializeCommandHandler(
-            supported_protocol_versions=(1,),
-            require_auth=require_auth,
-            auth_methods=auth_methods,
-            on_capabilities_negotiated=_on_capabilities_negotiated,
-        ))
-        registry.register(AuthenticateCommandHandler(
-            require_auth=require_auth,
-            auth_api_key=auth_api_key,
-            auth_methods=auth_methods,
-            on_authenticated=_on_authenticated,
-        ))
+        registry.register(
+            InitializeCommandHandler(
+                supported_protocol_versions=(1,),
+                require_auth=require_auth,
+                auth_methods=auth_methods,
+                on_capabilities_negotiated=_on_capabilities_negotiated,
+            )
+        )
+        registry.register(
+            AuthenticateCommandHandler(
+                require_auth=require_auth,
+                auth_api_key=auth_api_key,
+                auth_methods=auth_methods,
+                on_authenticated=_on_authenticated,
+            )
+        )
         registry.register(session_new_handler)
         registry.register(session_load_handler)
-        registry.register(SessionListCommandHandler(
-            storage=storage,
-            page_size=50,
-        ))
-        registry.register(SessionPromptCommandHandler(
-            storage=storage,
-            orchestrator_provider=_make_async_provider(prompt_orchestrator),
-            runtime_registry=runtime_registry,
-            mcp_provider=mcp_session_manager.ensure_initialized,
-        ))
-        registry.register(SessionCancelCommandHandler(
-            storage=storage,
-            orchestrator_provider=_make_async_provider(prompt_orchestrator),
-            llm_adapter=llm_adapter,
-        ))
-        registry.register(PermissionResponseCommandHandler(
-            storage=storage,
-        ))
-        registry.register(SetConfigOptionCommandHandler(
-            storage=storage,
-            config_specs=config_specs,
-            model_resolver=model_resolver,
-        ))
-        registry.register(SetModeCommandHandler(
-            storage=storage,
-            config_specs=config_specs,
-        ))
+        registry.register(
+            SessionListCommandHandler(
+                storage=storage,
+                page_size=50,
+            )
+        )
+        registry.register(
+            SessionPromptCommandHandler(
+                storage=storage,
+                orchestrator_provider=_make_async_provider(prompt_orchestrator),
+                runtime_registry=runtime_registry,
+                mcp_provider=mcp_session_manager.ensure_initialized,
+            )
+        )
+        registry.register(
+            SessionCancelCommandHandler(
+                storage=storage,
+                orchestrator_provider=_make_async_provider(prompt_orchestrator),
+                llm_adapter=llm_adapter,
+            )
+        )
+        registry.register(
+            PermissionResponseCommandHandler(
+                storage=storage,
+            )
+        )
+        registry.register(
+            SetConfigOptionCommandHandler(
+                storage=storage,
+                config_specs=config_specs,
+                model_resolver=model_resolver,
+            )
+        )
+        registry.register(
+            SetModeCommandHandler(
+                storage=storage,
+                config_specs=config_specs,
+            )
+        )
 
         return registry
 
@@ -1133,6 +1156,7 @@ class RequestProvider(Provider):
             from codelab.server.protocol.middleware.message_trace import (
                 create_message_trace_middleware,
             )
+
             middleware.append(create_message_trace_middleware(enabled=True))
 
         llm_adapter = agent_factory.get_primary_adapter()

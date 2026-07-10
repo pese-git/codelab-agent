@@ -34,50 +34,51 @@ type NotificationCallback = Callable[[], Coroutine[Any, Any, None]]
 
 # Type alias for progress callbacks
 # Принимает server_id и MCPProgressNotification
-type ProgressCallback = Callable[
-    [str, MCPProgressNotification], Coroutine[Any, Any, None]
-]
+type ProgressCallback = Callable[[str, MCPProgressNotification], Coroutine[Any, Any, None]]
 
 
 class MCPManagerState(Enum):
     """Состояние MCPManager."""
-    
+
     READY = "ready"
     """Готов к работе."""
-    
+
     RECONNECTING = "reconnecting"
     """Выполняется переподключение."""
-    
+
     FAILED = "failed"
     """Ошибка, переподключение не удалось."""
 
 
 class MCPManagerError(Exception):
     """Базовое исключение для ошибок MCPManager."""
+
     pass
 
 
 class MCPServerNotFoundError(MCPManagerError):
     """MCP сервер не найден."""
+
     pass
 
 
 class MCPServerAlreadyExistsError(MCPManagerError):
     """MCP сервер с таким ID уже существует."""
+
     pass
 
 
 class MCPManager:
     """Менеджер MCP серверов для одной сессии.
-    
+
     Управляет несколькими MCP серверами, их жизненным циклом,
     инструментами и маршрутизацией вызовов.
-    
+
     Attributes:
         session_id: ID сессии, которой принадлежит менеджер.
         servers: Словарь подключённых MCP клиентов (server_id -> client).
         adapters: Словарь адаптеров инструментов (server_id -> adapter).
-    
+
     Example:
         >>> manager = MCPManager("session_123")
         >>> config = MCPServerConfig(name="fs", command="mcp-fs", args=["--stdio"])
@@ -86,10 +87,10 @@ class MCPManager:
         >>> result = await manager.call_tool("mcp:fs:read_file", {"path": "/tmp/test"})
         >>> await manager.shutdown()
     """
-    
+
     def __init__(self, session_id: str) -> None:
         """Инициализация менеджера.
-        
+
         Args:
             session_id: ID сессии для контекста логирования.
         """
@@ -97,133 +98,123 @@ class MCPManager:
         self._clients: dict[str, MCPClient] = {}
         self._adapters: dict[str, MCPToolAdapter] = {}
         self._tools_cache: dict[str, list[MCPTool]] = {}
-        
+
         # Auto-reconnect state
         self._state: MCPManagerState = MCPManagerState.READY
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._health_check_tasks: dict[str, asyncio.Task] = {}
-        
+
         # Notification callbacks
         self._tool_change_callbacks: list[NotificationCallback] = []
         self._resource_change_callbacks: list[NotificationCallback] = []
         self._prompt_change_callbacks: list[NotificationCallback] = []
         self._server_status_callbacks: list[NotificationCallback] = []
-        
+
         # Progress callbacks (принимают server_id и MCPProgressNotification)
         self._progress_callbacks: list[ProgressCallback] = []
-    
+
     @property
     def server_ids(self) -> list[str]:
         """Список ID подключённых серверов."""
         return list(self._clients.keys())
-    
+
     @property
     def server_count(self) -> int:
         """Количество подключённых серверов."""
         return len(self._clients)
-    
+
     def get_client(self, server_id: str) -> MCPClient | None:
         """Получить MCP клиент по ID сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
-        
+
         Returns:
             MCP клиент или None если не найден.
         """
         return self._clients.get(server_id)
-    
+
     def has_server(self, server_id: str) -> bool:
         """Проверить, подключён ли сервер.
-        
+
         Args:
             server_id: Идентификатор сервера.
-        
+
         Returns:
             True если сервер подключён.
         """
         return server_id in self._clients
-    
+
     async def add_server(self, config: MCPServerConfig) -> list[ToolDefinition]:
         """Добавить и инициализировать MCP сервер.
-        
+
         Запускает процесс MCP сервера, выполняет initialize handshake,
         получает список инструментов и создаёт адаптер.
-        
+
         Args:
             config: Конфигурация MCP сервера.
-        
+
         Returns:
             Список адаптированных ToolDefinition от сервера.
-        
+
         Raises:
             MCPServerAlreadyExistsError: Если сервер уже подключён.
             MCPManagerError: Если не удалось подключиться или инициализировать.
         """
         server_id = config.name
-        
+
         if server_id in self._clients:
             raise MCPServerAlreadyExistsError(
                 f"MCP server '{server_id}' already connected to session {self.session_id}"
             )
-        
-        logger.info(
-            "Adding MCP server '%s' to session %s",
-            server_id,
-            self.session_id
-        )
-        
+
+        logger.info("Adding MCP server '%s' to session %s", server_id, self.session_id)
+
         client = MCPClient(config)
-        
+
         try:
             # Подключаемся к серверу
             await client.connect()
-            
+
             # Выполняем initialize
             await client.initialize()
-            
+
             # Получаем список инструментов
             mcp_tools = await client.list_tools()
-            
+
             # Создаём адаптер
             adapter = MCPToolAdapter(server_id, client)
-            
+
             # Сохраняем в менеджере
             self._clients[server_id] = client
             self._adapters[server_id] = adapter
             self._tools_cache[server_id] = mcp_tools
-            
+
             # Регистрируем обработчики notifications
             self._register_notification_handlers(server_id, client)
-            
+
             # Преобразуем инструменты
             tools = adapter.adapt_tools(mcp_tools)
-            
-            logger.info(
-                "MCP server '%s' added successfully with %d tools",
-                server_id,
-                len(tools)
-            )
-            
+
+            logger.info("MCP server '%s' added successfully with %d tools", server_id, len(tools))
+
             return tools
-            
+
         except MCPClientError as e:
             # Пытаемся отключить клиент при ошибке
             with contextlib.suppress(Exception):
                 await client.disconnect()
-            
-            raise MCPManagerError(
-                f"Failed to add MCP server '{server_id}': {e}"
-            ) from e
-    
+
+            raise MCPManagerError(f"Failed to add MCP server '{server_id}': {e}") from e
+
     async def remove_server(self, server_id: str) -> None:
         """Удалить MCP сервер.
-        
+
         Отключает клиент и удаляет все связанные данные.
-        
+
         Args:
             server_id: Идентификатор сервера для удаления.
-        
+
         Raises:
             MCPServerNotFoundError: Если сервер не найден.
         """
@@ -231,60 +222,52 @@ class MCPManager:
             raise MCPServerNotFoundError(
                 f"MCP server '{server_id}' not found in session {self.session_id}"
             )
-        
-        logger.info(
-            "Removing MCP server '%s' from session %s",
-            server_id,
-            self.session_id
-        )
-        
+
+        logger.info("Removing MCP server '%s' from session %s", server_id, self.session_id)
+
         client = self._clients[server_id]
-        
+
         # Отключаем клиент
         try:
             await client.disconnect()
         except Exception as e:
-            logger.warning(
-                "Error disconnecting MCP server '%s': %s",
-                server_id,
-                str(e)
-            )
-        
+            logger.warning("Error disconnecting MCP server '%s': %s", server_id, str(e))
+
         # Удаляем из менеджера
         del self._clients[server_id]
         del self._adapters[server_id]
         del self._tools_cache[server_id]
-        
+
         logger.info("MCP server '%s' removed successfully", server_id)
-        
+
         # Уведомляем об изменении списка инструментов
         await self._on_tools_changed(server_id)
-    
+
     def get_all_tools(self) -> list[ToolDefinition]:
         """Получить все инструменты от всех MCP серверов.
-        
+
         Returns:
             Объединённый список ToolDefinition от всех серверов.
         """
         all_tools: list[ToolDefinition] = []
-        
+
         for server_id, mcp_tools in self._tools_cache.items():
             adapter = self._adapters.get(server_id)
             if adapter:
                 tools = adapter.adapt_tools(mcp_tools)
                 all_tools.extend(tools)
-        
+
         return all_tools
-    
+
     def get_tools_for_server(self, server_id: str) -> list[ToolDefinition]:
         """Получить инструменты конкретного сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
-        
+
         Returns:
             Список ToolDefinition от сервера.
-        
+
         Raises:
             MCPServerNotFoundError: Если сервер не найден.
         """
@@ -292,56 +275,56 @@ class MCPManager:
             raise MCPServerNotFoundError(
                 f"MCP server '{server_id}' not found in session {self.session_id}"
             )
-        
+
         adapter = self._adapters[server_id]
         mcp_tools = self._tools_cache[server_id]
         return adapter.adapt_tools(mcp_tools)
-    
+
     async def call_tool(
         self,
         namespaced_name: str,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Вызвать MCP инструмент по namespaced имени.
-        
+
         Разбирает имя, находит нужный сервер и выполняет вызов.
-        
+
         Args:
             namespaced_name: Полное имя вида mcp:server_id:tool_name.
             arguments: Аргументы для вызова инструмента.
-        
+
         Returns:
             Результат выполнения инструмента.
-        
+
         Raises:
             MCPManagerError: Если формат имени неверный или сервер не найден.
         """
         # Разбираем namespaced имя
         parsed = MCPToolAdapter.parse_namespaced_name(namespaced_name)
-        
+
         if parsed is None:
             return ToolExecutionResult(
                 success=False,
                 error=f"Invalid MCP tool name format: {namespaced_name}",
             )
-        
+
         prefix, server_id, tool_name = parsed
-        
+
         if prefix != MCPToolAdapter.NAMESPACE_PREFIX:
             return ToolExecutionResult(
                 success=False,
                 error=f"Invalid namespace prefix: {prefix}",
             )
-        
+
         # Находим адаптер
         adapter = self._adapters.get(server_id)
-        
+
         if adapter is None:
             return ToolExecutionResult(
                 success=False,
                 error=f"MCP server '{server_id}' not found",
             )
-        
+
         # Проверяем состояние клиента
         client = self._clients.get(server_id)
         if client is None or client.state != MCPClientState.READY:
@@ -349,28 +332,25 @@ class MCPManager:
                 success=False,
                 error=f"MCP server '{server_id}' is not ready",
             )
-        
+
         # Вызываем инструмент через адаптер
         logger.debug(
-            "Calling MCP tool: %s (server=%s, tool=%s)",
-            namespaced_name,
-            server_id,
-            tool_name
+            "Calling MCP tool: %s (server=%s, tool=%s)", namespaced_name, server_id, tool_name
         )
-        
+
         return await adapter.call_tool(tool_name, arguments)
-    
+
     def get_servers_info(self) -> list[dict[str, Any]]:
         """Получить информацию о всех подключённых серверах.
-        
+
         Returns:
             Список словарей с информацией о серверах.
         """
         servers_info: list[dict[str, Any]] = []
-        
+
         for server_id, client in self._clients.items():
             tools_count = len(self._tools_cache.get(server_id, []))
-            
+
             server_info: dict[str, Any] = {
                 "id": server_id,
                 "name": client.config.name,
@@ -378,28 +358,26 @@ class MCPManager:
                 "state": client.state.value,
                 "tools_count": tools_count,
             }
-            
+
             # Добавляем capabilities если доступны
             if client.capabilities:
-                server_info["capabilities"] = client.capabilities.model_dump(
-                    exclude_none=True
-                )
-            
+                server_info["capabilities"] = client.capabilities.model_dump(exclude_none=True)
+
             servers_info.append(server_info)
-        
+
         return servers_info
-    
+
     async def refresh_tools(self, server_id: str) -> list[ToolDefinition]:
         """Обновить список инструментов сервера.
-        
+
         Запрашивает tools/list заново и обновляет кэш.
-        
+
         Args:
             server_id: Идентификатор сервера.
-        
+
         Returns:
             Обновлённый список ToolDefinition.
-        
+
         Raises:
             MCPServerNotFoundError: Если сервер не найден.
             MCPManagerError: Если не удалось получить инструменты.
@@ -408,36 +386,30 @@ class MCPManager:
             raise MCPServerNotFoundError(
                 f"MCP server '{server_id}' not found in session {self.session_id}"
             )
-        
+
         client = self._clients[server_id]
         adapter = self._adapters[server_id]
-        
+
         try:
             mcp_tools = await client.list_tools()
             self._tools_cache[server_id] = mcp_tools
-            
-            logger.info(
-                "Refreshed tools for MCP server '%s': %d tools",
-                server_id,
-                len(mcp_tools)
-            )
-            
+
+            logger.info("Refreshed tools for MCP server '%s': %d tools", server_id, len(mcp_tools))
+
             return adapter.adapt_tools(mcp_tools)
-            
+
         except MCPClientError as e:
-            raise MCPManagerError(
-                f"Failed to refresh tools from '{server_id}': {e}"
-            ) from e
-    
+            raise MCPManagerError(f"Failed to refresh tools from '{server_id}': {e}") from e
+
     # ===== Notification Handlers =====
-    
+
     def _register_notification_handlers(
         self,
         server_id: str,
         client: MCPClient,
     ) -> None:
         """Регистрирует обработчики MCP notifications для сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
             client: MCP клиент.
@@ -454,15 +426,13 @@ class MCPManager:
             "notifications/prompts/list_changed",
             lambda params: self._on_prompts_changed(server_id),
         )
-        
+
         # Progress notifications — проксируем через manager
-        client.register_progress_callback(
-            lambda progress: self._on_progress(server_id, progress)
-        )
-    
+        client.register_progress_callback(lambda progress: self._on_progress(server_id, progress))
+
     async def _on_tools_changed(self, server_id: str) -> None:
         """Обработчик изменения списка инструментов.
-        
+
         Args:
             server_id: Идентификатор сервера.
         """
@@ -470,7 +440,7 @@ class MCPManager:
             "Tools list changed for server '%s', refreshing",
             server_id,
         )
-        
+
         try:
             await self.refresh_tools(server_id)
         except MCPServerNotFoundError:
@@ -480,45 +450,43 @@ class MCPManager:
             )
         except MCPManagerError as e:
             logger.error("Failed to refresh tools: %s", e)
-        
+
         # Уведомляем зарегистрированные callbacks
         for callback in self._tool_change_callbacks:
             try:
                 await callback()
             except Exception as e:
                 logger.error("Error in tool change callback: %s", e)
-    
+
     async def _on_resources_changed(self, server_id: str) -> None:
         """Обработчик изменения списка ресурсов.
-        
+
         Args:
             server_id: Идентификатор сервера.
         """
         logger.info("Resources list changed for server '%s'", server_id)
-        
+
         for callback in self._resource_change_callbacks:
             try:
                 await callback()
             except Exception as e:
                 logger.error("Error in resource change callback: %s", e)
-    
+
     async def _on_prompts_changed(self, server_id: str) -> None:
         """Обработчик изменения списка промптов.
-        
+
         Args:
             server_id: Идентификатор сервера.
         """
         logger.info("Prompts list changed for server '%s'", server_id)
-        
+
         for callback in self._prompt_change_callbacks:
             try:
                 await callback()
             except Exception as e:
                 logger.error("Error in prompt change callback: %s", e)
-    
-    async def _on_progress(
-        self, server_id: str, progress: MCPProgressNotification
-    ) -> None:
+
+    async def _on_progress(self, server_id: str, progress: MCPProgressNotification) -> None:
         """Обработчик progress notification от MCP сервера.
 
         Проксирует progress notification всем зарегистрированным callback'ам,
@@ -535,55 +503,51 @@ class MCPManager:
             progress.progress,
             progress.total,
         )
-        
+
         for callback in self._progress_callbacks:
             try:
                 await callback(server_id, progress)
             except Exception as e:
                 logger.error("Error in progress callback: %s", e)
-    
+
     # ===== Callback Registration =====
-    
+
     def register_tool_change_callback(self, callback: NotificationCallback) -> None:
         """Зарегистрировать callback при изменении списка инструментов.
-        
+
         Args:
             callback: Async функция без аргументов.
         """
         self._tool_change_callbacks.append(callback)
         logger.debug("Registered tool change callback")
-    
-    def register_resource_change_callback(
-        self, callback: NotificationCallback
-    ) -> None:
+
+    def register_resource_change_callback(self, callback: NotificationCallback) -> None:
         """Зарегистрировать callback при изменении списка ресурсов.
-        
+
         Args:
             callback: Async функция без аргументов.
         """
         self._resource_change_callbacks.append(callback)
         logger.debug("Registered resource change callback")
-    
+
     def register_prompt_change_callback(self, callback: NotificationCallback) -> None:
         """Зарегистрировать callback при изменении списка промптов.
-        
+
         Args:
             callback: Async функция без аргументов.
         """
         self._prompt_change_callbacks.append(callback)
         logger.debug("Registered prompt change callback")
-    
-    def register_server_status_callback(
-        self, callback: NotificationCallback
-    ) -> None:
+
+    def register_server_status_callback(self, callback: NotificationCallback) -> None:
         """Зарегистрировать callback при изменении статуса сервера.
-        
+
         Args:
             callback: Async функция без аргументов.
         """
         self._server_status_callbacks.append(callback)
         logger.debug("Registered server status callback")
-    
+
     async def _notify_server_status_changed(self) -> None:
         """Уведомить callbacks об изменении статуса сервера."""
         for callback in self._server_status_callbacks:
@@ -591,7 +555,7 @@ class MCPManager:
                 await callback()
             except Exception as e:
                 logger.error("Error in server status callback: %s", e)
-    
+
     def register_progress_callback(self, callback: ProgressCallback) -> None:
         """Зарегистрировать callback для progress notifications.
 
@@ -604,77 +568,79 @@ class MCPManager:
         """
         self._progress_callbacks.append(callback)
         logger.debug("Registered progress callback")
-    
+
     # ===== Resources =====
-    
+
     async def get_all_resources(self) -> dict[str, list[MCPResource]]:
         """Получить все ресурсы от всех MCP серверов.
-        
+
         Returns:
             Словарь server_id → list[MCPResource].
         """
         all_resources: dict[str, list[MCPResource]] = {}
-        
+
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:
                 continue
-            
+
             if not client.capabilities or not client.capabilities.resources:
                 continue
-            
+
             try:
                 resources = await client.list_resources()
                 all_resources[server_id] = resources
             except MCPClientError as e:
                 logger.warning(
                     "Failed to list resources from server '%s': %s",
-                    server_id, e,
+                    server_id,
+                    e,
                 )
-        
+
         return all_resources
-    
+
     async def get_all_resource_templates(
         self,
     ) -> dict[str, list[MCPResourceTemplate]]:
         """Получить все шаблоны ресурсов от всех MCP серверов.
-        
+
         Returns:
             Словарь server_id → list[MCPResourceTemplate].
         """
         all_templates: dict[str, list[MCPResourceTemplate]] = {}
-        
+
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:
                 continue
-            
+
             if not client.capabilities or not client.capabilities.resources:
                 continue
-            
+
             try:
                 templates = await client.list_resource_templates()
                 all_templates[server_id] = templates
             except MCPClientError as e:
                 logger.warning(
                     "Failed to list resource templates from server '%s': %s",
-                    server_id, e,
+                    server_id,
+                    e,
                 )
-        
+
         return all_templates
-    
+
     async def read_resource(
         self,
         server_id: str,
         uri: str,
     ) -> Any:
         """Прочитать ресурс с конкретного сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
             uri: URI ресурса.
-        
+
         Returns:
             MCPReadResourceResult с содержимым ресурса.
-        
+
         Raises:
             MCPServerNotFoundError: Если сервер не найден.
             MCPManagerError: Если не удалось прочитать ресурс.
@@ -683,49 +649,46 @@ class MCPManager:
             raise MCPServerNotFoundError(
                 f"MCP server '{server_id}' not found in session {self.session_id}"
             )
-        
+
         client = self._clients[server_id]
-        
+
         if client.state != MCPClientState.READY:
-            raise MCPManagerError(
-                f"MCP server '{server_id}' is not ready"
-            )
-        
+            raise MCPManagerError(f"MCP server '{server_id}' is not ready")
+
         try:
             return await client.read_resource(uri)
         except MCPClientError as e:
-            raise MCPManagerError(
-                f"Failed to read resource '{uri}' from '{server_id}': {e}"
-            ) from e
-    
+            raise MCPManagerError(f"Failed to read resource '{uri}' from '{server_id}': {e}") from e
+
     # ===== Prompts =====
-    
+
     async def get_all_prompts(self) -> dict[str, list[MCPPrompt]]:
         """Получить все промпты от всех MCP серверов.
-        
+
         Returns:
             Словарь server_id → list[MCPPrompt].
         """
         all_prompts: dict[str, list[MCPPrompt]] = {}
-        
+
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:
                 continue
-            
+
             if not client.capabilities or not client.capabilities.prompts:
                 continue
-            
+
             try:
                 prompts = await client.list_prompts()
                 all_prompts[server_id] = prompts
             except MCPClientError as e:
                 logger.warning(
                     "Failed to list prompts from server '%s': %s",
-                    server_id, e,
+                    server_id,
+                    e,
                 )
-        
+
         return all_prompts
-    
+
     async def get_prompt(
         self,
         server_id: str,
@@ -733,15 +696,15 @@ class MCPManager:
         arguments: dict[str, Any] | None = None,
     ) -> Any:
         """Получить промпт с конкретного сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
             name: Имя промпта.
             arguments: Аргументы промпта.
-        
+
         Returns:
             MCPGetPromptResult с сообщениями промпта.
-        
+
         Raises:
             MCPServerNotFoundError: Если сервер не найден.
             MCPManagerError: Если не удалось получить промпт.
@@ -750,29 +713,25 @@ class MCPManager:
             raise MCPServerNotFoundError(
                 f"MCP server '{server_id}' not found in session {self.session_id}"
             )
-        
+
         client = self._clients[server_id]
-        
+
         if client.state != MCPClientState.READY:
-            raise MCPManagerError(
-                f"MCP server '{server_id}' is not ready"
-            )
-        
+            raise MCPManagerError(f"MCP server '{server_id}' is not ready")
+
         try:
             return await client.get_prompt(name, arguments or {})
         except MCPClientError as e:
-            raise MCPManagerError(
-                f"Failed to get prompt '{name}' from '{server_id}': {e}"
-            ) from e
-    
+            raise MCPManagerError(f"Failed to get prompt '{name}' from '{server_id}': {e}") from e
+
     # ===== Roots =====
-    
+
     async def set_roots(self, roots: list[MCPRoot]) -> None:
         """Установить roots для всех подключённых MCP серверов.
-        
+
         Отправляет notifications/roots/list_changed всем серверам,
         которые поддерживают roots capability.
-        
+
         Args:
             roots: Список roots (файловых границ) для MCP серверов.
         """
@@ -782,11 +741,11 @@ class MCPManager:
             self.session_id,
             len(roots),
         )
-        
+
         for server_id, client in self._clients.items():
             if client.state != MCPClientState.READY:
                 continue
-            
+
             try:
                 await client.set_roots(roots)
                 logger.debug(
@@ -799,166 +758,151 @@ class MCPManager:
                     server_id,
                     e,
                 )
-    
+
     async def shutdown(self) -> None:
         """Отключить все MCP серверы.
-        
+
         Безопасно завершает все соединения при завершении сессии.
         """
         logger.info(
             "Shutting down MCPManager for session %s (%d servers)",
             self.session_id,
-            len(self._clients)
+            len(self._clients),
         )
-        
+
         # Копируем список серверов т.к. remove_server модифицирует словарь
         server_ids = list(self._clients.keys())
-        
+
         for server_id in server_ids:
             try:
                 await self.remove_server(server_id)
             except Exception as e:
                 logger.error(
-                    "Error removing MCP server '%s' during shutdown: %s",
-                    server_id,
-                    str(e)
+                    "Error removing MCP server '%s' during shutdown: %s", server_id, str(e)
                 )
-        
+
         logger.info("MCPManager shutdown complete for session %s", self.session_id)
-    
+
     # ===== Auto-Reconnect =====
-    
+
     @property
     def state(self) -> MCPManagerState:
         """Текущее состояние менеджера."""
         return self._state
-    
+
     async def reconnect_with_backoff(self, server_id: str) -> bool:
         """Переподключиться к серверу с exponential backoff.
-        
+
         Args:
             server_id: Идентификатор сервера.
-        
+
         Returns:
             True если переподключение удалось.
         """
         if server_id not in self._clients:
-            logger.warning(
-                "Cannot reconnect: server '%s' not found",
-                server_id
-            )
+            logger.warning("Cannot reconnect: server '%s' not found", server_id)
             return False
-        
+
         client = self._clients[server_id]
         config = client.config
         retry_config = config.get_retry_config()
-        
+
         max_retries = int(retry_config["max_retries"])
         initial_delay = float(retry_config["initial_delay"])
         max_delay = float(retry_config["max_delay"])
         backoff_multiplier = float(retry_config["backoff_multiplier"])
-        
+
         self._state = MCPManagerState.RECONNECTING
-        
+
         # Уведомляем о начале переподключения
         await self._notify_server_status_changed()
-        
-        logger.info(
-            "Starting reconnect for server '%s' (max_retries=%d)",
-            server_id, max_retries
-        )
-        
+
+        logger.info("Starting reconnect for server '%s' (max_retries=%d)", server_id, max_retries)
+
         delay = initial_delay
-        
+
         for attempt in range(max_retries):
             try:
                 # Jitter: 10% от delay
                 jitter = random.uniform(0, delay * 0.1)
                 sleep_time = delay + jitter
-                
+
                 logger.info(
                     "Reconnect attempt %d/%d for server '%s' in %.2fs",
-                    attempt + 1, max_retries, server_id, sleep_time
+                    attempt + 1,
+                    max_retries,
+                    server_id,
+                    sleep_time,
                 )
-                
+
                 await asyncio.sleep(sleep_time)
-                
+
                 # Пытаемся переподключиться
                 await client.disconnect()
                 await client.connect()
                 await client.initialize()
-                
+
                 # Обновляем инструменты
                 mcp_tools = await client.list_tools()
                 self._tools_cache[server_id] = mcp_tools
-                
+
                 # Обновляем адаптер
                 adapter = self._adapters.get(server_id)
                 if adapter:
                     adapter.adapt_tools(mcp_tools)
-                
-                logger.info(
-                    "Successfully reconnected to server '%s'",
-                    server_id
-                )
-                
+
+                logger.info("Successfully reconnected to server '%s'", server_id)
+
                 self._state = MCPManagerState.READY
-                
+
                 # Уведомляем об успешном переподключении
                 await self._notify_server_status_changed()
-                
+
                 return True
-                
+
             except Exception as e:
                 logger.warning(
                     "Reconnect attempt %d/%d failed for server '%s': %s",
-                    attempt + 1, max_retries, server_id, e
+                    attempt + 1,
+                    max_retries,
+                    server_id,
+                    e,
                 )
-                
+
                 # Увеличиваем delay
                 delay = min(delay * backoff_multiplier, max_delay)
-        
+
         # Все попытки исчерпаны
         self._state = MCPManagerState.FAILED
-        
-        logger.error(
-            "Failed to reconnect to server '%s' after %d attempts",
-            server_id, max_retries
-        )
-        
+
+        logger.error("Failed to reconnect to server '%s' after %d attempts", server_id, max_retries)
+
         # Уведомляем о неудачном переподключении
         await self._notify_server_status_changed()
-        
+
         return False
-    
+
     async def start_health_check(self, server_id: str, interval: float = 60.0) -> None:
         """Запустить periodic health check для сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
             interval: Интервал проверки в секундах.
         """
         if server_id in self._health_check_tasks:
-            logger.warning(
-                "Health check already running for server '%s'",
-                server_id
-            )
+            logger.warning("Health check already running for server '%s'", server_id)
             return
-        
+
         task = asyncio.create_task(
-            self._health_check_loop(server_id, interval),
-            name=f"mcp_health_check_{server_id}"
+            self._health_check_loop(server_id, interval), name=f"mcp_health_check_{server_id}"
         )
         self._health_check_tasks[server_id] = task
-        
-        logger.info(
-            "Started health check for server '%s' (interval=%.0fs)",
-            server_id, interval
-        )
-    
+
+        logger.info("Started health check for server '%s' (interval=%.0fs)", server_id, interval)
+
     async def _health_check_loop(self, server_id: str, interval: float) -> None:
         """Цикл periodic health check.
-        
+
         Args:
             server_id: Идентификатор сервера.
             interval: Интервал проверки.
@@ -966,42 +910,34 @@ class MCPManager:
         while self._state != MCPManagerState.FAILED:
             try:
                 await asyncio.sleep(interval)
-                
+
                 client = self._clients.get(server_id)
                 if client is None:
-                    logger.warning(
-                        "Health check: server '%s' not found",
-                        server_id
-                    )
+                    logger.warning("Health check: server '%s' not found", server_id)
                     break
-                
+
                 # Проверяем состояние клиента
                 if client.state != MCPClientState.READY:
                     logger.warning(
                         "Health check failed for server '%s': state=%s",
-                        server_id, client.state.value
+                        server_id,
+                        client.state.value,
                     )
-                    
+
                     # Запускаем переподключение
                     await self.reconnect_with_backoff(server_id)
-                
+
                 else:
-                    logger.debug(
-                        "Health check passed for server '%s'",
-                        server_id
-                    )
-            
+                    logger.debug("Health check passed for server '%s'", server_id)
+
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.error(
-                    "Error in health check for server '%s': %s",
-                    server_id, e
-                )
-    
+                logger.error("Error in health check for server '%s': %s", server_id, e)
+
     async def stop_health_check(self, server_id: str) -> None:
         """Остановить health check для сервера.
-        
+
         Args:
             server_id: Идентификатор сервера.
         """
@@ -1010,27 +946,20 @@ class MCPManager:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            
-            logger.info(
-                "Stopped health check for server '%s'",
-                server_id
-            )
-    
+
+            logger.info("Stopped health check for server '%s'", server_id)
+
     async def handle_server_failure(self, server_id: str) -> None:
         """Обработать ошибку сервера и запустить переподключение.
-        
+
         Args:
             server_id: Идентификатор сервера.
         """
-        logger.warning(
-            "Server '%s' failure detected, initiating reconnect",
-            server_id
-        )
-        
+        logger.warning("Server '%s' failure detected, initiating reconnect", server_id)
+
         # Запускаем переподключение в фоне
         if server_id not in self._reconnect_tasks:
             task = asyncio.create_task(
-                self.reconnect_with_backoff(server_id),
-                name=f"mcp_reconnect_{server_id}"
+                self.reconnect_with_backoff(server_id), name=f"mcp_reconnect_{server_id}"
             )
             self._reconnect_tasks[server_id] = task

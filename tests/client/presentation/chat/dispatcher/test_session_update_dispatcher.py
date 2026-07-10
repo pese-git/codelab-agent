@@ -37,14 +37,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         self.synced_messages.append((session_id, list(messages)))
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         self.synced_tool_calls.append((session_id, list(tool_calls)))
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         self.synced_streaming.append((session_id, text, is_streaming))
 
 
@@ -98,9 +94,11 @@ class TestSessionUpdateDispatcher:
         sink = MockSink()
         plan_vm = MagicMock()
         event_bus = MagicMock()
+
         # Делаем publish async mock
         async def async_publish(*args: Any, **kwargs: Any) -> None:
             pass
+
         event_bus.publish = MagicMock(side_effect=async_publish)
 
         return ChatUpdateContext(
@@ -183,11 +181,13 @@ class TestSessionUpdateDispatcher:
     ) -> None:
         """Диспетчер должен маршрутизировать tool_call_update к ToolCallHandler."""
         # Сначала создаём tool call
-        context.state.add_tool_call({
-            "toolCallId": "tc-1",
-            "title": "Read file",
-            "status": "pending",
-        })
+        context.state.add_tool_call(
+            {
+                "toolCallId": "tc-1",
+                "title": "Read file",
+                "status": "pending",
+            }
+        )
 
         update_data = {
             "params": {
@@ -365,8 +365,10 @@ class TestSessionUpdateDispatcher:
 
         # Патчим handler чтобы он вызывал исключение
         original_handle = dispatcher._handlers[0].handle
+
         def failing_handle(*args: Any, **kwargs: Any) -> None:
             raise ValueError("Test error")
+
         dispatcher._handlers[0].handle = failing_handle
 
         # Не должно вызывать исключение
@@ -502,8 +504,10 @@ class TestSessionUpdateDispatcher:
 
         # Патчим handler чтобы он вызывал исключение
         original_handle = dispatcher._handlers[0].handle
+
         def failing_handle(*args: Any, **kwargs: Any) -> None:
             raise ValueError("Test error")
+
         dispatcher._handlers[0].handle = failing_handle
 
         # Не должно вызывать исключение

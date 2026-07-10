@@ -89,10 +89,10 @@ class ToolRegistry(ABC):
     @abstractmethod
     def get(self, name: str) -> ToolDefinition | None:
         """Получить определение инструмента по имени.
-        
+
         Args:
             name: Имя инструмента
-            
+
         Returns:
             Определение инструмента или None, если не найден
         """
@@ -101,7 +101,7 @@ class ToolRegistry(ABC):
     @abstractmethod
     def list_tools(self) -> list[ToolDefinition]:
         """Получить список всех зарегистрированных инструментов.
-        
+
         Returns:
             Список определений инструментов
         """

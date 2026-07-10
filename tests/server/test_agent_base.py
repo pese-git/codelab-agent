@@ -72,7 +72,7 @@ def test_agent_context_creation() -> None:
         cwd="/tmp",
         mcp_servers=[],
     )
-    
+
     context = AgentContext(
         session_id="test-session",
         session=session_state,

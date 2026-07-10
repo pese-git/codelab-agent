@@ -25,16 +25,16 @@ from codelab.client.presentation.terminal_view_model import TerminalViewModel
 from codelab.client.presentation.ui_view_model import UIViewModel
 
 __all__ = [
-    'Observable',
-    'ObservableCommand',
-    'BaseViewModel',
-    'UIViewModel',
-    'SessionViewModel',
-    'ChatViewModel',
-    'PlanViewModel',
-    'TerminalViewModel',
-    'FileSystemViewModel',
-    'FileViewerViewModel',
-    'PermissionViewModel',
-    'TerminalLogViewModel',
+    "Observable",
+    "ObservableCommand",
+    "BaseViewModel",
+    "UIViewModel",
+    "SessionViewModel",
+    "ChatViewModel",
+    "PlanViewModel",
+    "TerminalViewModel",
+    "FileSystemViewModel",
+    "FileViewerViewModel",
+    "PermissionViewModel",
+    "TerminalLogViewModel",
 ]

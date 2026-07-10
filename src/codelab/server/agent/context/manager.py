@@ -190,9 +190,7 @@ class DefaultContextManager(ContextManager):
                 )
         ctx.dirty_paths.clear()
 
-    async def _read_file(
-        self, session: Any, session_id: Any, path: str
-    ) -> str | None:
+    async def _read_file(self, session: Any, session_id: Any, path: str) -> str | None:
         """Прочитать файл через ToolRegistry (реальный инструмент)."""
         try:
             result = await self._tool_registry.execute_tool(
@@ -412,12 +410,12 @@ class DefaultContextManager(ContextManager):
             # источников, чтобы fingerprint отразил изменение и эпоха корректно
             # перестроилась со свежим содержимым (4.D2).
             await self._refresh_dirty_sources(ctx, session, session_id)
-            baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_incremental(session, ctx, registry, prompt, session_id)
+            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_incremental(
+                session, ctx, registry, prompt, session_id
             )
         else:
-            baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_hydration(session, registry, prompt, session_id)
+            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_hydration(
+                session, registry, prompt, session_id
             )
 
         baseline_ms = (time.time() - baseline_start) * 1000
@@ -450,15 +448,18 @@ class DefaultContextManager(ContextManager):
         )
 
         if span is not None and self._tracer is not None:
-            self._tracer.end_span(span, attributes={
-                "agent_scope": agent_scope,
-                "task_type": profile.task_type,
-                "gathered_files": gathered_files_count,
-                "baseline_tokens": baseline_tokens,
-                "tail_tokens": tail_tokens,
-                "incremental": incremental,
-                "epoch_broken": reconcile_info.get("epoch_broken", False),
-            })
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "agent_scope": agent_scope,
+                    "task_type": profile.task_type,
+                    "gathered_files": gathered_files_count,
+                    "baseline_tokens": baseline_tokens,
+                    "tail_tokens": tail_tokens,
+                    "incremental": incremental,
+                    "epoch_broken": reconcile_info.get("epoch_broken", False),
+                },
+            )
 
         if self._metrics_tracker is not None:
             stage_timings = {
@@ -877,7 +878,7 @@ class DefaultContextManager(ContextManager):
         sections: list[str] = ["<context>"]
         for item in items:
             if item.type == ContextType.FILE_CONTENT:
-                sections.append(f"<file path=\"{item.id}\">")
+                sections.append(f'<file path="{item.id}">')
                 sections.append(item.content)
                 sections.append("</file>")
 

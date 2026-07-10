@@ -86,6 +86,7 @@ class TestPermissionRequestCompose:
 
     async def test_compose_minimal(self) -> None:
         """compose с минимальными параметрами."""
+
         class TestApp(App):
             pass
 
@@ -98,6 +99,7 @@ class TestPermissionRequestCompose:
 
     async def test_compose_full(self) -> None:
         """compose со всеми полями."""
+
         class TestApp(App):
             pass
 
@@ -121,6 +123,7 @@ class TestPermissionRequestMount:
 
     async def test_on_mount_basic_buttons(self) -> None:
         """on_mount добавляет Allow и Deny кнопки."""
+
         class TestApp(App):
             pass
 
@@ -137,6 +140,7 @@ class TestPermissionRequestMount:
 
     async def test_on_mount_always_button(self) -> None:
         """on_mount добавляет Always кнопку при наличии опции."""
+
         class TestApp(App):
             pass
 
@@ -158,6 +162,7 @@ class TestPermissionRequestMount:
 
     async def test_on_mount_auto_deny_timer(self) -> None:
         """on_mount запускает таймер автоотклонения."""
+
         class TestApp(App):
             pass
 
@@ -181,6 +186,7 @@ class TestPermissionRequestAutoDeny:
 
     async def test_tick_resolved_stops_timer(self) -> None:
         """Тик при resolved останавливает таймер."""
+
         class TestApp(App):
             pass
 
@@ -200,6 +206,7 @@ class TestPermissionRequestAutoDeny:
 
     async def test_tick_updates_timer(self) -> None:
         """Тик уменьшает оставшееся время и обновляет виджет."""
+
         class TestApp(App):
             pass
 
@@ -219,6 +226,7 @@ class TestPermissionRequestAutoDeny:
 
     async def test_tick_expires_selects_deny(self) -> None:
         """Истечение времени автоматически отклоняет запрос."""
+
         class TestApp(App):
             pass
 
@@ -242,6 +250,7 @@ class TestPermissionRequestAutoDeny:
 
     async def test_tick_timer_widget_not_found_suppressed(self) -> None:
         """Исключение при обновлении таймера подавляется."""
+
         class TestApp(App):
             pass
 
@@ -266,6 +275,7 @@ class TestPermissionRequestButtons:
 
     async def test_on_button_pressed_allow(self) -> None:
         """Нажатие Allow выбирает allow_once."""
+
         class TestApp(App):
             pass
 
@@ -290,6 +300,7 @@ class TestPermissionRequestButtons:
 
     async def test_on_button_pressed_deny(self) -> None:
         """Нажатие Deny выбирает reject_once."""
+
         class TestApp(App):
             pass
 
@@ -314,6 +325,7 @@ class TestPermissionRequestButtons:
 
     async def test_on_button_pressed_always(self) -> None:
         """Нажатие Always выбирает allow_always."""
+
         class TestApp(App):
             pass
 
@@ -338,6 +350,7 @@ class TestPermissionRequestButtons:
 
     async def test_on_button_pressed_resolved_ignored(self) -> None:
         """Нажатие после решения игнорируется."""
+
         class TestApp(App):
             pass
 
@@ -378,6 +391,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_granted(self) -> None:
         """Выбор allow устанавливает granted статус."""
+
         class TestApp(App):
             pass
 
@@ -411,6 +425,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_denied(self) -> None:
         """Выбор deny устанавливает denied статус."""
+
         class TestApp(App):
             pass
 
@@ -426,6 +441,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_resolved_guard(self) -> None:
         """Повторный выбор игнорируется."""
+
         class TestApp(App):
             pass
 
@@ -442,6 +458,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_stops_timer(self) -> None:
         """Выбор останавливает таймер."""
+
         class TestApp(App):
             pass
 
@@ -458,6 +475,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_badge_exception_suppressed(self) -> None:
         """Исключение при обновлении badge подавляется."""
+
         class TestApp(App):
             pass
 
@@ -474,6 +492,7 @@ class TestPermissionRequestSelectOption:
 
     async def test_select_option_buttons_exception_suppressed(self) -> None:
         """Исключение при отключении кнопок подавляется."""
+
         class TestApp(App):
             pass
 
@@ -494,6 +513,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_allow(self) -> None:
         """allow выбирает allow_once опцию."""
+
         class TestApp(App):
             pass
 
@@ -516,6 +536,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_allow_fallback(self) -> None:
         """allow без allow_once опции использует fallback."""
+
         class TestApp(App):
             pass
 
@@ -531,6 +552,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_deny(self) -> None:
         """deny выбирает reject_once опцию."""
+
         class TestApp(App):
             pass
 
@@ -553,6 +575,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_deny_fallback(self) -> None:
         """deny без reject_once опции использует fallback."""
+
         class TestApp(App):
             pass
 
@@ -568,6 +591,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_always_allow(self) -> None:
         """always_allow выбирает allow_always опцию."""
+
         class TestApp(App):
             pass
 
@@ -590,6 +614,7 @@ class TestPermissionRequestPublicMethods:
 
     async def test_always_allow_fallback(self) -> None:
         """always_allow без allow_always опции использует fallback."""
+
         class TestApp(App):
             pass
 

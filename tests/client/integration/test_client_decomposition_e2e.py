@@ -79,14 +79,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         self.synced_messages.append((session_id, list(messages)))
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         self.synced_tool_calls.append((session_id, list(tool_calls)))
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         self.synced_streaming.append((session_id, text, is_streaming))
 
 
@@ -166,9 +162,7 @@ class TestSessionUpdateFlowE2E:
         )
 
     @pytest.fixture
-    def context(
-        self, session_state: ChatSessionState, sink: MockSink
-    ) -> ChatUpdateContext:
+    def context(self, session_state: ChatSessionState, sink: MockSink) -> ChatUpdateContext:
         """Создаёт ChatUpdateContext."""
         return ChatUpdateContext(
             session_id="test-session",
@@ -287,9 +281,7 @@ class TestChatPersistenceFlowE2E:
         """Создаёт FileChatPersistence."""
         return FileChatPersistence(temp_dir)
 
-    async def test_save_and_load_messages_flow(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_save_and_load_messages_flow(self, persistence: FileChatPersistence) -> None:
         """Тестирует полный поток сохранения и загрузки сообщений."""
         messages = [
             {"role": "user", "content": "Hello"},
@@ -320,9 +312,7 @@ class TestChatPersistenceFlowE2E:
         assert loaded_messages == messages
         assert loaded_updates == replay_updates
 
-    async def test_multiple_sessions_flow(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_multiple_sessions_flow(self, persistence: FileChatPersistence) -> None:
         """Тестирует поток с множественными сессиями."""
         session1_messages = [{"role": "user", "content": "Session 1"}]
         session2_messages = [{"role": "user", "content": "Session 2"}]
@@ -393,9 +383,7 @@ class TestFsCallbackFlowE2E:
 
         assert read_result == {"content": "Hello, World!"}
 
-    async def test_fs_read_nonexistent_file_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_fs_read_nonexistent_file_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует поток чтения несуществующего файла."""
         result = await dispatcher.dispatch(
             "fs/read_text_file",
@@ -406,9 +394,7 @@ class TestFsCallbackFlowE2E:
         assert "error" in result
         assert result["error"]["code"] == -32603
 
-    async def test_fs_path_traversal_protection_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_fs_path_traversal_protection_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует защиту от path traversal атак."""
         result = await dispatcher.dispatch(
             "fs/read_text_file",
@@ -492,9 +478,7 @@ class TestTerminalCallbackFlowE2E:
         ]
         return ClientRpcDispatcher(handlers)
 
-    async def test_terminal_lifecycle_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_terminal_lifecycle_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует полный жизненный цикл терминала."""
         create_result = await dispatcher.dispatch(
             "terminal/create",
@@ -532,9 +516,7 @@ class TestTerminalCallbackFlowE2E:
 
         assert "error" not in release_result
 
-    async def test_terminal_kill_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_terminal_kill_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует поток принудительного завершения терминала."""
         create_result = await dispatcher.dispatch(
             "terminal/create",
@@ -589,9 +571,7 @@ class TestErrorScenariosE2E:
         ]
         return ClientRpcDispatcher(handlers)
 
-    async def test_missing_required_parameter_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_missing_required_parameter_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует поток с отсутствующими обязательными параметрами."""
         result = await dispatcher.dispatch(
             "fs/read_text_file",
@@ -603,9 +583,7 @@ class TestErrorScenariosE2E:
         assert result["error"]["code"] == -32602
         assert "Missing required parameter" in result["error"]["message"]
 
-    async def test_unknown_rpc_method_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_unknown_rpc_method_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует поток с неизвестным методом RPC."""
         result = await dispatcher.dispatch(
             "unknown/method",
@@ -617,9 +595,7 @@ class TestErrorScenariosE2E:
         assert result["error"]["code"] == -32601
         assert "Method not found" in result["error"]["message"]
 
-    async def test_handler_exception_flow(
-        self, dispatcher: ClientRpcDispatcher
-    ) -> None:
+    async def test_handler_exception_flow(self, dispatcher: ClientRpcDispatcher) -> None:
         """Тестирует поток с исключением в обработчике."""
         result = await dispatcher.dispatch(
             "fs/read_text_file",

@@ -15,6 +15,7 @@ from codelab.server.tools.base import ToolRegistry
 @pytest.fixture
 def mock_llm_registry():
     from unittest.mock import AsyncMock
+
     registry = MagicMock(spec=LLMProviderRegistry)
     mock_provider = MagicMock(spec=LLMProvider)
     mock_provider.name = "openai"
@@ -46,9 +47,7 @@ class TestCreateAdapter:
     """Тесты создания LLMAdapter."""
 
     @pytest.mark.asyncio
-    async def test_creates_adapter_with_correct_model(
-        self, factory, mock_llm_registry
-    ):
+    async def test_creates_adapter_with_correct_model(self, factory, mock_llm_registry):
         """Adapter создаётся с провайдером из model_ref."""
         agent = ResolvedAgent(
             name="coder",
@@ -63,9 +62,7 @@ class TestCreateAdapter:
         assert adapter._name == "coder"
 
     @pytest.mark.asyncio
-    async def test_uses_default_model_if_empty(
-        self, factory, mock_llm_registry
-    ):
+    async def test_uses_default_model_if_empty(self, factory, mock_llm_registry):
         """Если agent.model пустой — используется default_model."""
         agent = ResolvedAgent(
             name="tester",
@@ -95,9 +92,7 @@ class TestCreateAdapter:
         assert mock_llm_registry.get_provider.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_different_agents_get_different_adapters(
-        self, factory, mock_llm_registry
-    ):
+    async def test_different_agents_get_different_adapters(self, factory, mock_llm_registry):
         """Разные агенты получают разные адаптеры."""
         agent1 = ResolvedAgent(
             name="coder",
@@ -145,9 +140,7 @@ class TestClearCache:
     """Тесты очистки кэша."""
 
     @pytest.mark.asyncio
-    async def test_clear_cache_removes_adapters(
-        self, factory, mock_llm_registry
-    ):
+    async def test_clear_cache_removes_adapters(self, factory, mock_llm_registry):
         """clear_cache удаляет все кэшированные адаптеры."""
         agent = ResolvedAgent(
             name="coder",
@@ -162,9 +155,7 @@ class TestClearCache:
         assert factory.get_adapter("coder") is None
 
     @pytest.mark.asyncio
-    async def test_clear_cache_allows_recreation(
-        self, factory, mock_llm_registry
-    ):
+    async def test_clear_cache_allows_recreation(self, factory, mock_llm_registry):
         """После clear_cache adapter создаётся заново."""
         agent = ResolvedAgent(
             name="coder",
@@ -183,9 +174,7 @@ class TestProviderResolution:
     """Тесты резолвинга провайдеров."""
 
     @pytest.mark.asyncio
-    async def test_fallback_to_first_provider(
-        self, factory, mock_llm_registry
-    ):
+    async def test_fallback_to_first_provider(self, factory, mock_llm_registry):
         """Если provider не найден — fallback на первый доступный."""
         from unittest.mock import AsyncMock
 
@@ -212,18 +201,14 @@ class TestProviderResolution:
         assert adapter is not None
 
     @pytest.mark.asyncio
-    async def test_raises_when_no_providers_registered(
-        self, mock_tool_registry, mock_tracer
-    ):
+    async def test_raises_when_no_providers_registered(self, mock_tool_registry, mock_tracer):
         """Если нет зарегистрированных провайдеров — ValueError."""
         from unittest.mock import AsyncMock
 
         from codelab.server.llm.errors import ProviderNotFoundError
 
         empty_registry = MagicMock(spec=LLMProviderRegistry)
-        empty_registry.get_provider = AsyncMock(
-            side_effect=ProviderNotFoundError("unknown")
-        )
+        empty_registry.get_provider = AsyncMock(side_effect=ProviderNotFoundError("unknown"))
         empty_registry.get_registered_providers.return_value = []
 
         factory = AgentFactory(

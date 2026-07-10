@@ -32,9 +32,7 @@ def mcp_resource_to_resource_link(resource: MCPResource) -> ResourceLinkContent:
     """
     annotations_dict = None
     if resource.annotations is not None:
-        annotations_dict = resource.annotations.model_dump(
-            by_alias=True, exclude_none=True
-        )
+        annotations_dict = resource.annotations.model_dump(by_alias=True, exclude_none=True)
 
     return ResourceLinkContent(
         uri=resource.uri,

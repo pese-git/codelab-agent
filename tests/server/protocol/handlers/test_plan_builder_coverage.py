@@ -86,9 +86,7 @@ class TestPlanBuilderBuildPlanUpdatesEdgeCases:
         directives.publish_plan = True
         directives.plan_entries = [{}]
 
-        with patch(
-            "codelab.server.protocol.handlers.plan_builder.logger"
-        ) as mock_logger:
+        with patch("codelab.server.protocol.handlers.plan_builder.logger") as mock_logger:
             updates = plan_builder.build_plan_updates(session, "sess_1", directives)
 
         assert updates == []

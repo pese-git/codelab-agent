@@ -27,9 +27,7 @@ class MockRpcHandler:
     def can_handle(self, method: str) -> bool:
         return method == self._method
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any] | None:
         self.handle_calls.append((rpc_id, params))
         return self._result
 
@@ -60,9 +58,7 @@ class TestACPTransportServiceWithDispatcher:
         return service
 
     @pytest.fixture
-    def service_without_dispatcher(
-        self, mock_transport: AsyncMock
-    ) -> ACPTransportService:
+    def service_without_dispatcher(self, mock_transport: AsyncMock) -> ACPTransportService:
         return ACPTransportService(mock_transport)
 
     def test_constructor_accepts_dispatcher(
@@ -71,9 +67,7 @@ class TestACPTransportServiceWithDispatcher:
         service = ACPTransportService(mock_transport, rpc_dispatcher=dispatcher)
         assert service._rpc_dispatcher is dispatcher
 
-    def test_constructor_works_without_dispatcher(
-        self, mock_transport: AsyncMock
-    ) -> None:
+    def test_constructor_works_without_dispatcher(self, mock_transport: AsyncMock) -> None:
         service = ACPTransportService(mock_transport)
         assert service._rpc_dispatcher is None
 
@@ -144,6 +138,7 @@ class TestACPTransportServiceWithDispatcher:
         mock_transport.send_str.assert_called_once()
         sent_data = mock_transport.send_str.call_args[0][0]
         import json
+
         parsed = json.loads(sent_data)
         assert "error" in parsed
         assert parsed["error"]["code"] == -32602

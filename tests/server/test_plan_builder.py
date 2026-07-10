@@ -218,7 +218,7 @@ class TestPlanBuilderNotification:
         plan_builder: PlanBuilder,
     ) -> None:
         """Строит notification с правильной структурой ACP.
-        
+
         Согласно протоколу ACP, формат должен быть:
         - sessionUpdate: "plan"
         - entries: список {content, priority, status}
@@ -241,7 +241,7 @@ class TestPlanBuilderNotification:
         plan_builder: PlanBuilder,
     ) -> None:
         """Строит plan с правильным форматом ACP.
-        
+
         Entries передаются напрямую без трансформации.
         """
         entries = [

@@ -97,9 +97,7 @@ class TestBuildActiveStrategyConfigSpec:
         )._build_strategy_spec()
 
         # Должны использоваться значения из strategy_metadata, а не из descriptor
-        hierarchical_option = next(
-            opt for opt in spec["options"] if opt["value"] == "hierarchical"
-        )
+        hierarchical_option = next(opt for opt in spec["options"] if opt["value"] == "hierarchical")
         assert hierarchical_option["name"] == "Hierarchical"  # из metadata
         assert hierarchical_option["description"] == "Primary delegates to subagents"  # из metadata
 

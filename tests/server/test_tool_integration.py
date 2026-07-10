@@ -62,13 +62,13 @@ class TestToolExecutionErrorHandling:
         fs_executor._bridge.read_file = AsyncMock(  # type: ignore
             side_effect=Exception("Permission denied")
         )
-        
+
         # Act
         result = await fs_executor.execute_read(
             session=session,
             path="/root/secret.txt",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -83,14 +83,14 @@ class TestToolExecutionErrorHandling:
         """Обработка ошибок при записи файла."""
         # Arrange
         fs_executor._bridge.write_file = AsyncMock(return_value=False)  # type: ignore
-        
+
         # Act
         result = await fs_executor.execute_write(
             session=session,
             path="/readonly/file.txt",
             content="content",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -106,13 +106,13 @@ class TestToolExecutionErrorHandling:
         term_executor._bridge.create_terminal = AsyncMock(  # type: ignore
             side_effect=Exception("Terminal creation failed")
         )
-        
+
         # Act
         result = await term_executor.execute_create(
             session=session,
             command="nonexistent_command",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
@@ -127,16 +127,17 @@ class TestToolExecutionErrorHandling:
         """Обработка ошибок при освобождении терминала."""
         # Arrange
         term_executor._bridge.release_terminal = AsyncMock(return_value=False)  # type: ignore
-        
+
         # Act
         result = await term_executor.execute_release(
             session=session,
             terminal_id="invalid_terminal",
         )
-        
+
         # Assert
         assert result.success is False
         assert result.error is not None
+
 
 class TestMultipleToolCallsSequence:
     """Тесты последовательного выполнения нескольких tool calls."""
@@ -177,19 +178,19 @@ class TestMultipleToolCallsSequence:
         # Arrange
         fs_executor._bridge.read_file = AsyncMock(return_value="content")  # type: ignore
         fs_executor._bridge.write_file = AsyncMock(return_value=False)  # type: ignore
-        
+
         # Act
         read_result = await fs_executor.execute_read(
             session=session,
             path="/tmp/test.txt",
         )
-        
+
         write_result = await fs_executor.execute_write(
             session=session,
             path="/readonly/test.txt",
             content="content",
         )
-        
+
         # Assert
         assert read_result.success is True
         assert write_result.success is False
@@ -205,26 +206,27 @@ class TestMultipleToolCallsSequence:
         # Arrange
         fs_executor._bridge.read_file = AsyncMock(return_value="content1")  # type: ignore
         initial_session_id = session.session_id
-        
+
         # Act
         result1 = await fs_executor.execute_read(
             session=session,
             path="/tmp/file1.txt",
         )
-        
+
         # Assert
         assert session.session_id == initial_session_id
         assert result1.success is True
-        
+
         # Act
         result2 = await fs_executor.execute_read(
             session=session,
             path="/tmp/file2.txt",
         )
-        
+
         # Assert
         assert session.session_id == initial_session_id
         assert result2.success is True
+
 
 class TestToolExecutionResultValidation:
     """Тесты валидации ToolExecutionResult."""
@@ -264,10 +266,10 @@ class TestToolExecutionResultValidation:
         """Поле success всегда boolean."""
         # Arrange
         fs_executor._bridge.read_file = AsyncMock(return_value="content")  # type: ignore
-        
+
         # Act
         result = await fs_executor.execute_read(session, "/tmp/file.txt")
-        
+
         # Assert
         assert isinstance(result.success, bool)
 
@@ -281,14 +283,14 @@ class TestToolExecutionResultValidation:
         # Arrange
         fs_executor._bridge.write_file = AsyncMock(return_value=True)  # type: ignore
         fs_executor._bridge.read_file = AsyncMock(return_value=None)  # type: ignore
-        
+
         # Act
         result = await fs_executor.execute_write(
             session,
             "/tmp/file.txt",
             "content",
         )
-        
+
         # Assert
         assert result.success is True
         assert result.output is None or isinstance(result.output, str)
@@ -302,11 +304,10 @@ class TestToolExecutionResultValidation:
         """Поле error только при ошибке."""
         # Arrange
         fs_executor._bridge.read_file = AsyncMock(return_value="content")  # type: ignore
-        
+
         # Act
         success_result = await fs_executor.execute_read(session, "/tmp/file.txt")
-        
+
         # Assert
         assert success_result.success is True
         assert success_result.error is None
-

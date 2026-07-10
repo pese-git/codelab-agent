@@ -216,9 +216,7 @@ class TestMCPManagerRoots:
         client2.set_roots.assert_called_once_with(roots)
 
     @pytest.mark.asyncio
-    async def test_set_roots_skips_not_ready_servers(
-        self, manager: MCPManager
-    ) -> None:
+    async def test_set_roots_skips_not_ready_servers(self, manager: MCPManager) -> None:
         """set_roots пропускает серверы, которые не готовы."""
         # Создаём mock клиенты с разными состояниями
         ready_client = MagicMock(spec=MCPClient)
@@ -252,9 +250,7 @@ class TestMCPManagerRoots:
 
         bad_client = MagicMock(spec=MCPClient)
         bad_client.state = MCPClientState.READY
-        bad_client.set_roots = AsyncMock(
-            side_effect=Exception("Connection failed")
-        )
+        bad_client.set_roots = AsyncMock(side_effect=Exception("Connection failed"))
 
         manager._clients = {"good": good_client, "bad": bad_client}
 

@@ -18,7 +18,7 @@ Example:
     ...     TracingDecorator,
     ...     ProjectStructureDecorator,
     ... )
-    >>> 
+    >>>
     >>> # Создаём chain of decorators
     >>> executor = mcp_executor
     >>> executor = TimeoutDecorator(executor, timeout=30.0)
@@ -26,7 +26,7 @@ Example:
     >>> executor = MetricsDecorator(executor)
     >>> executor = TracingDecorator(executor)
     >>> executor = ProjectStructureDecorator(executor)
-    >>> 
+    >>>
     >>> # Выполняем инструмент
     >>> result = await executor.execute(session, arguments)
 """

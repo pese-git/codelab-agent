@@ -1,6 +1,5 @@
 """Тесты для моделей данных LLM."""
 
-
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,

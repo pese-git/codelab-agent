@@ -102,9 +102,7 @@ class HistoryBuilder:
                     LLMMessage(
                         role="assistant",
                         content=str(
-                            entry_dict.get("text", "")
-                            or entry_dict.get("content", "")
-                            or ""
+                            entry_dict.get("text", "") or entry_dict.get("content", "") or ""
                         ),
                         tool_calls=llm_tool_calls if llm_tool_calls else None,
                     )

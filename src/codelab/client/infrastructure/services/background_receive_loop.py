@@ -132,9 +132,7 @@ class BackgroundReceiveLoop:
             )
         except TimeoutError:
             # Если не завершилась, отменяем
-            self._logger.warning(
-                "background_receive_loop_timeout_cancelling_task"
-            )
+            self._logger.warning("background_receive_loop_timeout_cancelling_task")
             self._task.cancel()
             try:
                 await self._task
@@ -263,9 +261,7 @@ class BackgroundReceiveLoop:
                             await self._queues.put_response(request_id, message)
                             self._messages_routed += 1
                         else:
-                            self._logger.error(
-                                "response_routing_missing_request_id"
-                            )
+                            self._logger.error("response_routing_missing_request_id")
 
                     elif routing_key.queue_type == "notification":
                         # Асинхронное уведомление

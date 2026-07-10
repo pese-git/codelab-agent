@@ -534,9 +534,7 @@ class SendPromptUseCase(UseCase):
                 raise ValueError(msg)
 
             # Извлекаем prompt capabilities из сессии (domain model)
-            capabilities = PromptCapabilities.from_server_capabilities(
-                session.server_capabilities
-            )
+            capabilities = PromptCapabilities.from_server_capabilities(session.server_capabilities)
 
             # Делегируем построение content blocks в domain service
             # ContentBuilder проверяет capabilities и формирует content blocks

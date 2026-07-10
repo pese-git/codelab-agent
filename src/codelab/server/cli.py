@@ -309,15 +309,9 @@ def run_server() -> None:
             connect=args.llm_timeout_connect
             if args.llm_timeout_connect is not None
             else current.connect,
-            read=args.llm_timeout_read
-            if args.llm_timeout_read is not None
-            else current.read,
-            write=args.llm_timeout_write
-            if args.llm_timeout_write is not None
-            else current.write,
-            pool=args.llm_timeout_pool
-            if args.llm_timeout_pool is not None
-            else current.pool,
+            read=args.llm_timeout_read if args.llm_timeout_read is not None else current.read,
+            write=args.llm_timeout_write if args.llm_timeout_write is not None else current.write,
+            pool=args.llm_timeout_pool if args.llm_timeout_pool is not None else current.pool,
         )
         logger.debug(
             "llm timeouts overridden via CLI",

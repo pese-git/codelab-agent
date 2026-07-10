@@ -29,17 +29,17 @@ if TYPE_CHECKING:
 
 class ToolPanel(Vertical):
     """Панель tool calls с MVVM интеграцией и прогресс-баром.
-    
+
     Обязательно требует ChatViewModel для работы. Подписывается на Observable свойства:
     - tool_calls: список активных tool calls
-    
+
     Включает ProgressBar для визуализации прогресса выполнения tool calls.
-    
+
     Примеры использования:
         >>> from codelab.client.presentation.chat_view_model import ChatViewModel
         >>> chat_vm = ChatViewModel(coordinator, event_bus)
         >>> tool_panel = ToolPanel(chat_vm)
-        >>> 
+        >>>
         >>> # Когда ChatViewModel обновляется, панель обновляется автоматически
         >>> chat_vm.tool_calls.value = [tool_call1, tool_call2]
     """
@@ -72,7 +72,7 @@ class ToolPanel(Vertical):
         terminal_vm: TerminalViewModel,
     ) -> None:
         """Инициализирует ToolPanel с обязательными ViewModels.
-        
+
         Args:
             chat_vm: ChatViewModel для управления tool calls
             terminal_vm: TerminalViewModel для управления output панелями
@@ -81,7 +81,7 @@ class ToolPanel(Vertical):
         self.chat_vm = chat_vm
         self._terminal_vm = terminal_vm
         self._tool_calls: dict[str, dict[str, Any]] = {}
-        
+
         # Подписываемся на изменения в ChatViewModel
         self.chat_vm.tool_calls.subscribe(self._on_tool_calls_changed)
 
@@ -110,7 +110,7 @@ class ToolPanel(Vertical):
 
     def render(self) -> Text:
         """Рендерит текстовое содержимое панели для совместимости с тестами.
-        
+
         Returns:
             Text объект с содержимым tool-list виджета
         """
@@ -133,7 +133,7 @@ class ToolPanel(Vertical):
 
     def _on_tool_calls_changed(self, tool_calls: list) -> None:
         """Обновить панель при изменении tool calls.
-        
+
         Args:
             tool_calls: Новый список tool calls
         """
@@ -142,7 +142,7 @@ class ToolPanel(Vertical):
             if isinstance(tc, dict):
                 # Преобразуем словарь в ToolCallUpdate для обработки
                 from codelab.client.messages import ToolCallCreatedUpdate, ToolCallStateUpdate
-                
+
                 session_update_type = tc.get("sessionUpdate", "tool_call_update")
                 try:
                     if session_update_type == "tool_call":
@@ -152,14 +152,14 @@ class ToolPanel(Vertical):
                     self.apply_update(update)
                 except Exception:
                     pass  # Не удалось преобразовать, пропускаем
-        
+
         # Маппинг статусов протокола на внутренние статусы ToolCallCard
         status_map = {
             "in_progress": "running",
             "completed": "success",
             "failed": "error",
         }
-        
+
         # Синхронизируем с ToolCallList
         try:
             tool_call_list = self._tool_call_list
@@ -174,14 +174,14 @@ class ToolPanel(Vertical):
                     tc_name = getattr(tc, "name", "unknown")
                     raw_status = getattr(tc, "status", "pending")
                 mapped_status = status_map.get(raw_status, raw_status)
-                
+
                 if tc_id not in tool_call_list._tool_calls:  # noqa: SLF001
                     tool_call_list.add_tool_call(tc_id, tc_name, {}, mapped_status)
                 else:
                     tool_call_list.update_status(tc_id, mapped_status)
         except Exception:
             pass  # ToolCallList ещё не смонтирован
-        
+
         # Обновляем отображение на основе новых tool calls
         if not tool_calls:
             try:
@@ -209,10 +209,10 @@ class ToolPanel(Vertical):
 
     def _get_tc_status(self, tc: dict | Any) -> str:
         """Извлекает статус из tool call (dict или объект).
-        
+
         Args:
             tc: Tool call (словарь или объект)
-            
+
         Returns:
             Статус tool call
         """
@@ -222,7 +222,7 @@ class ToolPanel(Vertical):
 
     def _update_progress_from_calls(self, tool_calls: list) -> None:
         """Обновляет прогресс-бар на основе статусов tool calls.
-        
+
         Args:
             tool_calls: Список tool calls
         """
@@ -232,22 +232,20 @@ class ToolPanel(Vertical):
 
         total = len(tool_calls)
         completed = sum(
-            1 for tc in tool_calls
+            1
+            for tc in tool_calls
             if self._get_tc_status(tc) in ("completed", "success", "error", "failed")
         )
-        
+
         # Показываем прогресс если есть активные tool calls
         self._update_progress_visibility(show=completed < total)
-        
+
         try:
             progress_bar = self._progress_bar
             progress_bar.set_steps(completed, total)
-            
+
             # Меняем цвет в зависимости от состояния
-            has_errors = any(
-                self._get_tc_status(tc) in ("error", "failed")
-                for tc in tool_calls
-            )
+            has_errors = any(self._get_tc_status(tc) in ("error", "failed") for tc in tool_calls)
             if has_errors:
                 progress_bar.set_variant(ProgressVariant.WARNING)
             elif completed == total:
@@ -259,7 +257,7 @@ class ToolPanel(Vertical):
 
     def _update_progress_visibility(self, *, show: bool) -> None:
         """Показывает или скрывает прогресс-бар.
-        
+
         Args:
             show: True чтобы показать, False чтобы скрыть
         """
@@ -319,7 +317,7 @@ class ToolPanel(Vertical):
             "terminal_id": terminal_id,
             "terminal_view": terminal_view,
         }
-        
+
         # Синхронизируем с ToolCallList
         # Маппинг статусов протокола на внутренние статусы ToolCallCard
         status_map = {
@@ -328,7 +326,7 @@ class ToolPanel(Vertical):
             "failed": "error",
         }
         mapped_status = status_map.get(status, status)
-        
+
         try:
             tool_call_list = self._tool_call_list
             if tool_call_id not in tool_call_list._tool_calls:  # noqa: SLF001
@@ -339,7 +337,7 @@ class ToolPanel(Vertical):
                 tool_call_list.update_status(tool_call_id, mapped_status)
         except Exception:
             pass  # ToolCallList ещё не смонтирован
-        
+
         try:
             self._tool_list.update(self._render_text())
             self._update_progress_from_tool_calls_dict()
@@ -354,17 +352,18 @@ class ToolPanel(Vertical):
 
         total = len(self._tool_calls)
         completed = sum(
-            1 for payload in self._tool_calls.values()
+            1
+            for payload in self._tool_calls.values()
             if payload.get("status") in ("completed", "success", "error", "failed")
         )
-        
+
         # Показываем прогресс если есть незавершённые tool calls
         self._update_progress_visibility(show=completed < total)
-        
+
         try:
             progress_bar = self._progress_bar
             progress_bar.set_steps(completed, total)
-            
+
             # Меняем цвет в зависимости от состояния
             has_errors = any(
                 payload.get("status") in ("error", "failed")

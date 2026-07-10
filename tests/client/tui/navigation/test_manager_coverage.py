@@ -69,9 +69,7 @@ class TestNavigationManagerShowScreen:
         manager = NavigationManager(app)
         screen = _TestScreen()
 
-        with patch.object(
-            manager._queue, "enqueue", new_callable=AsyncMock
-        ) as enqueue_mock:
+        with patch.object(manager._queue, "enqueue", new_callable=AsyncMock) as enqueue_mock:
             enqueue_mock.side_effect = OperationQueueError("fail")
 
             with pytest.raises(NavigationError):
@@ -118,9 +116,7 @@ class TestNavigationManagerHideScreen:
         app = MagicMock()
         manager = NavigationManager(app)
 
-        with patch.object(
-            manager._queue, "enqueue", new_callable=AsyncMock
-        ) as enqueue_mock:
+        with patch.object(manager._queue, "enqueue", new_callable=AsyncMock) as enqueue_mock:
             enqueue_mock.side_effect = OperationQueueError("fail")
 
             with pytest.raises(NavigationError):
@@ -158,9 +154,7 @@ class TestNavigationManagerHideTopScreen:
         app = MagicMock()
         manager = NavigationManager(app)
 
-        with patch.object(
-            manager._queue, "enqueue", new_callable=AsyncMock
-        ) as enqueue_mock:
+        with patch.object(manager._queue, "enqueue", new_callable=AsyncMock) as enqueue_mock:
             enqueue_mock.side_effect = OperationQueueError("fail")
 
             with pytest.raises(NavigationError):
@@ -220,9 +214,7 @@ class TestNavigationManagerReset:
         app = MagicMock()
         manager = NavigationManager(app)
 
-        with patch.object(
-            manager._queue, "enqueue", new_callable=AsyncMock
-        ) as enqueue_mock:
+        with patch.object(manager._queue, "enqueue", new_callable=AsyncMock) as enqueue_mock:
             enqueue_mock.side_effect = OperationQueueError("fail")
 
             with pytest.raises(NavigationError):

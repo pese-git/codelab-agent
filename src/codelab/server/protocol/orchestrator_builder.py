@@ -102,15 +102,17 @@ class PromptOrchestratorBuilder:
         client_rpc_handler = ClientRPCHandler()
 
         # Собираем pipeline — используем готовый LLMLoopStage из DI
-        pipeline = PromptPipeline(stages=[
-            ValidationStage(state_manager),
-            SlashCommandStage(self._slash_router),
-            PlanBuildingStage(plan_builder),
-            TurnLifecycleStage(turn_lifecycle_manager, action="open"),
-            DirectivesStage(self._tool_registry, permission_manager),
-            self._llm_loop_stage,
-            TurnLifecycleStage(turn_lifecycle_manager, action="close"),
-        ])
+        pipeline = PromptPipeline(
+            stages=[
+                ValidationStage(state_manager),
+                SlashCommandStage(self._slash_router),
+                PlanBuildingStage(plan_builder),
+                TurnLifecycleStage(turn_lifecycle_manager, action="open"),
+                DirectivesStage(self._tool_registry, permission_manager),
+                self._llm_loop_stage,
+                TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+            ]
+        )
 
         # Финальный объект
         return PromptOrchestrator(

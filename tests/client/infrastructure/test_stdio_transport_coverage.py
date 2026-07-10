@@ -326,9 +326,7 @@ class TestStdioClientTransportReaders:
 
         mock_process = MagicMock()
         mock_process.stdout = AsyncMock()
-        mock_process.stdout.readline = AsyncMock(
-            side_effect=[b'{"id": 1}\n', b"", b""]
-        )
+        mock_process.stdout.readline = AsyncMock(side_effect=[b'{"id": 1}\n', b"", b""])
         transport._process = mock_process
 
         await transport._stdout_reader()
@@ -420,9 +418,7 @@ class TestStdioClientTransportReaders:
 
         mock_process = MagicMock()
         mock_process.stderr = AsyncMock()
-        mock_process.stderr.readline = AsyncMock(
-            side_effect=[b"agent warning\n", b"", b""]
-        )
+        mock_process.stderr.readline = AsyncMock(side_effect=[b"agent warning\n", b"", b""])
         transport._process = mock_process
 
         await transport._stderr_reader()

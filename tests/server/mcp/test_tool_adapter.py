@@ -351,9 +351,7 @@ class TestCreateExecutor:
         mock_client: MagicMock,
     ) -> None:
         """Executor обрабатывает MCPToolCallError."""
-        mock_client.call_tool = AsyncMock(
-            side_effect=MCPToolCallError("Tool not found")
-        )
+        mock_client.call_tool = AsyncMock(side_effect=MCPToolCallError("Tool not found"))
 
         executor = await adapter.create_executor("nonexistent")
         result = await executor()

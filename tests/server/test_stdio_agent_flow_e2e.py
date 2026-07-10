@@ -28,6 +28,7 @@ def tmp_cwd(tmp_path: Path) -> Path:
 # Тесты
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_multi_turn_chat(tmp_cwd: Path) -> None:
     """Многоходовой чат: два промпта в одной сессии, разные ответы."""
@@ -75,10 +76,14 @@ async def test_fs_write_flow(tmp_cwd: Path) -> None:
             {
                 "when_user": ["запиши", "создай файл"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_write_text_file",
-                         "arguments": {"path": "notes.txt", "content": "привет"}}
-                    ]},
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "fs_write_text_file",
+                                "arguments": {"path": "notes.txt", "content": "привет"},
+                            }
+                        ]
+                    },
                     {"text": "Файл записан."},
                 ],
             },
@@ -134,18 +139,14 @@ async def test_plan_mode_allows_read_rejects_execute(tmp_cwd: Path) -> None:
             {
                 "when_user": ["прочти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_read_text_file", "arguments": {"path": "R.md"}}
-                    ]},
+                    {"tool_calls": [{"name": "fs_read_text_file", "arguments": {"path": "R.md"}}]},
                     {"text": "Прочитал файл."},
                 ],
             },
             {
                 "when_user": ["запусти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "terminal_create", "arguments": {"command": "ls"}}
-                    ]},
+                    {"tool_calls": [{"name": "terminal_create", "arguments": {"command": "ls"}}]},
                     {"text": "Понял, в plan-режиме выполнить нельзя."},
                 ],
             },
@@ -180,9 +181,7 @@ async def test_tool_error_is_handled(tmp_cwd: Path) -> None:
             session_id,
             "прочти missing.md",
             10,
-            responders={
-                "fs/read_text_file": lambda p: h.RpcError(-32000, "file not found")
-            },
+            responders={"fs/read_text_file": lambda p: h.RpcError(-32000, "file not found")},
         )
 
         assert resp["result"]["stopReason"] == "end_turn"
@@ -251,11 +250,13 @@ async def test_notifications_delivered_before_final_response(tmp_cwd: Path) -> N
         await h.set_mode(t, session_id, "bypass", 3)
 
         # Отправляем prompt и читаем сырой поток, фиксируя порядок.
-        await t.send(h.request(
-            "session/prompt",
-            {"sessionId": session_id, "prompt": [{"type": "text", "text": "запусти ls -ahl"}]},
-            10,
-        ))
+        await t.send(
+            h.request(
+                "session/prompt",
+                {"sessionId": session_id, "prompt": [{"type": "text", "text": "запусти ls -ahl"}]},
+                10,
+            )
+        )
         saw_update = False
         response_index = None
         seq = 0

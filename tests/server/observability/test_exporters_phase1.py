@@ -185,8 +185,10 @@ class TestFileSpanExporterPhase1:
 
         # Устанавливаем старое время модификации
         import time
+
         old_time = time.time() - (31 * 24 * 60 * 60)  # 31 день назад
         import os
+
         os.utime(old_file, (old_time, old_time))
 
         # Создаём новый файл
@@ -263,8 +265,10 @@ class TestFileEventExporterPhase1:
 
         # Устанавливаем старое время модификации
         import time
+
         old_time = time.time() - (31 * 24 * 60 * 60)  # 31 день назад
         import os
+
         os.utime(old_file, (old_time, old_time))
 
         # Создаём новый файл
@@ -315,8 +319,10 @@ class TestFileMetricsExporterPhase1:
 
         # Устанавливаем старое время модификации
         import time
+
         old_time = time.time() - (31 * 24 * 60 * 60)  # 31 день назад
         import os
+
         os.utime(old_file, (old_time, old_time))
 
         # Создаём новый файл

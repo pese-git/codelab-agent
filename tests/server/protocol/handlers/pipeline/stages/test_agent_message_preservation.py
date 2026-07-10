@@ -24,7 +24,7 @@ class TestAgentMessageChunkPreservation:
             cwd="/tmp",
             mcp_servers=[],
         )
-        
+
         mock_strategy = AsyncMock()
         mock_response = AgentResponse(
             text="Hello from agent!",
@@ -33,9 +33,9 @@ class TestAgentMessageChunkPreservation:
         )
         mock_strategy.execute.return_value = mock_response
         mock_strategy.continue_execution.return_value = mock_response
-        
+
         replay_manager = ReplayManager()
-        
+
         loop = AgentLoop(
             strategy=mock_strategy,
             tool_registry=MagicMock(),
@@ -49,25 +49,26 @@ class TestAgentMessageChunkPreservation:
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
-        
+
         # Act
         result = await loop.run(
             session=session,
             session_id="test_session",
             initial_prompt="Hello",
         )
-        
+
         # Assert
         assert result.stop_reason.value == "end_turn"
         assert len(session.events_history) > 0
-        
+
         # Проверяем, что agent_message_chunk сохранён
         agent_chunks = [
-            event for event in session.events_history
+            event
+            for event in session.events_history
             if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
         assert len(agent_chunks) > 0
-        
+
         # Проверяем содержимое
         chunk_content = agent_chunks[0]["update"]["content"]
         assert chunk_content["type"] == "text"
@@ -82,14 +83,14 @@ class TestAgentMessageChunkPreservation:
             cwd="/tmp",
             mcp_servers=[],
         )
-        
+
         mock_strategy = AsyncMock()
         # Первый response с tool_calls, чтобы цикл продолжился
         mock_tool_call = MagicMock()
         mock_tool_call.id = "call_1"
         mock_tool_call.name = "test_tool"
         mock_tool_call.arguments = {}
-        
+
         responses = [
             AgentResponse(
                 text="First response",
@@ -100,7 +101,7 @@ class TestAgentMessageChunkPreservation:
         ]
         mock_strategy.execute.return_value = responses[0]
         mock_strategy.continue_execution.side_effect = responses[1:]
-        
+
         # Mock tool registry для обработки tool call
         mock_tool_registry = MagicMock()
         mock_tool_registry.execute_tool = AsyncMock(return_value={"result": "ok"})
@@ -108,9 +109,9 @@ class TestAgentMessageChunkPreservation:
             requires_permission=False,
             kind="other",
         )
-        
+
         replay_manager = ReplayManager()
-        
+
         loop = AgentLoop(
             strategy=mock_strategy,
             tool_registry=mock_tool_registry,
@@ -124,23 +125,24 @@ class TestAgentMessageChunkPreservation:
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
-        
+
         # Act
         await loop.run(
             session=session,
             session_id="test_session",
             initial_prompt="Hello",
         )
-        
+
         # Assert
         agent_chunks = [
-            event for event in session.events_history
+            event
+            for event in session.events_history
             if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
-        
+
         # Должно быть 2 chunk (по одному на каждый response)
         assert len(agent_chunks) == 2
-        
+
         # Проверяем порядок
         texts = [chunk["update"]["content"]["text"] for chunk in agent_chunks]
         assert texts[0] == "First response"

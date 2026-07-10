@@ -153,9 +153,7 @@ class TestMCPManagerCallTool:
         client.config = MCPServerConfig(name=server_id, command="cmd")
 
         adapter = MagicMock(spec=MCPToolAdapter)
-        adapter.call_tool = AsyncMock(
-            return_value=ToolExecutionResult(success=True, output="ok")
-        )
+        adapter.call_tool = AsyncMock(return_value=ToolExecutionResult(success=True, output="ok"))
 
         manager._clients[server_id] = client
         manager._adapters[server_id] = adapter
@@ -518,9 +516,7 @@ class TestMCPManagerResources:
         """get_all_resource_templates обрабатывает ошибки клиента."""
         manager = MCPManager("session_123")
         client = self._create_resource_client(resources_cap={"listChanged": True})
-        client.list_resource_templates = AsyncMock(
-            side_effect=MCPClientError("templates failed")
-        )
+        client.list_resource_templates = AsyncMock(side_effect=MCPClientError("templates failed"))
         manager._clients["server"] = client
 
         result = await manager.get_all_resource_templates()
@@ -787,9 +783,7 @@ class TestMCPManagerHealthCheck:
         """Цикл health check завершается если клиент удалён."""
         manager = MCPManager("session_123")
 
-        task = asyncio.create_task(
-            manager._health_check_loop("server", interval=0.01)
-        )
+        task = asyncio.create_task(manager._health_check_loop("server", interval=0.01))
         result = await asyncio.wait_for(task, timeout=1.0)
 
         assert result is None
@@ -811,9 +805,7 @@ class TestMCPManagerHealthCheck:
 
         manager._clients["server"] = RaisingClient()  # type: ignore[assignment]
 
-        task = asyncio.create_task(
-            manager._health_check_loop("server", interval=0.01)
-        )
+        task = asyncio.create_task(manager._health_check_loop("server", interval=0.01))
         await asyncio.sleep(0.05)
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

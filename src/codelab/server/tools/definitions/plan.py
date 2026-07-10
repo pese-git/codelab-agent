@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class PlanToolDefinitions:
     """Фабрика для создания определения инструмента update_plan.
-    
+
     Инструмент не требует разрешений пользователя, так как обновление
     плана является внутренней операцией агента.
     """
@@ -27,11 +27,11 @@ class PlanToolDefinitions:
     @staticmethod
     def update_plan() -> ToolDefinition:
         """Создать определение для инструмента update_plan.
-        
+
         Позволяет LLM декларативно обновлять план выполнения задач.
         План отображается в UI клиента и помогает пользователю понять
         текущее состояние выполнения.
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -84,14 +84,15 @@ class PlanToolDefinitions:
         executor: PlanToolExecutor,
     ) -> None:
         """Зарегистрировать все plan инструменты в реестре.
-        
+
         Регистрирует:
         - update_plan с executor для обновления плана
-        
+
         Args:
             tool_registry: Реестр инструментов (SimpleToolRegistry)
             executor: Executor для выполнения операций с планом
         """
+
         # Создать обработчик для update_plan
         async def plan_handler(session: SessionState, **arguments: Any) -> Any:
             """Обработчик для update_plan."""

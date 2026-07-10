@@ -19,15 +19,21 @@ class TestExtractPromptDirectivesStopReasons:
     """Тесты парсинга forced_stop_reason из slash-команд."""
 
     _DEFAULT_TOOL_KINDS = {
-        "read", "edit", "delete", "move", "search",
-        "execute", "think", "fetch", "switch_mode", "other",
+        "read",
+        "edit",
+        "delete",
+        "move",
+        "search",
+        "execute",
+        "think",
+        "fetch",
+        "switch_mode",
+        "other",
     }
 
     def test_stop_max_tokens(self) -> None:
         """Slash-команда /stop-max-tokens устанавливает forced_stop_reason."""
-        directives = extract_prompt_directives(
-            "/stop-max-tokens", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/stop-max-tokens", self._DEFAULT_TOOL_KINDS)
         assert directives.forced_stop_reason == "max_tokens"
 
     def test_stop_max_tokens_with_additional_text(self) -> None:
@@ -39,9 +45,7 @@ class TestExtractPromptDirectivesStopReasons:
 
     def test_stop_max_turn_requests(self) -> None:
         """Slash-команда /stop-max-turn-requests устанавливает forced_stop_reason."""
-        directives = extract_prompt_directives(
-            "/stop-max-turn-requests", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/stop-max-turn-requests", self._DEFAULT_TOOL_KINDS)
         assert directives.forced_stop_reason == "max_turn_requests"
 
     def test_stop_max_turn_requests_with_additional_text(self) -> None:
@@ -53,9 +57,7 @@ class TestExtractPromptDirectivesStopReasons:
 
     def test_refuse(self) -> None:
         """Slash-команда /refuse устанавливает forced_stop_reason."""
-        directives = extract_prompt_directives(
-            "/refuse", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/refuse", self._DEFAULT_TOOL_KINDS)
         assert directives.forced_stop_reason == "refusal"
 
     def test_refuse_with_additional_text(self) -> None:
@@ -67,9 +69,7 @@ class TestExtractPromptDirectivesStopReasons:
 
     def test_no_forced_stop_reason_for_normal_prompt(self) -> None:
         """Обычный промпт не устанавливает forced_stop_reason."""
-        directives = extract_prompt_directives(
-            "Hello, how are you?", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("Hello, how are you?", self._DEFAULT_TOOL_KINDS)
         assert directives.forced_stop_reason is None
 
     def test_no_forced_stop_reason_for_other_slash_commands(self) -> None:

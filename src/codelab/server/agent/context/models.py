@@ -160,11 +160,7 @@ class ContextSnapshot:
 
     def diff(self, other: ContextSnapshot) -> list[str]:
         """source_id источников с изменившимся отпечатком."""
-        return [
-            sid
-            for sid, fp in other.fingerprints.items()
-            if self.fingerprints.get(sid) != fp
-        ]
+        return [sid for sid, fp in other.fingerprints.items() if self.fingerprints.get(sid) != fp]
 
 
 @dataclass(frozen=True)

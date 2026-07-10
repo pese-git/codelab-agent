@@ -45,10 +45,7 @@ class TestContentExtractor:
     async def test_extract_without_content_creates_fallback_from_output(self):
         """Извлечение из result без content создает fallback из output."""
         extractor = ContentExtractor()
-        result = ToolExecutionResult(
-            success=True,
-            output="Plain output text"
-        )
+        result = ToolExecutionResult(success=True, output="Plain output text")
 
         extracted = await extractor.extract_from_result("tc4", result)
 
@@ -61,10 +58,7 @@ class TestContentExtractor:
     async def test_extract_without_content_creates_fallback_from_error(self):
         """Извлечение из failed result без content создает fallback из error."""
         extractor = ContentExtractor()
-        result = ToolExecutionResult(
-            success=False,
-            error="Execution error occurred"
-        )
+        result = ToolExecutionResult(success=False, error="Execution error occurred")
 
         extracted = await extractor.extract_from_result("tc5", result)
 
@@ -96,16 +90,16 @@ class TestContentExtractor:
                 ToolExecutionResult(
                     success=True,
                     output="A",
-                )
+                ),
             ),
             (
                 "tc2",
                 ToolExecutionResult(
                     success=True,
                     output="B",
-                )
+                ),
             ),
-            ("tc3", ToolExecutionResult(success=True, output="3"))
+            ("tc3", ToolExecutionResult(success=True, output="3")),
         ]
 
         extracted = await extractor.extract_batch(results)
@@ -162,7 +156,7 @@ class TestContentValidator:
         item = {
             "type": "text",
             "text": "Hello",
-            "annotations": [{"type": "strong", "start": 0, "end": 5}]
+            "annotations": [{"type": "strong", "start": 0, "end": 5}],
         }
 
         is_valid, error = validator.validate_content_item(item)
@@ -186,7 +180,7 @@ class TestContentValidator:
             "data": "base64...",
             "mimeType": "image/png",
             "width": 100,
-            "height": 200
+            "height": 200,
         }
 
         is_valid, error = validator.validate_content_item(item)
@@ -205,10 +199,7 @@ class TestContentValidator:
     def test_validate_embedded_content_valid(self):
         """Валидация валидного embedded content."""
         validator = ContentValidator()
-        item = {
-            "type": "embedded",
-            "content": {"type": "text", "text": "Embedded"}
-        }
+        item = {"type": "embedded", "content": {"type": "text", "text": "Embedded"}}
 
         is_valid, error = validator.validate_content_item(item)
 
@@ -279,7 +270,7 @@ class TestContentValidator:
         items = [
             {"type": "text", "text": "A"},
             {"type": "diff", "path": "f.py", "newText": "..."},
-            {"type": "image", "data": "...", "mimeType": "image/png"}
+            {"type": "image", "data": "...", "mimeType": "image/png"},
         ]
 
         all_valid, errors = validator.validate_content_list(items)
@@ -293,7 +284,7 @@ class TestContentValidator:
         items = [
             {"type": "text", "text": "Valid"},
             {"type": "invalid"},  # Missing type fields
-            {"type": "diff", "path": "f.py"}  # Missing newText field
+            {"type": "diff", "path": "f.py"},  # Missing newText field
         ]
 
         all_valid, errors = validator.validate_content_list(items)
@@ -308,7 +299,7 @@ class TestContentValidator:
             "type": "text",
             "text": "Hello",
             "unknown_field": "should be removed",
-            "another_unknown": 123
+            "another_unknown": 123,
         }
 
         sanitized = validator.sanitize_content_item(item)
@@ -321,11 +312,7 @@ class TestContentValidator:
     def test_sanitize_keeps_optional_fields(self):
         """Sanitization сохраняет опциональные поля."""
         validator = ContentValidator()
-        item = {
-            "type": "text",
-            "text": "Hello",
-            "annotations": [{"type": "strong"}]
-        }
+        item = {"type": "text", "text": "Hello", "annotations": [{"type": "strong"}]}
 
         sanitized = validator.sanitize_content_item(item)
 
@@ -342,7 +329,7 @@ class TestContentValidator:
             "width": 100,
             "height": 200,
             "alt_text": "Description",
-            "unknown": "value"
+            "unknown": "value",
         }
 
         sanitized = validator.sanitize_content_item(item)
@@ -355,11 +342,7 @@ class TestContentValidator:
     def test_sanitize_preserves_non_restricted_types(self):
         """Sanitization не удаляет поля для неизвестных типов."""
         validator = ContentValidator()
-        item = {
-            "type": "unknown",
-            "field1": "value1",
-            "field2": "value2"
-        }
+        item = {"type": "unknown", "field1": "value1", "field2": "value2"}
 
         sanitized = validator.sanitize_content_item(item)
 
@@ -373,9 +356,7 @@ class TestPromptOrchestratorContentIntegration:
     async def test_extracted_content_dataclass(self):
         """Проверка ExtractedContent dataclass."""
         content = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": "test"}],
-            has_content=True
+            tool_call_id="tc1", content_items=[{"type": "text", "text": "test"}], has_content=True
         )
 
         assert content.tool_call_id == "tc1"

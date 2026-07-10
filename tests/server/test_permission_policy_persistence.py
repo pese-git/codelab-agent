@@ -31,6 +31,7 @@ class TestPermissionPolicyPersistence:
         yield Path(tmpdir)
         # Cleanup
         import shutil
+
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     @pytest_asyncio.fixture
@@ -182,18 +183,27 @@ class TestPermissionPolicyPersistence:
 
         # Assert - Проверяем что resolve_remembered_permission_decision работает
         # для каждого tool kind
-        assert await resolve_remembered_permission_decision(
-            session=loaded_session,
-            tool_kind="read",
-        ) == "allow"
-        assert await resolve_remembered_permission_decision(
-            session=loaded_session,
-            tool_kind="write",
-        ) == "reject"
-        assert await resolve_remembered_permission_decision(
-            session=loaded_session,
-            tool_kind="execute",
-        ) == "allow"
+        assert (
+            await resolve_remembered_permission_decision(
+                session=loaded_session,
+                tool_kind="read",
+            )
+            == "allow"
+        )
+        assert (
+            await resolve_remembered_permission_decision(
+                session=loaded_session,
+                tool_kind="write",
+            )
+            == "reject"
+        )
+        assert (
+            await resolve_remembered_permission_decision(
+                session=loaded_session,
+                tool_kind="execute",
+            )
+            == "allow"
+        )
 
     @pytest.mark.asyncio
     async def test_unknown_policy_defaults_to_ask(

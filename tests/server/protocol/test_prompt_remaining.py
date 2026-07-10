@@ -187,17 +187,13 @@ class TestExtractPromptDirectivesStopReasons:
 
     def test_stop_max_tokens(self) -> None:
         """/stop-max-tokens устанавливает forced_stop_reason=max_tokens."""
-        directives = extract_prompt_directives(
-            "/stop-max-tokens", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/stop-max-tokens", self._DEFAULT_TOOL_KINDS)
 
         assert directives.forced_stop_reason == "max_tokens"
 
     def test_stop_max_turn_requests(self) -> None:
         """/stop-max-turn-requests устанавливает forced_stop_reason=max_turn_requests."""
-        directives = extract_prompt_directives(
-            "/stop-max-turn-requests", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/stop-max-turn-requests", self._DEFAULT_TOOL_KINDS)
 
         assert directives.forced_stop_reason == "max_turn_requests"
 

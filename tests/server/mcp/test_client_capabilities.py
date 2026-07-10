@@ -27,15 +27,17 @@ class TestMCPClientCapabilitiesCheck:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "tools": [
-                {
-                    "name": "test_tool",
-                    "description": "A test tool",
-                    "inputSchema": {"type": "object", "properties": {}},
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "tools": [
+                    {
+                        "name": "test_tool",
+                        "description": "A test tool",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
         # Пустой dict — tools поддерживается
         client._capabilities = MCPCapabilities(tools={})
@@ -95,15 +97,17 @@ class TestMCPClientCapabilitiesCheck:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "resources": [
-                {
-                    "uri": "file:///tmp/test.txt",
-                    "name": "test.txt",
-                    "mimeType": "text/plain",
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "resources": [
+                    {
+                        "uri": "file:///tmp/test.txt",
+                        "name": "test.txt",
+                        "mimeType": "text/plain",
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
         client._capabilities = MCPCapabilities(resources={})
 
@@ -136,14 +140,16 @@ class TestMCPClientCapabilitiesCheck:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "prompts": [
-                {
-                    "name": "test_prompt",
-                    "description": "A test prompt",
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "prompts": [
+                    {
+                        "name": "test_prompt",
+                        "description": "A test prompt",
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
         client._capabilities = MCPCapabilities(prompts={})
 

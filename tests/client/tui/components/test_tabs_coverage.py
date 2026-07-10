@@ -71,6 +71,7 @@ class TestTab:
 
     async def test_compose_with_icon(self) -> None:
         """compose с иконкой создаёт три виджета."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -87,6 +88,7 @@ class TestTab:
 
     async def test_compose_without_icon(self) -> None:
         """compose без иконки создаёт label и кнопку."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -185,6 +187,7 @@ class TestTabBar:
 
     async def test_add_tab(self) -> None:
         """add_tab добавляет таб и активирует его."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -200,6 +203,7 @@ class TestTabBar:
 
     async def test_add_tab_not_activate(self) -> None:
         """add_tab без активации не меняет активный таб."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -213,6 +217,7 @@ class TestTabBar:
 
     async def test_remove_tab(self) -> None:
         """remove_tab удаляет таб."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -229,6 +234,7 @@ class TestTabBar:
 
     async def test_remove_active_tab_activates_neighbor(self) -> None:
         """Удаление активного таба активирует соседний."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -243,6 +249,7 @@ class TestTabBar:
 
     async def test_remove_last_tab_clears_active(self) -> None:
         """Удаление последнего таба сбрасывает active_tab."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -261,6 +268,7 @@ class TestTabBar:
 
     async def test_activate_tab(self) -> None:
         """activate_tab переключает активный таб."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -283,6 +291,7 @@ class TestTabBar:
 
     async def test_on_tab_clicked(self) -> None:
         """Клик на таб активирует его."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -297,6 +306,7 @@ class TestTabBar:
 
     async def test_on_tab_close_requested(self) -> None:
         """Запрос закрытия удаляет таб."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -310,6 +320,7 @@ class TestTabBar:
 
     async def test_action_previous_tab(self) -> None:
         """Предыдущий таб переключает активный."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -337,6 +348,7 @@ class TestTabBar:
 
     async def test_action_next_tab(self) -> None:
         """Следующий таб переключает активный."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -368,6 +380,7 @@ class TestTabPanel:
 
     async def test_add_panel(self) -> None:
         """add_panel добавляет контент."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -381,6 +394,7 @@ class TestTabPanel:
 
     async def test_add_panel_active(self) -> None:
         """add_panel активирует панель если active_tab совпадает."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -394,6 +408,7 @@ class TestTabPanel:
 
     async def test_remove_panel(self) -> None:
         """remove_panel удаляет панель."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -413,6 +428,7 @@ class TestTabPanel:
 
     async def test_watch_active_tab(self) -> None:
         """watch_active_tab переключает CSS класс."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -452,6 +468,7 @@ class TestTabbedContainer:
 
     async def test_add_tab(self) -> None:
         """add_tab добавляет таб и панель."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -466,6 +483,7 @@ class TestTabbedContainer:
 
     async def test_add_tab_not_activate(self) -> None:
         """add_tab с activate=False не активирует панель."""
+
         class TestApp(ThemedApp):
             pass
 
@@ -479,6 +497,7 @@ class TestTabbedContainer:
 
     async def test_remove_tab(self) -> None:
         """remove_tab удаляет таб и панель."""
+
         class TestApp(ThemedApp):
             pass
 

@@ -39,20 +39,72 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 BINARY_EXTENSIONS = {
-    ".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".obj", ".o",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-    ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv",
-    ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".db", ".sqlite", ".sqlite3", ".mdb",
+    ".pyc",
+    ".pyo",
+    ".so",
+    ".dll",
+    ".exe",
+    ".bin",
+    ".obj",
+    ".o",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".webp",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".rar",
+    ".7z",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".mdb",
 }
 
 IGNORE_DIRS = {
-    ".git", "__pycache__", "venv", ".venv", "node_modules",
-    ".idea", ".vscode", "build", "dist", ".dart_tool",
-    ".fvm", "android", "ios", "macos", "linux", "windows", "web",
-    ".DS_Store", ".gradle", ".codelab", ".cocoindex_code",
+    ".git",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "node_modules",
+    ".idea",
+    ".vscode",
+    "build",
+    "dist",
+    ".dart_tool",
+    ".fvm",
+    "android",
+    "ios",
+    "macos",
+    "linux",
+    "windows",
+    "web",
+    ".DS_Store",
+    ".gradle",
+    ".codelab",
+    ".cocoindex_code",
 }
 
 
@@ -128,7 +180,7 @@ class ACPContextGatherer(ContextGatherer):
 
         # Этап 1: Сбор кандидатов из target_modules с адаптивным поиском
         candidates: list[str] = []
-        
+
         # Получаем корень проекта для нормализации путей
         project_root = getattr(session, "cwd", None)
 
@@ -136,7 +188,7 @@ class ACPContextGatherer(ContextGatherer):
             for module in profile.target_modules:
                 # Нормализуем путь модуля
                 normalized_module = self._normalize_path(module, project_root)
-                
+
                 # Проверяем существование файла в реальной структуре
                 if normalized_module in project_files:
                     candidates.append(normalized_module)
@@ -163,15 +215,15 @@ class ACPContextGatherer(ContextGatherer):
         # Этап 2: Поиск файлов по поисковым терминам в реальной структуре
         search_start = time.time()
         search_results_by_term: dict[str, list[str]] = {}
-        
+
         for term in profile.search_terms[:5]:
             term_start = time.time()
             search_results = await self._search_in_files(term, project_files, session)
             term_ms = (time.time() - term_start) * 1000
-            
+
             search_results_by_term[term] = search_results
             candidates.extend(search_results)
-            
+
             logger.debug(
                 "context.gather.search.term",
                 session_id=self._session_id,
@@ -256,7 +308,7 @@ class ACPContextGatherer(ContextGatherer):
             # Парсинг импортов и добавление в граф зависимостей
             imports = self._dependency_graph.parse_imports(content)
             self._dependency_graph.add_file(path, imports)
-            
+
             logger.debug(
                 "context.gather.file.processed",
                 session_id=self._session_id,
@@ -294,7 +346,7 @@ class ACPContextGatherer(ContextGatherer):
         # Этап 5: Добавление зависимых файлов
         dependents_start = time.time()
         dependent_files = self._get_dependents(items)
-        
+
         logger.debug(
             "context.gather.dependents.found",
             session_id=self._session_id,
@@ -356,12 +408,15 @@ class ACPContextGatherer(ContextGatherer):
         )
 
         if span is not None and self._tracer is not None:
-            self._tracer.end_span(span, attributes={
-                "task_type": profile.task_type,
-                "search_terms": profile.search_terms,
-                "candidate_files": len(unique_candidates),
-                "selected_files": len(items),
-            })
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "task_type": profile.task_type,
+                    "search_terms": profile.search_terms,
+                    "candidate_files": len(unique_candidates),
+                    "selected_files": len(items),
+                },
+            )
 
         return items
 
@@ -454,8 +509,7 @@ class ACPContextGatherer(ContextGatherer):
                 if isinstance(raw_files, list):
                     # Нормализуем все пути относительно корня проекта
                     normalized_files = [
-                        self._normalize_path(str(f), project_root) 
-                        for f in raw_files
+                        self._normalize_path(str(f), project_root) for f in raw_files
                     ]
                     filtered = self._filter_paths(normalized_files)
                     self._dependency_graph.set_project_files(filtered)
@@ -536,9 +590,7 @@ class ACPContextGatherer(ContextGatherer):
             raw_files = self._parse_find_output(wait_result.output)
             project_root = getattr(session, "cwd", None)
             # Нормализуем пути относительно корня проекта
-            normalized_files = [
-                self._normalize_path(f, project_root) for f in raw_files
-            ]
+            normalized_files = [self._normalize_path(f, project_root) for f in raw_files]
             filtered = self._filter_paths(normalized_files)
 
             if filtered:
@@ -579,13 +631,30 @@ class ACPContextGatherer(ContextGatherer):
             Список основных файлов проекта
         """
         config_files = {
-            "pubspec.yaml", "package.json", "pyproject.toml", "setup.py",
-            "setup.cfg", "Cargo.toml", "go.mod", "pom.xml", "build.gradle",
-            "build.gradle.kts", "CMakeLists.txt", "Makefile", "README.md",
+            "pubspec.yaml",
+            "package.json",
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "Cargo.toml",
+            "go.mod",
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "CMakeLists.txt",
+            "Makefile",
+            "README.md",
         }
         main_files_patterns = {
-            "main.dart", "main.py", "index.js", "index.ts", "index.tsx",
-            "App.tsx", "App.jsx", "app.py", "server.py",
+            "main.dart",
+            "main.py",
+            "index.js",
+            "index.ts",
+            "index.tsx",
+            "App.tsx",
+            "App.jsx",
+            "app.py",
+            "server.py",
         }
         source_dirs = {"lib", "src", "app", "pkg", "cmd"}
 
@@ -661,9 +730,9 @@ class ACPContextGatherer(ContextGatherer):
                 # Убираем project_root из начала пути
                 project_root_normalized = project_root.replace("\\", "/").rstrip("/")
                 if normalized.startswith(project_root_normalized + "/"):
-                    normalized = normalized[len(project_root_normalized) + 1:]
+                    normalized = normalized[len(project_root_normalized) + 1 :]
                 elif normalized.startswith(project_root_normalized):
-                    normalized = normalized[len(project_root_normalized):]
+                    normalized = normalized[len(project_root_normalized) :]
             # Если не удалось сделать относительным, берем только последнюю часть
             # Это fallback для случаев, когда project_root не совпадает
             if normalized.startswith("/"):
@@ -849,8 +918,7 @@ class ACPContextGatherer(ContextGatherer):
         for segment in path_segments:
             segment_stem = PurePosixPath(segment).stem.lower()
             target_segment_words.update(
-                w for w in segment_stem.replace("_", " ").replace("-", " ").split()
-                if len(w) > 2
+                w for w in segment_stem.replace("_", " ").replace("-", " ").split() if len(w) > 2
             )
 
         for file_path in project_files:
@@ -858,9 +926,7 @@ class ACPContextGatherer(ContextGatherer):
                 continue
 
             file_lower = file_path.lower()
-            segment_match_score = sum(
-                1 for word in target_segment_words if word in file_lower
-            )
+            segment_match_score = sum(1 for word in target_segment_words if word in file_lower)
 
             if segment_match_score >= 2:
                 matches.append((0.5 + segment_match_score * 0.05, file_path))

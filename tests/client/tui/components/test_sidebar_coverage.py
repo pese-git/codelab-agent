@@ -69,6 +69,7 @@ class TestSidebar:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создаёт поле поиска и список сессий."""
+
         class TestApp(App):
             pass
 
@@ -83,6 +84,7 @@ class TestSidebar:
 
     async def test_on_sessions_changed_updates_display(self) -> None:
         """Изменение списка сессий обновляет отображение."""
+
         class TestApp(App):
             pass
 
@@ -103,6 +105,7 @@ class TestSidebar:
 
     async def test_on_selected_session_changed_syncs_index(self) -> None:
         """Изменение выбранной сессии синхронизирует выделение."""
+
         class TestApp(App):
             pass
 
@@ -122,6 +125,7 @@ class TestSidebar:
 
     async def test_on_loading_changed(self) -> None:
         """Статус загрузки отображается в панели."""
+
         class TestApp(App):
             pass
 
@@ -138,6 +142,7 @@ class TestSidebar:
 
     async def test_on_sidebar_tab_changed(self) -> None:
         """Смена вкладки sidebar меняет отображение."""
+
         class TestApp(App):
             pass
 
@@ -155,6 +160,7 @@ class TestSidebar:
 
     async def test_on_sessions_expanded_changed(self) -> None:
         """Сворачивание секции сессий меняет отображение."""
+
         class TestApp(App):
             pass
 
@@ -173,6 +179,7 @@ class TestSidebar:
 
     async def test_search_filter(self) -> None:
         """Фильтрация сессий по поисковому запросу."""
+
         class TestApp(App):
             pass
 
@@ -196,6 +203,7 @@ class TestSidebar:
 
     async def test_select_next_and_previous(self) -> None:
         """Навигация вверх/вниз по списку сессий."""
+
         class TestApp(App):
             pass
 
@@ -221,6 +229,7 @@ class TestSidebar:
 
     async def test_get_selected_session_id(self) -> None:
         """get_selected_session_id возвращает ID выделенной сессии."""
+
         class TestApp(App):
             pass
 
@@ -241,6 +250,7 @@ class TestSidebar:
 
     async def test_update_selected_session(self) -> None:
         """_update_selected_session обновляет ViewModel."""
+
         class TestApp(App):
             pass
 
@@ -292,6 +302,7 @@ class TestSidebar:
 
     async def test_key_space_toggles_section(self) -> None:
         """Пробел переключает активную секцию."""
+
         class TestApp(App):
             pass
 
@@ -308,6 +319,7 @@ class TestSidebar:
 
     async def test_render_text_files_tab(self) -> None:
         """_render_text показывает заглушку вкладки файлов."""
+
         class TestApp(App):
             pass
 
@@ -326,6 +338,7 @@ class TestSidebar:
 
     async def test_render_text_settings_tab(self) -> None:
         """_render_text показывает заглушку вкладки настроек."""
+
         class TestApp(App):
             pass
 
@@ -344,6 +357,7 @@ class TestSidebar:
 
     async def test_render_text_empty_sessions(self) -> None:
         """_render_text показывает состояние без сессий."""
+
         class TestApp(App):
             pass
 
@@ -358,6 +372,7 @@ class TestSidebar:
 
     async def test_render_text_collapsed(self) -> None:
         """_render_text показывает свернутое состояние."""
+
         class TestApp(App):
             pass
 
@@ -376,6 +391,7 @@ class TestSidebar:
 
     async def test_sync_selected_index(self) -> None:
         """_sync_selected_index синхронизирует индекс с выбранной сессией."""
+
         class TestApp(App):
             pass
 
@@ -396,6 +412,7 @@ class TestSidebar:
 
     async def test_sync_selected_index_not_in_filtered(self) -> None:
         """Если выбранная сессия не в отфильтрованном списке, индекс сбрасывается."""
+
         class TestApp(App):
             pass
 
@@ -435,6 +452,7 @@ class TestSidebar:
 
     async def test_search_input_events(self) -> None:
         """События SearchInput обновляют фильтр и сбрасывают выделение."""
+
         class TestApp(App):
             pass
 
@@ -445,9 +463,7 @@ class TestSidebar:
             await pilot.app.mount(sidebar)
 
             sidebar._selected_index = 3
-            sidebar.on_search_input_search_changed(
-                SearchInput.SearchChanged(value="test")
-            )
+            sidebar.on_search_input_search_changed(SearchInput.SearchChanged(value="test"))
             assert sidebar.search_filter == "test"
             assert sidebar._selected_index == 0
 

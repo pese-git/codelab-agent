@@ -21,7 +21,7 @@ class TestPlanEntry:
             status="pending",
         )
         result = entry.to_dict()
-        
+
         assert result == {
             "content": "Test task",
             "priority": "high",
@@ -54,7 +54,7 @@ class TestPlanExtractor:
 Начну выполнение.
 """
         result = extractor.extract_from_text(text)
-        
+
         assert result is not None
         assert len(result) == 2
         assert result[0]["content"] == "Step 1"
@@ -67,7 +67,7 @@ class TestPlanExtractor:
 План: {"plan": [{"content": "Task 1", "priority": "low", "status": "completed"}]}
 """
         result = extractor.extract_from_text(text)
-        
+
         assert result is not None
         assert len(result) == 1
         assert result[0]["content"] == "Task 1"
@@ -92,6 +92,7 @@ class TestPlanExtractor:
 
     def test_extract_from_tool_call(self, extractor: PlanExtractor) -> None:
         """Извлечение плана из tool call update_plan."""
+
         # Формат с объектом с атрибутами
         class ToolCall:
             name = "update_plan"
@@ -100,9 +101,9 @@ class TestPlanExtractor:
                     {"content": "Task A", "priority": "high", "status": "pending"},
                 ]
             }
-        
+
         result = extractor.extract_from_tool_call([ToolCall()])
-        
+
         assert result is not None
         assert len(result) == 1
         assert result[0]["content"] == "Task A"
@@ -116,20 +117,19 @@ class TestPlanExtractor:
                     "entries": [
                         {"content": "Dict Task", "priority": "low", "status": "completed"},
                     ]
-                }
+                },
             }
         ]
-        
+
         result = extractor.extract_from_tool_call(tool_calls)
-        
+
         assert result is not None
         assert result[0]["content"] == "Dict Task"
 
     def test_extract_from_tool_call_json_arguments(self, extractor: PlanExtractor) -> None:
         """Извлечение с arguments как JSON строкой."""
         json_args = (
-            '{"entries": [{"content": "JSON args", '
-            '"priority": "medium", "status": "pending"}]}'
+            '{"entries": [{"content": "JSON args", "priority": "medium", "status": "pending"}]}'
         )
         tool_calls = [
             {
@@ -137,17 +137,15 @@ class TestPlanExtractor:
                 "arguments": json_args,
             }
         ]
-        
+
         result = extractor.extract_from_tool_call(tool_calls)
-        
+
         assert result is not None
         assert result[0]["content"] == "JSON args"
 
     def test_extract_from_tool_call_no_update_plan(self, extractor: PlanExtractor) -> None:
         """Когда нет update_plan, вернуть None."""
-        tool_calls = [
-            {"name": "other_tool", "arguments": {}}
-        ]
+        tool_calls = [{"name": "other_tool", "arguments": {}}]
         result = extractor.extract_from_tool_call(tool_calls)
         assert result is None
 
@@ -162,9 +160,9 @@ class TestPlanExtractor:
             {"content": "  Task with spaces  ", "priority": "high", "status": "pending"},
             {"content": "Normal", "priority": "invalid", "status": "unknown"},
         ]
-        
+
         entries = extractor._validate_entries(raw)
-        
+
         assert len(entries) == 2
         # Пробелы убраны
         assert entries[0].content == "Task with spaces"
@@ -179,9 +177,9 @@ class TestPlanExtractor:
             {"content": "", "priority": "high", "status": "pending"},  # Пустой content
             {"content": "Valid", "priority": "low", "status": "completed"},
         ]
-        
+
         entries = extractor._validate_entries(raw)
-        
+
         assert len(entries) == 1
         assert entries[0].content == "Valid"
 
@@ -190,9 +188,9 @@ class TestPlanExtractor:
         raw = [
             {"title": "Task Title", "priority": "medium", "status": "in_progress"},
         ]
-        
+
         entries = extractor._validate_entries(raw)
-        
+
         assert len(entries) == 1
         assert entries[0].content == "Task Title"
 

@@ -1535,7 +1535,7 @@ def resolve_permission_response_impl(
             updated_at=session.updated_at,
         )
     )
-    
+
     # ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Не завершаем turn, а сигнализируем о pending tool execution
     # http_server.py выполнит tool асинхронно и затем завершит turn
     logger.debug(
@@ -1543,7 +1543,7 @@ def resolve_permission_response_impl(
         session_id=session_id,
         tool_call_id=tool_call_id,
     )
-    
+
     return ProtocolOutcome(
         notifications=notifications,
         followup_responses=[],

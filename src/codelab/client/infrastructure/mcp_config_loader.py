@@ -60,8 +60,10 @@ def _expand_server_env_vars(server: dict[str, Any]) -> dict[str, Any]:
             expanded[key] = expand_env_vars(value)
         elif isinstance(value, list):
             expanded[key] = [
-                _expand_server_env_vars(item) if isinstance(item, dict)
-                else expand_env_vars(item) if isinstance(item, str)
+                _expand_server_env_vars(item)
+                if isinstance(item, dict)
+                else expand_env_vars(item)
+                if isinstance(item, str)
                 else item
                 for item in value
             ]

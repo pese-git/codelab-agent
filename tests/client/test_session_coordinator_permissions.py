@@ -277,9 +277,7 @@ class TestSessionCoordinatorPermissions:
         mock_permission_handler: Mock,
     ) -> None:
         """resolve_permission ловит и логирует ошибки handler."""
-        mock_permission_handler.get_request_manager.side_effect = RuntimeError(
-            "Handler error"
-        )
+        mock_permission_handler.get_request_manager.side_effect = RuntimeError("Handler error")
 
         coordinator_with_handler.resolve_permission(
             request_id="perm_1",
@@ -348,9 +346,7 @@ class TestSessionCoordinatorPermissions:
         mock_permission_handler: Mock,
     ) -> None:
         """cancel_permission ловит и логирует ошибки handler."""
-        mock_permission_handler.get_request_manager.side_effect = RuntimeError(
-            "Handler error"
-        )
+        mock_permission_handler.get_request_manager.side_effect = RuntimeError("Handler error")
 
         coordinator_with_handler.cancel_permission(request_id="perm_1")
         # Не должно бросать исключение

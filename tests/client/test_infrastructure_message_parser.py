@@ -47,8 +47,7 @@ class TestMessageParserJsonParsing:
         """Проверяет парсинг JSON-ответа с error."""
         parser = MessageParser()
         json_str = (
-            '{"jsonrpc": "2.0", "id": "1", '
-            '"error": {"code": -32600, "message": "Invalid Request"}}'
+            '{"jsonrpc": "2.0", "id": "1", "error": {"code": -32600, "message": "Invalid Request"}}'
         )
         message = parser.parse_json(json_str)
 
@@ -82,7 +81,9 @@ class TestMessageParserDictParsing:
         """Проверяет парсинг dict-запроса."""
         parser = MessageParser()
         payload = {
-            "jsonrpc": "2.0", "id": "1", "method": "initialize",
+            "jsonrpc": "2.0",
+            "id": "1",
+            "method": "initialize",
             "params": {"protocolVersion": 1},
         }
         message = parser.parse_dict(payload)
@@ -310,5 +311,6 @@ class TestMessageParserEdgeCases:
         """Проверяет классификацию сообщения с error."""
         parser = MessageParser()
         from codelab.client.messages import JsonRpcError
+
         message = ACPMessage(id="1", error=JsonRpcError(code=-32600, message="Invalid Request"))
         assert parser.classify_message(message) == "response"

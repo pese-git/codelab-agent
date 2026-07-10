@@ -337,9 +337,7 @@ class AgentLoop:
                 # не эмитим полный текст повторно (иначе дубль). Но если дельт
                 # не было (провайдер без стрима) — эмитим полный текст.
                 if not (self._streaming_enabled and self._last_call_streamed):
-                    notification = self._build_agent_response_notification(
-                        session_id, agent_text
-                    )
+                    notification = self._build_agent_response_notification(session_id, agent_text)
                     if not await self._send_notification_immediately(notification):
                         notifications.append(notification)
                 # Сохранить в events_history для replay при session/load
@@ -510,9 +508,7 @@ class AgentLoop:
             status=status,
             has_content=tool_result.content is not None,
             content_types=(
-                [item.get("type") for item in tool_result.content]
-                if tool_result.content
-                else []
+                [item.get("type") for item in tool_result.content] if tool_result.content else []
             ),
         )
 
@@ -578,12 +574,17 @@ class AgentLoop:
 
         if iteration == 1 and prompt:
             return await self._strategy.execute(
-                session, prompt, mcp_manager,
-                system_prompt=system_prompt, on_delta=on_delta,
+                session,
+                prompt,
+                mcp_manager,
+                system_prompt=system_prompt,
+                on_delta=on_delta,
             )
         else:
             return await self._strategy.continue_execution(
-                session, mcp_manager, on_delta=on_delta,
+                session,
+                mcp_manager,
+                on_delta=on_delta,
             )
 
     async def _process_tool_calls(
@@ -899,9 +900,7 @@ class AgentLoop:
                 # (protocol/11-Agent Plan.md)
                 if acp_tool_name == "update_plan" and result.success:
                     plan_entries = (
-                        result.metadata.get("validated_entries")
-                        if result.metadata
-                        else None
+                        result.metadata.get("validated_entries") if result.metadata else None
                     )
                     if plan_entries:
                         session.latest_plan = list(plan_entries)
@@ -1156,9 +1155,7 @@ class AgentLoop:
         Returns:
             "allow", "reject" или "ask".
         """
-        return await decide_tool_policy_async(
-            session, tool_kind, self._global_policy_manager
-        )
+        return await decide_tool_policy_async(session, tool_kind, self._global_policy_manager)
 
     def _is_cancel_requested(self, session: SessionState) -> bool:
         """Проверить флаг отмены."""
