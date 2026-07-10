@@ -173,21 +173,23 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 
 ---
 
-### 3. Исправление warnings в тестах (62 warnings) — 🟡 ПОДАВЛЕНЫ, НЕ ИСПРАВЛЕНЫ (2026-07-10)
+### 3. Исправление warnings в тестах (62 warnings) — 🟢 ЧАСТИЧНО (2026-07-10)
 
-> Прогон `pytest` (7280 тестов) показал **0 warnings в выводе**, НО это результат
-> подавления через `filterwarnings` в `pyproject.toml`, а не устранения причин:
+> **Причины 3c и P11 устранены** (P11 — future_task в client_rpc; P0-3c — teardown
+> subprocess в фикстуре `test_terminal_executor`). Но фильтр остаётся `ignore`: при
+> попытке перевести `PytestUnraisableExceptionWarning` в `error` suite упал на других,
+> order-dependent unraisable (leaked AsyncMock-корутины из разных тестов — это 3a).
 > ```toml
 > filterwarnings = [
->     "ignore::pytest.PytestUnraisableExceptionWarning",          # маскирует 3c
->     "ignore:coroutine.*was never awaited:RuntimeWarning",       # маскирует 3a
+>     "ignore::pytest.PytestUnraisableExceptionWarning",          # флип к error — после 3a
+>     "ignore:coroutine.*was never awaited:RuntimeWarning",       # 3a — ещё маскируется
 >     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
 >     "ignore:coroutine.*SearchInput:RuntimeWarning",
 > ]
 > ```
-> То есть 3a и 3c скрыты фильтрами; 3b (неверный `@pytest.mark.asyncio`) при
-> `asyncio_mode = "auto"` не всплывает. Долг закрыт «поверхностно» — чтобы считать его
-> реально устранённым, нужно временно убрать `ignore`-фильтры и починить источники.
+> **Остаток 3a** (`coroutine was never awaited` — AsyncMock в тестах): починить
+> источники, затем перевести оба фильтра в `error` как guardrail. 3b (неверный
+> `@pytest.mark.asyncio`) при `asyncio_mode = "auto"` не всплывает.
 
 #### 3a. RuntimeWarning: coroutine was never awaited (40+ случаев)
 
@@ -219,17 +221,17 @@ AsyncMock возвращает корутины, которые не awaited в 
 
 **Оценка:** 10 минут
 
-#### 3c. PytestUnraisableExceptionWarning: event loop closed
+#### 3c. PytestUnraisableExceptionWarning: event loop closed — ✅ ЗАКРЫТО (2026-07-10)
 
 **Файл:** `tests/client/test_terminal_executor.py`
 
-Subprocess transport закрывается после закрытия event loop.
+Subprocess transport закрывался после закрытия event loop (order-dependent unraisable
+при GC subprocess из раннего теста).
 
 **Задачи:**
-- [ ] Добавить корректный teardown subprocess в fixture
-- [ ] Использовать `async with` или явный `await transport.close()` перед закрытием loop
-
-**Оценка:** 0.5 дня
+- [x] Фикстура `executor` сделана async с teardown `await ex.cleanup_all()` (закрывает
+      subprocess-транспорты ДО закрытия loop)
+- [ ] Перевод фильтра в `error` — после чистки 3a (order-dependent unraisable из AsyncMock)
 
 ---
 
@@ -364,7 +366,17 @@ Subprocess transport закрывается после закрытия event lo
 
 ---
 
-### 11. `ClientRPCService._wrap_future` — необработанное исключение future
+### 11. `ClientRPCService._wrap_future` — необработанное исключение future — ✅ ЗАКРЫТО (2026-07-10)
+
+> ✅ Фикс: после `asyncio.wait` `_call_method` забирает исключение и у `future_task`
+> (`if future_task in done: future_task.exception()`) — unretrieved-task больше не
+> возникает; исключение по-прежнему пробрасывается через `pending_request.future`.
+> **Убирает 16 tracebacks / 32 error-строки из прод-логов** при чтении нечитаемых
+> файлов (напр. `*.db-shm`) — подтверждено анализом логов.
+>
+> Фильтр `PytestUnraisableExceptionWarning` пока **не** переведён в `error`: при попытке
+> флипа всплыли order-dependent unraisable из других тестов (AsyncMock, см. P0-3a) —
+> глобальный `error` даёт флаки. Полный флип — отдельная итерация P0-3.
 
 **Файл:** `src/codelab/server/client_rpc/service.py:154` (`_call_method` → `_wrap_future`)
 

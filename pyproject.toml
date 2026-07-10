@@ -105,6 +105,10 @@ pythonpath = ["src", "tests/server"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
+    # P11 (unretrieved future в client_rpc) и P0-3c (teardown subprocess) исправлены.
+    # Флаг оставлен `ignore`, а не `error`: в suite остаются order-dependent unraisable
+    # из других тестов (AsyncMock-корутины и пр., см. P0-3a) — глобальный `error` даёт
+    # флаки. Перевод в `error` — отдельная итерация P0-3 после чистки этих источников.
     "ignore::pytest.PytestUnraisableExceptionWarning",
     "ignore:coroutine.*was never awaited:RuntimeWarning",
     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",

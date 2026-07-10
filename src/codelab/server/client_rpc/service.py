@@ -172,6 +172,13 @@ class ClientRPCService:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
+            # Если future_task завершился (в т.ч. с исключением RPC-ошибки) —
+            # «забираем» его результат/исключение, иначе asyncio при GC пишет
+            # "Task exception was never retrieved" (исключение всё равно
+            # пробрасывается ниже через pending_request.future). См. P11.
+            if future_task in done:
+                future_task.exception()
+
             # Проверяем, был ли запрос отменён
             if pending_request.cancellation_event.is_set():
                 raise ClientRPCCancelledError(f"RPC вызов {method} был отменён")

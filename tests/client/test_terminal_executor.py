@@ -10,6 +10,7 @@
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 
 import pytest
 
@@ -19,9 +20,16 @@ from codelab.client.infrastructure.services.terminal_executor import (
 
 
 @pytest.fixture
-def executor() -> TerminalExecutor:
-    """TerminalExecutor для тестов."""
-    return TerminalExecutor()
+async def executor() -> AsyncGenerator[TerminalExecutor, None]:
+    """TerminalExecutor для тестов.
+
+    Teardown освобождает все терминалы (закрывает subprocess-транспорты ДО
+    закрытия event loop), иначе их __del__ при GC пишет unraisable
+    "Event loop is closed" (P0-3c).
+    """
+    ex = TerminalExecutor()
+    yield ex
+    await ex.cleanup_all()
 
 
 class TestTerminalExecutorCreate:
