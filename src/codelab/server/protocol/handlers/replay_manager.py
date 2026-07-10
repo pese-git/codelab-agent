@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from pydantic import BaseModel
 
 from ...messages import ACPMessage
 from ..state import SessionState
@@ -324,13 +325,21 @@ class ReplayManager:
         if not session.latest_plan:
             return None
 
+        # latest_plan может содержать PlanStep (после десериализации из JSON-хранилища
+        # pydantic коэрсит подходящие dict в PlanStep) — сериализуем в dict, иначе
+        # ACPMessage.to_json падает с "PlanStep is not JSON serializable".
+        entries = [
+            entry.model_dump(exclude_none=True) if isinstance(entry, BaseModel) else entry
+            for entry in session.latest_plan
+        ]
+
         return ACPMessage.notification(
             "session/update",
             {
                 "sessionId": session.session_id,
                 "update": {
                     "sessionUpdate": "plan",
-                    "entries": session.latest_plan,
+                    "entries": entries,
                 },
             },
         )

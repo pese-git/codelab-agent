@@ -382,6 +382,33 @@ class TestReplayLatestPlan:
         assert notification.params["update"]["sessionUpdate"] == "plan"
         assert notification.params["update"]["entries"] == session.latest_plan
 
+    def test_replays_plan_with_planstep_objects_is_serializable(
+        self,
+        replay_manager: ReplayManager,
+        session: SessionState,
+    ) -> None:
+        """Регресс: план из PlanStep-объектов (после загрузки из JSON) сериализуется.
+
+        Ранее session/load сессии с планом крашил WS-соединение с
+        `TypeError: Object of type PlanStep is not JSON serializable`.
+        """
+        from codelab.server.models import PlanStep
+
+        session.latest_plan = [
+            PlanStep(description="Step 1", status="completed"),
+            PlanStep(description="Step 2", status="pending"),
+        ]
+
+        notification = replay_manager.replay_latest_plan(session)
+
+        assert notification is not None
+        # Не должно падать: entries сериализованы в dict.
+        payload = notification.to_json()
+        assert "Step 1" in payload
+        entries = notification.params["update"]["entries"]
+        assert all(isinstance(entry, dict) for entry in entries)
+        assert entries[0]["description"] == "Step 1"
+
 
 class TestIntegrationWithSessionLoad:
     """Интеграционные тесты для использования в session/load."""

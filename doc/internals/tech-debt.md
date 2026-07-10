@@ -325,6 +325,49 @@ traceback `ClientRPCResponseError`.
 
 ---
 
+### 12. `session/load` сессии с планом крашил WS-соединение — ✅ ЗАКРЫТО (2026-07-10)
+
+**Файл:** `src/codelab/server/protocol/handlers/replay_manager.py:324` (`replay_latest_plan`)
+
+При `session/load` сессии, содержащей план, сервер падал с
+`TypeError: Object of type PlanStep is not JSON serializable` в
+`_send_outcome → ACPMessage.to_json`. Исключение выходило из `run`, соединение
+закрывалось; клиент получал CLOSING-фрейм и не мог загрузить историю (см. P13).
+
+**Причина:** `SessionState.latest_plan: list[PlanStep | dict]`. При десериализации
+из JSON-хранилища pydantic коэрсит подходящие dict в объекты `PlanStep`.
+`replay_latest_plan` клал `latest_plan` в нотификацию как есть, а `to_dict`/`to_json`
+не сериализует вложенные BaseModel.
+
+**Фикс:** `replay_latest_plan` сериализует entries (`model_dump(exclude_none=True)` для
+BaseModel, dict как есть). Регресс-тест
+`test_replays_plan_with_planstep_objects_is_serializable`.
+
+**Обнаружено:** 2026-07-10 при анализе логов WS-сессии из рабочего дерева (не регресс —
+`replay_latest_plan` рефакторингом не затрагивался).
+
+---
+
+### 13. Клиентский receive-loop падает на `WSMsgType.CLOSING` (257)
+
+**Файл:** `src/codelab/client/infrastructure/transport.py:228`
+
+При штатном закрытии WebSocket сервером клиент получает control-фрейм
+`WSMsgType.CLOSING` (257) / `CLOSED` (258) и поднимает
+`RuntimeError: Unexpected WebSocket message type: 257` вместо graceful-обработки.
+Это превращает нормальное закрытие в ошибку receive-loop с ретраями/backoff (в логе
+5 попыток) и провалом `session/load`.
+
+**Задачи:**
+- [ ] Обрабатывать `WSMsgType.CLOSING`/`CLOSED` как штатное закрытие (выход из loop,
+      а не `RuntimeError`)
+- [ ] Тест на receive-loop при закрытии соединения сервером
+
+**Обнаружено:** 2026-07-10 (каскад после P12; усугубляет любое закрытие соединения).
+**Оценка:** 0.5 дня
+
+---
+
 ## Дорожная карта
 
 ```
