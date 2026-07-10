@@ -20,6 +20,18 @@ from typing import Any, Protocol
 import structlog
 from aiohttp import ClientSession, WSMsgType
 
+# Типы WS-сообщений, означающие штатное закрытие соединения (не ошибка протокола).
+_WS_CLOSE_TYPES = frozenset({WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED})
+
+
+class WebSocketClosedError(ConnectionError):
+    """WebSocket-соединение закрыто пиром (штатное закрытие или ERROR-фрейм).
+
+    Наследуется от ConnectionError, чтобы receive-loop обрабатывал закрытие как
+    потерю соединения (`connection_lost_in_receive_loop`), а не как непредвиденный
+    тип сообщения.
+    """
+
 
 class Transport(Protocol):
     """Интерфейс транспортного уровня для отправки/получения сообщений.
@@ -223,15 +235,25 @@ class WebSocketTransport:
         try:
             message = await self._ws.receive()
 
-            # Проверяем тип сообщения
-            if message.type != WSMsgType.TEXT:
-                msg = f"Unexpected WebSocket message type: {message.type}"
-                self.logger.error("unexpected_message_type", type=message.type)
-                raise RuntimeError(msg)
+            if message.type == WSMsgType.TEXT:
+                self.logger.debug("message_received", length=len(message.data))
+                return message.data
 
-            self.logger.debug("message_received", length=len(message.data))
-            return message.data
-        except RuntimeError:
+            # Штатное закрытие соединения пиром — не ошибка протокола.
+            if message.type in _WS_CLOSE_TYPES:
+                self.logger.info("websocket_closed_by_peer", type=message.type)
+                raise WebSocketClosedError(f"WebSocket closed by peer: {message.type}")
+
+            if message.type == WSMsgType.ERROR:
+                exc = self._ws.exception()
+                self.logger.warning("websocket_error_frame", error=str(exc) if exc else None)
+                raise WebSocketClosedError(f"WebSocket error frame: {exc}")
+
+            # Прочие непредвиденные типы (например BINARY) — ошибка протокола.
+            msg = f"Unexpected WebSocket message type: {message.type}"
+            self.logger.error("unexpected_message_type", type=message.type)
+            raise RuntimeError(msg)
+        except (WebSocketClosedError, RuntimeError):
             raise
         except Exception as e:
             msg = f"Failed to receive message: {e}"

@@ -13,7 +13,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiohttp import WSMsgType
 
-from codelab.client.infrastructure.transport import WebSocketTransport
+from codelab.client.infrastructure.transport import (
+    WebSocketClosedError,
+    WebSocketTransport,
+)
 
 
 class TestWebSocketTransportInitialization:
@@ -295,6 +298,47 @@ class TestWebSocketTransportReceiveText:
         transport._ws = ws
 
         with pytest.raises(RuntimeError, match="Unexpected WebSocket message type"):
+            await transport.receive_text()
+
+    @pytest.mark.parametrize(
+        "close_type",
+        [WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED],
+    )
+    async def test_receive_text_close_raises_connection_error(self, close_type) -> None:
+        """Регресс (P13): штатное закрытие пиром → WebSocketClosedError (ConnectionError),
+
+        а не RuntimeError 'Unexpected WebSocket message type'. Иначе receive-loop
+        трактует закрытие как непредвиденную ошибку и уходит в error-каскад ретраев.
+        """
+        msg = MagicMock()
+        msg.type = close_type
+
+        ws = AsyncMock()
+        ws.closed = True
+        ws.receive = AsyncMock(return_value=msg)
+
+        transport = WebSocketTransport()
+        transport._ws = ws
+
+        with pytest.raises(WebSocketClosedError):
+            await transport.receive_text()
+        # Подтип ConnectionError — receive-loop обрабатывает мягче.
+        assert issubclass(WebSocketClosedError, ConnectionError)
+
+    async def test_receive_text_error_frame_raises_connection_error(self) -> None:
+        """ERROR-фрейм WebSocket → WebSocketClosedError, не generic RuntimeError."""
+        msg = MagicMock()
+        msg.type = WSMsgType.ERROR
+
+        ws = AsyncMock()
+        ws.closed = True
+        ws.receive = AsyncMock(return_value=msg)
+        ws.exception = MagicMock(return_value=RuntimeError("boom"))
+
+        transport = WebSocketTransport()
+        transport._ws = ws
+
+        with pytest.raises(WebSocketClosedError):
             await transport.receive_text()
 
     async def test_receive_text_runtime_error_reraised(self) -> None:

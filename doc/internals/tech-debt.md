@@ -348,23 +348,25 @@ BaseModel, dict как есть). Регресс-тест
 
 ---
 
-### 13. Клиентский receive-loop падает на `WSMsgType.CLOSING` (257)
+### 13. Клиентский receive-loop падает на close-фреймах WebSocket — ✅ ЗАКРЫТО (2026-07-10)
 
-**Файл:** `src/codelab/client/infrastructure/transport.py:228`
+**Файл:** `src/codelab/client/infrastructure/transport.py:207` (`receive_text`)
 
-При штатном закрытии WebSocket сервером клиент получает control-фрейм
-`WSMsgType.CLOSING` (257) / `CLOSED` (258) и поднимает
-`RuntimeError: Unexpected WebSocket message type: 257` вместо graceful-обработки.
-Это превращает нормальное закрытие в ошибку receive-loop с ретраями/backoff (в логе
-5 попыток) и провалом `session/load`.
+При штатном закрытии WebSocket сервером клиент получал control-фрейм
+`WSMsgType.CLOSE/CLOSING/CLOSED` (в этой версии aiohttp `CLOSED=257`) и поднимал
+`RuntimeError: Unexpected WebSocket message type`. Общий `except Exception` в
+receive-loop трактовал это как `receive_loop_error` (**error**) и уходил в
+error-каскад ретраев с backoff, роняя `session/load`.
 
-**Задачи:**
-- [ ] Обрабатывать `WSMsgType.CLOSING`/`CLOSED` как штатное закрытие (выход из loop,
-      а не `RuntimeError`)
-- [ ] Тест на receive-loop при закрытии соединения сервером
+**Фикс:** `receive_text` распознаёт close-типы и ERROR-фрейм и бросает
+`WebSocketClosedError(ConnectionError)`. Receive-loop уже обрабатывает `ConnectionError`
+мягче (`connection_lost_in_receive_loop`, **warning** + управляемый рестарт), а не как
+непредвиденный тип. Прочие типы (BINARY) по-прежнему → `RuntimeError`.
 
-**Обнаружено:** 2026-07-10 (каскад после P12; усугубляет любое закрытие соединения).
-**Оценка:** 0.5 дня
+**Тесты:** параметризованный на CLOSE/CLOSING/CLOSED + ERROR-фрейм в
+`test_infrastructure_transport.py`.
+
+**Обнаружено:** 2026-07-10 (каскад после P12).
 
 ---
 
