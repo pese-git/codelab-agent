@@ -2,10 +2,11 @@
 
 > Первичный аудит: 2026-06-16 (ветка `feature/agent`, коммит `f03df77`)
 > Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
+> Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 
-> **Примечание об актуализации (2026-07-10):** ниже проставлены статусы по фактической сверке с
-> кодом `develop`. Метрики покрытия/сложности/warnings без свежего прогона `make check` помечены
-> как «требует пересчёта». Число тестов и размеры файлов пересчитаны.
+> **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
+> Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
+> Размеры файлов — `wc -l`. Покрытие — `pytest --cov` (см. ниже).
 
 ---
 
@@ -13,10 +14,12 @@
 
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
-| Покрытие тестами | 77% | требует пересчёта | >= 85% |
-| Cyclomatic complexity (max) | 30 | требует пересчёта | <= 10 |
+| Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
+| Cyclomatic complexity (max) | 30 | **51** (ухудшилось, см. P0-2) | <= 10 |
+| Блоков со сложностью > 10 | — | 72 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
-| Warnings в тестах | 62 | требует пересчёта | 0 |
+| Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
+| Ruff-нарушений (`ruff check .`) | ~170 | **6** (3× E501, 3× F401) | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
 | Тестов | 3974 | ~7262 | — |
 
@@ -29,7 +32,7 @@
 > ✅ Появились тесты: `tests/server/transport/test_stdio_runner.py` +
 > `tests/server/test_stdio_runner_coverage.py`. Пункт закрыт.
 
-**Файл:** `src/codelab/server/transport/stdio_runner.py` (209 строк)
+**Файл:** `src/codelab/server/transport/stdio_runner.py` (278 строк, покрытие 82%)
 
 Модуль не покрыт тестами вообще. Отвечает за запуск stdio-транспорта — критический путь.
 
@@ -44,25 +47,51 @@
 
 ---
 
-### 2. Рефакторинг `request_with_callbacks` — сложность 30
+### 2. Снизить цикломатическую сложность — max 51 🔴 УХУДШИЛОСЬ (2026-07-10)
 
-**Файл:** `src/codelab/client/infrastructure/services/acp_transport_service.py:506`
+> Исходный пункт был про `request_with_callbacks` (сложность 30). Пересчёт `radon cc`
+> показал, что эта функция уже опустилась ниже порога отчёта, **но появились пять более
+> сложных функций** — максимум вырос с 30 до **51**. Всего 72 блока превышают порог 10.
 
-Функция имеет цикломатическую сложность 30 при пороге 10. Содержит множество ветвлений обработки callback'ов, notification и client-rpc.
+**Топ нарушителей (`radon cc`, порог 10):**
+
+| Сложность | Функция | Файл |
+|-----------|---------|------|
+| **51 (F)** | `resolve_pending_client_rpc_response_impl` | `server/protocol/handlers/prompt.py:995` |
+| 37 (E) | `WebSocketTransport.run` | `server/transport/websocket.py:96` |
+| 37 (E) | `AgentLoop._process_tool_calls` | `server/protocol/handlers/pipeline/stages/agent_loop.py:589` |
+| 32 (E) | `AppConfig._merge_llm_config` | `server/config.py:350` |
+| 31 (E) | `ThreePhaseCompactor._phase_hard_truncate` | `server/agent/context/compactor.py:307` |
+| 30 (D) | `run_server` | (см. вывод `radon`) |
+| 26 (D) | `ACPContextGatherer.gather` | `server/agent/context/gatherer.py:77` |
+| 26 (D) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:214` |
 
 **Задачи:**
-- [ ] Выделить обработку notification в отдельный метод `_handle_notification`
-- [ ] Выделить обработку client-rpc в отдельный метод `_handle_client_rpc`
-- [ ] Выделить обработку response в отдельный метод `_handle_response`
-- [ ] Извлечь валидацию в отдельный метод `_validate_request`
-- [ ] Упростить основной метод до делегирования подметодам
+- [ ] Декомпозировать `resolve_pending_client_rpc_response_impl` (51) — вынести обработку notification / client-rpc / response в отдельные методы
+- [ ] Упростить `WebSocketTransport.run` и `AgentLoop._process_tool_calls` (по 37)
+- [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager)
+- [ ] Рассмотреть включение `C901` (mccabe) в ruff с `max-complexity = 10`, чтобы предотвратить регресс
 
-**Оценка:** 1 день
-**Критерий приемки:** сложность <= 10, все существующие тесты проходят
+**Оценка:** 2 дня
+**Критерий приемки:** max сложность <= 10 (или согласованный порог), все тесты проходят
 
 ---
 
-### 3. Исправление warnings в тестах (62 warnings)
+### 3. Исправление warnings в тестах (62 warnings) — 🟡 ПОДАВЛЕНЫ, НЕ ИСПРАВЛЕНЫ (2026-07-10)
+
+> Прогон `pytest` (7280 тестов) показал **0 warnings в выводе**, НО это результат
+> подавления через `filterwarnings` в `pyproject.toml`, а не устранения причин:
+> ```toml
+> filterwarnings = [
+>     "ignore::pytest.PytestUnraisableExceptionWarning",          # маскирует 3c
+>     "ignore:coroutine.*was never awaited:RuntimeWarning",       # маскирует 3a
+>     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
+>     "ignore:coroutine.*SearchInput:RuntimeWarning",
+> ]
+> ```
+> То есть 3a и 3c скрыты фильтрами; 3b (неверный `@pytest.mark.asyncio`) при
+> `asyncio_mode = "auto"` не всплывает. Долг закрыт «поверхностно» — чтобы считать его
+> реально устранённым, нужно временно убрать `ignore`-фильтры и починить источники.
 
 #### 3a. RuntimeWarning: coroutine was never awaited (40+ случаев)
 
@@ -163,21 +192,19 @@ Subprocess transport закрывается после закрытия event lo
 
 ---
 
-### 6. Покрыть тестами transport layer
+### 6. Покрыть тестами transport layer — ✅ ЗАКРЫТО (2026-07-10)
 
-| Модуль | Покрытие | Строк без покрытия |
-|--------|----------|--------------------|
-| `server/transport/stdio.py` | 64% | 70 строк |
-| `server/transport/websocket.py` | 71% | 64 строки |
-| `server/web_app.py` | 42% | 14 строк |
+> Пересчёт `pytest --cov`: весь transport layer превысил цель 80%.
 
-**Задачи:**
-- [ ] `stdio.py` — тесты на connection lifecycle, error handling, reconnection
-- [ ] `websocket.py` — тесты на handshake, message framing, close handshake
-- [ ] `web_app.py` — тесты на startup/shutdown, middleware chain
+| Модуль | Было | Стало (2026-07-10) |
+|--------|------|--------------------|
+| `server/transport/stdio.py` | 64% | **98%** ✅ |
+| `server/transport/websocket.py` | 71% | **94%** ✅ |
+| `server/web_app.py` | 42% | **100%** ✅ |
+| `server/transport/stdio_runner.py` | — | 82% (см. P0-1) |
+| `server/transport/websocket_connection.py` | — | 90% |
 
-**Оценка:** 2 дня
-**Критерий приемки:** покрытие transport layer >= 80%
+**Критерий приемки:** покрытие transport layer >= 80% — достигнуто.
 
 ---
 
@@ -219,22 +246,23 @@ Subprocess transport закрывается после закрытия event lo
 
 ---
 
-### 9. Исправить ruff warnings
+### 9. Исправить ruff warnings — 🟢 ПОЧТИ ЗАКРЫТО (2026-07-10)
 
-| Правило | Количество | Описание |
-|---------|-----------|----------|
-| D212 | ~100 | Multi-line docstring summary at first line |
-| TC005 | 1 | Empty TYPE_CHECKING block in `cli.py:27` |
-| FBT001/FBT002 | ~20 | Boolean arguments in functions |
-| RUF001/RUF002/RUF003 | ~50 | Ambiguous cyrillic characters |
+> `ruff check .` теперь выдаёт всего **6 нарушений** (было ~170). Массовые классы
+> (D212, RUF001-003, FBT) устранены или переведены в ignore текущей конфигурацией ruff.
+
+| Правило | Было | Стало (`ruff check .`) |
+|---------|------|------------------------|
+| E501 (line-too-long) | — | 3 |
+| F401 (unused-import) | — | 3 (3 автофиксятся `--fix`) |
+| D212 / RUF001-003 / FBT / TC005 | ~170 | 0 (устранены/в ignore) |
 
 **Задачи:**
-- [ ] Удалить пустой `TYPE_CHECKING` блок в `cli.py:27`
-- [ ] Настроить ruff: добавить `D212` в ignore или исправить все docstrings
-- [ ] Решить: игнорировать RUF001-003 (кириллица в комментариях допустима по AGENTS.md) или добавить в ignore
-- [ ] FBT001/FBT002 — оценить, стоит ли переводить boolean args в kwargs
+- [ ] Прогнать `ruff check . --fix` (уберёт 3× F401)
+- [ ] Вручную поправить 3× E501
+- [ ] (Опционально) зафиксировать в CI, чтобы регрессов не было
 
-**Оценка:** 0.5 дня
+**Оценка:** 10 минут
 
 ---
 
@@ -278,13 +306,18 @@ Subprocess transport закрывается после закрытия event lo
 
 ## Метрики успеха
 
-После полного устранения долга:
+| Метрика | Было (2026-06) | Сейчас (2026-07) | Цель |
+|---------|----------------|------------------|------|
+| Покрытие тестами | 77% | **96%** ✅ | >= 85% |
+| Max cyclomatic complexity | 30 | **51** 🔴 | <= 10 |
+| Файлов > 1000 строк | 6 | **10** 🔴 | 0 |
+| Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
+| Ruff-нарушений | ~170 | **6** 🟢 | 0 |
+| TODO | 2 | 2 | 0 |
+| Coverage threshold в CI | нет | нет | 80% |
 
-| Метрика | Было | Станет |
-|---------|------|--------|
-| Покрытие тестами | 77% | >= 85% |
-| Max cyclomatic complexity | 30 | <= 10 |
-| Файлов > 1000 строк | 6 | 0 |
-| Warnings в тестах | 62 | 0 |
-| TODO | 2 | 0 |
-| Coverage threshold в CI | нет | 80% |
+**Итог пересчёта (2026-07-10):** две метрики достигли цели (покрытие, ruff), две
+серьёзно **ухудшились** (сложность 30→51, God Objects 6→10) — код растёт быстрее
+рефакторинга. Приоритет №1 — остановить регресс через CI-guardrails (порог сложности
+в ruff `C901` + проверка размера файла + `--cov-fail-under`), иначе метрики будут
+деградировать между аудитами незаметно.
