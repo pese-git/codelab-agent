@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import os
 from pathlib import Path
+from typing import Any
 
 import structlog
 from dotenv import load_dotenv
@@ -268,81 +269,12 @@ def run_server() -> None:
     )
 
     # Переопределяем конфиг из аргументов командной строки если указаны
-    cli_overrides = []
-    if args.llm_provider:
-        config.llm.provider = args.llm_provider
-        cli_overrides.append(f"llm_provider={args.llm_provider}")
-    if args.llm_model:
-        config.llm.model = args.llm_model
-        cli_overrides.append(f"llm_model={args.llm_model}")
-    if args.llm_api_key:
-        config.llm.api_key = args.llm_api_key
-        cli_overrides.append("llm_api_key=***")
-    if args.llm_base_url:
-        config.llm.base_url = args.llm_base_url
-        cli_overrides.append(f"llm_base_url={args.llm_base_url}")
-    if args.llm_temperature is not None:
-        config.llm.temperature = args.llm_temperature
-        cli_overrides.append(f"llm_temperature={args.llm_temperature}")
-    if args.llm_max_tokens is not None:
-        config.llm.max_tokens = args.llm_max_tokens
-        cli_overrides.append(f"llm_max_tokens={args.llm_max_tokens}")
-    if args.system_prompt:
-        config.agent.system_prompt = args.system_prompt
-        cli_overrides.append("system_prompt=***")
-
-    if cli_overrides:
-        logger.debug("configuration overridden", overrides=", ".join(cli_overrides))
-
-    # Таймауты LLM из CLI
-    timeout_cli_values = [
-        args.llm_timeout_connect,
-        args.llm_timeout_read,
-        args.llm_timeout_write,
-        args.llm_timeout_pool,
-    ]
-    if any(timeout_cli_values):
-        from codelab.server.toml_config.pydantic_config import TimeoutConfig
-
-        current = config.llm.timeout
-        config.llm.timeout = TimeoutConfig(
-            connect=args.llm_timeout_connect
-            if args.llm_timeout_connect is not None
-            else current.connect,
-            read=args.llm_timeout_read if args.llm_timeout_read is not None else current.read,
-            write=args.llm_timeout_write if args.llm_timeout_write is not None else current.write,
-            pool=args.llm_timeout_pool if args.llm_timeout_pool is not None else current.pool,
-        )
-        logger.debug(
-            "llm timeouts overridden via CLI",
-            connect=config.llm.timeout.connect,
-            read=config.llm.timeout.read,
-            write=config.llm.timeout.write,
-            pool=config.llm.timeout.pool,
-        )
-
-    # Fallback конфигурация из CLI
-    if args.fallback_enabled is not None:
-        logger.debug("fallback enabled via CLI")
-    if args.fallback_strategy:
-        logger.debug("fallback strategy set via CLI", strategy=args.fallback_strategy)
-    if args.fallback_order:
-        order = [p.strip() for p in args.fallback_order.split(",")]
-        logger.debug("fallback order set via CLI", order=order)
+    _apply_cli_llm_overrides(config, args, logger)
+    _apply_cli_timeout_overrides(config, args, logger)
+    _log_cli_fallback(args, logger)
 
     # Обработка аутентификации
-    logger.debug("processing authentication configuration", require_auth=args.require_auth)
-    auth_api_key = args.auth_api_key
-    if not isinstance(auth_api_key, str) or not auth_api_key:
-        env_api_key = os.getenv("ACP_SERVER_API_KEY")
-        auth_api_key = env_api_key if isinstance(env_api_key, str) and env_api_key else None
-        if env_api_key:
-            logger.debug("auth api key loaded from environment")
-
-    if auth_api_key:
-        logger.debug("authentication api key configured")
-    elif args.require_auth:
-        logger.warning("authentication required but no api key configured")
+    auth_api_key = _resolve_auth_api_key(args, logger)
 
     # Парсим и создаём storage backend, оборачиваем в LRU-кэш
     logger.debug("initializing storage backend", storage_type=args.storage)
@@ -403,6 +335,94 @@ def run_server() -> None:
     except Exception as e:
         logger.error("server error", error=str(e), exc_info=True)
         raise
+
+
+def _apply_cli_llm_overrides(config: AppConfig, args: argparse.Namespace, logger: Any) -> None:
+    """Переопределить скалярные поля LLM/agent из CLI-аргументов."""
+    cli_overrides: list[str] = []
+    if args.llm_provider:
+        config.llm.provider = args.llm_provider
+        cli_overrides.append(f"llm_provider={args.llm_provider}")
+    if args.llm_model:
+        config.llm.model = args.llm_model
+        cli_overrides.append(f"llm_model={args.llm_model}")
+    if args.llm_api_key:
+        config.llm.api_key = args.llm_api_key
+        cli_overrides.append("llm_api_key=***")
+    if args.llm_base_url:
+        config.llm.base_url = args.llm_base_url
+        cli_overrides.append(f"llm_base_url={args.llm_base_url}")
+    if args.llm_temperature is not None:
+        config.llm.temperature = args.llm_temperature
+        cli_overrides.append(f"llm_temperature={args.llm_temperature}")
+    if args.llm_max_tokens is not None:
+        config.llm.max_tokens = args.llm_max_tokens
+        cli_overrides.append(f"llm_max_tokens={args.llm_max_tokens}")
+    if args.system_prompt:
+        config.agent.system_prompt = args.system_prompt
+        cli_overrides.append("system_prompt=***")
+
+    if cli_overrides:
+        logger.debug("configuration overridden", overrides=", ".join(cli_overrides))
+
+
+def _apply_cli_timeout_overrides(config: AppConfig, args: argparse.Namespace, logger: Any) -> None:
+    """Переопределить таймауты LLM из CLI (только явно заданные значения)."""
+    timeout_cli_values = [
+        args.llm_timeout_connect,
+        args.llm_timeout_read,
+        args.llm_timeout_write,
+        args.llm_timeout_pool,
+    ]
+    if not any(timeout_cli_values):
+        return
+
+    from codelab.server.toml_config.pydantic_config import TimeoutConfig
+
+    current = config.llm.timeout
+    config.llm.timeout = TimeoutConfig(
+        connect=args.llm_timeout_connect
+        if args.llm_timeout_connect is not None
+        else current.connect,
+        read=args.llm_timeout_read if args.llm_timeout_read is not None else current.read,
+        write=args.llm_timeout_write if args.llm_timeout_write is not None else current.write,
+        pool=args.llm_timeout_pool if args.llm_timeout_pool is not None else current.pool,
+    )
+    logger.debug(
+        "llm timeouts overridden via CLI",
+        connect=config.llm.timeout.connect,
+        read=config.llm.timeout.read,
+        write=config.llm.timeout.write,
+        pool=config.llm.timeout.pool,
+    )
+
+
+def _log_cli_fallback(args: argparse.Namespace, logger: Any) -> None:
+    """Залогировать переданные CLI fallback-параметры (конфиг — из TOML)."""
+    if args.fallback_enabled is not None:
+        logger.debug("fallback enabled via CLI")
+    if args.fallback_strategy:
+        logger.debug("fallback strategy set via CLI", strategy=args.fallback_strategy)
+    if args.fallback_order:
+        order = [p.strip() for p in args.fallback_order.split(",")]
+        logger.debug("fallback order set via CLI", order=order)
+
+
+def _resolve_auth_api_key(args: argparse.Namespace, logger: Any) -> str | None:
+    """Определить auth API key: CLI-аргумент, иначе ACP_SERVER_API_KEY из окружения."""
+    logger.debug("processing authentication configuration", require_auth=args.require_auth)
+    auth_api_key = args.auth_api_key
+    if not isinstance(auth_api_key, str) or not auth_api_key:
+        env_api_key = os.getenv("ACP_SERVER_API_KEY")
+        auth_api_key = env_api_key if isinstance(env_api_key, str) and env_api_key else None
+        if env_api_key:
+            logger.debug("auth api key loaded from environment")
+
+    if auth_api_key:
+        logger.debug("authentication api key configured")
+    elif args.require_auth:
+        logger.warning("authentication required but no api key configured")
+    return auth_api_key
 
 
 def _run_stdio_server(
