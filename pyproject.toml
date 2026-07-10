@@ -48,12 +48,6 @@ web = [
 full = [
   "codelab[server,tui,web]",
 ]
-dev = [
-  "pytest>=8.3.5",
-  "pytest-asyncio>=0.24.0",
-  "ruff>=0.11.4",
-  "ty>=0.0.1a11",
-]
 
 [build-system]
 requires = ["hatchling>=1.27.0"]
