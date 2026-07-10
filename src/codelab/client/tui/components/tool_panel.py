@@ -138,29 +138,37 @@ class ToolPanel(Vertical):
             tool_calls: Новый список tool calls
         """
         # Обрабатываем каждый tool call через apply_update для извлечения terminal content
+        self._replay_tool_call_updates(tool_calls)
+        # Синхронизируем с ToolCallList
+        self._sync_tool_call_list(tool_calls)
+        # Обновляем текстовое отображение и прогресс
+        self._render_tool_summary(tool_calls)
+
+    def _replay_tool_call_updates(self, tool_calls: list) -> None:
+        """Прогнать dict-обновления через apply_update (извлечение terminal content)."""
+        from codelab.client.messages import ToolCallCreatedUpdate, ToolCallStateUpdate
+
         for tc in tool_calls:
-            if isinstance(tc, dict):
-                # Преобразуем словарь в ToolCallUpdate для обработки
-                from codelab.client.messages import ToolCallCreatedUpdate, ToolCallStateUpdate
+            if not isinstance(tc, dict):
+                continue
+            session_update_type = tc.get("sessionUpdate", "tool_call_update")
+            try:
+                if session_update_type == "tool_call":
+                    update = ToolCallCreatedUpdate.model_validate(tc)
+                else:
+                    update = ToolCallStateUpdate.model_validate(tc)
+                self.apply_update(update)
+            except Exception:
+                pass  # Не удалось преобразовать, пропускаем
 
-                session_update_type = tc.get("sessionUpdate", "tool_call_update")
-                try:
-                    if session_update_type == "tool_call":
-                        update = ToolCallCreatedUpdate.model_validate(tc)
-                    else:
-                        update = ToolCallStateUpdate.model_validate(tc)
-                    self.apply_update(update)
-                except Exception:
-                    pass  # Не удалось преобразовать, пропускаем
-
+    def _sync_tool_call_list(self, tool_calls: list) -> None:
+        """Синхронизировать вложенный ToolCallList (add/update по статусу)."""
         # Маппинг статусов протокола на внутренние статусы ToolCallCard
         status_map = {
             "in_progress": "running",
             "completed": "success",
             "failed": "error",
         }
-
-        # Синхронизируем с ToolCallList
         try:
             tool_call_list = self._tool_call_list
             for tc in tool_calls:
@@ -182,30 +190,32 @@ class ToolPanel(Vertical):
         except Exception:
             pass  # ToolCallList ещё не смонтирован
 
-        # Обновляем отображение на основе новых tool calls
+    def _render_tool_summary(self, tool_calls: list) -> None:
+        """Обновить текстовое отображение списка инструментов и прогресс-бар."""
         if not tool_calls:
             try:
                 self._tool_list.update("Инструменты: нет активных вызовов")
                 self._update_progress_visibility(show=False)
             except Exception:
                 pass  # Виджеты ещё не смонтированы
-        else:
-            # Формируем текст отображения из tool calls
-            lines: list[str] = ["Инструменты:"]
-            for tool_call in tool_calls[-8:]:  # Показываем последние 8
-                # tool_call может быть словарем или объектом
-                if isinstance(tool_call, dict):
-                    tool_id = tool_call.get("toolCallId") or str(tool_call)[:20]
-                    status = tool_call.get("status") or "pending"
-                else:
-                    tool_id = getattr(tool_call, "id", str(tool_call)[:20])
-                    status = getattr(tool_call, "status", "pending")
-                lines.append(f"- {tool_id} [{status}]")
-            try:
-                self._tool_list.update("\n".join(lines))
-                self._update_progress_from_calls(tool_calls)
-            except Exception:
-                pass  # Виджеты ещё не смонтированы
+            return
+
+        # Формируем текст отображения из tool calls
+        lines: list[str] = ["Инструменты:"]
+        for tool_call in tool_calls[-8:]:  # Показываем последние 8
+            # tool_call может быть словарем или объектом
+            if isinstance(tool_call, dict):
+                tool_id = tool_call.get("toolCallId") or str(tool_call)[:20]
+                status = tool_call.get("status") or "pending"
+            else:
+                tool_id = getattr(tool_call, "id", str(tool_call)[:20])
+                status = getattr(tool_call, "status", "pending")
+            lines.append(f"- {tool_id} [{status}]")
+        try:
+            self._tool_list.update("\n".join(lines))
+            self._update_progress_from_calls(tool_calls)
+        except Exception:
+            pass  # Виджеты ещё не смонтированы
 
     def _get_tc_status(self, tc: dict | Any) -> str:
         """Извлекает статус из tool call (dict или объект).

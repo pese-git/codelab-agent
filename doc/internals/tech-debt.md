@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **21** 🟡 (одиннадцать топ-нарушителей разбиты, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -47,12 +47,13 @@
 
 ---
 
-### 2. Снизить цикломатическую сложность — max 51 → 32 🟡 В РАБОТЕ (2026-07-10)
+### 2. Снизить цикломатическую сложность — max 51 → 20 🟡 В РАБОТЕ (2026-07-10)
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
-> ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
-> (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13, 23, 23, 22) разобраны (см. ниже);
-> текущий максимум по кодовой базе — **21** (`AgentLoop.run` / `ToolPanel._on_tool_calls_changed`).
+> ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. 13 топ-нарушителей
+> (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13, 23, 23, 22, 21, 21) разобраны;
+> текущий максимум по кодовой базе — **20** (C-уровень: `on_tool_call_card_selected`,
+> `validate_prompt_content`). D-блоков (≥21) не осталось. Блоков > 10: 63.
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -61,6 +62,12 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**✅ Сделано (12-13):** `AgentLoop.run` (было 21) → **3**: тело итерации вынесено в
+`_run_iteration` (11, residual) + `_obtain_llm_response` / `_emit_agent_text` /
+`_emit_response_plan`. `ToolPanel._on_tool_calls_changed` (было 21) → **1**: три зоны
+вынесены (`_replay_tool_call_updates`, `_sync_tool_call_list`, `_render_tool_summary`).
+D-блоков (≥21) в кодовой базе больше нет.
 
 **✅ Сделано (11):** `OpenAICompatibleProvider.stream_completion` (было 22) → **9**.
 Не-yield части async-генератора вынесены: `_build_stream_request_params`, `_extract_usage`,
@@ -120,13 +127,20 @@ re-export.
 и `_execute_pending_tool` остались на 12 (связная логика исполнить→отчитаться→вернуть,
 дальнейшее дробление — ради метрики, не делаем).
 
-**Топ оставшихся нарушителей (`radon cc`, порог 10):**
+**Топ оставшихся нарушителей (`radon cc`, порог 10) — все C-уровня (≤20):**
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py:259` |
-| 21 (D) | `ToolPanel._on_tool_calls_changed` | `client/tui/components/tool_panel.py:134` |
-| 13 (C) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:225` (residual, см. выше) |
+| 20 (C) | `ACPClientApp.on_tool_call_card_selected` | `client/tui/app.py:920` |
+| 20 (C) | `validate_prompt_content` | `server/protocol/handlers/prompt.py:90` |
+| 19 (C) | `SendPromptUseCase.execute` | `client/application/use_cases.py:498` |
+| 19 (C) | `resolve_prompt_directives` | `server/protocol/handlers/prompt.py:281` |
+| 18 (C) | `extract_prompt_directives` | `server/protocol/handlers/prompt.py:200` |
+| … | ещё ~58 C-блоков (11–17) | остаток P0-2 |
+
+Residual (осознанно оставлены slightly-over, см. выше): `build_context` 13,
+`_execute_pending_tool`/`_execute_allowed_tool_call` 12, `_resolve_provider_credentials` 12,
+`_handle_text_message`/`_run_iteration` 11.
 
 **Задачи:**
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
@@ -140,6 +154,9 @@ re-export.
 - [x] Разбить `ACPContextGatherer._find_similar_files` (23 → 2)
 - [x] Разбить `DirectivesStage.process` (23 → 5)
 - [x] Разбить `OpenAICompatibleProvider.stream_completion` (22 → 9)
+- [x] Разбить `AgentLoop.run` (21 → 3)
+- [x] Разбить `ToolPanel._on_tool_calls_changed` (21 → 1)
+- [ ] Остаток: ~63 C-блока (11–20); рассмотреть промежуточный порог `C901`
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
