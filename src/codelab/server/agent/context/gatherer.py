@@ -163,6 +163,69 @@ class ACPContextGatherer(ContextGatherer):
         )
 
         # Этап 0: Получаем структуру проекта из кэша сессии
+        project_files = await self._load_project_files(session)
+
+        # Этапы 1-2: кандидаты из target_modules и поиска по search_terms
+        candidates = await self._collect_candidates(profile, project_files, session)
+
+        # Этап 3: Дедупликация кандидатов
+        unique_candidates = self._deduplicate(candidates)
+        logger.info(
+            "context.gather.candidates.deduplicated",
+            session_id=self._session_id,
+            before_dedup=len(candidates),
+            after_dedup=len(unique_candidates),
+            duplicates_removed=len(candidates) - len(unique_candidates),
+            candidates=unique_candidates[:20],
+        )
+
+        # Этап 3.5: Fallback — если кандидатов нет, собрать основные файлы проекта
+        if not unique_candidates and project_files:
+            fallback_files = self._get_fallback_files(project_files, max_files)
+            unique_candidates = fallback_files
+            logger.info(
+                "context.gather.fallback_files",
+                session_id=self._session_id,
+                count=len(fallback_files),
+                files=fallback_files[:10],
+            )
+
+        # Число уникальных кандидатов до отбора по бюджету (для /context last).
+        self.last_candidate_count = len(unique_candidates)
+
+        # Этап 4: Чтение файлов и построение графа зависимостей
+        items = await self._read_candidate_files(unique_candidates, max_files, session)
+
+        # Этап 5: Добавление зависимых файлов
+        await self._add_dependent_files(items, max_files, session)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        total_tokens = sum(item.token_count for item in items)
+
+        logger.info(
+            "context.gather.complete",
+            session_id=self._session_id,
+            files_gathered=len(items),
+            total_tokens=total_tokens,
+            file_paths=[item.id for item in items],
+            total_elapsed_ms=elapsed_ms,
+        )
+
+        if span is not None and self._tracer is not None:
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "task_type": profile.task_type,
+                    "search_terms": profile.search_terms,
+                    "candidate_files": len(unique_candidates),
+                    "selected_files": len(items),
+                },
+            )
+
+        return items
+
+    async def _load_project_files(self, session: Any) -> list[str]:
+        """Стадия 0: структура проекта из кэша сессии (с bootstrap-fallback)."""
         project_files_start = time.time()
         project_files = self._list_project_files(session)
 
@@ -177,11 +240,16 @@ class ACPContextGatherer(ContextGatherer):
             count=len(project_files),
             elapsed_ms=project_files_ms,
         )
+        return project_files
 
-        # Этап 1: Сбор кандидатов из target_modules с адаптивным поиском
+    async def _collect_candidates(
+        self,
+        profile: TaskProfile,
+        project_files: list[str],
+        session: Any,
+    ) -> list[str]:
+        """Стадии 1-2: кандидаты из target_modules и поиска по search_terms."""
         candidates: list[str] = []
-
-        # Получаем корень проекта для нормализации путей
         project_root = getattr(session, "cwd", None)
 
         if profile.target_modules:
@@ -212,16 +280,13 @@ class ACPContextGatherer(ContextGatherer):
                 modules=candidates[:10],
             )
 
-        # Этап 2: Поиск файлов по поисковым терминам в реальной структуре
+        # Поиск файлов по поисковым терминам в реальной структуре
         search_start = time.time()
-        search_results_by_term: dict[str, list[str]] = {}
-
         for term in profile.search_terms[:5]:
             term_start = time.time()
             search_results = await self._search_in_files(term, project_files, session)
             term_ms = (time.time() - term_start) * 1000
 
-            search_results_by_term[term] = search_results
             candidates.extend(search_results)
 
             logger.debug(
@@ -241,33 +306,15 @@ class ACPContextGatherer(ContextGatherer):
             total_results=len(candidates),
             elapsed_ms=search_ms,
         )
+        return candidates
 
-        # Этап 3: Дедупликация кандидатов
-        unique_candidates = self._deduplicate(candidates)
-        logger.info(
-            "context.gather.candidates.deduplicated",
-            session_id=self._session_id,
-            before_dedup=len(candidates),
-            after_dedup=len(unique_candidates),
-            duplicates_removed=len(candidates) - len(unique_candidates),
-            candidates=unique_candidates[:20],
-        )
-
-        # Этап 3.5: Fallback — если кандидатов нет, собрать основные файлы проекта
-        if not unique_candidates and project_files:
-            fallback_files = self._get_fallback_files(project_files, max_files)
-            unique_candidates = fallback_files
-            logger.info(
-                "context.gather.fallback_files",
-                session_id=self._session_id,
-                count=len(fallback_files),
-                files=fallback_files[:10],
-            )
-
-        # Число уникальных кандидатов до отбора по бюджету (для /context last).
-        self.last_candidate_count = len(unique_candidates)
-
-        # Этап 4: Чтение файлов и построение графа зависимостей
+    async def _read_candidate_files(
+        self,
+        unique_candidates: list[str],
+        max_files: int,
+        session: Any,
+    ) -> list[ContextItem]:
+        """Стадия 4: чтение файлов, построение графа зависимостей, сборка items."""
         read_start = time.time()
         items: list[ContextItem] = []
         files_read = 0
@@ -342,8 +389,15 @@ class ACPContextGatherer(ContextGatherer):
             files_skipped_error=files_skipped_error,
             elapsed_ms=read_ms,
         )
+        return items
 
-        # Этап 5: Добавление зависимых файлов
+    async def _add_dependent_files(
+        self,
+        items: list[ContextItem],
+        max_files: int,
+        session: Any,
+    ) -> None:
+        """Стадия 5: добавить зависимые файлы (по графу) в items (мутирует список)."""
         dependents_start = time.time()
         dependent_files = self._get_dependents(items)
 
@@ -394,31 +448,6 @@ class ACPContextGatherer(ContextGatherer):
             dependents_added=dependents_added,
             elapsed_ms=dependents_ms,
         )
-
-        elapsed_ms = (time.time() - start_time) * 1000
-        total_tokens = sum(item.token_count for item in items)
-
-        logger.info(
-            "context.gather.complete",
-            session_id=self._session_id,
-            files_gathered=len(items),
-            total_tokens=total_tokens,
-            file_paths=[item.id for item in items],
-            total_elapsed_ms=elapsed_ms,
-        )
-
-        if span is not None and self._tracer is not None:
-            self._tracer.end_span(
-                span,
-                attributes={
-                    "task_type": profile.task_type,
-                    "search_terms": profile.search_terms,
-                    "candidate_files": len(unique_candidates),
-                    "selected_files": len(items),
-                },
-            )
-
-        return items
 
     async def _read_file(self, path: str, session: Any) -> str | None:
         """Прочитать файл через ToolRegistry."""
