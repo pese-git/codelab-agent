@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **37** 🟡 (топ-нарушитель разбит, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **32** 🟡 (три топ-нарушителя разбиты, см. P0-2) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -47,11 +47,12 @@
 
 ---
 
-### 2. Снизить цикломатическую сложность — max 51 → 37 🟡 В РАБОТЕ (2026-07-10)
+### 2. Снизить цикломатическую сложность — max 51 → 32 🟡 В РАБОТЕ (2026-07-10)
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
-> ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Топ-нарушитель
-> разобран (см. ниже); текущий максимум по кодовой базе — **37**.
+> ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
+> (51, 37, 37) разобраны (см. ниже); текущий максимум по кодовой базе — **32**
+> (`AppConfig._merge_llm_config`).
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -60,6 +61,13 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**✅ Сделано (3):** `WebSocketTransport.run` (было 37) разбит через введение объекта
+состояния `_WsRunState` (Parameter Object) на `_handle_text_message`,
+`_apply_initialization_gate`, `_update_notification_subscription`,
+`_schedule_prompt_in_background`, `_cleanup_connection` (+ `_cancel_prompt_request_tasks` /
+`_cancel_deferred_prompt_tasks`). Результат: `run` — сложность 8, cleanup — 8,
+`_handle_text_message` — 11 (оставлен: связный поток обработки сообщения).
 
 **✅ Сделано (2):** `AgentLoop._process_tool_calls` (было 37) разбит на
 `_process_single_tool_call` + `_pause_for_permission` / `_reject_tool_call` /
@@ -73,7 +81,6 @@ re-export.
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 37 (E) | `WebSocketTransport.run` | `server/transport/websocket.py:96` |
 | 32 (E) | `AppConfig._merge_llm_config` | `server/config.py:350` |
 | 31 (E) | `ThreePhaseCompactor._phase_hard_truncate` | `server/agent/context/compactor.py:307` |
 | 30 (D) | `run_server` | (см. вывод `radon`) |
@@ -84,7 +91,7 @@ re-export.
 **Задачи:**
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
 - [x] Разбить `AgentLoop._process_tool_calls` (37 → 5)
-- [ ] Упростить `WebSocketTransport.run` (37)
+- [x] Разбить `WebSocketTransport.run` (37 → 8)
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
