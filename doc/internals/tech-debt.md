@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **26** 🟡 (семь топ-нарушителей разбиты, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **23** 🟡 (восемь топ-нарушителей разбиты, см. P0-2) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -51,8 +51,8 @@
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
-> (51, 37, 37, 32, 31, 30, 26-gather) разобраны (см. ниже); текущий максимум по
-> кодовой базе — **26** (`DefaultContextManager.build_context`).
+> (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13) разобраны (см. ниже);
+> текущий максимум по кодовой базе — **23** (`_find_similar_files` / `DirectivesStage.process`).
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -61,6 +61,14 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**🟡 Сделано (8, частично):** `DefaultContextManager.build_context` (было 26) → **13**.
+Вынесены когезивные стадии: `_analyze_task` (анализ задачи + сохранение профиля),
+`_resolve_baseline_registry` (reuse/создание session-registry), `_populate_baseline_registry`
+(system_prompt + gather + skill catalog, возвращает `_GatherStats`). Остаток 13 — скелет
+оркестрации + observability-хвост (span/metrics агрегируют 13+ локалов); дальнейшее
+дробление требует state-объекта (иначе взрыв параметров) — отложено. Детерминизм сохранён
+(321 context-тест зелёный).
 
 **✅ Сделано (7):** `ACPContextGatherer.gather` (было 26) разбит на стадии-помощники:
 `_load_project_files` (стадия 0), `_collect_candidates` (target_modules + поиск),
@@ -105,10 +113,11 @@ re-export.
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 26 (D) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:212` |
 | 23 (D) | `ACPContextGatherer._find_similar_files` | `server/agent/context/gatherer.py:894` |
 | 23 (D) | `DirectivesStage.process` | `server/protocol/handlers/pipeline/stages/directives.py:68` |
-| 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py` |
+| 22 (D) | `OpenAICompatibleProvider.stream_completion` | `server/llm/providers/openai_compatible.py:167` |
+| 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py:259` |
+| 13 (C) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:225` (residual, см. выше) |
 
 **Задачи:**
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
@@ -118,6 +127,7 @@ re-export.
 - [x] Разбить `ThreePhaseCompactor._phase_hard_truncate` (31 → 4)
 - [x] Разбить `run_server` (30 → 6)
 - [x] Разбить `ACPContextGatherer.gather` (26 → 10)
+- [x] Разбить `DefaultContextManager.build_context` (26 → 13, остаток — state-объект)
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
