@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **31** 🟡 (четыре топ-нарушителя разбиты, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **30** 🟡 (пять топ-нарушителей разбиты, см. P0-2) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -51,8 +51,8 @@
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
-> (51, 37, 37, 32) разобраны (см. ниже); текущий максимум по кодовой базе — **31**
-> (`ThreePhaseCompactor._phase_hard_truncate`).
+> (51, 37, 37, 32, 31) разобраны (см. ниже); текущий максимум по кодовой базе — **30**
+> (`run_server`). E-блоков (≥31) не осталось.
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -61,6 +61,13 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**✅ Сделано (5):** `ThreePhaseCompactor._phase_hard_truncate` (было 31) разбит:
+общий греди-примитив `_pack_within_budget` (унифицировал 3 почти одинаковых цикла
+набора-в-бюджет; безопасно — `count_messages` аддитивен) + `_evict_middle_by_priority`
+(сценарий вытеснения middle по приоритету). Результат: `_phase_hard_truncate` — 4,
+`_pack_within_budget` — 8, `_evict_middle_by_priority` — 10. Golden/детерминизм-тесты
+(321 context-тест) зелёные — байт-идентичность вывода сохранена.
 
 **✅ Сделано (4):** `AppConfig._merge_llm_config` (было 32) разбит на послойный merge:
 `_default_llm_data` → `_apply_toml_llm_overrides` (+ `_toml_timeout_config`) →
@@ -87,10 +94,11 @@ re-export.
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 31 (E) | `ThreePhaseCompactor._phase_hard_truncate` | `server/agent/context/compactor.py:307` |
 | 30 (D) | `run_server` | (см. вывод `radon`) |
-| 26 (D) | `ACPContextGatherer.gather` | `server/agent/context/gatherer.py:77` |
-| 26 (D) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:214` |
+| 26 (D) | `ACPContextGatherer.gather` | `server/agent/context/gatherer.py:129` |
+| 26 (D) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:212` |
+| 23 (D) | `ACPContextGatherer._find_similar_files` | `server/agent/context/gatherer.py:865` |
+| 23 (D) | `DirectivesStage.process` | `server/protocol/handlers/pipeline/stages/directives.py:68` |
 | 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py` |
 
 **Задачи:**
@@ -98,6 +106,7 @@ re-export.
 - [x] Разбить `AgentLoop._process_tool_calls` (37 → 5)
 - [x] Разбить `WebSocketTransport.run` (37 → 8)
 - [x] Разбить `AppConfig._merge_llm_config` (32 → 1)
+- [x] Разбить `ThreePhaseCompactor._phase_hard_truncate` (31 → 4)
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
