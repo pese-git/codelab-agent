@@ -53,32 +53,41 @@
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Топ-нарушитель
 > разобран (см. ниже); текущий максимум по кодовой базе — **37**.
 
-**✅ Сделано:** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
+**✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
 диспетчеризации по `pending.kind` + по одному обработчику на fs/terminal-операцию.
 Результат: диспетчер — сложность 8, максимум в модуле — 10 (`_handle_terminal_output`),
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
-re-export. Все 7280 тестов проходят.
+re-export.
+
+**✅ Сделано (2):** `AgentLoop._process_tool_calls` (было 37) разбит на
+`_process_single_tool_call` + `_pause_for_permission` / `_reject_tool_call` /
+`_execute_allowed_tool_call` + DRY-помощники `_run_tool` / `_build_notification_content` /
+`_emit_plan_notification_if_needed` (переиспользованы в `_execute_pending_tool`, тот
+снижен 17 → 12). Результат: `_process_tool_calls` — сложность 5. Помощники `*_allowed`
+и `_execute_pending_tool` остались на 12 (связная логика исполнить→отчитаться→вернуть,
+дальнейшее дробление — ради метрики, не делаем).
 
 **Топ оставшихся нарушителей (`radon cc`, порог 10):**
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
 | 37 (E) | `WebSocketTransport.run` | `server/transport/websocket.py:96` |
-| 37 (E) | `AgentLoop._process_tool_calls` | `server/protocol/handlers/pipeline/stages/agent_loop.py:589` |
 | 32 (E) | `AppConfig._merge_llm_config` | `server/config.py:350` |
 | 31 (E) | `ThreePhaseCompactor._phase_hard_truncate` | `server/agent/context/compactor.py:307` |
 | 30 (D) | `run_server` | (см. вывод `radon`) |
 | 26 (D) | `ACPContextGatherer.gather` | `server/agent/context/gatherer.py:77` |
 | 26 (D) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:214` |
+| 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py` |
 
 **Задачи:**
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
-- [ ] Упростить `WebSocketTransport.run` и `AgentLoop._process_tool_calls` (по 37)
-- [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager)
+- [x] Разбить `AgentLoop._process_tool_calls` (37 → 5)
+- [ ] Упростить `WebSocketTransport.run` (37)
+- [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
-      чтобы предотвратить регресс (сейчас включать нельзя: 71 блок выше порога)
+      чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
 
 **Оценка:** 2 дня
 **Критерий приемки:** max сложность <= 10 (или согласованный порог), все тесты проходят

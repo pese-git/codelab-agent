@@ -240,7 +240,7 @@ def _issue_terminal_followup(
     pending: PendingClientRequestState,
     terminal_id: str,
     terminal_output: str | None,
-    terminal_truncated: bool,
+    terminal_truncated: bool | None,
     terminal_exit_code: int | None = None,
     terminal_signal: str | None = None,
 ) -> ProtocolOutcome | None:

@@ -84,6 +84,21 @@ class ToolProcessingResult:
     pending_tool_calls: list[str] = field(default_factory=list)
 
 
+@dataclass
+class _ToolCallStep:
+    """Результат обработки одного tool call внутри цикла AgentLoop.
+
+    Attributes:
+        tool_result: Результат исполнения (добавляется в общий список); None,
+            если tool_call пропущен (без имени).
+        pause_tool_call_id: Если задан — цикл ставится на паузу для permission
+            по этому tool_call_id.
+    """
+
+    tool_result: ToolResult | None = None
+    pause_tool_call_id: str | None = None
+
+
 class AgentLoop:
     """Универсальный цикл итераций LLM tool-calling.
 
@@ -597,7 +612,9 @@ class AgentLoop:
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
 
-        Перенесено из LLMLoopStage._process_tool_calls_for_llm_loop.
+        Итерирует по tool calls, делегируя обработку каждого в
+        `_process_single_tool_call`. Прерывается на отмене или при запросе
+        permission (agent loop ставится на паузу до ответа клиента).
 
         Args:
             session: Состояние сессии.
@@ -612,7 +629,6 @@ class AgentLoop:
         tool_results: list[ToolResult] = []
 
         for tool_call in tool_calls:
-            # Проверка отмены
             if self._is_cancel_requested(session):
                 logger.debug("tool processing cancelled", session_id=session_id)
                 return ToolProcessingResult(
@@ -620,341 +636,433 @@ class AgentLoop:
                     pending_permission=False,
                 )
 
-            tool_name = getattr(tool_call, "name", None)
-            tool_arguments = getattr(tool_call, "arguments", {})
-            tool_call_id_from_llm = getattr(tool_call, "id", None)
-
-            if not tool_name:
-                logger.warning("tool_call has no name", session_id=session_id)
-                continue
-
-            # Конвертируем LLM имя обратно в ACP формат
-            acp_tool_name = llm_name_to_acp_name(tool_name)
-
-            # Определяем тип инструмента
-            tool_kind = "other"
-            is_mcp = MCPToolExecutor.is_mcp_tool(acp_tool_name)
-
-            tool_definition = self._tool_registry.get(acp_tool_name)
-            if tool_definition is not None:
-                tool_kind = tool_definition.kind
-
-            tool_call_id = self._tool_call_handler.create_tool_call(
-                session=session,
-                title=acp_tool_name,
-                kind=tool_kind,
-                tool_name=acp_tool_name,
-                tool_arguments=tool_arguments,
-                tool_call_id_from_llm=tool_call_id_from_llm,
+            step = await self._process_single_tool_call(
+                session, session_id, tool_call, notifications, mcp_manager
             )
-
-            logger.info(
-                "tool_call_created",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                tool_name=acp_tool_name,
-                tool_kind=tool_kind,
-                is_mcp=is_mcp,
-            )
-
-            tool_call_notification = self._tool_call_handler.build_tool_call_notification(
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                title=acp_tool_name,
-                kind=tool_kind,
-            )
-            if not await self._send_notification_immediately(tool_call_notification):
-                notifications.append(tool_call_notification)
-
-            self._replay_manager.save_tool_call(
-                session=session,
-                tool_call_id=tool_call_id,
-                title=acp_tool_name,
-                kind=tool_kind,
-                status="pending",
-            )
-
-            logger.info(
-                "tool_call_deciding_execution",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                tool_name=acp_tool_name,
-                tool_kind=tool_kind,
-                is_mcp=is_mcp,
-            )
-
-            # MCP инструменты всегда требуют разрешения (по умолчанию)
-            if is_mcp:
-                decision = await self._decide_tool_execution(session, tool_kind)
-            elif tool_definition is not None and not tool_definition.requires_permission:
-                decision = "allow"
-            else:
-                decision = await self._decide_tool_execution(session, tool_kind)
-
-            logger.info(
-                "tool_execution_decision",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                tool_name=acp_tool_name,
-                tool_kind=tool_kind,
-                is_mcp=is_mcp,
-                requires_permission=(
-                    tool_definition.requires_permission if tool_definition else None
-                ),
-                mode=session.config_values.get("mode", "standard"),
-                decision=decision,
-            )
-
-            if decision == "ask":
-                tool_call_state = session.tool_calls.get(tool_call_id)
-                if tool_call_state is not None:
-                    permission_msg = self._permission_manager.build_permission_request(
-                        session,
-                        session_id,
-                        tool_call_state.tool_call_id,
-                        tool_call_state.title,
-                        tool_kind,
-                    )
-                    notifications.append(permission_msg)
-                    # НЕ отправляем permission request через immediate callback.
-                    # Он будет отправлен через стандартный механизм outcome.notifications
-                    # чтобы избежать дублирования и корректной обработки ответа.
-
-                    if session.active_turn:
-                        session.active_turn.phase = "awaiting_permission"
-                        session.active_turn.permission_tool_call_id = tool_call_id
-
-                logger.info(
-                    "permission_request_sent_pausing_agent_loop",
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    tool_name=acp_tool_name,
-                )
+            if step.pause_tool_call_id is not None:
                 return ToolProcessingResult(
                     tool_results=tool_results,
                     pending_permission=True,
-                    pending_tool_calls=[tool_call_id],
+                    pending_tool_calls=[step.pause_tool_call_id],
                 )
-
-            if decision == "reject":
-                logger.info(
-                    "tool_call_rejected",
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    tool_name=acp_tool_name,
-                    tool_kind=tool_kind,
-                )
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                rejection_msg = f"Tool execution rejected by policy for {tool_kind}"
-                rejection_content = [
-                    {"type": "content", "content": {"type": "text", "text": rejection_msg}}
-                ]
-                rejection_notification = self._tool_call_handler.build_tool_update_notification(
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    status="failed",
-                    content=rejection_content,
-                )
-                if not await self._send_notification_immediately(rejection_notification):
-                    notifications.append(rejection_notification)
-                self._replay_manager.save_tool_call_update(
-                    session=session,
-                    tool_call_id=tool_call_id,
-                    status="failed",
-                    content=rejection_content,
-                )
-                tool_results.append(
-                    ToolResult(
-                        tool_call_id=tool_call_id_from_llm or tool_call_id,
-                        tool_name=acp_tool_name,
-                        success=False,
-                        error=rejection_msg,
-                    )
-                )
-                continue
-
-            # decision == "allow"
-            logger.info(
-                "tool_call_executing",
-                session_id=session_id,
-                tool_call_id=tool_call_id,
-                tool_name=acp_tool_name,
-                tool_kind=tool_kind,
-                is_mcp=is_mcp,
-            )
-            try:
-                self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "in_progress"
-                )
-                in_progress_notification = self._tool_call_handler.build_tool_update_notification(
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    status="in_progress",
-                )
-                if not await self._send_notification_immediately(in_progress_notification):
-                    notifications.append(in_progress_notification)
-                self._replay_manager.save_tool_call_update(
-                    session=session,
-                    tool_call_id=tool_call_id,
-                    status="in_progress",
-                )
-
-                # MCP инструменты выполняются через MCPExecutor
-                if is_mcp:
-                    if mcp_manager is None:
-                        raise RuntimeError("MCP manager not available for session")
-                    mcp_executor = MCPToolExecutor(mcp_manager)
-                    result = await mcp_executor.execute_tool(
-                        session_id, acp_tool_name, tool_arguments, session=session
-                    )
-                else:
-                    result = await self._tool_registry.execute_tool(
-                        session_id, acp_tool_name, tool_arguments, session=session
-                    )
-
-                extracted_content = await self._content_extractor.extract_from_result(
-                    tool_call_id, result
-                )
-
-                is_valid, errors = self._content_validator.validate_content_list(
-                    extracted_content.content_items
-                )
-                if not is_valid:
-                    logger.warning(
-                        "tool_result_content_validation_failed",
-                        tool_call_id=tool_call_id,
-                        errors=errors,
-                    )
-
-                tool_call_state = session.tool_calls.get(tool_call_id)
-                if tool_call_state:
-                    tool_call_state.result_content = extracted_content.content_items
-
-                provider_raw = session.config_values.get("llm_provider", "openai")
-                provider = cast(Literal["openai", "anthropic"], provider_raw)
-                self._content_formatter.format_for_llm(extracted_content, provider=provider)
-
-                if result.success:
-                    success_text = result.output or "Success"
-                    success_content = [
-                        {"type": "content", "content": {"type": "text", "text": success_text}}
-                    ]
-                    self._tool_call_handler.update_tool_call_status(
-                        session, tool_call_id, "completed", content=success_content
-                    )
-                    status = "completed"
-                else:
-                    success_content = None
-                    self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                    status = "failed"
-
-                # notification_content: приоритет extracted content > text fallback
-                # extracted_content.content_items уже в формате ToolCallContent
-                # (благодаря ToolResultMapper.to_acp_content())
-                notification_content = (
-                    extracted_content.content_items
-                    if extracted_content.content_items
-                    else (
-                        [{"type": "content", "content": {"type": "text", "text": result.output}}]
-                        if result.success and result.output
-                        else None
-                    )
-                )
-
-                tool_update_notification = self._tool_call_handler.build_tool_update_notification(
-                    session_id=session_id,
-                    tool_call_id=tool_call_id,
-                    status=status,
-                    content=notification_content,
-                )
-                if not await self._send_notification_immediately(tool_update_notification):
-                    notifications.append(tool_update_notification)
-                self._replay_manager.save_tool_call_update(
-                    session=session,
-                    tool_call_id=tool_call_id,
-                    status=status,
-                    content=notification_content,
-                )
-
-                tool_results.append(
-                    ToolResult(
-                        tool_call_id=tool_call_id_from_llm or tool_call_id,
-                        tool_name=acp_tool_name,
-                        success=result.success,
-                        output=result.output,
-                        content=extracted_content.content_items,
-                        error=result.error,
-                    )
-                )
-
-                # Добавляем tool result в историю для LLM
-                self._add_tool_result_to_history(
-                    session,
-                    tool_call_id_from_llm or tool_call_id,
-                    result.success,
-                    result.output,
-                    result.error,
-                )
-
-                # Plan tool: отправить plan notification клиенту согласно ACP spec
-                # (protocol/11-Agent Plan.md)
-                if acp_tool_name == "update_plan" and result.success:
-                    plan_entries = (
-                        result.metadata.get("validated_entries") if result.metadata else None
-                    )
-                    if plan_entries:
-                        session.latest_plan = list(plan_entries)
-                        plan_notification = self._plan_builder.build_plan_notification(
-                            session_id, plan_entries
-                        )
-                        if not await self._send_notification_immediately(plan_notification):
-                            notifications.append(plan_notification)
-                        self._replay_manager.save_plan(session, plan_entries)
-                        logger.debug(
-                            "plan notification sent from update_plan tool",
-                            session_id=session_id,
-                            entries_count=len(plan_entries),
-                        )
-
-            except Exception as e:
-                logger.error(
-                    "tool execution failed",
-                    session_id=session_id,
-                    tool_name=tool_name,
-                    error=str(e),
-                )
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                notifications.append(
-                    self._tool_call_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=tool_call_id,
-                        status="failed",
-                    )
-                )
-                self._replay_manager.save_tool_call_update(
-                    session=session,
-                    tool_call_id=tool_call_id,
-                    status="failed",
-                )
-                tool_results.append(
-                    ToolResult(
-                        tool_call_id=tool_call_id_from_llm or tool_call_id,
-                        tool_name=acp_tool_name,
-                        success=False,
-                        error=str(e),
-                    )
-                )
-
-                # Добавляем tool result в историю для LLM
-                self._add_tool_result_to_history(
-                    session,
-                    tool_call_id_from_llm or tool_call_id,
-                    False,
-                    None,
-                    str(e),
-                )
+            if step.tool_result is not None:
+                tool_results.append(step.tool_result)
 
         return ToolProcessingResult(tool_results=tool_results)
+
+    async def _process_single_tool_call(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call: object,
+        notifications: list[ACPMessage],
+        mcp_manager: MCPManager | None,
+    ) -> _ToolCallStep:
+        """Обработать один tool call: создать, принять решение, исполнить.
+
+        Возвращает `_ToolCallStep`, сигнализирующий вызывающему циклу: либо
+        готовый `ToolResult` (продолжить), либо паузу для permission.
+        """
+        tool_name = getattr(tool_call, "name", None)
+        tool_arguments = getattr(tool_call, "arguments", {})
+        tool_call_id_from_llm = getattr(tool_call, "id", None)
+
+        if not tool_name:
+            logger.warning("tool_call has no name", session_id=session_id)
+            return _ToolCallStep()
+
+        # Конвертируем LLM имя обратно в ACP формат
+        acp_tool_name = llm_name_to_acp_name(tool_name)
+
+        tool_kind = "other"
+        is_mcp = MCPToolExecutor.is_mcp_tool(acp_tool_name)
+        tool_definition = self._tool_registry.get(acp_tool_name)
+        if tool_definition is not None:
+            tool_kind = tool_definition.kind
+
+        tool_call_id = self._tool_call_handler.create_tool_call(
+            session=session,
+            title=acp_tool_name,
+            kind=tool_kind,
+            tool_name=acp_tool_name,
+            tool_arguments=tool_arguments,
+            tool_call_id_from_llm=tool_call_id_from_llm,
+        )
+
+        logger.info(
+            "tool_call_created",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+            tool_kind=tool_kind,
+            is_mcp=is_mcp,
+        )
+
+        tool_call_notification = self._tool_call_handler.build_tool_call_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            title=acp_tool_name,
+            kind=tool_kind,
+        )
+        if not await self._send_notification_immediately(tool_call_notification):
+            notifications.append(tool_call_notification)
+
+        self._replay_manager.save_tool_call(
+            session=session,
+            tool_call_id=tool_call_id,
+            title=acp_tool_name,
+            kind=tool_kind,
+            status="pending",
+        )
+
+        logger.info(
+            "tool_call_deciding_execution",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+            tool_kind=tool_kind,
+            is_mcp=is_mcp,
+        )
+
+        # MCP инструменты всегда требуют разрешения (по умолчанию)
+        if is_mcp:
+            decision = await self._decide_tool_execution(session, tool_kind)
+        elif tool_definition is not None and not tool_definition.requires_permission:
+            decision = "allow"
+        else:
+            decision = await self._decide_tool_execution(session, tool_kind)
+
+        logger.info(
+            "tool_execution_decision",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+            tool_kind=tool_kind,
+            is_mcp=is_mcp,
+            requires_permission=(tool_definition.requires_permission if tool_definition else None),
+            mode=session.config_values.get("mode", "standard"),
+            decision=decision,
+        )
+
+        if decision == "ask":
+            self._pause_for_permission(
+                session, session_id, tool_call_id, acp_tool_name, tool_kind, notifications
+            )
+            return _ToolCallStep(pause_tool_call_id=tool_call_id)
+
+        if decision == "reject":
+            return _ToolCallStep(
+                tool_result=await self._reject_tool_call(
+                    session,
+                    session_id,
+                    tool_call_id,
+                    acp_tool_name,
+                    tool_kind,
+                    tool_call_id_from_llm,
+                    notifications,
+                )
+            )
+
+        # decision == "allow"
+        return _ToolCallStep(
+            tool_result=await self._execute_allowed_tool_call(
+                session,
+                session_id,
+                tool_call_id,
+                tool_name,
+                acp_tool_name,
+                tool_arguments,
+                tool_call_id_from_llm,
+                is_mcp,
+                mcp_manager,
+                notifications,
+            )
+        )
+
+    def _pause_for_permission(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        acp_tool_name: str,
+        tool_kind: str,
+        notifications: list[ACPMessage],
+    ) -> None:
+        """Сформировать permission request и перевести turn в awaiting_permission."""
+        tool_call_state = session.tool_calls.get(tool_call_id)
+        if tool_call_state is not None:
+            permission_msg = self._permission_manager.build_permission_request(
+                session,
+                session_id,
+                tool_call_state.tool_call_id,
+                tool_call_state.title,
+                tool_kind,
+            )
+            notifications.append(permission_msg)
+            # НЕ отправляем permission request через immediate callback.
+            # Он будет отправлен через стандартный механизм outcome.notifications
+            # чтобы избежать дублирования и корректной обработки ответа.
+
+            if session.active_turn:
+                session.active_turn.phase = "awaiting_permission"
+                session.active_turn.permission_tool_call_id = tool_call_id
+
+        logger.info(
+            "permission_request_sent_pausing_agent_loop",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+        )
+
+    async def _reject_tool_call(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        acp_tool_name: str,
+        tool_kind: str,
+        tool_call_id_from_llm: str | None,
+        notifications: list[ACPMessage],
+    ) -> ToolResult:
+        """Отклонить tool call по policy: пометить failed и вернуть ToolResult."""
+        logger.info(
+            "tool_call_rejected",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+            tool_kind=tool_kind,
+        )
+        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+        rejection_msg = f"Tool execution rejected by policy for {tool_kind}"
+        rejection_content = [
+            {"type": "content", "content": {"type": "text", "text": rejection_msg}}
+        ]
+        rejection_notification = self._tool_call_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=rejection_content,
+        )
+        if not await self._send_notification_immediately(rejection_notification):
+            notifications.append(rejection_notification)
+        self._replay_manager.save_tool_call_update(
+            session=session,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=rejection_content,
+        )
+        return ToolResult(
+            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_name=acp_tool_name,
+            success=False,
+            error=rejection_msg,
+        )
+
+    async def _execute_allowed_tool_call(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        tool_name: str,
+        acp_tool_name: str,
+        tool_arguments: dict,
+        tool_call_id_from_llm: str | None,
+        is_mcp: bool,
+        mcp_manager: MCPManager | None,
+        notifications: list[ACPMessage],
+    ) -> ToolResult:
+        """Исполнить разрешённый tool call и сформировать ToolResult."""
+        logger.info(
+            "tool_call_executing",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            tool_name=acp_tool_name,
+            is_mcp=is_mcp,
+        )
+        try:
+            self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
+            in_progress_notification = self._tool_call_handler.build_tool_update_notification(
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                status="in_progress",
+            )
+            if not await self._send_notification_immediately(in_progress_notification):
+                notifications.append(in_progress_notification)
+            self._replay_manager.save_tool_call_update(
+                session=session,
+                tool_call_id=tool_call_id,
+                status="in_progress",
+            )
+
+            result = await self._run_tool(
+                session, session_id, acp_tool_name, tool_arguments, is_mcp, mcp_manager
+            )
+
+            extracted_content = await self._content_extractor.extract_from_result(
+                tool_call_id, result
+            )
+
+            is_valid, errors = self._content_validator.validate_content_list(
+                extracted_content.content_items
+            )
+            if not is_valid:
+                logger.warning(
+                    "tool_result_content_validation_failed",
+                    tool_call_id=tool_call_id,
+                    errors=errors,
+                )
+
+            tool_call_state = session.tool_calls.get(tool_call_id)
+            if tool_call_state:
+                tool_call_state.result_content = extracted_content.content_items
+
+            provider_raw = session.config_values.get("llm_provider", "openai")
+            provider = cast(Literal["openai", "anthropic"], provider_raw)
+            self._content_formatter.format_for_llm(extracted_content, provider=provider)
+
+            if result.success:
+                success_text = result.output or "Success"
+                success_content = [
+                    {"type": "content", "content": {"type": "text", "text": success_text}}
+                ]
+                self._tool_call_handler.update_tool_call_status(
+                    session, tool_call_id, "completed", content=success_content
+                )
+                status = "completed"
+            else:
+                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+                status = "failed"
+
+            notification_content = self._build_notification_content(extracted_content, result)
+
+            tool_update_notification = self._tool_call_handler.build_tool_update_notification(
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                status=status,
+                content=notification_content,
+            )
+            if not await self._send_notification_immediately(tool_update_notification):
+                notifications.append(tool_update_notification)
+            self._replay_manager.save_tool_call_update(
+                session=session,
+                tool_call_id=tool_call_id,
+                status=status,
+                content=notification_content,
+            )
+
+            # Добавляем tool result в историю для LLM
+            self._add_tool_result_to_history(
+                session,
+                tool_call_id_from_llm or tool_call_id,
+                result.success,
+                result.output,
+                result.error,
+            )
+
+            await self._emit_plan_notification_if_needed(
+                session, session_id, acp_tool_name, result, notifications
+            )
+
+            return ToolResult(
+                tool_call_id=tool_call_id_from_llm or tool_call_id,
+                tool_name=acp_tool_name,
+                success=result.success,
+                output=result.output,
+                content=extracted_content.content_items,
+                error=result.error,
+            )
+
+        except Exception as e:
+            logger.error(
+                "tool execution failed",
+                session_id=session_id,
+                tool_name=tool_name,
+                error=str(e),
+            )
+            self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+            notifications.append(
+                self._tool_call_handler.build_tool_update_notification(
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    status="failed",
+                )
+            )
+            self._replay_manager.save_tool_call_update(
+                session=session,
+                tool_call_id=tool_call_id,
+                status="failed",
+            )
+            self._add_tool_result_to_history(
+                session,
+                tool_call_id_from_llm or tool_call_id,
+                False,
+                None,
+                str(e),
+            )
+            return ToolResult(
+                tool_call_id=tool_call_id_from_llm or tool_call_id,
+                tool_name=acp_tool_name,
+                success=False,
+                error=str(e),
+            )
+
+    async def _run_tool(
+        self,
+        session: SessionState,
+        session_id: str,
+        acp_tool_name: str,
+        tool_arguments: dict,
+        is_mcp: bool,
+        mcp_manager: MCPManager | None,
+    ):
+        """Исполнить tool через MCP executor или локальный registry."""
+        if is_mcp:
+            if mcp_manager is None:
+                raise RuntimeError("MCP manager not available for session")
+            mcp_executor = MCPToolExecutor(mcp_manager)
+            return await mcp_executor.execute_tool(
+                session_id, acp_tool_name, tool_arguments, session=session
+            )
+        return await self._tool_registry.execute_tool(
+            session_id, acp_tool_name, tool_arguments, session=session
+        )
+
+    @staticmethod
+    def _build_notification_content(extracted_content, result) -> list | None:
+        """Контент для tool_call_update: extracted content с fallback на текст output."""
+        if extracted_content.content_items:
+            return extracted_content.content_items
+        if result.success and result.output:
+            return [{"type": "content", "content": {"type": "text", "text": result.output}}]
+        return None
+
+    async def _emit_plan_notification_if_needed(
+        self,
+        session: SessionState,
+        session_id: str,
+        acp_tool_name: str,
+        result,
+        notifications: list[ACPMessage],
+    ) -> None:
+        """Отправить plan notification, если tool update_plan успешно вернул план.
+
+        Соответствует ACP spec (protocol/11-Agent Plan.md).
+        """
+        if acp_tool_name != "update_plan" or not result.success:
+            return
+        plan_entries = result.metadata.get("validated_entries") if result.metadata else None
+        if not plan_entries:
+            return
+        session.latest_plan = list(plan_entries)
+        plan_notification = self._plan_builder.build_plan_notification(session_id, plan_entries)
+        if not await self._send_notification_immediately(plan_notification):
+            notifications.append(plan_notification)
+        self._replay_manager.save_plan(session, plan_entries)
+        logger.debug(
+            "plan notification sent from update_plan tool",
+            session_id=session_id,
+            entries_count=len(plan_entries),
+        )
 
     async def _execute_pending_tool(
         self,
@@ -1005,18 +1113,14 @@ class AgentLoop:
         )
 
         try:
-            # MCP инструменты выполняются через MCPExecutor
-            if MCPToolExecutor.is_mcp_tool(tool_name):
-                if mcp_manager is None:
-                    raise RuntimeError("MCP manager not available for session")
-                mcp_executor = MCPToolExecutor(mcp_manager)
-                result = await mcp_executor.execute_tool(
-                    session_id, tool_name, tool_arguments, session=session
-                )
-            else:
-                result = await self._tool_registry.execute_tool(
-                    session_id, tool_name, tool_arguments, session=session
-                )
+            result = await self._run_tool(
+                session,
+                session_id,
+                tool_name,
+                tool_arguments,
+                MCPToolExecutor.is_mcp_tool(tool_name),
+                mcp_manager,
+            )
 
             extracted_content = await self._content_extractor.extract_from_result(
                 tool_call_id, result
@@ -1027,16 +1131,7 @@ class AgentLoop:
             provider = cast(Literal["openai", "anthropic"], provider_raw)
             self._content_formatter.format_for_llm(extracted_content, provider=provider)
 
-            # notification_content: приоритет extracted content > text fallback
-            notification_content = (
-                extracted_content.content_items
-                if extracted_content.content_items
-                else (
-                    [{"type": "content", "content": {"type": "text", "text": result.output}}]
-                    if result.success and result.output
-                    else None
-                )
-            )
+            notification_content = self._build_notification_content(extracted_content, result)
 
             if result.success:
                 self._tool_call_handler.update_tool_call_status(
