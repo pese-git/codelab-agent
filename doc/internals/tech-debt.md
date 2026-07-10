@@ -18,7 +18,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | 9 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -240,35 +240,51 @@ Subprocess transport закрывался после закрытия event loop
 
 ### 4. Разбить God Objects — 🟡 ЧАСТИЧНО (2026-07-10)
 
-> Актуальные размеры (`develop`, 2026-07-10):
-> - ✅ `server/protocol/core.py` — **2030 → 335 строк** (декомпозирован).
-> - ✅ `client/presentation/chat_view_model.py` — 1229 → 1046 (у цели <1000 близко).
-> - 🟡 `server/mcp/transport.py` — 1799 (без изменений).
+> Актуальные размеры (`tech-debt`, пересчёт 2026-07-10 `wc -l`):
+> - ✅ `server/protocol/core.py` — **2030 → 331 строк** (декомпозирован).
+> - ✅ `server/mcp/manager.py` — 1036 → **965** (ниже 1000).
+> - ✅ `server/mcp/client.py` — 1029 → **928** (ниже 1000).
+> - 🟡 `server/mcp/transport.py` — 1799 → **1603** (уменьшен; `SseTransport` удалять нельзя — обратная совместимость).
 > - 🟡 `server/protocol/handlers/prompt.py` — 1495 → **1095** (уменьшен, см. P0-2).
-> - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1294 → 1390.
-> - 🟡 `client/tui/app.py` — 1126 → 1101.
-> - ⬜ Новые файлы >1000 строк: `server/di.py` (1200), `agent_loop.py` (1191),
->   `client/messages.py` (1117), `mcp/manager.py` (1036), `mcp/client.py` (1029).
+> - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1390 → **1405** (немного вырос).
+> - 🟡 `client/tui/app.py` — 1126 → **1100**.
+> - 🟡 `client/presentation/chat_view_model.py` — 1229 → **1044** (у цели <1000 близко).
+> - ⚠️ `server/di.py` — 1200 → **1224** (вырос).
+> - ⚠️ `agent_loop.py` — 1191 → **1352**, переехал в `server/protocol/handlers/pipeline/stages/agent_loop.py` (вырос).
+> - ⚠️ Новый >1000: `server/agent/context/gatherer.py` — **1048**.
+> - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
+
+**Итог:** реальный прогресс — только `core.py` (плюс `manager.py`/`client.py` опустились ниже
+порога). Остальные крупные файлы на месте, а `di.py`, `agent_loop.py` подросли. Файлов
+>1000 строк — **9** (без изменений по количеству).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
-| `server/protocol/core.py` | ~~2030~~ 335 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
-| `server/mcp/transport.py` | 1799 | Выделить HTTP transport, SSE transport, transport factory |
+| `server/protocol/core.py` | ~~2030~~ 331 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
+| `server/mcp/transport.py` | 1603 | Выделить HTTP transport, SSE transport, transport factory (SseTransport сохранить) |
+| `client/.../acp_transport_service.py` | 1405 | Довыделить RPC request/response handling в существующий `acp_transport/handlers/` |
+| `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
+| `server/di.py` | 1224 | Разбить регистрацию провайдеров по доменам (protocol/agent/mcp/llm) |
 | `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
-| `client/infrastructure/services/acp_transport_service.py` | 1390 | Уже частично покрыт P0-2, выделить request/response handling |
-| `client/presentation/chat_view_model.py` | 1046 | Выделить streaming handler, session update handler, tool call handler |
-| `client/tui/app.py` | 1101 | Выделить keybindings, layout management, modal handling |
+| `client/tui/app.py` | 1100 | Выделить keybindings, layout management, modal handling |
+| `server/agent/context/gatherer.py` | 1048 | Оценить разбиение слоя A Context Manager (осторожно: заморожен ABC-интерфейс) |
+| `client/presentation/chat_view_model.py` | 1044 | Выделить streaming handler, session update handler, tool call handler |
 
 **Задачи:**
-- [ ] `core.py` — выделить `session_manager.py`, `message_router.py`, `middleware_pipeline.py`
+- [x] `core.py` — декомпозирован (2030 → 331)
+- [x] `mcp/manager.py`, `mcp/client.py` — ниже 1000
+- [ ] `acp_transport_service.py` — довыделить RPC-обработку в `acp_transport/handlers/`
+- [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
+- [ ] `di.py` — разбить регистрацию по доменам
 - [ ] `transport.py` — выделить `http_transport.py`, `sse_transport.py`, `transport_factory.py`
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
-- [ ] `acp_transport_service.py` — завершить после P0-2
 - [ ] `chat_view_model.py` — выделить `streaming_handler.py`, `session_update_handler.py`
 - [ ] `app.py` — выделить `keybindings.py`, `layout.py`, `modals.py`
 
-**Оценка:** 5 дней (по 1 дню на файл)
-**Критерий приемки:** ни один файл < 500 строк, все тесты проходят, нет нарушения зависимостей между слоями
+**Оценка:** 5 дней
+**Критерий приемки:** все тесты проходят, нет нарушения зависимостей между слоями,
+дробление архитектурно обосновано (не ради метрики). `messages.py` из критерия исключён
+как оправданно крупный.
 
 ---
 
