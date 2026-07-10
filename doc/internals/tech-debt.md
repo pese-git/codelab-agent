@@ -263,35 +263,58 @@ Subprocess transport закрывается после закрытия event lo
 
 ---
 
-### 9. Исправить ruff warnings — 🟢 ПОЧТИ ЗАКРЫТО (2026-07-10)
+### 9. Исправить ruff warnings — ✅ ЗАКРЫТО (2026-07-10)
 
-> `ruff check .` теперь выдаёт всего **6 нарушений** (было ~170). Массовые классы
-> (D212, RUF001-003, FBT) устранены или переведены в ignore текущей конфигурацией ruff.
-
-| Правило | Было | Стало (`ruff check .`) |
-|---------|------|------------------------|
-| E501 (line-too-long) | — | 3 |
-| F401 (unused-import) | — | 3 (3 автофиксятся `--fix`) |
-| D212 / RUF001-003 / FBT / TC005 | ~170 | 0 (устранены/в ignore) |
-
-**Задачи:**
-- [ ] Прогнать `ruff check . --fix` (уберёт 3× F401)
-- [ ] Вручную поправить 3× E501
-- [ ] (Опционально) зафиксировать в CI, чтобы регрессов не было
-
-**Оценка:** 10 минут
+> `ruff check .` теперь **0 нарушений** (было ~170). Массовые классы (D212, RUF001-003,
+> FBT) устранены/в ignore; оставшиеся 6 (3× F401, 3× E501) исправлены в коммите
+> `style(lint): устранить оставшиеся ruff-нарушения`.
 
 ---
 
-### 10. Добавить coverage threshold в CI
+### 10. Добавить coverage threshold в CI — 🟢 ПОЧТИ ЗАКРЫТО (2026-07-10)
+
+> Реализовано в коммите `ci: порог покрытия 85% и guardrail на размер файлов`.
 
 **Задачи:**
-- [ ] Добавить `pytest-cov` в dev-зависимости
-- [ ] Настроить `.coveragerc` или `pyproject.toml` с `fail_under = 80`
-- [ ] Добавить stage в GitHub Actions: `pytest --cov=src/codelab --cov-fail-under=80`
+- [x] Добавить `pytest-cov` в dev-зависимости
+- [x] Шаг CI `pytest --cov=src/codelab --cov-fail-under=85` (порог 85, факт 96%)
+- [x] Бонус: guardrail `scripts/check_large_files.py` против новых God Objects
 - [ ] Добавить badge покрытия в README
 
 **Оценка:** 0.5 дня
+
+---
+
+### 11. `ClientRPCService._wrap_future` — необработанное исключение future
+
+**Файл:** `src/codelab/server/client_rpc/service.py:154` (`_call_method` → `_wrap_future`)
+
+При RPC-ошибке от клиента (напр. `fs/read_text_file` → `-32603` на нечитаемом файле
+вроде `*.db-shm`) в рантайме появляется `Task exception was never retrieved` +
+traceback `ClientRPCResponseError`.
+
+**Причина:** `_call_method` оборачивает `pending_request.future` в отдельный
+`future_task = asyncio.create_task(self._wrap_future(...))` и ждёт через `asyncio.wait`.
+После пробуждения исключение забирается только у `pending_request.future` (строка 182),
+а у самого `future_task` — нет. Заброшенный task с исключением → предупреждение asyncio
+при GC. Функционально ошибка обрабатывается (executor логирует и возвращает failed-
+результат), но traceback шумит в логах и **маскирует реальные сбои**.
+
+> Связано с P0-3: именно этот класс подавлен фильтром
+> `ignore::pytest.PytestUnraisableExceptionWarning` в `pyproject.toml`.
+
+**Задачи:**
+- [ ] После `asyncio.wait` забирать исключение и у `future_task` (или не оборачивать в
+      отдельный task, а ждать `pending_request.future` напрямую с `asyncio.wait_for`/
+      `add_done_callback`)
+- [ ] Тест на путь «RPC read → -32603»: убедиться, что нет unretrieved-task warning
+- [ ] После фикса — снять `ignore::PytestUnraisableExceptionWarning` (см. P0-3)
+
+**Обнаружено:** 2026-07-10 при анализе логов реальной stdio-сессии (не регресс —
+дефект существовал до рефакторинга P0-2; файл не затрагивался).
+**Оценка:** 0.5 дня
+**Критерий приемки:** нет `Task exception was never retrieved` при RPC-ошибках чтения,
+фильтр `PytestUnraisableExceptionWarning` снят.
 
 ---
 
