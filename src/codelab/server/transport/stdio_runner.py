@@ -28,9 +28,47 @@ from codelab.server.storage import SessionStorage
 from codelab.server.transport.stdio import StdioServerTransport
 
 if TYPE_CHECKING:
-    pass
+    from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
 
 logger = structlog.get_logger()
+
+
+async def _update_stdio_subscription(
+    runtime_registry: SessionRuntimeRegistry,
+    transport: StdioServerTransport,
+    current_session_id: str | None,
+    acp_request: ACPMessage,
+) -> str | None:
+    """Переподписать stdio-транспорт на notification bus при смене session_id.
+
+    Возвращает актуальный current_session_id (новый при смене, иначе прежний).
+    """
+    session_id = None
+    if isinstance(acp_request.params, dict):
+        raw_session_id = acp_request.params.get("sessionId")
+        if isinstance(raw_session_id, str):
+            session_id = raw_session_id
+
+    if session_id is None or session_id == current_session_id:
+        return current_session_id
+
+    # Отписываемся от старого bus если был
+    if current_session_id is not None:
+        old_bus = await runtime_registry.get_notification_bus(current_session_id)
+        old_bus.unsubscribe(transport.send)
+
+    # Подписываемся на новый bus
+    new_bus = await runtime_registry.get_notification_bus(session_id)
+    # Реконнект (session/load): реплей истории авторитетен, поэтому чистим буфер
+    # ДО подписки, чтобы subscribe не доставил устаревшие сообщения повторно.
+    if acp_request.method == "session/load":
+        new_bus.clear_buffer()
+    new_bus.subscribe(transport.send)
+    logger.info(
+        "subscribed_to_notification_bus",
+        session_id=session_id,
+    )
+    return session_id
 
 
 async def run_stdio_server(
@@ -188,35 +226,9 @@ async def run_stdio_server(
             # чтобы фоновые задачи (pending_tool_execution) работали корректно
             async def on_message(acp_request: ACPMessage) -> Any:
                 nonlocal current_session_id
-
-                # Извлекаем session_id из запроса
-                session_id = None
-                if isinstance(acp_request.params, dict):
-                    raw_session_id = acp_request.params.get("sessionId")
-                    if isinstance(raw_session_id, str):
-                        session_id = raw_session_id
-
-                # Подписываемся на notification bus при получении session_id
-                if session_id is not None and session_id != current_session_id:
-                    # Отписываемся от старого bus если был
-                    if current_session_id is not None:
-                        old_bus = await runtime_registry.get_notification_bus(current_session_id)
-                        old_bus.unsubscribe(transport.send)
-
-                    # Подписываемся на новый bus
-                    current_session_id = session_id
-                    new_bus = await runtime_registry.get_notification_bus(session_id)
-                    # Реконнект (session/load): реплей истории авторитетен,
-                    # поэтому чистим буфер ДО подписки, чтобы subscribe не
-                    # доставил устаревшие сообщения повторно (двойная доставка).
-                    if acp_request.method == "session/load":
-                        new_bus.clear_buffer()
-                    new_bus.subscribe(transport.send)
-                    logger.info(
-                        "subscribed_to_notification_bus",
-                        session_id=session_id,
-                    )
-
+                current_session_id = await _update_stdio_subscription(
+                    runtime_registry, transport, current_session_id, acp_request
+                )
                 return await protocol.handle_and_process(acp_request)
 
             try:

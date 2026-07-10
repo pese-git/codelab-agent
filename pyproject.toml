@@ -78,10 +78,16 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "C901"]
+
+[tool.ruff.lint.mccabe]
+# Промежуточный guardrail P0-2: ловит регрессы сложности > 20.
+# Цель — снизить до 10 отдельными итерациями (остаток ~63 C-блока).
+max-complexity = 20
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["SIM117"]
+# Тесты не подпадают под ограничение сложности (фикстуры/параметризация).
+"tests/**/*.py" = ["SIM117", "C901"]
 
 [tool.ty.src]
 include = ["src"]

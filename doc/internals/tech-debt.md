@@ -69,6 +69,12 @@ re-export.
 вынесены (`_replay_tool_call_updates`, `_sync_tool_call_list`, `_render_tool_summary`).
 D-блоков (≥21) в кодовой базе больше нет.
 
+**✅ Guardrail включён (2026-07-10):** `C901` в ruff с `max-complexity = 20` (промежуточный
+порог; `[tool.ruff.lint.mccabe]`). Ловит регрессы сложности > 20. Для этого попутно снижен
+`run_stdio_server` (mccabe 21 → 16: логика подписки на notification bus вынесена в
+`_update_stdio_subscription`). Тесты в `per-file-ignores` (фикстуры/параметризация).
+Снижение порога к 10 — отдельными итерациями (остаток ~63 C-блока 11–20).
+
 **✅ Сделано (11):** `OpenAICompatibleProvider.stream_completion` (было 22) → **9**.
 Не-yield части async-генератора вынесены: `_build_stream_request_params`, `_extract_usage`,
 `_accumulate_tool_fragments`, `_build_tool_calls`. Дублирующаяся резолюция модели вынесена
@@ -156,7 +162,8 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 - [x] Разбить `OpenAICompatibleProvider.stream_completion` (22 → 9)
 - [x] Разбить `AgentLoop.run` (21 → 3)
 - [x] Разбить `ToolPanel._on_tool_calls_changed` (21 → 1)
-- [ ] Остаток: ~63 C-блока (11–20); рассмотреть промежуточный порог `C901`
+- [x] Включить промежуточный guardrail `C901` (max-complexity=20) + снизить `run_stdio_server` (21→16)
+- [ ] Остаток: ~63 C-блока (11–20) — снижать порог `C901` к 10 отдельными итерациями
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
