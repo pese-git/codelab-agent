@@ -904,14 +904,33 @@ class ACPContextGatherer(ContextGatherer):
         project_type = self._detect_project_type(project_files)
         mapped_paths = self._map_path_to_project(target, project_type)
 
-        matches: list[tuple[float, str]] = []
         seen_paths: set[str] = set()
+        matches: list[tuple[float, str]] = []
+        matches += self._match_mapped_paths(mapped_paths, project_files, seen_paths)
+        matches += self._match_by_stem(target, project_files, seen_paths)
+        matches += self._match_by_path_segments(target, project_files, seen_paths)
 
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return [path for _, path in matches[:5]]
+
+    @staticmethod
+    def _match_mapped_paths(
+        mapped_paths: list[str], project_files: list[str], seen_paths: set[str]
+    ) -> list[tuple[float, str]]:
+        """Стратегия 1: точное совпадение с путями из path-mapping (score 1.0)."""
+        matches: list[tuple[float, str]] = []
         for mapped_path in mapped_paths:
             if mapped_path in project_files and mapped_path not in seen_paths:
                 matches.append((1.0, mapped_path))
                 seen_paths.add(mapped_path)
+        return matches
 
+    @staticmethod
+    def _match_by_stem(
+        target: str, project_files: list[str], seen_paths: set[str]
+    ) -> list[tuple[float, str]]:
+        """Стратегия 2: совпадение по basename (подстрока / общие слова / fuzzy)."""
+        matches: list[tuple[float, str]] = []
         target_stem = PurePosixPath(target).stem.lower()
         target_words = set(target_stem.replace("_", " ").replace("-", " ").split())
         target_words = {w for w in target_words if len(w) > 2}
@@ -921,35 +940,46 @@ class ACPContextGatherer(ContextGatherer):
                 continue
 
             file_stem = PurePosixPath(file_path).stem.lower()
-
-            if target_stem in file_stem or file_stem in target_stem:
-                matches.append((0.9, file_path))
+            score = ACPContextGatherer._stem_score(target_stem, target_words, file_stem)
+            if score is not None:
+                matches.append((score, file_path))
                 seen_paths.add(file_path)
-                continue
+        return matches
 
-            file_words = set(file_stem.replace("_", " ").replace("-", " ").split())
-            file_words = {w for w in file_words if len(w) > 2}
+    @staticmethod
+    def _stem_score(target_stem: str, target_words: set[str], file_stem: str) -> float | None:
+        """Оценка похожести basename: подстрока (0.9) > общие слова > fuzzy ratio.
 
-            common_words = target_words & file_words
-            if common_words:
-                score = 0.7 + 0.1 * len(common_words)
-                matches.append((min(score, 0.89), file_path))
-                seen_paths.add(file_path)
-                continue
+        Возвращает None, если файл не похож (не добавлять в кандидаты).
+        """
+        if target_stem in file_stem or file_stem in target_stem:
+            return 0.9
 
-            ratio = SequenceMatcher(None, target_stem, file_stem).ratio()
-            if ratio >= 0.6:
-                matches.append((ratio * 0.7, file_path))
-                seen_paths.add(file_path)
+        file_words = set(file_stem.replace("_", " ").replace("-", " ").split())
+        file_words = {w for w in file_words if len(w) > 2}
 
-        path_segments = PurePosixPath(target).parts
-        target_segment_words = set()
-        for segment in path_segments:
+        common_words = target_words & file_words
+        if common_words:
+            return min(0.7 + 0.1 * len(common_words), 0.89)
+
+        ratio = SequenceMatcher(None, target_stem, file_stem).ratio()
+        if ratio >= 0.6:
+            return ratio * 0.7
+        return None
+
+    @staticmethod
+    def _match_by_path_segments(
+        target: str, project_files: list[str], seen_paths: set[str]
+    ) -> list[tuple[float, str]]:
+        """Стратегия 3: совпадение по словам из сегментов пути (>= 2 совпадений)."""
+        target_segment_words: set[str] = set()
+        for segment in PurePosixPath(target).parts:
             segment_stem = PurePosixPath(segment).stem.lower()
             target_segment_words.update(
                 w for w in segment_stem.replace("_", " ").replace("-", " ").split() if len(w) > 2
             )
 
+        matches: list[tuple[float, str]] = []
         for file_path in project_files:
             if file_path in seen_paths:
                 continue
@@ -960,9 +990,7 @@ class ACPContextGatherer(ContextGatherer):
             if segment_match_score >= 2:
                 matches.append((0.5 + segment_match_score * 0.05, file_path))
                 seen_paths.add(file_path)
-
-        matches.sort(key=lambda x: x[0], reverse=True)
-        return [path for _, path in matches[:5]]
+        return matches
 
     async def _search_in_files(
         self, term: str, project_files: list[str], session: Any
