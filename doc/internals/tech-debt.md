@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **32** 🟡 (три топ-нарушителя разбиты, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **31** 🟡 (четыре топ-нарушителя разбиты, см. P0-2) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -51,8 +51,8 @@
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
-> (51, 37, 37) разобраны (см. ниже); текущий максимум по кодовой базе — **32**
-> (`AppConfig._merge_llm_config`).
+> (51, 37, 37, 32) разобраны (см. ниже); текущий максимум по кодовой базе — **31**
+> (`ThreePhaseCompactor._phase_hard_truncate`).
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -61,6 +61,12 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**✅ Сделано (4):** `AppConfig._merge_llm_config` (было 32) разбит на послойный merge:
+`_default_llm_data` → `_apply_toml_llm_overrides` (+ `_toml_timeout_config`) →
+`_apply_env_llm_overrides` (таблица `_ENV_LLM_FIELDS`) → `_apply_env_timeout_overrides` →
+`_resolve_provider_credentials`. Результат: `_merge_llm_config` — сложность 1,
+`_resolve_provider_credentials` — 12 (связная резолюция кредов, оставлена).
 
 **✅ Сделано (3):** `WebSocketTransport.run` (было 37) разбит через введение объекта
 состояния `_WsRunState` (Parameter Object) на `_handle_text_message`,
@@ -81,7 +87,6 @@ re-export.
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 32 (E) | `AppConfig._merge_llm_config` | `server/config.py:350` |
 | 31 (E) | `ThreePhaseCompactor._phase_hard_truncate` | `server/agent/context/compactor.py:307` |
 | 30 (D) | `run_server` | (см. вывод `radon`) |
 | 26 (D) | `ACPContextGatherer.gather` | `server/agent/context/gatherer.py:77` |
@@ -92,6 +97,7 @@ re-export.
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
 - [x] Разбить `AgentLoop._process_tool_calls` (37 → 5)
 - [x] Разбить `WebSocketTransport.run` (37 → 8)
+- [x] Разбить `AppConfig._merge_llm_config` (32 → 1)
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)

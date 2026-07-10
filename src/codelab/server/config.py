@@ -57,6 +57,17 @@ from codelab.server.toml_config.pydantic_config import (
 )
 from codelab.shared.logging import resolve_codelab_home
 
+# Env-переменные LLM-скаляров: (имя, ключ в llm_data, конвертер значения).
+# `streaming` обрабатывается отдельно (кастомный парсинг bool).
+_ENV_LLM_FIELDS: tuple[tuple[str, str, Any], ...] = (
+    ("CODELAB_LLM_PROVIDER", "provider", str),
+    ("CODELAB_LLM_MODEL", "model", str),
+    ("CODELAB_LLM_TEMPERATURE", "temperature", float),
+    ("CODELAB_LLM_MAX_TOKENS", "max_tokens", int),
+    ("CODELAB_LLM_API_KEY", "api_key", str),
+    ("CODELAB_LLM_BASE_URL", "base_url", str),
+)
+
 
 def _get_env(name: str, default: str | None = None) -> str | None:
     """Получить переменную окружения."""
@@ -361,8 +372,18 @@ class AppConfig(BaseSettings):
         Returns:
             Dict с merged конфигурацией для LLMConfig.
         """
-        # Начинаем с defaults
-        llm_data: dict[str, Any] = {
+        # Послойный merge: defaults -> TOML -> env -> provider-fallback.
+        llm_data = cls._default_llm_data()
+        cls._apply_toml_llm_overrides(llm_data, toml_data)
+        cls._apply_env_llm_overrides(llm_data)
+        cls._apply_env_timeout_overrides(llm_data)
+        cls._resolve_provider_credentials(llm_data, toml_data)
+        return llm_data
+
+    @staticmethod
+    def _default_llm_data() -> dict[str, Any]:
+        """Значения LLM-конфига по умолчанию (низший приоритет)."""
+        return {
             "provider": "mock",
             "model": "gpt-4o",
             "temperature": 0.7,
@@ -372,68 +393,62 @@ class AppConfig(BaseSettings):
             "timeout": TimeoutConfig(),
         }
 
-        # Применяем TOML (нижний приоритет)
+    @staticmethod
+    def _apply_toml_llm_overrides(llm_data: dict[str, Any], toml_data: dict[str, Any]) -> None:
+        """Применить значения из секции [llm] TOML (нижний приоритет над env)."""
         toml_llm = toml_data.get("llm", {})
-        if isinstance(toml_llm, dict):
-            for key in (
-                "provider",
-                "model",
-                "temperature",
-                "max_tokens",
-                "api_key",
-                "base_url",
-                "streaming",
-            ):
-                if key in toml_llm:
-                    llm_data[key] = toml_llm[key]
+        if not isinstance(toml_llm, dict):
+            return
 
-            # Providers и fallback — только из TOML
-            if "providers" in toml_llm:
-                llm_data["providers"] = toml_llm["providers"]
-            if "fallback" in toml_llm:
-                llm_data["fallback"] = toml_llm["fallback"]
+        for key in (
+            "provider",
+            "model",
+            "temperature",
+            "max_tokens",
+            "api_key",
+            "base_url",
+            "streaming",
+        ):
+            if key in toml_llm:
+                llm_data[key] = toml_llm[key]
 
-            # Timeout из TOML — [llm.timeout] секция
-            if "timeout" in toml_llm:
-                toml_timeout = toml_llm["timeout"]
-                if isinstance(toml_timeout, dict):
-                    timeout_kwargs: dict[str, float] = {}
-                    for key in ("connect", "read", "write", "pool"):
-                        if key in toml_timeout and isinstance(toml_timeout[key], (int, float)):
-                            timeout_kwargs[key] = float(toml_timeout[key])
-                    if timeout_kwargs:
-                        llm_data["timeout"] = TimeoutConfig(**timeout_kwargs)
+        # Providers и fallback — только из TOML
+        if "providers" in toml_llm:
+            llm_data["providers"] = toml_llm["providers"]
+        if "fallback" in toml_llm:
+            llm_data["fallback"] = toml_llm["fallback"]
 
-        # Применяем env vars (высший приоритет над TOML)
-        env_provider = os.getenv("CODELAB_LLM_PROVIDER")
-        if env_provider is not None:
-            llm_data["provider"] = env_provider
+        # Timeout из TOML — [llm.timeout] секция
+        toml_timeout = AppConfig._toml_timeout_config(toml_llm.get("timeout"))
+        if toml_timeout is not None:
+            llm_data["timeout"] = toml_timeout
 
-        env_model = os.getenv("CODELAB_LLM_MODEL")
-        if env_model is not None:
-            llm_data["model"] = env_model
+    @staticmethod
+    def _toml_timeout_config(toml_timeout: Any) -> TimeoutConfig | None:
+        """Собрать TimeoutConfig из секции [llm.timeout], либо None если её нет/пуста."""
+        if not isinstance(toml_timeout, dict):
+            return None
+        timeout_kwargs: dict[str, float] = {}
+        for key in ("connect", "read", "write", "pool"):
+            if key in toml_timeout and isinstance(toml_timeout[key], (int, float)):
+                timeout_kwargs[key] = float(toml_timeout[key])
+        return TimeoutConfig(**timeout_kwargs) if timeout_kwargs else None
 
-        env_temperature = os.getenv("CODELAB_LLM_TEMPERATURE")
-        if env_temperature is not None:
-            llm_data["temperature"] = float(env_temperature)
-
-        env_max_tokens = os.getenv("CODELAB_LLM_MAX_TOKENS")
-        if env_max_tokens is not None:
-            llm_data["max_tokens"] = int(env_max_tokens)
+    @staticmethod
+    def _apply_env_llm_overrides(llm_data: dict[str, Any]) -> None:
+        """Применить скалярные env-переменные CODELAB_LLM_* (высший приоритет)."""
+        for env_name, key, convert in _ENV_LLM_FIELDS:
+            value = os.getenv(env_name)
+            if value is not None:
+                llm_data[key] = convert(value)
 
         env_streaming = os.getenv("CODELAB_LLM_STREAMING")
         if env_streaming is not None:
             llm_data["streaming"] = env_streaming.strip().lower() in ("1", "true", "yes", "on")
 
-        env_api_key = os.getenv("CODELAB_LLM_API_KEY")
-        if env_api_key is not None:
-            llm_data["api_key"] = env_api_key
-
-        env_base_url = os.getenv("CODELAB_LLM_BASE_URL")
-        if env_base_url is not None:
-            llm_data["base_url"] = env_base_url
-
-        # Таймауты из env vars (высший приоритет над TOML)
+    @staticmethod
+    def _apply_env_timeout_overrides(llm_data: dict[str, Any]) -> None:
+        """Применить env-таймауты поверх текущего TimeoutConfig."""
         existing_timeout: TimeoutConfig = llm_data["timeout"]
         timeout_kwargs: dict[str, float] = {
             "connect": existing_timeout.connect,
@@ -451,27 +466,28 @@ class AppConfig(BaseSettings):
                 timeout_kwargs["connect"] = float(env_timeout_connect)
         llm_data["timeout"] = TimeoutConfig(**timeout_kwargs)
 
-        # Если api_key/base_url не заданы напрямую, берём из конфига
-        # активного провайдера ([llm.providers.<provider>])
-        if llm_data["api_key"] is None or llm_data["base_url"] is None:
-            active_provider = llm_data["provider"]
-            providers_data = toml_data.get("llm", {}).get("providers", {})
-            if isinstance(providers_data, dict) and active_provider in providers_data:
-                provider_cfg = providers_data[active_provider]
-                if isinstance(provider_cfg, dict):
-                    if llm_data["api_key"] is None and "api_key" in provider_cfg:
-                        raw_key = provider_cfg["api_key"]
-                        expanded_key = (
-                            _expand_env_vars(raw_key) if isinstance(raw_key, str) else raw_key
-                        )
-                        # Если env var не задан, _expand_env_vars вернёт "" —
-                        # считаем это как None (ключ не предоставлен)
-                        if expanded_key:
-                            llm_data["api_key"] = expanded_key
-                    if llm_data["base_url"] is None and "base_url" in provider_cfg:
-                        llm_data["base_url"] = provider_cfg["base_url"]
+    @staticmethod
+    def _resolve_provider_credentials(llm_data: dict[str, Any], toml_data: dict[str, Any]) -> None:
+        """Добрать api_key/base_url из [llm.providers.<provider>], если не заданы."""
+        if llm_data["api_key"] is not None and llm_data["base_url"] is not None:
+            return
 
-        return llm_data
+        active_provider = llm_data["provider"]
+        providers_data = toml_data.get("llm", {}).get("providers", {})
+        if not isinstance(providers_data, dict) or active_provider not in providers_data:
+            return
+        provider_cfg = providers_data[active_provider]
+        if not isinstance(provider_cfg, dict):
+            return
+
+        if llm_data["api_key"] is None and "api_key" in provider_cfg:
+            raw_key = provider_cfg["api_key"]
+            expanded_key = _expand_env_vars(raw_key) if isinstance(raw_key, str) else raw_key
+            # Если env var не задан, _expand_env_vars вернёт "" — считаем как None.
+            if expanded_key:
+                llm_data["api_key"] = expanded_key
+        if llm_data["base_url"] is None and "base_url" in provider_cfg:
+            llm_data["base_url"] = provider_cfg["base_url"]
 
     @classmethod
     def load(cls, *, toml_path: str | None = None) -> AppConfig:
