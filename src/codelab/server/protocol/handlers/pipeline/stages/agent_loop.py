@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
 
@@ -288,158 +288,17 @@ class AgentLoop:
 
         while iteration < self._max_turn_requests:
             iteration += 1
-
-            # Проверка отмены
-            if self._is_cancel_requested(session):
-                logger.debug(
-                    "agent_loop cancelled before LLM call",
-                    session_id=session_id,
-                    iteration=iteration,
-                )
-                return AgentLoopResult(
-                    notifications=notifications,
-                    stop_reason=StopReason.CANCELLED,
-                )
-
-            # Вызов LLM
-            try:
-                response = await self._call_llm(session, initial_prompt, mcp_manager, iteration)
-            except Exception as e:
-                logger.error(
-                    "LLM call failed",
-                    session_id=session_id,
-                    iteration=iteration,
-                    error=str(e),
-                )
-                error_notification = self._build_error_notification(session_id, str(e))
-                if not await self._send_notification_immediately(error_notification):
-                    notifications.append(error_notification)
-                return AgentLoopResult(
-                    notifications=notifications,
-                    stop_reason=StopReason.END_TURN,
-                )
-
-            # Проверка отмены после LLM
-            if self._is_cancel_requested(session):
-                logger.debug(
-                    "agent_loop cancelled after LLM call",
-                    session_id=session_id,
-                    iteration=iteration,
-                )
-                return AgentLoopResult(
-                    notifications=notifications,
-                    stop_reason=StopReason.CANCELLED,
-                )
-
-            # Обработка ответа
-            agent_text = response.text if response else ""
-            has_tool_calls = bool(response and response.tool_calls)
-
-            logger.debug(
-                "llm_response_received",
-                session_id=session_id,
-                iteration=iteration,
-                has_text=bool(agent_text),
-                has_tool_calls=has_tool_calls,
-                tool_call_count=len(response.tool_calls) if response else 0,
-                stop_reason=getattr(response, "stop_reason", None),
+            result, final_text = await self._run_iteration(
+                session,
+                session_id,
+                initial_prompt,
+                mcp_manager,
+                iteration,
+                notifications,
+                final_text,
             )
-
-            if agent_text:
-                final_text = agent_text
-                self._state_manager.add_assistant_message(session, agent_text)
-                # При стриминге текст уже доставлен дельтами через on_delta —
-                # не эмитим полный текст повторно (иначе дубль). Но если дельт
-                # не было (провайдер без стрима) — эмитим полный текст.
-                if not (self._streaming_enabled and self._last_call_streamed):
-                    notification = self._build_agent_response_notification(session_id, agent_text)
-                    if not await self._send_notification_immediately(notification):
-                        notifications.append(notification)
-                # Сохранить в events_history для replay при session/load
-                # (полный текст одним chunk'ом — авторитетно для реплея).
-                self._replay_manager.save_agent_message_chunk(
-                    session,
-                    {"type": "text", "text": agent_text},
-                )
-
-            # Обработка plan
-            plan = getattr(response, "plan", None)
-            if plan:
-                validated_plan = self._plan_builder.validate_plan_entries(plan)
-                if validated_plan:
-                    session.latest_plan = list(validated_plan)
-                    plan_notification = self._plan_builder.build_plan_notification(
-                        session_id, validated_plan
-                    )
-                    if not await self._send_notification_immediately(plan_notification):
-                        notifications.append(plan_notification)
-                    self._replay_manager.save_plan(session, validated_plan)
-
-            # Нет tool_calls → завершить
-            if not has_tool_calls:
-                logger.debug(
-                    "agent_loop completed - no tool calls",
-                    session_id=session_id,
-                    iteration=iteration,
-                )
-                return AgentLoopResult(
-                    text=final_text,
-                    stop_reason=StopReason.END_TURN,
-                    notifications=notifications,
-                )
-
-            # Обработка tool_calls
-            logger.info(
-                "agent_loop processing tool calls",
-                session_id=session_id,
-                iteration=iteration,
-                num_tool_calls=len(response.tool_calls),
-            )
-
-            # Добавляем tool_calls в историю
-            tool_calls_for_history = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                for tc in response.tool_calls
-            ]
-            session.history.append(
-                {
-                    "role": "assistant",
-                    "text": agent_text or "",
-                    "tool_calls": tool_calls_for_history,
-                }
-            )
-
-            # Обрабатываем tool_calls
-            tool_result = await self._process_tool_calls(
-                session, session_id, response.tool_calls, notifications, mcp_manager
-            )
-
-            # Permission pause
-            if tool_result.pending_permission:
-                logger.debug(
-                    "agent_loop deferred for permission",
-                    session_id=session_id,
-                    iteration=iteration,
-                )
-                return AgentLoopResult(
-                    notifications=notifications,
-                    pending_permission=True,
-                    pending_tool_calls=tool_result.pending_tool_calls,
-                    tool_results=tool_result.tool_results,
-                )
-
-            # Проверка отмены во время tool processing
-            if self._is_cancel_requested(session):
-                logger.debug(
-                    "agent_loop cancelled during tool processing",
-                    session_id=session_id,
-                    iteration=iteration,
-                )
-                return AgentLoopResult(
-                    notifications=notifications,
-                    stop_reason=StopReason.CANCELLED,
-                )
-
+            if result is not None:
+                return result
             # Продолжить цикл — prompt=None для continue_execution
             initial_prompt = None
 
@@ -454,6 +313,216 @@ class AgentLoop:
             stop_reason=StopReason.MAX_TURN_REQUESTS,
             notifications=notifications,
         )
+
+    async def _run_iteration(
+        self,
+        session: SessionState,
+        session_id: str,
+        prompt: str | None,
+        mcp_manager: MCPManager | None,
+        iteration: int,
+        notifications: list[ACPMessage],
+        final_text: str | None,
+    ) -> tuple[AgentLoopResult | None, str | None]:
+        """Одна итерация цикла: LLM-вызов + обработка ответа/tool_calls.
+
+        Returns:
+            (terminal_result | None, final_text). None-результат означает
+            «продолжать цикл»; final_text прокидывается между итерациями.
+        """
+        response, terminal = await self._obtain_llm_response(
+            session, session_id, prompt, mcp_manager, iteration, notifications
+        )
+        if terminal is not None:
+            return terminal, final_text
+
+        # Обработка ответа
+        agent_text = response.text if response else ""
+        has_tool_calls = bool(response and response.tool_calls)
+
+        logger.debug(
+            "llm_response_received",
+            session_id=session_id,
+            iteration=iteration,
+            has_text=bool(agent_text),
+            has_tool_calls=has_tool_calls,
+            tool_call_count=len(response.tool_calls) if response else 0,
+            stop_reason=getattr(response, "stop_reason", None),
+        )
+
+        if agent_text:
+            final_text = agent_text
+            await self._emit_agent_text(session, session_id, agent_text, notifications)
+
+        await self._emit_response_plan(session, session_id, response, notifications)
+
+        # Нет tool_calls → завершить
+        if not has_tool_calls:
+            logger.debug(
+                "agent_loop completed - no tool calls",
+                session_id=session_id,
+                iteration=iteration,
+            )
+            return (
+                AgentLoopResult(
+                    text=final_text,
+                    stop_reason=StopReason.END_TURN,
+                    notifications=notifications,
+                ),
+                final_text,
+            )
+
+        # Обработка tool_calls
+        logger.info(
+            "agent_loop processing tool calls",
+            session_id=session_id,
+            iteration=iteration,
+            num_tool_calls=len(response.tool_calls),
+        )
+
+        # Добавляем tool_calls в историю
+        tool_calls_for_history = [
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
+        ]
+        session.history.append(
+            {
+                "role": "assistant",
+                "text": agent_text or "",
+                "tool_calls": tool_calls_for_history,
+            }
+        )
+
+        # Обрабатываем tool_calls
+        tool_result = await self._process_tool_calls(
+            session, session_id, response.tool_calls, notifications, mcp_manager
+        )
+
+        # Permission pause
+        if tool_result.pending_permission:
+            logger.debug(
+                "agent_loop deferred for permission",
+                session_id=session_id,
+                iteration=iteration,
+            )
+            return (
+                AgentLoopResult(
+                    notifications=notifications,
+                    pending_permission=True,
+                    pending_tool_calls=tool_result.pending_tool_calls,
+                    tool_results=tool_result.tool_results,
+                ),
+                final_text,
+            )
+
+        # Проверка отмены во время tool processing
+        if self._is_cancel_requested(session):
+            logger.debug(
+                "agent_loop cancelled during tool processing",
+                session_id=session_id,
+                iteration=iteration,
+            )
+            return (
+                AgentLoopResult(notifications=notifications, stop_reason=StopReason.CANCELLED),
+                final_text,
+            )
+
+        return None, final_text
+
+    async def _obtain_llm_response(
+        self,
+        session: SessionState,
+        session_id: str,
+        prompt: str | None,
+        mcp_manager: MCPManager | None,
+        iteration: int,
+        notifications: list[ACPMessage],
+    ) -> tuple[Any, AgentLoopResult | None]:
+        """Вызвать LLM с проверками отмены и обработкой ошибки.
+
+        Returns:
+            (response, None) при успехе; (None, terminal_result) если turn
+            отменён или LLM-вызов упал.
+        """
+        if self._is_cancel_requested(session):
+            logger.debug(
+                "agent_loop cancelled before LLM call",
+                session_id=session_id,
+                iteration=iteration,
+            )
+            return None, AgentLoopResult(
+                notifications=notifications, stop_reason=StopReason.CANCELLED
+            )
+
+        try:
+            response = await self._call_llm(session, prompt, mcp_manager, iteration)
+        except Exception as e:
+            logger.error(
+                "LLM call failed",
+                session_id=session_id,
+                iteration=iteration,
+                error=str(e),
+            )
+            error_notification = self._build_error_notification(session_id, str(e))
+            if not await self._send_notification_immediately(error_notification):
+                notifications.append(error_notification)
+            return None, AgentLoopResult(
+                notifications=notifications, stop_reason=StopReason.END_TURN
+            )
+
+        if self._is_cancel_requested(session):
+            logger.debug(
+                "agent_loop cancelled after LLM call",
+                session_id=session_id,
+                iteration=iteration,
+            )
+            return None, AgentLoopResult(
+                notifications=notifications, stop_reason=StopReason.CANCELLED
+            )
+
+        return response, None
+
+    async def _emit_agent_text(
+        self,
+        session: SessionState,
+        session_id: str,
+        agent_text: str,
+        notifications: list[ACPMessage],
+    ) -> None:
+        """Добавить текст ассистента в историю, эмитировать (если не стримился), в replay."""
+        self._state_manager.add_assistant_message(session, agent_text)
+        # При стриминге текст уже доставлен дельтами через on_delta —
+        # не эмитим полный текст повторно (иначе дубль). Но если дельт
+        # не было (провайдер без стрима) — эмитим полный текст.
+        if not (self._streaming_enabled and self._last_call_streamed):
+            notification = self._build_agent_response_notification(session_id, agent_text)
+            if not await self._send_notification_immediately(notification):
+                notifications.append(notification)
+        # Сохранить в events_history для replay при session/load
+        # (полный текст одним chunk'ом — авторитетно для реплея).
+        self._replay_manager.save_agent_message_chunk(
+            session,
+            {"type": "text", "text": agent_text},
+        )
+
+    async def _emit_response_plan(
+        self,
+        session: SessionState,
+        session_id: str,
+        response: Any,
+        notifications: list[ACPMessage],
+    ) -> None:
+        """Эмитировать plan из ответа LLM (response.plan), если он валиден."""
+        plan = getattr(response, "plan", None)
+        if not plan:
+            return
+        validated_plan = self._plan_builder.validate_plan_entries(plan)
+        if not validated_plan:
+            return
+        session.latest_plan = list(validated_plan)
+        plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
+        if not await self._send_notification_immediately(plan_notification):
+            notifications.append(plan_notification)
+        self._replay_manager.save_plan(session, validated_plan)
 
     async def resume_after_permission(
         self,
