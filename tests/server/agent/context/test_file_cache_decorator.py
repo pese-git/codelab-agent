@@ -174,7 +174,9 @@ class TestFileCacheDecorator:
         assert cache.size == 0
 
     @pytest.mark.asyncio
-    async def test_fs_read_returns_cached_content_without_rpc(self, decorator, mock_executor, cache):
+    async def test_fs_read_returns_cached_content_without_rpc(
+        self, decorator, mock_executor, cache
+    ):
         """fs/read возвращает содержимое из кэша без вызова wrapped.execute()."""
         # Предварительно заполняем кэш
         cache.set("/test.py", "cached content")

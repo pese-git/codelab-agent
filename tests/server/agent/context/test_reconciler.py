@@ -8,12 +8,10 @@
 - Консервативный fallback при неопределённом изменении
 """
 
-import pytest
 
 from codelab.server.agent.context.models import (
     ChangeState,
     ContextEpoch,
-    ContextSnapshot,
 )
 from codelab.server.agent.context.reconciler import DefaultContextReconciler
 from codelab.server.agent.context.registry import (

@@ -122,7 +122,9 @@ def run_test_session(incremental: bool, session_name: str) -> dict:
                     "context_baseline_tokens": session_metrics.get("context_baseline_tokens", 0),
                     "context_tail_tokens": session_metrics.get("context_tail_tokens", 0),
                     "context_reconcile_count": session_metrics.get("context_reconcile_count", 0),
-                    "context_epoch_breaks_total": session_metrics.get("context_epoch_breaks_total", 0),
+                    "context_epoch_breaks_total": session_metrics.get(
+                        "context_epoch_breaks_total", 0
+                    ),
                     "llm_total_input_tokens": session_metrics.get("llm_total_input_tokens", 0),
                     "llm_call_count": session_metrics.get("llm_call_count", 0),
                 }
@@ -170,7 +172,10 @@ def compare_results(hydration: dict, incremental: dict) -> None:
     h_baseline = hydration.get("context_baseline_tokens", 0)
     i_baseline = incremental.get("context_baseline_tokens", 0)
     baseline_saving = ((h_baseline - i_baseline) / h_baseline * 100) if h_baseline > 0 else 0
-    print(f"{'Baseline токены (сумма)':<40} {h_baseline:>15,} {i_baseline:>15,} {baseline_saving:>14.1f}%")
+    print(
+        f"{'Baseline токены (сумма)':<40} {h_baseline:>15,} "
+        f"{i_baseline:>15,} {baseline_saving:>14.1f}%"
+    )
 
     # Сравниваем tail токены
     h_tail = hydration.get("context_tail_tokens", 0)
