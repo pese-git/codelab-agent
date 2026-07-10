@@ -243,7 +243,7 @@ Subprocess transport закрывался после закрытия event loop
 > - ✅ `server/protocol/core.py` — **2030 → 335 строк** (декомпозирован).
 > - ✅ `client/presentation/chat_view_model.py` — 1229 → 1046 (у цели <1000 близко).
 > - 🟡 `server/mcp/transport.py` — 1799 (без изменений).
-> - 🟡 `server/protocol/handlers/prompt.py` — 1495 → 1554 (вырос).
+> - 🟡 `server/protocol/handlers/prompt.py` — 1495 → **1095** (уменьшен, см. P0-2).
 > - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1294 → 1390.
 > - 🟡 `client/tui/app.py` — 1126 → 1101.
 > - ⬜ Новые файлы >1000 строк: `server/di.py` (1200), `agent_loop.py` (1191),
@@ -253,7 +253,7 @@ Subprocess transport закрывался после закрытия event loop
 |------|-------|----------------|
 | `server/protocol/core.py` | ~~2030~~ 335 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
 | `server/mcp/transport.py` | 1799 | Выделить HTTP transport, SSE transport, transport factory |
-| `server/protocol/handlers/prompt.py` | 1554 | Выделить prompt builder, prompt validator, directive processor |
+| `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
 | `client/infrastructure/services/acp_transport_service.py` | 1390 | Уже частично покрыт P0-2, выделить request/response handling |
 | `client/presentation/chat_view_model.py` | 1046 | Выделить streaming handler, session update handler, tool call handler |
 | `client/tui/app.py` | 1101 | Выделить keybindings, layout management, modal handling |
@@ -456,6 +456,9 @@ error-каскад ретраев с backoff, роняя `session/load`.
 
 ## Дорожная карта
 
+> **Исторический план** (составлен при первичном аудите). Фактический порядок работ
+> разошёлся с ним; актуальный статус — в разделах P0–P2 выше. Оставлено для контекста.
+
 ```
 Неделя 1: P0 (пункты 1-3)
   ├─ День 1: stdio_runner тесты + request_with_callbacks рефакторинг
@@ -485,15 +488,17 @@ error-каскад ретраев с backoff, роняя `session/load`.
 | Метрика | Было (2026-06) | Сейчас (2026-07) | Цель |
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
-| Max cyclomatic complexity | 30 | **51** 🔴 | <= 10 |
-| Файлов > 1000 строк | 6 | **10** 🔴 | 0 |
+| Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
+| Файлов > 1000 строк | 6 | **9** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
-| Ruff-нарушений | ~170 | **6** 🟢 | 0 |
+| Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | TODO | 2 | 2 | 0 |
-| Coverage threshold в CI | нет | нет | 80% |
+| Coverage threshold в CI | нет | **85%** ✅ (`release.yml`) | 80% |
 
-**Итог пересчёта (2026-07-10):** две метрики достигли цели (покрытие, ruff), две
-серьёзно **ухудшились** (сложность 30→51, God Objects 6→10) — код растёт быстрее
-рефакторинга. Приоритет №1 — остановить регресс через CI-guardrails (порог сложности
-в ruff `C901` + проверка размера файла + `--cov-fail-under`), иначе метрики будут
-деградировать между аудитами незаметно.
+**Итог (2026-07-10):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
+сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
+регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **9** (декомпозиция
+`core.py`), но остаются крупные файлы (P1-4). Ключевой рычаг против незаметной
+деградации между аудитами — CI-guardrails: порог сложности `C901`, проверка
+размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
