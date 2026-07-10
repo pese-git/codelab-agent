@@ -20,7 +20,7 @@ from codelab.server.protocol.handlers.prompt import (
     resolve_tool_title,
 )
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
-from codelab.server.protocol.state import SessionState
+from codelab.server.protocol.state import PromptDirectives, SessionState
 
 from ..base import PromptStage
 from ..context import PromptContext
@@ -80,69 +80,92 @@ class DirectivesStage(PromptStage):
             context.stop_reason = directives.forced_stop_reason
 
         # 2. Publish plan — эмитируем plan notification, не останавливаем pipeline
-        if directives.publish_plan:
-            plan_entries = build_plan_entries(
-                directives=directives,
-                text_preview=context.raw_text,
-            )
-            if plan_entries:
-                plan_notification = ACPMessage.notification(
-                    "session/update",
-                    {
-                        "sessionId": context.session_id,
-                        "update": {
-                            "sessionUpdate": "plan",
-                            "entries": plan_entries,
-                        },
-                    },
-                )
-                context.notifications.append(plan_notification)
-                # Сохраняем план в сессии для replay
-                context.session.latest_plan = [
-                    {
-                        "title": entry.get("content", ""),
-                        "description": entry.get("description", ""),
-                    }
-                    for entry in plan_entries
-                ]
+        self._apply_publish_plan(context, directives)
 
-        # 3. Terminal RPC — если есть terminal_command, строим client RPC request
-        if directives.terminal_command is not None and can_use_terminal_client_rpc(context.session):
-            prepared = build_terminal_client_request(
-                session=context.session,
-                session_id=context.session_id,
-                directives=directives,
-            )
-            if prepared is not None:
-                context.notifications.extend(prepared.messages)
-                if context.session.active_turn is not None:
-                    context.session.active_turn.pending_client_request = prepared.pending_request
-                    context.session.active_turn.phase = "waiting_client_rpc"
-                context.pending_permission = True  # turn deferred — не отправлять response
-                context.should_stop = True
-                return context
+        # 3. Terminal RPC — turn deferred, если запрос сформирован
+        if self._apply_terminal_rpc(context, directives):
+            return context
 
-        # 4. FS RPC — если есть fsReadPath или fsWritePath, строим fs/* client RPC request
-        if directives.fs_read_path is not None or directives.fs_write_path is not None:
-            fs_kind = "fs_read" if directives.fs_read_path is not None else "fs_write"
-            if can_use_fs_client_rpc(context.session, fs_kind):
-                prepared = build_fs_client_request(
-                    session=context.session,
-                    session_id=context.session_id,
-                    directives=directives,
-                )
-                if prepared is not None:
-                    context.notifications.extend(prepared.messages)
-                    if context.session.active_turn is not None:
-                        context.session.active_turn.pending_client_request = (
-                            prepared.pending_request
-                        )
-                        context.session.active_turn.phase = "waiting_client_rpc"
-                    context.pending_permission = True  # turn deferred — не отправлять response
-                    context.should_stop = True
-                    return context
+        # 4. FS RPC — turn deferred, если запрос сформирован
+        if self._apply_fs_rpc(context, directives):
+            return context
 
         # 5. Request tool — permission flow
+        return self._apply_request_tool(context, directives)
+
+    def _apply_publish_plan(self, context: PromptContext, directives: PromptDirectives) -> None:
+        """Директива publish_plan: эмитировать plan notification и сохранить в сессии."""
+        if not directives.publish_plan:
+            return
+        plan_entries = build_plan_entries(directives=directives, text_preview=context.raw_text)
+        if not plan_entries:
+            return
+        context.notifications.append(
+            ACPMessage.notification(
+                "session/update",
+                {
+                    "sessionId": context.session_id,
+                    "update": {
+                        "sessionUpdate": "plan",
+                        "entries": plan_entries,
+                    },
+                },
+            )
+        )
+        # Сохраняем план в сессии для replay
+        context.session.latest_plan = [
+            {
+                "title": entry.get("content", ""),
+                "description": entry.get("description", ""),
+            }
+            for entry in plan_entries
+        ]
+
+    def _apply_terminal_rpc(self, context: PromptContext, directives: PromptDirectives) -> bool:
+        """Директива terminal_command: сформировать client RPC. True — turn deferred."""
+        if directives.terminal_command is None or not can_use_terminal_client_rpc(context.session):
+            return False
+        prepared = build_terminal_client_request(
+            session=context.session,
+            session_id=context.session_id,
+            directives=directives,
+        )
+        if prepared is None:
+            return False
+        context.notifications.extend(prepared.messages)
+        if context.session.active_turn is not None:
+            context.session.active_turn.pending_client_request = prepared.pending_request
+            context.session.active_turn.phase = "waiting_client_rpc"
+        context.pending_permission = True  # turn deferred — не отправлять response
+        context.should_stop = True
+        return True
+
+    def _apply_fs_rpc(self, context: PromptContext, directives: PromptDirectives) -> bool:
+        """Директива fsReadPath/fsWritePath: сформировать fs/* RPC. True — turn deferred."""
+        if directives.fs_read_path is None and directives.fs_write_path is None:
+            return False
+        fs_kind = "fs_read" if directives.fs_read_path is not None else "fs_write"
+        if not can_use_fs_client_rpc(context.session, fs_kind):
+            return False
+        prepared = build_fs_client_request(
+            session=context.session,
+            session_id=context.session_id,
+            directives=directives,
+        )
+        if prepared is None:
+            return False
+        context.notifications.extend(prepared.messages)
+        if context.session.active_turn is not None:
+            context.session.active_turn.pending_client_request = prepared.pending_request
+            context.session.active_turn.phase = "waiting_client_rpc"
+        context.pending_permission = True  # turn deferred — не отправлять response
+        context.should_stop = True
+        return True
+
+    def _apply_request_tool(
+        self, context: PromptContext, directives: PromptDirectives
+    ) -> PromptContext:
+        """Директива request_tool: создать tool call и провести permission-flow."""
         if not directives.request_tool:
             return context
 
@@ -218,6 +241,17 @@ class DirectivesStage(PromptStage):
             return context
 
         # policy == "ask" — запрашиваем permission у пользователя
+        self._request_permission(context, directives, tool_call_id, tool_title)
+        return context
+
+    def _request_permission(
+        self,
+        context: PromptContext,
+        directives: PromptDirectives,
+        tool_call_id: str,
+        tool_title: str,
+    ) -> None:
+        """policy == "ask": сформировать permission request и приостановить turn."""
         options = self._permission_manager.build_permission_options()
         permission_request = ACPMessage.request(
             "session/request_permission",
@@ -242,5 +276,3 @@ class DirectivesStage(PromptStage):
 
         if directives.keep_tool_pending and context.session.active_turn is not None:
             context.session.active_turn.phase = "waiting_tool_completion"
-
-        return context

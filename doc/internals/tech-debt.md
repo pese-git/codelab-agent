@@ -15,7 +15,7 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | 51 → **23** 🟡 (восемь топ-нарушителей разбиты, см. P0-2) | <= 10 |
+| Cyclomatic complexity (max) | 30 | 51 → **22** 🟡 (десять топ-нарушителей разбиты, см. P0-2) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
 | Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
@@ -51,8 +51,9 @@
 
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. Три топ-нарушителя
-> (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13) разобраны (см. ниже);
-> текущий максимум по кодовой базе — **23** (`_find_similar_files` / `DirectivesStage.process`).
+> (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13, 23, 23) разобраны (см. ниже);
+> текущий максимум по кодовой базе — **22** (`OpenAICompatibleProvider.stream_completion`).
+> Блоков > 10: 65.
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -61,6 +62,12 @@
 попутно устранена дупликация построения terminal-запросов (`_issue_terminal_followup`).
 `prompt.py` уменьшен 1554 → 1095 строк (подтачивает P1-4). Публичный API сохранён через
 re-export.
+
+**✅ Сделано (9-10):** `ACPContextGatherer._find_similar_files` (было 23) → **2**: каждая
+из стратегий скоринга вынесена (`_match_mapped_paths`, `_match_by_stem` + `_stem_score`,
+`_match_by_path_segments`). `DirectivesStage.process` (было 23) → **5**: по помощнику на
+директиву (`_apply_publish_plan`, `_apply_terminal_rpc`, `_apply_fs_rpc`,
+`_apply_request_tool` + `_request_permission`). Порядок/логика сохранены.
 
 **🟡 Сделано (8, частично):** `DefaultContextManager.build_context` (было 26) → **13**.
 Вынесены когезивные стадии: `_analyze_task` (анализ задачи + сохранение профиля),
@@ -113,10 +120,9 @@ re-export.
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 23 (D) | `ACPContextGatherer._find_similar_files` | `server/agent/context/gatherer.py:894` |
-| 23 (D) | `DirectivesStage.process` | `server/protocol/handlers/pipeline/stages/directives.py:68` |
 | 22 (D) | `OpenAICompatibleProvider.stream_completion` | `server/llm/providers/openai_compatible.py:167` |
 | 21 (D) | `AgentLoop.run` | `server/protocol/handlers/pipeline/stages/agent_loop.py:259` |
+| 21 (D) | `ToolPanel._on_tool_calls_changed` | `client/tui/components/tool_panel.py:134` |
 | 13 (C) | `DefaultContextManager.build_context` | `server/agent/context/manager.py:225` (residual, см. выше) |
 
 **Задачи:**
@@ -128,6 +134,8 @@ re-export.
 - [x] Разбить `run_server` (30 → 6)
 - [x] Разбить `ACPContextGatherer.gather` (26 → 10)
 - [x] Разбить `DefaultContextManager.build_context` (26 → 13, остаток — state-объект)
+- [x] Разбить `ACPContextGatherer._find_similar_files` (23 → 2)
+- [x] Разбить `DirectivesStage.process` (23 → 5)
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
