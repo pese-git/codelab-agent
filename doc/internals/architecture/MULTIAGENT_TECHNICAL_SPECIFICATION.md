@@ -4,6 +4,11 @@
 > Дата: 27 мая 2026
 > Обновлено: 14 июня 2026 — миграция завершена
 > Статус: ✅ Блоки 1–2 реализованы. `AgentOrchestrator` и `NaiveAgent` удалены, заменены на `ExecutionEngine` + `LLMAdapter` + `SingleStrategy`.
+>
+> 📋 **Статус стратегий (на 2026-07-10): НЕ реализованы.** Мультиагентные стратегии
+> `OrchestratedStrategy`, `HierarchicalStrategy`, `ChoreographyStrategy` описаны как целевая
+> архитектура — в коде (`server/agent/strategies/`) присутствует только `SingleStrategy`.
+> Отслеживаются в `openspec/changes/{orchestrated,hierarchical,choreography}-strategy`.
 
 > **Примечание:** Документ описывает целевую архитектуру. Ссылки на `AgentOrchestrator` и `NaiveAgent` в разделах миграции (Блок 1, Блок 2) сохранены как исторический контекст — откуда был рефакторинг.
 

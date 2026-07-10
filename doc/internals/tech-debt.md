@@ -1,27 +1,33 @@
 # Технический долг CodeLab Agent
 
-> Дата аудита: 2026-06-16
-> Ветка: `feature/agent`
-> Коммит: `f03df77`
+> Первичный аудит: 2026-06-16 (ветка `feature/agent`, коммит `f03df77`)
+> Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
+
+> **Примечание об актуализации (2026-07-10):** ниже проставлены статусы по фактической сверке с
+> кодом `develop`. Метрики покрытия/сложности/warnings без свежего прогона `make check` помечены
+> как «требует пересчёта». Число тестов и размеры файлов пересчитаны.
 
 ---
 
 ## Сводка
 
-| Метрика | Значение | Цель |
-|---------|----------|------|
-| Покрытие тестами | 77% | >= 85% |
-| Cyclomatic complexity (max) | 30 | <= 10 |
-| Файлов > 1000 строк | 6 | 0 |
-| Warnings в тестах | 62 | 0 |
-| Нерешенных TODO | 2 | 0 |
-| Тестов | 3974 | — |
+| Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
+|---------|--------------------|--------------------|------|
+| Покрытие тестами | 77% | требует пересчёта | >= 85% |
+| Cyclomatic complexity (max) | 30 | требует пересчёта | <= 10 |
+| Файлов > 1000 строк | 6 | 10 (состав изменился, см. P1-4) | 0 |
+| Warnings в тестах | 62 | требует пересчёта | 0 |
+| Нерешенных TODO | 2 | 2 | 0 |
+| Тестов | 3974 | ~7262 | — |
 
 ---
 
 ## P0 — Критический (влияет на надежность)
 
-### 1. Покрытие тестами: `stdio_runner.py` — 0%
+### 1. Покрытие тестами: `stdio_runner.py` — 0% — ✅ ЗАКРЫТО (2026-07-10)
+
+> ✅ Появились тесты: `tests/server/transport/test_stdio_runner.py` +
+> `tests/server/test_stdio_runner_coverage.py`. Пункт закрыт.
 
 **Файл:** `src/codelab/server/transport/stdio_runner.py` (209 строк)
 
@@ -104,16 +110,26 @@ Subprocess transport закрывается после закрытия event lo
 
 ## P1 — Важный (влияет на поддерживаемость)
 
-### 4. Разбить God Objects
+### 4. Разбить God Objects — 🟡 ЧАСТИЧНО (2026-07-10)
+
+> Актуальные размеры (`develop`, 2026-07-10):
+> - ✅ `server/protocol/core.py` — **2030 → 335 строк** (декомпозирован).
+> - ✅ `client/presentation/chat_view_model.py` — 1229 → 1046 (у цели <1000 близко).
+> - 🟡 `server/mcp/transport.py` — 1799 (без изменений).
+> - 🟡 `server/protocol/handlers/prompt.py` — 1495 → 1554 (вырос).
+> - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1294 → 1390.
+> - 🟡 `client/tui/app.py` — 1126 → 1101.
+> - ⬜ Новые файлы >1000 строк: `server/di.py` (1200), `agent_loop.py` (1191),
+>   `client/messages.py` (1117), `mcp/manager.py` (1036), `mcp/client.py` (1029).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
-| `server/protocol/core.py` | 2030 | Выделить session management, message routing, middleware pipeline в отдельные модули |
+| `server/protocol/core.py` | ~~2030~~ 335 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
 | `server/mcp/transport.py` | 1799 | Выделить HTTP transport, SSE transport, transport factory |
-| `server/protocol/handlers/prompt.py` | 1495 | Выделить prompt builder, prompt validator, directive processor |
-| `client/infrastructure/services/acp_transport_service.py` | 1294 | Уже частично покрыт P0-2, выделить request/response handling |
-| `client/presentation/chat_view_model.py` | 1229 | Выделить streaming handler, session update handler, tool call handler |
-| `client/tui/app.py` | 1126 | Выделить keybindings, layout management, modal handling |
+| `server/protocol/handlers/prompt.py` | 1554 | Выделить prompt builder, prompt validator, directive processor |
+| `client/infrastructure/services/acp_transport_service.py` | 1390 | Уже частично покрыт P0-2, выделить request/response handling |
+| `client/presentation/chat_view_model.py` | 1046 | Выделить streaming handler, session update handler, tool call handler |
+| `client/tui/app.py` | 1101 | Выделить keybindings, layout management, modal handling |
 
 **Задачи:**
 - [ ] `core.py` — выделить `session_manager.py`, `message_router.py`, `middleware_pipeline.py`
@@ -128,9 +144,11 @@ Subprocess transport закрывается после закрытия event lo
 
 ---
 
-### 5. Обновить `textual` 0.43 → 8.x (мажорное обновление)
+### 5. Обновить `textual` 0.43 → 8.x (мажорное обновление) — 🟡 ЧАСТИЧНО (2026-07-10)
 
-Текущая версия `textual==0.43.2`, последняя — `8.2.7`. Разница ~2 года.
+> 🟡 В `pyproject.toml` теперь `textual>=0.66.0` (было 0.43). До 8.x ещё не обновлено — пункт открыт.
+
+Текущая версия `textual>=0.66.0`, последняя — `8.2.7`.
 
 **Задачи:**
 - [ ] Изучить CHANGELOG textual на breaking changes

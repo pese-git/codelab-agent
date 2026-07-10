@@ -61,11 +61,11 @@ uv pip install -e ".[web]"
 # Установка из ветки develop
 pipx install "git+https://github.com/pese-git/codelab-ai.git@develop"
 
-# Или установка из ветки main (по умолчанию)
+# Или установка из ветки master (по умолчанию)
 pipx install "git+https://github.com/pese-git/codelab-ai.git"
 ```
 
-> **Примечание:** Параметр `@develop` (или любое другое имя ветки/тега) — необязательный. Если не указан, будет использована ветка по умолчанию (`main`).
+> **Примечание:** Параметр `@develop` (или любое другое имя ветки/тега) — необязательный. Если не указан, будет использована ветка по умолчанию (`master`).
 
 После установки команда `codelab` будет доступна глобально.
 
@@ -107,7 +107,7 @@ codelab-agent/
 │   │   └── observability/  # Tracing, Metrics, Timeline
 │   ├── shared/             # Общие модули (messages, logging, content, web_ui)
 │   └── cli.py              # CLI точка входа
-├── tests/                  # Тесты (~6900 тестов)
+├── tests/                  # Тесты (~7200 тестов)
 ├── doc/
 │   ├── product/            # Продуктовая документация (для website)
 │   │   ├── overview/       # Введение, архитектура, сценарии
@@ -523,7 +523,7 @@ graph TD
 
 ### Context Manager — интеллектуальный сбор контекста
 
-`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-3.
+`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-4.
 
 ```mermaid
 graph TD
@@ -543,7 +543,7 @@ graph TD
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextRegistry` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | Phase 4 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | ✅ Реализовано |
 | C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
 | D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
 
