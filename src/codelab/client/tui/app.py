@@ -163,9 +163,6 @@ class ACPClientApp(App[None]):
         # Применяем тему из конфига или CLI
         self._apply_initial_theme(theme)
 
-        # Флаг видимости sidebar
-        self._sidebar_visible = True
-
         # NavigationManager будет инициализирован в on_mount
         self._navigation_manager: NavigationManager | None = None
 
@@ -527,14 +524,16 @@ class ACPClientApp(App[None]):
         )
 
     def action_toggle_sidebar(self) -> None:
-        """Показывает/скрывает боковую панель."""
-        try:
-            sidebar_column = self.query_one("#sidebar-column")
-            self._sidebar_visible = not self._sidebar_visible
-            sidebar_column.display = self._sidebar_visible
-            self._app_logger.debug("sidebar_toggled", visible=self._sidebar_visible)
-        except Exception as e:
-            self._app_logger.warning("toggle_sidebar_failed", error=str(e))
+        """Показывает/скрывает боковую панель.
+
+        Единственный источник истины о видимости — reactive `MainLayout.sidebar_visible`
+        (синхронизирует `display` через watcher и `ui_vm.sidebar_collapsed`).
+        """
+        if self._main_layout is None:
+            self._app_logger.warning("toggle_sidebar_failed", error="main_layout_not_initialized")
+            return
+        self._main_layout.toggle_sidebar()
+        self._app_logger.debug("sidebar_toggled", visible=self._main_layout.sidebar_visible)
 
     def action_focus_sidebar(self) -> None:
         """Переводит фокус в список сессий."""
@@ -889,6 +888,14 @@ class ACPClientApp(App[None]):
     async def on_unmount(self) -> None:
         """Очистка ресурсов при завершении приложения."""
         self._app_logger.info("app_unmounting")
+
+        # Освобождаем ресурсы NavigationManager (подписки/операции).
+        if self._navigation_manager is not None:
+            try:
+                self._navigation_manager.dispose()
+                self._app_logger.debug("navigation_manager_disposed")
+            except Exception as e:
+                self._app_logger.error("navigation_manager_dispose_failed", error=str(e))
 
         # Закрываем WebSocket соединение
         try:

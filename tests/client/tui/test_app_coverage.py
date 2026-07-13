@@ -403,9 +403,10 @@ class TestACPClientAppSidebar:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.action_toggle_sidebar()
-                assert app._sidebar_visible is False
+                assert app._main_layout is not None
+                assert app._main_layout.sidebar_visible is False
                 app.action_toggle_sidebar()
-                assert app._sidebar_visible is True
+                assert app._main_layout.sidebar_visible is True
 
     async def test_action_focus_session_list(self) -> None:
         """Фокус на список сессий."""
