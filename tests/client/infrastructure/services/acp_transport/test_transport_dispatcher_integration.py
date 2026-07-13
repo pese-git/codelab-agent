@@ -143,18 +143,13 @@ class TestACPTransportServiceWithDispatcher:
         assert "error" in parsed
         assert parsed["error"]["code"] == -32602
 
-    async def test_handle_without_dispatcher_uses_callbacks(
+    async def test_handle_without_dispatcher_sends_empty_response(
         self,
         service_without_dispatcher: ACPTransportService,
         mock_transport: AsyncMock,
     ) -> None:
+        """Без dispatcher client-RPC получает пустой ответ (сервер не зависает)."""
         service_without_dispatcher._queues = RoutingQueues()
-        callback_called = False
-
-        async def on_fs_read(path: str) -> str:
-            nonlocal callback_called
-            callback_called = True
-            return "callback content"
 
         notification_data = {
             "jsonrpc": "2.0",
@@ -168,7 +163,7 @@ class TestACPTransportServiceWithDispatcher:
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=on_fs_read,
+            on_fs_read=None,
             on_fs_write=None,
             on_terminal_create=None,
             on_terminal_output=None,
@@ -177,8 +172,12 @@ class TestACPTransportServiceWithDispatcher:
             on_terminal_kill=None,
         )
 
-        assert callback_called is True
         mock_transport.send_str.assert_called_once()
+        import json
+
+        parsed = json.loads(mock_transport.send_str.call_args[0][0])
+        assert parsed["id"] == "rpc-1"
+        assert parsed["result"] == {}
 
     async def test_dispatcher_session_update_still_uses_callback(
         self,

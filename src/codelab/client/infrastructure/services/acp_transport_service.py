@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import json
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
@@ -39,22 +38,6 @@ if TYPE_CHECKING:
     from codelab.client.infrastructure.services.acp_transport.client_rpc_dispatcher import (
         ClientRpcDispatcher,
     )
-
-
-async def _call_callback(
-    callback: Callable[..., Any] | None,
-    *args: Any,
-) -> Any:
-    """Вызвать callback, поддерживая sync и async функции.
-
-    В stdio режиме callbacks НЕ должны блокировать event loop.
-    Если callback — coroutine function, он будет awaited.
-    """
-    if callback is None:
-        return None
-    if inspect.iscoroutinefunction(callback):
-        return await callback(*args)
-    return callback(*args)
 
 
 class ACPTransportService(TransportService):
@@ -1089,64 +1072,24 @@ class ACPTransportService(TransportService):
             rpc_method=rpc_method,
         )
 
-        if self._rpc_dispatcher is not None:
-            result = await self._rpc_dispatcher.dispatch(rpc_method, rpc_id, rpc_params)
-            if "error" in result:
-                error_info = result["error"]
-                await self.send(
-                    ACPMessage.error_response(
-                        rpc_id,
-                        code=error_info.get("code", -32603),
-                        message=error_info.get("message", "Unknown error"),
-                    ).to_dict()
-                )
-            else:
-                await self.send(ACPMessage.response(rpc_id, result).to_dict())
+        if self._rpc_dispatcher is None:
+            # Диспетчер всегда инжектится в проде; ветка защищает горячий путь
+            # (пустой ответ вместо зависания сервера) в тестовых/дефолтных сборках.
+            await self._handle_unknown_rpc(rpc_id)
             return
 
-        handlers: dict[str, Callable[[], Any]] = {
-            "fs/read_text_file": lambda: self._handle_fs_read(
-                rpc_id,
-                rpc_params,
-                on_fs_read,
-            ),
-            "fs/write_text_file": lambda: self._handle_fs_write(
-                rpc_id,
-                rpc_params,
-                on_fs_write,
-            ),
-            "terminal/create": lambda: self._handle_terminal_create(
-                rpc_id,
-                rpc_params,
-                on_terminal_create,
-            ),
-            "terminal/output": lambda: self._handle_terminal_output(
-                rpc_id,
-                rpc_params,
-                on_terminal_output,
-            ),
-            "terminal/wait_for_exit": lambda: self._handle_terminal_wait(
-                rpc_id,
-                rpc_params,
-                on_terminal_wait,
-            ),
-            "terminal/release": lambda: self._handle_terminal_release(
-                rpc_id,
-                rpc_params,
-                on_terminal_release,
-            ),
-            "terminal/kill": lambda: self._handle_terminal_kill(
-                rpc_id,
-                rpc_params,
-                on_terminal_kill,
-            ),
-        }
-
-        handler = handlers.get(rpc_method)
-        if handler is not None:
-            await handler()
+        result = await self._rpc_dispatcher.dispatch(rpc_method, rpc_id, rpc_params)
+        if "error" in result:
+            error_info = result["error"]
+            await self.send(
+                ACPMessage.error_response(
+                    rpc_id,
+                    code=error_info.get("code", -32603),
+                    message=error_info.get("message", "Unknown error"),
+                ).to_dict()
+            )
         else:
-            await self._handle_unknown_rpc(notification.id)
+            await self.send(ACPMessage.response(rpc_id, result).to_dict())
 
     async def _handle_session_update(
         self,
@@ -1170,187 +1113,6 @@ class ACPTransportService(TransportService):
                 method=method,
                 request_id=request_id,
             )
-
-    async def _handle_fs_read(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_fs_read: Callable[[str], Any] | None,
-    ) -> None:
-        path = rpc_params.get("path")
-        self._logger.info(
-            "fs_read_rpc_start",
-            rpc_id=rpc_id,
-            path=path,
-            has_callback=on_fs_read is not None,
-        )
-        try:
-            content = (
-                await _call_callback(on_fs_read, path)
-                if on_fs_read is not None and isinstance(path, str)
-                else ""
-            )
-            self._logger.info(
-                "fs_read_rpc_callback_done",
-                rpc_id=rpc_id,
-                content_size=len(content),
-            )
-            response_msg = ACPMessage.response(rpc_id, {"content": content}).to_dict()
-            self._logger.info(
-                "fs_read_rpc_sending_response",
-                rpc_id=rpc_id,
-            )
-            await self.send(response_msg)
-            self._logger.info(
-                "fs_read_rpc_response_sent",
-                rpc_id=rpc_id,
-            )
-        except Exception as e:
-            self._logger.error(
-                "fs_read_rpc_error",
-                rpc_id=rpc_id,
-                path=path,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            error_response = {
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "error": {"code": -32603, "message": str(e)},
-            }
-            await self.send(error_response)
-
-    async def _handle_fs_write(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_fs_write: Callable[[str, str], Any] | None,
-    ) -> None:
-        path = rpc_params.get("path")
-        text = rpc_params.get("content")
-        self._logger.debug(
-            "tool_lifecycle_callback_start",
-            rpc_id=rpc_id,
-            rpc_method="fs/write_text_file",
-            path=path,
-            text_size=len(text) if isinstance(text, str) else 0,
-            has_callback=on_fs_write is not None,
-        )
-        try:
-            if on_fs_write is not None and isinstance(path, str) and isinstance(text, str):
-                await _call_callback(on_fs_write, path, text)
-            await self.send(ACPMessage.response(rpc_id, {}).to_dict())
-        except Exception as e:
-            self._logger.error(
-                "fs_write_rpc_error",
-                rpc_id=rpc_id,
-                path=path,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            await self.send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": rpc_id,
-                    "error": {"code": -32603, "message": str(e)},
-                }
-            )
-
-    async def _handle_terminal_create(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_terminal_create: Callable[[str], Any] | None,
-    ) -> None:
-        command = rpc_params.get("command")
-        terminal_id = (
-            await _call_callback(on_terminal_create, command)
-            if on_terminal_create is not None and isinstance(command, str)
-            else None
-        )
-        if terminal_id is None:
-            await self.send(
-                ACPMessage.error_response(
-                    rpc_id,
-                    code=-32000,
-                    message="terminal/create callback not configured",
-                ).to_dict()
-            )
-        else:
-            await self.send(ACPMessage.response(rpc_id, {"terminalId": terminal_id}).to_dict())
-
-    async def _handle_terminal_output(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_terminal_output: Callable[[str], Any] | None,
-    ) -> None:
-        terminal_id = rpc_params.get("terminalId")
-        output_data: dict[str, Any] | None = (
-            await _call_callback(on_terminal_output, terminal_id)
-            if on_terminal_output is not None and isinstance(terminal_id, str)
-            else None
-        )
-        if output_data is None:
-            await self.send(
-                ACPMessage.error_response(
-                    rpc_id,
-                    code=-32000,
-                    message="terminal/output callback not configured",
-                ).to_dict()
-            )
-        else:
-            await self.send(ACPMessage.response(rpc_id, output_data).to_dict())
-
-    async def _handle_terminal_wait(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_terminal_wait: Callable[[str], Any] | None,
-    ) -> None:
-        terminal_id = rpc_params.get("terminalId")
-        exit_code: int | None = None
-        output: str | None = None
-        if on_terminal_wait is not None and isinstance(terminal_id, str):
-            wait_result = await _call_callback(on_terminal_wait, terminal_id)
-            if isinstance(wait_result, tuple):
-                candidate_exit_code, candidate_output = wait_result
-                exit_code = candidate_exit_code if isinstance(candidate_exit_code, int) else None
-                output = candidate_output if isinstance(candidate_output, str) else None
-            elif isinstance(wait_result, int):
-                exit_code = wait_result
-
-        result_payload: dict[str, Any] = {}
-        if exit_code is not None:
-            result_payload["exitCode"] = exit_code
-        if output is not None:
-            result_payload["output"] = output
-        await self.send(ACPMessage.response(rpc_id, result_payload).to_dict())
-
-    async def _handle_terminal_release(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_terminal_release: Callable[[str], Any] | None,
-    ) -> None:
-        terminal_id = rpc_params.get("terminalId")
-        if on_terminal_release is not None and isinstance(terminal_id, str):
-            await _call_callback(on_terminal_release, terminal_id)
-        await self.send(ACPMessage.response(rpc_id, {}).to_dict())
-
-    async def _handle_terminal_kill(
-        self,
-        rpc_id: str | int,
-        rpc_params: dict[str, Any],
-        on_terminal_kill: Callable[[str], Any] | None,
-    ) -> None:
-        terminal_id = rpc_params.get("terminalId")
-        killed = (
-            await _call_callback(on_terminal_kill, terminal_id)
-            if on_terminal_kill is not None and isinstance(terminal_id, str)
-            else False
-        )
-        await self.send(ACPMessage.response(rpc_id, {"killed": killed}).to_dict())
 
     async def _handle_unknown_rpc(self, rpc_id: str | int) -> None:
         """Отправляет пустой response на неизвестный RPC."""
