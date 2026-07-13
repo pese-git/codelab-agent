@@ -1029,12 +1029,12 @@ class TestACPClientAppAdditionalCoverage:
                     mock_worker.assert_not_called()
 
     async def test_open_config_selector_no_session(self) -> None:
-        """_open_config_option_selector без сессии показывает предупреждение."""
+        """ModalController.open_config_option без сессии показывает предупреждение."""
         with _patched_app() as (app, deps):
             async with app.run_test() as pilot:
                 await pilot.pause()
                 deps["session_vm"].selected_session_id.value = None
-                app._open_config_option_selector(deps["mode_selector_vm"], "mode")
+                app._modals.open_config_option(deps["mode_selector_vm"], "mode")
 
     async def test_config_option_callback_selected(self) -> None:
         """on_option_selected callback с value логирует выбор."""

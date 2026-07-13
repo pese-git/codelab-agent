@@ -27,7 +27,6 @@ from codelab.client.messages import PermissionOption, PermissionToolCall
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.config_option_selector_view_model import (
     AgentSelectorViewModel,
-    ConfigOptionSelectorViewModel,
     ModeSelectorViewModel,
     StrategySelectorViewModel,
 )
@@ -44,15 +43,10 @@ from codelab.client.tui.navigation import NavigationManager
 
 from .components import (
     ChatView,
-    CommandPalette,
-    ConfigOptionSelectorModal,
-    FileChangePreviewModal,
     FileTree,
     FooterBar,
     HeaderBar,
-    HelpModal,
     MainLayout,
-    ModelSelectorModal,
     PermissionModal,
     PlanPanel,
     PromptInput,
@@ -62,6 +56,7 @@ from .components import (
     ToolPanel,
 )
 from .config import TUIConfigStore, TUITheme, resolve_tui_connection
+from .controllers import FILE_CHANGE_TOOLS, ModalController, parse_tool_call_file_change
 from .themes import ThemeManager
 
 
@@ -222,6 +217,9 @@ class ACPClientApp(App[None]):
 
             self._coordinator = self._container.get(SessionCoordinator)
             self._transport = self._container.get(TransportService)
+
+            # Контроллер модальных окон (guard+callback+push_screen один раз).
+            self._modals = ModalController(self, self._session_vm, self._app_logger)
 
             self._app_logger.info("all_view_models_resolved")
 
@@ -560,39 +558,16 @@ class ACPClientApp(App[None]):
             context = "file-tree"
         elif isinstance(focused, PromptInput):
             context = "prompt-input"
-        self.push_screen(HelpModal(context=context, show_hotkeys=False))
+        self._modals.open_help(context)
 
     def action_show_hotkeys(self) -> None:
         """Показать отдельный экран со списком горячих клавиш."""
 
-        self.push_screen(HelpModal(context="global", show_hotkeys=True))
+        self._modals.show_hotkeys()
 
     def action_command_palette(self) -> None:
         """Открывает палитру команд."""
-        self._app_logger.debug("opening_command_palette")
-
-        def on_command_selected(result: object) -> None:
-            """Обработка выбранной команды."""
-            if result is not None:
-                # Выполняем action команды
-                from .components import Command
-
-                if isinstance(result, Command) and result.action:
-                    self._app_logger.debug(
-                        "command_selected",
-                        command_id=result.id,
-                        action=result.action,
-                    )
-                    try:
-                        self.action(result.action)
-                    except Exception as e:
-                        self._app_logger.warning(
-                            "command_action_failed",
-                            action=result.action,
-                            error=str(e),
-                        )
-
-        self.push_screen(CommandPalette(), callback=on_command_selected)
+        self._modals.open_command_palette()
 
     def action_toggle_theme(self) -> None:
         """Переключает между светлой и тёмной темой."""
@@ -614,104 +589,19 @@ class ACPClientApp(App[None]):
 
     def action_select_model(self) -> None:
         """Открывает модальное окно выбора LLM модели."""
-        session_id = self._session_vm.selected_session_id.value
-        if not session_id:
-            self._app_logger.warning("select_model_no_active_session")
-            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
-            return
-
-        self._app_logger.debug("opening_model_selector", session_id=session_id)
-
-        def on_model_selected(model_value: str | None) -> None:
-            """Обработка выбранной модели."""
-            if model_value:
-                self._app_logger.info(
-                    "model_selected",
-                    session_id=session_id,
-                    model=model_value,
-                )
-                self.run_worker(
-                    self._model_selector_vm.select_model_cmd.execute(
-                        session_id=session_id,
-                        model_value=model_value,
-                    ),
-                    exclusive=False,
-                )
-                self.show_toast(f"Модель изменена на {model_value.split('/')[-1]}", level="success")
-            else:
-                self._app_logger.debug("model_selection_cancelled")
-
-        self.push_screen(
-            ModelSelectorModal(
-                view_model=self._model_selector_vm,
-                session_id=session_id,
-            ),
-            callback=on_model_selected,
-        )
-
-    def _open_config_option_selector(
-        self,
-        view_model: ConfigOptionSelectorViewModel,
-        config_name: str,
-    ) -> None:
-        """Универсальный метод для открытия модального окна выбора config option.
-
-        Args:
-            view_model: ViewModel для управления состоянием
-            config_name: Название config option для логирования
-        """
-        session_id = self._session_vm.selected_session_id.value
-        if not session_id:
-            self._app_logger.warning(f"select_{config_name}_no_active_session")
-            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
-            return
-
-        self._app_logger.debug(
-            f"opening_{config_name}_selector",
-            session_id=session_id,
-        )
-
-        def on_option_selected(option_value: str | None) -> None:
-            """Обработка выбранной опции."""
-            if option_value:
-                self._app_logger.info(
-                    f"{config_name}_selected",
-                    session_id=session_id,
-                    value=option_value,
-                )
-                self.run_worker(
-                    view_model.select_option_cmd.execute(
-                        session_id=session_id,
-                        value=option_value,
-                    ),
-                    exclusive=False,
-                )
-                self.show_toast(
-                    f"{view_model.title} изменён на {option_value}",
-                    level="success",
-                )
-            else:
-                self._app_logger.debug(f"{config_name}_selection_cancelled")
-
-        self.push_screen(
-            ConfigOptionSelectorModal(
-                view_model=view_model,
-                session_id=session_id,
-            ),
-            callback=on_option_selected,
-        )
+        self._modals.open_model_selector(self._model_selector_vm)
 
     def action_select_mode(self) -> None:
         """Открывает модальное окно выбора режима сессии."""
-        self._open_config_option_selector(self._mode_selector_vm, "mode")
+        self._modals.open_config_option(self._mode_selector_vm, "mode")
 
     def action_select_agent(self) -> None:
         """Открывает модальное окно выбора агента."""
-        self._open_config_option_selector(self._agent_selector_vm, "agent")
+        self._modals.open_config_option(self._agent_selector_vm, "agent")
 
     def action_select_strategy(self) -> None:
         """Открывает модальное окно выбора стратегии выполнения."""
-        self._open_config_option_selector(self._strategy_selector_vm, "strategy")
+        self._modals.open_config_option(self._strategy_selector_vm, "strategy")
 
     def action_close_modal(self) -> None:
         """Закрывает текущее модальное окно."""
@@ -936,10 +826,7 @@ class ACPClientApp(App[None]):
             tool_name=tool_name,
         )
 
-        # Проверяем, является ли инструмент файловым
-        file_tools = {"write_file", "file_edit", "create_file", "edit_file", "patch_file"}
-        if tool_name not in file_tools:
-            # Для не-файловых инструментов просто логируем
+        if tool_name not in FILE_CHANGE_TOOLS:
             self._app_logger.debug(
                 "tool_call_card_selected_non_file_tool",
                 tool_call_id=tool_call_id,
@@ -947,56 +834,17 @@ class ACPClientApp(App[None]):
             )
             return
 
-        # Получаем данные о tool call из ChatViewModel
-        tool_calls = self._chat_vm.tool_calls.value
-        tool_call_data = None
-
-        for tc in tool_calls:
-            if isinstance(tc, dict):
-                tc_id = tc.get("toolCallId") or tc.get("id")
-            else:
-                tc_id = getattr(tc, "toolCallId", None) or getattr(tc, "id", None)
-
-            if tc_id == tool_call_id:
-                tool_call_data = tc
-                break
-
-        if tool_call_data is None:
-            self._app_logger.warning(
-                "tool_call_data_not_found",
-                tool_call_id=tool_call_id,
-            )
+        change = parse_tool_call_file_change(self._chat_vm.tool_calls.value, tool_call_id)
+        if change is None:
+            self._app_logger.warning("tool_call_data_not_found", tool_call_id=tool_call_id)
             return
 
-        # Извлекаем параметры для FileChangePreview
-        if isinstance(tool_call_data, dict):
-            params = tool_call_data.get("parameters") or tool_call_data.get("rawInput") or {}
-        else:
-            params = getattr(tool_call_data, "parameters", {}) or {}
-
-        file_path = (
-            params.get("path") or params.get("file_path") or params.get("filePath") or "unknown"
-        )
-        old_content = params.get("old_content") or params.get("oldContent") or ""
-        new_content = (
-            params.get("content") or params.get("new_content") or params.get("newContent") or ""
-        )
-
-        # Показываем модальное окно предпросмотра изменений
         self._app_logger.info(
             "showing_file_change_preview_modal",
             tool_call_id=tool_call_id,
-            file_path=file_path,
+            file_path=change.file_path,
         )
-
-        modal = FileChangePreviewModal(
-            file_path=file_path,
-            old_content=old_content,
-            new_content=new_content,
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-        )
-        self.push_screen(modal)
+        self._modals.open_file_change_preview(change, tool_call_id, tool_name)
 
     def _on_config_option_updated(self, event: Any) -> None:
         """Обработать обновление конфигурационных опций сессии.
