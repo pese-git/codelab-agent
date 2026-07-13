@@ -41,6 +41,7 @@ from .models import (
 )
 from .transport import (
     HttpTransportError,
+    MCPTransportError,
     SseTransportError,
     StdioTransportError,
 )
@@ -402,7 +403,7 @@ class MCPClient:
 
             return self._tools
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to list tools: {e}") from e
 
     async def list_resources(self) -> list[MCPResource]:
@@ -461,7 +462,7 @@ class MCPClient:
 
             return self._resources
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to list resources: {e}") from e
 
     async def list_resource_templates(self) -> list[MCPResourceTemplate]:
@@ -521,7 +522,7 @@ class MCPClient:
 
             return self._resource_templates
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to list resource templates: {e}") from e
 
     async def read_resource(self, uri: str) -> MCPReadResourceResult:
@@ -568,7 +569,7 @@ class MCPClient:
 
             return result
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to read resource {uri}: {e}") from e
 
     async def list_prompts(self) -> list[MCPPrompt]:
@@ -625,7 +626,7 @@ class MCPClient:
 
             return self._prompts
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to list prompts: {e}") from e
 
     async def get_prompt(
@@ -685,7 +686,7 @@ class MCPClient:
 
             return result
 
-        except StdioTransportError as e:
+        except MCPTransportError as e:
             raise MCPClientError(f"Failed to get prompt {name}: {e}") from e
 
     async def call_tool(

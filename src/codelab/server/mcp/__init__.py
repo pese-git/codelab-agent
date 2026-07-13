@@ -100,6 +100,7 @@ from .transport import (
     HttpTimeoutError,
     HttpTransport,
     HttpTransportError,
+    MCPTransportError,
     ProcessExitedError,
     ProcessNotStartedError,
     SseTransport,
@@ -139,6 +140,7 @@ __all__ = [
     "mcp_prompts_to_available_commands",
     # Transport
     "MCPTransport",
+    "MCPTransportError",
     "TransportFactory",
     "StdioTransport",
     "StdioTransportError",
