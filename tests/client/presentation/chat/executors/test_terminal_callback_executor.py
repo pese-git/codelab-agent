@@ -264,3 +264,41 @@ class TestTerminalCallbackExecutor:
         info = await executor.get_terminal_info(terminal_id)
         assert info is not None
         assert info["is_released"] is True
+
+    @pytest.mark.asyncio
+    async def test_build_prompt_callbacks_wires_all_terminal_ops(
+        self, executor: TerminalCallbackExecutor, mock_executor: MockTerminalExecutor
+    ) -> None:
+        """build_prompt_callbacks строит on_terminal_* поверх реальных операций."""
+        callbacks = executor.build_prompt_callbacks()
+
+        assert set(callbacks) == {
+            "on_terminal_create",
+            "on_terminal_output",
+            "on_terminal_wait_for_exit",
+            "on_terminal_release",
+            "on_terminal_kill",
+        }
+
+        terminal_id = await callbacks["on_terminal_create"]("echo hi")
+        assert terminal_id is not None
+        mock_executor.create_terminal.assert_called_once_with("echo hi")
+
+        output = await callbacks["on_terminal_output"](terminal_id)
+        assert output["isComplete"] is True
+        assert "output" in output
+
+        await callbacks["on_terminal_wait_for_exit"](terminal_id)
+        await callbacks["on_terminal_release"](terminal_id)
+        killed = await callbacks["on_terminal_kill"](terminal_id)
+        assert killed is True
+
+    @pytest.mark.asyncio
+    async def test_build_prompt_callbacks_create_raises_on_error(
+        self, executor: TerminalCallbackExecutor
+    ) -> None:
+        """on_terminal_create бросает RuntimeError при ошибке создания."""
+        callbacks = executor.build_prompt_callbacks()
+
+        with pytest.raises(RuntimeError, match="Terminal creation failed"):
+            await callbacks["on_terminal_create"]("")

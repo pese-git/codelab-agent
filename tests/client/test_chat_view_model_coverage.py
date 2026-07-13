@@ -136,6 +136,15 @@ class TestSendPrompt:
         mock_terminal_cb.wait_for_exit.return_value = ((0, "test output"), None)
         mock_terminal_cb.release_terminal.return_value = None
         mock_terminal_cb.kill_terminal.return_value = (True, None)
+        # build_prompt_callbacks делегируем реальному методу, связанному с mock —
+        # проверяем настоящую сборку callbacks поверх мокнутых терминал-операций.
+        from codelab.client.presentation.chat.executors.terminal_callback_executor import (
+            TerminalCallbackExecutor,
+        )
+
+        mock_terminal_cb.build_prompt_callbacks = (
+            lambda: TerminalCallbackExecutor.build_prompt_callbacks(mock_terminal_cb)
+        )
 
         # Устанавливаем terminal_callback_executor
         chat_view_model._terminal_callback_executor = mock_terminal_cb

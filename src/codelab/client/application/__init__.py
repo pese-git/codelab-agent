@@ -29,6 +29,7 @@ from .dto import (
     SendPromptRequest,
     SendPromptResponse,
 )
+from .replay_reducer import ReplayReducer
 from .session_coordinator import SessionCoordinator
 from .state_machine import StateChange, StateTransitionError, UIState, UIStateMachine
 from .use_cases import (
@@ -59,6 +60,8 @@ __all__ = [
     "InitializeUseCase",
     # Coordinators
     "SessionCoordinator",
+    # Replay
+    "ReplayReducer",
     # State Machine
     "UIState",
     "UIStateMachine",

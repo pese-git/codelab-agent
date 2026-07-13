@@ -390,3 +390,55 @@ class TerminalCallbackExecutor:
             "created_at": state.created_at,
             "is_released": state.is_released,
         }
+
+    def build_prompt_callbacks(self) -> dict[str, Any]:
+        """Строит `on_terminal_*` callbacks для `coordinator.send_prompt`.
+
+        Адаптирует `(result, error)`-контракт исполнителя к форме, ожидаемой
+        `PromptCallbacks`: raise при ошибке создания, dict-обёртка для вывода,
+        bool для kill. Возвращает dict, готовый к распаковке в kwargs.
+        """
+
+        async def _on_terminal_create(command: str) -> str:
+            terminal_id, error = await self.create_terminal(command)
+            if error or terminal_id is None:
+                raise RuntimeError(f"Terminal creation failed: {error}")
+            return terminal_id
+
+        async def _on_terminal_output(terminal_id: str) -> dict[str, Any]:
+            output_data, error = await self.get_output(terminal_id)
+            if error:
+                return {"output": "", "isComplete": True, "exitCode": None}
+            output = ""
+            if isinstance(output_data, dict):
+                output = output_data.get("output", "")
+            elif isinstance(output_data, str):
+                output = output_data
+            return {
+                "output": output,
+                "isComplete": True,
+                "exitCode": None,
+            }
+
+        async def _on_terminal_wait_for_exit(
+            terminal_id: str,
+        ) -> tuple[int | None, str | None]:
+            result, error = await self.wait_for_exit(terminal_id)
+            if error or result is None:
+                return (None, error or "")
+            return result
+
+        async def _on_terminal_release(terminal_id: str) -> None:
+            await self.release_terminal(terminal_id)
+
+        async def _on_terminal_kill(terminal_id: str) -> bool:
+            success, _ = await self.kill_terminal(terminal_id)
+            return success
+
+        return {
+            "on_terminal_create": _on_terminal_create,
+            "on_terminal_output": _on_terminal_output,
+            "on_terminal_wait_for_exit": _on_terminal_wait_for_exit,
+            "on_terminal_release": _on_terminal_release,
+            "on_terminal_kill": _on_terminal_kill,
+        }
