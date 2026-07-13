@@ -573,32 +573,9 @@ class SendPromptUseCase(UseCase):
                             error=str(e),
                         )
 
-            transport_callbacks: dict[str, Any] = {
-                "on_update": handle_update,
-            }
-
-            # Добавляем остальные callbacks если предоставлены
-            if request.callbacks:
-                if request.callbacks.on_fs_read:
-                    transport_callbacks["on_fs_read"] = request.callbacks.on_fs_read
-                if request.callbacks.on_fs_write:
-                    transport_callbacks["on_fs_write"] = request.callbacks.on_fs_write
-                if request.callbacks.on_terminal_create:
-                    transport_callbacks["on_terminal_create"] = request.callbacks.on_terminal_create
-                if request.callbacks.on_terminal_output:
-                    transport_callbacks["on_terminal_output"] = request.callbacks.on_terminal_output
-                if request.callbacks.on_terminal_wait_for_exit:
-                    transport_callbacks["on_terminal_wait"] = (
-                        request.callbacks.on_terminal_wait_for_exit
-                    )
-                if request.callbacks.on_terminal_release:
-                    transport_callbacks["on_terminal_release"] = (
-                        request.callbacks.on_terminal_release
-                    )
-                if request.callbacks.on_terminal_kill:
-                    transport_callbacks["on_terminal_kill"] = request.callbacks.on_terminal_kill
-
-            # Отправляем prompt через transport
+            # Отправляем prompt через transport.
+            # Входящие fs/*, terminal/* RPC обрабатывает ClientRpcDispatcher внутри
+            # транспорта; наверх пробрасывается только session/update (on_update).
             try:
                 prompt_response = await self._transport.request_with_callbacks(
                     method="session/prompt",
@@ -606,7 +583,7 @@ class SendPromptUseCase(UseCase):
                         "sessionId": request.session_id,
                         "prompt": prompt_content,
                     },
-                    **transport_callbacks,
+                    on_update=handle_update,
                 )
             except ValueError as e:
                 error_msg = f"Failed to send prompt: {e}"

@@ -91,13 +91,6 @@ class TestACPTransportServiceWithDispatcher:
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         assert len(mock_handler.handle_calls) == 1
@@ -126,13 +119,6 @@ class TestACPTransportServiceWithDispatcher:
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         mock_transport.send_str.assert_called_once()
@@ -163,13 +149,6 @@ class TestACPTransportServiceWithDispatcher:
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         mock_transport.send_str.assert_called_once()
@@ -203,13 +182,6 @@ class TestACPTransportServiceWithDispatcher:
             request_id="req-1",
             notification_data=notification_data,
             on_update=on_update,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         assert update_received is True

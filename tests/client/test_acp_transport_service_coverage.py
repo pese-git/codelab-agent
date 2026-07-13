@@ -769,13 +769,6 @@ class TestPermissionHandling:
             method="m",
             request_id="r",
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
     @pytest.mark.asyncio
@@ -795,13 +788,6 @@ class TestPermissionHandling:
             method="m",
             request_id="r",
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         warning_events = [
@@ -870,13 +856,6 @@ class TestClientRpcRouting:
             request_id="r",
             notification_data={"jsonrpc": "2.0", "method": "fs/read_text_file", "params": {}},
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         service._transport.send_str.assert_not_awaited()  # noqa: SLF001
@@ -898,13 +877,6 @@ class TestClientRpcRouting:
             request_id="r",
             notification_data=data,
             on_update=on_update,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         on_update.assert_called_once_with(data)

@@ -610,13 +610,6 @@ class ACPTransportService(TransportService):
         method: str,
         request_id: str | int,
         on_update: Callable[[dict[str, Any]], None] | None,
-        on_fs_read: Callable[[str], Any] | None,
-        on_fs_write: Callable[[str, str], Any] | None,
-        on_terminal_create: Callable[[str], Any] | None,
-        on_terminal_output: Callable[[str], Any] | None,
-        on_terminal_wait: Callable[[str], Any] | None,
-        on_terminal_release: Callable[[str], Any] | None,
-        on_terminal_kill: Callable[[str], Any] | None,
     ) -> dict[str, Any]:
         """Основной цикл ожидания ответа с обработкой permission и notifications."""
         self._logger.info(
@@ -681,13 +674,6 @@ class ACPTransportService(TransportService):
                         method=method,
                         request_id=request_id,
                         on_update=on_update,
-                        on_fs_read=on_fs_read,
-                        on_fs_write=on_fs_write,
-                        on_terminal_create=on_terminal_create,
-                        on_terminal_output=on_terminal_output,
-                        on_terminal_wait=on_terminal_wait,
-                        on_terminal_release=on_terminal_release,
-                        on_terminal_kill=on_terminal_kill,
                     )
 
                 if response_task in done:
@@ -773,13 +759,6 @@ class ACPTransportService(TransportService):
         method: str,
         request_id: str | int,
         on_update: Callable[[dict[str, Any]], None] | None,
-        on_fs_read: Callable[[str], Any] | None,
-        on_fs_write: Callable[[str, str], Any] | None,
-        on_terminal_create: Callable[[str], Any] | None,
-        on_terminal_output: Callable[[str], Any] | None,
-        on_terminal_wait: Callable[[str], Any] | None,
-        on_terminal_release: Callable[[str], Any] | None,
-        on_terminal_kill: Callable[[str], Any] | None,
     ) -> None:
         """Обрабатывает завершённый notification task."""
         try:
@@ -796,13 +775,6 @@ class ACPTransportService(TransportService):
                 request_id=request_id,
                 notification_data=notification_data,
                 on_update=on_update,
-                on_fs_read=on_fs_read,
-                on_fs_write=on_fs_write,
-                on_terminal_create=on_terminal_create,
-                on_terminal_output=on_terminal_output,
-                on_terminal_wait=on_terminal_wait,
-                on_terminal_release=on_terminal_release,
-                on_terminal_kill=on_terminal_kill,
             )
         except TimeoutError:
             pass
@@ -819,13 +791,6 @@ class ACPTransportService(TransportService):
         method: str,
         params: dict[str, Any] | None = None,
         on_update: Callable[[dict[str, Any]], None] | None = None,
-        on_fs_read: Callable[[str], Any] | None = None,
-        on_fs_write: Callable[[str, str], Any] | None = None,
-        on_terminal_create: Callable[[str], Any] | None = None,
-        on_terminal_output: Callable[[str], Any] | None = None,
-        on_terminal_wait: Callable[[str], Any] | None = None,
-        on_terminal_release: Callable[[str], Any] | None = None,
-        on_terminal_kill: Callable[[str], Any] | None = None,
     ) -> dict[str, Any]:
         """Выполняет request с обработкой callbacks используя routing queues.
 
@@ -840,14 +805,9 @@ class ACPTransportService(TransportService):
             method: Метод для вызова
             params: Параметры метода
             on_update: Callback для session/update
-            on_permission: Callback для session/request_permission
-            on_fs_read: Callback для fs/read
-            on_fs_write: Callback для fs/write
-            on_terminal_create: Callback для terminal/create
-            on_terminal_output: Callback для terminal/output
-            on_terminal_wait: Callback для terminal/wait_for_exit
-            on_terminal_release: Callback для terminal/release
-            on_terminal_kill: Callback для terminal/kill
+
+        Входящие server->client RPC (fs/*, terminal/*) обрабатываются
+        через ClientRpcDispatcher; permission — через PermissionHandler.
 
         Возвращает:
             Финальный ответ на request
@@ -905,13 +865,6 @@ class ACPTransportService(TransportService):
                         method=method,
                         request_id=request_id,
                         on_update=on_update,
-                        on_fs_read=on_fs_read,
-                        on_fs_write=on_fs_write,
-                        on_terminal_create=on_terminal_create,
-                        on_terminal_output=on_terminal_output,
-                        on_terminal_wait=on_terminal_wait,
-                        on_terminal_release=on_terminal_release,
-                        on_terminal_kill=on_terminal_kill,
                     )
                 finally:
                     # Очистка долгоживущих tasks при выходе из цикла
@@ -1038,13 +991,6 @@ class ACPTransportService(TransportService):
         request_id: str | int,
         notification_data: dict[str, Any],
         on_update: Callable[[dict[str, Any]], None] | None,
-        on_fs_read: Callable[[str], Any] | None,
-        on_fs_write: Callable[[str, str], Any] | None,
-        on_terminal_create: Callable[[str], Any] | None,
-        on_terminal_output: Callable[[str], Any] | None,
-        on_terminal_wait: Callable[[str], Any] | None,
-        on_terminal_release: Callable[[str], Any] | None,
-        on_terminal_kill: Callable[[str], Any] | None,
     ) -> None:
         """Обрабатывает `session/update` и incoming RPC (`fs/*`, `terminal/*`)."""
         notification = ACPMessage.from_dict(notification_data)

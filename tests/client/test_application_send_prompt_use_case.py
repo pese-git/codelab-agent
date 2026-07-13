@@ -273,50 +273,6 @@ class TestSendPromptUseCase:
         assert response.session_id == "sess_123"
 
     @pytest.mark.asyncio
-    async def test_execute_passes_terminal_callbacks(self) -> None:
-        """UseCase передаёт terminal callbacks в transport."""
-        transport = AsyncMock()
-        transport.request_with_callbacks = AsyncMock(
-            return_value={
-                "jsonrpc": "2.0",
-                "id": "prompt_req",
-                "result": {"stopReason": "end_turn"},
-            }
-        )
-
-        session = Session.create(
-            server_host="127.0.0.1",
-            server_port=8765,
-            client_capabilities={},
-            server_capabilities={},
-            session_id="sess_123",
-        )
-        session_repo = AsyncMock()
-        session_repo.load = AsyncMock(return_value=session)
-        session_repo.save = AsyncMock()
-
-        on_terminal_create = AsyncMock()
-        on_terminal_output = AsyncMock()
-        callbacks = PromptCallbacks(
-            on_terminal_create=on_terminal_create,
-            on_terminal_output=on_terminal_output,
-        )
-
-        use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
-
-        request = SendPromptRequest(
-            session_id="sess_123",
-            prompt_text="Hello",
-            callbacks=callbacks,
-        )
-        await use_case.execute(request)
-
-        # Проверяем что callbacks были переданы
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_create" in call_kwargs
-        assert "on_terminal_output" in call_kwargs
-
-    @pytest.mark.asyncio
     async def test_execute_marks_session_authenticated(self) -> None:
         """UseCase помечает сессию как аутентифицированную после успешного prompt."""
         transport = AsyncMock()
