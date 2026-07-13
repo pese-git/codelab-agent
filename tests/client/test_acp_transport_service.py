@@ -131,6 +131,7 @@ class TestMultiplePermissionRequests:
         """Два последовательных permission request оба обрабатываются."""
         service = _create_service_for_test()
         service._logger = MagicMock()  # noqa: SLF001 - test setup
+        service._coordinator._logger = service._logger  # noqa: SLF001 - coordinator логи в тот же mock
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001 - test setup
 
@@ -319,6 +320,7 @@ class TestMultiplePermissionRequests:
         """Новый permission task создаётся сразу после обработки предыдущего."""
         service = _create_service_for_test()
         service._logger = MagicMock()  # noqa: SLF001 - test setup
+        service._coordinator._logger = service._logger  # noqa: SLF001 - coordinator логи в тот же mock
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001 - test setup
 
@@ -423,6 +425,7 @@ class TestMultiplePermissionRequests:
         """
         service = _create_service_for_test()
         service._logger = MagicMock()  # noqa: SLF001 - test setup
+        service._coordinator._logger = service._logger  # noqa: SLF001 - coordinator логи в тот же mock
         queues = RoutingQueues()
         service._queues = queues  # noqa: SLF001 - test setup
 

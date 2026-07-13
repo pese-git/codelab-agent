@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
@@ -25,7 +24,10 @@ import structlog
 
 from codelab.client.domain import TransportService
 from codelab.client.infrastructure.message_parser import MessageParser
-from codelab.client.infrastructure.services.acp_transport import PermissionResponder
+from codelab.client.infrastructure.services.acp_transport import (
+    PermissionResponder,
+    RequestCallbackCoordinator,
+)
 from codelab.client.infrastructure.services.background_receive_loop import (
     BackgroundReceiveLoop,
 )
@@ -93,6 +95,17 @@ class ACPTransportService(TransportService):
         # Нужна, чтобы разные callback-запросы не конкурировали за
         # общую notification_queue и не теряли session/update события.
         self._callbacks_request_lock = asyncio.Lock()
+
+        # Оркестрация request/response с асинхронными событиями вынесена в
+        # отдельный компонент. Он читает актуальные очереди/диспетчер через
+        # провайдеры, поэтому переживает пересоздание очередей при реконнекте.
+        self._coordinator = RequestCallbackCoordinator(
+            queues_provider=lambda: self._queues,
+            dispatcher_provider=lambda: self._rpc_dispatcher,
+            send=lambda message: self.send(message),
+            permission_responder=self._permission_responder,
+            request_lock=self._callbacks_request_lock,
+        )
 
         self._logger = structlog.get_logger("acp_transport_service")
 
@@ -493,478 +506,28 @@ class ACPTransportService(TransportService):
                 self._logger.error("request_with_callbacks_reconnect_failed", error=str(e))
                 raise RuntimeError(msg) from e
 
-    async def _validate_request_setup(self) -> None:
-        """Валидирует что транспорт готов к запросу."""
-        if self._queues is None:
-            msg = "Routing queues not initialized"
-            self._logger.error("queues_not_initialized")
-            raise RuntimeError(msg)
-
-    async def _drain_remaining_notifications(
-        self,
-        *,
-        method: str,
-        request_id: str | int,
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> int:
-        """Забирает оставшиеся уведомления после финального ответа."""
-        remaining_notifications = 0
-        max_remaining_iterations = 10
-        for _ in range(max_remaining_iterations):
-            try:
-                notification_data = await asyncio.wait_for(
-                    self._queues.notification_queue.get(),
-                    timeout=0.2,
-                )
-                notification = ACPMessage.from_dict(notification_data)
-                remaining_notifications += 1
-
-                if notification.method == "session/update" and on_update is not None:
-                    self._logger.debug(
-                        "handling_remaining_session_update",
-                        method=method,
-                        request_id=request_id,
-                        remaining_count=remaining_notifications,
-                    )
-                    on_update(notification_data)
-            except TimeoutError:
-                break
-            except Exception as e:
-                self._logger.warning(
-                    "error_processing_remaining_notification",
-                    error=str(e),
-                )
-                break
-
-        if remaining_notifications > 0:
-            self._logger.info(
-                "processed_remaining_notifications",
-                method=method,
-                request_id=request_id,
-                count=remaining_notifications,
-            )
-
-        return remaining_notifications
-
-    async def _process_response(
-        self,
-        response_task: asyncio.Task[dict[str, Any]],
-        *,
-        method: str,
-        request_id: str | int,
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> dict[str, Any]:
-        """Обрабатывает финальный ответ и оставшиеся уведомления."""
-        response_data = response_task.result()
-        if response_data.get("id") != request_id:
-            raise RuntimeError(f"Response id mismatch: expected {request_id}")
-
-        if isinstance(response_data.get("error"), dict):
-            error_payload = response_data["error"]
-            self._logger.error(
-                "request_error",
-                method=method,
-                error_code=error_payload.get("code"),
-                error_message=error_payload.get("message"),
-            )
-
-        await self._drain_remaining_notifications(
-            method=method,
-            request_id=request_id,
-            on_update=on_update,
-        )
-
-        self._logger.info(
-            "request_completed",
-            method=method,
-            request_id=request_id,
-        )
-        return response_data
-
-    def _create_permission_task(self) -> asyncio.Task[dict[str, Any]]:
-        """Создаёт новый permission task для ожидания permission request.
-
-        Централизованный метод для создания permission task с логированием.
-        Используется для гарантии что новый task создаётся сразу после обработки
-        предыдущего permission request, минимизируя race conditions.
-        """
-        if self._queues is None:
-            msg = "Cannot create permission task: routing queues not initialized"
-            self._logger.error("create_permission_task_failed", error=msg)
-            raise RuntimeError(msg)
-
-        task = asyncio.create_task(self._queues.permission_queue.get())
-        self._logger.info("permission_task_created")
-        return task
-
-    async def _wait_for_response_with_events(
-        self,
-        response_task: asyncio.Task[dict[str, Any]],
-        permission_task: asyncio.Task[dict[str, Any]] | None,
-        *,
-        method: str,
-        request_id: str | int,
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> dict[str, Any]:
-        """Основной цикл ожидания ответа с обработкой permission и notifications."""
-        self._logger.info(
-            "wait_for_response_with_events_start",
-            method=method,
-            request_id=request_id,
-            has_permission_task=permission_task is not None,
-        )
-        try:
-            while True:
-                notification_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(
-                    asyncio.wait_for(
-                        self._queues.notification_queue.get(),
-                        timeout=0.1,
-                    )
-                )
-
-                tasks_to_wait: list[asyncio.Task[dict[str, Any]]] = [
-                    response_task,
-                    notification_task,
-                ]
-                if permission_task is not None:
-                    tasks_to_wait.append(permission_task)
-
-                done, pending = await asyncio.wait(
-                    tasks_to_wait,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if notification_task in pending:
-                    notification_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                        await notification_task
-                elif notification_task in done:
-                    with contextlib.suppress(TimeoutError, Exception):
-                        notification_task.result()
-
-                if permission_task is not None and permission_task in done:
-                    self._logger.info(
-                        "permission_task_completed_in_wait_loop",
-                        method=method,
-                        request_id=request_id,
-                    )
-                    self._handle_permission_task(
-                        permission_task,
-                        method=method,
-                        request_id=request_id,
-                    )
-                    # Сразу создаём новый permission task для ожидания следующего request.
-                    # Это критично для предотвращения race condition: если второй permission
-                    # request придёт в очередь до создания нового task, он может быть потерян.
-                    permission_task = self._create_permission_task()
-                    self._logger.info(
-                        "new_permission_task_created_after_handling",
-                        method=method,
-                        request_id=request_id,
-                    )
-
-                if notification_task in done:
-                    await self._handle_notification_task(
-                        notification_task,
-                        method=method,
-                        request_id=request_id,
-                        on_update=on_update,
-                    )
-
-                if response_task in done:
-                    # Отменяем permission_task перед возвратом чтобы предотвратить
-                    # появление осиротевших tasks, которые потребляют сообщения из
-                    # permission_queue и мешают обработке следующих permission requests.
-                    if permission_task is not None and not permission_task.done():
-                        self._logger.info(
-                            "cancelling_orphaned_permission_task",
-                            method=method,
-                            request_id=request_id,
-                        )
-                        permission_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await permission_task
-                    return await self._process_response(
-                        response_task,
-                        method=method,
-                        request_id=request_id,
-                        on_update=on_update,
-                    )
-        except Exception:
-            # При любом исключении отменяем permission_task чтобы не оставить
-            # осиротевший task, потребляющий сообщения из permission_queue.
-            if permission_task is not None and not permission_task.done():
-                self._logger.warning(
-                    "cancelling_permission_task_on_error",
-                    method=method,
-                    request_id=request_id,
-                )
-                permission_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await permission_task
-            raise
-
-    def _handle_permission_task(
-        self,
-        permission_task: asyncio.Task[dict[str, Any]],
-        *,
-        method: str,
-        request_id: str | int,
-    ) -> None:
-        """Обрабатывает завершённый permission task (синхронная часть)."""
-        self._logger.info(
-            "handle_permission_task_called",
-            method=method,
-            request_id=request_id,
-            task_done=permission_task.done(),
-            task_cancelled=permission_task.cancelled(),
-        )
-        try:
-            permission_data = permission_task.result()
-            self._logger.info(
-                "tool_lifecycle_permission_request_received",
-                method=method,
-                request_id=request_id,
-                permission_id=permission_data.get("id"),
-                permission_method=permission_data.get("method"),
-            )
-        except Exception as e:
-            self._logger.warning(
-                "tool_lifecycle_permission_request_failed",
-                method=method,
-                request_id=request_id,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            return
-
-        # Запускаем async обработку отдельно чтобы не блокировать
-        self._logger.info(
-            "permission_task_async_handling_started",
-            method=method,
-            request_id=request_id,
-            permission_id=permission_data.get("id"),
-        )
-        asyncio.ensure_future(self._permission_responder.handle(permission_data))
-
-    async def _handle_notification_task(
-        self,
-        notification_task: asyncio.Task[dict[str, Any]],
-        *,
-        method: str,
-        request_id: str | int,
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> None:
-        """Обрабатывает завершённый notification task."""
-        try:
-            notification_data = notification_task.result()
-            self._logger.debug(
-                "tool_lifecycle_notification_received",
-                method=method,
-                request_id=request_id,
-                notification_id=notification_data.get("id"),
-                notification_method=notification_data.get("method"),
-            )
-            await self._handle_notification_or_client_rpc(
-                method=method,
-                request_id=request_id,
-                notification_data=notification_data,
-                on_update=on_update,
-            )
-        except TimeoutError:
-            pass
-        except Exception as e:
-            self._logger.warning(
-                "tool_lifecycle_notification_failed",
-                method=method,
-                request_id=request_id,
-                error=str(e),
-            )
-
     async def request_with_callbacks(
         self,
         method: str,
         params: dict[str, Any] | None = None,
         on_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        """Выполняет request с обработкой callbacks используя routing queues.
+        """Выполняет request с обработкой session/update и входящих server->client RPC.
 
-        Архитектура:
-        1. Создает очередь для этого request_id (или использует существующую)
-        2. Отправляет request
-        3. Ждет ответа из очереди для этого request_id
-        4. Обрабатывает асинхронные события (updates, permissions)
-        5. Несколько конкурентных запросов могут работать параллельно
+        Оркестрация вынесена в RequestCallbackCoordinator; перед делегированием
+        при необходимости восстанавливается соединение.
 
         Аргументы:
-            method: Метод для вызова
-            params: Параметры метода
-            on_update: Callback для session/update
-
-        Входящие server->client RPC (fs/*, terminal/*) обрабатываются
-        через ClientRpcDispatcher; permission — через PermissionHandler.
+            method: Метод для вызова.
+            params: Параметры метода.
+            on_update: Callback для session/update.
 
         Возвращает:
-            Финальный ответ на request
+            Финальный ответ на request.
         """
-        # Проверяем и восстанавливаем соединение если оно потеряно
         await self._ensure_connected()
-        await self._validate_request_setup()
+        return await self._coordinator.execute(method, params, on_update)
 
-        async with self._callbacks_request_lock:
-            # Слушаем incoming server->client RPC всегда: даже без пользовательских
-            # callbacks нужно отправить корректный response, иначе сервер зависнет
-            # в ожидании и финальный ответ на запрос не придет.
-            should_listen_notifications = True
-            self._logger.info(
-                "request_with_callbacks_start",
-                method=method,
-                has_callbacks=should_listen_notifications,
-            )
-
-            request: ACPMessage | None = None
-            request_id: str | int | None = None
-            try:
-                # Создаем JSON-RPC запрос
-                request = ACPMessage.request(method=method, params=params)
-                if not isinstance(request.id, str | int):
-                    raise RuntimeError("Generated request without valid id")
-                request_id = request.id
-                request_data = request.to_dict()
-
-                # Создаем очередь для этого request_id.
-                # Background loop будет класть ответы в эту очередь.
-                response_queue = await self._queues.get_or_create_response_queue(request_id)
-
-                # Отправляем запрос (через send с защитой переподключения).
-                await self.send(request_data)
-
-                self._logger.debug(
-                    "request_sent",
-                    method=method,
-                    request_id=request_id,
-                )
-
-                # Создаём долгоживущие tasks ВНЕ цикла
-                response_task: asyncio.Task[dict[str, Any]] = asyncio.create_task(
-                    response_queue.get()
-                )
-                permission_task: asyncio.Task[dict[str, Any]] | None = None
-                if should_listen_notifications:
-                    permission_task = self._create_permission_task()
-
-                try:
-                    return await self._wait_for_response_with_events(
-                        response_task,
-                        permission_task,
-                        method=method,
-                        request_id=request_id,
-                        on_update=on_update,
-                    )
-                finally:
-                    # Очистка долгоживущих tasks при выходе из цикла
-                    if not response_task.done():
-                        response_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await response_task
-                    if permission_task is not None and not permission_task.done():
-                        permission_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await permission_task
-
-            except Exception as e:
-                self._logger.error(
-                    "request_failed",
-                    method=method,
-                    request_id=request_id,
-                    error=str(e),
-                )
-                raise
-            finally:
-                # Очищаем очередь ответов после использования.
-                if request_id is not None and self._queues is not None:
-                    cleanup_request_id: str | int = request_id
-                    await self._queues.cleanup_response_queue(cleanup_request_id)
-
-    async def _handle_notification_or_client_rpc(
-        self,
-        *,
-        method: str,
-        request_id: str | int,
-        notification_data: dict[str, Any],
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> None:
-        """Обрабатывает `session/update` и incoming RPC (`fs/*`, `terminal/*`)."""
-        notification = ACPMessage.from_dict(notification_data)
-
-        if notification.method == "session/update":
-            await self._handle_session_update(
-                notification_data,
-                method=method,
-                request_id=request_id,
-                on_update=on_update,
-            )
-            return
-
-        rpc_method = notification.method
-        if rpc_method is None or notification.id is None:
-            return
-
-        rpc_id: str | int = notification.id
-        rpc_params = notification.params if isinstance(notification.params, dict) else {}
-        self._logger.debug(
-            "tool_lifecycle_rpc_received",
-            request_id=request_id,
-            method=method,
-            rpc_id=rpc_id,
-            rpc_method=rpc_method,
-        )
-
-        if self._rpc_dispatcher is None:
-            # Диспетчер всегда инжектится в проде; ветка защищает горячий путь
-            # (пустой ответ вместо зависания сервера) в тестовых/дефолтных сборках.
-            await self._handle_unknown_rpc(rpc_id)
-            return
-
-        result = await self._rpc_dispatcher.dispatch(rpc_method, rpc_id, rpc_params)
-        if "error" in result:
-            error_info = result["error"]
-            await self.send(
-                ACPMessage.error_response(
-                    rpc_id,
-                    code=error_info.get("code", -32603),
-                    message=error_info.get("message", "Unknown error"),
-                ).to_dict()
-            )
-        else:
-            await self.send(ACPMessage.response(rpc_id, result).to_dict())
-
-    async def _handle_session_update(
-        self,
-        notification_data: dict[str, Any],
-        *,
-        method: str,
-        request_id: str | int,
-        on_update: Callable[[dict[str, Any]], None] | None,
-    ) -> None:
-        if on_update is not None:
-            self._logger.debug(
-                "handling_session_update",
-                method=method,
-                request_id=request_id,
-                has_callback=on_update is not None,
-            )
-            on_update(notification_data)
-        else:
-            self._logger.warning(
-                "session_update_received_but_no_callback",
-                method=method,
-                request_id=request_id,
-            )
-
-    async def _handle_unknown_rpc(self, rpc_id: str | int) -> None:
-        """Отправляет пустой response на неизвестный RPC."""
-        await self.send(ACPMessage.response(rpc_id, {}).to_dict())
 
     def cleanup(self) -> None:
         """Очищает ресурсы синхронно (вызывается DI контейнером).

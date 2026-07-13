@@ -86,7 +86,7 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"path": "test.txt"},
         }
 
-        await service_with_dispatcher._handle_notification_or_client_rpc(
+        await service_with_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
@@ -114,7 +114,7 @@ class TestACPTransportServiceWithDispatcher:
             "params": {},
         }
 
-        await service._handle_notification_or_client_rpc(
+        await service._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
@@ -144,7 +144,7 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"path": "test.txt"},
         }
 
-        await service_without_dispatcher._handle_notification_or_client_rpc(
+        await service_without_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
@@ -177,7 +177,7 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
         }
 
-        await service_with_dispatcher._handle_notification_or_client_rpc(
+        await service_with_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,

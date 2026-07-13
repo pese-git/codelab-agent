@@ -22,11 +22,15 @@ from codelab.client.infrastructure.services.acp_transport.handlers import (
 from codelab.client.infrastructure.services.acp_transport.permission_responder import (
     PermissionResponder,
 )
+from codelab.client.infrastructure.services.acp_transport.request_callback_coordinator import (
+    RequestCallbackCoordinator,
+)
 
 __all__ = [
     "ClientRpcDispatcher",
     "RpcHandler",
     "PermissionResponder",
+    "RequestCallbackCoordinator",
     "FsReadHandler",
     "FsWriteHandler",
     "TerminalCreateHandler",
