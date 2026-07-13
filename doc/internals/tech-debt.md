@@ -4,6 +4,7 @@
 > Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
 > Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 > Обновление зависимостей: 2026-07-10 (ветка `tech-debt`, коммит `2a8594d`)
+> P1-4 (`di.py` → пакет `di/`) + P0-14/P2-15: 2026-07-13 (ветка `tech-debt`)
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -18,7 +19,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | 9 (состав изменился, см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **8** (декомпозированы `core.py`, `di.py`; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -236,9 +237,35 @@ Subprocess transport закрывался после закрытия event loop
 
 ---
 
+### 14. Гейт `ty` (typecheck) красный в `make check` — 🔴 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при рефакторинге P1-4 (`di.py`): `make check` падает на шаге `ty check`
+> с **4 предсуществующими** диагностиками (не регресс — воспроизводятся на чистом HEAD,
+> набор не менялся). Т.к. `typecheck` в `Makefile` идёт до `pytest`, обязательная проверка
+> из CLAUDE.md фактически не проходит целиком; агенты вынуждены прогонять ruff/pytest в обход.
+
+**Диагностики (`uv run ty check`):**
+
+| Ошибка | Файл | Причина |
+|--------|------|---------|
+| `invalid-assignment` (×2) | `server/agent/context/skeletonizer/treesitter.py:19,27` | `tree_sitter = None` при optional-import, объявленный тип — модуль |
+| `invalid-argument-type` | `server/di/agent.py` (`AgentsGlobalConfig(default_model=...)`) | `config.agents.default_model: str \| None` → ожидается `str` |
+| `invalid-argument-type` | `server/protocol/notification_bus.py:96` | `loop.create_task(callback(message))` — `Awaitable[None]` вместо `Coroutine` |
+
+**Задачи:**
+- [ ] `treesitter.py` — типизировать optional-import (`tree_sitter: ModuleType | None`)
+- [ ] `di/agent.py` — сузить тип или дефолт для `default_model` (None недопустим в `AgentsGlobalConfig`)
+- [ ] `notification_bus.py` — привести callback к `Coroutine` / обернуть корректно
+- [ ] После фикса — проверить, что `make check` проходит целиком, добавить `ty` в CI-гейт
+
+**Оценка:** 0.5 дня
+**Критерий приемки:** `uv run ty check` — 0 диагностик, `make check` зелёный.
+
+---
+
 ## P1 — Важный (влияет на поддерживаемость)
 
-### 4. Разбить God Objects — 🟡 ЧАСТИЧНО (2026-07-10)
+### 4. Разбить God Objects — 🟡 ЧАСТИЧНО (2026-07-13)
 
 > Актуальные размеры (`tech-debt`, пересчёт 2026-07-10 `wc -l`):
 > - ✅ `server/protocol/core.py` — **2030 → 331 строк** (декомпозирован).
@@ -249,22 +276,24 @@ Subprocess transport закрывался после закрытия event loop
 > - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1390 → **1405** (немного вырос).
 > - 🟡 `client/tui/app.py` — 1126 → **1100**.
 > - 🟡 `client/presentation/chat_view_model.py` — 1229 → **1044** (у цели <1000 близко).
-> - ⚠️ `server/di.py` — 1200 → **1224** (вырос).
+> - ✅ `server/di.py` — 1224 → **пакет `di/`** (2026-07-13): 7 модулей по доменам
+>   (observability/agent/llm/services/pipeline/request), max 296 строк; `make_container`
+>   — Composition Root в `__init__.py`, публичный API через re-export.
 > - ⚠️ `agent_loop.py` — 1191 → **1352**, переехал в `server/protocol/handlers/pipeline/stages/agent_loop.py` (вырос).
 > - ⚠️ Новый >1000: `server/agent/context/gatherer.py` — **1048**.
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
-**Итог:** реальный прогресс — только `core.py` (плюс `manager.py`/`client.py` опустились ниже
-порога). Остальные крупные файлы на месте, а `di.py`, `agent_loop.py` подросли. Файлов
->1000 строк — **9** (без изменений по количеству).
+**Итог:** декомпозированы `core.py` и `di.py` (плюс `manager.py`/`client.py` опустились ниже
+порога). Остальные крупные файлы на месте, а `agent_loop.py` подрос. Файлов
+>1000 строк — **8** (10 → 9 → 8).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
 | `server/protocol/core.py` | ~~2030~~ 331 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
 | `server/mcp/transport.py` | 1603 | Выделить HTTP transport, SSE transport, transport factory (SseTransport сохранить) |
+| `server/di.py` | ~~1224~~ пакет `di/` ✅ | Разнесён по доменам (observability/agent/llm/services/pipeline/request) |
 | `client/.../acp_transport_service.py` | 1405 | Довыделить RPC request/response handling в существующий `acp_transport/handlers/` |
 | `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
-| `server/di.py` | 1224 | Разбить регистрацию провайдеров по доменам (protocol/agent/mcp/llm) |
 | `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
 | `client/tui/app.py` | 1100 | Выделить keybindings, layout management, modal handling |
 | `server/agent/context/gatherer.py` | 1048 | Оценить разбиение слоя A Context Manager (осторожно: заморожен ABC-интерфейс) |
@@ -273,9 +302,9 @@ Subprocess transport закрывался после закрытия event loop
 **Задачи:**
 - [x] `core.py` — декомпозирован (2030 → 331)
 - [x] `mcp/manager.py`, `mcp/client.py` — ниже 1000
+- [x] `di.py` — разбит на пакет `di/` по доменам (2026-07-13)
 - [ ] `acp_transport_service.py` — довыделить RPC-обработку в `acp_transport/handlers/`
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
-- [ ] `di.py` — разбить регистрацию по доменам
 - [ ] `transport.py` — выделить `http_transport.py`, `sse_transport.py`, `transport_factory.py`
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
 - [ ] `chat_view_model.py` — выделить `streaming_handler.py`, `session_update_handler.py`
@@ -468,6 +497,29 @@ error-каскад ретраев с backoff, роняя `session/load`.
 
 ---
 
+### 15. TaskAnalyzer: холостой LLM-вызов на моделях без JSON-mode — 🟡 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs`, локальный
+> `lmstudio/qwen3.6-35b`). Предупреждение `context.task_analyze.parse.no_json_found`
+> `fallback_to=heuristic` возникает **на каждом** анализе задачи (14× за сессию):
+> модель не возвращает валидный JSON, `response_preview` пуст.
+
+**Причина:** `TaskAnalyzer` делает LLM-вызов (~7 сек на локальной модели), результат
+не парсится → всегда fallback на эвристику (`search_terms_count=0, target_modules_count=0,
+method=llm`). Для моделей без надёжного structured-output это чистая потеря латентности:
+эвристика отработала бы сразу и с тем же результатом.
+
+**Задачи:**
+- [ ] Ужесточить JSON-промпт / включить structured output (response_format=json) там, где провайдер поддерживает
+- [ ] Либо пропускать LLM-анализ (сразу эвристика) для моделей/провайдеров без JSON-mode
+- [ ] Понизить уровень лога до `debug`, если fallback — штатный сценарий для класса моделей
+
+**Оценка:** 0.5 дня
+**Критерий приемки:** нет холостых LLM-вызовов TaskAnalyzer для моделей без JSON-mode;
+латентность `context.build` для локальных моделей снижена.
+
+---
+
 ## Дорожная карта
 
 > **Исторический план** (составлен при первичном аудите). Фактический порядок работ
@@ -503,16 +555,18 @@ error-каскад ретраев с backoff, роняя `session/load`.
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **9** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **8** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
+| Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
 | TODO | 2 | 2 | 0 |
 | Coverage threshold в CI | нет | **85%** ✅ (`release.yml`) | 80% |
 
-**Итог (2026-07-10):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
+**Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **9** (декомпозиция
-`core.py`), но остаются крупные файлы (P1-4). Ключевой рычаг против незаметной
-деградации между аудитами — CI-guardrails: порог сложности `C901`, проверка
-размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **8** (декомпозиция
+`core.py` и `di.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
+`make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
+против незаметной деградации между аудитами — CI-guardrails: порог сложности
+`C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
