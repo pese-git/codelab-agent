@@ -4,7 +4,7 @@
 > Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
 > Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 > Обновление зависимостей: 2026-07-10 (ветка `tech-debt`, коммит `2a8594d`)
-> P1-4 (`di.py` → пакет `di/`, `chat_view_model.py` → `ReplayReducer`) + P0-14/P2-15: 2026-07-13 (ветка `tech-debt`)
+> P1-4 (`di.py` → пакет `di/`, `chat_view_model.py` → `ReplayReducer`, `app.py` → `tui/controllers`) + P0-14/P2-15/P2-16/P2-17: 2026-07-13 (ветка `tech-debt`)
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -19,7 +19,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | **7** (декомпозированы `core.py`, `di.py`, `chat_view_model.py`; см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **6** (декомпозированы core.py, di.py, chat_view_model.py, app.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -274,7 +274,11 @@ Subprocess transport закрывался после закрытия event loop
 > - 🟡 `server/mcp/transport.py` — 1799 → **1603** (уменьшен; `SseTransport` удалять нельзя — обратная совместимость).
 > - 🟡 `server/protocol/handlers/prompt.py` — 1495 → **1095** (уменьшен, см. P0-2).
 > - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1390 → **1405** (немного вырос).
-> - 🟡 `client/tui/app.py` — 1126 → **1100**.
+> - ✅ `client/tui/app.py` — 1100 → **749** (2026-07-13): вынесены tui/controllers
+>   (Modal/Connection/Session/Chat/ConfigOptions) + чистый парсер tool-call; App —
+>   тонкая оркестрация + Textual-шимы. Закрыт вклад в P0-2 (on_tool_call_card_selected
+>   20→3), фикс утечки dispose (P2-17). Дальнейшее сжатие к ~400 упирается в BINDINGS
+>   (P2-16, UX-контракт) — не делается «ради метрики».
 > - ✅ `client/presentation/chat_view_model.py` — 1044 → **883** (2026-07-13): чистая
 >   логика replay вынесена в `application/ReplayReducer`, `build_prompt_callbacks` — в
 >   `TerminalCallbackExecutor`, дедуп finalize-turn/permission. Публичный контракт сохранён.
@@ -285,9 +289,9 @@ Subprocess transport закрывался после закрытия event loop
 > - ⚠️ Новый >1000: `server/agent/context/gatherer.py` — **1048**.
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
-**Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py` (плюс `manager.py`/`client.py`
-опустились ниже порога). Остальные крупные файлы на месте, а `agent_loop.py` подрос. Файлов
->1000 строк — **7** (10 → 9 → 8 → 7).
+**Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py` (плюс
+`manager.py`/`client.py` опустились ниже порога). Остальные крупные файлы на месте, а
+`agent_loop.py` подрос. Файлов >1000 строк — **6** (10 → 9 → 8 → 7 → 6).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
@@ -298,7 +302,7 @@ Subprocess transport закрывался после закрытия event loop
 | `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
 | `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
 | `client/presentation/chat_view_model.py` | ~~1044~~ 883 ✅ | ReplayReducer → application; build_prompt_callbacks → executor; дедуп finalize/permission |
-| `client/tui/app.py` | 1100 | Фаза 3a: `MainLayout.mount_children` + `ModalController` (+ парсер tool-call → закрывает P0-2 сложность 20) + подключить `NavigationManager` (P2-17). Фаза 3b: Connection/Session/Chat/ConfigOptions-контроллеры. BINDINGS-рассинхрон — отдельно (P2-16). Реально 1100 → ~350-420 |
+| `client/tui/app.py` | ~~1100~~ 749 ✅ | Вынесены tui/controllers (Modal/Connection/Session/Chat/ConfigOptions) + парсер tool-call (закрыл вклад в P0-2), фикс dispose (P2-17). Дальше к ~400 — только через BINDINGS/KeyboardManager (P2-16, UX-контракт) |
 | `server/agent/context/gatherer.py` | 1048 | Оценить разбиение слоя A Context Manager (осторожно: заморожен ABC-интерфейс) |
 
 **Задачи:**
@@ -310,8 +314,7 @@ Subprocess transport закрывался после закрытия event loop
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
 - [ ] `transport.py` — выделить `http_transport.py`, `sse_transport.py`, `transport_factory.py`
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
-- [ ] `app.py` фаза 3a — `MainLayout.mount_children` + `ModalController` + парсер tool-call (P0-2) + `NavigationManager` (P2-17)
-- [ ] `app.py` фаза 3b — Connection/Session/Chat/ConfigOptions-контроллеры
+- [x] `app.py` — вынесены tui/controllers + парсер tool-call (1100→749, P0-2/P2-17-dispose, 2026-07-13)
 
 **Оценка:** 5 дней
 **Критерий приемки:** все тесты проходят, нет нарушения зависимостей между слоями,
@@ -602,7 +605,7 @@ method=llm`). Для моделей без надёжного structured-output 
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **7** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **6** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
@@ -612,8 +615,8 @@ method=llm`). Для моделей без надёжного structured-output 
 **Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **7** (декомпозиция
-`core.py`, `di.py`, `chat_view_model.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **6** (декомпозиция
+`core.py`, `di.py`, `chat_view_model.py`, `app.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
 `make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
 `C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
