@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -22,7 +21,6 @@ from codelab.client.application.session_coordinator import SessionCoordinator
 from codelab.client.domain.services import TransportService
 from codelab.client.infrastructure.container_factory import create_client_container
 from codelab.client.infrastructure.mcp_config_loader import MCPConfigLoader
-from codelab.client.infrastructure.services.acp_transport_service import ACPTransportService
 from codelab.client.messages import PermissionOption, PermissionToolCall
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.config_option_selector_view_model import (
@@ -38,7 +36,7 @@ from codelab.client.presentation.plan_view_model import PlanViewModel
 from codelab.client.presentation.session_view_model import SessionViewModel
 from codelab.client.presentation.terminal_log_view_model import TerminalLogViewModel
 from codelab.client.presentation.terminal_view_model import TerminalViewModel
-from codelab.client.presentation.ui_view_model import ConnectionStatus, SidebarTab, UIViewModel
+from codelab.client.presentation.ui_view_model import SidebarTab, UIViewModel
 from codelab.client.tui.navigation import NavigationManager
 
 from .components import (
@@ -56,7 +54,15 @@ from .components import (
     ToolPanel,
 )
 from .config import TUIConfigStore, TUITheme, resolve_tui_connection
-from .controllers import FILE_CHANGE_TOOLS, ModalController, parse_tool_call_file_change
+from .controllers import (
+    FILE_CHANGE_TOOLS,
+    ChatController,
+    ConfigOptionsController,
+    ConnectionController,
+    ModalController,
+    SessionController,
+    parse_tool_call_file_change,
+)
 from .themes import ThemeManager
 
 
@@ -169,10 +175,6 @@ class ACPClientApp(App[None]):
         # MainLayout будет инициализирован в compose()
         self._main_layout: MainLayout | None = None
 
-        # Блокировка предотвращает параллельные `session/load`, которые могут
-        # перемешивать `session/update` между конкурентными запросами.
-        self._session_history_load_lock = asyncio.Lock()
-
         # Инициализируем DI контейнер через dishka
         try:
             self._container = create_client_container(
@@ -215,20 +217,56 @@ class ACPClientApp(App[None]):
             self._coordinator = self._container.get(SessionCoordinator)
             self._transport = self._container.get(TransportService)
 
-            # Контроллер модальных окон (guard+callback+push_screen один раз).
+            # Контроллеры вынесенной из App связной логики.
             self._modals = ModalController(self, self._session_vm, self._app_logger)
+            self._connection = ConnectionController(
+                self,
+                self._coordinator,
+                self._transport,
+                self._ui_vm,
+                self._session_vm,
+                self._app_logger,
+                host=self._host,
+                port=self._port,
+            )
+            self._sessions = SessionController(
+                self,
+                self._session_vm,
+                self._chat_vm,
+                self._coordinator,
+                self._app_logger,
+                host=self._host,
+                port=self._port,
+                cwd=self._cwd,
+                mcp_servers=self._mcp_servers,
+            )
+            self._chat = ChatController(
+                self,
+                self._session_vm,
+                self._chat_vm,
+                self._app_logger,
+            )
+            self._config_options = ConfigOptionsController(
+                self._model_selector_vm,
+                self._mode_selector_vm,
+                self._agent_selector_vm,
+                self._strategy_selector_vm,
+                self._app_logger,
+            )
 
             self._app_logger.info("all_view_models_resolved")
 
             # Синхронизируем ChatViewModel с выбранной сессией.
-            self._session_vm.selected_session_id.subscribe(self._on_selected_session_changed)
+            self._session_vm.selected_session_id.subscribe(
+                self._sessions.on_selected_session_changed
+            )
             self._chat_vm.set_active_session(self._session_vm.selected_session_id.value)
 
             # Подписываемся на события обновления config options
             try:
                 from codelab.client.domain.events import ConfigOptionUpdatedEvent
 
-                self._ui_vm.on_event(ConfigOptionUpdatedEvent, self._on_config_option_updated)
+                self._ui_vm.on_event(ConfigOptionUpdatedEvent, self._config_options.apply)
             except ImportError:
                 self._app_logger.debug("ConfigOptionUpdatedEvent not available")
 
@@ -302,7 +340,7 @@ class ACPClientApp(App[None]):
 
         # Инициализируем подключение к серверу
         self._app_logger.info("starting_connection_worker")
-        self.run_worker(self._initialize_connection(), exclusive=False)
+        self.run_worker(self._connection.initialize(), exclusive=False)
         self._on_sidebar_state_changed(None)
 
     def _mount_main_layout_children(self) -> None:
@@ -365,73 +403,6 @@ class ACPClientApp(App[None]):
             right_panel.mount(ToolPanel(self._chat_vm, self._terminal_vm))
             self._app_logger.debug("right_panel_components_mounted")
 
-    async def _initialize_connection(self) -> None:
-        """Инициализирует подключение к серверу."""
-        self._app_logger.info("connection_worker_started")
-        self._ui_vm.set_connection_status(ConnectionStatus.CONNECTING)
-        self._ui_vm.set_loading(True, "connecting to server")
-        try:
-            # Инициализируем подключение
-            self._app_logger.info("initializing_server_connection")
-            server_info = await self._coordinator.initialize()
-
-            self._app_logger.info(
-                "server_connection_initialized",
-                protocol_version=server_info.get("protocol_version"),
-                auth_methods=len(server_info.get("available_auth_methods", [])),
-            )
-
-            # Обновляем статус подключения в UI
-            self._ui_vm.set_connection_status(ConnectionStatus.CONNECTED)
-            self._ui_vm.set_loading(False)
-
-            # Показываем toast о успешном подключении
-            self.show_toast("Подключено к серверу", level="success")
-
-            # Устанавливаем callback для показа permission modal в UI.
-            # Это необходимо, чтобы при получении session/request_permission от сервера
-            # TUI приложение показало модальное окно для выбора разрешения.
-            try:
-                cast(ACPTransportService, self._transport).set_permission_callback(
-                    self.show_permission_modal
-                )
-                self._app_logger.info("permission_callback_registered_in_transport")
-            except Exception as e:
-                self._app_logger.warning(
-                    "failed_to_set_permission_callback",
-                    error=str(e),
-                )
-
-            # После успешного подключения запрашиваем список сессий с сервера,
-            # чтобы sidebar отображал сохраненные сессии сразу при старте.
-            await self._session_vm.load_sessions_cmd.execute()
-            loaded_count = self._session_vm.session_count.value
-            self._app_logger.info(
-                "sessions_loaded_on_startup",
-                count=loaded_count,
-                host=self._host,
-                port=self._port,
-            )
-            if loaded_count == 0:
-                # Явный warning помогает сразу понять, что сервер вернул пустой session/list.
-                self._app_logger.warning(
-                    "session_list_is_empty_on_startup",
-                    hint="Проверьте, что сервер запущен с persistent --storage json:<path>",
-                )
-
-        except Exception as e:
-            self._app_logger.error(
-                "failed_to_initialize_connection",
-                error=str(e),
-                exc_info=True,
-            )
-            # Обновляем статус подключения в UI
-            self._ui_vm.set_connection_status(ConnectionStatus.DISCONNECTED)
-            self._ui_vm.set_loading(False)
-
-            # Показываем toast об ошибке подключения
-            self.show_toast(f"Ошибка подключения: {e}", level="error")
-
     def show_toast(self, message: str, level: str = "info", timeout: float = 3.0) -> None:
         """Показывает toast-уведомление.
 
@@ -478,50 +449,11 @@ class ACPClientApp(App[None]):
 
     def action_new_session(self) -> None:
         """Создает новую сессию по горячей клавише Ctrl+N."""
-        self._app_logger.info("new_session_requested", cwd=self._cwd)
-        # Передаем cwd, MCP серверы и client_capabilities при создании новой сессии
-        # TUI клиент поддерживает файловые операции и терминал
-        client_capabilities = {
-            "fs_read": True,
-            "fs_write": True,
-            "terminal": True,
-        }
-        self.run_worker(
-            self._session_vm.create_session_cmd.execute(
-                self._host,
-                self._port,
-                cwd=self._cwd,
-                mcp_servers=self._mcp_servers,
-                client_capabilities=client_capabilities,
-            ),
-            exclusive=False,
-        )
+        self._sessions.create_session()
 
     def action_cancel_prompt(self) -> None:
         """Отменяет текущий LLM-запрос для активной сессии (Ctrl+C / Stop)."""
-        session_id = self._session_vm.selected_session_id.value
-        is_streaming = self._chat_vm.is_streaming.value
-        is_executing = self._chat_vm.cancel_prompt_cmd.is_executing.value
-        self._app_logger.info(
-            "action_cancel_prompt_called",
-            session_id=session_id,
-            is_streaming=is_streaming,
-            is_executing=is_executing,
-        )
-        if not session_id:
-            self._app_logger.warning("cancel_prompt_no_active_session")
-            return
-        if not is_streaming:
-            self._app_logger.debug("cancel_prompt_skipped_not_streaming")
-            return
-        if is_executing:
-            self._app_logger.debug("cancel_prompt_skipped_already_executing")
-            return
-        self._app_logger.info("cancel_prompt_dispatching", session_id=session_id)
-        self.run_worker(
-            self._chat_vm.cancel_prompt_cmd.execute(session_id),
-            exclusive=False,
-        )
+        self._chat.cancel_prompt()
 
     def action_toggle_sidebar(self) -> None:
         """Показывает/скрывает боковую панель.
@@ -614,37 +546,15 @@ class ACPClientApp(App[None]):
 
     def action_next_session(self) -> None:
         """Выбирает следующую сессию в sidebar и применяет выбор."""
-
-        sidebar = self.query_one(Sidebar)
-        sidebar.select_next()
-        selected_session_id = sidebar.get_selected_session_id()
-        if selected_session_id is None:
-            return
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(selected_session_id),
-            exclusive=False,
-        )
+        self._sessions.select_relative(reverse=False)
 
     def action_previous_session(self) -> None:
         """Выбирает предыдущую сессию в sidebar и применяет выбор."""
-
-        sidebar = self.query_one(Sidebar)
-        sidebar.select_previous()
-        selected_session_id = sidebar.get_selected_session_id()
-        if selected_session_id is None:
-            return
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(selected_session_id),
-            exclusive=False,
-        )
+        self._sessions.select_relative(reverse=True)
 
     def on_sidebar_session_selected(self, event: Sidebar.SessionSelected) -> None:
         """Применяет выбор сессии по Enter в sidebar."""
-
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(event.session_id),
-            exclusive=False,
-        )
+        self._sessions.switch_to(event.session_id)
 
     # =========================================================================
     # Обработчики PromptInput
@@ -653,87 +563,11 @@ class ACPClientApp(App[None]):
     def on_prompt_input_cancelled(self, event: PromptInput.Cancelled) -> None:
         """Обработка нажатия кнопки Stop в PromptInput."""
         self._app_logger.info("prompt_input_cancelled_received")
-        self.action_cancel_prompt()
+        self._chat.cancel_prompt()
 
     def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
-        """Обработать отправку промпта пользователем.
-
-        Args:
-            event: Событие с текстом промпта
-        """
-        # Получаем ID активной сессии
-        session_id = self._session_vm.selected_session_id.value
-
-        if not session_id:
-            self._app_logger.warning("prompt_submitted_without_active_session")
-            # Можно показать уведомление пользователю
-            return
-
-        self._app_logger.info(
-            "prompt_submitted",
-            session_id=session_id,
-            prompt_length=len(event.text),
-        )
-
-        # Добавляем сообщение пользователя в чат
-        self._chat_vm.add_message("user", event.text, session_id=session_id)
-
-        # Устанавливаем состояние загрузки ДО запуска async worker'а
-        # чтобы LoadingIndicator показался сразу
-        self._chat_vm.is_streaming.value = True
-
-        # Запускаем отправку промпта асинхронно
-        self.run_worker(
-            self._chat_vm.send_prompt_cmd.execute(session_id, event.text),
-            exclusive=False,
-        )
-
-        # Показываем toast о отправке запроса
-        self.show_toast("Запрос отправлен", level="info")
-
-    def _on_selected_session_changed(self, session_id: str | None) -> None:
-        """Обновляет ChatView при смене активной сессии."""
-
-        self._chat_vm.set_active_session(session_id)
-        if session_id is None:
-            return
-
-        # При выборе сессии сразу запрашиваем `session/load`, чтобы UI получил
-        # историю из серверного persistence даже при пустом локальном кэше.
-        self.run_worker(
-            self._load_selected_session_history(session_id),
-            exclusive=False,
-        )
-
-    async def _load_selected_session_history(self, session_id: str) -> None:
-        """Загружает историю выбранной сессии через `session/load`."""
-
-        async with self._session_history_load_lock:
-            try:
-                loaded = await self._coordinator.load_session(
-                    session_id,
-                    self._host,
-                    self._port,
-                    cwd=self._cwd,
-                    mcp_servers=self._mcp_servers,
-                )
-                replay_updates = loaded.get("replay_updates", [])
-                if isinstance(replay_updates, list):
-                    self._chat_vm.restore_session_from_replay(session_id, replay_updates)
-
-                self._app_logger.info(
-                    "session_history_loaded",
-                    session_id=session_id,
-                    replay_updates_count=(
-                        len(replay_updates) if isinstance(replay_updates, list) else 0
-                    ),
-                )
-            except Exception as error:
-                self._app_logger.warning(
-                    "session_history_load_failed",
-                    session_id=session_id,
-                    error=str(error),
-                )
+        """Обработать отправку промпта пользователем."""
+        self._chat.submit_prompt(event.text)
 
     def show_permission_modal(
         self,
@@ -844,46 +678,6 @@ class ACPClientApp(App[None]):
             file_path=change.file_path,
         )
         self._modals.open_file_change_preview(change, tool_call_id, tool_name)
-
-    def _on_config_option_updated(self, event: Any) -> None:
-        """Обработать обновление конфигурационных опций сессии.
-
-        Обновляет все selector ViewModel новыми данными из configOptions:
-        - ModelSelectorViewModel (model)
-        - ModeSelectorViewModel (mode)
-        - AgentSelectorViewModel (_agent)
-        - StrategySelectorViewModel (_active_strategy)
-
-        Args:
-            event: ConfigOptionUpdatedEvent
-        """
-        session_id = getattr(event, "session_id", None)
-        config_options = getattr(event, "config_options", [])
-
-        if session_id and config_options:
-            self._app_logger.debug(
-                "config_option_updated",
-                session_id=session_id,
-                config_options_count=len(config_options),
-            )
-            # Обновляем ModelSelectorViewModel (model)
-            self._model_selector_vm.update_models_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            # Обновляем универсальные ConfigOptionSelectorViewModel
-            self._mode_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            self._agent_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            self._strategy_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
 
     async def on_unmount(self) -> None:
         """Очистка ресурсов при завершении приложения."""

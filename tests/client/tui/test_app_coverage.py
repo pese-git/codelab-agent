@@ -507,7 +507,7 @@ class TestACPClientAppSessions:
             )
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await app._load_selected_session_history("sess_1")
+                await app._sessions._load_history("sess_1")
                 deps["coordinator"].load_session.assert_awaited_with(
                     "sess_1",
                     app._host,
@@ -522,7 +522,7 @@ class TestACPClientAppSessions:
             deps["coordinator"].load_session = AsyncMock(side_effect=RuntimeError("fail"))
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await app._load_selected_session_history("sess_1")
+                await app._sessions._load_history("sess_1")
 
 
 class TestACPClientAppPrompt:
@@ -850,7 +850,7 @@ class TestACPClientAppConfigOptions:
                         "options": [{"value": "openai/gpt-4o", "name": "GPT-4o"}],
                     }
                 ]
-                app._on_config_option_updated(event)
+                app._config_options.apply(event)
                 assert deps["model_selector_vm"].current_model.value == "openai/gpt-4o"
 
     async def test_on_config_option_updated_without_data(self) -> None:
@@ -861,7 +861,7 @@ class TestACPClientAppConfigOptions:
                 event = MagicMock()
                 event.session_id = None
                 event.config_options = []
-                app._on_config_option_updated(event)
+                app._config_options.apply(event)
 
 
 class TestACPClientAppStdioMode:
@@ -1100,7 +1100,7 @@ class TestACPClientAppAdditionalCoverage:
         with _patched_app() as (app, deps):
             async with app.run_test() as pilot:
                 await pilot.pause()
-                app._on_selected_session_changed(None)
+                app._sessions.on_selected_session_changed(None)
                 await pilot.pause()
                 deps["coordinator"].load_session.assert_not_awaited()
 
