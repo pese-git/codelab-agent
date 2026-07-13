@@ -298,7 +298,7 @@ Subprocess transport закрывался после закрытия event loop
 | `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
 | `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
 | `client/presentation/chat_view_model.py` | ~~1044~~ 883 ✅ | ReplayReducer → application; build_prompt_callbacks → executor; дедуп finalize/permission |
-| `client/tui/app.py` | 1100 | Выделить keybindings, layout management, modal handling |
+| `client/tui/app.py` | 1100 | Фаза 3a: `MainLayout.mount_children` + `ModalController` (+ парсер tool-call → закрывает P0-2 сложность 20) + подключить `NavigationManager` (P2-17). Фаза 3b: Connection/Session/Chat/ConfigOptions-контроллеры. BINDINGS-рассинхрон — отдельно (P2-16). Реально 1100 → ~350-420 |
 | `server/agent/context/gatherer.py` | 1048 | Оценить разбиение слоя A Context Manager (осторожно: заморожен ABC-интерфейс) |
 
 **Задачи:**
@@ -310,7 +310,8 @@ Subprocess transport закрывался после закрытия event loop
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
 - [ ] `transport.py` — выделить `http_transport.py`, `sse_transport.py`, `transport_factory.py`
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
-- [ ] `app.py` — выделить `keybindings.py`, `layout.py`, `modals.py`
+- [ ] `app.py` фаза 3a — `MainLayout.mount_children` + `ModalController` + парсер tool-call (P0-2) + `NavigationManager` (P2-17)
+- [ ] `app.py` фаза 3b — Connection/Session/Chat/ConfigOptions-контроллеры
 
 **Оценка:** 5 дней
 **Критерий приемки:** все тесты проходят, нет нарушения зависимостей между слоями,
@@ -519,6 +520,50 @@ method=llm`). Для моделей без надёжного structured-output 
 **Оценка:** 0.5 дня
 **Критерий приемки:** нет холостых LLM-вызовов TaskAnalyzer для моделей без JSON-mode;
 латентность `context.build` для локальных моделей снижена.
+
+---
+
+### 16. Рассинхрон `BINDINGS` ↔ `KeyboardManager.DEFAULT_BINDINGS` — 🟡 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при анализе `client/tui/app.py` (P1-4). `App.BINDINGS` захардкожены списком,
+> а `KeyboardManager` (`components/keyboard_manager.py`) с его `DEFAULT_BINDINGS` и методом
+> `get_textual_bindings()` **не подключён**. Наборы расходятся — один и тот же аккорд означает
+> разное действие:
+> - `ctrl+p`: app.py → `command_palette`, keyboard_manager → `toggle_plan_panel`.
+> - `previous_session`: app.py → `ctrl+k`, keyboard_manager → `ctrl+shift+k`.
+> - `command_palette` в keyboard_manager → `ctrl+k`.
+
+**Причина:** два источника истины о клавишах. Реальное поведение — по `App.BINDINGS`;
+`KeyboardManager` фактически декоративен (`get_help_groups()`/`get_textual_bindings()` не вызываются).
+
+**Это контракт UX** — не размер. Механическая подмена `BINDINGS` на `get_textual_bindings()`
+молча изменит горячие клавиши. Требуется явное решение, какой набор канонический.
+
+**Задачи:**
+- [ ] Согласовать канонический набор клавиш (свести в один источник истины)
+- [ ] Подключить `KeyboardManager` как единственный источник `BINDINGS` (через `get_textual_bindings()`)
+- [ ] Кормить `HelpModal`/`action_show_hotkeys` из `get_help_groups()`
+- [ ] Тест на соответствие `App.BINDINGS` ↔ `KeyboardManager` (guardrail против повторного расхождения)
+
+**Оценка:** 0.5 дня
+**Критерий приемки:** один источник клавиш; UX-изменения (если набор меняется) отмечены как контракт.
+
+---
+
+### 17. `NavigationManager` не подключён + утечка `dispose()` — 🟡 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при анализе `client/tui/app.py` (P1-4). `NavigationManager` создаётся в
+> `on_ready`, но нигде не используется: все модалки идут напрямую через `push_screen`/
+> `pop_screen`, минуя очередь операций и трекер менеджера. Кроме того, `dispose()` не
+> вызывается в `on_unmount` — ресурсы менеджера (подписки/операции) не освобождаются.
+
+**Задачи:**
+- [ ] Перевести показ/скрытие модалок на `NavigationManager` (`show_screen`/`hide_screen`) —
+      выполняется в рамках P1-4 (app.py, фаза 3a, через `ModalController`)
+- [ ] Вызвать `navigation.dispose()` в `on_unmount`
+
+**Оценка:** 0.5 дня (в основном закрывается декомпозицией app.py)
+**Критерий приемки:** модалки идут через менеджер; `dispose()` вызывается; нет утечки.
 
 ---
 
