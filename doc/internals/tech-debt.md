@@ -4,7 +4,7 @@
 > Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
 > Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 > Обновление зависимостей: 2026-07-10 (ветка `tech-debt`, коммит `2a8594d`)
-> P1-4 (`di.py` → пакет `di/`, `chat_view_model.py` → `ReplayReducer`, `app.py` → `tui/controllers`) + P0-14/P2-15/P2-16/P2-17: 2026-07-13 (ветка `tech-debt`)
+> P1-4 (`di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`) + P0-14/P2-15/P2-16/P2-17: 2026-07-13 (ветка `tech-debt`)
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -19,7 +19,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | **6** (декомпозированы core.py, di.py, chat_view_model.py, app.py; см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **5** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -271,7 +271,10 @@ Subprocess transport закрывался после закрытия event loop
 > - ✅ `server/protocol/core.py` — **2030 → 331 строк** (декомпозирован).
 > - ✅ `server/mcp/manager.py` — 1036 → **965** (ниже 1000).
 > - ✅ `server/mcp/client.py` — 1029 → **928** (ниже 1000).
-> - 🟡 `server/mcp/transport.py` — 1799 → **1603** (уменьшен; `SseTransport` удалять нельзя — обратная совместимость).
+> - ✅ `server/mcp/transport.py` — 1603 → **пакет** (2026-07-13): разнесён на
+>   base/stdio_transport/http_transport/sse_transport (все <600), `transport.py` —
+>   фасад (30 строк). Введён честный корень исключений `MCPTransportError`
+>   (Http/SSE больше не наследуют `StdioTransportError`; BREAKING). `SseTransport` сохранён.
 > - 🟡 `server/protocol/handlers/prompt.py` — 1495 → **1095** (уменьшен, см. P0-2).
 > - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1390 → **1405** (немного вырос).
 > - ✅ `client/tui/app.py` — 1100 → **749** (2026-07-13): вынесены tui/controllers
@@ -289,14 +292,15 @@ Subprocess transport закрывался после закрытия event loop
 > - ⚠️ Новый >1000: `server/agent/context/gatherer.py` — **1048**.
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
-**Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py` (плюс
-`manager.py`/`client.py` опустились ниже порога). Остальные крупные файлы на месте, а
-`agent_loop.py` подрос. Файлов >1000 строк — **6** (10 → 9 → 8 → 7 → 6).
+**Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py`,
+`mcp/transport.py` (плюс `manager.py`/`client.py` опустились ниже порога). Остальные
+крупные файлы на месте, а `agent_loop.py` подрос. Файлов >1000 строк — **5**
+(10 → 9 → 8 → 7 → 6 → 5).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
 | `server/protocol/core.py` | ~~2030~~ 331 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
-| `server/mcp/transport.py` | 1603 | Выделить HTTP transport, SSE transport, transport factory (SseTransport сохранить) |
+| `server/mcp/transport.py` | ~~1603~~ пакет ✅ | Разнесён base/stdio/http/sse + фасад; честный корень MCPTransportError |
 | `server/di.py` | ~~1224~~ пакет `di/` ✅ | Разнесён по доменам (observability/agent/llm/services/pipeline/request) |
 | `client/.../acp_transport_service.py` | 1405 | Довыделить RPC request/response handling в существующий `acp_transport/handlers/` |
 | `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
@@ -312,7 +316,7 @@ Subprocess transport закрывался после закрытия event loop
 - [x] `chat_view_model.py` — ReplayReducer в application + дедуп (1044→883, 2026-07-13)
 - [ ] `acp_transport_service.py` — довыделить RPC-обработку в `acp_transport/handlers/`
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
-- [ ] `transport.py` — выделить `http_transport.py`, `sse_transport.py`, `transport_factory.py`
+- [x] `mcp/transport.py` — разнесён на пакет + честный корень MCPTransportError (2026-07-13)
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
 - [x] `app.py` — вынесены tui/controllers + парсер tool-call (1100→749, P0-2/P2-17-dispose, 2026-07-13)
 
@@ -605,7 +609,7 @@ method=llm`). Для моделей без надёжного structured-output 
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **6** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **5** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
@@ -615,8 +619,8 @@ method=llm`). Для моделей без надёжного structured-output 
 **Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **6** (декомпозиция
-`core.py`, `di.py`, `chat_view_model.py`, `app.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **5** (декомпозиция
+`core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
 `make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
 `C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
