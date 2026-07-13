@@ -21,7 +21,7 @@ from codelab.server.di import (
 from codelab.server.llm.base import LLMConfig
 from codelab.server.llm.errors import ProviderNotFoundError
 
-_LOGGER_PATH = "codelab.server.di.logger"
+_LOGGER_PATH = "codelab.server.di.observability.logger"
 
 
 class TestObservabilityFlushManager:
@@ -201,7 +201,7 @@ class TestLLMProviderFallback:
         mock_instance = AsyncMock()
         mock_instance.initialize = AsyncMock()
 
-        with patch("codelab.server.di.MockLLMProvider", return_value=mock_instance):
+        with patch("codelab.server.di.llm.MockLLMProvider", return_value=mock_instance):
             result = await provider.get_llm_provider(config, registry)
 
         assert result is mock_instance
