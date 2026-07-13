@@ -5,6 +5,7 @@
 > Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 > Обновление зависимостей: 2026-07-10 (ветка `tech-debt`, коммит `2a8594d`)
 > P1-4 (`di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`) + P0-14/P2-15/P2-16/P2-17: 2026-07-13 (ветка `tech-debt`)
+> P1-4 (`acp_transport_service.py` 1405→579: пакет `acp_transport/` — dispatcher/handlers/PermissionResponder/RequestCallbackCoordinator) + P2-18/P2-19: 2026-07-13 (ветка `tech-debt`)
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -19,11 +20,11 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | **5** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py; см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **4** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
-| Тестов | 3974 | ~7262 | — |
+| Тестов | 3974 | ~7283 | — |
 
 ---
 
@@ -276,7 +277,14 @@ Subprocess transport закрывался после закрытия event loop
 >   фасад (30 строк). Введён честный корень исключений `MCPTransportError`
 >   (Http/SSE больше не наследуют `StdioTransportError`; BREAKING). `SseTransport` сохранён.
 > - 🟡 `server/protocol/handlers/prompt.py` — 1495 → **1095** (уменьшен, см. P0-2).
-> - 🟡 `client/infrastructure/services/acp_transport_service.py` — 1390 → **1405** (немного вырос).
+> - ✅ `client/infrastructure/services/acp_transport_service.py` — 1405 → **579** (2026-07-13):
+>   удалён мёртвый legacy client-RPC + вестигиальные fs/terminal callbacks с порта;
+>   `PermissionResponder` и `RequestCallbackCoordinator` вынесены в пакет
+>   `acp_transport/`. Сервис = транспортный lifecycle + capability/permission-сеттеры +
+>   `cancel_prompt` + делегирование оркестрации. Сужена сигнатура внутреннего порта
+>   `request_with_callbacks` (без внешних потребителей). Async-семантика (orphan-cancel,
+>   permission-гонка, `_callbacks_request_lock`, P13-порядок в disconnect) сохранена;
+>   проверено рантайм-логами на 6 сессиях.
 > - ✅ `client/tui/app.py` — 1100 → **749** (2026-07-13): вынесены tui/controllers
 >   (Modal/Connection/Session/Chat/ConfigOptions) + чистый парсер tool-call; App —
 >   тонкая оркестрация + Textual-шимы. Закрыт вклад в P0-2 (on_tool_call_card_selected
@@ -293,16 +301,17 @@ Subprocess transport закрывался после закрытия event loop
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
 **Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py`,
-`mcp/transport.py` (плюс `manager.py`/`client.py` опустились ниже порога). Остальные
-крупные файлы на месте, а `agent_loop.py` подрос. Файлов >1000 строк — **5**
-(10 → 9 → 8 → 7 → 6 → 5).
+`mcp/transport.py`, `acp_transport_service.py` (плюс `manager.py`/`client.py`
+опустились ниже порога). Остаётся `agent_loop.py` (подрос), `prompt.py`,
+`gatherer.py`, `messages.py` (оправдан). Файлов >1000 строк — **4**
+(10 → 9 → 8 → 7 → 6 → 5 → 4).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
 | `server/protocol/core.py` | ~~2030~~ 331 ✅ | Выделить session management, message routing, middleware pipeline в отдельные модули |
 | `server/mcp/transport.py` | ~~1603~~ пакет ✅ | Разнесён base/stdio/http/sse + фасад; честный корень MCPTransportError |
 | `server/di.py` | ~~1224~~ пакет `di/` ✅ | Разнесён по доменам (observability/agent/llm/services/pipeline/request) |
-| `client/.../acp_transport_service.py` | 1405 | Довыделить RPC request/response handling в существующий `acp_transport/handlers/` |
+| `client/.../acp_transport_service.py` | ~~1405~~ 579 ✅ | Пакет `acp_transport/`: PermissionResponder + RequestCallbackCoordinator; удалён мёртвый legacy + вестигиальные callbacks |
 | `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
 | `server/protocol/handlers/prompt.py` | 1095 | Выделить prompt builder, prompt validator, directive processor |
 | `client/presentation/chat_view_model.py` | ~~1044~~ 883 ✅ | ReplayReducer → application; build_prompt_callbacks → executor; дедуп finalize/permission |
@@ -314,7 +323,7 @@ Subprocess transport закрывался после закрытия event loop
 - [x] `mcp/manager.py`, `mcp/client.py` — ниже 1000
 - [x] `di.py` — разбит на пакет `di/` по доменам (2026-07-13)
 - [x] `chat_view_model.py` — ReplayReducer в application + дедуп (1044→883, 2026-07-13)
-- [ ] `acp_transport_service.py` — довыделить RPC-обработку в `acp_transport/handlers/`
+- [x] `acp_transport_service.py` — пакет `acp_transport/` (PermissionResponder + RequestCallbackCoordinator), 1405→579 (2026-07-13)
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
 - [x] `mcp/transport.py` — разнесён на пакет + честный корень MCPTransportError (2026-07-13)
 - [ ] `prompt.py` — выделить `prompt_builder.py`, `prompt_validator.py`, `directive_processor.py`
@@ -574,6 +583,56 @@ method=llm`). Для моделей без надёжного structured-output 
 
 ---
 
+### 18. Обрезка `terminal_id` → зацикливание terminal/create — 🔴 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при рантайм-тестировании P1-4 (шаг 3). Агент/LLM теряет символы в
+> длинном 36-символьном `terminalId` при обратной передаче: клиент создаёт терминал
+> и отдаёт серверу полный id (напр. `…af3167b3f16a`), но последующие
+> `terminal/output` / `terminal/wait_for_exit` приходят с обрезанным id
+> (`…af3167b3f`) → `TerminalOutputHandler`/`TerminalWaitHandler` возвращают
+> `Terminal not found` (-32603) → агент считает терминал неработающим и **пересоздаёт**
+> его, каждый раз запрашивая permission. Пользователь наблюдает бесконечные
+> подтверждения terminal/create, терминал «не выполняется».
+
+**Диагноз:** НЕДЕТЕРМИНИРОВАННО — в той же сессии другой терминал отрабатывает с
+полным id. Это НЕ баг кода клиента (иначе резало бы всегда одинаково): сервер имеет
+полный id в tool-result, обрезает уже на исходящем `terminal/output` → потеря на
+стороне агента/LLM-транскрипции. Клиентский dispatcher/executor и P1-4-рефактор
+транспорта здесь ни при чём (permission/RPC-путь верифицирован здоровым).
+
+**Задачи:**
+- [ ] Не требовать от LLM дословно возвращать 36-символьный UUID: короткие/числовые
+      `terminalId` на стороне сервера, либо валидируемые.
+- [ ] Клиент: fuzzy-resolve терминала по префиксу id при точном промахе (мягкая защита).
+- [ ] Логировать несовпадение id как явную ошибку контракта, а не только warning.
+
+**Оценка:** 1 день
+**Критерий приемки:** terminal/create → terminal/wait_for_exit проходит без
+`Terminal not found`; агент не пересоздаёт терминал в цикле.
+
+---
+
+### 19. Второй permission-модал не реагирует на клик — 🟡 ОТКРЫТО (2026-07-13)
+
+> Обнаружено при рантайм-тестировании P1-4. Когда агент делает несколько tool-call'ов
+> подряд (напр. два terminal/create), второй permission-модал визуально появляется, но
+> плохо/не нажимается. Лог: виджет монтируется чисто (`show_permission_request_start
+> has_existing_widget=False` → `permission_widget_mounted`), т.е. дубля виджетов нет —
+> проблема в фокусе/маршрутизации ввода TUI-слоя.
+
+**Диагноз:** не связано с P1-4 (permission-путь транспорта/PermissionResponder
+верифицирован; модал доходит и обрабатывается на уровне транспорта). Локализация — TUI
+(`PermissionRequest` widget / `permission_container` / фокус после смены модалок).
+
+**Задачи:**
+- [ ] Воспроизвести на последовательности из ≥2 tool-call с permission.
+- [ ] Проверить передачу фокуса на вновь смонтированный `PermissionRequest`.
+
+**Оценка:** 0.5-1 день
+**Критерий приемки:** второй и последующие модалы принимают клик без задержки.
+
+---
+
 ## Дорожная карта
 
 > **Исторический план** (составлен при первичном аудите). Фактический порядок работ
@@ -609,7 +668,7 @@ method=llm`). Для моделей без надёжного structured-output 
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **5** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **4** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
@@ -619,8 +678,10 @@ method=llm`). Для моделей без надёжного structured-output 
 **Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **5** (декомпозиция
-`core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`), но остаются крупные файлы (P1-4). Обнаружено: гейт `ty` в
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **4** (декомпозиция
+`core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`,
+`acp_transport_service.py`); остаются `agent_loop.py`, `prompt.py`, `gatherer.py`
+и оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
 `make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
 `C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
