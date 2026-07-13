@@ -100,143 +100,27 @@ class TestACPTransportServiceRequestWithCallbacks:
         )
         assert fallback_reply["result"] == {}
 
+
 class TestPermissionCallback:
-    """Тесты для установки и использования permission callback."""
+    """Тесты делегирования permission callback в PermissionResponder."""
 
-    def test_set_permission_callback_stores_callback(self) -> None:
-        """Метод set_permission_callback должен сохранять callback."""
+    def test_set_permission_callback_delegates_to_responder(self) -> None:
+        """set_permission_callback сохраняет callback в responder."""
         service = _create_service_for_test()
 
-        # Создаем mock callback
-        callback = MagicMock()
-
-        # Устанавливаем callback
-        service.set_permission_callback(callback)
-
-        # Проверяем, что callback сохранен
-        assert service._permission_callback is callback  # noqa: SLF001
-
-    def test_set_permission_callback_logs_info_message(self) -> None:
-        """Установка callback должна логировать INFO сообщение."""
-        service = _create_service_for_test()
-        service._logger = MagicMock()  # noqa: SLF001
-
-        # Создаем mock callback с именем
-        def my_permission_callback(
-            request_id: str | int, tool_call: object, options: list[object]
-        ) -> None:
-            pass
-
-        # Устанавливаем callback
-        service.set_permission_callback(my_permission_callback)
-
-        # Проверяем логирование
-        service._logger.info.assert_called_once()  # noqa: SLF001
-        call_args = service._logger.info.call_args  # noqa: SLF001
-        assert "permission_callback_set" in call_args[0]
-        assert call_args[1]["callback_name"] == "my_permission_callback"
-
-    @pytest.mark.asyncio
-    async def test_handle_permission_request_with_callback_is_passed_to_handler(
-        self,
-    ) -> None:
-        """Установленный callback должен быть передан в handler.handle_request."""
-        permission_handler = AsyncMock()
-        service = _create_service_for_test()
-        service._permission_handler = permission_handler  # noqa: SLF001 - test setup
-
-        # Устанавливаем mock callback
         callback = MagicMock()
         service.set_permission_callback(callback)
 
-        # Подготавливаем mock для handle_request
-        from codelab.client.application.permission_handler import CancelledPermissionOutcome
+        assert service._permission_responder.callback is callback  # noqa: SLF001
 
-        permission_handler.handle_request.return_value = CancelledPermissionOutcome(
-            outcome="cancelled"
-        )
-
-        # Мокируем send, чтобы избежать реальной отправки
-        service.send = AsyncMock()
-
-        # Вызываем _handle_permission_request_with_handler с корректной структурой
-        await service._handle_permission_request_with_handler(
-            {
-                "jsonrpc": "2.0",
-                "id": "perm-1",
-                "method": "session/request_permission",
-                "params": {
-                    "sessionId": "sess-1",
-                    "toolCall": {
-                        "toolCallId": "tc-1",
-                        "kind": "read",
-                        "title": "Read file",
-                    },
-                    "options": [
-                        {
-                            "optionId": "allow_once",
-                            "kind": "allow_once",
-                            "name": "Allow once",
-                        }
-                    ],
-                },
-            }
-        )
-
-        # Проверяем, что handle_request был вызван с нашим callback
-        permission_handler.handle_request.assert_called_once()
-        call_kwargs = permission_handler.handle_request.call_args[1]
-        assert call_kwargs["callback"] is callback
-
-    @pytest.mark.asyncio
-    async def test_handle_permission_request_without_callback_passes_none(
-        self,
-    ) -> None:
-        """Если callback не установлен, handler должен получить None."""
-        permission_handler = AsyncMock()
+    def test_set_permission_handler_delegates_to_responder(self) -> None:
+        """set_permission_handler сохраняет handler в responder."""
         service = _create_service_for_test()
-        service._permission_handler = permission_handler  # noqa: SLF001 - test setup
 
-        # НЕ устанавливаем callback - оставляем None
+        handler = AsyncMock()
+        service.set_permission_handler(handler)
 
-        # Подготавливаем mock для handle_request
-        from codelab.client.application.permission_handler import CancelledPermissionOutcome
-
-        permission_handler.handle_request.return_value = CancelledPermissionOutcome(
-            outcome="cancelled"
-        )
-
-        # Мокируем send, чтобы избежать реальной отправки
-        service.send = AsyncMock()
-
-        # Вызываем _handle_permission_request_with_handler с корректной структурой
-        await service._handle_permission_request_with_handler(
-            {
-                "jsonrpc": "2.0",
-                "id": "perm-1",
-                "method": "session/request_permission",
-                "params": {
-                    "sessionId": "sess-1",
-                    "toolCall": {
-                        "toolCallId": "tc-1",
-                        "kind": "read",
-                        "title": "Read file",
-                    },
-                    "options": [
-                        {
-                            "optionId": "allow_once",
-                            "kind": "allow_once",
-                            "name": "Allow once",
-                        }
-                    ],
-                },
-            }
-        )
-
-        # Проверяем, что handle_request был вызван с None callback
-        permission_handler.handle_request.assert_called_once()
-        call_kwargs = permission_handler.handle_request.call_args[1]
-        assert call_kwargs["callback"] is None
+        assert service._permission_responder.handler is handler  # noqa: SLF001
 
 
 class TestMultiplePermissionRequests:
@@ -325,7 +209,7 @@ class TestMultiplePermissionRequests:
             outcome="selected",
             optionId="allow",
         )
-        service._permission_handler = mock_permission_handler  # noqa: SLF001 - test setup
+        service._permission_responder.set_handler(mock_permission_handler)  # noqa: SLF001
         service.set_permission_callback(lambda req: None)
 
         response = await service.request_with_callbacks(
@@ -417,7 +301,7 @@ class TestMultiplePermissionRequests:
             outcome="selected",
             optionId="allow",
         )
-        service._permission_handler = mock_permission_handler  # noqa: SLF001 - test setup
+        service._permission_responder.set_handler(mock_permission_handler)  # noqa: SLF001
         service.set_permission_callback(lambda req: None)
 
         response = await service.request_with_callbacks(
@@ -511,7 +395,7 @@ class TestMultiplePermissionRequests:
             outcome="selected",
             optionId="allow",
         )
-        service._permission_handler = mock_permission_handler  # noqa: SLF001 - test setup
+        service._permission_responder.set_handler(mock_permission_handler)  # noqa: SLF001
         service.set_permission_callback(lambda req: None)
 
         response = await service.request_with_callbacks(

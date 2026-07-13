@@ -25,13 +25,14 @@ import structlog
 
 from codelab.client.domain import TransportService
 from codelab.client.infrastructure.message_parser import MessageParser
+from codelab.client.infrastructure.services.acp_transport import PermissionResponder
 from codelab.client.infrastructure.services.background_receive_loop import (
     BackgroundReceiveLoop,
 )
 from codelab.client.infrastructure.services.message_router import MessageRouter
 from codelab.client.infrastructure.services.routing_queues import RoutingQueues
 from codelab.client.infrastructure.transport import Transport, WebSocketTransport
-from codelab.client.messages import ACPMessage, RequestPermissionRequest
+from codelab.client.messages import ACPMessage
 
 if TYPE_CHECKING:
     from codelab.client.application.permission_handler import PermissionHandler
@@ -70,16 +71,14 @@ class ACPTransportService(TransportService):
         """
         self._transport = transport
         self.parser = parser or MessageParser()
-        self._permission_handler = permission_handler
         self._rpc_dispatcher = rpc_dispatcher
-        # Callback для отображения permission modal в UI
-        # Будет установлен через set_permission_callback из TUI App
-        # Сигнатура: (request_id, tool_call, options, on_choice) -> None
-        # Типизация:
-        # Callable[[request_id, tool_call, options, on_choice], None] | None
-        self._permission_callback: (
-            Callable[[str | int, Any, list[Any], Callable[[str | int, str], None]], None] | None
-        ) = None
+        # Обработка session/request_permission вынесена в отдельный компонент.
+        # UI-callback появляется позже (после инициализации TUI) и ставится
+        # через set_permission_callback.
+        self._permission_responder = PermissionResponder(
+            send=lambda message: self.send(message),
+            handler=permission_handler,
+        )
         # Сохраняем server capabilities после инициализации
         self._server_capabilities: dict[str, Any] | None = None
 
@@ -440,11 +439,7 @@ class ACPTransportService(TransportService):
                      - options: Доступные опции разрешения
                      - on_choice: Callback функция (option_id) -> None для обработки выбора
         """
-        self._permission_callback = callback
-        self._logger.info(
-            "permission_callback_set",
-            callback_name=getattr(callback, "__name__", "unknown"),
-        )
+        self._permission_responder.set_callback(callback)
 
     def set_permission_handler(self, handler: PermissionHandler) -> None:
         """Установить PermissionHandler для обработки permission requests.
@@ -452,7 +447,7 @@ class ACPTransportService(TransportService):
         Args:
             handler: PermissionHandler instance
         """
-        self._permission_handler = handler
+        self._permission_responder.set_handler(handler)
 
     def is_initialized(self) -> bool:
         """Проверяет, была ли выполнена инициализация.
@@ -750,7 +745,7 @@ class ACPTransportService(TransportService):
             request_id=request_id,
             permission_id=permission_data.get("id"),
         )
-        asyncio.ensure_future(self._handle_permission_request_with_handler(permission_data))
+        asyncio.ensure_future(self._permission_responder.handle(permission_data))
 
     async def _handle_notification_task(
         self,
@@ -890,99 +885,6 @@ class ACPTransportService(TransportService):
                 if request_id is not None and self._queues is not None:
                     cleanup_request_id: str | int = request_id
                     await self._queues.cleanup_response_queue(cleanup_request_id)
-
-    async def _handle_permission_request_with_handler(
-        self,
-        message: dict[str, Any],
-    ) -> None:
-        """Обрабатывает session/request_permission через PermissionHandler.
-
-        Интегрирует permission request с полным lifecycle:
-        1. Парсинг request
-        2. Обработка через PermissionHandler
-        3. Формирование и отправка response
-
-        Args:
-            message: JSON-RPC сообщение с permission request
-        """
-        self._logger.info(
-            "handle_permission_request_with_handler_called",
-            message_id=message.get("id"),
-            method=message.get("method"),
-            has_permission_handler=self._permission_handler is not None,
-            has_permission_callback=self._permission_callback is not None,
-        )
-
-        if self._permission_handler is None:
-            self._logger.warning("permission_handler_not_configured_skipping")
-            # Отправить cancel response чтобы сервер не завис
-            try:
-                cancel_response = {
-                    "jsonrpc": "2.0",
-                    "id": message.get("id"),
-                    "result": {"outcome": "cancelled"},
-                }
-                await self.send(cancel_response)
-                self._logger.debug("cancel_response_sent_for_missing_handler")
-            except Exception as send_error:
-                self._logger.error(
-                    "failed_to_send_cancel_response",
-                    error=str(send_error),
-                )
-            return
-
-        try:
-            # Парсинг request
-            request = RequestPermissionRequest.model_validate(message)
-
-            self._logger.info(
-                "handling_permission_request_with_handler",
-                request_id=request.id,
-                session_id=request.params.sessionId,
-                tool_call_id=request.params.toolCall.toolCallId,
-                has_ui_callback=self._permission_callback is not None,
-            )
-
-            # Обработка через handler с callback если он установлен
-            # Если callback=None, PermissionHandler вернет CancelledPermissionOutcome
-            outcome = await self._permission_handler.handle_request(
-                request=request,
-                callback=self._permission_callback,
-            )
-
-            self._logger.info(
-                "permission_request_handled_successfully",
-                request_id=request.id,
-                outcome=outcome.outcome,
-            )
-
-        except Exception as e:
-            self._logger.error(
-                "permission_request_handling_error",
-                error=str(e),
-                error_type=type(e).__name__,
-                message_id=message.get("id"),
-            )
-            # Отправить error response
-            try:
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": message.get("id"),
-                    "error": {
-                        "code": -32603,
-                        "message": f"Internal error: {e}",
-                    },
-                }
-                await self.send(error_response)
-                self._logger.debug(
-                    "error_response_sent",
-                    message_id=message.get("id"),
-                )
-            except Exception as send_error:
-                self._logger.error(
-                    "failed_to_send_error_response",
-                    error=str(send_error),
-                )
 
     async def _handle_notification_or_client_rpc(
         self,

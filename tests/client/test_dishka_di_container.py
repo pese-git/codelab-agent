@@ -161,7 +161,9 @@ class TestCyclicDependencyResolution:
         transport = container.get(TransportService)
         permission_handler = container.get(PermissionHandler)
 
-        assert cast(ACPTransportService, transport)._permission_handler is permission_handler
+        assert (
+            cast(ACPTransportService, transport)._permission_responder.handler is permission_handler
+        )
 
 
 class TestViewModelResolution:

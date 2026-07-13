@@ -19,10 +19,14 @@ from codelab.client.infrastructure.services.acp_transport.handlers import (
     TerminalReleaseHandler,
     TerminalWaitHandler,
 )
+from codelab.client.infrastructure.services.acp_transport.permission_responder import (
+    PermissionResponder,
+)
 
 __all__ = [
     "ClientRpcDispatcher",
     "RpcHandler",
+    "PermissionResponder",
     "FsReadHandler",
     "FsWriteHandler",
     "TerminalCreateHandler",
