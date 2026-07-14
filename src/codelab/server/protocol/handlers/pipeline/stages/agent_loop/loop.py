@@ -264,14 +264,16 @@ class AgentLoop:
         call_result, terminal = await self._obtain_llm_response(
             session, session_id, prompt, mcp_manager, iteration, sink
         )
-        if terminal is not None:
+        # terminal и call_result взаимоисключающи: успех даёт call_result,
+        # отмена/ошибка — terminal.
+        if terminal is not None or call_result is None:
             return terminal, final_text
 
         # Обработка ответа
-        response = call_result.response if call_result else None
-        streamed = call_result.streamed if call_result else False
-        agent_text = response.text if response else ""
-        has_tool_calls = bool(response and response.tool_calls)
+        response = call_result.response
+        streamed = call_result.streamed
+        agent_text = response.text
+        has_tool_calls = bool(response.tool_calls)
 
         logger.debug(
             "llm_response_received",
@@ -279,7 +281,7 @@ class AgentLoop:
             iteration=iteration,
             has_text=bool(agent_text),
             has_tool_calls=has_tool_calls,
-            tool_call_count=len(response.tool_calls) if response else 0,
+            tool_call_count=len(response.tool_calls),
             stop_reason=getattr(response, "stop_reason", None),
         )
 
