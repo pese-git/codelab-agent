@@ -22,12 +22,12 @@
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
-| Блоков со сложностью > 10 | — | 72 → 71 | 0 |
+| Блоков со сложностью > 10 | — | 72 → 71 → **60** | 0 |
 | Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
-| Тестов | 3974 | ~7283 | — |
+| Тестов | 3974 | **7297** | — |
 
 ---
 
@@ -58,8 +58,9 @@
 > Исходный пункт был про `request_with_callbacks` (сложность 30) — она уже опустилась
 > ниже порога отчёта. Пересчёт `radon cc` выявил максимум **51**. 13 топ-нарушителей
 > (51, 37, 37, 32, 31, 30, 26-gather, 26-build_context→13, 23, 23, 22, 21, 21) разобраны;
-> текущий максимум по кодовой базе — **20** (C-уровень: `on_tool_call_card_selected`,
-> `validate_prompt_content`). D-блоков (≥21) не осталось. Блоков > 10: 63.
+> текущий максимум по кодовой базе — **20** (C-уровень: `validate_prompt_content`;
+> `on_tool_call_card_selected` снижен до 3 в рамках P1-4 app.py). D-блоков (≥21) не
+> осталось. Блоков > 10: **60** (2026-07-14, после P1-4 agent_loop).
 
 **✅ Сделано (1):** `resolve_pending_client_rpc_response_impl` (было 51) вынесена в новый
 модуль `server/protocol/handlers/client_rpc_response.py` и разбита на таблицу
@@ -79,7 +80,7 @@ D-блоков (≥21) в кодовой базе больше нет.
 порог; `[tool.ruff.lint.mccabe]`). Ловит регрессы сложности > 20. Для этого попутно снижен
 `run_stdio_server` (mccabe 21 → 16: логика подписки на notification bus вынесена в
 `_update_stdio_subscription`). Тесты в `per-file-ignores` (фикстуры/параметризация).
-Снижение порога к 10 — отдельными итерациями (остаток ~63 C-блока 11–20).
+Снижение порога к 10 — отдельными итерациями (остаток ~60 C-блоков 11–20).
 
 **✅ Сделано (11):** `OpenAICompatibleProvider.stream_completion` (было 22) → **9**.
 Не-yield части async-генератора вынесены: `_build_stream_request_params`, `_extract_usage`,
@@ -135,24 +136,27 @@ D-блоков (≥21) в кодовой базе больше нет.
 `_process_single_tool_call` + `_pause_for_permission` / `_reject_tool_call` /
 `_execute_allowed_tool_call` + DRY-помощники `_run_tool` / `_build_notification_content` /
 `_emit_plan_notification_if_needed` (переиспользованы в `_execute_pending_tool`, тот
-снижен 17 → 12). Результат: `_process_tool_calls` — сложность 5. Помощники `*_allowed`
-и `_execute_pending_tool` остались на 12 (связная логика исполнить→отчитаться→вернуть,
-дальнейшее дробление — ради метрики, не делаем).
+снижен 17 → 12). Результат: `_process_tool_calls` — сложность 5.
+Обновление (2026-07-14, P1-4): при разбиении `agent_loop.py` на пакет `agent_loop/`
+tool-путь вынесен в `ToolCallProcessor`; DRY (`_store_and_format` + `effective_id`)
+снял residual-12 — `_execute_allowed`/`_execute_pending` теперь A-уровень (<10),
+`_run_iteration` — 9. Во всём пакете `agent_loop/` блоков > 10 не осталось.
 
 **Топ оставшихся нарушителей (`radon cc`, порог 10) — все C-уровня (≤20):**
 
 | Сложность | Функция | Файл |
 |-----------|---------|------|
-| 20 (C) | `ACPClientApp.on_tool_call_card_selected` | `client/tui/app.py:920` |
-| 20 (C) | `validate_prompt_content` | `server/protocol/handlers/prompt.py:90` |
-| 19 (C) | `SendPromptUseCase.execute` | `client/application/use_cases.py:498` |
-| 19 (C) | `resolve_prompt_directives` | `server/protocol/handlers/prompt.py:281` |
-| 18 (C) | `extract_prompt_directives` | `server/protocol/handlers/prompt.py:200` |
-| … | ещё ~58 C-блоков (11–17) | остаток P0-2 |
+| 20 (C) | `validate_prompt_content` | `server/protocol/handlers/prompt/validation.py` |
+| 19 (C) | `resolve_prompt_directives` | `server/protocol/handlers/prompt/directives.py` |
+| 18 (C) | `session_load` | `server/protocol/handlers/session_load.py` |
+| 18 (C) | `extract_prompt_directives` | `server/protocol/handlers/prompt/directives.py` |
+| 17 (C) | `HistoryBuilder._convert_to_llm_messages` | `server/agent/history_builder.py` |
+| 17 (C) | `LLMBasedTaskAnalyzer._parse_classification` | `server/agent/context/task_analyzer.py` |
+| … | ещё ~54 C-блока (11–16) | остаток P0-2 |
 
-Residual (осознанно оставлены slightly-over, см. выше): `build_context` 13,
-`_execute_pending_tool`/`_execute_allowed_tool_call` 12, `_resolve_provider_credentials` 12,
-`_handle_text_message`/`_run_iteration` 11.
+Residual (осознанно оставлены slightly-over, см. выше): `DefaultContextManager.build_context` 13,
+`ExecutionEngine.build_context` 12, `_resolve_provider_credentials` 12,
+`WebSocketTransport._handle_text_message` 11. (agent_loop residual-блоки сняты в P1-4.)
 
 **Задачи:**
 - [x] Декомпозировать `resolve_pending_client_rpc_response_impl` (51)
@@ -169,7 +173,7 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 - [x] Разбить `AgentLoop.run` (21 → 3)
 - [x] Разбить `ToolPanel._on_tool_calls_changed` (21 → 1)
 - [x] Включить промежуточный guardrail `C901` (max-complexity=20) + снизить `run_stdio_server` (21→16)
-- [ ] Остаток: ~63 C-блока (11–20) — снижать порог `C901` к 10 отдельными итерациями
+- [ ] Остаток: ~60 C-блоков (11–20) — снижать порог `C901` к 10 отдельными итерациями
 - [ ] Разобрать оставшиеся E/D-блоки (config merge, compactor, context gatherer/manager, run)
 - [ ] После снижения всех блоков — включить `C901` (mccabe) в ruff с `max-complexity = 10`,
       чтобы предотвратить регресс (сейчас включать нельзя: блоки выше порога остаются)
@@ -269,7 +273,7 @@ Subprocess transport закрывался после закрытия event loop
 
 ## P1 — Важный (влияет на поддерживаемость)
 
-### 4. Разбить God Objects — 🟡 ЧАСТИЧНО (2026-07-13)
+### 4. Разбить God Objects — ✅ ЗАКРЫТО (2026-07-14)
 
 > Актуальные размеры (`tech-debt`, пересчёт 2026-07-10 `wc -l`):
 > - ✅ `server/protocol/core.py` — **2030 → 331 строк** (декомпозирован).
@@ -696,10 +700,10 @@ method=llm`). Для моделей без надёжного structured-output 
 | TODO | 2 | 2 | 0 |
 | Coverage threshold в CI | нет | **85%** ✅ (`release.yml`) | 80% |
 
-**Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
+**Итог (2026-07-14):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
-регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **1** (декомпозиция
+регресс закрыт guardrail'ом `C901` (max-complexity=20); блоков > 10: 72 → **60**;
+остаток — плановое снижение порога к 10 (см. P0-2). God Objects снизились 10 → **1** (декомпозиция
 `core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`,
 `acp_transport_service.py`, `prompt.py`, `gatherer.py`, `agent_loop.py`); остаётся
 только оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
