@@ -140,7 +140,7 @@ class TestE2EMcpToolExecution:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -172,7 +172,7 @@ class TestE2EMcpToolExecution:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -224,7 +224,7 @@ class TestE2EMcpToolExecution:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -251,7 +251,7 @@ class TestMcpToolPermissionFlow:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -279,7 +279,7 @@ class TestMcpToolPermissionFlow:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -303,7 +303,7 @@ class TestMcpToolPermissionFlow:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -335,7 +335,7 @@ class TestMcpToolErrorHandling:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -360,7 +360,7 @@ class TestMcpToolErrorHandling:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -385,7 +385,7 @@ class TestMcpToolErrorHandling:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -417,7 +417,7 @@ class TestMcpToolNotifications:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        await agent_loop._process_tool_calls(
+        await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -446,7 +446,7 @@ class TestMcpToolNotifications:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        await agent_loop._process_tool_calls(
+        await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,

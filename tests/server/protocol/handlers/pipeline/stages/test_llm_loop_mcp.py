@@ -168,7 +168,7 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -201,7 +201,7 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -249,7 +249,7 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -282,7 +282,7 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -312,7 +312,7 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -337,7 +337,7 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -364,7 +364,7 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -396,7 +396,7 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
@@ -422,7 +422,7 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,

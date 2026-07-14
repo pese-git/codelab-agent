@@ -17,7 +17,9 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     ToolResult,
 )
 
-_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop.logger"
+# Tool-processing логи (пропуск tool без имени, невалидный content) эмитит
+# ToolCallProcessor — патчим его logger.
+_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor.logger"
 
 
 @pytest.fixture
@@ -259,7 +261,9 @@ class TestAgentLoopExecutePendingTool:
         mock_session.tool_calls = {"tc_1": state}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
+        result = await loop._tool_processor.execute_pending(
+            mock_session, "test_session", "tc_1", None
+        )
 
         assert result is None
 
@@ -280,10 +284,12 @@ class TestAgentLoopExecutePendingTool:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(
-            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop.MCPToolExecutor.is_mcp_tool",
+            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor.MCPToolExecutor.is_mcp_tool",
             return_value=True,
         ):
-            result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
+            result = await loop._tool_processor.execute_pending(
+                mock_session, "test_session", "tc_1", None
+            )
 
         assert isinstance(result, ToolResult)
         assert result.success is False
@@ -314,7 +320,9 @@ class TestAgentLoopExecutePendingTool:
         mock_dependencies["content_extractor"].extract_from_result.return_value = extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
+        result = await loop._tool_processor.execute_pending(
+            mock_session, "test_session", "tc_1", None
+        )
 
         assert isinstance(result, ToolResult)
         assert result.success is False

@@ -459,7 +459,7 @@ class TestAgentLoop:
         """_add_tool_result_to_history() добавляет успешный результат."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=True, output="Result text", error=None
         )
 
@@ -476,7 +476,7 @@ class TestAgentLoop:
         """_add_tool_result_to_history() добавляет ошибку."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=False, output=None, error="Something failed"
         )
 
@@ -493,7 +493,7 @@ class TestAgentLoop:
         """_add_tool_result_to_history() использует дефолтное сообщение при отсутствии error."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=False, output=None, error=None
         )
 

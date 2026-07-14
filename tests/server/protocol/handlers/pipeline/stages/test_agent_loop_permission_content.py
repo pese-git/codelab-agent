@@ -105,7 +105,9 @@ class TestAgentLoopPermissionFlowTerminalContent:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         # Act
-        result = await loop._execute_pending_tool(mock_session, "test_session", tool_call_id, None)
+        result = await loop._tool_processor.execute_pending(
+            mock_session, "test_session", tool_call_id, None
+        )
 
         # Assert
         assert result is not None
