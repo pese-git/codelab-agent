@@ -8,6 +8,7 @@
 > P1-4 (`acp_transport_service.py` 1405→579: пакет `acp_transport/` — dispatcher/handlers/PermissionResponder/RequestCallbackCoordinator) + P2-18/P2-19: 2026-07-13 (ветка `tech-debt`)
 > P1-4 (`handlers/prompt.py` 1095→пакет `prompt/` — normalization/validation/directives/tool_calls/client_requests/permission_response): 2026-07-14 (ветка `tech-debt`)
 > P1-4 (`context/gatherer.py` 1048→617 — path-matching хелперы вынесены в `context/file_matching.py`): 2026-07-14 (ветка `tech-debt`)
+> P1-4 (`pipeline/stages/agent_loop.py` 1352→пакет `agent_loop/` — loop/llm_caller/tool_processor/updates, все <750): 2026-07-14 (ветка `tech-debt`). Файлов >1000 строк: **1** (только оправданно крупный `messages.py`).
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -22,7 +23,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | **2** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py; см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -301,7 +302,17 @@ Subprocess transport закрывался после закрытия event loop
 > - ✅ `server/di.py` — 1224 → **пакет `di/`** (2026-07-13): 7 модулей по доменам
 >   (observability/agent/llm/services/pipeline/request), max 296 строк; `make_container`
 >   — Composition Root в `__init__.py`, публичный API через re-export.
-> - ⚠️ `agent_loop.py` — 1191 → **1352**, переехал в `server/protocol/handlers/pipeline/stages/agent_loop.py` (вырос).
+> - ✅ `pipeline/stages/agent_loop.py` — 1352 → **пакет `agent_loop/`** (2026-07-14): разбит
+>   по осям изменения на `loop.py` (фасад-оркестратор turn'а, 545), `llm_caller.py` (вызов
+>   LLM + стриминг, 136), `tool_processor.py` (весь путь tool call + policy/content, 745),
+>   `updates.py` (SessionUpdateSink — emit/buffer/replay, 216). `__init__.py` — re-export.
+>   Убрано скрытое состояние `_last_call_streamed`; DRY снял residual-сложность 12
+>   (`_execute_*`) из P0-2 — во всём пакете нет блоков сложности >10. Тела перенесены
+>   1:1, ACP wire-формат и детерминизм replay сохранены; 7297 тестов зелёные.
+>   Наблюдения (сохранены как есть, не чинились): (1) exception-ветка исполнения tool
+>   буферизует notification напрямую, минуя immediate-callback (в отличие от success-ветки;
+>   `SessionUpdateSink.buffer_and_save_tool_update`); (2) расхождение формата плана —
+>   session `{title,description}` vs wire `{content,priority,status}`.
 > - ✅ `server/agent/context/gatherer.py` — 1048 → **617** (2026-07-14): 14 чистых
 >   детерминированных path-matching функций вынесены в `context/file_matching.py`
 >   (dedup/is_binary/normalize_path/filter_paths/detect_project_type/find_similar_files/
@@ -310,10 +321,10 @@ Subprocess transport закрывался после закрытия event loop
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
 **Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py`,
-`mcp/transport.py`, `acp_transport_service.py`, `prompt.py`, `gatherer.py` (плюс
-`manager.py`/`client.py` опустились ниже порога). Остаётся `agent_loop.py` (подрос)
-и оправданно крупный `messages.py`. Файлов >1000 строк — **2**
-(10 → 9 → 8 → 7 → 6 → 5 → 4 → 3 → 2).
+`mcp/transport.py`, `acp_transport_service.py`, `prompt.py`, `gatherer.py`, `agent_loop.py`
+(плюс `manager.py`/`client.py` опустились ниже порога). Остаётся только оправданно крупный
+`messages.py`. Файлов >1000 строк — **1**
+(10 → 9 → 8 → 7 → 6 → 5 → 4 → 3 → 2 → 1).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
@@ -321,7 +332,7 @@ Subprocess transport закрывался после закрытия event loop
 | `server/mcp/transport.py` | ~~1603~~ пакет ✅ | Разнесён base/stdio/http/sse + фасад; честный корень MCPTransportError |
 | `server/di.py` | ~~1224~~ пакет `di/` ✅ | Разнесён по доменам (observability/agent/llm/services/pipeline/request) |
 | `client/.../acp_transport_service.py` | ~~1405~~ 579 ✅ | Пакет `acp_transport/`: PermissionResponder + RequestCallbackCoordinator; удалён мёртвый legacy + вестигиальные callbacks |
-| `server/protocol/handlers/pipeline/stages/agent_loop.py` | 1352 | Выделить шаги цикла агента в отдельные компоненты |
+| `server/protocol/handlers/pipeline/stages/agent_loop.py` | ~~1352~~ пакет ✅ | Пакет `agent_loop/`: loop (фасад) / llm_caller / tool_processor / updates (SessionUpdateSink) |
 | `server/protocol/handlers/prompt.py` | ~~1095~~ пакет ✅ | Пакет `prompt/`: normalization/validation/directives/tool_calls/client_requests/permission_response |
 | `client/presentation/chat_view_model.py` | ~~1044~~ 883 ✅ | ReplayReducer → application; build_prompt_callbacks → executor; дедуп finalize/permission |
 | `client/tui/app.py` | ~~1100~~ 749 ✅ | Вынесены tui/controllers (Modal/Connection/Session/Chat/ConfigOptions) + парсер tool-call (закрыл вклад в P0-2), фикс dispose (P2-17). Дальше к ~400 — только через BINDINGS/KeyboardManager (P2-16, UX-контракт) |
@@ -333,7 +344,7 @@ Subprocess transport закрывался после закрытия event loop
 - [x] `di.py` — разбит на пакет `di/` по доменам (2026-07-13)
 - [x] `chat_view_model.py` — ReplayReducer в application + дедуп (1044→883, 2026-07-13)
 - [x] `acp_transport_service.py` — пакет `acp_transport/` (PermissionResponder + RequestCallbackCoordinator), 1405→579 (2026-07-13)
-- [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
+- [x] `agent_loop.py` — разбит на пакет `agent_loop/` (loop/llm_caller/tool_processor/updates), 1352→все <750, residual-сложность снята (2026-07-14)
 - [x] `gatherer.py` — path-matching хелперы → `context/file_matching.py` (1048→617, тела байт-идентичны, 2026-07-14)
 - [x] `mcp/transport.py` — разнесён на пакет + честный корень MCPTransportError (2026-07-13)
 - [x] `prompt.py` — пакет `prompt/` (normalization/validation/directives/tool_calls/client_requests/permission_response), тела байт-идентичны (2026-07-14)
@@ -678,7 +689,7 @@ method=llm`). Для моделей без надёжного structured-output 
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **2** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **1** 🟡 (оправданно крупный `messages.py`) | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
@@ -688,10 +699,10 @@ method=llm`). Для моделей без надёжного structured-output 
 **Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **2** (декомпозиция
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **1** (декомпозиция
 `core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`,
-`acp_transport_service.py`, `prompt.py`, `gatherer.py`); остаётся `agent_loop.py`
-и оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
+`acp_transport_service.py`, `prompt.py`, `gatherer.py`, `agent_loop.py`); остаётся
+только оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
 `make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
 `C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.
