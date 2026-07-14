@@ -128,7 +128,11 @@ class TestAgentLoopResume:
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        with patch(_LOGGER_PATH) as mock_logger:
+        # Реинициализация стратегии переехала в LlmCaller — лог эмитит его logger.
+        llm_caller_logger = (
+            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.llm_caller.logger"
+        )
+        with patch(llm_caller_logger) as mock_logger:
             result = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
 
         assert result.stop_reason == StopReason.END_TURN

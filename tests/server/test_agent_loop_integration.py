@@ -549,6 +549,6 @@ class TestLLMLoopStageStrategyReuse:
 
         # Assert: AgentLoop создан с StrategyDispatcher, не LegacyCallStrategy
         assert stage._agent_loop is not None
-        assert stage._agent_loop._strategy is mock_dispatcher
+        assert stage._agent_loop._llm_caller._strategy is mock_dispatcher
         # Проверяем что select_strategy был вызван
         mock_dispatcher.select_strategy.assert_called_once()

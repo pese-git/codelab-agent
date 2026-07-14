@@ -25,6 +25,10 @@ from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.llm_caller import (
+    LlmCaller,
+    LlmCallResult,
+)
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
@@ -38,7 +42,6 @@ from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
 
 if TYPE_CHECKING:
-    from codelab.server.agent.base import AgentResponse
     from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
     from codelab.server.mcp.manager import MCPManager
@@ -170,7 +173,6 @@ class AgentLoop:
                 Если задан, notifications отправляются сразу при создании. Если None,
                 notifications только накапливаются в списке для backward compatibility.
         """
-        self._strategy = strategy
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
         self._permission_manager = permission_manager
@@ -180,16 +182,10 @@ class AgentLoop:
         self._content_formatter = content_formatter
         self._replay_manager = replay_manager
         self._plan_builder = plan_builder
-        self._system_prompt_builder = system_prompt_builder
         self._global_policy_manager = global_policy_manager
         self._max_turn_requests = max_turn_requests
         self._notification_callback = notification_callback
-        self._streaming_enabled = streaming_enabled
-        # Были ли отправлены дельты в последнем вызове LLM. Нужно, чтобы при
-        # включённом стриминге, но провайдере без реальных дельт (напр. mock
-        # или один финальный chunk), полный текст всё же эмитился — иначе он
-        # потеряется из живой доставки.
-        self._last_call_streamed = False
+        self._llm_caller = LlmCaller(strategy, system_prompt_builder, streaming_enabled)
 
     # ── Immediate Notification Delivery ─────────────────────────────────────────
     #
@@ -290,13 +286,15 @@ class AgentLoop:
             (terminal_result | None, final_text). None-результат означает
             «продолжать цикл»; final_text прокидывается между итерациями.
         """
-        response, terminal = await self._obtain_llm_response(
+        call_result, terminal = await self._obtain_llm_response(
             session, session_id, prompt, mcp_manager, iteration, sink
         )
         if terminal is not None:
             return terminal, final_text
 
         # Обработка ответа
+        response = call_result.response if call_result else None
+        streamed = call_result.streamed if call_result else False
         agent_text = response.text if response else ""
         has_tool_calls = bool(response and response.tool_calls)
 
@@ -312,7 +310,7 @@ class AgentLoop:
 
         if agent_text:
             final_text = agent_text
-            await self._emit_agent_text(session, session_id, agent_text, sink)
+            await self._emit_agent_text(session, session_id, agent_text, sink, streamed)
 
         await self._emit_response_plan(session, session_id, response, sink)
 
@@ -398,11 +396,11 @@ class AgentLoop:
         mcp_manager: MCPManager | None,
         iteration: int,
         sink: SessionUpdateSink,
-    ) -> tuple[Any, AgentLoopResult | None]:
+    ) -> tuple[LlmCallResult | None, AgentLoopResult | None]:
         """Вызвать LLM с проверками отмены и обработкой ошибки.
 
         Returns:
-            (response, None) при успехе; (None, terminal_result) если turn
+            (call_result, None) при успехе; (None, terminal_result) если turn
             отменён или LLM-вызов упал.
         """
         if self._is_cancel_requested(session):
@@ -416,7 +414,9 @@ class AgentLoop:
             )
 
         try:
-            response = await self._call_llm(session, prompt, mcp_manager, iteration, sink)
+            call_result = await self._llm_caller.call(
+                session, prompt, mcp_manager, iteration, sink
+            )
         except Exception as e:
             logger.error(
                 "LLM call failed",
@@ -439,7 +439,7 @@ class AgentLoop:
                 notifications=sink.notifications, stop_reason=StopReason.CANCELLED
             )
 
-        return response, None
+        return call_result, None
 
     async def _emit_agent_text(
         self,
@@ -447,13 +447,14 @@ class AgentLoop:
         session_id: str,
         agent_text: str,
         sink: SessionUpdateSink,
+        streamed: bool,
     ) -> None:
         """Добавить текст ассистента в историю, эмитировать (если не стримился), в replay."""
         self._state_manager.add_assistant_message(session, agent_text)
         # При стриминге текст уже доставлен дельтами через on_delta —
         # не эмитим полный текст повторно (иначе дубль). Но если дельт
         # не было (провайдер без стрима) — эмитим полный текст.
-        if not (self._streaming_enabled and self._last_call_streamed):
+        if not streamed:
             await sink.emit_agent_message(session_id, agent_text)
         # Сохранить в events_history для replay при session/load
         # (полный текст одним chunk'ом — авторитетно для реплея).
@@ -506,18 +507,7 @@ class AgentLoop:
         sink = SessionUpdateSink(self._replay_manager, self._notification_callback, notifications)
 
         # Убедиться что стратегия инициализирована для continue_execution.
-        # StrategyDispatcher имеет _current_strategy_name и select_strategy,
-        # но LLMCallStrategy Protocol их не определяет — проверяем динамически.
-        strategy_name_attr = getattr(self._strategy, "_current_strategy_name", None)
-        if strategy_name_attr is None:
-            select_fn = getattr(self._strategy, "select_strategy", None)
-            if callable(select_fn):
-                select_fn(session, context_meta=None)
-                logger.debug(
-                    "resume_after_permission: strategy re-initialized",
-                    strategy=getattr(self._strategy, "_current_strategy_name", "unknown"),
-                    session_id=session_id,
-                )
+        self._llm_caller.ensure_strategy_selected(session, session_id)
 
         # Выполнить pending tool
         tool_result = await self._execute_pending_tool(
@@ -574,55 +564,6 @@ class AgentLoop:
             pending_tool_calls=loop_result.pending_tool_calls,
             tool_results=loop_result.tool_results,
         )
-
-    async def _call_llm(
-        self,
-        session: SessionState,
-        prompt: str | None,
-        mcp_manager: MCPManager | None,
-        iteration: int,
-        sink: SessionUpdateSink,
-    ) -> AgentResponse:
-        """Вызвать LLM через стратегию.
-
-        Args:
-            session: Состояние сессии.
-            prompt: Текст промпта (None для продолжения).
-            mcp_manager: MCP manager.
-            iteration: Номер итерации.
-            sink: Канал доставки для стриминг-дельт.
-
-        Returns:
-            AgentResponse с ответом LLM.
-        """
-        # Формируем system prompt (agent + config + MCP info)
-        system_prompt = self._system_prompt_builder.build(session, mcp_manager)
-
-        # Стриминг: on_delta эмитит текстовые дельты как agent_message_chunk
-        # вживую. Полный текст ответа НЕ эмитится повторно (см. run()).
-        on_delta = None
-        self._last_call_streamed = False
-        if self._streaming_enabled:
-            session_id = session.session_id
-
-            async def on_delta(delta: str) -> None:
-                self._last_call_streamed = True
-                await sink.emit_streaming_delta(session_id, delta)
-
-        if iteration == 1 and prompt:
-            return await self._strategy.execute(
-                session,
-                prompt,
-                mcp_manager,
-                system_prompt=system_prompt,
-                on_delta=on_delta,
-            )
-        else:
-            return await self._strategy.continue_execution(
-                session,
-                mcp_manager,
-                on_delta=on_delta,
-            )
 
     async def _process_tool_calls(
         self,
