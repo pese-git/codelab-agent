@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 
 
 @pytest.fixture
@@ -53,11 +53,7 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Измерение latency для 100 notifications
         for i in range(100):
@@ -77,7 +73,7 @@ class TestNotificationPerformanceBenchmark:
             )
 
             start_time = time.time()
-            await loop._send_notification_immediately(notification)
+            await sink._send_immediately(notification)
             end_time = time.time()
 
             latency_ms = (end_time - start_time) * 1000
@@ -113,11 +109,7 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Измерение latency для 100 terminal embedding notifications
         for i in range(100):
@@ -144,7 +136,7 @@ class TestNotificationPerformanceBenchmark:
             )
 
             start_time = time.time()
-            await loop._send_notification_immediately(notification)
+            await sink._send_immediately(notification)
             end_time = time.time()
 
             latency_ms = (end_time - start_time) * 1000
@@ -175,11 +167,7 @@ class TestNotificationPerformanceBenchmark:
     async def test_callback_overhead_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить overhead от использования callback."""
         # Измерение без callback
-        loop_without_callback = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=None,
-        )
+        sink_without_callback = SessionUpdateSink(MagicMock(), None, [])
 
         notification = ACPMessage.notification(
             "session/update",
@@ -196,7 +184,7 @@ class TestNotificationPerformanceBenchmark:
         # Измерение без callback
         start_time = time.time()
         for _ in range(1000):
-            await loop_without_callback._send_notification_immediately(notification)
+            await sink_without_callback._send_immediately(notification)
         end_time = time.time()
         time_without_callback_ms = (end_time - start_time) * 1000
 
@@ -204,15 +192,11 @@ class TestNotificationPerformanceBenchmark:
         async def mock_callback(notification: ACPMessage) -> None:
             pass
 
-        loop_with_callback = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink_with_callback = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         start_time = time.time()
         for _ in range(1000):
-            await loop_with_callback._send_notification_immediately(notification)
+            await sink_with_callback._send_immediately(notification)
         end_time = time.time()
         time_with_callback_ms = (end_time - start_time) * 1000
 

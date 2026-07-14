@@ -25,6 +25,7 @@ from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
@@ -197,51 +198,9 @@ class AgentLoop:
     # progress". Особенно критично для terminal embedding (10-Terminal.md:140),
     # где клиент должен отображать "live output as it's generated".
     #
-    # Реализация: callback pattern для немедленной отправки через transport,
-    # аналогично тому как protocol._send_callback используется для background tasks.
-    #
-    # Backward compatibility: notifications по-прежнему накапливаются в списке.
+    # Доставка + буферизация + replay инкапсулированы в SessionUpdateSink,
+    # который создаётся пер-turn в run()/resume_after_permission().
     # ──────────────────────────────────────────────────────────────────────────────
-
-    async def _send_notification_immediately(self, notification: ACPMessage) -> bool:
-        """Отправить notification немедленно через callback если он задан.
-
-        Args:
-            notification: Notification для отправки.
-
-        Returns:
-            True если notification успешно отправлен через callback.
-            False если callback не задан или упал с ошибкой.
-        """
-        if self._notification_callback is not None:
-            try:
-                logger.debug(
-                    "sending_notification_via_callback",
-                    method=notification.method,
-                    is_notification=notification.is_notification,
-                    has_callback=True,
-                )
-                await self._notification_callback(notification)
-                logger.debug(
-                    "notification_sent_via_callback",
-                    method=notification.method,
-                )
-                return True
-            except Exception as e:
-                logger.warning(
-                    "notification_callback_failed",
-                    notification_method=notification.method,
-                    error=str(e),
-                    exc_info=True,
-                )
-                return False
-        else:
-            logger.debug(
-                "notification_not_sent_no_callback",
-                method=notification.method,
-                has_callback=False,
-            )
-            return False
 
     def set_notification_callback(
         self, callback: Callable[[ACPMessage], Awaitable[None]] | None
@@ -283,6 +242,7 @@ class AgentLoop:
             AgentLoopResult с результатом выполнения.
         """
         notifications: list[ACPMessage] = []
+        sink = SessionUpdateSink(self._replay_manager, self._notification_callback, notifications)
         iteration = 0
         final_text: str | None = None
 
@@ -294,7 +254,7 @@ class AgentLoop:
                 initial_prompt,
                 mcp_manager,
                 iteration,
-                notifications,
+                sink,
                 final_text,
             )
             if result is not None:
@@ -321,7 +281,7 @@ class AgentLoop:
         prompt: str | None,
         mcp_manager: MCPManager | None,
         iteration: int,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
         final_text: str | None,
     ) -> tuple[AgentLoopResult | None, str | None]:
         """Одна итерация цикла: LLM-вызов + обработка ответа/tool_calls.
@@ -331,7 +291,7 @@ class AgentLoop:
             «продолжать цикл»; final_text прокидывается между итерациями.
         """
         response, terminal = await self._obtain_llm_response(
-            session, session_id, prompt, mcp_manager, iteration, notifications
+            session, session_id, prompt, mcp_manager, iteration, sink
         )
         if terminal is not None:
             return terminal, final_text
@@ -352,9 +312,9 @@ class AgentLoop:
 
         if agent_text:
             final_text = agent_text
-            await self._emit_agent_text(session, session_id, agent_text, notifications)
+            await self._emit_agent_text(session, session_id, agent_text, sink)
 
-        await self._emit_response_plan(session, session_id, response, notifications)
+        await self._emit_response_plan(session, session_id, response, sink)
 
         # Нет tool_calls → завершить
         if not has_tool_calls:
@@ -367,7 +327,7 @@ class AgentLoop:
                 AgentLoopResult(
                     text=final_text,
                     stop_reason=StopReason.END_TURN,
-                    notifications=notifications,
+                    notifications=sink.notifications,
                 ),
                 final_text,
             )
@@ -394,7 +354,7 @@ class AgentLoop:
 
         # Обрабатываем tool_calls
         tool_result = await self._process_tool_calls(
-            session, session_id, response.tool_calls, notifications, mcp_manager
+            session, session_id, response.tool_calls, sink, mcp_manager
         )
 
         # Permission pause
@@ -406,7 +366,7 @@ class AgentLoop:
             )
             return (
                 AgentLoopResult(
-                    notifications=notifications,
+                    notifications=sink.notifications,
                     pending_permission=True,
                     pending_tool_calls=tool_result.pending_tool_calls,
                     tool_results=tool_result.tool_results,
@@ -422,7 +382,9 @@ class AgentLoop:
                 iteration=iteration,
             )
             return (
-                AgentLoopResult(notifications=notifications, stop_reason=StopReason.CANCELLED),
+                AgentLoopResult(
+                    notifications=sink.notifications, stop_reason=StopReason.CANCELLED
+                ),
                 final_text,
             )
 
@@ -435,7 +397,7 @@ class AgentLoop:
         prompt: str | None,
         mcp_manager: MCPManager | None,
         iteration: int,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> tuple[Any, AgentLoopResult | None]:
         """Вызвать LLM с проверками отмены и обработкой ошибки.
 
@@ -450,11 +412,11 @@ class AgentLoop:
                 iteration=iteration,
             )
             return None, AgentLoopResult(
-                notifications=notifications, stop_reason=StopReason.CANCELLED
+                notifications=sink.notifications, stop_reason=StopReason.CANCELLED
             )
 
         try:
-            response = await self._call_llm(session, prompt, mcp_manager, iteration)
+            response = await self._call_llm(session, prompt, mcp_manager, iteration, sink)
         except Exception as e:
             logger.error(
                 "LLM call failed",
@@ -462,11 +424,9 @@ class AgentLoop:
                 iteration=iteration,
                 error=str(e),
             )
-            error_notification = self._build_error_notification(session_id, str(e))
-            if not await self._send_notification_immediately(error_notification):
-                notifications.append(error_notification)
+            await sink.emit_agent_message(session_id, str(e))
             return None, AgentLoopResult(
-                notifications=notifications, stop_reason=StopReason.END_TURN
+                notifications=sink.notifications, stop_reason=StopReason.END_TURN
             )
 
         if self._is_cancel_requested(session):
@@ -476,7 +436,7 @@ class AgentLoop:
                 iteration=iteration,
             )
             return None, AgentLoopResult(
-                notifications=notifications, stop_reason=StopReason.CANCELLED
+                notifications=sink.notifications, stop_reason=StopReason.CANCELLED
             )
 
         return response, None
@@ -486,7 +446,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         agent_text: str,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> None:
         """Добавить текст ассистента в историю, эмитировать (если не стримился), в replay."""
         self._state_manager.add_assistant_message(session, agent_text)
@@ -494,22 +454,17 @@ class AgentLoop:
         # не эмитим полный текст повторно (иначе дубль). Но если дельт
         # не было (провайдер без стрима) — эмитим полный текст.
         if not (self._streaming_enabled and self._last_call_streamed):
-            notification = self._build_agent_response_notification(session_id, agent_text)
-            if not await self._send_notification_immediately(notification):
-                notifications.append(notification)
+            await sink.emit_agent_message(session_id, agent_text)
         # Сохранить в events_history для replay при session/load
         # (полный текст одним chunk'ом — авторитетно для реплея).
-        self._replay_manager.save_agent_message_chunk(
-            session,
-            {"type": "text", "text": agent_text},
-        )
+        sink.save_agent_message_chunk(session, {"type": "text", "text": agent_text})
 
     async def _emit_response_plan(
         self,
         session: SessionState,
         session_id: str,
         response: Any,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> None:
         """Эмитировать plan из ответа LLM (response.plan), если он валиден."""
         plan = getattr(response, "plan", None)
@@ -520,9 +475,9 @@ class AgentLoop:
             return
         session.latest_plan = list(validated_plan)
         plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
-        if not await self._send_notification_immediately(plan_notification):
-            notifications.append(plan_notification)
-        self._replay_manager.save_plan(session, validated_plan)
+        await sink.emit_and_save_plan(
+            plan_notification, session=session, entries=validated_plan
+        )
 
     async def resume_after_permission(
         self,
@@ -548,6 +503,7 @@ class AgentLoop:
             AgentLoopResult с результатом выполнения.
         """
         notifications: list[ACPMessage] = []
+        sink = SessionUpdateSink(self._replay_manager, self._notification_callback, notifications)
 
         # Убедиться что стратегия инициализирована для continue_execution.
         # StrategyDispatcher имеет _current_strategy_name и select_strategy,
@@ -582,8 +538,13 @@ class AgentLoop:
             status=status,
             content=tool_result.content,
         )
-        if not await self._send_notification_immediately(notification):
-            notifications.append(notification)
+        await sink.emit_and_save_tool_update(
+            notification,
+            session=session,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=tool_result.content,
+        )
 
         logger.info(
             "resume_after_permission: notification built with content",
@@ -594,14 +555,6 @@ class AgentLoop:
             content_types=(
                 [item.get("type") for item in tool_result.content] if tool_result.content else []
             ),
-        )
-
-        # Сохранить в replay для восстановления при session/load
-        self._replay_manager.save_tool_call_update(
-            session=session,
-            tool_call_id=tool_call_id,
-            status=status,
-            content=tool_result.content,
         )
 
         # Продолжить цикл (tool_results уже в session.history)
@@ -628,6 +581,7 @@ class AgentLoop:
         prompt: str | None,
         mcp_manager: MCPManager | None,
         iteration: int,
+        sink: SessionUpdateSink,
     ) -> AgentResponse:
         """Вызвать LLM через стратегию.
 
@@ -636,6 +590,7 @@ class AgentLoop:
             prompt: Текст промпта (None для продолжения).
             mcp_manager: MCP manager.
             iteration: Номер итерации.
+            sink: Канал доставки для стриминг-дельт.
 
         Returns:
             AgentResponse с ответом LLM.
@@ -652,9 +607,7 @@ class AgentLoop:
 
             async def on_delta(delta: str) -> None:
                 self._last_call_streamed = True
-                await self._send_notification_immediately(
-                    self._build_agent_response_notification(session_id, delta)
-                )
+                await sink.emit_streaming_delta(session_id, delta)
 
         if iteration == 1 and prompt:
             return await self._strategy.execute(
@@ -676,7 +629,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         tool_calls: list,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
@@ -689,7 +642,7 @@ class AgentLoop:
             session: Состояние сессии.
             session_id: ID сессии.
             tool_calls: Список tool calls из ответа LLM.
-            notifications: Список notifications (добавляются на месте).
+            sink: Канал доставки notifications (+ replay).
             mcp_manager: MCP manager.
 
         Returns:
@@ -706,7 +659,7 @@ class AgentLoop:
                 )
 
             step = await self._process_single_tool_call(
-                session, session_id, tool_call, notifications, mcp_manager
+                session, session_id, tool_call, sink, mcp_manager
             )
             if step.pause_tool_call_id is not None:
                 return ToolProcessingResult(
@@ -724,7 +677,7 @@ class AgentLoop:
         session: SessionState,
         session_id: str,
         tool_call: object,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
     ) -> _ToolCallStep:
         """Обработать один tool call: создать, принять решение, исполнить.
@@ -773,10 +726,8 @@ class AgentLoop:
             title=acp_tool_name,
             kind=tool_kind,
         )
-        if not await self._send_notification_immediately(tool_call_notification):
-            notifications.append(tool_call_notification)
-
-        self._replay_manager.save_tool_call(
+        await sink.emit_and_save_tool_call(
+            tool_call_notification,
             session=session,
             tool_call_id=tool_call_id,
             title=acp_tool_name,
@@ -815,7 +766,7 @@ class AgentLoop:
 
         if decision == "ask":
             self._pause_for_permission(
-                session, session_id, tool_call_id, acp_tool_name, tool_kind, notifications
+                session, session_id, tool_call_id, acp_tool_name, tool_kind, sink
             )
             return _ToolCallStep(pause_tool_call_id=tool_call_id)
 
@@ -828,7 +779,7 @@ class AgentLoop:
                     acp_tool_name,
                     tool_kind,
                     tool_call_id_from_llm,
-                    notifications,
+                    sink,
                 )
             )
 
@@ -844,7 +795,7 @@ class AgentLoop:
                 tool_call_id_from_llm,
                 is_mcp,
                 mcp_manager,
-                notifications,
+                sink,
             )
         )
 
@@ -855,7 +806,7 @@ class AgentLoop:
         tool_call_id: str,
         acp_tool_name: str,
         tool_kind: str,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> None:
         """Сформировать permission request и перевести turn в awaiting_permission."""
         tool_call_state = session.tool_calls.get(tool_call_id)
@@ -867,7 +818,7 @@ class AgentLoop:
                 tool_call_state.title,
                 tool_kind,
             )
-            notifications.append(permission_msg)
+            sink.buffer_only(permission_msg)
             # НЕ отправляем permission request через immediate callback.
             # Он будет отправлен через стандартный механизм outcome.notifications
             # чтобы избежать дублирования и корректной обработки ответа.
@@ -891,7 +842,7 @@ class AgentLoop:
         acp_tool_name: str,
         tool_kind: str,
         tool_call_id_from_llm: str | None,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> ToolResult:
         """Отклонить tool call по policy: пометить failed и вернуть ToolResult."""
         logger.info(
@@ -912,9 +863,8 @@ class AgentLoop:
             status="failed",
             content=rejection_content,
         )
-        if not await self._send_notification_immediately(rejection_notification):
-            notifications.append(rejection_notification)
-        self._replay_manager.save_tool_call_update(
+        await sink.emit_and_save_tool_update(
+            rejection_notification,
             session=session,
             tool_call_id=tool_call_id,
             status="failed",
@@ -938,7 +888,7 @@ class AgentLoop:
         tool_call_id_from_llm: str | None,
         is_mcp: bool,
         mcp_manager: MCPManager | None,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> ToolResult:
         """Исполнить разрешённый tool call и сформировать ToolResult."""
         logger.info(
@@ -955,9 +905,8 @@ class AgentLoop:
                 tool_call_id=tool_call_id,
                 status="in_progress",
             )
-            if not await self._send_notification_immediately(in_progress_notification):
-                notifications.append(in_progress_notification)
-            self._replay_manager.save_tool_call_update(
+            await sink.emit_and_save_tool_update(
+                in_progress_notification,
                 session=session,
                 tool_call_id=tool_call_id,
                 status="in_progress",
@@ -1010,9 +959,8 @@ class AgentLoop:
                 status=status,
                 content=notification_content,
             )
-            if not await self._send_notification_immediately(tool_update_notification):
-                notifications.append(tool_update_notification)
-            self._replay_manager.save_tool_call_update(
+            await sink.emit_and_save_tool_update(
+                tool_update_notification,
                 session=session,
                 tool_call_id=tool_call_id,
                 status=status,
@@ -1029,7 +977,7 @@ class AgentLoop:
             )
 
             await self._emit_plan_notification_if_needed(
-                session, session_id, acp_tool_name, result, notifications
+                session, session_id, acp_tool_name, result, sink
             )
 
             return ToolResult(
@@ -1049,14 +997,14 @@ class AgentLoop:
                 error=str(e),
             )
             self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-            notifications.append(
+            # Историческое поведение: notification буферизуется напрямую, минуя
+            # immediate callback (в отличие от success-ветки выше).
+            sink.buffer_and_save_tool_update(
                 self._tool_call_handler.build_tool_update_notification(
                     session_id=session_id,
                     tool_call_id=tool_call_id,
                     status="failed",
-                )
-            )
-            self._replay_manager.save_tool_call_update(
+                ),
                 session=session,
                 tool_call_id=tool_call_id,
                 status="failed",
@@ -1111,7 +1059,7 @@ class AgentLoop:
         session_id: str,
         acp_tool_name: str,
         result,
-        notifications: list[ACPMessage],
+        sink: SessionUpdateSink,
     ) -> None:
         """Отправить plan notification, если tool update_plan успешно вернул план.
 
@@ -1124,9 +1072,7 @@ class AgentLoop:
             return
         session.latest_plan = list(plan_entries)
         plan_notification = self._plan_builder.build_plan_notification(session_id, plan_entries)
-        if not await self._send_notification_immediately(plan_notification):
-            notifications.append(plan_notification)
-        self._replay_manager.save_plan(session, plan_entries)
+        await sink.emit_and_save_plan(plan_notification, session=session, entries=plan_entries)
         logger.debug(
             "plan notification sent from update_plan tool",
             session_id=session_id,
@@ -1324,29 +1270,3 @@ class AgentLoop:
     def _is_cancel_requested(self, session: SessionState) -> bool:
         """Проверить флаг отмены."""
         return session.active_turn is not None and session.active_turn.cancel_requested
-
-    def _build_error_notification(self, session_id: str, error_message: str) -> ACPMessage:
-        """Построить notification об ошибке."""
-        return ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": error_message},
-                },
-            },
-        )
-
-    def _build_agent_response_notification(self, session_id: str, text: str) -> ACPMessage:
-        """Построить notification с ответом агента."""
-        return ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": text},
-                },
-            },
-        )

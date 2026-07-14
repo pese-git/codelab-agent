@@ -17,7 +17,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     ToolResult,
 )
 
-_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.logger"
+_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop.logger"
 
 
 @pytest.fixture
@@ -276,7 +276,7 @@ class TestAgentLoopExecutePendingTool:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(
-            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.MCPToolExecutor.is_mcp_tool",
+            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop.MCPToolExecutor.is_mcp_tool",
             return_value=True,
         ):
             result = await loop._execute_pending_tool(mock_session, "test_session", "tc_1", None)
