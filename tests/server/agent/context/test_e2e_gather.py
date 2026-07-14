@@ -18,6 +18,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
+from codelab.server.agent.context.file_matching import (
+    detect_project_type,
+    filter_paths,
+    find_similar_files,
+    get_fallback_files,
+    is_binary,
+    map_path_to_project,
+)
 from codelab.server.agent.context.gatherer import ACPContextGatherer
 from codelab.server.agent.context.manager import DefaultContextManager
 from codelab.server.agent.context.models import (
@@ -469,60 +477,46 @@ class TestImprovedSearch:
     def test_detect_project_type_dart(self):
         """Детекция Dart проекта по pubspec.yaml."""
         files = ["lib/main.dart", "lib/weather_service.dart", "pubspec.yaml"]
-        project_type = ACPContextGatherer._detect_project_type(files)
+        project_type = detect_project_type(files)
         assert project_type == "dart"
 
     def test_detect_project_type_python(self):
         """Детекция Python проекта по pyproject.toml."""
         files = ["src/main.py", "pyproject.toml", "tests/test_main.py"]
-        project_type = ACPContextGatherer._detect_project_type(files)
+        project_type = detect_project_type(files)
         assert project_type == "python"
 
     def test_detect_project_type_javascript(self):
         """Детекция JavaScript проекта по package.json."""
         files = ["src/index.js", "package.json", "src/App.tsx"]
-        project_type = ACPContextGatherer._detect_project_type(files)
+        project_type = detect_project_type(files)
         assert project_type == "javascript"
 
     def test_map_path_python_to_dart(self):
         """Маппинг Python путей в Dart."""
-        candidates = ACPContextGatherer._map_path_to_project("src/auth.py", "dart")
+        candidates = map_path_to_project("src/auth.py", "dart")
         assert "lib/auth.dart" in candidates
         assert "lib/src/auth.dart" in candidates
 
     def test_map_path_dart_to_python(self):
         """Маппинг Dart путей в Python."""
-        candidates = ACPContextGatherer._map_path_to_project("lib/auth.dart", "python")
+        candidates = map_path_to_project("lib/auth.dart", "python")
         assert "src/auth.py" in candidates
 
     @pytest.mark.asyncio
     async def test_find_similar_files_fuzzy(self):
         """Fuzzy matching для похожих имён."""
         files = ["lib/auth_screen.dart", "lib/main.dart", "lib/weather_service.dart"]
-        tool_registry = MockToolRegistry({})
-        dep_graph = RegexDependencyGraph()
-        gatherer = ACPContextGatherer(
-            tool_registry=tool_registry,
-            dependency_graph=dep_graph,
-            session_id="test_session",
-        )
 
-        similar = gatherer._find_similar_files("src/auth.py", files)
+        similar = find_similar_files("src/auth.py", files)
         assert "lib/auth_screen.dart" in similar
 
     @pytest.mark.asyncio
     async def test_find_similar_files_cross_language(self):
         """Cross-language маппинг: Python → Dart."""
         files = ["lib/auth.dart", "lib/main.dart", "pubspec.yaml"]
-        tool_registry = MockToolRegistry({})
-        dep_graph = RegexDependencyGraph()
-        gatherer = ACPContextGatherer(
-            tool_registry=tool_registry,
-            dependency_graph=dep_graph,
-            session_id="test_session",
-        )
 
-        similar = gatherer._find_similar_files("src/auth.py", files)
+        similar = find_similar_files("src/auth.py", files)
         assert "lib/auth.dart" in similar
 
     @pytest.mark.asyncio
@@ -624,7 +618,7 @@ class TestImprovedSearch:
             "lib/models/weather.dart",
         ]
 
-        fallback = ACPContextGatherer._get_fallback_files(project_files, max_files=5)
+        fallback = get_fallback_files(project_files, max_files=5)
 
         assert len(fallback) > 0
         assert "pubspec.yaml" in fallback
@@ -638,7 +632,7 @@ class TestImprovedSearch:
             "lib/main.dart",
             "pubspec.yaml",
         ]
-        filtered = ACPContextGatherer._filter_paths(paths)
+        filtered = filter_paths(paths)
         assert "lib/main.dart" in filtered
         assert "pubspec.yaml" in filtered
         assert not any(".git" in p for p in filtered)
@@ -652,7 +646,7 @@ class TestImprovedSearch:
             ".git/HEAD",
             "node_modules/pkg/index.js",
         ]
-        fallback = ACPContextGatherer._get_fallback_files(project_files, max_files=10)
+        fallback = get_fallback_files(project_files, max_files=10)
         assert "lib/main.dart" in fallback
         assert "pubspec.yaml" in fallback
         assert not any(".dart_tool" in p for p in fallback)
@@ -797,15 +791,15 @@ class TestBinaryFileFiltering:
 
     def test_is_binary_mdb_extension(self):
         """_is_binary должен возвращать True для .mdb файлов."""
-        assert ACPContextGatherer._is_binary("data.mdb") is True
-        assert ACPContextGatherer._is_binary("path/to/lock.mdb") is True
-        assert ACPContextGatherer._is_binary("DATA.MDB") is True
+        assert is_binary("data.mdb") is True
+        assert is_binary("path/to/lock.mdb") is True
+        assert is_binary("DATA.MDB") is True
 
     def test_is_binary_db_extensions(self):
         """_is_binary должен возвращать True для .db, .sqlite файлов."""
-        assert ACPContextGatherer._is_binary("data.db") is True
-        assert ACPContextGatherer._is_binary("data.sqlite") is True
-        assert ACPContextGatherer._is_binary("data.sqlite3") is True
+        assert is_binary("data.db") is True
+        assert is_binary("data.sqlite") is True
+        assert is_binary("data.sqlite3") is True
 
     def test_filter_paths_cocoindex_code_directory(self):
         """_filter_paths должен фильтровать директорию .cocoindex_code."""
@@ -815,7 +809,7 @@ class TestBinaryFileFiltering:
             "lib/main.dart",
             "pubspec.yaml",
         ]
-        filtered = ACPContextGatherer._filter_paths(paths)
+        filtered = filter_paths(paths)
         assert "lib/main.dart" in filtered
         assert "pubspec.yaml" in filtered
         assert not any(".cocoindex_code" in p for p in filtered)
