@@ -185,8 +185,23 @@ class LLMLoopStage(PromptStage):
             session_id=context.session_id,
             has_callback=notification_callback is not None,
         )
-        self._agent_loop = AgentLoop(
-            strategy=self._strategy_dispatcher,
+        self._agent_loop = self._build_agent_loop(
+            self._strategy_dispatcher, notification_callback
+        )
+        return self._agent_loop
+
+    def _build_agent_loop(
+        self,
+        strategy: LLMCallStrategy,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None,
+    ) -> AgentLoop:
+        """Собрать AgentLoop с общими зависимостями stage.
+
+        Единая точка сборки для process() и fallback в execute_pending_tool —
+        устраняет дублирование списка зависимостей.
+        """
+        return AgentLoop(
+            strategy=strategy,
             tool_registry=self._tool_registry,
             tool_call_handler=self._tool_call_handler,
             permission_manager=self._permission_manager,
@@ -201,7 +216,6 @@ class LLMLoopStage(PromptStage):
             notification_callback=notification_callback,
             streaming_enabled=self._streaming_enabled,
         )
-        return self._agent_loop
 
     async def process(self, context: PromptContext) -> PromptContext:
         """Обработать prompt через AgentLoop.
@@ -306,21 +320,7 @@ class LLMLoopStage(PromptStage):
 
                 return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-            self._agent_loop = AgentLoop(
-                strategy=strategy,
-                tool_registry=self._tool_registry,
-                tool_call_handler=self._tool_call_handler,
-                permission_manager=self._permission_manager,
-                state_manager=self._state_manager,
-                content_extractor=self._content_extractor,
-                content_validator=self._content_validator,
-                content_formatter=self._content_formatter,
-                replay_manager=self._replay_manager,
-                plan_builder=self._plan_builder,
-                system_prompt_builder=self._system_prompt_builder,
-                global_policy_manager=self._global_policy_manager,
-                notification_callback=notification_callback,
-            )
+            self._agent_loop = self._build_agent_loop(strategy, notification_callback)
         else:
             # Обновить callback в существующем AgentLoop для немедленной отправки notifications
             if notification_callback is not None:
