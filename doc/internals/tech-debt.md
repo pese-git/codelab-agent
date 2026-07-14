@@ -7,6 +7,7 @@
 > P1-4 (`di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`) + P0-14/P2-15/P2-16/P2-17: 2026-07-13 (ветка `tech-debt`)
 > P1-4 (`acp_transport_service.py` 1405→579: пакет `acp_transport/` — dispatcher/handlers/PermissionResponder/RequestCallbackCoordinator) + P2-18/P2-19: 2026-07-13 (ветка `tech-debt`)
 > P1-4 (`handlers/prompt.py` 1095→пакет `prompt/` — normalization/validation/directives/tool_calls/client_requests/permission_response): 2026-07-14 (ветка `tech-debt`)
+> P1-4 (`context/gatherer.py` 1048→617 — path-matching хелперы вынесены в `context/file_matching.py`): 2026-07-14 (ветка `tech-debt`)
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -21,7 +22,7 @@
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 | 0 |
-| Файлов > 1000 строк | 6 | **3** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py; см. P1-4) | 0 |
+| Файлов > 1000 строк | 6 | **2** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
@@ -301,14 +302,18 @@ Subprocess transport закрывался после закрытия event loop
 >   (observability/agent/llm/services/pipeline/request), max 296 строк; `make_container`
 >   — Composition Root в `__init__.py`, публичный API через re-export.
 > - ⚠️ `agent_loop.py` — 1191 → **1352**, переехал в `server/protocol/handlers/pipeline/stages/agent_loop.py` (вырос).
-> - ⚠️ Новый >1000: `server/agent/context/gatherer.py` — **1048**.
+> - ✅ `server/agent/context/gatherer.py` — 1048 → **617** (2026-07-14): 14 чистых
+>   детерминированных path-matching функций вынесены в `context/file_matching.py`
+>   (dedup/is_binary/normalize_path/filter_paths/detect_project_type/find_similar_files/
+>   match_*). ABC `ContextGatherer.gather()` не тронут; тела байт-идентичны; детерминизм
+>   сохранён (baseline_fingerprint / prompt cache).
 > - ⬜ `client/messages.py` — **1117** (≈50 Pydantic-моделей протокола ACP; размер оправдан, дробить не планируется).
 
 **Итог:** декомпозированы `core.py`, `di.py`, `chat_view_model.py`, `app.py`,
-`mcp/transport.py`, `acp_transport_service.py`, `prompt.py` (плюс `manager.py`/`client.py`
-опустились ниже порога). Остаётся `agent_loop.py` (подрос), `gatherer.py` и
-оправданно крупный `messages.py`. Файлов >1000 строк — **3**
-(10 → 9 → 8 → 7 → 6 → 5 → 4 → 3).
+`mcp/transport.py`, `acp_transport_service.py`, `prompt.py`, `gatherer.py` (плюс
+`manager.py`/`client.py` опустились ниже порога). Остаётся `agent_loop.py` (подрос)
+и оправданно крупный `messages.py`. Файлов >1000 строк — **2**
+(10 → 9 → 8 → 7 → 6 → 5 → 4 → 3 → 2).
 
 | Файл | Строк | План разбиения |
 |------|-------|----------------|
@@ -320,7 +325,7 @@ Subprocess transport закрывался после закрытия event loop
 | `server/protocol/handlers/prompt.py` | ~~1095~~ пакет ✅ | Пакет `prompt/`: normalization/validation/directives/tool_calls/client_requests/permission_response |
 | `client/presentation/chat_view_model.py` | ~~1044~~ 883 ✅ | ReplayReducer → application; build_prompt_callbacks → executor; дедуп finalize/permission |
 | `client/tui/app.py` | ~~1100~~ 749 ✅ | Вынесены tui/controllers (Modal/Connection/Session/Chat/ConfigOptions) + парсер tool-call (закрыл вклад в P0-2), фикс dispose (P2-17). Дальше к ~400 — только через BINDINGS/KeyboardManager (P2-16, UX-контракт) |
-| `server/agent/context/gatherer.py` | 1048 | Оценить разбиение слоя A Context Manager (осторожно: заморожен ABC-интерфейс) |
+| `server/agent/context/gatherer.py` | ~~1048~~ 617 ✅ | Path-matching хелперы → `context/file_matching.py` (ABC не тронут, тела байт-идентичны) |
 
 **Задачи:**
 - [x] `core.py` — декомпозирован (2030 → 331)
@@ -329,6 +334,7 @@ Subprocess transport закрывался после закрытия event loop
 - [x] `chat_view_model.py` — ReplayReducer в application + дедуп (1044→883, 2026-07-13)
 - [x] `acp_transport_service.py` — пакет `acp_transport/` (PermissionResponder + RequestCallbackCoordinator), 1405→579 (2026-07-13)
 - [ ] `agent_loop.py` — снизить сложность/размер (вырос после переезда в pipeline/stages)
+- [x] `gatherer.py` — path-matching хелперы → `context/file_matching.py` (1048→617, тела байт-идентичны, 2026-07-14)
 - [x] `mcp/transport.py` — разнесён на пакет + честный корень MCPTransportError (2026-07-13)
 - [x] `prompt.py` — пакет `prompt/` (normalization/validation/directives/tool_calls/client_requests/permission_response), тела байт-идентичны (2026-07-14)
 - [x] `app.py` — вынесены tui/controllers + парсер tool-call (1100→749, P0-2/P2-17-dispose, 2026-07-13)
@@ -672,7 +678,7 @@ method=llm`). Для моделей без надёжного structured-output 
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
-| Файлов > 1000 строк | 6 | **3** 🟡 | 0 |
+| Файлов > 1000 строк | 6 | **2** 🟡 | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
@@ -682,9 +688,9 @@ method=llm`). Для моделей без надёжного structured-output 
 **Итог (2026-07-13):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
 сложности после пересчёта (51) снят до **20** — D-блоков (≥21) не осталось,
 регресс закрыт guardrail'ом `C901` (max-complexity=20); остаток — плановое
-снижение порога к 10 (см. P0-2). God Objects снизились 10 → **3** (декомпозиция
+снижение порога к 10 (см. P0-2). God Objects снизились 10 → **2** (декомпозиция
 `core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`,
-`acp_transport_service.py`, `prompt.py`); остаются `agent_loop.py`, `gatherer.py`
+`acp_transport_service.py`, `prompt.py`, `gatherer.py`); остаётся `agent_loop.py`
 и оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
 `make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
