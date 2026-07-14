@@ -464,6 +464,12 @@ Subprocess transport закрывался после закрытия event loop
 > Фильтр `PytestUnraisableExceptionWarning` пока **не** переведён в `error`: при попытке
 > флипа всплыли order-dependent unraisable из других тестов (AsyncMock, см. P0-3a) —
 > глобальный `error` даёт флаки. Полный флип — отдельная итерация P0-3.
+>
+> ⚠️ **Остаётся корень (см. P2-20):** сам факт чтения `*.db-shm` устранён только по
+> traceback'у, но `ContextGatherer` по-прежнему пытается читать SQLite-сайдкары на
+> каждом gather (анализ логов 2026-07-14: 10 error-строк за сессию). RPC-ошибка теперь
+> обрабатывается тихо, но round-trips тратятся, а лог засоряется — фильтрация файлов
+> вынесена в P2-20.
 
 **Файл:** `src/codelab/server/client_rpc/service.py:154` (`_call_method` → `_wrap_future`)
 
@@ -655,6 +661,67 @@ method=llm`). Для моделей без надёжного structured-output 
 
 **Оценка:** 0.5-1 день
 **Критерий приемки:** второй и последующие модалы принимают клик без задержки.
+
+---
+
+### 20. SQLite-сайдкары `*.db-shm/-wal` не фильтруются в ContextGatherer — 🔴 ОТКРЫТО (2026-07-14)
+
+> Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs`, локальный
+> `lmstudio/gpt-oss-20b`, проект с индексом codegraph). На **каждом** `context.gather`
+> `ContextGatherer` обнаруживает `<project>/.codegraph/codegraph.db-shm` как кандидата
+> и пытается прочитать его через ACP `fs/read_text_file` → `RPC Error -32603`
+> (~5 чтений за сборку, 10+ error-строк за сессию). Gather при этом отрабатывает
+> (`files_gathered=8`) — graceful degradation держит горячий путь, но round-trips
+> тратятся, а лог засоряется. Это недобитый корень P2-11 (там устранён только
+> unretrieved-task traceback).
+
+**Причина (проверено в коде):**
+- `context/file_matching.py::is_binary('...db-shm')` → `False`: в `BINARY_EXTENSIONS`
+  есть `.db`/`.sqlite`/`.sqlite3`, но нет `.db-shm`/`.db-wal`/`.db-journal` (они не
+  заканчиваются на `.db`).
+- `.codegraph` отсутствует в `IGNORE_DIRS`.
+
+**Задачи:**
+- [ ] Добавить `.codegraph` в `IGNORE_DIRS` (директория индекса codegraph — не контекст).
+- [ ] Распознавать SQLite-сайдкары в `is_binary` (`.db-shm`/`.db-wal`/`.db-journal`
+      или проверка подстроки `.db-`); детерминированный вывод сохранить.
+- [ ] Unit-тест: `is_binary` для `.db-shm/.db-wal`, `filter_paths` отсекает `.codegraph/`.
+
+**Оценка:** 0.5 дня
+**Критерий приемки:** нет чтений `*.db-shm` при gather; 0 связанных `-32603` в логах;
+детерминизм `filter_paths`/baseline_fingerprint сохранён.
+
+---
+
+### 21. Неизвестный tool доходит до permission и падает после одобрения — 🔴 ОТКРЫТО (2026-07-14)
+
+> Обнаружено при анализе логов реальной stdio-сессии. Локальная модель
+> (`gpt-oss-20b`) выдаёт галлюцинированный tool-call `ls`, которого нет в реестре
+> (`update_plan`, `fs/read_text_file`, `fs/write_text_file`, `terminal/*`). Он
+> **проходит permission-запрос, пользователь одобряет — и только затем** падает:
+> ```
+> executing pending tool after permission approval  tool_name=ls
+> [error] tool not found in registry  acp_tool_name=ls  registered_tools=[...]
+> ```
+> (2× за сессию, call_006/call_008). Пользователь одобряет несуществующий инструмент,
+> получает `failed` без содержимого.
+
+**Диагноз:** в `ToolCallProcessor._process_single_tool_call` для неизвестного tool
+(`tool_definition is None`, не MCP) решение уходит в policy → `ask` → permission на
+несуществующий инструмент. Проверка «есть ли tool в реестре» происходит поздно —
+в `_run_tool` уже после permission approval.
+
+**Задачи:**
+- [ ] Отклонять неизвестный tool на этапе создания (до permission): вернуть LLM
+      явный результат «unknown tool `X`, available: [...]» и статус `failed`.
+- [ ] Родственно: `fs/read_text_file` по пути-директории или пустому пути даёт
+      `-32603`/`-32002` (лог: чтение `/Users/.../flutter_app` и `path=''`) — добавить
+      валидацию path перед RPC (не пустой; не существующая директория).
+- [ ] Тест: галлюцинированный tool → `failed` без permission-запроса; read по dir/пустому пути → внятная ошибка.
+
+**Оценка:** 0.5-1 день
+**Критерий приемки:** неизвестный tool не доходит до permission; read по каталогу/
+пустому пути отклоняется с понятным сообщением, а не сырым RPC-кодом.
 
 ---
 
