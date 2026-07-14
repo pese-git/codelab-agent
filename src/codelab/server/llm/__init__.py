@@ -1,7 +1,7 @@
 """LLM провайдеры и интерфейсы для работы с языковыми моделями.
 
 Мульти-провайдер архитектура с поддержкой:
-- OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio
+- OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, LiteLLM
 - Registry для динамической регистрации провайдеров
 - Fallback цепочки при ошибках
 - Model discovery и telemetry (extension points)
@@ -68,6 +68,7 @@ from codelab.server.llm.models import (
 
 # Провайдеры
 from codelab.server.llm.providers import (
+    LiteLLMProvider,
     OpenAICompatibleProvider,
     OpenAIProvider,
 )
@@ -144,5 +145,6 @@ __all__ = [
     "GoProvider",
     "OllamaProvider",
     "LMStudioProvider",
+    "LiteLLMProvider",
     "MockLLMProvider",
 ]

@@ -8,7 +8,7 @@
 # 4. Custom path через --config CLI аргумент
 
 [llm]
-# Активный провайдер: openai, anthropic, openrouter, zen, go, ollama, lmstudio, mock
+# Активный провайдер: openai, anthropic, openrouter, zen, go, ollama, lmstudio, litellm, mock
 provider = "openai"
 
 # Модель в формате "provider/model"
@@ -130,6 +130,24 @@ max_output_tokens = 8192
 [llm.providers.lmstudio]
 base_url = "http://localhost:1234/v1"
 default_model = "local-model"
+
+# ----------------------------------------------------------------------------
+# LiteLLM — универсальный провайдер через litellm.acompletion.
+# Поддерживает 100+ endpoint'ов: openai, anthropic, bedrock, vertex,
+# together, groq, mistral, cohere, и т.д.
+# Формат model: <provider>/<model>, например:
+#   - openai/gpt-4o
+#   - bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+#   - vertex_ai/gemini-pro
+# base_url опционален: для корпоративного LiteLLM-прокси.
+[llm.providers.litellm]
+api_key = "${LITELLM_API_KEY}"
+base_url = ""
+default_model = "openai/gpt-4o"
+
+[llm.providers.litellm.models."openai/gpt-4o"]
+context_window = 128000
+max_output_tokens = 16384
 
 # ============================================================================
 # Fallback система

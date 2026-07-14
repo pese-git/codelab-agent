@@ -10,7 +10,7 @@ CodeLab — AI-ассистент для разработчиков, котор�
 
 Проект объединяет:
 
-- **ACP-сервер** — интеллектуальный агент с поддержкой 9+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock, ScriptedMock)
+- **ACP-сервер** — интеллектуальный агент с поддержкой 8+ LLM провайдеров (OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, LiteLLM)
 - **TUI-клиент** — терминальный интерфейс на базе Textual
 - **Web UI** — браузерный интерфейс для удаленной работы
 - **stdio транспорт** — основной транспорт ACP (stdin/stdout JSON-RPC)
@@ -260,6 +260,7 @@ max_output_tokens = 64000
 | Go | `go` | `go-fast` | `https://go.opencode.ai/v1` |
 | Ollama | `ollama` | `llama3.1:70b`, `mistral` | `http://localhost:11434/v1` |
 | LMStudio | `lmstudio` | local models | `http://localhost:1234/v1` |
+| LiteLLM | `litellm` | 100+ провайдеров через [litellm](https://github.com/BerriAI/litellm) | провайдеро-зависимо |
 | Mock | `mock` | `mock-model` | N/A |
 | ScriptedMock | `scripted` | scenario-based | N/A (e2e tests) |
 

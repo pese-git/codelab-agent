@@ -2,6 +2,7 @@
 
 from codelab.server.llm.providers.anthropic import AnthropicProvider
 from codelab.server.llm.providers.go import GoProvider
+from codelab.server.llm.providers.litellm_provider import LiteLLMProvider
 from codelab.server.llm.providers.lmstudio import LMStudioProvider
 from codelab.server.llm.providers.ollama import OllamaProvider
 from codelab.server.llm.providers.openai import OpenAIProvider
@@ -18,4 +19,5 @@ __all__ = [
     "GoProvider",
     "OllamaProvider",
     "LMStudioProvider",
+    "LiteLLMProvider",
 ]

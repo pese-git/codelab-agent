@@ -146,6 +146,7 @@ class RegistryProvider(Provider):
         """Возвращает factory-функцию для провайдера."""
         from codelab.server.llm.providers.anthropic import AnthropicProvider
         from codelab.server.llm.providers.go import GoProvider
+        from codelab.server.llm.providers.litellm_provider import LiteLLMProvider
         from codelab.server.llm.providers.lmstudio import LMStudioProvider
         from codelab.server.llm.providers.ollama import OllamaProvider
         from codelab.server.llm.providers.openai import OpenAIProvider
@@ -160,6 +161,7 @@ class RegistryProvider(Provider):
             "go": GoProvider,
             "ollama": OllamaProvider,
             "lmstudio": LMStudioProvider,
+            "litellm": LiteLLMProvider,
         }
         return factories.get(provider_id, _make_mock_provider)
 
