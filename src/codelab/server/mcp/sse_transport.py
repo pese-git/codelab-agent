@@ -24,6 +24,49 @@ class SseTransportError(MCPTransportError):
     pass
 
 
+class _SseEventAccumulator:
+    """Накопитель строк SSE-потока: собирает event/data/id, отдаёт готовое событие.
+
+    `feed()` возвращает `(event, data, event_id)` на пустой строке-разделителе,
+    когда накоплены данные, иначе `None`. Инкапсулирует парсинг полей SSE, чтобы
+    цикл чтения оставался тонким.
+    """
+
+    def __init__(self) -> None:
+        self._event = "message"
+        self._data: list[str] = []
+        self._id: str | None = None
+
+    def feed(self, text: str) -> tuple[str, str, str | None] | None:
+        if not text:
+            # Пустая строка — конец события
+            if not self._data:
+                return None
+            result = (self._event, "\n".join(self._data), self._id)
+            self._event = "message"
+            self._data = []
+            self._id = None
+            return result
+
+        if text.startswith(":"):
+            # Комментарий — игнорируем
+            return None
+
+        if ":" in text:
+            field, value = text.split(":", 1)
+            value = value.lstrip(" ")
+        else:
+            field, value = text, ""
+
+        if field == "event":
+            self._event = value
+        elif field == "data":
+            self._data.append(value)
+        elif field == "id":
+            self._id = value
+        return None
+
+
 class SseTransport:
     """SSE (Server-Sent Events) транспорт для MCP серверов.
 
@@ -279,42 +322,15 @@ class SseTransport:
         if not self._sse_response:
             return
 
-        current_event = "message"  # default SSE event type
-        current_data = []
-        current_id = None
+        accumulator = _SseEventAccumulator()
 
         try:
             async for line in self._sse_response.content:
                 text = line.decode("utf-8").rstrip("\n")
-
-                if not text:
-                    # Пустая строка — конец события
-                    if current_data:
-                        await self._handle_sse_event(
-                            event=current_event, data="\n".join(current_data), event_id=current_id
-                        )
-                        current_data = []
-                        current_event = "message"
-                        current_id = None
-                    continue
-
-                if text.startswith(":"):
-                    # Комментарий — игнорируем
-                    continue
-
-                if ":" in text:
-                    field, value = text.split(":", 1)
-                    value = value.lstrip(" ")
-                else:
-                    field = text
-                    value = ""
-
-                if field == "event":
-                    current_event = value
-                elif field == "data":
-                    current_data.append(value)
-                elif field == "id":
-                    current_id = value
+                ready = accumulator.feed(text)
+                if ready is not None:
+                    event, data, event_id = ready
+                    await self._handle_sse_event(event=event, data=data, event_id=event_id)
 
         except asyncio.CancelledError:
             raise

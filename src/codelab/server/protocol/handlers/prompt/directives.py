@@ -11,6 +11,58 @@ from .normalization import (
 )
 
 
+def _parse_rpc_directives(
+    stripped_preview: str,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Парсит RPC slash-команды (`/fs-read`, `/fs-write`, `/term-run`).
+
+    Возвращает `(fs_read_path, fs_write_path, fs_write_content, terminal_command)`.
+    """
+    fs_read_path: str | None = None
+    fs_write_path: str | None = None
+    fs_write_content: str | None = None
+    terminal_command: str | None = None
+
+    if stripped_preview.startswith("/fs-read "):
+        maybe_path = stripped_preview[len("/fs-read ") :].strip()
+        if maybe_path:
+            fs_read_path = maybe_path
+    if stripped_preview.startswith("/fs-write "):
+        raw_write_payload = stripped_preview[len("/fs-write ") :].strip()
+        path_and_content = raw_write_payload.split(" ", 1)
+        if len(path_and_content) == 2 and path_and_content[0].strip():
+            fs_write_path = path_and_content[0].strip()
+            fs_write_content = path_and_content[1]
+    if stripped_preview.startswith("/term-run "):
+        raw_command = stripped_preview[len("/term-run ") :].strip()
+        if raw_command:
+            terminal_command = raw_command
+
+    return fs_read_path, fs_write_path, fs_write_content, terminal_command
+
+
+def _parse_forced_stop(stripped_preview: str) -> str | None:
+    """Определяет forced stopReason по slash-команде `/stop-*` / `/refuse`."""
+    if stripped_preview.startswith("/stop-max-tokens"):
+        return "max_tokens"
+    if stripped_preview.startswith("/stop-max-turn-requests"):
+        return "max_turn_requests"
+    if stripped_preview.startswith("/refuse"):
+        return "refusal"
+    return None
+
+
+def _parse_directive_tool_kind(stripped_preview: str, supported_tool_kinds: set[str]) -> str:
+    """Извлекает опциональный kind из `/tool <kind>` / `/tool-pending <kind>`."""
+    for prefix in ("/tool ", "/tool-pending "):
+        if stripped_preview.startswith(prefix):
+            candidate = stripped_preview[len(prefix) :].split(" ", 1)[0].strip().lower()
+            normalized_candidate = normalize_tool_kind(candidate, supported_tool_kinds)
+            if normalized_candidate is not None:
+                return normalized_candidate
+    return "other"
+
+
 def extract_prompt_directives(
     text_preview: str,
     supported_tool_kinds: set[str],
@@ -23,72 +75,31 @@ def extract_prompt_directives(
     Пример использования:
         directives = extract_prompt_directives("/tool /plan", {"other"})
     """
-
     normalized_tokens = {
         token.strip().lower()
         for token in text_preview.replace("\n", " ").split(" ")
         if token.strip()
     }
 
-    has_plan_directive = "/plan" in normalized_tokens
     has_tool_directive = "/tool" in normalized_tokens
     has_pending_directive = "/tool-pending" in normalized_tokens
-    tool_kind = "other"
-    fs_read_path: str | None = None
-    fs_write_path: str | None = None
-    fs_write_content: str | None = None
-    terminal_command: str | None = None
-    forced_stop_reason: str | None = None
 
     stripped_preview = text_preview.strip()
-    if stripped_preview.startswith("/fs-read "):
-        maybe_path = stripped_preview[len("/fs-read ") :].strip()
-        if maybe_path:
-            fs_read_path = maybe_path
-    if stripped_preview.startswith("/fs-write "):
-        raw_write_payload = stripped_preview[len("/fs-write ") :].strip()
-        path_and_content = raw_write_payload.split(" ", 1)
-        if len(path_and_content) == 2:
-            candidate_path = path_and_content[0].strip()
-            candidate_content = path_and_content[1]
-            if candidate_path:
-                fs_write_path = candidate_path
-                fs_write_content = candidate_content
-    if stripped_preview.startswith("/term-run "):
-        raw_command = stripped_preview[len("/term-run ") :].strip()
-        if raw_command:
-            terminal_command = raw_command
-    if stripped_preview.startswith("/stop-max-tokens"):
-        forced_stop_reason = "max_tokens"
-    if stripped_preview.startswith("/stop-max-turn-requests"):
-        forced_stop_reason = "max_turn_requests"
-    if stripped_preview.startswith("/refuse"):
-        forced_stop_reason = "refusal"
-
-    # Поддерживаем опциональный kind в `/tool <kind> ...` и
-    # `/tool-pending <kind> ...` для policy-scope beyond `other`.
-    if stripped_preview.startswith("/tool "):
-        candidate = stripped_preview[len("/tool ") :].split(" ", 1)[0].strip().lower()
-        normalized_candidate = normalize_tool_kind(candidate, supported_tool_kinds)
-        if normalized_candidate is not None:
-            tool_kind = normalized_candidate
-    if stripped_preview.startswith("/tool-pending "):
-        candidate = stripped_preview[len("/tool-pending ") :].split(" ", 1)[0].strip().lower()
-        normalized_candidate = normalize_tool_kind(candidate, supported_tool_kinds)
-        if normalized_candidate is not None:
-            tool_kind = normalized_candidate
+    fs_read_path, fs_write_path, fs_write_content, terminal_command = _parse_rpc_directives(
+        stripped_preview
+    )
 
     return PromptDirectives(
         request_tool=has_tool_directive or has_pending_directive,
         keep_tool_pending=has_pending_directive,
-        publish_plan=has_plan_directive,
+        publish_plan="/plan" in normalized_tokens,
         plan_entries=None,
-        tool_kind=tool_kind,
+        tool_kind=_parse_directive_tool_kind(stripped_preview, supported_tool_kinds),
         fs_read_path=fs_read_path,
         fs_write_path=fs_write_path,
         fs_write_content=fs_write_content,
         terminal_command=terminal_command,
-        forced_stop_reason=forced_stop_reason,
+        forced_stop_reason=_parse_forced_stop(stripped_preview),
     )
 
 
@@ -129,6 +140,22 @@ def resolve_prompt_directives(
     if not isinstance(raw_overrides, dict):
         return directives
 
+    _apply_meta_flag_overrides(directives, raw_overrides, supported_tool_kinds)
+    _apply_meta_rpc_overrides(directives, raw_overrides)
+
+    if directives.keep_tool_pending:
+        # Pending-tool сценарий не имеет смысла без явного tool-flow.
+        directives.request_tool = True
+
+    return directives
+
+
+def _apply_meta_flag_overrides(
+    directives: PromptDirectives,
+    raw_overrides: dict[str, Any],
+    supported_tool_kinds: set[str],
+) -> None:
+    """Применяет bool-флаги, plan и tool_kind из structured `_meta`."""
     request_tool = raw_overrides.get("requestTool")
     if isinstance(request_tool, bool):
         directives.request_tool = request_tool
@@ -141,8 +168,7 @@ def resolve_prompt_directives(
     if isinstance(publish_plan, bool):
         directives.publish_plan = publish_plan
 
-    raw_plan_entries = raw_overrides.get("planEntries")
-    normalized_plan_entries = normalize_plan_entries(raw_plan_entries)
+    normalized_plan_entries = normalize_plan_entries(raw_overrides.get("planEntries"))
     if normalized_plan_entries is not None:
         directives.plan_entries = normalized_plan_entries
         directives.publish_plan = True
@@ -153,6 +179,12 @@ def resolve_prompt_directives(
         if normalized_kind is not None:
             directives.tool_kind = normalized_kind
 
+
+def _apply_meta_rpc_overrides(
+    directives: PromptDirectives,
+    raw_overrides: dict[str, Any],
+) -> None:
+    """Применяет fs/terminal/stop-reason overrides из structured `_meta`."""
     fs_read_path = raw_overrides.get("fsReadPath")
     if isinstance(fs_read_path, str) and fs_read_path.strip():
         directives.fs_read_path = fs_read_path.strip()
@@ -171,14 +203,7 @@ def resolve_prompt_directives(
 
     forced_stop_reason = raw_overrides.get("forcedStopReason")
     if isinstance(forced_stop_reason, str):
-        normalized_reason = normalize_stop_reason(forced_stop_reason)
-        directives.forced_stop_reason = normalized_reason
-
-    if directives.keep_tool_pending:
-        # Pending-tool сценарий не имеет смысла без явного tool-flow.
-        directives.request_tool = True
-
-    return directives
+        directives.forced_stop_reason = normalize_stop_reason(forced_stop_reason)
 
 
 def resolve_prompt_stop_reason(directives: PromptDirectives) -> str:
