@@ -25,7 +25,7 @@
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 → **60** | 0 |
 | Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
-| Warnings в тестах | 62 | 0 в выводе; 3a закрыт (`coroutine never awaited` → `error`-guardrail); остаётся `PytestUnraisableExceptionWarning` под `ignore` (order-dependent subprocess, см. P0-3) | 0 |
+| Warnings в тестах | 62 | **0** ✅ (P0-3 закрыт: оба класса → `error`-guardrail, 0 unraisable; узкий ignore лишь для textual-внутренних) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
 | Тестов | 3974 | **7297** | — |
@@ -184,24 +184,15 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 
 ---
 
-### 3. Исправление warnings в тестах (62 warnings) — 🟢 ЧАСТИЧНО (2026-07-10)
+### 3. Исправление warnings в тестах (62 warnings) — ✅ ЗАКРЫТО (2026-07-15)
 
-> **Причины 3c и P11 устранены** (P11 — future_task в client_rpc; P0-3c — teardown
-> subprocess в фикстуре `test_terminal_executor`). Но фильтр остаётся `ignore`: при
-> попытке перевести `PytestUnraisableExceptionWarning` в `error` suite упал на других,
-> order-dependent unraisable (leaked AsyncMock-корутины из разных тестов — это 3a).
-> ```toml
-> filterwarnings = [
->     "ignore::pytest.PytestUnraisableExceptionWarning",          # флип к error — после 3a
->     "ignore:coroutine.*was never awaited:RuntimeWarning",       # 3a — ещё маскируется
->     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
->     "ignore:coroutine.*SearchInput:RuntimeWarning",
-> ]
-> ```
-> **3a ЗАКРЫТО (2026-07-15):** источник холостых корутин найден и устранён, фильтр
-> `coroutine.*was never awaited` переведён в `error` (guardrail). 3b при
-> `asyncio_mode = "auto"` не всплывает. Остаётся только `PytestUnraisableExceptionWarning`
-> под `ignore` из-за одного order-dependent subprocess-unraisable (см. ниже).
+> **Все причины устранены в корне.** 3c/P11 — future_task в client_rpc + subprocess-teardown;
+> 3a — вся популяция холостых корутин (AsyncMock-мок-гигиена + закрытие корутин в мокнутых
+> asyncio-примитивах); 3b при `asyncio_mode = "auto"` не всплывает. Оба класса warnings
+> (`coroutine.*was never awaited` и `PytestUnraisableExceptionWarning`) переведены
+> `ignore → error` как guardrail; полный проявляющий прогон — **0 unraisable**, 3 прогона
+> `make check` подряд зелёные. Единственные `ignore` — узкие message-scoped для
+> textual-внутренних reactive-корутин (`DirectoryTree.watch_path`/`SearchInput`, вне контроля).
 
 #### 3a. RuntimeWarning: coroutine was never awaited — ✅ ЗАКРЫТО (2026-07-15)
 
@@ -229,30 +220,32 @@ Residual (осознанно оставлены slightly-over, см. выше): 
       Фикс: фикстура `executor` с teardown для real-subprocess тестов + мок-процесс (без
       реального спавна) для kill/release/cleanup. В проявляющем прогоне subprocess-unraisable
       теперь **0** (2026-07-15).
-- [~] **AsyncMock-популяция — частично вычищена (2026-07-15).** Корень: голый `AsyncMock()`
-      делает sync-методы (`register_handler`/`register_progress_callback` на MCPClient;
-      `register_notification_handler`/`register_request_handler` на `MCPTransport`;
-      `is_connected`/`is_initialized` на транспортах клиента) асинхронными, а прод-код
-      корректно зовёт их без await → корутина `AsyncMockMixin._execute_mock_call` не awaited
-      → order-dependent unraisable при GC. Фикс — `AsyncMock(spec=Class)` (различает sync/async).
-      Вычищено: `MCPClient`-моки (`test_mcp_module.py`, 5), транспорт-моки
-      (`test_mcp_client_coverage.py`/`mcp/test_client_coverage.py`, 4). Проявляющий прогон:
-      AsyncMock-unraisable сокращены (доминирующий кластер снят).
-- [ ] **Флип `PytestUnraisableExceptionWarning → error` пока НЕ выполнен — остаток:**
-      - Ещё AsyncMock-моки (наша гигиена, тот же `spec`-фикс): клиентские транспорт/coordinator
-        (`use_cases.py` is_initialized/is_connected, `acp_transport_service.py` is_connected,
-        `session_coordinator`), `test_mcp_servers_integration.py`, HTTP/SSE transport-моки.
-      - **Неустранимо в нашем коде** (нужен message-scoped `ignore`, не source-fix):
-        `DirectoryTree.watch_path` (textual reactive), `Queue.get` (asyncio-очередь
-        notification-loop при cancel), одиночные `run_stdio_server`/`sleep`/`ContextMenuItem`.
-      - **План флипа (plan A):** дочистить наши AsyncMock-моки через `spec` → добавить
-        message-scoped `ignore:Exception ignored in: <coroutine object (DirectoryTree|Queue)...`
-        для third-party/asyncio → перевести `PytestUnraisableExceptionWarning` в `error`
-        (guardrail для НАШИХ регрессов, толерантно к textual/asyncio). Верификация дорогая
-        (order/GC-зависимая; надёжно только полным прогоном).
+- [x] **AsyncMock-популяция вычищена полностью (2026-07-15, plan A).** Корень: голый
+      `AsyncMock()` делает sync-методы асинхронными, а прод-код корректно зовёт их без await
+      → `AsyncMockMixin._execute_mock_call` не awaited → order-dependent unraisable при GC.
+      Фикс — `AsyncMock(spec=Class)` (различает sync/async) + закрытие корутин в мокнутых
+      asyncio-примитивах. Затронуто:
+      - `spec`-моки: `MCPClient` (`test_mcp_module.py`), `MCPTransport`
+        (`test_mcp_client_coverage`, `mcp/test_client_coverage`, `test_client_http_sse_transport`),
+        `TransportService` (`test_mcp_servers_integration`), `WebSocketTransport`
+        (`test_transport_dispatcher_integration`).
+      - закрытие захваченных корутин в мокнутых `asyncio.run`/`wait_for`/`create_task`/
+        `run_until_complete`: `test_cli_coverage` (`_close_coro`), `test_transport_coverage`,
+        `test_mcp_client_coverage` (`_wait_for_script` для `queue.get()`),
+        `test_acp_transport_service_coverage`, `test_core_remaining`, `test_mcp_prompt_coverage`.
+      - прочее: `test_context_menu_coverage` (async `on_click` → `await`), `test_websocket_coverage`
+        (`AsyncMock(side_effect=asyncio.sleep(60))` → фабрика корутин), `test_mcp_prompts_integration`
+        (реальный `runtime_state` вместо MagicMock-цепочки).
+- [x] **Флип выполнен (2026-07-15).** Полный проявляющий прогон
+      (`-W default::PytestUnraisableExceptionWarning`) → **0 unraisable**. Оба класса warnings
+      переведены `ignore → error` в `pyproject.toml`. Исключения — внутренние reactive-корутины
+      textual (`DirectoryTree.watch_path`/`SearchInput`, вне контроля): узкий message-scoped
+      `ignore` ПОСЛЕ `error` (побеждает последний совпавший). NB: literal `:` в message-поле
+      фильтра недопустим (pytest делит по `:`) — используется `.*`. Стабильность: 3 полных
+      прогона `make check` подряд зелёные (7313), флака нет.
 
-**Оценка:** сделано (subprocess + 2 AsyncMock-кластера); остаток на флип — ~1 день
-(дочистка моков по ~5 файлам + message-scoped ignore + флип + стабилизационные прогоны)
+**Оценка:** факт — выполнено за сессию (subprocess + вся AsyncMock-популяция + флип);
+изначальные 0.5 дня были занижены (реальный объём — системная мок-гигиена по ~12 файлам).
 
 #### 3b. PytestWarning: incorrect `@pytest.mark.asyncio` (6 тестов)
 
@@ -878,7 +871,7 @@ method=llm`). Для моделей без надёжного structured-output 
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
 | Max cyclomatic complexity | 30 | 51 → **20** 🟡 (guardrail `C901`) | <= 10 |
 | Файлов > 1000 строк | 6 | **1** 🟡 (оправданно крупный `messages.py`) | 0 |
-| Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
+| Warnings в тестах | 62 | **0** ✅ (оба класса → `error`-guardrail, 0 unraisable) | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **0** ✅ (гейт `make check` зелёный, см. P0-14) | 0 |
 | TODO | 2 | 2 | 0 |
