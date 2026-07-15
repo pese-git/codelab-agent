@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -25,6 +25,8 @@ from .tool_call_list import ToolCallList
 if TYPE_CHECKING:
     from codelab.client.presentation.chat_view_model import ChatViewModel
     from codelab.client.presentation.terminal_view_model import TerminalViewModel
+
+    from .tool_call_card import ToolCallStatus
 
 
 class ToolPanel(Vertical):
@@ -328,14 +330,17 @@ class ToolPanel(Vertical):
             "terminal_view": terminal_view,
         }
 
-        # Синхронизируем с ToolCallList
+        self._upsert_tool_call_entry(tool_call_id, title, status)
+
+    def _upsert_tool_call_entry(self, tool_call_id: str, title: str, status: str) -> None:
+        """Синхронизирует запись с ToolCallList (add/update, с маппингом статусов)."""
         # Маппинг статусов протокола на внутренние статусы ToolCallCard
         status_map = {
             "in_progress": "running",
             "completed": "success",
             "failed": "error",
         }
-        mapped_status = status_map.get(status, status)
+        mapped_status = cast("ToolCallStatus", status_map.get(status, status))
 
         try:
             tool_call_list = self._tool_call_list

@@ -347,6 +347,120 @@ class ClientRPCHandler:
 
         return None
 
+    def _handle_rpc_error(
+        self,
+        tool_handler: Any,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        error: dict[str, Any],
+    ) -> list[ACPMessage]:
+        """Помечает tool call как failed по RPC-ошибке и строит notification."""
+        error_message = error.get("message") if isinstance(error.get("message"), str) else ""
+        failure_text = f"RPC request failed{f': {error_message}' if error_message else ''}"
+        content = [{"type": "content", "content": {"type": "text", "text": failure_text}}]
+
+        tool_handler.update_tool_call_status(session, tool_call_id, "failed", content=content)
+        return [
+            tool_handler.build_tool_update_notification(
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                status="failed",
+                content=content,
+            )
+        ]
+
+    def _status_notification(
+        self,
+        tool_handler: Any,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        status: str,
+        text: str,
+    ) -> ACPMessage:
+        """Обновляет статус tool call и строит соответствующий session/update."""
+        content = [{"type": "content", "content": {"type": "text", "text": text}}]
+        tool_handler.update_tool_call_status(session, tool_call_id, status, content=content)
+        return tool_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=content,
+        )
+
+    def _fs_read_result(
+        self,
+        tool_handler: Any,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        result: Any,
+    ) -> ACPMessage:
+        """Строит notification по ответу fs/read (valid content -> completed)."""
+        if not isinstance(result, dict) or not isinstance(result.get("content"), str):
+            return self._status_notification(
+                tool_handler,
+                session,
+                session_id,
+                tool_call_id,
+                "failed",
+                "Invalid fs/read response format",
+            )
+        return self._status_notification(
+            tool_handler, session, session_id, tool_call_id, "completed", result.get("content", "")
+        )
+
+    def _fs_write_result(
+        self,
+        tool_handler: Any,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        result: Any,
+    ) -> ACPMessage:
+        """Строит notification по ответу fs/write."""
+        if not isinstance(result, dict):
+            return self._status_notification(
+                tool_handler,
+                session,
+                session_id,
+                tool_call_id,
+                "failed",
+                "Invalid fs/write response format",
+            )
+        return self._status_notification(
+            tool_handler,
+            session,
+            session_id,
+            tool_call_id,
+            "completed",
+            "File written successfully",
+        )
+
+    def _terminal_result(
+        self,
+        tool_handler: Any,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        result: Any,
+    ) -> ACPMessage:
+        """Строит notification по ответу terminal/create (output опционален)."""
+        output_text = ""
+        if isinstance(result, dict):
+            raw_output = result.get("output")
+            if isinstance(raw_output, str):
+                output_text = raw_output
+        return self._status_notification(
+            tool_handler,
+            session,
+            session_id,
+            tool_call_id,
+            "completed",
+            output_text or "Terminal command executed",
+        )
+
     def handle_pending_response(
         self,
         session: SessionState,
@@ -384,214 +498,23 @@ class ClientRPCHandler:
 
         # Обработка ошибки
         if error is not None:
-            error_message = error.get("message") if isinstance(error.get("message"), str) else ""
-            failure_text = f"RPC request failed{f': {error_message}' if error_message else ''}"
-
-            tool_handler.update_tool_call_status(
-                session,
-                pending.tool_call_id,
-                "failed",
-                content=[
-                    {
-                        "type": "content",
-                        "content": {
-                            "type": "text",
-                            "text": failure_text,
-                        },
-                    }
-                ],
+            return self._handle_rpc_error(
+                tool_handler, session, session_id, pending.tool_call_id, error
             )
-            notifications.append(
-                tool_handler.build_tool_update_notification(
-                    session_id=session_id,
-                    tool_call_id=pending.tool_call_id,
-                    status="failed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": failure_text,
-                            },
-                        }
-                    ],
-                )
-            )
-            return notifications
 
         # Обработка успеха для fs_read
+        tcid = pending.tool_call_id
         if kind == "fs_read":
-            if not isinstance(result, dict) or not isinstance(result.get("content"), str):
-                # Невалидный response format
-                tool_handler.update_tool_call_status(
-                    session,
-                    pending.tool_call_id,
-                    "failed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": "Invalid fs/read response format",
-                            },
-                        }
-                    ],
-                )
-                notifications.append(
-                    tool_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=pending.tool_call_id,
-                        status="failed",
-                        content=[
-                            {
-                                "type": "content",
-                                "content": {
-                                    "type": "text",
-                                    "text": "Invalid fs/read response format",
-                                },
-                            }
-                        ],
-                    )
-                )
-            else:
-                # Успешно прочитали файл
-                content_text = result.get("content", "")
-                tool_handler.update_tool_call_status(
-                    session,
-                    pending.tool_call_id,
-                    "completed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": content_text,
-                            },
-                        }
-                    ],
-                )
-                notifications.append(
-                    tool_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=pending.tool_call_id,
-                        status="completed",
-                        content=[
-                            {
-                                "type": "content",
-                                "content": {
-                                    "type": "text",
-                                    "text": content_text,
-                                },
-                            }
-                        ],
-                    )
-                )
-
-        # Обработка успеха для fs_write
-        elif kind == "fs_write":
-            if not isinstance(result, dict):
-                # Невалидный response format
-                tool_handler.update_tool_call_status(
-                    session,
-                    pending.tool_call_id,
-                    "failed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": "Invalid fs/write response format",
-                            },
-                        }
-                    ],
-                )
-                notifications.append(
-                    tool_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=pending.tool_call_id,
-                        status="failed",
-                        content=[
-                            {
-                                "type": "content",
-                                "content": {
-                                    "type": "text",
-                                    "text": "Invalid fs/write response format",
-                                },
-                            }
-                        ],
-                    )
-                )
-            else:
-                # Успешно записали файл
-                tool_handler.update_tool_call_status(
-                    session,
-                    pending.tool_call_id,
-                    "completed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": "File written successfully",
-                            },
-                        }
-                    ],
-                )
-                notifications.append(
-                    tool_handler.build_tool_update_notification(
-                        session_id=session_id,
-                        tool_call_id=pending.tool_call_id,
-                        status="completed",
-                        content=[
-                            {
-                                "type": "content",
-                                "content": {
-                                    "type": "text",
-                                    "text": "File written successfully",
-                                },
-                            }
-                        ],
-                    )
-                )
-
-        # Обработка успеха для terminal
-        elif kind == "terminal_create":
-            # Terminal response может содержать output
-            output_text = ""
-            if isinstance(result, dict):
-                raw_output = result.get("output")
-                if isinstance(raw_output, str):
-                    output_text = raw_output
-
-            tool_handler.update_tool_call_status(
-                session,
-                pending.tool_call_id,
-                "completed",
-                content=[
-                    {
-                        "type": "content",
-                        "content": {
-                            "type": "text",
-                            "text": output_text or "Terminal command executed",
-                        },
-                    }
-                ],
-            )
             notifications.append(
-                tool_handler.build_tool_update_notification(
-                    session_id=session_id,
-                    tool_call_id=pending.tool_call_id,
-                    status="completed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {
-                                "type": "text",
-                                "text": output_text or "Terminal command executed",
-                            },
-                        }
-                    ],
-                )
+                self._fs_read_result(tool_handler, session, session_id, tcid, result)
+            )
+        elif kind == "fs_write":
+            notifications.append(
+                self._fs_write_result(tool_handler, session, session_id, tcid, result)
+            )
+        elif kind == "terminal_create":
+            notifications.append(
+                self._terminal_result(tool_handler, session, session_id, tcid, result)
             )
 
         return notifications

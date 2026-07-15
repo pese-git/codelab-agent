@@ -270,11 +270,16 @@ class Sidebar(Vertical):
 
         # Получаем отфильтрованные сессии
         filtered_sessions = self._get_filtered_sessions()
+        return self._render_session_lines(all_sessions, filtered_sessions, selected_id)
 
-        lines: list[str] = [
-            self._tabs_header(),
-            "",
-        ]
+    def _render_session_lines(
+        self,
+        all_sessions: list[Any],
+        filtered_sessions: list[Any],
+        selected_id: Any,
+    ) -> str:
+        """Строит текст списка сессий (заголовок вкладок + инфо о фильтре + строки)."""
+        lines: list[str] = [self._tabs_header(), ""]
 
         # Показываем информацию о фильтрации если есть фильтр
         if self.search_filter:

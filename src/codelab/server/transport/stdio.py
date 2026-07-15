@@ -115,6 +115,29 @@ class StdioServerTransport:
         self._prompt_tasks: set[asyncio.Task[None]] = set()
         self._deferred_prompt_tasks: dict[str, asyncio.Task[None]] = {}
 
+    async def _decode_request(self, line: bytes) -> ACPMessage | None:
+        """Декодирует строку stdin в ACPMessage.
+
+        Возвращает `None` на пустой строке или при parse error (в последнем случае
+        клиенту отправляется error response) — вызывающий цикл делает `continue`.
+        """
+        try:
+            text = line.decode("utf-8").strip()
+            if not text:
+                return None
+            return ACPMessage.from_json(text)
+        except Exception as exc:
+            logger.warning("parse error", error=str(exc))
+            await self.send(
+                ACPMessage.error_response(
+                    None,
+                    code=-32700,
+                    message="Parse error",
+                    data=str(exc),
+                )
+            )
+            return None
+
     async def run(
         self,
         on_message: Callable[[ACPMessage], Awaitable[ProtocolOutcome]],
@@ -173,24 +196,9 @@ class StdioServerTransport:
                     logger.info("stdin EOF, shutting down")
                     break
 
-                # Декодируем и парсим JSON-RPC сообщение
-                try:
-                    text = line.decode("utf-8").strip()
-                    if not text:
-                        # Пустая строка — пропускаем
-                        continue
-
-                    acp_request = ACPMessage.from_json(text)
-                except Exception as exc:
-                    # Parse error — отправляем error response
-                    logger.warning("parse error", error=str(exc))
-                    error_response = ACPMessage.error_response(
-                        None,
-                        code=-32700,
-                        message="Parse error",
-                        data=str(exc),
-                    )
-                    await self.send(error_response)
+                # Декодируем и парсим JSON-RPC сообщение (None — пустая строка/parse error)
+                acp_request = await self._decode_request(line)
+                if acp_request is None:
                     continue
 
                 # Извлекаем метаданные для маршрутизации/логирования

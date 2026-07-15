@@ -218,13 +218,7 @@ class RequestCallbackCoordinator:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                if notification_task in pending:
-                    notification_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                        await notification_task
-                elif notification_task in done:
-                    with contextlib.suppress(TimeoutError, Exception):
-                        notification_task.result()
+                await self._drain_notification_task(notification_task, done=done, pending=pending)
 
                 if permission_task is not None and permission_task in done:
                     self._logger.info(
@@ -256,18 +250,15 @@ class RequestCallbackCoordinator:
                     )
 
                 if response_task in done:
-                    # Отменяем permission_task перед возвратом чтобы предотвратить
-                    # появление осиротевших tasks, которые потребляют сообщения из
-                    # permission_queue и мешают обработке следующих permission requests.
-                    if permission_task is not None and not permission_task.done():
-                        self._logger.info(
-                            "cancelling_orphaned_permission_task",
-                            method=method,
-                            request_id=request_id,
-                        )
-                        permission_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await permission_task
+                    # Отменяем осиротевший permission_task перед возвратом, иначе он
+                    # продолжит потреблять сообщения из permission_queue.
+                    await self._cancel_orphan_permission_task(
+                        permission_task,
+                        method=method,
+                        request_id=request_id,
+                        log_event="cancelling_orphaned_permission_task",
+                        level="info",
+                    )
                     return await self._process_response(
                         response_task,
                         method=method,
@@ -276,18 +267,47 @@ class RequestCallbackCoordinator:
                         queues=queues,
                     )
         except Exception:
-            # При любом исключении отменяем permission_task чтобы не оставить
-            # осиротевший task, потребляющий сообщения из permission_queue.
-            if permission_task is not None and not permission_task.done():
-                self._logger.warning(
-                    "cancelling_permission_task_on_error",
-                    method=method,
-                    request_id=request_id,
-                )
-                permission_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await permission_task
+            await self._cancel_orphan_permission_task(
+                permission_task,
+                method=method,
+                request_id=request_id,
+                log_event="cancelling_permission_task_on_error",
+                level="warning",
+            )
             raise
+
+    async def _drain_notification_task(
+        self,
+        notification_task: asyncio.Task[dict[str, Any]],
+        *,
+        done: set[asyncio.Task[Any]],
+        pending: set[asyncio.Task[Any]],
+    ) -> None:
+        """Гасит вспомогательный notification-task (отменяет pending / поглощает done)."""
+        if notification_task in pending:
+            notification_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await notification_task
+        elif notification_task in done:
+            with contextlib.suppress(TimeoutError, Exception):
+                notification_task.result()
+
+    async def _cancel_orphan_permission_task(
+        self,
+        permission_task: asyncio.Task[dict[str, Any]] | None,
+        *,
+        method: str,
+        request_id: str | int,
+        log_event: str,
+        level: str,
+    ) -> None:
+        """Отменяет незавершённый permission-task, чтобы не осиротить permission_queue."""
+        if permission_task is None or permission_task.done():
+            return
+        getattr(self._logger, level)(log_event, method=method, request_id=request_id)
+        permission_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await permission_task
 
     def _handle_permission_task(
         self,

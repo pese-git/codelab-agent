@@ -210,6 +210,28 @@ class NavigationManager:
         """
         return len(self._app.screen_stack)
 
+    def _apply_view_model_visibility(
+        self,
+        is_visible: bool,
+        modal_type: str,
+        on_show: Callable[[], None] | None,
+        on_hide: Callable[[], None] | None,
+    ) -> None:
+        """Применяет изменение is_visible: показать/скрыть модаль + вызвать хук."""
+        if is_visible:
+            logger.debug("view_model_show_requested", modal_type=modal_type)
+            if on_show:
+                on_show()
+            return
+
+        logger.debug("view_model_hide_requested", modal_type=modal_type)
+        modal = self.get_modal_by_type(modal_type)
+        if modal:
+            # Асинхронная операция в фоне
+            asyncio.create_task(self.hide_screen(modal))
+        if on_hide:
+            on_hide()
+
     def subscribe_to_view_model(
         self,
         view_model: Any,
@@ -245,32 +267,8 @@ class NavigationManager:
                 return
 
             sync_in_progress = True
-
             try:
-                if is_visible:
-                    # Показать модаль
-                    logger.debug(
-                        "view_model_show_requested",
-                        modal_type=modal_type,
-                    )
-                    if on_show:
-                        on_show()
-                else:
-                    # Скрыть модаль
-                    logger.debug(
-                        "view_model_hide_requested",
-                        modal_type=modal_type,
-                    )
-
-                    # Найти и скрыть модаль
-                    modal = self.get_modal_by_type(modal_type)
-                    if modal:
-                        # Асинхронная операция в фоне
-                        asyncio.create_task(self.hide_screen(modal))
-
-                    if on_hide:
-                        on_hide()
-
+                self._apply_view_model_visibility(is_visible, modal_type, on_show, on_hide)
             finally:
                 sync_in_progress = False
 
