@@ -197,7 +197,7 @@ class TestMCPClientConnectErrors:
         client._state = MCPClientState.CLOSED
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()

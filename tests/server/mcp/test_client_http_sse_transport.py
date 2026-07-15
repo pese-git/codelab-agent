@@ -15,6 +15,7 @@ from _protocol_factory import build_protocol
 
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState
 from codelab.server.mcp.models import MCPServerConfig
+from codelab.server.mcp.transport_factory import MCPTransport
 from codelab.server.protocol.handlers import auth
 from codelab.shared.messages import ACPMessage
 
@@ -34,7 +35,7 @@ class TestMCPClientTransportFactory:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()
@@ -54,7 +55,7 @@ class TestMCPClientTransportFactory:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()
@@ -73,7 +74,7 @@ class TestMCPClientTransportFactory:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()
@@ -113,7 +114,7 @@ class TestMCPClientDisconnect:
         client = MCPClient(config)
 
         # Создаём mock с единым интерфейсом close()
-        mock_transport = AsyncMock()
+        mock_transport = AsyncMock(spec=MCPTransport)
         mock_transport.close = AsyncMock()
         client._transport = mock_transport
         client._state = MCPClientState.READY
@@ -134,7 +135,7 @@ class TestMCPClientDisconnect:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()
@@ -154,7 +155,7 @@ class TestMCPClientDisconnect:
         client = MCPClient(config)
 
         with patch("codelab.server.mcp.client.TransportFactory") as mock_factory:
-            mock_transport = AsyncMock()
+            mock_transport = AsyncMock(spec=MCPTransport)
             mock_factory.create.return_value = mock_transport
 
             await client.connect()

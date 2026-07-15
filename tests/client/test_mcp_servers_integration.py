@@ -6,6 +6,7 @@ import pytest
 
 from codelab.client.application.dto import CreateSessionRequest, LoadSessionRequest
 from codelab.client.application.use_cases import CreateSessionUseCase
+from codelab.client.domain.services import TransportService
 
 # ===========================================================================
 # CreateSessionRequest
@@ -75,7 +76,7 @@ class TestCreateSessionUseCaseMcpServers:
 
     @pytest.fixture
     def transport(self) -> AsyncMock:
-        mock = AsyncMock()
+        mock = AsyncMock(spec=TransportService)
         mock.is_initialized.return_value = True
         mock.is_connected.return_value = True
         mock.get_server_capabilities.return_value = {}
@@ -166,7 +167,7 @@ class TestSessionCoordinatorMcpServers:
         """SessionCoordinator должен передавать mcp_servers в CreateSessionRequest."""
         from codelab.client.application.session_coordinator import SessionCoordinator
 
-        transport = AsyncMock()
+        transport = AsyncMock(spec=TransportService)
         transport.is_initialized.return_value = True
         transport.is_connected.return_value = True
         transport.get_server_capabilities.return_value = {}
@@ -208,7 +209,7 @@ class TestSessionCoordinatorMcpServers:
         """SessionCoordinator должен работать без mcp_servers."""
         from codelab.client.application.session_coordinator import SessionCoordinator
 
-        transport = AsyncMock()
+        transport = AsyncMock(spec=TransportService)
         transport.is_initialized.return_value = True
         transport.is_connected.return_value = True
         transport.get_server_capabilities.return_value = {}
