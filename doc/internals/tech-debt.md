@@ -22,8 +22,8 @@
 | Метрика | Значение (2026-06) | Значение (2026-07) | Цель |
 |---------|--------------------|--------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ (цель достигнута) | >= 85% |
-| Cyclomatic complexity (max) | 30 | guardrail `C901` 20 → **11** 🟡 (ruff-mccabe; все блоки >11 сняты, 2026-07-15) | <= 10 |
-| Блоков со сложностью > 10 (ruff-mccabe) | — | 21 → **9** 🟡 (остаток — ровно 11) | 0 |
+| Cyclomatic complexity (max) | 30 | guardrail `C901` 20 → **10** ✅ (ruff-mccabe; целевой порог, 2026-07-15) | <= 10 |
+| Блоков со сложностью > 10 (ruff-mccabe) | — | 21 → **0** ✅ | 0 |
 | Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | **0** ✅ (P0-3 закрыт: оба класса → `error`-guardrail, 0 unraisable; узкий ignore лишь для textual-внутренних) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
@@ -54,11 +54,16 @@
 
 ---
 
-### 2. Снизить цикломатическую сложность — 🟡 В РАБОТЕ (guardrail C901: 20 → **11**, 2026-07-15)
+### 2. Снизить цикломатическую сложность — ✅ ЗАКРЫТО (guardrail C901 = **10**, 2026-07-15)
 
-> **Прогресс 2026-07-15 (ruff-mccabe, фактический enforced-механизм):** декомпозированы все
-> блоки сложности >11 (12 функций за 2 батча). Guardrail `C901` затянут 20 → 12 → **11**.
-> Остаток — **9 блоков ровно сложности 11**; после их снятия порог опускается до целевого 10.
+> **P0-2 закрыт 2026-07-15 (ruff-mccabe, фактический enforced-механизм):** декомпозирован
+> **21 блок** сложности >10 (за 3 батча: >12, затем 12, затем 11). Guardrail `C901` затянут
+> 20 → 12 → 11 → **10** (целевой). Глобально **0 блоков >10**; регресс сложности теперь
+> ловится в `make check`/CI. Последний батч (9 блоков сложности 11): `stdio.run`,
+> `session_load`, `handle_pending_response`, `file_cache_decorator.execute`,
+> `_wait_for_response_with_events`, `build_prompt_callbacks`, `subscribe_to_view_model`,
+> `tool_panel.apply_update`, `sidebar._render_text`. Все тела перенесены/сгруппированы по
+> когезии (местами дедуп), поведение сохранено, `make check` зелёный (7313).
 > Снятые: `_initialize_mcp_servers` (18), `validate_prompt_content` (17), `run_stdio_server` (16),
 > `resolve/extract_prompt_directives` (16/15), `_read_sse_loop` (14), `to_domain` (13),
 > `_complete_deferred_prompt` ×2 (12), `config.load` (12), `_convert_to_llm_messages` (12),
@@ -185,11 +190,8 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 - [x] Включить промежуточный guardrail `C901` (max-complexity=20) + снизить `run_stdio_server` (21→16)
 - [x] Затянуть guardrail `C901` 20 → 12 (сняты все блоки >12: 7 функций, 2026-07-15)
 - [x] Затянуть guardrail `C901` 12 → 11 (сняты все блоки >11: ещё 5 функций, 2026-07-15)
-- [ ] Снять оставшиеся **9 блоков сложности 11** (по ruff-mccabe):
-      `stdio.run`, `session_load`, `handle_pending_response`, `file_cache_decorator.execute`,
-      `subscribe_to_view_model`, `tool_panel.apply_update`, `sidebar._render_text`,
-      `build_prompt_callbacks`, `_wait_for_response_with_events`
-- [ ] После снятия — затянуть `C901` `max-complexity = 10` (целевой порог, предотвращает регресс)
+- [x] Снять оставшиеся 9 блоков сложности 11 (2026-07-15)
+- [x] Затянуть `C901` `max-complexity = 10` (целевой порог достигнут, 0 блоков >10)
 
 **Оценка:** 2 дня
 **Критерий приемки:** max сложность <= 10 (или согласованный порог), все тесты проходят
@@ -881,7 +883,7 @@ method=llm`). Для моделей без надёжного structured-output 
 | Метрика | Было (2026-06) | Сейчас (2026-07) | Цель |
 |---------|----------------|------------------|------|
 | Покрытие тестами | 77% | **96%** ✅ | >= 85% |
-| Max cyclomatic complexity | 30 | guardrail `C901` 20 → **11** 🟡 (ruff-mccabe) | <= 10 |
+| Max cyclomatic complexity | 30 | guardrail `C901` 20 → **10** ✅ (ruff-mccabe, целевой) | <= 10 |
 | Файлов > 1000 строк | 6 | **1** 🟡 (оправданно крупный `messages.py`) | 0 |
 | Warnings в тестах | 62 | **0** ✅ (оба класса → `error`-guardrail, 0 unraisable) | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
