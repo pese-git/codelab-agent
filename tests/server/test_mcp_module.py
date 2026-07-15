@@ -440,7 +440,7 @@ class TestMCPManager:
         manager = MCPManager("session_123")
 
         # Создаём mock клиент
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -464,7 +464,7 @@ class TestMCPManager:
         """Проверяет ошибку при добавлении существующего сервера."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -487,7 +487,7 @@ class TestMCPManager:
         """Проверяет успешное удаление MCP сервера."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -521,7 +521,7 @@ class TestMCPManager:
         """Проверяет получение всех инструментов."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -546,7 +546,7 @@ class TestMCPManager:
         """Проверяет, что shutdown закрывает все серверы."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
