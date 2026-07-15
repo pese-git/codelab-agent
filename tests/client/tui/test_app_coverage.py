@@ -64,6 +64,17 @@ from codelab.client.tui.components.command_palette import Command
 from codelab.client.tui.config import TUIConfig
 
 
+def _close_coro(coro: Any, **_kwargs: Any) -> None:
+    """side_effect для мока run_worker: закрыть переданную корутину.
+
+    В проде run_worker планирует и исполняет корутину; в тестах с мокнутым
+    run_worker корутина иначе утекает незавершённой и порождает order-dependent
+    RuntimeWarning "coroutine was never awaited".
+    """
+    if hasattr(coro, "close"):
+        coro.close()
+
+
 @contextmanager
 def _patched_app(
     *,
@@ -1009,7 +1020,9 @@ class TestACPClientAppAdditionalCoverage:
                 await pilot.pause()
                 modal = app.screen
                 assert isinstance(modal, ModelSelectorModal)
-                with patch.object(app, "run_worker"):
+                # run_worker в проде потребляет корутину execute(); в тесте закрываем её
+                # сами, иначе она утекает и даёт order-dependent "coroutine never awaited".
+                with patch.object(app, "run_worker", side_effect=_close_coro):
                     modal.dismiss("openai/gpt-4o")
                     await pilot.pause()
                     await pilot.pause()
@@ -1049,7 +1062,8 @@ class TestACPClientAppAdditionalCoverage:
 
                 modal = app.screen
                 assert isinstance(modal, ConfigOptionSelectorModal)
-                with patch.object(app, "run_worker"):
+                # см. комментарий в test_select_model_callback_selected: закрываем корутину.
+                with patch.object(app, "run_worker", side_effect=_close_coro):
                     modal.dismiss("code")
                     await pilot.pause()
                     await pilot.pause()

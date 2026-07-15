@@ -25,7 +25,7 @@
 | Cyclomatic complexity (max) | 30 | 51 → **20** 🟡 (13 топ-нарушителей разбиты; D-блоков ≥21 нет) | <= 10 |
 | Блоков со сложностью > 10 | — | 72 → 71 → **60** | 0 |
 | Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
-| Warnings в тестах | 62 | 0 в выводе, но 3 класса **подавлены** `filterwarnings` (см. P0-3) | 0 |
+| Warnings в тестах | 62 | 0 в выводе; 3a закрыт (`coroutine never awaited` → `error`-guardrail); остаётся `PytestUnraisableExceptionWarning` под `ignore` (order-dependent subprocess, см. P0-3) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
 | Нерешенных TODO | 2 | 2 | 0 |
 | Тестов | 3974 | **7297** | — |
@@ -198,20 +198,33 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 >     "ignore:coroutine.*SearchInput:RuntimeWarning",
 > ]
 > ```
-> **Остаток 3a** (`coroutine was never awaited` — AsyncMock в тестах): починить
-> источники, затем перевести оба фильтра в `error` как guardrail. 3b (неверный
-> `@pytest.mark.asyncio`) при `asyncio_mode = "auto"` не всплывает.
+> **3a ЗАКРЫТО (2026-07-15):** источник холостых корутин найден и устранён, фильтр
+> `coroutine.*was never awaited` переведён в `error` (guardrail). 3b при
+> `asyncio_mode = "auto"` не всплывает. Остаётся только `PytestUnraisableExceptionWarning`
+> под `ignore` из-за одного order-dependent subprocess-unraisable (см. ниже).
 
-#### 3a. RuntimeWarning: coroutine was never awaited (40+ случаев)
+#### 3a. RuntimeWarning: coroutine was never awaited — ✅ ЗАКРЫТО (2026-07-15)
 
-AsyncMock возвращает корутины, которые не awaited в коде. Проблема в тестах, где мокируются async-методы.
+> Диагноз при проявлении фильтров (`-W always:coroutine...` + `-X tracemalloc`): единственный
+> реальный источник в текущем suite — **не** AsyncMock, а `ObservableCommand.execute()` в
+> TUI-тестах. `ModalController.open_model_selector`/`open_config_option` передают корутину
+> `execute()` в `app.run_worker` (в проде worker её исполняет). В тестах
+> `test_select_model_callback_selected` / `test_config_option_callback_selected`
+> `run_worker` мокался пустым `MagicMock` → корутина утекала незавершённой и всплывала как
+> order-dependent `PytestUnraisableExceptionWarning` (GC в чужом loop).
+>
+> **Фикс:** мок `run_worker` получил `side_effect=_close_coro` — закрывает переданную
+> корутину (эмулирует потребление). После фикса в полном проявляющем прогоне корутинных
+> `never awaited` — **0**. Фильтр переведён `ignore → error` (`pyproject.toml`); 2 полных
+> прогона `make check` подряд зелёные (7313 тестов), флака нет.
 
 **Задачи:**
-- [ ] Пройтись по всем тестам с `AsyncMock` и добавить `await` или использовать `return_value` вместо `side_effect`
-- [ ] Проверить `use_cases.py:209,215` — `is_initialized()`, `is_connected()`
-- [ ] Проверить `mcp/client.py:274,283` — `register_notification_handler`, `register_request_handler`
-- [ ] Проверить `mcp/manager.py:445-459` — `register_handler`, `register_progress_callback`
-- [ ] Проверить `protocol/core.py:1809,1827,1954` — `mcp_prompt_handlers`
+- [x] Найти реальный источник холостых корутин (оказался `ObservableCommand.execute` в TUI-тестах, не AsyncMock)
+- [x] Закрыть корутину в мокнутом `run_worker` (`_close_coro`)
+- [x] Перевести фильтр `coroutine.*was never awaited` в `error` как guardrail
+- [ ] Остаток: order-dependent subprocess-unraisable (`BaseSubprocessTransport.__del__` →
+      `Event loop is closed`) при межкаталожном порядке client+server — блокирует флип
+      `PytestUnraisableExceptionWarning` в `error` (семейство P0-3c, не 3a)
 
 **Оценка:** 0.5 дня
 

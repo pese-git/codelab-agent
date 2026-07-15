@@ -98,12 +98,17 @@ pythonpath = ["src", "tests/server"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
-    # P11 (unretrieved future в client_rpc) и P0-3c (teardown subprocess) исправлены.
-    # Флаг оставлен `ignore`, а не `error`: в suite остаются order-dependent unraisable
-    # из других тестов (AsyncMock-корутины и пр., см. P0-3a) — глобальный `error` даёт
-    # флаки. Перевод в `error` — отдельная итерация P0-3 после чистки этих источников.
+    # P0-3a: источник холостых корутин (ObservableCommand.execute через мокнутый
+    # run_worker в TUI-тестах) исправлен — фильтр "never awaited" переведён в `error`
+    # как guardrail против регресса (прямая эмиссия ловится немедленно).
+    "error:coroutine.*was never awaited:RuntimeWarning",
+    # PytestUnraisableExceptionWarning оставлен `ignore`: в полном suite остаётся один
+    # order-dependent subprocess-unraisable (`BaseSubprocessTransport.__del__` →
+    # `Event loop is closed`), возникающий только при межкаталожном порядке
+    # client+server (по отдельности каждый набор чист) — семейство P0-3c. Глобальный
+    # `error` дал бы флаки. Перевод в `error` — после устранения этого GC-артефакта.
     "ignore::pytest.PytestUnraisableExceptionWarning",
-    "ignore:coroutine.*was never awaited:RuntimeWarning",
+    # Внутренние RuntimeWarning самого textual (не наши источники).
     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
     "ignore:coroutine.*SearchInput:RuntimeWarning",
 ]
