@@ -142,13 +142,14 @@ class TestContextMenuItem:
         assert len(posted) == 1
         assert posted[0].item is item
 
-    def test_on_click_disabled(self) -> None:
+    async def test_on_click_disabled(self) -> None:
         """Клик по отключённому пункту не отправляет Selected."""
         item = MenuItem(id="test", label="Test", disabled=True)
         widget = ContextMenuItem(item)
         posted: list[ContextMenuItem.Selected] = []
         widget.post_message = posted.append
-        widget.on_click()
+        # on_click — async; awaited, иначе корутина утекает незавершённой (P0-3a).
+        await widget.on_click()
         assert len(posted) == 0
 
 

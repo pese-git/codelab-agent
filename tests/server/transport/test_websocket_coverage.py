@@ -254,7 +254,9 @@ class TestWebSocketTransportRunCleanup:
         """При disconnect отменяются отложенные deferred prompt-задачи."""
         protocol = _make_protocol()
         protocol.should_auto_complete_active_turn = AsyncMock(return_value=True)
-        protocol.complete_active_turn = AsyncMock(side_effect=asyncio.sleep(60))
+        # side_effect — фабрика корутин, а не готовая asyncio.sleep(60): иначе
+        # единственная корутина создаётся сразу и утекает незавершённой (P0-3a).
+        protocol.complete_active_turn = AsyncMock(side_effect=lambda *_a, **_k: asyncio.sleep(60))
 
         deferred_created = asyncio.Event()
         ws = _make_connection([])

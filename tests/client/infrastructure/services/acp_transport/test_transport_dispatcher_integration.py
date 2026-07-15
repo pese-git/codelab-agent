@@ -14,6 +14,7 @@ from codelab.client.infrastructure.services.acp_transport_service import (
     ACPTransportService,
 )
 from codelab.client.infrastructure.services.routing_queues import RoutingQueues
+from codelab.client.infrastructure.transport import WebSocketTransport
 
 
 class MockRpcHandler:
@@ -37,7 +38,7 @@ class TestACPTransportServiceWithDispatcher:
 
     @pytest.fixture
     def mock_transport(self) -> AsyncMock:
-        transport = AsyncMock()
+        transport = AsyncMock(spec=WebSocketTransport)
         transport.is_connected.return_value = True
         transport.send_str = AsyncMock()
         return transport

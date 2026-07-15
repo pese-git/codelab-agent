@@ -279,10 +279,14 @@ class TestStdioTransportClose:
         process = _mock_stdio_process()
         transport._process = process
 
-        with patch(
-            "asyncio.wait_for",
-            side_effect=[TimeoutError, TimeoutError],
-        ):
+        def _timeout(coro: object, *_a: object, **_k: object) -> None:
+            # Закрываем переданную process.wait()-корутину, иначе она утекает
+            # незавершённой (замоканный wait_for её не awaited) → unraisable (P0-3a).
+            if hasattr(coro, "close"):
+                coro.close()
+            raise TimeoutError
+
+        with patch("asyncio.wait_for", side_effect=_timeout):
             await transport.close()
 
         process.terminate.assert_called_once()
