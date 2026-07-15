@@ -424,47 +424,10 @@ class StdioServerTransport:
         try:
             # Небольшая задержка — окно для входящего session/cancel
             await asyncio.sleep(_DEFERRED_PROMPT_GUARD_DELAY)
-
-            response: ACPMessage | None = None
-            try:
-                if self._complete_active_turn is not None:
-                    response = await self._complete_active_turn(session_id, "end_turn")
-            except Exception as exc:
-                sess_logger.error(
-                    "deferred prompt completion error",
-                    error=str(exc),
-                    exc_info=True,
-                )
-                response = None
-
-            if response is not None and not self._closed:
-                try:
-                    await self.send(response)
-                    sess_logger.info("deferred prompt completed successfully")
-                except Exception as exc:
-                    sess_logger.error(
-                        "deferred prompt send error",
-                        error=str(exc),
-                        exc_info=True,
-                    )
-            elif self._closed:
-                sess_logger.debug("deferred prompt skipped (transport closed)")
-            else:
-                sess_logger.debug("deferred prompt skipped (no response)")
-
+            await self._emit_deferred_completion(session_id, sess_logger)
         except asyncio.CancelledError:
             sess_logger.info("deferred prompt cancelled by client")
-            try:
-                if self._load_pending_prompt_response is not None:
-                    response = await self._load_pending_prompt_response(session_id)
-                    if response is not None and not self._closed:
-                        await self.send(response)
-                        sess_logger.info("deferred prompt cancelled response sent")
-            except Exception as exc:
-                sess_logger.debug(
-                    "deferred prompt cancelled response error",
-                    error=str(exc),
-                )
+            await self._emit_deferred_cancel_response(session_id, sess_logger)
             return
         except Exception as exc:
             sess_logger.error(
@@ -476,6 +439,38 @@ class StdioServerTransport:
             removed = self._deferred_prompt_tasks.pop(session_id, None)
             if removed is not None:
                 sess_logger.debug("deferred prompt task removed from tracking")
+
+    async def _emit_deferred_completion(self, session_id: str, sess_logger: Any) -> None:
+        """Штатное завершение turn: вычислить финальный response и отправить его."""
+        response: ACPMessage | None = None
+        try:
+            if self._complete_active_turn is not None:
+                response = await self._complete_active_turn(session_id, "end_turn")
+        except Exception as exc:
+            sess_logger.error("deferred prompt completion error", error=str(exc), exc_info=True)
+            response = None
+
+        if response is not None and not self._closed:
+            try:
+                await self.send(response)
+                sess_logger.info("deferred prompt completed successfully")
+            except Exception as exc:
+                sess_logger.error("deferred prompt send error", error=str(exc), exc_info=True)
+        elif self._closed:
+            sess_logger.debug("deferred prompt skipped (transport closed)")
+        else:
+            sess_logger.debug("deferred prompt skipped (no response)")
+
+    async def _emit_deferred_cancel_response(self, session_id: str, sess_logger: Any) -> None:
+        """Путь отмены: достать pending_prompt_response и отправить, если возможно."""
+        try:
+            if self._load_pending_prompt_response is not None:
+                response = await self._load_pending_prompt_response(session_id)
+                if response is not None and not self._closed:
+                    await self.send(response)
+                    sess_logger.info("deferred prompt cancelled response sent")
+        except Exception as exc:
+            sess_logger.debug("deferred prompt cancelled response error", error=str(exc))
 
     async def _cleanup_background_tasks(self) -> None:
         """Отменяет и ждёт завершения всех фоновых задач.

@@ -510,72 +510,18 @@ class AppConfig(BaseSettings):
 
         if toml_files:
             toml_data = cls._load_merged_toml_data(toml_files)
-            llm_data = cls._merge_llm_config(toml_data)
+            llm_config = cls._build_llm_config(cls._merge_llm_config(toml_data))
 
-            # Создаём LLMConfig из merged данных
-            # Нужно сконвертировать providers и fallback из dict в объекты
-            providers_data = llm_data.pop("providers", {})
-            fallback_data = llm_data.pop("fallback", {})
-
-            # Конвертируем providers
-            providers: dict[str, ProviderConfig] = {}
-            if isinstance(providers_data, dict):
-                for pid, pdata in providers_data.items():
-                    if isinstance(pdata, dict):
-                        providers[pid] = ProviderConfig(**pdata)
-
-            # Конвертируем fallback
-            if isinstance(fallback_data, dict):
-                fallback = FallbackConfig(**fallback_data)
-            else:
-                fallback = FallbackConfig()
-
-            llm_config = LLMConfig(
-                **llm_data,
-                providers=providers,
-                fallback=fallback,
-            )
-
-            # Загружаем observability конфигурацию из TOML
             observability_data = toml_data.get("observability", {})
             if isinstance(observability_data, dict):
                 observability_config = ObservabilityConfig(**observability_data)
             else:
                 observability_config = ObservabilityConfig()
 
-            # Загружаем agents конфигурацию из TOML
-            agents_data = toml_data.get("agents", {})
-            if isinstance(agents_data, dict):
-                # Загружаем Context Manager конфигурацию из [agents.context]
-                from codelab.server.agent.context.config_loader import load_context_config
-
-                context_data = agents_data.pop("context", {})
-                context_config = load_context_config({"agents": {"context": context_data}})
-                agents_config = AgentsConfig(context=context_config, **agents_data)
-            else:
-                agents_config = AgentsConfig()
+            agents_config = cls._build_agents_config(toml_data.get("agents", {}))
         else:
             # Без TOML — только env vars + defaults
-            llm_data = cls._merge_llm_config({})
-            providers_data = llm_data.pop("providers", {})
-            fallback_data = llm_data.pop("fallback", {})
-
-            providers: dict[str, ProviderConfig] = {}
-            if isinstance(providers_data, dict):
-                for pid, pdata in providers_data.items():
-                    if isinstance(pdata, dict):
-                        providers[pid] = ProviderConfig(**pdata)
-
-            if isinstance(fallback_data, dict):
-                fallback = FallbackConfig(**fallback_data)
-            else:
-                fallback = FallbackConfig()
-
-            llm_config = LLMConfig(
-                **llm_data,
-                providers=providers,
-                fallback=fallback,
-            )
+            llm_config = cls._build_llm_config(cls._merge_llm_config({}))
             observability_config = ObservabilityConfig()
             agents_config = AgentsConfig()
 
@@ -584,6 +530,36 @@ class AppConfig(BaseSettings):
             agents=agents_config,
             observability=observability_config,
         )
+
+    @classmethod
+    def _build_llm_config(cls, llm_data: dict[str, Any]) -> LLMConfig:
+        """Собирает LLMConfig из merged-данных, конвертируя providers/fallback."""
+        providers_data = llm_data.pop("providers", {})
+        fallback_data = llm_data.pop("fallback", {})
+
+        providers: dict[str, ProviderConfig] = {}
+        if isinstance(providers_data, dict):
+            for pid, pdata in providers_data.items():
+                if isinstance(pdata, dict):
+                    providers[pid] = ProviderConfig(**pdata)
+
+        if isinstance(fallback_data, dict):
+            fallback = FallbackConfig(**fallback_data)
+        else:
+            fallback = FallbackConfig()
+
+        return LLMConfig(**llm_data, providers=providers, fallback=fallback)
+
+    @classmethod
+    def _build_agents_config(cls, agents_data: Any) -> AgentsConfig:
+        """Собирает AgentsConfig из TOML-секции [agents] (+ вложенный [agents.context])."""
+        if not isinstance(agents_data, dict):
+            return AgentsConfig()
+        from codelab.server.agent.context.config_loader import load_context_config
+
+        context_data = agents_data.pop("context", {})
+        context_config = load_context_config({"agents": {"context": context_data}})
+        return AgentsConfig(context=context_config, **agents_data)
 
     @classmethod
     def from_env(cls) -> AppConfig:

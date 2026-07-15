@@ -15,7 +15,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from aiohttp import WSMsgType
@@ -677,59 +677,10 @@ class WebSocketTransport(AcpServerTransport):
         try:
             # Небольшая задержка оставляет окно для входящего `session/cancel`
             await asyncio.sleep(0.05)
-
-            try:
-                response = await protocol.complete_active_turn(session_id, stop_reason="end_turn")
-            except TimeoutError:
-                conn_logger.warning(
-                    "deferred prompt completion timeout",
-                    timeout_sec=DEFERRED_PROMPT_TIMEOUT,
-                )
-                response = None
-            except Exception as exc:
-                conn_logger.error(
-                    "deferred prompt completion error",
-                    error=str(exc),
-                    exc_info=True,
-                )
-                response = None
-
-            # Отправляем response если он есть и соединение ещё живо
-            if response is not None and not self._connection.closed:
-                try:
-                    await self._connection.send_str(response.to_json())
-                    conn_logger.info("deferred prompt completed successfully")
-                except Exception as exc:
-                    conn_logger.error(
-                        "deferred prompt send error",
-                        error=str(exc),
-                        exc_info=True,
-                    )
-            elif self._connection.closed:
-                conn_logger.debug("deferred prompt skipped (websocket closed)")
-            else:
-                conn_logger.debug("deferred prompt skipped (no response)")
-
+            await self._emit_deferred_completion(protocol, session_id, conn_logger)
         except asyncio.CancelledError:
             conn_logger.info("deferred prompt cancelled by client")
-            try:
-                session = await protocol._storage.load_session(session_id)
-                if session is not None and session.pending_prompt_response is not None:
-                    prompt_resp = session.pending_prompt_response
-                    response = ACPMessage.response(
-                        prompt_resp["request_id"],
-                        {"stopReason": prompt_resp["stop_reason"]},
-                    )
-                    session.pending_prompt_response = None
-                    await protocol._storage.save_session(session)
-                    if not self._connection.closed:
-                        await self._connection.send_str(response.to_json())
-                        conn_logger.info("deferred prompt cancelled response sent")
-            except Exception as exc:
-                conn_logger.debug(
-                    "deferred prompt cancelled response error",
-                    error=str(exc),
-                )
+            await self._emit_deferred_cancel_response(protocol, session_id, conn_logger)
             return
         except Exception as exc:
             conn_logger.error(
@@ -741,3 +692,50 @@ class WebSocketTransport(AcpServerTransport):
             removed = deferred_prompt_tasks.pop(session_id, None)
             if removed is not None:
                 conn_logger.debug("deferred prompt task removed from tracking")
+
+    async def _emit_deferred_completion(
+        self, protocol: ACPProtocol, session_id: str, conn_logger: Any
+    ) -> None:
+        """Штатное завершение turn: вычислить финальный response и отправить его."""
+        try:
+            response = await protocol.complete_active_turn(session_id, stop_reason="end_turn")
+        except TimeoutError:
+            conn_logger.warning(
+                "deferred prompt completion timeout",
+                timeout_sec=DEFERRED_PROMPT_TIMEOUT,
+            )
+            response = None
+        except Exception as exc:
+            conn_logger.error("deferred prompt completion error", error=str(exc), exc_info=True)
+            response = None
+
+        if response is not None and not self._connection.closed:
+            try:
+                await self._connection.send_str(response.to_json())
+                conn_logger.info("deferred prompt completed successfully")
+            except Exception as exc:
+                conn_logger.error("deferred prompt send error", error=str(exc), exc_info=True)
+        elif self._connection.closed:
+            conn_logger.debug("deferred prompt skipped (websocket closed)")
+        else:
+            conn_logger.debug("deferred prompt skipped (no response)")
+
+    async def _emit_deferred_cancel_response(
+        self, protocol: ACPProtocol, session_id: str, conn_logger: Any
+    ) -> None:
+        """Путь отмены: достать pending_prompt_response из хранилища и отправить."""
+        try:
+            session = await protocol._storage.load_session(session_id)
+            if session is not None and session.pending_prompt_response is not None:
+                prompt_resp = session.pending_prompt_response
+                response = ACPMessage.response(
+                    prompt_resp["request_id"],
+                    {"stopReason": prompt_resp["stop_reason"]},
+                )
+                session.pending_prompt_response = None
+                await protocol._storage.save_session(session)
+                if not self._connection.closed:
+                    await self._connection.send_str(response.to_json())
+                    conn_logger.info("deferred prompt cancelled response sent")
+        except Exception as exc:
+            conn_logger.debug("deferred prompt cancelled response error", error=str(exc))
