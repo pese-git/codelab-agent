@@ -25,3 +25,8 @@ class TestOllamaProvider:
     def test_default_model(self, provider: OllamaProvider) -> None:
         """Default model must be 'llama3.1:8b'."""
         assert provider._default_model == "llama3.1:8b"
+
+    def test_structured_output_unsupported(self, provider: OllamaProvider) -> None:
+        """Ollama does not guarantee structured output (P2-15)."""
+        assert provider.capabilities.supports_structured_output is False
+        assert provider.capabilities.supports_tools is True

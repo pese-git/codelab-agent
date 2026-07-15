@@ -49,6 +49,11 @@ class LLMCapabilities:
         supports_vision: Поддерживает ли изображения
         supports_audio: Поддерживает ли аудио
         supports_system_prompt: Поддерживает ли system prompt
+        supports_structured_output: Гарантирует ли провайдер валидный JSON-ответ
+            (response_format=json / structured output). Локальные бэкенды
+            (LM Studio, Ollama) этого не гарантируют — потребителям структурированного
+            вывода (напр. TaskAnalyzer) следует не тратить LLM-вызов, а сразу
+            использовать эвристику.
         max_context_window: Максимальный размер контекста (токены)
         max_output_tokens: Максимальное количество выходных токенов
     """
@@ -59,6 +64,7 @@ class LLMCapabilities:
     supports_vision: bool = False
     supports_audio: bool = False
     supports_system_prompt: bool = True
+    supports_structured_output: bool = True
     max_context_window: int | None = None
     max_output_tokens: int | None = None
 

@@ -4,6 +4,7 @@ import pytest
 
 from codelab.server.agent.context.manager import DefaultContextManager
 from codelab.server.agent.context.models import ContextConfig
+from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
 
 
@@ -35,6 +36,14 @@ class MockLLMForManager:
 
     def __init__(self, response_text: str) -> None:
         self._response_text = response_text
+
+    @property
+    def name(self) -> str:
+        return "mock"
+
+    @property
+    def capabilities(self) -> LLMCapabilities:
+        return LLMCapabilities(supports_structured_output=True)
 
     async def create_completion(self, request):
         return CompletionResponse(

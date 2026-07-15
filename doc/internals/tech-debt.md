@@ -563,10 +563,24 @@ error-каскад ретраев с backoff, роняя `session/load`.
 
 ---
 
-### 15. TaskAnalyzer: холостой LLM-вызов на моделях без JSON-mode — 🟡 ОТКРЫТО (2026-07-13)
+### 15. TaskAnalyzer: холостой LLM-вызов на моделях без JSON-mode — ✅ ЗАКРЫТО (2026-07-15)
 
-> Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs`, локальный
-> `lmstudio/qwen3.6-35b`). Предупреждение `context.task_analyze.parse.no_json_found`
+> ✅ Фикс (2026-07-15): введена честная capability `LLMCapabilities.supports_structured_output`
+> (default `True` — поведение облачных провайдеров не меняется). Локальные бэкенды без
+> гарантии `response_format=json` — `LMStudioProvider` и `OllamaProvider` — переопределяют
+> её в `False` через `dataclasses.replace(super().capabilities, ...)` (DRY, прочие
+> возможности сохраняются). `LLMBasedTaskAnalyzer.analyze` перед LLM-вызовом проверяет
+> `self._llm.capabilities.supports_structured_output`: если `False` — сразу эвристика
+> (`method=heuristic_no_structured_output`, лог уровня `info` как штатный сценарий), без
+> холостого ~7-сек вызова. Тесты: пропуск LLM-вызова (`create_completion_calls == 0`),
+> вызов при поддержке, capability lmstudio/ollama. 7313 тестов зелёные.
+>
+> Выбран вариант «пропускать LLM-анализ для провайдеров без JSON-mode» (переподтверждённый
+> приоритет из наблюдений на 35B) вместо ужесточения промпта — корень в отсутствии
+> гарантии structured output у локального провайдера, а не в размере модели.
+
+> **Исходный контекст.** Обнаружено при анализе логов реальной stdio-сессии
+> (`~/.codelab/logs`, локальный `lmstudio/qwen3.6-35b`). Предупреждение `context.task_analyze.parse.no_json_found`
 > `fallback_to=heuristic` возникает **на каждом** анализе задачи (14× за сессию):
 > модель не возвращает валидный JSON, `response_preview` пуст.
 
@@ -583,13 +597,16 @@ method=llm`). Для моделей без надёжного structured-output 
 > а не пытаться ужесточать промпт.
 
 **Задачи:**
-- [ ] Ужесточить JSON-промпт / включить structured output (response_format=json) там, где провайдер поддерживает
-- [ ] Либо пропускать LLM-анализ (сразу эвристика) для моделей/провайдеров без JSON-mode
-- [ ] Понизить уровень лога до `debug`, если fallback — штатный сценарий для класса моделей
+- [x] Пропускать LLM-анализ (сразу эвристика) для провайдеров без structured output
+      (`supports_structured_output=False`: lmstudio, ollama) — 2026-07-15
+- [x] Ввести capability `supports_structured_output` (default True для облачных провайдеров)
+- [x] Логировать пропуск как штатный сценарий (`info`, `method=heuristic_no_structured_output`)
+- [ ] Опционально: включить `response_format=json` для провайдеров с поддержкой (ортогональное
+      улучшение — сейчас такие провайдеры и так идут по LLM-пути с ручным парсингом JSON)
 
 **Оценка:** 0.5 дня
 **Критерий приемки:** нет холостых LLM-вызовов TaskAnalyzer для моделей без JSON-mode;
-латентность `context.build` для локальных моделей снижена.
+латентность `context.build` для локальных моделей снижена. ✅ Достигнуто.
 
 ---
 

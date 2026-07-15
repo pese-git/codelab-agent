@@ -5,7 +5,9 @@ OpenAI-compatible провайдер для локального LM Studio API.
 
 from __future__ import annotations
 
-from codelab.server.llm.base import LLMConfig
+from dataclasses import replace
+
+from codelab.server.llm.base import LLMCapabilities, LLMConfig
 from codelab.server.llm.providers.openai_compatible import OpenAICompatibleProvider
 
 
@@ -30,6 +32,11 @@ class LMStudioProvider(OpenAICompatibleProvider):
     def name(self) -> str:
         """Имя провайдера."""
         return "lmstudio"
+
+    @property
+    def capabilities(self) -> LLMCapabilities:
+        """LM Studio не гарантирует structured output (response_format=json)."""
+        return replace(super().capabilities, supports_structured_output=False)
 
     async def initialize(self, config: LLMConfig) -> None:
         """Инициализировать провайдер.

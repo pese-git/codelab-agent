@@ -86,6 +86,7 @@ class OpenAICompatibleProvider(LLMProvider):
             supports_vision=True,
             supports_audio=True,
             supports_system_prompt=True,
+            supports_structured_output=True,
         )
 
     async def initialize(self, config: LLMConfig) -> None:

@@ -34,6 +34,7 @@ from codelab.server.agent.context.models import (
     TaskProfile,
     TaskType,
 )
+from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
 from codelab.server.tools.base import ToolExecutionResult
 
@@ -107,6 +108,14 @@ class MockLLMProvider:
 
     def __init__(self, response_text: str) -> None:
         self._response_text = response_text
+
+    @property
+    def name(self) -> str:
+        return "mock"
+
+    @property
+    def capabilities(self) -> LLMCapabilities:
+        return LLMCapabilities(supports_structured_output=True)
 
     async def create_completion(self, request):
         return CompletionResponse(
