@@ -18,6 +18,26 @@ from codelab.server.mcp.transport import StdioTransportError
 from codelab.server.mcp.transport_factory import MCPTransport
 
 
+def _wait_for_script(*outcomes: object) -> object:
+    """side_effect для мокнутого asyncio.wait_for.
+
+    Закрывает переданную `queue.get()`-корутину (замоканный wait_for её не
+    исполняет → иначе утечка "coroutine was never awaited", P0-3a), затем по
+    очереди возвращает/бросает запланированные результаты.
+    """
+    it = iter(outcomes)
+
+    def _side_effect(coro: object, *_a: object, **_k: object) -> object:
+        if hasattr(coro, "close"):
+            coro.close()  # type: ignore[attr-defined]
+        outcome = next(it)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    return _side_effect
+
+
 @pytest.fixture
 def ready_client() -> MCPClient:
     """Готовый к работе MCPClient с mock-транспортом."""
@@ -229,7 +249,9 @@ class TestMCPClientNotificationHandling:
         client._state = MCPClientState.READY
 
         with patch.object(
-            asyncio, "wait_for", side_effect=[TimeoutError(), asyncio.CancelledError()]
+            asyncio,
+            "wait_for",
+            side_effect=_wait_for_script(TimeoutError(), asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()
@@ -242,7 +264,9 @@ class TestMCPClientNotificationHandling:
         client._state = MCPClientState.READY
 
         with patch.object(
-            asyncio, "wait_for", side_effect=[ValueError("boom"), asyncio.CancelledError()]
+            asyncio,
+            "wait_for",
+            side_effect=_wait_for_script(ValueError("boom"), asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()
@@ -269,7 +293,7 @@ class TestMCPClientNotificationHandling:
         with patch.object(
             asyncio,
             "wait_for",
-            side_effect=[notification, asyncio.CancelledError()],
+            side_effect=_wait_for_script(notification, asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()

@@ -89,6 +89,9 @@ class TestHandleAndProcess:
 
         with patch.object(protocol, "handle", return_value=outcome):
             with patch("asyncio.create_task") as mock_create_task:
+                # Закрываем переданную корутину: create_task замокан и не планирует
+                # её, иначе execute_tool_in_background утекает незавершённой (P0-3a).
+                mock_create_task.side_effect = lambda coro, *a, **k: coro.close()
                 result = await protocol.handle_and_process(ACPMessage.request("session/prompt", {}))
 
         assert result is outcome
