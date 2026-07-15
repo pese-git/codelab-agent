@@ -15,6 +15,7 @@ import pytest
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState
 from codelab.server.mcp.models import MCPServerConfig
 from codelab.server.mcp.transport import StdioTransportError
+from codelab.server.mcp.transport_factory import MCPTransport
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def ready_client() -> MCPClient:
     config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
     client = MCPClient(config)
     client._state = MCPClientState.READY
-    client._transport = AsyncMock()
+    client._transport = AsyncMock(spec=MCPTransport)
     client._capabilities = MagicMock()
     client._capabilities.tools = {}
     client._capabilities.resources = {}

@@ -25,6 +25,7 @@ from codelab.server.mcp.client import (
 )
 from codelab.server.mcp.models import MCPCapabilities, MCPRoot, MCPServerConfig
 from codelab.server.mcp.transport import HttpTransportError, StdioTransportError
+from codelab.server.mcp.transport_factory import MCPTransport
 
 
 class TestMCPClientCallTool:
@@ -36,7 +37,7 @@ class TestMCPClientCallTool:
         config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
         client = MCPClient(config)
         client._state = MCPClientState.READY
-        client._transport = AsyncMock()
+        client._transport = AsyncMock(spec=MCPTransport)
         client._capabilities = MCPCapabilities(tools={})
         return client
 
@@ -122,7 +123,7 @@ class TestMCPClientInitializeErrors:
         config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
         client = MCPClient(config)
         client._state = MCPClientState.CONNECTING
-        client._transport = AsyncMock()
+        client._transport = AsyncMock(spec=MCPTransport)
         return client
 
     @pytest.mark.asyncio
@@ -305,7 +306,7 @@ class TestMCPClientDisconnectCleanup:
         config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
         client = MCPClient(config)
         client._state = MCPClientState.READY
-        client._transport = AsyncMock()
+        client._transport = AsyncMock(spec=MCPTransport)
         client._capabilities = MCPCapabilities(tools={})
         client._tools = [MagicMock()]
 
