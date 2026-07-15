@@ -229,17 +229,30 @@ Residual (осознанно оставлены slightly-over, см. выше): 
       Фикс: фикстура `executor` с teardown для real-subprocess тестов + мок-процесс (без
       реального спавна) для kill/release/cleanup. В проявляющем прогоне subprocess-unraisable
       теперь **0** (2026-07-15).
-- [ ] **Флип `PytestUnraisableExceptionWarning → error` пока НЕ выполнен.** Проявляющий
-      прогон (`-W default::PytestUnraisableExceptionWarning`) вскрыл, что subprocess был не
-      единственным: под маской `ignore` остаётся **~44 order-dependent unraisable** (число
-      скачет между прогонами из-за тайминга GC), из них **28** — `AsyncMockMixin._execute_mock_call`
-      (истинный корень 3a: AsyncMock-корутины, не awaited в тестах), плюс `Queue.get` (×7),
-      `DirectoryTree.watch_path` (×4, textual), `BackgroundExecutor.execute_tool_in_background`,
-      `run_stdio_server`, `MCPPromptCommandHandler._execute_async` и др. Флип требует чистки
-      этой популяции AsyncMock-моков по всему suite — отдельная крупная итерация, оценка
-      занижена (было 0.5 дня).
+- [~] **AsyncMock-популяция — частично вычищена (2026-07-15).** Корень: голый `AsyncMock()`
+      делает sync-методы (`register_handler`/`register_progress_callback` на MCPClient;
+      `register_notification_handler`/`register_request_handler` на `MCPTransport`;
+      `is_connected`/`is_initialized` на транспортах клиента) асинхронными, а прод-код
+      корректно зовёт их без await → корутина `AsyncMockMixin._execute_mock_call` не awaited
+      → order-dependent unraisable при GC. Фикс — `AsyncMock(spec=Class)` (различает sync/async).
+      Вычищено: `MCPClient`-моки (`test_mcp_module.py`, 5), транспорт-моки
+      (`test_mcp_client_coverage.py`/`mcp/test_client_coverage.py`, 4). Проявляющий прогон:
+      AsyncMock-unraisable сокращены (доминирующий кластер снят).
+- [ ] **Флип `PytestUnraisableExceptionWarning → error` пока НЕ выполнен — остаток:**
+      - Ещё AsyncMock-моки (наша гигиена, тот же `spec`-фикс): клиентские транспорт/coordinator
+        (`use_cases.py` is_initialized/is_connected, `acp_transport_service.py` is_connected,
+        `session_coordinator`), `test_mcp_servers_integration.py`, HTTP/SSE transport-моки.
+      - **Неустранимо в нашем коде** (нужен message-scoped `ignore`, не source-fix):
+        `DirectoryTree.watch_path` (textual reactive), `Queue.get` (asyncio-очередь
+        notification-loop при cancel), одиночные `run_stdio_server`/`sleep`/`ContextMenuItem`.
+      - **План флипа (plan A):** дочистить наши AsyncMock-моки через `spec` → добавить
+        message-scoped `ignore:Exception ignored in: <coroutine object (DirectoryTree|Queue)...`
+        для third-party/asyncio → перевести `PytestUnraisableExceptionWarning` в `error`
+        (guardrail для НАШИХ регрессов, толерантно к textual/asyncio). Верификация дорогая
+        (order/GC-зависимая; надёжно только полным прогоном).
 
-**Оценка:** 0.5 дня (сделанное) + ~1–2 дня на AsyncMock-популяцию для флипа фильтра
+**Оценка:** сделано (subprocess + 2 AsyncMock-кластера); остаток на флип — ~1 день
+(дочистка моков по ~5 файлам + message-scoped ignore + флип + стабилизационные прогоны)
 
 #### 3b. PytestWarning: incorrect `@pytest.mark.asyncio` (6 тестов)
 
