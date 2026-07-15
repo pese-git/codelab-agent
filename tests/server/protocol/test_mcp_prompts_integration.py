@@ -103,6 +103,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
         self,
         manager: MCPSessionManager,
         session: SessionState,
+        runtime_state: SessionRuntimeState,
     ) -> None:
         """Добавляет MCP prompts в session_state.available_commands."""
         mock_manager = MagicMock()
@@ -113,6 +114,9 @@ class TestRegisterMcpPromptsAsSlashCommands:
                 ],
             }
         )
+        # Реальный runtime_state вместо дефолтного MagicMock из AsyncMock-registry:
+        # иначе runtime.* даёт MagicMock-цепочку, из которой утекает холостая корутина.
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
         await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
