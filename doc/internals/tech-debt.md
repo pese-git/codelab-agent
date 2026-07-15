@@ -9,6 +9,7 @@
 > P1-4 (`handlers/prompt.py` 1095→пакет `prompt/` — normalization/validation/directives/tool_calls/client_requests/permission_response): 2026-07-14 (ветка `tech-debt`)
 > P1-4 (`context/gatherer.py` 1048→617 — path-matching хелперы вынесены в `context/file_matching.py`): 2026-07-14 (ветка `tech-debt`)
 > P1-4 (`pipeline/stages/agent_loop.py` 1352→пакет `agent_loop/` — loop/llm_caller/tool_processor/updates, все <750): 2026-07-14 (ветка `tech-debt`). Файлов >1000 строк: **1** (только оправданно крупный `messages.py`).
+> P0-14 (гейт `ty` восстановлен: 4 ошибки типов устранены в treesitter/registry/di.agent/notification_bus, `make check` зелёный): 2026-07-15 (ветка `tech-debt`).
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -245,12 +246,26 @@ Subprocess transport закрывался после закрытия event loop
 
 ---
 
-### 14. Гейт `ty` (typecheck) красный в `make check` — 🔴 ОТКРЫТО (2026-07-13)
+### 14. Гейт `ty` (typecheck) красный в `make check` — ✅ ЗАКРЫТО (2026-07-15)
 
-> Обнаружено при рефакторинге P1-4 (`di.py`): `make check` падает на шаге `ty check`
-> с **4 предсуществующими** диагностиками (не регресс — воспроизводятся на чистом HEAD,
-> набор не менялся). Т.к. `typecheck` в `Makefile` идёт до `pytest`, обязательная проверка
-> из CLAUDE.md фактически не проходит целиком; агенты вынуждены прогонять ruff/pytest в обход.
+> ✅ Все 4 диагностики устранены; `uv run ty check` → `All checks passed!`, `make check`
+> проходит целиком (ruff + ty + 7297 тестов). Фиксы чисто типовые, поведение не меняется:
+> - `registry.py` / `treesitter.py`: optional-import через алиас
+>   (`import tree_sitter as _tree_sitter` + `else: tree_sitter = _tree_sitter`) с
+>   аннотацией `tree_sitter: ModuleType | None`. Прямая аннотация на `import tree_sitter`
+>   давала `conflicting-declarations` (import сам объявляет тип модуля) — алиас разводит
+>   объявления. Снят `# type: ignore[assignment]`.
+> - `di/agent.py`: мягкий fallback `default_model = f"{provider}/{model}"`, повторяющий
+>   деривацию `AppConfig._derive_agents_default_model` (инвариант: поле непусто после
+>   валидации) — сужает `str | None` → `str` без изменения поведения.
+> - `notification_bus.py`: `loop.create_task(callback(message))` →
+>   `asyncio.ensure_future(callback(message), loop=loop)` (callback возвращает
+>   `Awaitable[None]`, не обязательно `Coroutine`; планирование на том же loop идентично).
+
+> **Исходный контекст:** обнаружено при рефакторинге P1-4 (`di.py`): `make check` падал на
+> шаге `ty check` с **4 предсуществующими** диагностиками (не регресс — воспроизводились на
+> чистом HEAD). Т.к. `typecheck` в `Makefile` идёт до `pytest`, обязательная проверка из
+> CLAUDE.md фактически не проходила целиком; агенты были вынуждены прогонять ruff/pytest в обход.
 
 **Диагностики (`uv run ty check`):**
 
@@ -261,10 +276,11 @@ Subprocess transport закрывался после закрытия event loop
 | `invalid-argument-type` | `server/protocol/notification_bus.py:96` | `loop.create_task(callback(message))` — `Awaitable[None]` вместо `Coroutine` |
 
 **Задачи:**
-- [ ] `treesitter.py` — типизировать optional-import (`tree_sitter: ModuleType | None`)
-- [ ] `di/agent.py` — сузить тип или дефолт для `default_model` (None недопустим в `AgentsGlobalConfig`)
-- [ ] `notification_bus.py` — привести callback к `Coroutine` / обернуть корректно
-- [ ] После фикса — проверить, что `make check` проходит целиком, добавить `ty` в CI-гейт
+- [x] `treesitter.py` / `registry.py` — optional-import через алиас + `tree_sitter: ModuleType | None`
+- [x] `di/agent.py` — fallback для `default_model` (сужение `str | None` → `str`)
+- [x] `notification_bus.py` — `asyncio.ensure_future(..., loop=loop)` вместо `loop.create_task`
+- [x] После фикса — `make check` проходит целиком (2026-07-15)
+- [x] Добавить `ty` в CI-гейт (`release.yml`, шаг `Run Type Check` перед guardrail'ами) — предотвращает регресс (2026-07-15)
 
 **Оценка:** 0.5 дня
 **Критерий приемки:** `uv run ty check` — 0 диагностик, `make check` зелёный.
@@ -780,7 +796,7 @@ method=llm`). Для моделей без надёжного structured-output 
 | Файлов > 1000 строк | 6 | **1** 🟡 (оправданно крупный `messages.py`) | 0 |
 | Warnings в тестах | 62 | 0 (частично подавлены фильтрами) 🟡 | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
-| Ошибок `ty` (typecheck) | — | **4** ⚠️ (гейт `make check` красный, см. P0-14) | 0 |
+| Ошибок `ty` (typecheck) | — | **0** ✅ (гейт `make check` зелёный, см. P0-14) | 0 |
 | TODO | 2 | 2 | 0 |
 | Coverage threshold в CI | нет | **85%** ✅ (`release.yml`) | 80% |
 
@@ -790,7 +806,8 @@ method=llm`). Для моделей без надёжного structured-output 
 остаток — плановое снижение порога к 10 (см. P0-2). God Objects снизились 10 → **1** (декомпозиция
 `core.py`, `di.py`, `chat_view_model.py`, `app.py`, `mcp/transport.py`,
 `acp_transport_service.py`, `prompt.py`, `gatherer.py`, `agent_loop.py`); остаётся
-только оправданно крупный `messages.py` (P1-4). Обнаружено: гейт `ty` в
-`make check` красный из-за 4 предсуществующих ошибок типов (P0-14). Ключевой рычаг
+только оправданно крупный `messages.py` (P1-4). Гейт `ty` в `make check` восстановлен
+(2026-07-15): 4 предсуществующие ошибки типов устранены, обязательная проверка проходит
+целиком (P0-14). Ключевой рычаг
 против незаметной деградации между аудитами — CI-guardrails: порог сложности
 `C901`, проверка размера файла (`scripts/check_large_files.py`) и `--cov-fail-under`.

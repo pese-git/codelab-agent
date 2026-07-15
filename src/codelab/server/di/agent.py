@@ -240,8 +240,13 @@ class MultiAgentProvider(Provider):
         """
         from codelab.server.agent.config.models import AgentsGlobalConfig
 
+        # AppConfig._derive_agents_default_model гарантирует непустой default_model;
+        # мягкий fallback повторяет ту же деривацию на случай нарушения инварианта.
+        default_model = config.agents.default_model
+        if default_model is None:
+            default_model = f"{config.llm.provider}/{config.llm.model}"
         global_config = AgentsGlobalConfig(
-            default_model=config.agents.default_model,
+            default_model=default_model,
             max_steps=config.agents.max_steps,
         )
         registry = AgentRegistry(event_bus, agent_factory, global_config)

@@ -31,6 +31,9 @@ jobs:
       - name: Run Formatter Check
         run: uv run ruff format --check .
 
+      - name: Run Type Check
+        run: uv run ty check
+
       - name: Check for new large files (guardrail)
         run: uv run python scripts/check_large_files.py
 

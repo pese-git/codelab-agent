@@ -13,6 +13,8 @@ Python, TypeScript, Dart, Go, Rust, Java, C++.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 import structlog
 
 from codelab.server.agent.context.skeletonizer.languages import LANGUAGE_RULES, LanguageRules
@@ -21,10 +23,13 @@ from codelab.server.agent.context.skeletonizer.strategy import SkeletonizerStrat
 
 logger = structlog.get_logger(__name__)
 
+tree_sitter: ModuleType | None
 try:
-    import tree_sitter
+    import tree_sitter as _tree_sitter
 except ImportError:
-    tree_sitter = None  # type: ignore[assignment]
+    tree_sitter = None
+else:
+    tree_sitter = _tree_sitter
 
 
 class TreeSitterStrategy(SkeletonizerStrategy):

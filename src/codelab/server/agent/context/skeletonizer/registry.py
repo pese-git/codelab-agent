@@ -8,19 +8,23 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 
 import structlog
 
 logger = structlog.get_logger(__name__)
 
+tree_sitter: ModuleType | None
 try:
-    import tree_sitter
+    import tree_sitter as _tree_sitter
 except ImportError:
-    tree_sitter = None  # type: ignore[assignment]
+    tree_sitter = None
     logger.warning(
         "tree_sitter_not_available",
         detail="skeletonizer falls back to regex/noop",
     )
+else:
+    tree_sitter = _tree_sitter
 
 
 def _load_grammars() -> dict[str, Callable[[], object]]:
