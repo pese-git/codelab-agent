@@ -222,11 +222,24 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 - [x] Найти реальный источник холостых корутин (оказался `ObservableCommand.execute` в TUI-тестах, не AsyncMock)
 - [x] Закрыть корутину в мокнутом `run_worker` (`_close_coro`)
 - [x] Перевести фильтр `coroutine.*was never awaited` в `error` как guardrail
-- [ ] Остаток: order-dependent subprocess-unraisable (`BaseSubprocessTransport.__del__` →
-      `Event loop is closed`) при межкаталожном порядке client+server — блокирует флип
-      `PytestUnraisableExceptionWarning` в `error` (семейство P0-3c, не 3a)
+- [x] Устранён subprocess-unraisable (`BaseSubprocessTransport.__del__` → `Event loop is
+      closed`): в `test_terminal_executor_coverage.py` тесты создавали реальные подпроцессы
+      (`printf`/`echo`/`sleep 100`) в обход фикстуры и без `cleanup_all`; kill/release-тесты
+      мокали `process.kill` на реальном `sleep 100` → процесс-сирота + незакрытый транспорт.
+      Фикс: фикстура `executor` с teardown для real-subprocess тестов + мок-процесс (без
+      реального спавна) для kill/release/cleanup. В проявляющем прогоне subprocess-unraisable
+      теперь **0** (2026-07-15).
+- [ ] **Флип `PytestUnraisableExceptionWarning → error` пока НЕ выполнен.** Проявляющий
+      прогон (`-W default::PytestUnraisableExceptionWarning`) вскрыл, что subprocess был не
+      единственным: под маской `ignore` остаётся **~44 order-dependent unraisable** (число
+      скачет между прогонами из-за тайминга GC), из них **28** — `AsyncMockMixin._execute_mock_call`
+      (истинный корень 3a: AsyncMock-корутины, не awaited в тестах), плюс `Queue.get` (×7),
+      `DirectoryTree.watch_path` (×4, textual), `BackgroundExecutor.execute_tool_in_background`,
+      `run_stdio_server`, `MCPPromptCommandHandler._execute_async` и др. Флип требует чистки
+      этой популяции AsyncMock-моков по всему suite — отдельная крупная итерация, оценка
+      занижена (было 0.5 дня).
 
-**Оценка:** 0.5 дня
+**Оценка:** 0.5 дня (сделанное) + ~1–2 дня на AsyncMock-популяцию для флипа фильтра
 
 #### 3b. PytestWarning: incorrect `@pytest.mark.asyncio` (6 тестов)
 
