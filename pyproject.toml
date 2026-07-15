@@ -98,19 +98,21 @@ pythonpath = ["src", "tests/server"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
-    # P0-3a: источник холостых корутин (ObservableCommand.execute через мокнутый
-    # run_worker в TUI-тестах) исправлен — фильтр "never awaited" переведён в `error`
-    # как guardrail против регресса (прямая эмиссия ловится немедленно).
+    # P0-3a (2026-07): все холостые корутины устранены в корне (мок-гигиена: spec для
+    # AsyncMock-транспортов/клиентов, закрытие корутин в мокнутых asyncio-примитивах,
+    # subprocess-teardown). Оба класса warnings переведены в `error` как guardrail
+    # против регресса — полный проявляющий прогон даёт 0 unraisable.
     "error:coroutine.*was never awaited:RuntimeWarning",
-    # PytestUnraisableExceptionWarning оставлен `ignore`: в полном suite остаётся один
-    # order-dependent subprocess-unraisable (`BaseSubprocessTransport.__del__` →
-    # `Event loop is closed`), возникающий только при межкаталожном порядке
-    # client+server (по отдельности каждый набор чист) — семейство P0-3c. Глобальный
-    # `error` дал бы флаки. Перевод в `error` — после устранения этого GC-артефакта.
-    "ignore::pytest.PytestUnraisableExceptionWarning",
-    # Внутренние RuntimeWarning самого textual (не наши источники).
+    "error::pytest.PytestUnraisableExceptionWarning",
+    # Исключения — внутренние reactive-корутины самого textual (вне нашего контроля):
+    # оставлены `ignore` и как RuntimeWarning, и как unraisable (порядок: узкие ignore
+    # ПОСЛЕ error — у pytest побеждает последний совпавший фильтр).
     "ignore:coroutine.*DirectoryTree\\.watch_path:RuntimeWarning",
     "ignore:coroutine.*SearchInput:RuntimeWarning",
+    # NB: literal ':' нельзя в message-поле фильтра (pytest делит строку по ':'),
+    # поэтому '.*' вместо 'in: <coroutine object'.
+    "ignore:Exception ignored in.*DirectoryTree\\.watch_path:pytest.PytestUnraisableExceptionWarning",
+    "ignore:Exception ignored in.*SearchInput:pytest.PytestUnraisableExceptionWarning",
 ]
 
 [tool.commitizen]
