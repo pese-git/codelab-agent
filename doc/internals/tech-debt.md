@@ -481,11 +481,11 @@ Subprocess transport закрывался после закрытия event loop
 > флипа всплыли order-dependent unraisable из других тестов (AsyncMock, см. P0-3a) —
 > глобальный `error` даёт флаки. Полный флип — отдельная итерация P0-3.
 >
-> ⚠️ **Остаётся корень (см. P2-20):** сам факт чтения `*.db-shm` устранён только по
-> traceback'у, но `ContextGatherer` по-прежнему пытается читать SQLite-сайдкары на
-> каждом gather (анализ логов 2026-07-14: 10 error-строк за сессию). RPC-ошибка теперь
-> обрабатывается тихо, но round-trips тратятся, а лог засоряется — фильтрация файлов
-> вынесена в P2-20.
+> ✅ **Корень устранён (см. P2-20, закрыт 2026-07-15):** ранее `ContextGatherer` читал
+> SQLite-сайдкары на каждом gather (анализ логов 2026-07-14: 10 error-строк за сессию);
+> RPC-ошибка обрабатывалась тихо, но round-trips тратились, а лог засорялся. Теперь
+> `is_binary` распознаёт `*.db-shm/-wal/-journal`, а `.codegraph` в `IGNORE_DIRS` —
+> холостых чтений и связанных `-32603` больше нет.
 
 **Файл:** `src/codelab/server/client_rpc/service.py:154` (`_call_method` → `_wrap_future`)
 
@@ -697,7 +697,19 @@ method=llm`). Для моделей без надёжного structured-output 
 
 ---
 
-### 20. SQLite-сайдкары `*.db-shm/-wal` не фильтруются в ContextGatherer — 🔴 ОТКРЫТО (2026-07-14)
+### 20. SQLite-сайдкары `*.db-shm/-wal` не фильтруются в ContextGatherer — ✅ ЗАКРЫТО (2026-07-15)
+
+> ✅ Фикс в `context/file_matching.py` (2026-07-15):
+> - `BINARY_EXTENSIONS` дополнен сайдкарами WAL-режима: `.db-shm`/`.db-wal`/`.db-journal`
+>   + `.sqlite-shm`/`.sqlite-wal`/`.sqlite-journal` (не оканчиваются на `.db`, поэтому
+>   старый `endswith('.db')` их пропускал). `is_binary('...db-shm')` теперь `True`.
+> - `.codegraph` добавлен в `IGNORE_DIRS` (директория индекса codegraph — не контекст),
+>   рядом с уже присутствующими `.codelab`/`.cocoindex_code`.
+> - Тесты: `TestIsBinary` (параметризован на сайдкары + негатив на исходники),
+>   `TestFilterPaths::test_filters_codegraph_dir`. Детерминизм `filter_paths` сохранён
+>   (порядок и логика не тронуты), 7309 тестов зелёные.
+
+
 
 > Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs`, локальный
 > `lmstudio/gpt-oss-20b`, проект с индексом codegraph). На **каждом** `context.gather`
@@ -715,10 +727,10 @@ method=llm`). Для моделей без надёжного structured-output 
 - `.codegraph` отсутствует в `IGNORE_DIRS`.
 
 **Задачи:**
-- [ ] Добавить `.codegraph` в `IGNORE_DIRS` (директория индекса codegraph — не контекст).
-- [ ] Распознавать SQLite-сайдкары в `is_binary` (`.db-shm`/`.db-wal`/`.db-journal`
-      или проверка подстроки `.db-`); детерминированный вывод сохранить.
-- [ ] Unit-тест: `is_binary` для `.db-shm/.db-wal`, `filter_paths` отсекает `.codegraph/`.
+- [x] Добавить `.codegraph` в `IGNORE_DIRS` (директория индекса codegraph — не контекст).
+- [x] Распознавать SQLite-сайдкары в `is_binary` (`.db-shm`/`.db-wal`/`.db-journal`
+      + `.sqlite-*`); детерминированный вывод сохранён.
+- [x] Unit-тест: `is_binary` для `.db-shm/.db-wal`, `filter_paths` отсекает `.codegraph/`.
 
 **Оценка:** 0.5 дня
 **Критерий приемки:** нет чтений `*.db-shm` при gather; 0 связанных `-32603` в логах;

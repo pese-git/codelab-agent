@@ -16,6 +16,7 @@ import pytest
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 from codelab.server.agent.context.file_matching import (
     filter_paths,
+    is_binary,
     normalize_path,
 )
 from codelab.server.agent.context.gatherer import ACPContextGatherer
@@ -111,6 +112,39 @@ class TestFilterPaths:
         paths = ["lib/main.dart", "", ".", "./"]
         result = filter_paths(paths)
         assert result == ["lib/main.dart"]
+
+    def test_filters_codegraph_dir(self) -> None:
+        """Отсекает служебную директорию индекса codegraph (P2-20)."""
+        paths = [
+            "src/main.py",
+            ".codegraph/codegraph.db",
+            ".codegraph/codegraph.db-shm",
+        ]
+        assert filter_paths(paths) == ["src/main.py"]
+
+
+class TestIsBinary:
+    """is_binary распознаёт бинарные файлы, включая SQLite-сайдкары (P2-20)."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "codegraph.db-shm",
+            "codegraph.db-wal",
+            "codegraph.db-journal",
+            "index.sqlite-shm",
+            "index.sqlite-wal",
+            ".codegraph/codegraph.db-shm",
+            "data.db",
+            "data.sqlite3",
+        ],
+    )
+    def test_sqlite_sidecars_are_binary(self, path: str) -> None:
+        assert is_binary(path) is True
+
+    @pytest.mark.parametrize("path", ["main.py", "lib/app.dart", "notes.md"])
+    def test_source_files_not_binary(self, path: str) -> None:
+        assert is_binary(path) is False
 
 
 class TestTargetModulesMatching:

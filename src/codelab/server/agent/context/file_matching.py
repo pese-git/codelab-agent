@@ -52,6 +52,15 @@ BINARY_EXTENSIONS = {
 ".sqlite",
 ".sqlite3",
 ".mdb",
+# SQLite-сайдкары режима WAL: не оканчиваются на .db, но так же нечитаемы
+# как текст (напр. .codegraph/codegraph.db-shm) — иначе ContextGatherer шлёт
+# холостые fs/read_text_file → -32603 и засоряет лог (см. tech-debt P2-20).
+".db-shm",
+".db-wal",
+".db-journal",
+".sqlite-shm",
+".sqlite-wal",
+".sqlite-journal",
 }
 
 IGNORE_DIRS = {
@@ -76,6 +85,7 @@ IGNORE_DIRS = {
 ".gradle",
 ".codelab",
 ".cocoindex_code",
+".codegraph",
 }
 
 
