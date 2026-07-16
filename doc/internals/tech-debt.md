@@ -503,15 +503,18 @@ Subprocess transport закрывался после закрытия event loop
 
 ---
 
-### 10. Добавить coverage threshold в CI — 🟢 ПОЧТИ ЗАКРЫТО (2026-07-10)
+### 10. Добавить coverage threshold в CI — ✅ ЗАКРЫТО (2026-07-16)
 
 > Реализовано в коммите `ci: порог покрытия 85% и guardrail на размер файлов`.
+> Badge добавлен 2026-07-16.
 
 **Задачи:**
 - [x] Добавить `pytest-cov` в dev-зависимости
 - [x] Шаг CI `pytest --cov=src/codelab --cov-fail-under=85` (порог 85, факт 96%)
 - [x] Бонус: guardrail `scripts/check_large_files.py` против новых God Objects
-- [ ] Добавить badge покрытия в README
+- [x] Добавить badge покрытия в README (статический `coverage ≥85%`, привязан к
+      enforced-порогу CI — динамического источника Codecov нет, захардкоженный процент
+      устарел бы; 2026-07-16)
 
 **Оценка:** 0.5 дня
 

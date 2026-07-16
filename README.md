@@ -1,5 +1,7 @@
 # CodeLab
 
+![coverage](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)
+
 > AI-ассистент для разработчиков с открытой архитектурой и полным контролем над действиями агента.
 
 ## Что такое CodeLab?
