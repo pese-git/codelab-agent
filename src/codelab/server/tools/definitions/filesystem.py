@@ -163,19 +163,40 @@ class FileSystemToolDefinitions:
             """Обработчик для fs/read_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "read"
+
+            # Валидация path ДО RPC (#21): пустой путь и путь-директория раньше
+            # уходили в клиент и возвращались сырым -32603/-32002.
+            raw_path = arguments.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                return ToolExecutionResult(
+                    success=False,
+                    error=(
+                        "Параметр 'path' обязателен и не может быть пустым: "
+                        "укажите путь к файлу."
+                    ),
+                )
+
             # Нормализовать путь относительно session.cwd
-            if "path" in arguments and session.cwd:
+            if session.cwd:
                 arguments["path"] = _normalize_path(session.cwd, arguments["path"])
                 # Валидировать что путь внутри cwd
                 try:
                     _validate_path_in_cwd(arguments["path"], session.cwd)
                 except ValueError as e:
-                    from codelab.server.tools.base import ToolExecutionResult
-
                     return ToolExecutionResult(
                         success=False,
                         error=str(e),
                     )
+
+            # Директория — не файл: отклоняем с понятным сообщением, а не сырым RPC-кодом.
+            if Path(arguments["path"]).is_dir():
+                return ToolExecutionResult(
+                    success=False,
+                    error=(
+                        f"Путь '{arguments['path']}' — директория, а не файл. "
+                        f"Используйте команды ls/find для просмотра содержимого каталога."
+                    ),
+                )
             return await executor.execute(session, arguments)
 
         # Создать обработчик для записи файлов

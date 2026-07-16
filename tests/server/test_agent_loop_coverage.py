@@ -183,6 +183,53 @@ class TestAgentLoopToolProcessing:
         mock_dependencies["tool_registry"].execute_tool.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_unknown_tool_rejected_before_permission(
+        self,
+        mock_strategy: MagicMock,
+        mock_session: MagicMock,
+        mock_dependencies: dict[str, MagicMock],
+    ) -> None:
+        """Галлюцинированный tool → failed без permission и без execute_tool (#21)."""
+        tool_call = MagicMock()
+        tool_call.name = "ls"
+        tool_call.id = "call_1"
+        tool_call.arguments = {}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = ""
+        first_response.tool_calls = [tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "done"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        # Инструмента нет в реестре; в списке доступных — реальный fs-tool.
+        mock_dependencies["tool_registry"].get = MagicMock(return_value=None)
+        fake_tool = MagicMock()
+        fake_tool.name = "fs/read_text_file"
+        mock_dependencies["tool_registry"].list_tools = MagicMock(return_value=[fake_tool])
+        mock_dependencies["tool_call_handler"].create_tool_call = MagicMock(
+            return_value="tc_unknown"
+        )
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+
+        with patch(_LOGGER_PATH) as mock_logger:
+            result = await loop.run(mock_session, "test_session", "hello")
+
+        assert result.stop_reason == StopReason.END_TURN
+        # Не дошёл до permission и до реального исполнения.
+        mock_dependencies["permission_manager"].build_permission_request.assert_not_called()
+        mock_dependencies["tool_registry"].execute_tool.assert_not_called()
+        assert any(
+            "tool not found in registry" in str(call)
+            for call in mock_logger.error.call_args_list
+        )
+
+    @pytest.mark.asyncio
     async def test_tool_result_validation_failure_is_logged(
         self,
         mock_strategy: MagicMock,

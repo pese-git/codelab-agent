@@ -214,6 +214,20 @@ class ToolCallProcessor:
             is_mcp=is_mcp,
         )
 
+        # Неизвестный (галлюцинированный) tool отклоняем ДО permission (#21):
+        # иначе промах реестра всплывал бы только в _run_tool после одобрения.
+        if tool_definition is None and not is_mcp:
+            return _ToolCallStep(
+                tool_result=await self._reject_unknown_tool(
+                    session,
+                    session_id,
+                    tool_call_id,
+                    acp_tool_name,
+                    tool_call_id_from_llm,
+                    sink,
+                )
+            )
+
         # MCP инструменты всегда требуют разрешения (по умолчанию)
         if is_mcp:
             decision = await self._decide_tool_execution(session, tool_kind)
@@ -345,6 +359,55 @@ class ToolCallProcessor:
             tool_name=acp_tool_name,
             success=False,
             error=rejection_msg,
+        )
+
+    async def _reject_unknown_tool(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        acp_tool_name: str,
+        tool_call_id_from_llm: str | None,
+        sink: SessionUpdateSink,
+    ) -> ToolResult:
+        """Отклонить неизвестный (галлюцинированный) tool ДО permission (#21).
+
+        Инструмент отсутствует в реестре и не является MCP-инструментом. Возвращаем
+        LLM явный failed со списком доступных инструментов, чтобы модель могла
+        скорректировать вызов, — без холостого permission-запроса на несуществующий tool.
+        """
+        available = sorted(tool.name for tool in self._tool_registry.list_tools())
+        logger.error(
+            "tool not found in registry",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            acp_tool_name=acp_tool_name,
+            registered_tools=available,
+        )
+        error_msg = (
+            f"Неизвестный инструмент '{acp_tool_name}'. "
+            f"Доступные инструменты: {', '.join(available) if available else 'нет'}."
+        )
+        error_content = [{"type": "content", "content": {"type": "text", "text": error_msg}}]
+        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+        notification = self._tool_call_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=error_content,
+        )
+        await sink.emit_and_save_tool_update(
+            notification,
+            session=session,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=error_content,
+        )
+        return ToolResult(
+            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_name=acp_tool_name,
+            success=False,
+            error=error_msg,
         )
 
     async def _execute_allowed_tool_call(

@@ -727,10 +727,20 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
+        tool_registry: SimpleToolRegistry,
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что ask-режим не публикует не-ACP статус pending_permission."""
         session.config_values["mode"] = "ask"
+
+        tool_registry.register_tool(
+            name="fs/read_text_file",
+            description="Read file",
+            parameters={"type": "object", "properties": {}},
+            kind="read",
+            executor=lambda: "ok",
+            requires_permission=True,
+        )
 
         mock_dispatcher = llm_loop_stage._strategy_dispatcher
         mock_dispatcher.execute.return_value = SimpleNamespace(
@@ -784,10 +794,20 @@ class TestPromptOrchestratorToolCallFlow:
         orchestrator: PromptOrchestrator,
         session: SessionState,
         sessions: dict[str, SessionState],
+        tool_registry: SimpleToolRegistry,
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что в ask-flow отправляется ровно один RPC permission request."""
         session.config_values["mode"] = "ask"
+
+        tool_registry.register_tool(
+            name="fs/read_text_file",
+            description="Read file",
+            parameters={"type": "object", "properties": {}},
+            kind="read",
+            executor=lambda: "ok",
+            requires_permission=True,
+        )
 
         mock_dispatcher = llm_loop_stage._strategy_dispatcher
         mock_dispatcher.execute.return_value = SimpleNamespace(
