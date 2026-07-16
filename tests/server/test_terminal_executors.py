@@ -51,12 +51,18 @@ class TestTerminalExecutorWaitForExitFlow:
 
     @pytest.fixture
     def session(self) -> SessionState:
-        """Создает тестовую сессию."""
+        """Создает тестовую сессию.
+
+        Терминалы предрегистрированы тождественным alias→client-id маппингом:
+        эти тесты проверяют flow wait_for_exit, а не выдачу alias, поэтому bridge
+        по-прежнему адресуется тем же id (см. TerminalAliasRegistry, #18).
+        """
         return SessionState(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
             config_values={},
+            terminals={"term_001": "term_001", "term_abc123": "term_abc123"},
         )
 
     @pytest.fixture

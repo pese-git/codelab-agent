@@ -16,12 +16,17 @@ from codelab.server.tools.executors.terminal_executor import TerminalToolExecuto
 
 @pytest.fixture
 def session() -> SessionState:
-    """Тестовая сессия."""
+    """Тестовая сессия.
+
+    ``term_1`` предрегистрирован тождественным маппингом: wait/release-тесты
+    проверяют dispatch, а не выдачу alias (см. TerminalAliasRegistry, #18).
+    """
     return SessionState(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
         config_values={},
+        terminals={"term_1": "term_1"},
     )
 
 

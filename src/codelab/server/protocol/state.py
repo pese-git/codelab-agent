@@ -34,7 +34,7 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=4)
+    schema_version: int = Field(default=5)
 
     session_id: str
     cwd: str
@@ -58,6 +58,13 @@ class SessionState(BaseModel):
     tool_call_counter: int = 0
     # Реестр созданных tool calls и их состояний.
     tool_calls: dict[str, ToolCallState] = Field(default_factory=dict)
+    # Маппинг короткого alias, выдаваемого LLM, → настоящий client-side terminalId.
+    # LLM теряет символы при дословной ретрансляции длинного UUID, поэтому наружу
+    # отдаётся короткий alias, а клиент по-прежнему адресуется своим родным id
+    # (см. tech-debt #18, TerminalAliasRegistry).
+    terminals: dict[str, str] = Field(default_factory=dict)
+    # Монотонный счётчик для детерминированной генерации terminal alias.
+    terminal_counter: int = 0
     # Набор доступных slash-команд для `available_commands_update`.
     available_commands: list[AvailableCommand | dict[str, Any]] = Field(default_factory=list)
     # Последний опубликованный план выполнения для `session/update: plan`.
@@ -143,6 +150,13 @@ class SessionState(BaseModel):
         if version < 4:
             data["schema_version"] = 4
             version = 4
+
+        # v4 → v5: terminal alias registry (tech-debt #18)
+        if version < 5:
+            data.setdefault("terminals", {})
+            data.setdefault("terminal_counter", 0)
+            data["schema_version"] = 5
+            version = 5
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})

@@ -707,7 +707,30 @@ method=llm`). Для моделей без надёжного structured-output 
 
 ---
 
-### 18. Обрезка `terminal_id` → зацикливание terminal/create — 🔴 ОТКРЫТО (2026-07-13)
+### 18. Обрезка `terminal_id` → зацикливание terminal/create — ✅ ЗАКРЫТО (2026-07-16)
+
+> ✅ Фикс (2026-07-16, вариант A — серверный alias, детерминированный): введён
+> `TerminalAliasRegistry` (`server/tools/executors/terminal_alias_registry.py`),
+> который маппит короткий alias `term_<n>` (счётчик сессии) → настоящий client-side
+> `terminalId`. Состояние живёт в `SessionState.terminals`/`terminal_counter`
+> (schema_version 4 → 5, миграция `setdefault`). `TerminalToolExecutor.execute_create`
+> отдаёт LLM alias (в `output`/text-content/metadata/raw_output), а client-facing
+> terminal content-item сохраняет родной client `terminalId` — ACP-контракт не нарушен.
+> `execute_wait_for_exit`/`execute_release` резолвят alias → client id перед вызовом
+> bridge; `execute_release` снимает alias. Неизвестный/освобождённый alias → `failed`
+> с внятным сообщением и логом уровня **error** (`terminal_alias_not_found`), без
+> обращения к bridge — recreate-loop исключён. Короткий alias устраняет саму
+> поверхность обрезки (LLM больше не переписывает 36-символьный UUID); решение
+> серверное, поэтому работает с **любым** ACP-клиентом, включая сторонний.
+>
+> Клиентский defense-in-depth (шаг 5 плана) намеренно не делался: серверный alias
+> закрывает корень детерминированно, а клиентский fuzzy-resolve по префиксу
+> реинтродуцировал бы вероятностную неоднозначность (минимальность изменений).
+>
+> Тесты: `test_terminal_alias_registry.py` (реестр), `TestTerminalAliasRoundTrip` в
+> `test_terminal_executor_terminal_content.py` (регресс #18: alias→client id, unknown
+> alias без bridge, release снимает alias), миграция v4→v5 в
+> `test_session_state_migration.py`. `make check` — 7324 passed, ruff/ty чисты.
 
 > Обнаружено при рантайм-тестировании P1-4 (шаг 3). Агент/LLM теряет символы в
 > длинном 36-символьном `terminalId` при обратной передаче: клиент создаёт терминал
@@ -760,27 +783,29 @@ id → контракт цел; LLM больше не оперирует хру�
 префиксов → промах) — оставлен только как клиентский defense-in-depth для нашего клиента.
 
 **Задачи (по шагам):**
-- [ ] **1. Реестр в `SessionState`** (`server/protocol/state.py`): поле
-      `terminals: dict[str, str]` (alias → client `terminalId`) рядом с `tool_calls`.
-      Bump `schema_version` 4 → 5 + ветка в `migrate_schema` (`setdefault(..., {})`) —
-      миграция формата сессии обязательна.
-- [ ] **2. Генерация alias при create** (`server/tools/executors/terminal_executor.py`,
-      `execute_create`, после строки 129): сгенерировать короткий alias (напр.
-      `term_<8 hex>`), записать `session.terminals[alias] = client_terminal_id`, и в
-      content-item/текст для LLM класть **alias**, а не сырой client id.
-- [ ] **3. Обратный перевод при исходящих RPC** (`execute_wait_for_exit`,
-      `execute_release`, output-путь): резолвить `alias → client_terminalId` из
-      `session.terminals` перед вызовом bridge; удалять запись в `release`.
-- [ ] **4. Явная ошибка контракта:** неизвестный/неразрешимый alias → `failed` с
-      понятным сообщением («unknown terminal `X`»), логировать как **error** (ошибка
-      контракта), а не только warning. Родственно #21 (ранняя валидация до побочных
-      эффектов).
-- [ ] **5. Клиентский defense-in-depth (опционально, только для нашего клиента):**
-      fuzzy-resolve по префиксу в `terminal_callback_executor.py` (`get_output`/
-      `wait_for_exit`/`release`/`kill`) при точном промахе + короткий `internal_id`.
-- [ ] **6. Тесты:** unit на реестр и alias↔id перевод в `SessionState`/executor;
-      регресс create → wait_for_exit проходит без `Terminal not found`; миграция
-      схемы 4 → 5; неизвестный alias → внятная ошибка без recreate-loop.
+- [x] **1. Реестр в `SessionState`** (`server/protocol/state.py`): поля
+      `terminals: dict[str, str]` + `terminal_counter`. Bump `schema_version` 4 → 5
+      + ветка `migrate_schema` (`setdefault`).
+- [x] **2. Генерация alias при create** (`terminal_executor.py::execute_create` через
+      `TerminalAliasRegistry.register`): короткий alias `term_<n>`; в
+      `output`/text-content/metadata/raw_output — alias, в client terminal content-item —
+      родной client id.
+- [x] **3. Обратный перевод при исходящих RPC** (`execute_wait_for_exit`,
+      `execute_release`): `_resolve_terminal` перед вызовом bridge; `release` снимает alias.
+- [x] **4. Явная ошибка контракта:** неизвестный/освобождённый alias → `failed` с
+      понятным сообщением, лог `terminal_alias_not_found` уровня **error**, без bridge.
+- [ ] **5. Клиентский defense-in-depth — НЕ ДЕЛАЛСЯ (осознанно):** серверный alias
+      закрывает корень детерминированно; клиентский fuzzy-resolve реинтродуцировал бы
+      вероятностную неоднозначность (минимальность изменений).
+- [x] **6. Тесты:** `test_terminal_alias_registry.py`; `TestTerminalAliasRoundTrip`
+      (`test_terminal_executor_terminal_content.py`); миграция v4→v5
+      (`test_session_state_migration.py`). `make check` — 7324 passed.
+
+**Рантайм-подтверждение (2026-07-16, `~/.codelab/logs`, сессия `sess_f969f659d978`):**
+7× `terminal/create`, каждый с парным `wait_for_exit` — все без ошибок. `terminal_id`
+в metadata — короткий alias (`term_1`, `term_2`; `project_structure` читает именно
+`metadata["terminal_id"]`), т.е. LLM-facing id стал alias'ом. **0 errors, 0 warnings,
+ноль `Terminal not found`/`-32603`/recreate-loop** за сессию.
 
 **Оценка:** 1–1.5 дня (основное — шаги 1-4 на сервере + миграция схемы).
 **Критерий приемки:** terminal/create → terminal/wait_for_exit проходит без
