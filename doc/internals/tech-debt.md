@@ -663,7 +663,27 @@ method=llm`). Для моделей без надёжного structured-output 
 
 ---
 
-### 16. Рассинхрон `BINDINGS` ↔ `KeyboardManager.DEFAULT_BINDINGS` — 🟡 ОТКРЫТО (2026-07-13)
+### 16. Рассинхрон `BINDINGS` ↔ `KeyboardManager.DEFAULT_BINDINGS` — ✅ ЗАКРЫТО (2026-07-16)
+
+> ✅ Фикс (2026-07-16), консолидация в один источник без изменения UX:
+> - **Канон = фактически работавший `App.BINDINGS`** (ноль молчаливых изменений клавиш).
+>   `KeyboardManager.DEFAULT_BINDINGS` переписан ровно под него (`ctrl+p`→command_palette,
+>   `ctrl+k`→previous_session, `ctrl+s`→focus_session_list; конфликтующие KM-only записи
+>   `toggle_plan_panel`/`toggle_tool_panel`/`focus_sidebar` убраны; добавлены select_*).
+> - **Единый источник:** `App.BINDINGS = get_default_textual_bindings()` — собирается из
+>   `DEFAULT_BINDINGS` (keyboard_manager.py), хардкод-списка в app.py больше нет.
+> - **Справка из того же источника:** `HelpModal._render_hotkeys()` строит список из
+>   `get_keyboard_manager().get_help_groups()` (убран третий захардкоженный набор в
+>   help_modal.py).
+> - **Guardrail:** `tests/client/tui/test_keybindings_single_source.py` — App.BINDINGS ≡
+>   DEFAULT_BINDINGS, нет дублей клавиш/действий, каждый action имеет `action_*` в App
+>   либо в замороженном списке известных пробелов.
+>
+> **Обнаружен смежный пробел (не в объёме #16):** биндинги `retry_prompt`, `clear_chat`,
+> `open_terminal_output`, `cycle_focus` объявлены в раскладке, но **не имеют `action_*`
+> обработчиков** в App (мёртвые клавиши уже сегодня). Сохранены как есть (канон = текущее
+> поведение), зафиксированы в guardrail как известный набор пробелов — кандидат в отдельную
+> задачу (реализовать обработчики или убрать биндинги). `make check` — 7336 passed.
 
 > Обнаружено при анализе `client/tui/app.py` (P1-4). `App.BINDINGS` захардкожены списком,
 > а `KeyboardManager` (`components/keyboard_manager.py`) с его `DEFAULT_BINDINGS` и методом

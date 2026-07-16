@@ -52,6 +52,7 @@ from .components import (
     ToastContainer,
     ToolCallCard,
     ToolPanel,
+    get_default_textual_bindings,
 )
 from .config import TUIConfigStore, TUITheme, resolve_tui_connection
 from .controllers import (
@@ -77,32 +78,10 @@ class ACPClientApp(App[None]):
     # Выход назначен на Ctrl+Q.
     CTRL_C_CAN_QUIT = False
 
-    BINDINGS = [
-        ("ctrl+q", "quit", "Выход"),
-        ("ctrl+n", "new_session", "Новая сессия"),
-        ("ctrl+r", "retry_prompt", "Повторить"),
-        ("ctrl+b", "toggle_sidebar", "Sidebar"),
-        ("ctrl+s", "focus_session_list", "Список сессий"),
-        ("ctrl+j", "next_session", "Следующая сессия"),
-        ("ctrl+k", "previous_session", "Предыдущая сессия"),
-        ("ctrl+l", "clear_chat", "Очистить чат"),
-        ("ctrl+h", "open_help", "Справка"),
-        ("?", "show_hotkeys", "Горячие клавиши"),
-        ("ctrl+tab", "next_sidebar_tab", "Вкладка sidebar"),
-        ("ctrl+shift+tab", "previous_sidebar_tab", "Предыдущая вкладка"),
-        ("ctrl+`", "open_terminal_output", "Терминал"),
-        ("tab", "cycle_focus", "Переключить фокус"),
-        ("ctrl+c", "cancel_prompt", "Отменить"),
-        # Config option selectors
-        ("ctrl+m", "select_model", "Выбрать модель"),
-        ("ctrl+shift+m", "select_mode", "Выбрать режим"),
-        ("ctrl+a", "select_agent", "Выбрать агента"),
-        ("ctrl+shift+a", "select_strategy", "Выбрать стратегию"),
-        # Другие горячие клавиши
-        ("ctrl+p", "command_palette", "Палитра команд"),
-        ("ctrl+t", "toggle_theme", "Переключить тему"),
-        ("escape", "close_modal", "Закрыть"),
-    ]
+    # Единый источник раскладки — KeyboardManager.DEFAULT_BINDINGS (tech-debt #16).
+    # Не хардкодить список здесь: правка клавиш — только в keyboard_manager.py,
+    # иначе footer/справка и реальные биндинги разъедутся (guardrail-тест это ловит).
+    BINDINGS = get_default_textual_bindings()
 
     CSS_PATH = str(Path(__file__).with_name("styles") / "app.tcss")
 

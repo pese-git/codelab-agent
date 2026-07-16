@@ -64,6 +64,7 @@ from .keyboard_manager import (
     HotkeyCategory,
     HotkeyGroup,
     KeyboardManager,
+    get_default_textual_bindings,
     get_keyboard_manager,
     set_keyboard_manager,
 )
@@ -202,6 +203,7 @@ __all__ = [
     "HotkeyGroup",
     "CATEGORY_NAMES",
     "DEFAULT_BINDINGS",
+    "get_default_textual_bindings",
     "get_keyboard_manager",
     "set_keyboard_manager",
     "CommandPalette",
