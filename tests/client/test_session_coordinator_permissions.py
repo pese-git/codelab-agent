@@ -105,7 +105,6 @@ class TestSessionCoordinatorPermissions:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_request_permission_without_handler(
         self,
         coordinator_without_handler: SessionCoordinator,
@@ -124,7 +123,6 @@ class TestSessionCoordinatorPermissions:
         # Callback не должен быть вызван
         callback.assert_not_called()
 
-    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_request_permission_with_handler_success(
         self,
@@ -174,7 +172,6 @@ class TestSessionCoordinatorPermissions:
         await test_flow()
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_request_permission_handler_error(
         self,
         coordinator_with_handler: SessionCoordinator,
@@ -215,7 +212,6 @@ class TestSessionCoordinatorPermissions:
         )
         # Не должно бросать исключение
 
-    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_resolve_permission_success(
         self,
@@ -293,7 +289,6 @@ class TestSessionCoordinatorPermissions:
         coordinator_without_handler.cancel_permission(request_id="perm_1")
         # Не должно бросать исключение
 
-    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_cancel_permission_success(
         self,

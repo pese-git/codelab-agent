@@ -261,22 +261,24 @@ Residual (осознанно оставлены slightly-over, см. выше): 
 **Оценка:** факт — выполнено за сессию (subprocess + вся AsyncMock-популяция + флип);
 изначальные 0.5 дня были занижены (реальный объём — системная мок-гигиена по ~12 файлам).
 
-#### 3b. PytestWarning: incorrect `@pytest.mark.asyncio` (6 тестов)
+#### 3b. Дублирующийся `@pytest.mark.asyncio` (5 тестов) — ✅ ЗАКРЫТО (2026-07-16)
 
 **Файл:** `tests/client/test_session_coordinator_permissions.py`
 
-Тесты помечены `@pytest.mark.asyncio`, но являются sync-функциями.
+> **Уточнение при закрытии (2026-07-16):** исходная формулировка была неверна. Sync-тесты
+> (`test_resolve_permission_without_handler`/`_not_found`/`_error`,
+> `test_cancel_permission_without_handler`/`_not_found`/`_error`) маркера **не несли** —
+> они чистые. Реальный дефект: пять **async**-тестов имели по два подряд идущих
+> одинаковых декоратора `@pytest.mark.asyncio` (дубль-строки). При `asyncio_mode = "auto"`
+> это не давало функционального сбоя, но было мусором.
 
 **Задачи:**
-- [ ] Удалить `@pytest.mark.asyncio` из 6 тестов:
-  - `test_resolve_permission_without_handler`
-  - `test_resolve_permission_not_found`
-  - `test_resolve_permission_error`
-  - `test_cancel_permission_without_handler`
-  - `test_cancel_permission_not_found`
-  - `test_cancel_permission_error`
+- [x] Убрать дублирующий `@pytest.mark.asyncio` с 5 async-тестов
+      (`test_request_permission_without_handler`/`_with_handler_success`/`_handler_error`,
+      `test_resolve_permission_success`, `test_cancel_permission_success`): 11 маркеров → 6,
+      по одному на async-тест. ruff чист, 12 тестов проходят.
 
-**Оценка:** 10 минут
+**Оценка:** 10 минут (факт — тривиально)
 
 #### 3c. PytestUnraisableExceptionWarning: event loop closed — ✅ ЗАКРЫТО (2026-07-10)
 
