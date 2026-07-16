@@ -9,8 +9,8 @@ CodeLab реализует клиент-серверную архитектур�
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
-        TUI["TUI Components<br/>45+ widgets"]
-        VM[13 ViewModels]
+        TUI["TUI Components<br/>~48 widgets<br/>+ 5 controllers"]
+        VM[14 ViewModels]
         UC[Use Cases]
         TS["ACPTransportService<br/>WebSocket / stdio"]
         BgLoop[BackgroundReceiveLoop]
@@ -57,7 +57,7 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph TUI["TUI Layer (46 компонентов)"]
+    subgraph TUI["TUI Layer (~48 компонентов + 5 controllers)"]
         Chat[ChatView]
         Sidebar[Sidebar]
         FileTree[FileTree]
@@ -119,7 +119,7 @@ graph TB
 
 **Слои клиента:**
 - **TUI Layer** — 46+ Textual компонентов (ChatView, Sidebar, FileTree, CommandPalette, ModelSelector, и др.)
-- **Presentation** — 13 ViewModels с Observable состоянием (MVVM): 9 базовых + 4 selector ViewModels
+- **Presentation** — 14 ViewModels с Observable состоянием (MVVM): 10 базовых + 4 selector ViewModels
 - **Application** — 5 Use Cases, UIStateMachine, PermissionHandler
 - **Infrastructure** — Dishka DI, ACPTransportService, BackgroundReceiveLoop, MessageRouter, EventBus
 - **Domain** — Session, Message, Permission, ToolCall, Repository интерфейсы, 19 Domain Events
@@ -992,25 +992,25 @@ erDiagram
     SESSION ||--o{ MESSAGE : contains
     SESSION ||--o{ TOOL_CALL : has
     SESSION {
-        string id PK
-        string name
-        datetime created_at
-        json config
-        json context
+        string session_id PK
+        string title
+        string cwd
+        string updated_at
+        string config_values
     }
     MESSAGE {
-        string id PK
+        string message_id PK
         string session_id FK
         string role
-        json content
-        datetime timestamp
+        string content
+        string timestamp
     }
     TOOL_CALL {
-        string id PK
+        string tool_call_id PK
         string session_id FK
         string tool_name
-        json arguments
-        json result
+        string arguments
+        string result
         string status
     }
 ```
@@ -1025,7 +1025,7 @@ codelab/src/codelab/
 │   └── content/         # Типы контента ACP
 │
 ├── server/              # Серверная часть
-│   ├── di.py            # Dishka DI контейнер
+│   ├── di/              # Пакет DI (observability/agent/llm/services/pipeline/request)
 │   ├── config.py        # Pydantic конфигурация
 │   ├── http_server.py   # HTTP/WebSocket сервер
 │   ├── web_app.py       # Web UI (textual-web)
@@ -1036,7 +1036,7 @@ codelab/src/codelab/
 │   │   ├── handlers/    # Обработчики методов
 │   │   │   ├── auth.py
 │   │   │   ├── session.py
-│   │   │   ├── prompt.py
+│   │   │   ├── prompt/   # Пакет: normalization/validation/directives/tool_calls/client_requests/permission_response
 │   │   │   ├── permissions.py
 │   │   │   ├── config.py
 │   │   │   ├── prompt_orchestrator.py  # Главный координатор
@@ -1054,7 +1054,7 @@ codelab/src/codelab/
 │   ├── storage/         # Хранилище сессий (LRU cache)
 │   ├── mcp/             # MCP интеграция
 │   ├── client_rpc/      # Agent→Client RPC
-│   ├── llm/             # LLM подсистема (Registry, 8+ Providers, Fallback, Events)
+│   ├── llm/             # LLM подсистема (Registry, 9 Providers, Fallback, Events)
 │   ├── observability/   # Tracer, Metrics, Timeline, Exporters
 │   └── transport/       # WebSocket, stdio
 │
@@ -1065,13 +1065,16 @@ codelab/src/codelab/
     │   ├── services/    # ACPTransportService, BackgroundReceiveLoop
     │   ├── handlers/    # FS, Terminal handlers
     │   └── events/      # EventBus
-    ├── presentation/    # ViewModels (MVVM, 13 штук)
+    ├── presentation/    # ViewModels (MVVM, 14 штук)
     │   └── chat/        # Chat подсистема (handlers, executors, persistence)
-    └── tui/             # TUI компоненты (46+ файлов)
+    └── tui/             # TUI (~48 компонентов + 5 controllers)
         ├── app.py       # ACPClientApp
         ├── components/  # ChatView, Sidebar, FileTree, ...
-        ├── navigation/  # NavigationManager, Operations, Queue, Tracker
+        ├── controllers/ # Modal/Connection/Session/Chat/ConfigOptions
         └── themes/      # Dark/Light themes
+
+> **Удалено (P2-17):** `tui/navigation/` (`NavigationManager`, `NavigationOperations`,
+> `NavigationQueue`, `NavigationTracker`) — неадоптированная абстракция, не подключена.
 ```
 
 ## См. также

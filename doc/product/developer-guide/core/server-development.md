@@ -175,8 +175,8 @@ class ACPProtocol:
 | `session/new` | `handlers/session.py` | Создание сессии |
 | `session/load` | `handlers/session.py` | Загрузка сессии |
 | `session/list` | `handlers/session.py` | Список сессий |
-| `session/prompt` | `handlers/prompt.py` | Обработка промпта |
-| `session/cancel` | `handlers/prompt.py` | Отмена промпта |
+| `session/prompt` | `handlers/prompt/` (пакет) | Обработка промпта |
+| `session/cancel` | `handlers/prompt/` (пакет) | Отмена промпта |
 | `session/request_permission_response` | `handlers/permissions.py` | Ответ на запрос разрешения |
 | `session/set_config_option` | `handlers/config.py` | Установка опции |
 | `session/set_mode` | `handlers/config.py` | Установка режима |

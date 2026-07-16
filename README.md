@@ -109,7 +109,7 @@ codelab-agent/
 │   │   └── observability/  # Tracing, Metrics, Timeline
 │   ├── shared/             # Общие модули (messages, logging, content, web_ui)
 │   └── cli.py              # CLI точка входа
-├── tests/                  # Тесты (~7200 тестов)
+├── tests/                  # Тесты (~7250, 7254 passed на 2026-07-16)
 ├── doc/
 │   ├── product/            # Продуктовая документация (для website)
 │   │   ├── overview/       # Введение, архитектура, сценарии
@@ -525,7 +525,7 @@ graph TD
 
 ### Context Manager — интеллектуальный сбор контекста
 
-`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-4.
+`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-3 (Phase 4-6 в очереди, см. [INDEX канона](doc/internals/context-manager/INDEX.md)).
 
 ```mermaid
 graph TD

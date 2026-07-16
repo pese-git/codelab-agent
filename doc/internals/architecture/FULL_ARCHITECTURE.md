@@ -45,7 +45,7 @@ flowchart TB
         BgExec["BackgroundExecutor\n(async tool execution)"]
         NotifBus["SessionNotificationBus\n(Observer pattern)"]
         Prompt_Orch["PromptOrchestrator\nPipeline: 7 stages"]
-        AgentLoop["AgentLoop\nLLM tool-calling цикл\n+ streaming support"]
+        AgentLoop["AgentLoop (пакет)\nloop + llm_caller + tool_processor\n+ updates + loop_detector\nLLM tool-calling цикл\n+ streaming support"]
         Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor"]
         Context_Manager["ContextManager\n4-слойная архитектура A–D\nPhase 0–3 реализованы"]
         Agent_Bus["AgentEventBus (INTERNAL)\nPoint-to-Point + Broadcast + Pub/Sub"]
@@ -84,7 +84,7 @@ flowchart TB
         subgraph LLM["LLM Layer"]
             Provider_Registry["LLMProviderRegistry"]
             Model_Resolver["ModelResolver"]
-            Providers["Providers:\n• OpenAI\n• Anthropic\n• OpenRouter\n• Ollama\n• LMStudio\n• Zen\n• Go\n• Mock"]
+            Providers["Providers (9):\n• OpenAI\n• Anthropic\n• OpenRouter (openai_compatible)\n• Ollama\n• LMStudio\n• Zen\n• Go\n• Mock\n• ScriptedMock"]
         end
         
         subgraph Tools["Tools Layer"]

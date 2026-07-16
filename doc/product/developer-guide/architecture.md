@@ -9,7 +9,7 @@ CodeLab реализует клиент-серверную архитектур�
 ```mermaid
 graph TB
     subgraph Client["Клиент (Clean Architecture + MVVM)"]
-        TUI["TUI App<br/>46 компонентов"]
+        TUI["TUI App<br/>~48 компонентов<br/>+ 5 controllers"]
         VM[14 ViewModels]
         UC[5 Use Cases]
         TS[ACPTransportService]
@@ -56,8 +56,8 @@ graph TB
         subgraph TUI_LAYER["TUI Layer (Textual)"]
             direction TB
             APP[ACPClientApp]
-            COMPONENTS["46 компонентов<br/>ChatView, Sidebar, FileTree<br/>PromptInput, ToolPanel<br/>MessageBubble, ToolCallCard<br/>PermissionModal, FileViewer<br/>CommandPalette, Tabs<br/>Toast, Spinner, MarkdownViewer"]
-            NAV[NavigationManager]
+            COMPONENTS["~48 компонентов<br/>+ 5 controllers<br/>ChatView, Sidebar, FileTree<br/>PromptInput, ToolPanel<br/>MessageBubble, ToolCallCard<br/>PermissionModal, FileViewer<br/>CommandPalette, Tabs<br/>Toast, Spinner, MarkdownViewer"]
+            CTRL["ModalController<br/>ConnectionController<br/>SessionController<br/>ChatController<br/>ConfigOptionsController"]
             THEME["ThemeManager<br/>dark/light"]
         end
 
@@ -113,7 +113,7 @@ graph TB
             STDIO_CLIENT["Stdio Client<br/>subprocess"]
         end
 
-        APP --> COMPONENTS --> NAV & THEME
+        APP --> COMPONENTS --> CTRL & THEME
         COMPONENTS --> UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM
         UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM --> OBS
         UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM --> INIT_UC & CREATE_UC & LOAD_UC & SEND_UC & LIST_UC
@@ -148,7 +148,7 @@ graph TB
         end
 
         subgraph PROTOCOL["Protocol Layer (REQUEST scope)"]
-            AP["ACPProtocol (Facade)<br/>method dispatcher<br/>~400 LOC"]
+            AP["ACPProtocol (Facade)<br/>method dispatcher<br/>~331 LOC (core.py<br/>декомпозирован 2030→331)"]
             CMD_REG["CommandRegistry<br/>(Command Pattern)"]
             RESP_ROUTER["ResponseRouter<br/>(response routing)"]
             BG_EXEC["BackgroundExecutor<br/>(async tool execution)"]
@@ -213,9 +213,9 @@ graph TB
 
         subgraph LLM["LLM Layer"]
             direction TB
-            REGISTRY["LLMProviderRegistry<br/>8+ providers"]
+            REGISTRY["LLMProviderRegistry<br/>9 providers"]
             RESOLVER[ModelResolver]
-            PROVIDERS["Providers<br/>OpenAI, Anthropic<br/>OpenRouter, Zen, Go<br/>Ollama, LMStudio, Mock"]
+            PROVIDERS["Providers (9)<br/>OpenAI, Anthropic<br/>OpenRouter, Zen, Go<br/>Ollama, LMStudio<br/>Mock, ScriptedMock"]
             FALLBACK["Fallback System<br/>SequentialStrategy<br/>CircuitBreaker"]
             DISCOVERY[Model Discovery]
             TELEMETRY[LLM Telemetry]
@@ -240,7 +240,7 @@ graph TB
             MC["MCPClient<br/>state machine"]
             TA["MCPToolAdapter<br/>kind inference"]
             MCP_MODELS["MCP Models<br/>Request, Response, Tool<br/>ServerConfig, Resource<br/>Prompt, Annotations"]
-            MCP_TRANSPORTS["MCP Transports<br/>StdioTransport<br/>HttpTransport<br/>SseTransport"]
+            MCP_TRANSPORTS["MCP Transports<br/>StdioServerTransport<br/>HttpTransport<br/>SseTransport (deprecated,<br/>сохранён для обратной<br/>совместимости)"]
             MCP_RETRY["Auto-Reconnect<br/>Exponential backoff<br/>jitter 10%"]
         end
 
@@ -332,7 +332,7 @@ graph TB
     %% EXTERNAL SYSTEMS
     %% ==========================================
     subgraph EXTERNAL["External Systems"]
-        LLM_API["LLM APIs<br/>OpenAI, Anthropic<br/>OpenRouter, Zen, Go"]
+        LLM_API["LLM APIs<br/>OpenAI, Anthropic<br/>OpenRouter, Zen, Go<br/>(+ Mock, ScriptedMock<br/>+ Ollama, LMStudio<br/>local)"]
         OLLAMA["Ollama<br/>local models"]
         LMSTUDIO["LMStudio<br/>local models"]
         MCP_SERVERS["MCP Servers<br/>filesystem, github<br/>playwright, database, git"]
@@ -368,12 +368,12 @@ codelab/
 │   │   ├── domain/         # Entities, Repositories, Events
 │   │   ├── application/    # Use Cases, DTOs, State Machine
 │   │   ├── infrastructure/ # DI, Transport, Handlers, EventBus
-│   │   ├── presentation/   # 13 ViewModels (MVVM)
+│       │   ├── presentation/   # 14 ViewModels (MVVM)
 │   │   │   └── chat/       # Chat подсистема (handlers, executors, persistence)
-│   │   └── tui/            # 46 Textual компонентов
-│   │       └── navigation/ # Navigation подсистема
-│   └── server/             # ACP сервер (Dishka DI)
-│       ├── di.py           # Dishka контейнер (APP/REQUEST scope)
+│   │   └── tui/            # ~48 Textual компонентов + 5 controllers
+    │   │       └── controllers/ # Modal/Connection/Session/Chat/ConfigOptions
+    │   └── server/             # ACP сервер (Dishka DI)
+    │       ├── di/             # Пакет DI (observability/agent/llm/services/pipeline/request)
 │       ├── config.py       # Pydantic конфигурация
 │       ├── http_server.py  # HTTP/WebSocket сервер
 │       ├── protocol/       # ACP протокол
@@ -382,7 +382,7 @@ codelab/
 │       ├── storage/        # Хранилище сессий
 │       ├── mcp/            # MCP интеграция
 │       └── client_rpc/     # Agent→Client RPC
-└── tests/                  # Тесты (~2200)
+└── tests/                  # Тесты (~7250, 7254 passed на 2026-07-16)
 ```
 
 ## Архитектура клиента
@@ -393,11 +393,11 @@ codelab/
 graph TB
     subgraph TUI["TUI Layer"]
         App[ACPClientApp]
-        Components[46 компонентов]
+        Components["~48 компонентов<br/>+ 5 controllers"]
     end
     
     subgraph Presentation["Presentation Layer"]
-        VM[13 ViewModels]
+        VM[14 ViewModels]
         Obs["Observable&lt;T&gt;"]
     end
     
@@ -494,7 +494,7 @@ graph TB
 **DI Container (Dishka):**
 - `create_client_container()` — фабрика контейнера
 - `ClientProvider` — инфраструктурные сервисы (транспорт, репозитории, обработчики)
-- `ViewModelProvider` — 13 ViewModels
+- `ViewModelProvider` — 14 ViewModels
 
 **Транспорт:**
 - `WebSocketTransport` — aiohttp WebSocket клиент
@@ -676,7 +676,7 @@ chat_vm = ChatViewModel(
 
 ### TUI Layer (`client/tui/`)
 
-**46 компонентов** в `tui/components/`:
+**~48 компонентов** в `tui/components/` + 5 controllers в `tui/controllers/`:
 - **Основные:** `ChatView`, `Sidebar`, `FileTree`, `PromptInput`, `ToolPanel`, `HeaderBar`, `FooterBar`
 - **Сообщения:** `MessageBubble`, `MessageList`, `StreamingText`, `ThinkingIndicator`
 - **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutput`, `TerminalPanel`
@@ -686,11 +686,17 @@ chat_vm = ChatViewModel(
 - **Утилиты:** `Toast`, `Spinner`, `Progress`, `SearchInput`, `StatusLine`, `KeyboardManager`, `MarkdownViewer`
 - **Макет:** `MainLayout` (OpenCode-style: sidebar, content, dock regions)
 
-**Navigation подсистема** (`tui/navigation/`):
-- `NavigationManager` — централизованное управление фокусом и навигацией
-- `NavigationOperations` — операции навигации
-- `NavigationQueue` — очередь навигации
-- `NavigationTracker` — отслеживание навигации
+**Controllers подсистема** (`tui/controllers/`, вынесена из `app.py` в P1-4):
+- `ModalController` — координация модалок
+- `ConnectionController` — управление подключением
+- `SessionController` — операции с сессиями
+- `ChatController` — операции чата (clear_chat и др.)
+- `ConfigOptionsController` — конфигурационные опции
+- `ToolCallParser` — парсер tool-call (вынесен из `app.py`)
+
+> **Удалено (P2-17):** `tui/navigation/` (`NavigationManager`, `NavigationOperations`,
+> `NavigationQueue`, `NavigationTracker`) — неадоптированная абстракция, не подключена,
+> все модалки идут через `ModalController` + нативный `push_screen`.
 
 **ThemeManager** — переключение тем (dark/light).
 
