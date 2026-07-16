@@ -120,6 +120,38 @@ class TestChatView:
             chat_vm.is_streaming.value = True
             chat_vm.streaming_text.value = "streaming..."
 
+    async def test_streaming_chunks_update_in_place_without_full_rebuild(self) -> None:
+        """Последующие streaming-чанки обновляют виджет in-place, без пересоздания DOM.
+
+        Регресс на фриз event loop: полный _update_display() на каждый chunk сносил
+        всю историю чата.
+        """
+
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test():
+            chat_vm = FakeChatViewModel()
+            chat_view = ChatView(chat_vm)
+            await app.mount(chat_view)
+
+            chat_vm.is_streaming.value = True
+            chat_vm.streaming_text.value = "a"  # первый chunk — виджет создаётся
+            widget = chat_view._streaming_widget
+            assert widget is not None
+
+            with patch.object(
+                chat_view, "_update_display", wraps=chat_view._update_display
+            ) as spy:
+                chat_vm.streaming_text.value = "ab"
+                chat_vm.streaming_text.value = "abc"
+                # Полный ребилд на последующих чанках не вызывается.
+                spy.assert_not_called()
+
+            # Тот же самый виджет — не пересоздавался.
+            assert chat_view._streaming_widget is widget
+
     async def test_update_display_not_mounted(self) -> None:
         """_update_display без монтирования возвращает управление."""
         chat_vm = FakeChatViewModel()
