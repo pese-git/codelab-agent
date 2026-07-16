@@ -931,17 +931,6 @@ class TestACPClientAppAdditionalCoverage:
             app = ACPClientApp(host="127.0.0.1", port=8765)
             assert app._ui_vm is ui_vm
 
-    async def test_on_ready_navigation_manager_error(self) -> None:
-        """Ошибка инициализации NavigationManager не прерывает on_ready."""
-        with _patched_app() as (app, _deps):
-            with patch(
-                "codelab.client.tui.app.NavigationManager",
-                side_effect=RuntimeError("fail"),
-            ):
-                async with app.run_test() as pilot:
-                    await pilot.pause()
-                    assert app._navigation_manager is None
-
     async def test_sidebar_state_changed_file_tree_not_found(self) -> None:
         """Исключение при поиске FileTree не прерывает _on_sidebar_state_changed."""
         with _patched_app() as (app, _deps):

@@ -37,7 +37,6 @@ from codelab.client.presentation.session_view_model import SessionViewModel
 from codelab.client.presentation.terminal_log_view_model import TerminalLogViewModel
 from codelab.client.presentation.terminal_view_model import TerminalViewModel
 from codelab.client.presentation.ui_view_model import SidebarTab, UIViewModel
-from codelab.client.tui.navigation import NavigationManager
 
 from .components import (
     ChatView,
@@ -147,9 +146,6 @@ class ACPClientApp(App[None]):
         self._theme_manager.register_textual_themes()
         # Применяем тему из конфига или CLI
         self._apply_initial_theme(theme)
-
-        # NavigationManager будет инициализирован в on_mount
-        self._navigation_manager: NavigationManager | None = None
 
         # MainLayout будет инициализирован в compose()
         self._main_layout: MainLayout | None = None
@@ -306,16 +302,6 @@ class ACPClientApp(App[None]):
 
         # Монтируем компоненты в контейнеры MainLayout
         self._mount_main_layout_children()
-
-        # Инициализируем NavigationManager
-        try:
-            self._navigation_manager = NavigationManager(self)
-            self._app_logger.debug("navigation_manager_initialized")
-        except Exception as e:
-            self._app_logger.error(
-                "failed_to_initialize_navigation_manager",
-                error=str(e),
-            )
 
         # Инициализируем подключение к серверу
         self._app_logger.info("starting_connection_worker")
@@ -661,14 +647,6 @@ class ACPClientApp(App[None]):
     async def on_unmount(self) -> None:
         """Очистка ресурсов при завершении приложения."""
         self._app_logger.info("app_unmounting")
-
-        # Освобождаем ресурсы NavigationManager (подписки/операции).
-        if self._navigation_manager is not None:
-            try:
-                self._navigation_manager.dispose()
-                self._app_logger.debug("navigation_manager_disposed")
-            except Exception as e:
-                self._app_logger.error("navigation_manager_dispose_failed", error=str(e))
 
         # Закрываем WebSocket соединение
         try:

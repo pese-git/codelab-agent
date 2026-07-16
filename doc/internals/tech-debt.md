@@ -710,7 +710,28 @@ method=llm`). Для моделей без надёжного structured-output 
 
 ---
 
-### 17. `NavigationManager` не подключён + утечка `dispose()` — 🟡 ОТКРЫТО (2026-07-13)
+### 17. `NavigationManager` не подключён + утечка `dispose()` — ✅ ЗАКРЫТО (2026-07-16)
+
+> ✅ Резолюция (2026-07-16, вариант A — удаление неадоптированной абстракции):
+> - Часть «утечка `dispose()`» была устранена ранее (вызов в `on_unmount`).
+> - Часть «не подключён»: анализ показал **принципиальное несоответствие**
+>   `NavigationManager` (async-очередь + tracker + VM-visibility-подписки + on-show
+>   callback) реальному паттерну модалок приложения (`push_screen(modal, callback=…)`
+>   с возвратом результата dismiss). `show_screen()` не умеет прокидывать результат
+>   dismiss — «подключение» селекторов (model/config/command palette) через менеджер
+>   **сломало бы** callback выбора. Абстракция (950 строк: manager/queue/tracker/
+>   operations) в production только инстанцировалась и `dispose`-илась, в навигации не
+>   участвовала (все модалки — через `ModalController` + нативный `push_screen`, inline-
+>   permission — через собственную очередь, см. #19).
+> - **Удалён** пакет `client/tui/navigation/`, его создание/`dispose`/импорт в `app.py`,
+>   выделенные тесты (`test_navigation_manager/tracker/queue`, `tui/navigation/`) и
+>   lifecycle-тест в `test_app_coverage.py`. Устаревшие комментарии «NavigationManager
+>   сам удалит виджет» в `file_viewer.py`/`terminal_log_modal.py` поправлены.
+> - `make check` — 7235 passed (−101 nav-тест), ruff/ty чисты.
+>
+> Решение по варианту A согласовано явно (удаление функциональности). Wiring (вариант C —
+> полноценный слой модалок с dismiss-результатом) отклонён как крупный low-ROI при живом
+> `ModalController`.
 
 > Обнаружено при анализе `client/tui/app.py` (P1-4). `NavigationManager` создаётся в
 > `on_ready`, но нигде не используется: все модалки идут напрямую через `push_screen`/
