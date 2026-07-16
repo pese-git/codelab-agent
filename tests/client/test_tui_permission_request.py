@@ -426,6 +426,84 @@ def test_chat_view_permission_manager_creates_permission_request_widget(
     mock_chat_view._permission_container.mount.assert_called_once()
 
 
+def test_second_permission_request_is_queued_not_preempting(
+    permission_view_model: PermissionViewModel,
+    sample_options: list[PermissionOption],
+    sample_tool_call: PermissionToolCall,
+) -> None:
+    """Второй запрос не вытесняет неотвеченный первый, а встаёт в очередь (#19)."""
+    mock_chat_view = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
+
+    manager = ChatViewPermissionManager(
+        chat_view=mock_chat_view,
+        permission_vm=permission_view_model,
+        widget_type=PermissionWidgetType.REQUEST,
+    )
+
+    manager.show_permission_request(
+        request_id="req_1",
+        tool_call=sample_tool_call,
+        options=sample_options,
+        on_choice=MagicMock(),
+    )
+    first_widget = manager._current_widget
+
+    manager.show_permission_request(
+        request_id="req_2",
+        tool_call=sample_tool_call,
+        options=sample_options,
+        on_choice=MagicMock(),
+    )
+
+    # Первый по-прежнему показан, второй — в очереди.
+    assert manager._current_widget is first_widget
+    assert len(manager._queue) == 1
+    assert manager._queue[0].request_id == "req_2"
+    mock_chat_view._permission_container.mount.assert_called_once()
+
+
+def test_queued_request_shown_after_current_resolved(
+    permission_view_model: PermissionViewModel,
+    sample_options: list[PermissionOption],
+    sample_tool_call: PermissionToolCall,
+) -> None:
+    """После разрешения текущего запроса показывается следующий из очереди (#19)."""
+    mock_chat_view = MagicMock()
+    mock_chat_view._permission_container = MagicMock()
+
+    manager = ChatViewPermissionManager(
+        chat_view=mock_chat_view,
+        permission_vm=permission_view_model,
+        widget_type=PermissionWidgetType.REQUEST,
+    )
+
+    manager.show_permission_request(
+        request_id="req_1",
+        tool_call=sample_tool_call,
+        options=sample_options,
+        on_choice=MagicMock(),
+    )
+    manager.show_permission_request(
+        request_id="req_2",
+        tool_call=sample_tool_call,
+        options=sample_options,
+        on_choice=MagicMock(),
+    )
+
+    # Разрешение первого: is_visible → False → дренаж откладывается.
+    permission_view_model.is_visible.value = False
+    assert manager._current_widget is None
+    mock_chat_view.call_after_refresh.assert_called_once_with(manager._show_next_queued)
+
+    # Выполняем отложенный дренаж — показывается второй запрос.
+    manager._show_next_queued()
+    assert manager._current_widget is not None
+    assert manager._current_widget_info is not None
+    assert manager._current_widget_info.request_id == "req_2"
+    assert manager._queue == []
+
+
 def test_chat_view_permission_manager_creates_inline_widget(
     permission_view_model: PermissionViewModel,
     sample_options: list[PermissionOption],

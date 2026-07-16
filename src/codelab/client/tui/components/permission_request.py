@@ -320,6 +320,22 @@ class PermissionRequest(Static):
         if self._auto_deny_seconds and self._auto_deny_seconds > 0:
             self._auto_deny_timer = self.set_interval(1.0, self._tick_auto_deny)
 
+        # Фокус на кнопку Allow после того, как кнопки реально смонтированы.
+        # Без этого второй подряд permission-модал не принимал ввод с клавиатуры,
+        # а фокус оставался на прежнем виджете (tech-debt #19).
+        self.call_after_refresh(self._focus_default_action)
+
+    def _focus_default_action(self) -> None:
+        """Передать фокус кнопке Allow смонтированного виджета (fix #19)."""
+        if self._resolved:
+            return
+        try:
+            self.query_one("#perm-allow", ActionButton).focus()
+        except Exception:
+            self._logger.debug(
+                "permission_request_focus_skipped", request_id=self._request_id
+            )
+
     def _tick_auto_deny(self) -> None:
         """Обработчик тика таймера автоотклонения."""
         if self._resolved:
