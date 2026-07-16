@@ -12,15 +12,11 @@ from codelab.client.tui.components.keyboard_manager import (
     get_default_textual_bindings,
 )
 
-# tech-debt: эти действия объявлены в раскладке, но пока НЕ имеют `action_*`
-# обработчиков в App (мёртвые биндинги, обнаружены при #16). Набор заморожен —
-# см. также #16 в doc/internals/tech-debt.md.
-_KNOWN_ACTIONS_WITHOUT_HANDLER = {
-    "retry_prompt",
-    "clear_chat",
-    "open_terminal_output",
-    "cycle_focus",
-}
+# tech-debt #16 (смежный пробел): пробелов больше нет — `clear_chat`/`cycle_focus`
+# получили `action_*`-обработчики, `retry_prompt`/`open_terminal_output` (без backing-
+# логики) убраны из раскладки и палитры. Набор пуст: любой новый биндинг без
+# обработчика заваливает test_every_binding_has_handler_or_is_known_gap.
+_KNOWN_ACTIONS_WITHOUT_HANDLER: set[str] = set()
 # Обрабатываются самим Textual (App.action_quit и т.п.), не объявляются в App.
 _TEXTUAL_BUILTIN_ACTIONS = {"quit"}
 

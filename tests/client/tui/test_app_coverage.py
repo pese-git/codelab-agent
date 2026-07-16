@@ -598,6 +598,28 @@ class TestACPClientAppPrompt:
                 app.action_cancel_prompt()
                 deps["coordinator"].cancel_prompt.assert_not_awaited()
 
+    async def test_action_clear_chat(self) -> None:
+        """Ctrl+L очищает историю активной сессии через clear_chat_cmd."""
+        with _patched_app() as (app, deps):
+            chat_vm = deps["chat_vm"]
+            chat_vm.messages.value = [{"role": "user", "content": "hi"}]
+            chat_vm.tool_calls.value = [{"id": "t1"}]
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_clear_chat()
+                await pilot.pause()
+                await pilot.pause()
+                assert chat_vm.messages.value == []
+                assert chat_vm.tool_calls.value == []
+
+    async def test_action_cycle_focus(self) -> None:
+        """Tab переводит фокус на следующий виджет без исключений."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_cycle_focus()
+                await pilot.pause()
+
     async def test_on_prompt_input_cancelled(self) -> None:
         """Событие отмены из PromptInput вызывает action_cancel_prompt."""
         with _patched_app() as (app, deps):

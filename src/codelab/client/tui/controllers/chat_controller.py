@@ -69,3 +69,11 @@ class ChatController:
             self._chat_vm.cancel_prompt_cmd.execute(session_id),
             exclusive=False,
         )
+
+    def clear_chat(self) -> None:
+        """Очищает историю активной сессии (Ctrl+L)."""
+        self._logger.info("action_clear_chat_called")
+        self._app.run_worker(
+            self._chat_vm.clear_chat_cmd.execute(),
+            exclusive=False,
+        )

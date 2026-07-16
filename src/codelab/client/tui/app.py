@@ -420,6 +420,14 @@ class ACPClientApp(App[None]):
         """Отменяет текущий LLM-запрос для активной сессии (Ctrl+C / Stop)."""
         self._chat.cancel_prompt()
 
+    def action_clear_chat(self) -> None:
+        """Очищает историю активной сессии (Ctrl+L)."""
+        self._chat.clear_chat()
+
+    def action_cycle_focus(self) -> None:
+        """Переводит фокус на следующий виджет по кругу (Tab)."""
+        self.screen.focus_next()
+
     def action_toggle_sidebar(self) -> None:
         """Показывает/скрывает боковую панель.
 

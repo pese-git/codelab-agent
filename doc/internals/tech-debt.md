@@ -684,11 +684,21 @@ method=llm`). Для моделей без надёжного structured-output 
 >   DEFAULT_BINDINGS, нет дублей клавиш/действий, каждый action имеет `action_*` в App
 >   либо в замороженном списке известных пробелов.
 >
-> **Обнаружен смежный пробел (не в объёме #16):** биндинги `retry_prompt`, `clear_chat`,
-> `open_terminal_output`, `cycle_focus` объявлены в раскладке, но **не имеют `action_*`
-> обработчиков** в App (мёртвые клавиши уже сегодня). Сохранены как есть (канон = текущее
-> поведение), зафиксированы в guardrail как известный набор пробелов — кандидат в отдельную
-> задачу (реализовать обработчики или убрать биндинги). `make check` — 7336 passed.
+> **Смежный пробел (4 мёртвых биндинга) — ✅ ЗАКРЫТ (2026-07-16):** биндинги
+> `retry_prompt`, `clear_chat`, `open_terminal_output`, `cycle_focus` были объявлены в
+> раскладке, но не имели `action_*` обработчиков в App (и палитра команд для них молча
+> ничего не делала — оба пути идут через `App.action(...)`). Резолюция — по факту наличия
+> backing-логики, а не «всё реализовать / всё убрать»:
+> - **Реализованы** `clear_chat` (Ctrl+L → `action_clear_chat` → `ChatController.clear_chat`
+>   → готовый протестированный `ChatViewModel.clear_chat_cmd`) и `cycle_focus`
+>   (Tab → `action_cycle_focus` → `self.screen.focus_next()`; заодно снят мёртвый перехват
+>   Tab, ломавший дефолтную фокус-навигацию Textual).
+> - **Убраны из раскладки и палитры** `retry_prompt` и `open_terminal_output` — под ними
+>   нет никакой логики (retry не существует в клиенте; `TerminalLogModal` нигде не
+>   инстанцируется, нет понятия «текущий терминал»). Их реализация = новая фича, что
+>   противоречит минимальности CLAUDE.md; вводить без запроса нельзя.
+> - Guardrail-набор `_KNOWN_ACTIONS_WITHOUT_HANDLER` опустошён (`set()`): теперь любой
+>   новый биндинг без обработчика заваливает тест. `make check` — 7254 passed, ruff/ty чисты.
 
 > Обнаружено при анализе `client/tui/app.py` (P1-4). `App.BINDINGS` захардкожены списком,
 > а `KeyboardManager` (`components/keyboard_manager.py`) с его `DEFAULT_BINDINGS` и методом

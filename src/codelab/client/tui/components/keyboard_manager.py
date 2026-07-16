@@ -72,7 +72,6 @@ class HotkeyGroup:
 DEFAULT_BINDINGS: list[HotkeyBinding] = [
     HotkeyBinding("ctrl+q", "quit", "Выход", HotkeyCategory.SYSTEM, priority=10),
     HotkeyBinding("ctrl+n", "new_session", "Новая сессия", HotkeyCategory.SESSION, priority=20),
-    HotkeyBinding("ctrl+r", "retry_prompt", "Повторить", HotkeyCategory.SESSION, priority=30),
     HotkeyBinding("ctrl+b", "toggle_sidebar", "Sidebar", HotkeyCategory.NAVIGATION, priority=40),
     HotkeyBinding(
         "ctrl+s", "focus_session_list", "Список сессий", HotkeyCategory.NAVIGATION, priority=50
@@ -95,9 +94,6 @@ DEFAULT_BINDINGS: list[HotkeyBinding] = [
         "Предыдущая вкладка",
         HotkeyCategory.NAVIGATION,
         priority=120,
-    ),
-    HotkeyBinding(
-        "ctrl+`", "open_terminal_output", "Терминал", HotkeyCategory.VIEW, priority=130
     ),
     HotkeyBinding(
         "tab", "cycle_focus", "Переключить фокус", HotkeyCategory.NAVIGATION, priority=140
