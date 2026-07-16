@@ -18,6 +18,9 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
+    ToolLoopDetector,
+)
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy_async
 from codelab.server.protocol.state import ToolResult
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
@@ -84,6 +87,7 @@ class ToolCallProcessor:
         content_formatter: ContentFormatter,
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
+        loop_guard_limit: int = 3,
     ) -> None:
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
@@ -93,6 +97,11 @@ class ToolCallProcessor:
         self._content_formatter = content_formatter
         self._plan_builder = plan_builder
         self._global_policy_manager = global_policy_manager
+
+        # Детектор зацикливания агента (tech-debt #22). Экземпляр процессора живёт
+        # один prompt-turn, поэтому детектор создаётся здесь и его состояние
+        # автоматически сбрасывается сменой turn. `loop_guard_limit=0` отключает.
+        self._loop_detector = ToolLoopDetector(loop_guard_limit)
 
     async def process_batch(
         self,
@@ -223,6 +232,22 @@ class ToolCallProcessor:
                     session_id,
                     tool_call_id,
                     acp_tool_name,
+                    tool_call_id_from_llm,
+                    sink,
+                )
+            )
+
+        # Детектор зацикливания (#22): считаем попытку; если одна и та же команда
+        # (tool+args) запрошена > лимита раз за turn — отклоняем ДО permission/исполнения
+        # с подсказкой, вместо очередного холостого повтора.
+        if self._loop_detector.register_attempt(acp_tool_name, tool_arguments):
+            return _ToolCallStep(
+                tool_result=await self._reject_looping_tool(
+                    session,
+                    session_id,
+                    tool_call_id,
+                    acp_tool_name,
+                    tool_arguments,
                     tool_call_id_from_llm,
                     sink,
                 )
@@ -387,6 +412,61 @@ class ToolCallProcessor:
         error_msg = (
             f"Неизвестный инструмент '{acp_tool_name}'. "
             f"Доступные инструменты: {', '.join(available) if available else 'нет'}."
+        )
+        error_content = [{"type": "content", "content": {"type": "text", "text": error_msg}}]
+        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+        notification = self._tool_call_handler.build_tool_update_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=error_content,
+        )
+        await sink.emit_and_save_tool_update(
+            notification,
+            session=session,
+            tool_call_id=tool_call_id,
+            status="failed",
+            content=error_content,
+        )
+        return ToolResult(
+            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_name=acp_tool_name,
+            success=False,
+            error=error_msg,
+        )
+
+    async def _reject_looping_tool(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_call_id: str,
+        acp_tool_name: str,
+        tool_arguments: dict,
+        tool_call_id_from_llm: str | None,
+        sink: SessionUpdateSink,
+    ) -> ToolResult:
+        """Отклонить зациклившийся tool-call с подсказкой LLM (#22).
+
+        Не исполняет tool повторно и не запрашивает permission; возвращает
+        предыдущий результат и просит изменить подход или завершить.
+        """
+        repeat_count = self._loop_detector.repeat_count(acp_tool_name, tool_arguments)
+        logger.warning(
+            "tool_call_loop_detected",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            acp_tool_name=acp_tool_name,
+            repeat_count=repeat_count,
+            limit=self._loop_detector.limit,
+        )
+        preview = self._loop_detector.last_output(acp_tool_name, tool_arguments).strip()
+        if len(preview) > 500:
+            preview = preview[:500] + "…"
+        error_msg = (
+            f"Инструмент '{acp_tool_name}' вызван {repeat_count} раз(а) с теми же аргументами "
+            f"за один ответ — повтор не продвигает задачу. "
+            f"Предыдущий результат: {preview or '(пусто)'}. "
+            f"Измени подход (другой инструмент/аргументы) или заверши ответ, не повторяя вызов."
         )
         error_content = [{"type": "content", "content": {"type": "text", "text": error_msg}}]
         self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
@@ -695,12 +775,16 @@ class ToolCallProcessor:
             if mcp_manager is None:
                 raise RuntimeError("MCP manager not available for session")
             mcp_executor = MCPToolExecutor(mcp_manager)
-            return await mcp_executor.execute_tool(
+            result = await mcp_executor.execute_tool(
                 session_id, acp_tool_name, tool_arguments, session=session
             )
-        return await self._tool_registry.execute_tool(
-            session_id, acp_tool_name, tool_arguments, session=session
-        )
+        else:
+            result = await self._tool_registry.execute_tool(
+                session_id, acp_tool_name, tool_arguments, session=session
+            )
+        # Запоминаем последний вывод команды — для подсказки при блокировке (#22).
+        self._loop_detector.record_output(acp_tool_name, tool_arguments, result)
+        return result
 
     def _store_and_format(
         self,

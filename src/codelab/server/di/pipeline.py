@@ -77,6 +77,7 @@ class PipelineProvider(Provider):
             tracer=tracer,
             strategy_dispatcher=strategy_dispatcher,
             streaming_enabled=config.llm.streaming,
+            loop_guard_limit=config.agent.tool_loop_guard_limit,
         )
 
     @provide(scope=Scope.APP)

@@ -127,7 +127,14 @@ class AgentConfig(BaseModel):
 
     Атрибуты:
         system_prompt: Системный промпт для агента
+        tool_loop_guard_limit: Порог детектора зацикливания (tech-debt #22). Если одна
+            команда (tool+args) запрошена больше этого числа раз за один prompt-turn —
+            вызов отклоняется с подсказкой LLM. `0` полностью отключает детектор.
     """
+
+    tool_loop_guard_limit: int = Field(
+        default_factory=lambda: int(os.getenv("CODELAB_AGENT_TOOL_LOOP_GUARD_LIMIT", "3"))
+    )
 
     system_prompt: str = Field(
         default_factory=lambda: os.getenv(

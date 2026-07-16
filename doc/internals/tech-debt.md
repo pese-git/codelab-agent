@@ -1000,7 +1000,41 @@ id → контракт цел; LLM больше не оперирует хру�
 
 ---
 
-### 22. Нет защиты от зацикливания агента на повторяющемся tool-call — 🟡 ОТКРЫТО (2026-07-16)
+### 22. Нет защиты от зацикливания агента на повторяющемся tool-call — ✅ ЗАКРЫТО (2026-07-16)
+
+> ✅ Фикс (2026-07-16): выделенный `ToolLoopDetector`
+> (`.../agent_loop/loop_detector.py`), который `ToolCallProcessor` композирует (создаётся
+> per-turn вместе с процессором → состояние сбрасывается сменой turn).
+> - **Сигнал цикла — повтор команды**: сигнатура `имя tool + json(args, sort_keys)`.
+>   Считаются вхождения сигнатуры за turn (`register_attempt`, в `_process_single_tool_call`
+>   до permission/исполнения). При count > лимита вызов отклоняется `_reject_looping_tool`:
+>   LLM получает `failed` с подсказкой и последним выводом команды, лог `warning
+>   tool_call_loop_detected`. Ни повторного исполнения, ни лишнего permission-запроса.
+> - **Ключевой урок (первый вариант был неверен):** нельзя завязываться на «идентичный
+>   результат» и «строго подряд». Реальный цикл — `terminal/create(fvm flutter analyze)`
+>   ↔ `wait_for_exit`: create каждый раз возвращает НОВЫЙ terminal id (результат
+>   различается), а wait с разными id разрывает «подряд». Детекция — по повтору
+>   **команды (tool+args)**, независимо от результата и устойчиво к чередованию
+>   (`wait_for_exit` с разными `terminal_id` → разные сигнатуры, не флагаются).
+> - **Feature-flag из конфига:** `AgentConfig.tool_loop_guard_limit` (default 3, env
+>   `CODELAB_AGENT_TOOL_LOOP_GUARD_LIMIT`, `0` отключает); проводка `config.agent.*` →
+>   `di/pipeline` → `LLMLoopStage` → `AgentLoop` → `ToolCallProcessor` (как `streaming_enabled`).
+>
+> Архитектура: детекция вынесена из процессора в самостоятельный класс без зависимостей
+> (по образцу `TerminalAliasRegistry`, #18) — SRP, mock-free юнит-тесты, заменяемая
+> политика. Тесты: `test_loop_detector.py` (детектор напрямую), `test_tool_loop_guard.py`
+> (интеграция в процессор), `test_config.py` (дефолт/env флага). `make check` — 7250 passed.
+>
+> ✅ **Подтверждено рантаймом (2026-07-16, `~/.codelab/logs`), дважды:**
+> - `sess_62d60fa834aa` (инлайн-версия): 3× `tool_call_loop_detected` (repeat 4/5/6);
+> - `sess_7f3b7e58b3c3` (после рефакторинга): 1× (repeat 4), call_028 заблокирован —
+>   только `tool_call_created` + warning, **без `permission_request_sent`/`executing
+>   pending tool`**, после блокировки **0** новых `terminal/create` (цикл прерван),
+>   0 errors. Ложных срабатываний нет (разные команды проходят нормально).
+>
+> **Ограничение:** счётчик per-turn (сбрасывается на новом prompt). Основной кейс
+> (storm внутри одного turn) покрыт и подтверждён; кросс-turn повторы под контролем
+> пользователя не отслеживаются намеренно.
 
 > Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs`, сессия
 > `sess_f6813d9cbc59`, модель `lmstudio/google/gemma-4-26b-a4b`). В ответ на один промпт

@@ -123,6 +123,7 @@ class AgentLoop:
         max_turn_requests: int = 10,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
         streaming_enabled: bool = False,
+        loop_guard_limit: int = 3,
     ) -> None:
         """Инициализация AgentLoop.
 
@@ -160,6 +161,7 @@ class AgentLoop:
             content_formatter=content_formatter,
             plan_builder=plan_builder,
             global_policy_manager=global_policy_manager,
+            loop_guard_limit=loop_guard_limit,
         )
 
     # ── Immediate Notification Delivery ─────────────────────────────────────────

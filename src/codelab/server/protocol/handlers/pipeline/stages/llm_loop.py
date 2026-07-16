@@ -78,6 +78,7 @@ class LLMLoopStage(PromptStage):
         strategy_dispatcher: StrategyDispatcher | None = None,
         tracer: Tracer | None = None,
         streaming_enabled: bool = False,
+        loop_guard_limit: int = 3,
     ) -> None:
         """Инициализация LLMLoopStage.
 
@@ -102,6 +103,7 @@ class LLMLoopStage(PromptStage):
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
         self._streaming_enabled = streaming_enabled
+        self._loop_guard_limit = loop_guard_limit
 
         # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
@@ -215,6 +217,7 @@ class LLMLoopStage(PromptStage):
             global_policy_manager=self._global_policy_manager,
             notification_callback=notification_callback,
             streaming_enabled=self._streaming_enabled,
+            loop_guard_limit=self._loop_guard_limit,
         )
 
     async def process(self, context: PromptContext) -> PromptContext:

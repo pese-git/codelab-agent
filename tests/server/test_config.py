@@ -820,3 +820,12 @@ model = "openai/gpt-4o"
         assert config.agent is not None
         assert config.websocket is not None
         assert config.storage is not None
+
+    def test_tool_loop_guard_limit_default(self) -> None:
+        """tool_loop_guard_limit по умолчанию 3 (детектор зацикливания, #22)."""
+        assert AppConfig().agent.tool_loop_guard_limit == 3
+
+    def test_tool_loop_guard_limit_env_override(self, monkeypatch) -> None:
+        """CODELAB_AGENT_TOOL_LOOP_GUARD_LIMIT переопределяет порог (0 отключает)."""
+        monkeypatch.setenv("CODELAB_AGENT_TOOL_LOOP_GUARD_LIMIT", "0")
+        assert AppConfig().agent.tool_loop_guard_limit == 0
