@@ -1065,6 +1065,44 @@ no-op команду, не продвигаясь). Дефект в том, чт
 
 ---
 
+### 23. Потеря output terminal-результата при ненулевом exit code — ✅ ЗАКРЫТО (2026-07-16)
+
+> Обнаружено пользователем при `fvm flutter analyze`: команда завершается с exit code 1
+> (найдены проблемы) + выдаёт список из 9 ошибок в stdout, но LLM получал только
+> `"Tool execution failed"` без деталей. Модель не знала, что чинить → повторяла analyze
+> → цикл (тот самый, что страховал #22). Это **корневая причина**, а не симптом.
+
+**Диагноз (проверено в коде):** `terminal/wait_for_exit` при exit≠0 возвращает
+`ToolExecutionResult(success=False, output=<issues>, error=None)`. Дальше
+`_add_tool_result_to_history` строил `content = output if success else (error or "Tool
+execution failed")` → при `success=False` брался `error` (None) → `"Tool execution
+failed"`, а `output` со списком проблем **выбрасывался**. Permission-путь
+(`execute_pending`) был ещё грубее — передавал `output=None` явно. Пользователь видел
+проблемы в UI (терминальный виджет), но LLM — нет. Асимметрия: ненулевой exit code — это
+**данные**, а не сбой инструмента.
+
+**Фикс (`tool_processor.py`):**
+- `_add_tool_result_to_history`: при неуспехе сохраняет `output` (+ `error`), а не
+  затирает на `"Tool execution failed"`.
+- `execute_pending` (failure-ветка): пробрасывает `result.output` в историю/нотификацию/
+  `ToolResult`, а не `None`.
+- `_build_notification_content`: отдаёт `output` и при `success=False` (консистентность с UI).
+- Observability: INFO-лог `tool_result_to_history` (`success`, `content_len`,
+  `content_preview`) — видно, что реально уходит в историю LLM.
+
+**Тесты:** `test_agent_loop.py` — output сохраняется при неуспехе; output+error
+комбинируются; старые кейсы (`"Tool execution failed"` при пустом output) держатся.
+`make check` — 7252 passed.
+
+> ✅ **Подтверждено рантаймом (2026-07-16, `~/.codelab/logs`, `sess_b25e41e99a3b`, pipx):**
+> `tool_result_to_history success=False content_len=2006 content_preview="Analyzing
+> flutter_app... error • Missing concrete implementation ... non_abstract_class_inherits_
+> abstract_member ..."` — полный вывод analyze доходит до LLM. `"Tool execution failed"`
+> в истории — **0 раз**. Даже ошибочный `fvm --delete-conflicting-outputs` доносит
+> usage-текст (LLM может самокорректироваться).
+
+---
+
 ## Дорожная карта
 
 > **Исторический план** (составлен при первичном аудите). Фактический порядок работ

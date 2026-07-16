@@ -499,6 +499,37 @@ class TestAgentLoop:
 
         assert mock_session.history[0]["content"] == "Tool execution failed"
 
+    def test_add_tool_result_to_history_failure_preserves_output(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Неуспех (ненулевой exit code) НЕ теряет output — LLM видит результат команды.
+
+        Регресс: `flutter analyze` возвращает exit code 1 + список проблем в output;
+        раньше в историю попадало 'Tool execution failed', и агент не знал, что чинить.
+        """
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        analyze_output = "9 issues found. error • Missing concrete implementation ..."
+
+        loop._tool_processor._add_tool_result_to_history(
+            mock_session, "tc_1", success=False, output=analyze_output, error=None
+        )
+
+        assert mock_session.history[0]["content"] == analyze_output
+
+    def test_add_tool_result_to_history_failure_combines_output_and_error(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """При наличии и output, и error в историю попадают оба."""
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+
+        loop._tool_processor._add_tool_result_to_history(
+            mock_session, "tc_1", success=False, output="partial output", error="boom"
+        )
+
+        content = mock_session.history[0]["content"]
+        assert "partial output" in content
+        assert "boom" in content
+
     def test_is_cancel_requested_true(self, mock_strategy, mock_session, mock_dependencies):
         """_is_cancel_requested() возвращает True при cancel_requested."""
         mock_session.active_turn = MagicMock()

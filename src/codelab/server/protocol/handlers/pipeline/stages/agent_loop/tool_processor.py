@@ -711,27 +711,31 @@ class ToolCallProcessor:
                     content=extracted_content.content_items,
                 )
             else:
-                error_content = [
+                # Неуспех (напр. ненулевой exit code команды) НЕ должен терять output:
+                # для `flutter analyze` именно output содержит список проблем (#terminal-result).
+                failure_content = notification_content or [
                     {
                         "type": "content",
                         "content": {
                             "type": "text",
-                            "text": result.error or "Tool execution failed",
+                            "text": result.output or result.error or "Tool execution failed",
                         },
                     }
                 ]
                 self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "failed", content=error_content
+                    session, tool_call_id, "failed", content=failure_content
                 )
-                # Добавляем tool result в историю для LLM
+                # Добавляем tool result в историю для LLM (с сохранением output).
                 self._add_tool_result_to_history(
-                    session, effective_id, False, None, result.error
+                    session, effective_id, False, result.output, result.error
                 )
                 return ToolResult(
                     tool_call_id=effective_id,
                     tool_name=tool_name,
                     success=False,
+                    output=result.output,
                     error=result.error,
+                    content=extracted_content.content_items,
                 )
 
         except Exception as exc:
@@ -802,10 +806,14 @@ class ToolCallProcessor:
 
     @staticmethod
     def _build_notification_content(extracted_content, result) -> list | None:
-        """Контент для tool_call_update: extracted content с fallback на текст output."""
+        """Контент для tool_call_update: extracted content с fallback на текст output.
+
+        output отдаём и при неуспехе (ненулевой exit code команды): его текст —
+        полезный результат, а не признак сбоя.
+        """
         if extracted_content.content_items:
             return extracted_content.content_items
-        if result.success and result.output:
+        if result.output:
             return [{"type": "content", "content": {"type": "text", "text": result.output}}]
         return None
 
@@ -852,24 +860,36 @@ class ToolCallProcessor:
             session: Состояние сессии (мутируется).
             tool_call_id: ID tool call.
             success: Успешно ли выполнен tool.
-            output: Выход tool (если успешен).
-            error: Ошибка (если не успешен).
+            output: Выход tool (в т.ч. при неуспехе — напр. вывод команды с
+                ненулевым exit code).
+            error: Ошибка (если есть).
         """
-        content = output if success else (error or "Tool execution failed")
+        if success:
+            content = output or "Success"
+        else:
+            # Ненулевой exit code — нормальный результат с данными, а не сбой:
+            # напр. `flutter analyze` возвращает список проблем в output. LLM обязан
+            # его видеть, иначе не сможет исправить и будет повторять вызов.
+            parts = [p for p in (output, error) if p]
+            content = "\n".join(parts) if parts else "Tool execution failed"
 
+        final_content = content or ""
         session.history.append(
             {
                 "role": "tool",
                 "tool_call_id": tool_call_id,
-                "content": content or "",
+                "content": final_content,
             }
         )
 
-        logger.debug(
-            "tool_result_added_to_history",
+        preview = final_content[:200].replace("\n", " ⏎ ")
+        logger.info(
+            "tool_result_to_history",
             session_id=session.session_id,
             tool_call_id=tool_call_id,
             success=success,
+            content_len=len(final_content),
+            content_preview=preview,
         )
 
     async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
