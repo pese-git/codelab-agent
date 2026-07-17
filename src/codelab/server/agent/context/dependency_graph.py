@@ -1,8 +1,12 @@
 """DependencyGraph — граф зависимостей файлов на основе regex.
 
-Извлекает импорты из Python файлов и строит граф зависимостей.
+Извлекает импорты из Python и Dart файлов и строит граф зависимостей.
 Используется для расширения контекста: если файл A импортирует файл B,
 то при работе с A также загружается B.
+
+Поддерживаемые языки:
+- Python: `import module`, `from module import ...`
+- Dart: `import 'path.dart'`, `export 'path.dart'`
 
 Слой A — Сбор контекста (Phase 1).
 """
@@ -23,20 +27,37 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-IMPORT_PATTERNS = [
+PYTHON_IMPORT_PATTERNS = [
     re.compile(r"^import\s+([a-zA-Z_][a-zA-Z0-9_.]*)", re.MULTILINE),
     re.compile(r"^from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+import", re.MULTILINE),
 ]
+
+DART_IMPORT_PATTERNS = [
+    re.compile(r"""import\s+['"]([^'"]+)['"]"""),
+    re.compile(r"""export\s+['"]([^'"]+)['"]"""),
+]
+
+IMPORT_PATTERNS = PYTHON_IMPORT_PATTERNS + DART_IMPORT_PATTERNS
 
 
 class RegexDependencyGraph(DependencyGraph):
     """Граф зависимостей на основе regex-парсинга импортов."""
 
-    def __init__(self, project_root: Path | None = None) -> None:
+    def __init__(self, project_root: Path | None = None, max_depth: int | None = None) -> None:
         self._project_root = project_root or Path.cwd()
         self._dependencies: dict[str, set[str]] = defaultdict(set)
         self._dependents: dict[str, set[str]] = defaultdict(set)
         self._project_files: list[str] | None = None
+        self._max_depth = max_depth
+
+    def set_max_depth(self, max_depth: int | None) -> None:
+        """Задать максимальную глубину рекурсивного обхода.
+
+        Args:
+            max_depth: Максимальная глубина (1-3 согласно investigation_depth),
+                      None для неограниченной глубины.
+        """
+        self._max_depth = max_depth
 
     def set_project_root(self, project_root: Path) -> None:
         """Задать корень проекта (директория пользовательской сессии).
@@ -83,14 +104,21 @@ class RegexDependencyGraph(DependencyGraph):
         visited.discard(normalized_path)
         return sorted(visited)
 
-    def _collect_dependencies_recursive(self, path: str, visited: set[str]) -> None:
-        """Рекурсивный сбор зависимостей с защитой от циклов."""
+    def _collect_dependencies_recursive(
+        self, path: str, visited: set[str], *, current_depth: int = 0
+    ) -> None:
+        """Рекурсивный сбор зависимостей с защитой от циклов и ограничением глубины.
+
+        current_depth=0 — начальный файл, current_depth=1 — прямые зависимости, и т.д.
+        """
         if path in visited:
+            return
+        if self._max_depth is not None and current_depth > self._max_depth:
             return
         visited.add(path)
 
         for dep in self._dependencies.get(path, set()):
-            self._collect_dependencies_recursive(dep, visited)
+            self._collect_dependencies_recursive(dep, visited, current_depth=current_depth + 1)
 
     def get_dependents(self, path: str) -> list[str]:
         """Получить файлы, зависящие от данного.
@@ -105,13 +133,14 @@ class RegexDependencyGraph(DependencyGraph):
         return sorted(self._dependents.get(normalized_path, set()))
 
     def parse_imports(self, code: str) -> list[str]:
-        """Извлечь импорты из кода.
+        """Извлечь импорты из кода (Python + Dart).
 
         Args:
-            code: Исходный код Python файла
+            code: Исходный код файла
 
         Returns:
-            Список импортируемых модулей
+            Список импортируемых модулей/путей.
+            Встроенные библиотеки (dart:*) отфильтрованы.
         """
         imports: set[str] = set()
 
@@ -119,7 +148,8 @@ class RegexDependencyGraph(DependencyGraph):
             matches = pattern.findall(code)
             imports.update(matches)
 
-        return list(imports)
+        imports.discard("")
+        return [imp for imp in imports if not imp.startswith("dart:")]
 
     def _normalize_path(self, path: str) -> str:
         """Нормализовать путь к файлу."""
@@ -137,12 +167,32 @@ class RegexDependencyGraph(DependencyGraph):
     def _resolve_import(self, import_name: str) -> str | None:
         """Преобразовать имя импорта в путь к файлу.
 
+        Поддерживает:
+        - Python: "module.submodule" → "module/submodule.py"
+        - Dart: "package:app/path.dart" → "lib/path.dart"
+        - Dart relative: "src/utils.dart" → "src/utils.dart"
+
         Args:
-            import_name: Имя модуля (например, "src.module.submodule")
+            import_name: Имя модуля или путь к файлу
 
         Returns:
             Путь к файлу или None если не удалось разрешить
         """
+        # Dart package import: "package:name/path.dart" → "lib/path.dart"
+        if import_name.startswith("package:"):
+            parts = import_name[len("package:"):].split("/", 1)
+            if len(parts) == 2:
+                candidate = "lib/" + parts[1]
+                if (self._project_root / candidate).exists():
+                    return candidate
+                return candidate
+            return None
+
+        # Path-like import (contains / or ends with .dart) — try as-is
+        if "/" in import_name or import_name.endswith(".dart"):
+            return import_name
+
+        # Python-style module import
         parts = import_name.split(".")
 
         candidates = [

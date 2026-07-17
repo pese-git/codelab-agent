@@ -34,6 +34,7 @@ from codelab.server.agent.context.file_matching import (
 from codelab.server.agent.context.interfaces import ContextGatherer
 from codelab.server.agent.context.models import (
     BuildOptions,
+    ContextConfig,
     ContextItem,
     ContextType,
     TaskProfile,
@@ -56,13 +57,13 @@ class ACPContextGatherer(ContextGatherer):
         dependency_graph: RegexDependencyGraph,
         session_id: str,
         tracer: Tracer | None = None,
+        config: ContextConfig | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._dependency_graph = dependency_graph
         self._session_id = session_id
         self._tracer = tracer
-        # Число уникальных кандидатов последней сборки (до отбора по бюджету).
-        # Экспортируется для наблюдаемости (/context last).
+        self._config = config or ContextConfig()
         self.last_candidate_count = 0
 
     async def gather(
@@ -136,7 +137,7 @@ class ACPContextGatherer(ContextGatherer):
         items = await self._read_candidate_files(unique_candidates, max_files, session)
 
         # Этап 5: Добавление зависимых файлов
-        await self._add_dependent_files(items, max_files, session)
+        await self._add_dependent_files(items, max_files, session, profile)
 
         elapsed_ms = (time.time() - start_time) * 1000
         total_tokens = sum(item.token_count for item in items)
@@ -295,14 +296,14 @@ class ACPContextGatherer(ContextGatherer):
             imports = self._dependency_graph.parse_imports(content)
             self._dependency_graph.add_file(path, imports)
 
-            logger.debug(
-                "context.gather.file.processed",
-                session_id=self._session_id,
-                path=path,
-                content_length=len(content),
-                imports_count=len(imports),
-                imports=imports[:5],  # Первые 5 импортов
-            )
+            if imports:
+                logger.info(
+                    "context.gather.file.imports_parsed",
+                    session_id=self._session_id,
+                    path=path,
+                    imports_count=len(imports),
+                    imports=imports[:10],
+                )
 
             token_count = DefaultTokenBudgetManager.estimate_tokens(content)
             items.append(
@@ -335,16 +336,29 @@ class ACPContextGatherer(ContextGatherer):
         items: list[ContextItem],
         max_files: int,
         session: Any,
+        profile: TaskProfile,
     ) -> None:
-        """Стадия 5: добавить зависимые файлы (по графу) в items (мутирует список)."""
-        dependents_start = time.time()
-        dependent_files = self._get_dependents(items)
+        """Стадия 5: добавить зависимые файлы (по графу) в items (мутирует список).
 
-        logger.debug(
-            "context.gather.dependents.found",
+        При `recursive_dependencies=True` использует рекурсивный обход графа
+        с ограничением глубины из `profile.investigation_depth`.
+        """
+        dependents_start = time.time()
+
+        # Настройка глубины рекурсивного обхода из TaskProfile
+        if self._config.recursive_dependencies:
+            self._dependency_graph.set_max_depth(profile.investigation_depth)
+
+        dependent_files = self._get_dependents(items, profile)
+
+        logger.info(
+            "context.gather.dependents.resolved",
             session_id=self._session_id,
             dependents_count=len(dependent_files),
-            dependents=dependent_files[:10],  # Первые 10
+            recursive_mode=self._config.recursive_dependencies,
+            max_depth=profile.investigation_depth if self._config.recursive_dependencies else 0,
+            source_files=len(items),
+            graph_stats=self._dependency_graph.get_stats(),
         )
 
         dependents_added = 0
@@ -414,14 +428,30 @@ class ACPContextGatherer(ContextGatherer):
             logger.exception("Failed to read file '%s'", path)
             return None
 
-    def _get_dependents(self, items: list[ContextItem]) -> list[str]:
-        """Получить файлы, зависящие от загруженных."""
+    def _get_dependents(self, items: list[ContextItem], profile: TaskProfile) -> list[str]:
+        """Получить файлы, зависящие от загруженных.
+
+        Всегда добавляет прямые зависимости (что файл импортирует).
+        При `recursive_dependencies=True` добавляет транзитивные зависимости
+        с ограничением глубины из `investigation_depth`.
+        """
         dependents: set[str] = set()
         for item in items:
-            deps = self._dependency_graph.get_dependents(item.id)
-            dependents.update(deps)
-        # Детерминированный порядок — критично для стабильности
-        # baseline_fingerprint и инкрементальной модели (Phase 4).
+            # Reverse: файлы, которые импортируют данный файл
+            reverse_deps = self._dependency_graph.get_dependents(item.id)
+            dependents.update(reverse_deps)
+
+            # Forward: прямые зависимости (что данный файл импортирует)
+            direct_deps = self._dependency_graph.get_dependencies(item.id, recursive=False)
+            dependents.update(direct_deps)
+
+            # Forward recursive: транзитивные зависимости при включённом флаге
+            if self._config.recursive_dependencies:
+                transitive = self._dependency_graph.get_dependencies(
+                    item.id, recursive=True
+                )
+                dependents.update(transitive)
+
         return sorted(dependents)
 
     def _list_project_files(self, session: Any) -> list[str]:

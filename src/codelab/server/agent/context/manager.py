@@ -522,6 +522,7 @@ class DefaultContextManager(ContextManager):
                 dependency_graph=ctx.dependency_graph,
                 session_id=session_id,
                 tracer=self._tracer,
+                config=self._config,
             )
             items = await gatherer.gather(profile, session, options=options)
             stats.files_count = len(items)
