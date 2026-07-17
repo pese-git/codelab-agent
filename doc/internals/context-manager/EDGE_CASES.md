@@ -397,6 +397,82 @@ prompt-cache провайдера промахивается раз за раз�
 
 ---
 
+## Кейс 15 — Ограничение глубины рекурсивного обхода (Phase 5)
+
+**Ситуация.** При `recursive_dependencies=true` и `TaskProfile.investigation_depth=1`
+(простая задача) граф зависимостей может иметь длинные цепочки (a → b → c → d → e).
+
+**Ожидаемое поведение.**
+- `get_dependencies("a", recursive=True)` обходит граф с **ограничением `current_depth ≤ max_depth`**.
+- При `max_depth=1` (investigation_depth=1) возвращаются только **прямые зависимости**: `["b"]`, не более.
+- При `max_depth=2`: `["b", "c"]`.
+- При `max_depth=3`: `["b", "c", "d"]`.
+- При `max_depth=None` или `0` — без ограничения (полная рекурсия).
+- Detected via `_collect_dependencies_recursive(path, visited, current_depth=0)`.
+- Циклы: visited-set защищает от зацикливания.
+- `set_max_depth()` на `RegexDependencyGraph` позволяет runtime-настройку перед каждым `build_context()`.
+
+**Гарантии.**
+- `investigation_depth=1` → только прямые зависимости (назад-совместимо с Phase 1).
+- `investigation_depth=2-3` → транзитивные, ограниченные глубиной.
+- Циклы не приводят к зацикливанию или дублированию.
+- Порядок результата — детерминированный (`sorted()`).
+
+**Лог:** `context.gather.dependents.resolved` с `recursive_mode=True`, `max_depth=N`.
+
+**Acceptance тесты:** `test_dependency_graph_recursive_depth_{1,2,3,none}`, `test_set_max_depth`.
+
+---
+
+## Кейс 16 — Суммаризация субагента с multimodal-контентом (Phase 6)
+
+**Ситуация.** `process_subagent_response()` получает `response` с
+`LLMMessage.content`, который содержит `list[ContentPart]` (текст + изображения + аудио),
+а не простую `str`.
+
+**Ожидаемое поведение.**
+- `ConversationSummarizer.summarize(messages, target_tokens=N)` вызывается со списком `LLMMessage`.
+- Возвращает `LLMMessage` (не `str`).
+- Извлечение `content` из результата:
+  - Если `content` — `str` → используется как есть.
+  - Если `content` — `list[ContentPart]` → конкатенация текстовых частей (`part.text`).
+  - Если `content` — `None` → fallback на пустую строку.
+- Если `summarizer is None` или вызов упал → fallback: усечение до 500 символов (для `str`/`dict`) или `(субагент не выполнил действий)` (для пустого ответа).
+- Метрика `context_subagent_responses_total` инкрементируется с `label=fallback` (true/false).
+
+**Гарантии.**
+- Никогда не пробрасывает исключение из `summarize()` наружу.
+- `SubagentResult.summary` всегда валидная `str` (не `None`).
+- `SubagentResult.token_count` отражает реальный размер summary.
+- `SubagentResult.source_scope` равен переданному `subagent_scope`.
+- `SubagentResult.shared_items == []` (без федерации).
+
+**Лог:** `context.subagent.process.complete` с `fallback=True` при деградации.
+
+**Acceptance тесты:** `test_process_string_response`, `test_process_list_messages_response`, `test_process_dict_response`, `test_process_empty_response`.
+
+---
+
+## Кейс 17 — Child-сессия с пустой историей (Phase 6)
+
+**Ситуация.** `ChildSessionManager.create_child()` создал child-сессию, но субагент не выполнил
+ни одного действия (пустой `history`).
+
+**Ожидаемое поведение.**
+- `collect_summary(child)` обнаруживает пустую историю.
+- Возвращает `SubagentResult(summary="(субагент не выполнил действий)", token_count=0, source_scope=subagent_scope)`.
+- Не вызывает `ConversationSummarizer` (нет смысла суммизировать пустоту).
+- Лог: `context.multiagent.collect_summary.empty_history` (WARN).
+
+**Гарантии.**
+- Никогда не падает на пустой истории.
+- Возвращает валидный `SubagentResult`.
+- Родитель получает явное указание на отсутствие результата (не молчаливый fallback).
+
+**Acceptance тест:** `test_collect_summary_empty_history`.
+
+---
+
 ## Сводка ответственности по слоям
 
 | Кейс | Слой(и) | Ключевой компонент / метод |

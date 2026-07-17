@@ -33,9 +33,9 @@
 | Phase 1 — MVP-сбор | [PHASE_1_SPEC.md](./PHASE_1_SPEC.md) | ✅ Реализовано |
 | Phase 2 — Слой хранения C | [PHASE_2_SPEC.md](./PHASE_2_SPEC.md) | ✅ Реализовано |
 | Phase 3 — Источники + сжатие | [PHASE_3_SPEC.md](./PHASE_3_SPEC.md) | ✅ Реализовано |
-| Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | ✅ Реализовано |
-| Phase 5 — Полный DependencyGraph | [PHASE_5_SPEC.md](./PHASE_5_SPEC.md) | ✅ Реализовано |
-| Phase 6 — Мультиагент | [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | ✅ Ядро реализовано; интеграция стратегий отложена |
+| Phase 4 — Инкрементальность | [PHASE_4_SPEC.md](./PHASE_4_SPEC.md) | ✅ Реализовано (T4.6 prompt-cache у провайдера — частично, см. [user-guide](../../product/user-guide/server/context-manager.md)) |
+| Phase 5 — Полный DependencyGraph | [PHASE_5_SPEC.md](./PHASE_5_SPEC.md) | ✅ Реализовано: recursive deps (max_depth из `investigation_depth`) + Dart imports (regex). Tree-sitter отложен (опционально) |
+| Phase 6 — Мультиагент | [PHASE_6_SPEC.md](./PHASE_6_SPEC.md) | ✅ Ядро реализовано: `ChildSessionManager` + `process_subagent_response()` + graceful degradation. Мультиагентные стратегии и таймауты отложены (требуют самих стратегий) |
 
 > Фазы 0–6 реализованы и протестированы по функциональному ядру. Отложены (не пробел
 > Context Manager, а внешняя зависимость): интеграция мультиагентных стратегий

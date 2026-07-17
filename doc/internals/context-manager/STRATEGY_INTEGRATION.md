@@ -1,11 +1,16 @@
 # Context Manager — План интеграции стратегий
 
 > **Статус:** Канон — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17)
 >
 > Как каждая из 4 стратегий (`Single` / `Orchestrated` / `Choreography` / `Hierarchical`)
 > подключается к единому `ContextManager`. Опирается на [INTERFACES.md](./INTERFACES.md),
 > [CONSOLIDATED_ARCHITECTURE.md §4](./CONSOLIDATED_ARCHITECTURE.md) и реальные контракты кода.
+
+> **Текущий статус (2026-07-17):**
+> - `SingleStrategy` — **реализована** и работает с `ContextManager.build_context()` / `ensure_context_fits()`.
+> - `OrchestratedStrategy`, `ChoreographyStrategy`, `HierarchicalStrategy` — **не реализованы** в проекте. Инфраструктура на стороне Context Manager готова (`ChildSessionManager`, `process_subagent_response()`), но без самих стратегий мультиагентный путь не работает end-to-end.
+> - Интеграция стратегий с Context Manager — задача **Phase 6 T6.11-T6.18** в `openspec/changes/context-manager-implementation/tasks.md` — отложена до реализации самих стратегий.
 
 ---
 

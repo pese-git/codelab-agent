@@ -141,10 +141,16 @@ Spans создаются через существующий tracer (`SpanContex
 | INFO | сработал компактор | `trigger_tokens`, `phases_applied`, `ratio`, `tokens_before`, `tokens_after` | Phase 3 |
 | INFO | разрыв эпохи | `reason`, `prev_baseline_tokens`, `new_baseline_tokens` | Phase 4 |
 | INFO | реконсиляция применена | `state`, `changed_sources`, `epoch_broken` | Phase 4 |
+| INFO | импорты распознаны в файле | `path`, `imports_count`, `imports` (список, top-10) | Phase 5 (слой A) |
+| INFO | зависимости разрешены рекурсивно | `dependents_count`, `recursive_mode`, `max_depth`, `source_files`, `graph_stats` | Phase 5 (слой A) |
+| INFO | создана child-сессия | `parent_session_id`, `child_session_id`, `subagent_scope` | Phase 6 (слой D) |
+| INFO | собран summary child-сессии | `child_session_id`, `subagent_scope`, `summary_length`, `summary_tokens`, `history_messages` | Phase 6 (слой D) |
+| INFO | обработан ответ субагента | `parent_scope`, `subagent_scope`, `summary_length`, `token_count`, `fallback` (bool) | Phase 6 (слой D) |
 | WARN | деградация компактора (Summarize пропущен) | `reason` (`llm_unavailable`/`timeout`), `ratio_after_prune_skeletonize`, `fits` (bool) | Phase 3 |
 | WARN | падение cache hit rate ниже порога | `hit_rate`, `threshold`, `window` | Phase 2 |
 | WARN | рассинхрон baseline (сигнал инвалидации файла не дошёл) | `path`, `expected_fingerprint`, `actual_fingerprint` | Phase 4 |
 | WARN | превышен SLO латентности `build_context` | `duration_ms`, `slo_p95_ms`, `task_type` | Phase 1 |
+| WARN | summarize субагента упал, использован fallback | `subagent_scope`, `error_type` | Phase 6 (слой D) |
 | WARN/ERROR | ошибка слоя (fallback или провал) | `layer`, `op`, `error_type`, `fallback` (напр. `ApproximateTokenCounter`, `legacy`) | Phase 1+ |
 
 > **Принцип:** на INFO — нормальный жизненный цикл и агрегаты; на WARN — деградации,

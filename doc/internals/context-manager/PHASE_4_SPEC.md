@@ -49,16 +49,26 @@ Phase 4 — поздняя оптимизация за **зафиксирова�
 - Прокинуть стабильный префикс в адаптер так, чтобы провайдерский cache-маркер ставился на `baseline`.
 - **Acceptance:** на длинной сессии измеримый кэш-хит и экономия токенов (метрики: доля переотправленных токенов, cached-input по ответам провайдера); экономия растёт с длиной сессии.
 
+**Статус (2026-07-17):** частично закрыт.
+- ✅ Стабильный `baseline_fingerprint` реализован и работает.
+- ✅ Документация для пользователя добавлена (см. `doc/product/user-guide/server/context-manager.md` §«Кэширование токенов у LLM-провайдера»).
+- ❌ **Не реализовано:** явная передача `cache_control` / `prompt_caching` маркера в LLM API. У OpenAI/Google/локальных работает автоматически (prefix matching / KV-cache); у Anthropic требует явного API-параметра.
+- ❌ **Не реализовано:** метрика `context_prompt_cache_hit_rate` через `usage.cached_tokens`.
+- ❌ **Не реализовано:** UI-индикатор cache hit / miss в `/context`.
+
+План реализации: добавить `cache_control: dict | None` в `LLMMessage`, прокидывать
+в `AnthropicProvider`, ставить маркер на `baseline[-1]` только при `incremental=true`.
+
 ---
 
 ## Definition of Done для Phase 4
 
-- [ ] `ContextEpoch` фиксирует `baseline`/`baseline_fingerprint` один раз за эпоху.
-- [ ] `ContextSnapshot.diff()` (Codec-детект, не таймстемпы) — единственный детектор изменений.
-- [ ] `ContextReconciler.reconcile()` применяет дельты на безопасных границах хода; `UNCHANGED`/`UPDATED`/`DEFERRED` работают.
-- [ ] Единый сигнал инвалидации: `FileCacheDecorator` и snapshot-детект слушают один источник; нет рассинхрона при `fs/write`.
-- [ ] `build_context()` переключается по `incremental` без изменения сигнатур; `incremental=false` — без регрессий.
-- [ ] Provider/KV prefix-cache включён; измеримый кэш-хит/экономия токенов на длинной сессии.
+- [x] `ContextEpoch` фиксирует `baseline`/`baseline_fingerprint` один раз за эпоху.
+- [x] `ContextSnapshot.diff()` (Codec-детект, не таймстемпы) — единственный детектор изменений.
+- [x] `ContextReconciler.reconcile()` применяет дельты на безопасных границах хода; `UNCHANGED`/`UPDATED` работают. `DEFERRED` отклонён через ADR-002.
+- [x] Единый сигнал инвалидации: `FileCacheDecorator` и snapshot-детект слушают один источник; нет рассинхрона при `fs/write`.
+- [x] `build_context()` переключается по `incremental` без изменения сигнатур; `incremental=false` — без регрессий.
+- [ ] Provider/KV prefix-cache включён; измеримый кэш-хит/экономия токенов на длинной сессии — **частично** (стабильный fingerprint + документация; явный проброс маркера в API — нет).
 
 ---
 
