@@ -586,7 +586,9 @@ reserved_tokens = 4096
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](doc/internals/context-manager/SLASH_COMMAND.md).
 
-**Документация:** [Руководство пользователя](doc/user-guides/context-manager.md) — полное описание возможностей, конфигурации и troubleshooting.
+**Документация:**
+- [Руководство пользователя](doc/product/user-guide/server/context-manager.md) — назначение, конфигурация, `/context`, рецепты, troubleshooting.
+- [Реализация и расширение](doc/product/developer-guide/extending/context-manager.md) — устройство подсистем и точки расширения (для разработчиков).
 
 **ProjectStructureDecorator** — декоратор инструментов, автоматически извлекающий структуру проекта из вывода `terminal/create` + `terminal/wait_for_exit` (команды `find`/`ls`). Сохраняет в `session.config_values["project_structure"]`.
 

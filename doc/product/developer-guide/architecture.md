@@ -199,7 +199,7 @@ graph TB
             MS[MessageSanitizer]
             PE[PlanExtractor]
             
-            subgraph CONTEXT_MGR["Context Manager (Phase 0–3)"]
+            subgraph CONTEXT_MGR["Context Manager (Phase 0–6)"]
                 CMgr["DefaultContextManager<br/>(единая точка входа)"]
                 TA["TaskAnalyzer<br/>(LLM-классификация)"]
                 CG["ContextGatherer<br/>(сбор файлов через ToolRegistry)"]
@@ -1053,8 +1053,8 @@ cancel_prompt(session_id) → обходит _callbacks_request_lock
 
 ## Дополнительные материалы
 
-- [Разработка клиента](client-development.md) — детали реализации клиента
-- [Разработка сервера](server-development.md) — детали реализации сервера
-- [Обработчики протокола](protocol-handlers.md) — создание новых handlers
-- [Тестирование](testing.md) — запуск и написание тестов
-- [Вклад в проект](contributing.md) — как внести вклад
+- [Разработка клиента](core/client-development.md) — детали реализации клиента
+- [Разработка сервера](core/server-development.md) — детали реализации сервера
+- [Обработчики протокола](protocols/protocol-handlers.md) — создание новых handlers
+- [Тестирование](workflow/testing.md) — запуск и написание тестов
+- [Вклад в проект](workflow/contributing.md) — как внести вклад
