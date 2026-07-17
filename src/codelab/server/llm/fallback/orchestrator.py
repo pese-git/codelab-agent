@@ -142,7 +142,6 @@ class FallbackOrchestrator:
             return
 
         # Fallback для streaming — использовать первый провайдер
-        # TODO: реализовать buffering и переключение
         logger.warning("streaming fallback not supported, using first provider")
         async for chunk in providers[0].stream_completion(request):
             yield chunk

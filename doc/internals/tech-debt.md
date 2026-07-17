@@ -27,7 +27,7 @@
 | Файлов > 1000 строк | 6 | **1** (декомпозированы core.py, di.py, chat_view_model.py, app.py, mcp/transport.py, acp_transport_service.py, prompt.py, gatherer.py, agent_loop.py; остался оправданно крупный messages.py; см. P1-4) | 0 |
 | Warnings в тестах | 62 | **0** ✅ (P0-3 закрыт: оба класса → `error`-guardrail, 0 unraisable; узкий ignore лишь для textual-внутренних) | 0 |
 | Ruff-нарушений (`ruff check .`) | ~170 | **0** ✅ | 0 |
-| Нерешенных TODO | 2 | **1** 🟡 (clipboard-TODO снят удалением мёртвого `TerminalPanel`; остался `orchestrator.py:145`) | 0 |
+| Нерешенных TODO | 2 | **0** ✅ (clipboard — удалением мёртвого `TerminalPanel`; orchestrator — инлайн-TODO убран, ограничение в docstring) | 0 |
 | Тестов | 3974 | **7297** | — |
 
 ---
@@ -479,12 +479,12 @@ Subprocess transport закрывался после закрытия event loop
 
 ## P2 — Желательный (улучшение качества)
 
-### 8. Устранить TODO — 🟡 ЧАСТИЧНО (2026-07-17)
+### 8. Устранить TODO — ✅ ЗАКРЫТО (2026-07-17)
 
 | Файл | Строка | Описание | Статус |
 |------|--------|----------|--------|
 | ~~`client/tui/components/terminal_panel.py`~~ | ~~421~~ | ~~Реализовать копирование через pyperclip~~ | ✅ снят вместе с мёртвым компонентом |
-| `server/llm/fallback/orchestrator.py` | 145 | Реализовать buffering и переключение | ⬜ открыт |
+| ~~`server/llm/fallback/orchestrator.py`~~ | ~~145~~ | ~~Реализовать buffering и переключение~~ | ✅ инлайн-TODO убран |
 
 > **clipboard-TODO закрыт удалением мёртвого кода (2026-07-17):** анализ показал, что
 > `TerminalPanel` (`terminal_panel.py`) **нигде не монтировался** в приложении — живой
@@ -495,17 +495,19 @@ Subprocess transport закрывался после закрытия event loop
 > `TestTerminalSession`). Правка контракта: 4 имени убраны из публичного `components.__all__`
 > (внешних потребителей нет — проверено). `make check` зелёный.
 
-**Оставшийся TODO (`fallback/orchestrator.py:145`)** — streaming buffering + переключение
-провайдера посреди стрима. Оценка ценности: `FallbackOrchestrator` **не инстанцируется** в
-проде (реальный fallback собирает `PromptOrchestratorBuilder`), фича семантически сложная
-(частичный вывод, дедуп, replay). Низкий ROI; docstring уже фиксирует ограничение. Кандидат
-на удаление инлайнового TODO (метрика → 0) без реализации.
+> **orchestrator-TODO убран без реализации (2026-07-17):** streaming buffering + переключение
+> провайдера посреди стрима. `FallbackOrchestrator` **не инстанцируется** в проде (реальный
+> fallback собирает `PromptOrchestratorBuilder`), фича семантически сложная (частичный вывод,
+> дедуп, replay) — низкий ROI, вводить без запроса нельзя (минимальность CLAUDE.md). Инлайновый
+> `# TODO` дублировал docstring, который штатно фиксирует ограничение («В MVP streaming fallback
+> не поддерживается») — оставлен только docstring. Реализация — если появится реальный
+> потребитель streaming-fallback.
+
+**Итог:** TODO в `src` — **0** (`grep TODO/FIXME` пусто). Метрика достигнута.
 
 **Задачи:**
 - [x] clipboard-TODO — снят удалением мёртвого `TerminalPanel` (2026-07-17)
-- [ ] `orchestrator.py:145` — реализовать buffering **либо** убрать TODO как неактуальный
-
-**Оценка:** 0.5 дня (осталась только развязка по orchestrator)
+- [x] `orchestrator.py:145` — инлайн-TODO убран (ограничение остаётся в docstring)
 
 ---
 
@@ -1171,7 +1173,7 @@ failed"`, а `output` со списком проблем **выбрасывал�
 | Warnings в тестах | 62 | **0** ✅ (оба класса → `error`-guardrail, 0 unraisable) | 0 |
 | Ruff-нарушений | ~170 | **0** ✅ | 0 |
 | Ошибок `ty` (typecheck) | — | **0** ✅ (гейт `make check` зелёный, см. P0-14) | 0 |
-| TODO | 2 | **1** 🟡 (остался `orchestrator.py:145`) | 0 |
+| TODO | 2 | **0** ✅ | 0 |
 | Coverage threshold в CI | нет | **85%** ✅ (`release.yml`) | 80% |
 
 **Итог (2026-07-14):** покрытие, ruff и порог покрытия в CI достигли цели. Пик
