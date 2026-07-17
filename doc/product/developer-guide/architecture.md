@@ -679,7 +679,7 @@ chat_vm = ChatViewModel(
 **~48 компонентов** в `tui/components/` + 5 controllers в `tui/controllers/`:
 - **Основные:** `ChatView`, `Sidebar`, `FileTree`, `PromptInput`, `ToolPanel`, `HeaderBar`, `FooterBar`
 - **Сообщения:** `MessageBubble`, `MessageList`, `StreamingText`, `ThinkingIndicator`
-- **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutput`, `TerminalPanel`
+- **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutputPanel`, `TerminalLogModal`
 - **Разрешения:** `PermissionModal`, `PermissionBadge`, `InlinePermissionWidget`
 - **Файлы:** `FileViewer`, `FileChangePreview`, `FileChangePreviewModal`
 - **Навигация:** `CommandPalette`, `Tabs`, `CollapsiblePanel`, `ContextMenu`
@@ -750,8 +750,8 @@ chat_vm = ChatViewModel(
 | `session/new` | `handlers/session.py` | Создание сессии |
 | `session/load` | `handlers/session.py` | Загрузка сессии |
 | `session/list` | `handlers/session.py` | Список сессий |
-| `session/prompt` | `handlers/prompt.py` | Обработка промпта (через PromptOrchestrator) |
-| `session/cancel` | `handlers/prompt.py` | Отмена промпта |
+| `session/prompt` | `handlers/prompt/` | Обработка промпта (через PromptOrchestrator) |
+| `session/cancel` | `handlers/prompt/` | Отмена промпта |
 | `session/request_permission_response` | `handlers/permissions.py` | Ответ на запрос разрешения |
 | `session/set_config_option` | `handlers/config.py` | Установка опции |
 | `session/set_mode` | `handlers/config.py` | Установка режима |
