@@ -1134,6 +1134,42 @@ failed"`, а `output` со списком проблем **выбрасывал�
 
 ---
 
+### 24. `[llm.fallback]` парсится, но не подключён к исполнению — 🟡 ЧАСТИЧНО (2026-07-17)
+
+> **Контекст.** Пакет `server/llm/fallback/` (`FallbackOrchestrator`, `FallbackStrategy`/
+> `SequentialFallback`, `CircuitBreaker`, `FallbackConfig`) реализует отказоустойчивость
+> между несколькими LLM-провайдерами (упал один → перейти к следующему). Проверено:
+> `FallbackOrchestrator`/`FallbackStrategyFactory`/`SequentialFallback` инстанцируются
+> **только в тестах**; `config.llm.fallback` парсится из TOML-секции `[llm.fallback]`, но
+> **нигде в рантайме не читается** — `di/llm.py` выбирает один активный провайдер, без
+> переключения при сбое. Итог: `[llm.fallback] enabled = true` выглядит рабочим, но молча
+> ничего не делает (**ложный конфиг-контракт**).
+
+**Решение НЕ удалять** (в отличие от мёртвого `TerminalPanel`, P2-8): по роадмапу CodeLab
+растёт в многопользовательский хостируемый сервис, где multi-provider gateway (пул
+провайдеров + аптайм + circuit breaking) — оправданный задел. Пакет сохранён.
+
+**✅ Сделано (честный контракт, дёшево, 2026-07-17):** `RegistryProvider.get_llm_registry`
+при `config.llm.fallback.enabled` логирует `warning` `llm fallback configured but not
+active` (hint: секция экспериментальная, переключение при сбое не выполняется). Убирает
+вред от ложного поля, не трогая исполнение. Тесты: warning при enabled=true / отсутствие
+при false (`test_integration_config.py::TestFallbackConfigHonestContract`). ruff/ty чисты,
+6/6 тестов зелёные.
+
+**⬜ Осталось (полная проводка — когда gateway-эпик встанет в работу):** в `di/llm.py`
+читать `config.llm.fallback`, собирать `SequentialFallback` + `FallbackOrchestrator` вокруг
+провайдеров из registry; продумать UX «тихого» переключения модели (разные модели → разное
+поведение агента); достроить streaming-fallback (`execute_streaming` сейчас берёт первый
+провайдер) и объявленные, но отсутствующие стратегии (`CostFallback`/`LatencyFallback`/
+`SmartFallback`).
+
+**Оценка:** проводка — 1–1.5 дня (отдельная фича, не входит в текущий объём).
+**Критерий приемки (для полной проводки):** при `enabled=true` и ≥2 провайдерах сбой
+активного провайдера прозрачно переключает на следующий; конфиг перестаёт быть
+предупреждающим.
+
+---
+
 ## Дорожная карта
 
 > **Исторический план** (составлен при первичном аудите). Фактический порядок работ

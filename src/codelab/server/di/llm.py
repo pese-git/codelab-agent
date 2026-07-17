@@ -125,6 +125,20 @@ class RegistryProvider(Provider):
             models_count=len(registry.list_all_models()),
         )
 
+        # Честный контракт: секция [llm.fallback] парсится в config, но пакет
+        # server/llm/fallback (оркестратор/стратегии/circuit breaker) ещё не
+        # подключён к исполнению — это задел под будущий multi-provider gateway.
+        # Пока предупреждаем, чтобы enabled=true не выглядел рабочим (см. tech-debt P2).
+        if config.llm.fallback.enabled:
+            logger.warning(
+                "llm fallback configured but not active",
+                hint=(
+                    "секция [llm.fallback] пока экспериментальная и не влияет на "
+                    "выбор провайдера; переключение при сбое не выполняется"
+                ),
+                strategy=config.llm.fallback.strategy,
+            )
+
         return registry
 
     @staticmethod
