@@ -1177,7 +1177,18 @@ active` (hint: секция экспериментальная, переключ
 
 ---
 
-### 25. Асимметрия success/exception-веток в `agent_loop`: exception-ветка не доставляет tool_call_update немедленно — ⬜ ОТКРЫТ (наблюдение)
+### 25. Асимметрия success/exception-веток в `agent_loop`: exception-ветка не доставляет tool_call_update немедленно — ✅ ЗАКРЫТО (2026-07-17)
+
+> ✅ **Фикс (2026-07-17):** в except-ветке `_execute_allowed_tool_call`
+> `buffer_and_save_tool_update` → `await emit_and_save_tool_update` — теперь failed-статус
+> доставляется немедленно через callback (как success-ветка), а не оседает в буфере до
+> конца turn'а. `emit()` безопасен в except: `_send_immediately` сам ловит свои ошибки и
+> падает в буфер. Осиротевший `SessionUpdateSink.buffer_and_save_tool_update` (единственный
+> прод-вызов был здесь) удалён вместе с юнит-тестом; docstring `buffer_only` очищен от
+> упоминания exception-ветки (остался permission-путь). Тест
+> `test_tool_exception_delivers_failed_update_immediately` (failed-update в callback, не в
+> буфере). Изменение wire-тайминга (failed приходит раньше) — формально контракт, но
+> приближает поведение к success-ветке и ACP-требованию «immediately». `make check` зелёный.
 
 > Обнаружено при P1-4 (декомпозиция `agent_loop.py`) и перенесено 1:1 как историческое
 > поведение (комментарий в коде). Не долг из аудита — наблюдение, зафиксировано для

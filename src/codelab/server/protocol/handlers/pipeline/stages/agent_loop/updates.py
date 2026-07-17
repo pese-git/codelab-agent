@@ -67,9 +67,8 @@ class SessionUpdateSink:
     def buffer_only(self, notification: ACPMessage) -> None:
         """Положить notification только в буфер (без immediate delivery).
 
-        Используется для permission-request (доставляется через
-        ``outcome.notifications``, чтобы избежать дублирования) и для
-        exception-ветки исполнения tool (историческое поведение).
+        Используется для permission-request: доставляется через
+        ``outcome.notifications``, чтобы избежать дублирования.
         """
         self._buffer.append(notification)
 
@@ -193,24 +192,3 @@ class SessionUpdateSink:
             content=content,
         )
 
-    def buffer_and_save_tool_update(
-        self,
-        notification: ACPMessage,
-        *,
-        session: SessionState,
-        tool_call_id: str,
-        status: str,
-        content: list[dict[str, Any]] | None = None,
-    ) -> None:
-        """Положить tool_call_update в буфер (без immediate) и сохранить в replay.
-
-        Историческое поведение exception-ветки исполнения tool: notification
-        накапливается напрямую, минуя immediate callback.
-        """
-        self.buffer_only(notification)
-        self._replay_manager.save_tool_call_update(
-            session=session,
-            tool_call_id=tool_call_id,
-            status=status,
-            content=content,
-        )

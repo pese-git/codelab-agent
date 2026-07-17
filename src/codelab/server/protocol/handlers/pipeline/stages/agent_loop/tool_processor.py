@@ -605,9 +605,11 @@ class ToolCallProcessor:
                 error=str(e),
             )
             self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-            # Историческое поведение: notification буферизуется напрямую, минуя
-            # immediate callback (в отличие от success-ветки выше).
-            sink.buffer_and_save_tool_update(
+            # P2-25: доставляем failed-статус немедленно (как success-ветка выше), а не
+            # только в буфер. Иначе в стриминге карточка tool'а висит «в процессе» до
+            # конца turn'а и порядок живых событий может нарушиться. emit() безопасен в
+            # except: _send_immediately сам ловит свои ошибки и падает в буфер.
+            await sink.emit_and_save_tool_update(
                 self._tool_call_handler.build_tool_update_notification(
                     session_id=session_id,
                     tool_call_id=tool_call_id,

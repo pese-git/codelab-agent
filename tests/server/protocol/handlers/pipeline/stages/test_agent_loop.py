@@ -1076,6 +1076,64 @@ class TestAgentLoopNotificationCallback:
         assert len(sent_notifications) > 0, "Callback должен быть вызван хотя бы один раз"
 
     @pytest.mark.asyncio
+    async def test_tool_exception_delivers_failed_update_immediately(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """P2-25: при исключении tool'а failed-update уходит через callback сразу.
+
+        Раньше exception-ветка буферизовала notification, минуя immediate callback
+        (в отличие от success-ветки) — карточка tool'а флипалась в failed только в
+        конце turn'а. Фикс: exception-ветка тоже emit'ит немедленно.
+        """
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "failing_tool"
+        mock_tool_call.arguments = {}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = ""
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Recovered"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "other"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        # Отличимый sentinel именно для failed-update, чтобы проверить его доставку.
+        failed_update = MagicMock(name="failed_update_notification")
+        h.build_tool_update_notification.return_value = failed_update
+
+        # Tool выбрасывает исключение → exception-ветка _execute_allowed_tool_call.
+        mock_dependencies["tool_registry"].execute_tool.side_effect = RuntimeError("Tool crash")
+
+        sent_notifications = []
+
+        async def mock_callback(msg):
+            sent_notifications.append(msg)
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=mock_callback,
+        )
+
+        result = await loop.run(mock_session, "test_session", "Try tool")
+
+        # failed-update доставлен НЕМЕДЛЕННО через callback (а не только в буфере).
+        assert failed_update in sent_notifications
+        # И не осел в буфере (buffer = только не доставленные callback'ом).
+        assert failed_update not in result.notifications
+
+    @pytest.mark.asyncio
     async def test_notification_callback_error_does_not_break_loop(
         self, mock_strategy, mock_session, mock_dependencies
     ):

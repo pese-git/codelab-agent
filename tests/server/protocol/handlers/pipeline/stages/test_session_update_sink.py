@@ -120,20 +120,3 @@ async def test_streaming_delta_never_buffers() -> None:
 
     # Дельта, не доставленная callback'ом, НЕ накапливается в буфере.
     assert buffer == []
-
-
-def test_buffer_and_save_tool_update_buffers_and_records() -> None:
-    replay = MagicMock()
-    buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(replay, AsyncMock(), buffer)
-    notification = _notification()
-
-    sink.buffer_and_save_tool_update(
-        notification,
-        session=MagicMock(),
-        tool_call_id="call_1",
-        status="failed",
-    )
-
-    assert buffer == [notification]
-    replay.save_tool_call_update.assert_called_once()
