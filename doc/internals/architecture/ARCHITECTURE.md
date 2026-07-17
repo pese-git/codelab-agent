@@ -102,7 +102,7 @@ graph TB
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](../../../src/codelab/server/protocol/handlers/prompt_orchestrator.py) |
 | **AgentLoop** | Agent | Цикл LLM tool-calling итераций (пакет) | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/`](../../../src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/) |
 | **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`src/codelab/server/agent/execution_engine.py`](../../../src/codelab/server/agent/execution_engine.py) |
-| **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–3 реализованы | [`src/codelab/server/agent/context/manager.py`](../../../src/codelab/server/agent/context/manager.py) |
+| **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–6 реализованы | [`src/codelab/server/agent/context/manager.py`](../../../src/codelab/server/agent/context/manager.py) |
 | **ContextGatherer** | Agent | Сбор релевантных файлов через ACP ToolRegistry (пайплайн: project_tree → search → read_file → graph → отбор) | [`src/codelab/server/agent/context/gatherer.py`](../../../src/codelab/server/agent/context/gatherer.py) |
 | **TaskAnalyzer** | Agent | LLM-классификация задач (bug_fix/feature/refactor/architecture) | [`src/codelab/server/agent/context/task_analyzer.py`](../../../src/codelab/server/agent/context/task_analyzer.py) |
 | **PayloadEnvelope** | Agent | Конверт payload с явным разделением baseline (стабильный префикс) и tail (дельты) | [`src/codelab/server/agent/context/models.py`](../../../src/codelab/server/agent/context/models.py) |
@@ -366,7 +366,7 @@ graph LR
     subgraph Processing["Processing"]
         AgentLoop["AgentLoop (пакет)<br/>loop + llm_caller<br/>+ tool_processor + updates<br/>+ loop_detector"]
         Engine["ExecutionEngine<br/>HistoryBuilder + ToolFilter + LLMAdapter"]
-        ContextMgr["ContextManager<br/>4-слойная архитектура A–D<br/>(Phase 0–3 реализованы)"]
+        ContextMgr["ContextManager<br/>4-слойная архитектура A–D<br/>(Phase 0–6 реализованы)"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
         Executors["Executors<br/>FS / Terminal / Plan / MCP"]
     end
@@ -885,7 +885,7 @@ graph LR
 
 ## Context Manager — интеллектуальный сбор контекста
 
-`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–6 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие, инкрементальность, полный граф зависимостей, мультиагент по ядру).
 
 > Полная документация: [`doc/internals/context-manager/INDEX.md`](../context-manager/INDEX.md)
 
@@ -900,7 +900,7 @@ graph TD
         BM[TokenBudgetManager<br/>бюджет токенов]
     end
 
-    subgraph LayerB["Слой B — Жизненный цикл (🔲 Phase 4)"]
+    subgraph LayerB["Слой B — Жизненный цикл (✅ Phase 4)"]
         CE[ContextEpoch]
         CS[ContextSnapshot]
         CR[ContextReconciler]
@@ -913,7 +913,7 @@ graph TD
         CP[ThreePhaseCompactor<br/>Prune → Skeletonize → Summarize]
     end
 
-    subgraph LayerD["Слой D — Мультиагент (🔲 Phase 6)"]
+    subgraph LayerD["Слой D — Мультиагент (✅ Phase 6 — ядро)"]
         CSM[ChildSessionManager]
         PSR[process_subagent_response]
     end

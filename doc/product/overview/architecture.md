@@ -162,10 +162,10 @@ graph TB
     end
     
     subgraph Agent["Agent Layer"]
-        AO[AgentOrchestrator]
         EE[ExecutionEngine]
         CM[ContextManager]
         AL[AgentLoop]
+        SS[SingleStrategy]
         LLM["LLM Registry<br/>8+ Providers"]
     end
     
@@ -200,7 +200,7 @@ graph TB
     PO --> Pipeline
     V --> SC --> PB --> TL1 --> DS --> LL --> TL2
     PO --> SM & PBuilder & TLCM & TCH & PM & CRH & GPM
-    LL --> AO --> EE --> LLM
+    LL --> AL --> SS --> EE --> LLM
     EE --> CM
     LL --> TR --> FS & TE --> Bridge
     LL --> MM --> MT

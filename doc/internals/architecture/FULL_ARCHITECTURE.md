@@ -47,11 +47,11 @@ flowchart TB
         Prompt_Orch["PromptOrchestrator\nPipeline: 7 stages"]
         AgentLoop["AgentLoop (пакет)\nloop + llm_caller + tool_processor\n+ updates + loop_detector\nLLM tool-calling цикл\n+ streaming support"]
         Execution_Engine["ExecutionEngine\nHistoryBuilder + ToolFilter + LLMAdapter + MessageSanitizer + PlanExtractor + ContextCompactor"]
-        Context_Manager["ContextManager\n4-слойная архитектура A–D\nPhase 0–3 реализованы"]
+        Context_Manager["ContextManager\n4-слойная архитектура A–D\nPhase 0–6 реализованы"]
         Agent_Bus["AgentEventBus (INTERNAL)\nPoint-to-Point + Broadcast + Pub/Sub"]
         WebUI["WebUIManager\nsubprocess + HTML"]
         
-        subgraph ContextManager_Layer["Context Manager (Phase 0–3)"]
+        subgraph ContextManager_Layer["Context Manager (Phase 0–6)"]
             CM_Manager["DefaultContextManager\n(единая точка входа)"]
             CM_TaskAnalyzer["TaskAnalyzer\n(LLM-классификация)"]
             CM_Gatherer["ContextGatherer\n(сбор файлов через ToolRegistry)"]
@@ -453,14 +453,14 @@ flowchart TB
         end
     end
     
-    subgraph Engine_Layer["Execution Engine (замена AgentOrchestrator)"]
+    subgraph Engine_Layer["Execution Engine"]
         EE["ExecutionEngine\nкомпозиция компонентов"]
         HB["HistoryBuilder\nsession.history → LLMMessage"]
         TF["ToolFilter\nфильтрация по capabilities"]
         MS["MessageSanitizer\norphaned tool calls recovery"]
         PE["PlanExtractor\nплан из LLM response"]
         
-        subgraph ContextManager_Layer["Context Manager (Phase 0–3)"]
+        subgraph ContextManager_Layer["Context Manager (Phase 0–6)"]
             CM["DefaultContextManager\n(единая точка входа)"]
             TA["TaskAnalyzer\n(LLM-классификация)"]
             CG["ContextGatherer\n(сбор файлов через ToolRegistry)"]
@@ -912,7 +912,7 @@ flowchart TB
             SP["StorageProvider\nGlobalPolicyStorage, GlobalPolicyManager"]
             LLP["LLMProvider_\nсоздаёт LLM через Registry"]
             TP["ToolsProvider\nToolRegistry"]
-            AP["AgentProvider\nAgentOrchestrator (legacy)\n→ ExecutionEngine (NEW)"]
+            AP["MultiAgentProvider\nExecutionEngine + SingleStrategy"]
             PP["PipelineProvider\nLLMLoopStage, PromptPipeline"]
             POP["PromptOrchestratorProvider\nPromptOrchestrator"]
             RP["RegistryProvider\nLLM Registry, ConfigOptionBuilder"]
