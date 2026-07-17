@@ -405,7 +405,7 @@ src/codelab/server/protocol/
 │   ├── prompt_orchestrator.py  # Главный оркестратор
 │   ├── auth.py                 # authenticate, initialize
 │   ├── session.py              # session/new, load, list
-│   ├── prompt.py               # session/prompt, cancel
+│   ├── prompt/                 # session/prompt, cancel (пакет, P1-4)
 │   ├── permissions.py          # session/request_permission
 │   ├── permission_manager.py   # Менеджер разрешений
 │   ├── global_policy_manager.py
@@ -428,7 +428,7 @@ src/codelab/server/protocol/
 │           ├── turn_lifecycle.py
 │           ├── directives.py
 │           ├── llm_loop.py
-│           ├── agent_loop.py   # AgentLoop (streaming support)
+│           ├── agent_loop/     # AgentLoop (пакет: loop/llm_caller/tool_processor/updates, P1-4)
 │           └── strategy_selection.py
 └── middleware/
     └── message_trace.py
@@ -939,7 +939,7 @@ flowchart TB
 
 **Ключевые файлы:**
 ```
-src/codelab/server/di.py  # Все провайдеры + make_container()
+src/codelab/server/di/  # Все провайдеры + make_container() (пакет по доменам, P1-4)
 ```
 
 ---
@@ -1422,7 +1422,7 @@ src/codelab/
 ├── server/
 │   ├── cli.py                          # CLI entry points
 │   ├── config.py                       # AppConfig
-│   ├── di.py                           # DI Container (dishka)
+│   ├── di/                             # DI Container (dishka, пакет по доменам)
 │   ├── exceptions.py
 │   ├── http_server.py                  # WebSocket server (~200 LOC, WebUI → WebUIManager)
 │   ├── web_app.py                      # Web UI
@@ -1467,7 +1467,7 @@ src/codelab/
 │   │   │   ├── prompt_orchestrator.py
 │   │   │   ├── auth.py
 │   │   │   ├── session.py
-│   │   │   ├── prompt.py
+│   │   │   ├── prompt/
 │   │   │   ├── permissions.py
 │   │   │   ├── permission_manager.py
 │   │   │   ├── global_policy_manager.py

@@ -454,7 +454,7 @@ graph TB
         Chat["Chat View<br/>ChatView, MessageList, MessageBubble"]
         FileView["File Viewer<br/>FileTree, FileViewer"]
         Permission["Permission Modal<br/>PermissionModal, InlinePermissionWidget"]
-        Terminal["Terminal Output<br/>TerminalOutput, TerminalPanel"]
+        Terminal["Terminal Output<br/>TerminalOutputPanel, TerminalLogModal"]
         Tools["Tool Panel<br/>ToolCallCard, ToolCallList, FileChangePreview"]
         Config["Config Selectors<br/>ModelSelector, ConfigOptionSelector"]
     end
