@@ -166,9 +166,7 @@ class FsCallbackExecutor:
             )
             return None, error_msg
 
-    async def write_file(
-        self, path: str, content: str
-    ) -> tuple[bool, str | None]:
+    async def write_file(self, path: str, content: str) -> tuple[bool, str | None]:
         """Записывает файл асинхронно.
 
         Args:

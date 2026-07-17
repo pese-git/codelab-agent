@@ -39,10 +39,10 @@ class TestFileContextSource:
         """fingerprint() должен меняться при изменении содержимого."""
         source1 = FileContextSource("/path/to/file.py", "content1")
         source2 = FileContextSource("/path/to/file.py", "content2")
-        
+
         fp1 = await source1.fingerprint()
         fp2 = await source2.fingerprint()
-        
+
         assert fp1 != fp2
 
 
@@ -79,9 +79,9 @@ class TestContextRegistryImpl:
         """register() должен добавлять источник в реестр."""
         registry = ContextRegistryImpl()
         source = FileContextSource("/file.py", "content")
-        
+
         registry.register(source)
-        
+
         assert "/file.py" in registry.list_sources()
 
     @pytest.mark.asyncio
@@ -89,10 +89,10 @@ class TestContextRegistryImpl:
         """unregister() должен удалять источник из реестра."""
         registry = ContextRegistryImpl()
         source = FileContextSource("/file.py", "content")
-        
+
         registry.register(source)
         registry.unregister("/file.py")
-        
+
         assert "/file.py" not in registry.list_sources()
 
     @pytest.mark.asyncio
@@ -100,10 +100,10 @@ class TestContextRegistryImpl:
         """get_source() должен возвращать источник по ID."""
         registry = ContextRegistryImpl()
         source = FileContextSource("/file.py", "content")
-        
+
         registry.register(source)
         retrieved = registry.get_source("/file.py")
-        
+
         assert retrieved is source
 
     @pytest.mark.asyncio
@@ -119,9 +119,9 @@ class TestContextRegistryImpl:
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
         registry.register(FileContextSource("/file2.py", "content2"))
-        
+
         baseline = await registry.render_baseline()
-        
+
         assert "content1" in baseline
         assert "content2" in baseline
 
@@ -138,9 +138,9 @@ class TestContextRegistryImpl:
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
         registry.register(FileContextSource("/file2.py", "content2"))
-        
+
         updates = await registry.render_updates(["/file1.py"])
-        
+
         assert "content1" in updates
         assert "content2" not in updates
 
@@ -150,9 +150,9 @@ class TestContextRegistryImpl:
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
         registry.register(FileContextSource("/file2.py", "content2"))
-        
+
         changes = await registry.detect_changes()
-        
+
         assert len(changes) == 2
         assert "/file1.py" in changes
         assert "/file2.py" in changes
@@ -162,10 +162,10 @@ class TestContextRegistryImpl:
         """detect_changes() не должен возвращать изменения если ничего не изменилось."""
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
-        
+
         # Первый вызов фиксирует fingerprint
         await registry.detect_changes()
-        
+
         # Второй вызов не должен обнаружить изменений
         changes = await registry.detect_changes()
         assert len(changes) == 0
@@ -176,9 +176,9 @@ class TestContextRegistryImpl:
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
         registry.register(FileContextSource("/file2.py", "content2"))
-        
+
         snapshot = await registry.snapshot()
-        
+
         assert len(snapshot) == 2
         assert "/file1.py" in snapshot
         assert "/file2.py" in snapshot
@@ -190,9 +190,9 @@ class TestContextRegistryImpl:
         registry = ContextRegistryImpl()
         registry.register(FileContextSource("/file1.py", "content1"))
         registry.register(SkillContextSource("skill1", "skill content"))
-        
+
         sources = registry.list_sources()
-        
+
         assert len(sources) == 2
         assert "/file1.py" in sources
         assert "skill:skill1" in sources
@@ -204,9 +204,9 @@ class TestContextRegistryImpl:
         registry.register(FileContextSource("/main.py", "def main(): pass"))
         registry.register(FileContextSource("/utils.py", "def helper(): pass"))
         registry.register(SkillContextSource("python", "Python tips"))
-        
+
         baseline = await registry.render_baseline()
-        
+
         assert "def main(): pass" in baseline
         assert "def helper(): pass" in baseline
         assert "Python tips" in baseline
@@ -237,7 +237,7 @@ class TestSkillCatalogSource:
         ]
         source = SkillCatalogSource(skills)
         content = await source.render()
-        
+
         assert "<available_skills>" in content
         assert "</available_skills>" in content
         assert "python" in content
@@ -257,14 +257,16 @@ class TestSkillCatalogSource:
     async def test_fingerprint_changes_with_skills(self):
         """fingerprint() должен меняться при изменении набора скиллов."""
         source1 = SkillCatalogSource([{"name": "python", "description": "Python tips"}])
-        source2 = SkillCatalogSource([
-            {"name": "python", "description": "Python tips"},
-            {"name": "testing", "description": "Testing practices"},
-        ])
-        
+        source2 = SkillCatalogSource(
+            [
+                {"name": "python", "description": "Python tips"},
+                {"name": "testing", "description": "Testing practices"},
+            ]
+        )
+
         fp1 = await source1.fingerprint()
         fp2 = await source2.fingerprint()
-        
+
         assert fp1 != fp2
 
     @pytest.mark.asyncio
@@ -276,7 +278,7 @@ class TestSkillCatalogSource:
         ]
         source = SkillCatalogSource(skills)
         content = await source.render()
-        
+
         # alpha должен быть перед zebra
         alpha_pos = content.find("alpha")
         zebra_pos = content.find("zebra")

@@ -18,9 +18,10 @@ class TestStrategyCommandHandlerExecute:
         """Создать handler с mocked dispatcher."""
         dispatcher = MagicMock()
         dispatcher.get_strategy.return_value = current_strategy
-        dispatcher.get_available_strategies.return_value = (
-            available_strategies or ["single", "hierarchical"]
-        )
+        dispatcher.get_available_strategies.return_value = available_strategies or [
+            "single",
+            "hierarchical",
+        ]
         dispatcher.set_current_strategy.return_value = True
         return StrategyCommandHandler(strategy_dispatcher=dispatcher)
 
@@ -129,9 +130,10 @@ class TestStrategyCommandHandlerDefinition:
         """Создать handler с mocked dispatcher."""
         dispatcher = MagicMock()
         dispatcher.get_strategy.return_value = current_strategy
-        dispatcher.get_available_strategies.return_value = (
-            available_strategies or ["single", "hierarchical"]
-        )
+        dispatcher.get_available_strategies.return_value = available_strategies or [
+            "single",
+            "hierarchical",
+        ]
         dispatcher.set_current_strategy.return_value = True
         return StrategyCommandHandler(strategy_dispatcher=dispatcher)
 

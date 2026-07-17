@@ -16,10 +16,10 @@ from .file_change_preview import FileChangePreview
 
 class FileChangePreviewModal(ModalScreen[None]):
     """Модальное окно для отображения предпросмотра изменений файла.
-    
+
     Показывает diff между старым и новым содержимым файла
     с подсветкой добавленных и удалённых строк.
-    
+
     Пример использования:
         >>> modal = FileChangePreviewModal(
         ...     file_path="/home/user/file.txt",
@@ -86,7 +86,7 @@ class FileChangePreviewModal(ModalScreen[None]):
         tool_name: str | None = None,
     ) -> None:
         """Создаёт модальное окно предпросмотра изменений.
-        
+
         Args:
             file_path: Путь к файлу
             old_content: Старое содержимое файла
@@ -117,7 +117,7 @@ class FileChangePreviewModal(ModalScreen[None]):
             # Заголовок с названием инструмента и путём к файлу
             header_text = f"🔧 {self._tool_name}: {self._file_path}"
             yield Static(header_text, id="file-change-modal-header")
-            
+
             # Содержимое с diff preview
             with VerticalScroll(id="file-change-modal-content"):
                 yield FileChangePreview(
@@ -128,14 +128,14 @@ class FileChangePreviewModal(ModalScreen[None]):
                     max_lines=100,  # Больше строк в модальном окне
                     id="file-change-preview",
                 )
-            
+
             # Кнопка закрытия
             with Vertical(id="file-change-modal-footer"):
                 yield Button("Закрыть", variant="primary", id="close-button")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Обработчик нажатия кнопки.
-        
+
         Args:
             event: Событие нажатия кнопки
         """

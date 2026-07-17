@@ -1,6 +1,5 @@
 """Тесты для EventTimeline."""
 
-
 import pytest
 
 from codelab.server.agent.contracts.base import (
@@ -66,9 +65,7 @@ class TestEventTimelineRecord:
 
     def test_to_dict_minimal(self, timeline):
         timeline.debug = False
-        event = timeline.record_event(
-            "test", "s1", {"key1": "v1", "key2": "v2"}
-        )
+        event = timeline.record_event("test", "s1", {"key1": "v1", "key2": "v2"})
         d = event.to_dict(debug=False)
         assert "detail_keys" in d
         assert set(d["detail_keys"]) == {"key1", "key2"}
@@ -76,9 +73,7 @@ class TestEventTimelineRecord:
 
     def test_to_dict_debug(self, timeline):
         timeline.debug = True
-        event = timeline.record_event(
-            "test", "s1", {"key": "value"}
-        )
+        event = timeline.record_event("test", "s1", {"key": "value"})
         d = event.to_dict(debug=True)
         assert "details" in d
         assert d["details"]["key"] == "value"

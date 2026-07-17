@@ -13,11 +13,11 @@ class TestPlanToolDefinitions:
     def test_update_plan_definition(self) -> None:
         """Проверить определение update_plan инструмента."""
         definition = PlanToolDefinitions.update_plan()
-        
+
         assert definition.name == "update_plan"
         assert definition.kind == "think"
         assert definition.requires_permission is False
-        
+
         # Проверить параметры
         params = definition.parameters
         assert params["type"] == "object"
@@ -28,18 +28,18 @@ class TestPlanToolDefinitions:
         """Проверить схему entries."""
         definition = PlanToolDefinitions.update_plan()
         entries_schema = definition.parameters["properties"]["entries"]
-        
+
         assert entries_schema["type"] == "array"
-        
+
         item_schema = entries_schema["items"]
         assert "content" in item_schema["properties"]
         assert "priority" in item_schema["properties"]
         assert "status" in item_schema["properties"]
-        
+
         # Проверить enum для priority
         priority_enum = item_schema["properties"]["priority"]["enum"]
         assert set(priority_enum) == {"low", "medium", "high"}
-        
+
         # Проверить enum для status
         status_enum = item_schema["properties"]["status"]["enum"]
         assert set(status_enum) == {"pending", "in_progress", "completed"}
@@ -63,9 +63,7 @@ class TestPlanToolExecutor:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_success(
-        self, executor: PlanToolExecutor, session: SessionState
-    ) -> None:
+    async def test_execute_success(self, executor: PlanToolExecutor, session: SessionState) -> None:
         """Успешное выполнение с валидными entries."""
         arguments = {
             "entries": [
@@ -73,9 +71,9 @@ class TestPlanToolExecutor:
                 {"content": "Task 2", "priority": "medium", "status": "in_progress"},
             ]
         }
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is True
         assert result.metadata is not None
         assert result.metadata["entries_count"] == 2
@@ -87,9 +85,9 @@ class TestPlanToolExecutor:
     ) -> None:
         """Пустой список entries возвращает ошибку."""
         arguments = {"entries": []}
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is False
         assert "No valid plan entries provided" in (result.error or "")
 
@@ -99,9 +97,9 @@ class TestPlanToolExecutor:
     ) -> None:
         """Невалидный тип entries возвращает ошибку."""
         arguments = {"entries": "not a list"}
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is False
         assert "entries must be a list" in (result.error or "")
 
@@ -115,13 +113,13 @@ class TestPlanToolExecutor:
                 {"content": "  Task  ", "priority": "invalid", "status": "unknown"},
             ]
         }
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is True
         assert result.metadata is not None
         validated = result.metadata["validated_entries"]
-        
+
         # Пробелы убраны, невалидные значения заменены
         assert validated[0]["content"] == "Task"
         assert validated[0]["priority"] == "medium"
@@ -138,9 +136,9 @@ class TestPlanToolExecutor:
                 {"content": "Valid", "priority": "low", "status": "completed"},
             ]
         }
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is True
         assert result.metadata is not None
         assert result.metadata["entries_count"] == 1
@@ -156,9 +154,9 @@ class TestPlanToolExecutor:
                 {"title": "Title Task", "priority": "high", "status": "pending"},
             ]
         }
-        
+
         result = await executor.execute(session, arguments)
-        
+
         assert result.success is True
         assert result.metadata is not None
         validated = result.metadata["validated_entries"]

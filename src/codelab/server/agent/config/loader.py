@@ -76,9 +76,7 @@ class AgentConfigLoader:
         logger.info("agents_configurations_loaded", count=len(result))
         return result
 
-    def _load_toml_definitions(
-        self, toml_data: dict[str, Any]
-    ) -> dict[str, AgentMarkdownConfig]:
+    def _load_toml_definitions(self, toml_data: dict[str, Any]) -> dict[str, AgentMarkdownConfig]:
         """Извлечь определения агентов из TOML."""
         result: dict[str, AgentMarkdownConfig] = {}
         agents_section = toml_data.get("agents", {})
@@ -103,9 +101,7 @@ class AgentConfigLoader:
 
         return result
 
-    def _load_markdown_dir(
-        self, directory: Path
-    ) -> dict[str, AgentMarkdownConfig]:
+    def _load_markdown_dir(self, directory: Path) -> dict[str, AgentMarkdownConfig]:
         """Загрузить все .md файлы из директории."""
         result: dict[str, AgentMarkdownConfig] = {}
 
@@ -238,8 +234,9 @@ class AgentConfigLoader:
             return [item.strip().strip("\"'") for item in items if item.strip()]
 
         # Quoted string
-        if (value.startswith('"') and value.endswith('"')) or \
-           (value.startswith("'") and value.endswith("'")):
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
             return value[1:-1]
 
         # Boolean
@@ -265,9 +262,7 @@ class AgentConfigLoader:
         # String
         return value
 
-    def _toml_to_markdown(
-        self, name: str, toml_cfg: AgentTOMLConfig
-    ) -> AgentMarkdownConfig:
+    def _toml_to_markdown(self, name: str, toml_cfg: AgentTOMLConfig) -> AgentMarkdownConfig:
         """Конвертировать TOML конфигурацию в Markdown конфигурацию."""
         return AgentMarkdownConfig(
             name=name,

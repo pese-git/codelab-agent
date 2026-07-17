@@ -8,7 +8,6 @@
 - ProgressBar
 - Spinner
 - ContextMenu
-- TerminalPanel
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from codelab.client.tui.components.context_menu import (
 from codelab.client.tui.components.progress import ProgressVariant
 from codelab.client.tui.components.spinner import SpinnerSize, SpinnerVariant
 from codelab.client.tui.components.tabs import TabData
-from codelab.client.tui.components.terminal_panel import TerminalSession
 from codelab.client.tui.components.toast import ToastData, ToastType
 from codelab.client.tui.themes import Theme, ThemeManager, ThemeType
 
@@ -260,30 +258,6 @@ class TestMenuGroup:
 
         assert len(group.items) == 3
         assert group.title == "Group"
-
-
-class TestTerminalSession:
-    """Тесты для TerminalSession."""
-
-    def test_terminal_session_creation(self) -> None:
-        """TerminalSession создаётся корректно."""
-        session = TerminalSession(id="term-1", name="Terminal 1")
-
-        assert session.id == "term-1"
-        assert session.name == "Terminal 1"
-        assert session.cwd == ""
-        assert session.output == []
-
-    def test_terminal_session_add_output(self) -> None:
-        """Добавление вывода в сессию работает."""
-        session = TerminalSession(id="term-1", name="Terminal 1")
-
-        session.add_output("line 1")
-        session.add_output("line 2")
-
-        assert len(session.output) == 2
-        assert session.output[0] == "line 1"
-        assert session.output[1] == "line 2"
 
 
 # Примечание: интеграционные тесты с Textual TUI требуют дополнительной настройки

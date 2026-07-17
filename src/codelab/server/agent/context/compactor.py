@@ -101,13 +101,16 @@ class ThreePhaseCompactor(ContextCompactor):
             result = self._remove_orphaned_tool_results(messages)
             result = self._sanitizer.sanitize(result)
             if span is not None and self._tracer is not None:
-                self._tracer.end_span(span, attributes={
-                    "phase": "none",
-                    "ratio": 1.0,
-                    "tokens_before": tokens_before,
-                    "tokens_after": self._token_counter.count_messages(result),
-                    "degraded": False,
-                })
+                self._tracer.end_span(
+                    span,
+                    attributes={
+                        "phase": "none",
+                        "ratio": 1.0,
+                        "tokens_before": tokens_before,
+                        "tokens_after": self._token_counter.count_messages(result),
+                        "degraded": False,
+                    },
+                )
             return result
         degraded = False
         degrade_reason = ""
@@ -127,8 +130,14 @@ class ThreePhaseCompactor(ContextCompactor):
 
         if tokens_after_prune <= trigger:
             return self._finalize(
-                result, span, "prune", tokens_before, tokens_after_prune,
-                degraded, degrade_reason, start_time,
+                result,
+                span,
+                "prune",
+                tokens_before,
+                tokens_after_prune,
+                degraded,
+                degrade_reason,
+                start_time,
             )
 
         if self._skeletonizer is not None:
@@ -144,15 +153,22 @@ class ThreePhaseCompactor(ContextCompactor):
 
             if tokens_after_skel <= trigger:
                 return self._finalize(
-                    result, span, "skeletonize", tokens_before, tokens_after_skel,
-                    degraded, degrade_reason, start_time,
+                    result,
+                    span,
+                    "skeletonize",
+                    tokens_before,
+                    tokens_after_skel,
+                    degraded,
+                    degrade_reason,
+                    start_time,
                 )
 
         if self._summarizer is not None:
             try:
                 target_tokens = max(trigger // 4, 500)
                 summary = await self._summarizer.summarize(
-                    result, target_tokens=target_tokens,
+                    result,
+                    target_tokens=target_tokens,
                 )
                 result = self._replace_middle_with_summary(result, summary)
                 tokens_after_sum = self._token_counter.count_messages(result)
@@ -166,8 +182,14 @@ class ThreePhaseCompactor(ContextCompactor):
 
                 if tokens_after_sum <= trigger:
                     return self._finalize(
-                        result, span, "summarize", tokens_before, tokens_after_sum,
-                        degraded, degrade_reason, start_time,
+                        result,
+                        span,
+                        "summarize",
+                        tokens_before,
+                        tokens_after_sum,
+                        degraded,
+                        degrade_reason,
+                        start_time,
                     )
             except Exception:
                 logger.exception("context.compact.summarize_failed_degrading")
@@ -192,8 +214,14 @@ class ThreePhaseCompactor(ContextCompactor):
         )
 
         return self._finalize(
-            result, span, final_phase, tokens_before, tokens_after_truncate,
-            degraded, degrade_reason, start_time,
+            result,
+            span,
+            final_phase,
+            tokens_before,
+            tokens_after_truncate,
+            degraded,
+            degrade_reason,
+            start_time,
         )
 
     @staticmethod
@@ -245,19 +273,22 @@ class ThreePhaseCompactor(ContextCompactor):
         for msg in messages:
             if msg.role == "system" and isinstance(msg.content, str):
                 new_content = self._skeletonize_file_blocks(msg.content)
-                result.append(LLMMessage(
-                    role=msg.role,
-                    content=new_content,
-                    tool_calls=msg.tool_calls,
-                    tool_call_id=msg.tool_call_id,
-                    name=msg.name,
-                ))
+                result.append(
+                    LLMMessage(
+                        role=msg.role,
+                        content=new_content,
+                        tool_calls=msg.tool_calls,
+                        tool_call_id=msg.tool_call_id,
+                        name=msg.name,
+                    )
+                )
             else:
                 result.append(msg)
         return result
 
     def _skeletonize_file_blocks(self, content: str) -> str:
         """Найти XML-блоки файлов и скелетировать их."""
+
         def replace_file_block(match: re.Match[str]) -> str:
             prefix = match.group(1)
             path = match.group(2)
@@ -272,6 +303,7 @@ class ThreePhaseCompactor(ContextCompactor):
                 from codelab.server.agent.context.skeletonizer.composite import (
                     CompositeSkeletonizer,
                 )
+
                 if isinstance(self._skeletonizer, CompositeSkeletonizer):
                     skeleton = self._skeletonizer.skeletonize_file(code, path)
                 else:
@@ -304,6 +336,52 @@ class ThreePhaseCompactor(ContextCompactor):
 
         return _FILE_BLOCK_PATTERN.sub(replace_file_block, content)
 
+    def _pack_within_budget(
+        self,
+        messages: list[LLMMessage],
+        budget: int,
+        *,
+        keep_metadata: bool,
+    ) -> list[LLMMessage]:
+        """Жадно набрать сообщения в пределах budget; переполняющее — усечь по остатку.
+
+        Общий примитив для веток hard-truncate. `count_messages` аддитивен, поэтому
+        накопленный `used` эквивалентен пересчёту токенов результата.
+
+        Args:
+            messages: Кандидаты (в желаемом порядке набора).
+            budget: Лимит токенов.
+            keep_metadata: Сохранять ли tool_calls/tool_call_id/name у усечённого
+                сообщения (для evictable/истории — да; для protected system — нет).
+        """
+        result: list[LLMMessage] = []
+        used = 0
+        for msg in messages:
+            msg_tokens = self._token_counter.count_messages([msg])
+            if used + msg_tokens <= budget:
+                result.append(msg)
+                used += msg_tokens
+                continue
+
+            content = msg.content if isinstance(msg.content, str) else str(msg.content or "")
+            remaining = budget - used
+            if remaining > 0 and content:
+                bounded = self._budget_manager.bound_content(content, remaining)
+                if keep_metadata:
+                    result.append(
+                        LLMMessage(
+                            role=msg.role,
+                            content=bounded,
+                            tool_calls=msg.tool_calls,
+                            tool_call_id=msg.tool_call_id,
+                            name=msg.name,
+                        )
+                    )
+                else:
+                    result.append(LLMMessage(role=msg.role, content=bounded))
+            break
+        return result
+
     def _phase_hard_truncate(
         self,
         messages: list[LLMMessage],
@@ -320,28 +398,7 @@ class ThreePhaseCompactor(ContextCompactor):
             start_tokens = self._token_counter.count_messages(messages)
             if start_tokens <= trigger:
                 return messages
-            result: list[LLMMessage] = []
-            for msg in messages:
-                msg_tokens = self._token_counter.count_messages([msg])
-                if self._token_counter.count_messages(result) + msg_tokens <= trigger:
-                    result.append(msg)
-                else:
-                    content = (
-                        msg.content if isinstance(msg.content, str)
-                        else str(msg.content or "")
-                    )
-                    remaining = trigger - self._token_counter.count_messages(result)
-                    if remaining > 0 and content:
-                        bounded = self._budget_manager.bound_content(content, remaining)
-                        result.append(LLMMessage(
-                            role=msg.role,
-                            content=bounded,
-                            tool_calls=msg.tool_calls,
-                            tool_call_id=msg.tool_call_id,
-                            name=msg.name,
-                        ))
-                    break
-            return result
+            return self._pack_within_budget(messages, trigger, keep_metadata=True)
 
         start = messages[:_KEEP_START]
         end = messages[-_KEEP_END:]
@@ -361,8 +418,21 @@ class ThreePhaseCompactor(ContextCompactor):
             return start + end
 
         middle_budget = trigger - fixed_tokens
+        result_middle = self._evict_middle_by_priority(middle, middle_budget, trigger)
+        return start + result_middle + end
 
-        # Разделяем middle на защищённые (system, priority >= 10) и обычные
+    def _evict_middle_by_priority(
+        self,
+        middle: list[LLMMessage],
+        middle_budget: int,
+        trigger: int,
+    ) -> list[LLMMessage]:
+        """Вытеснить средние сообщения по приоритету в пределах middle_budget.
+
+        Защищённые (priority >= 10) сохраняются; evictable вытесняются по
+        возрастанию приоритета. При критическом переполнении (даже защищённые не
+        помещаются) усекаются сами защищённые. Порядок оставшихся — исходный.
+        """
         protected = [msg for msg in middle if self._message_priority(msg) >= 10]
         evictable = [msg for msg in middle if self._message_priority(msg) < 10]
 
@@ -381,61 +451,20 @@ class ThreePhaseCompactor(ContextCompactor):
                 trigger=trigger,
             )
             # Усекаем защищённые как последнюю меру
-            bounded_protected: list[LLMMessage] = []
-            used = 0
-            for msg in protected:
-                msg_tokens = self._token_counter.count_messages([msg])
-                if used + msg_tokens <= middle_budget:
-                    bounded_protected.append(msg)
-                    used += msg_tokens
-                else:
-                    content = (
-                        msg.content if isinstance(msg.content, str)
-                        else str(msg.content or "")
-                    )
-                    remaining = middle_budget - used
-                    if remaining > 0 and content:
-                        bounded = self._budget_manager.bound_content(content, remaining)
-                        bounded_protected.append(LLMMessage(
-                            role=msg.role,
-                            content=bounded,
-                        ))
-                    break
-            return start + bounded_protected + end
+            return self._pack_within_budget(protected, middle_budget, keep_metadata=False)
 
         # Усекаем evictable по приоритету
-        bounded_evictable: list[LLMMessage] = []
-        used = 0
-        for msg in evictable:
-            msg_tokens = self._token_counter.count_messages([msg])
-            if used + msg_tokens <= evictable_budget:
-                bounded_evictable.append(msg)
-                used += msg_tokens
-            else:
-                content = (
-                    msg.content if isinstance(msg.content, str)
-                    else str(msg.content or "")
-                )
-                remaining = evictable_budget - used
-                if remaining > 0 and content:
-                    bounded = self._budget_manager.bound_content(content, remaining)
-                    bounded_evictable.append(LLMMessage(
-                        role=msg.role,
-                        content=bounded,
-                        tool_calls=msg.tool_calls,
-                        tool_call_id=msg.tool_call_id,
-                        name=msg.name,
-                    ))
-                break
+        bounded_evictable = self._pack_within_budget(
+            evictable, evictable_budget, keep_metadata=True
+        )
 
         # Восстанавливаем порядок: protected + evictable в исходном порядке
         kept_evictable_ids = {id(msg) for msg in bounded_evictable}
-        result_middle = protected + [
-            msg for msg in middle
+        return protected + [
+            msg
+            for msg in middle
             if id(msg) in kept_evictable_ids and self._message_priority(msg) < 10
         ]
-
-        return start + result_middle + end
 
     def _replace_middle_with_summary(
         self,
@@ -481,14 +510,17 @@ class ThreePhaseCompactor(ContextCompactor):
         )
 
         if span is not None and self._tracer is not None:
-            self._tracer.end_span(span, attributes={
-                "phase": phase,
-                "ratio": ratio,
-                "tokens_before": tokens_before,
-                "tokens_after": tokens_final,
-                "degraded": degraded,
-                "degrade_reason": degrade_reason,
-            })
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "phase": phase,
+                    "ratio": ratio,
+                    "tokens_before": tokens_before,
+                    "tokens_after": tokens_final,
+                    "degraded": degraded,
+                    "degrade_reason": degrade_reason,
+                },
+            )
 
         if self._metrics_tracker is not None:
             self._metrics_tracker.record_context_compaction(
@@ -545,17 +577,21 @@ class ThreePhaseCompactor(ContextCompactor):
                 remaining = [tc for tc in msg.tool_calls if tc.id in tool_result_ids]
                 if not remaining:
                     if msg.content:
-                        result.append(LLMMessage(
-                            role="assistant",
-                            content=msg.content,
-                        ))
+                        result.append(
+                            LLMMessage(
+                                role="assistant",
+                                content=msg.content,
+                            )
+                        )
                     continue
                 if len(remaining) != len(msg.tool_calls):
-                    result.append(LLMMessage(
-                        role="assistant",
-                        content=msg.content,
-                        tool_calls=remaining,
-                    ))
+                    result.append(
+                        LLMMessage(
+                            role="assistant",
+                            content=msg.content,
+                            tool_calls=remaining,
+                        )
+                    )
                 else:
                     result.append(msg)
             else:

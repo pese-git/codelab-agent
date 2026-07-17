@@ -54,14 +54,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         self.synced_messages.append((session_id, list(messages)))
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         self.synced_tool_calls.append((session_id, list(tool_calls)))
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         self.synced_streaming.append((session_id, text, is_streaming))
 
 
@@ -135,9 +131,7 @@ class TestDispatcherIntegration:
         return MockSink()
 
     @pytest.fixture
-    def context(
-        self, session_state: ChatSessionState, sink: MockSink
-    ) -> ChatUpdateContext:
+    def context(self, session_state: ChatSessionState, sink: MockSink) -> ChatUpdateContext:
         """Создает ChatUpdateContext с sink."""
         event_bus = EventBus()
         plan_vm = MagicMock()
@@ -299,9 +293,7 @@ class TestPersistenceIntegration:
         """Создает FileChatPersistence."""
         return FileChatPersistence(tmp_path / "history")
 
-    async def test_save_and_load_messages(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_save_and_load_messages(self, persistence: FileChatPersistence) -> None:
         """Тест сохранения и загрузки сообщений."""
         messages = [
             {"role": "user", "content": "Hello"},
@@ -320,9 +312,7 @@ class TestPersistenceIntegration:
         ]
 
         # Сохраняем
-        await persistence.save_messages(
-            "test-session", messages, replay_updates=replay_updates
-        )
+        await persistence.save_messages("test-session", messages, replay_updates=replay_updates)
 
         # Загружаем
         loaded_messages = await persistence.load_messages("test-session")
@@ -331,9 +321,7 @@ class TestPersistenceIntegration:
         assert loaded_messages == messages
         assert loaded_updates == replay_updates
 
-    async def test_sync_methods(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_sync_methods(self, persistence: FileChatPersistence) -> None:
         """Тест sync методов для использования в sync контексте."""
         messages = [
             {"role": "user", "content": "Test message"},
@@ -351,9 +339,7 @@ class TestPersistenceIntegration:
         ]
 
         # Сохраняем через async
-        await persistence.save_messages(
-            "test-session", messages, replay_updates=replay_updates
-        )
+        await persistence.save_messages("test-session", messages, replay_updates=replay_updates)
 
         # Загружаем через sync
         loaded_messages = persistence.load_messages_sync("test-session")
@@ -362,9 +348,7 @@ class TestPersistenceIntegration:
         assert loaded_messages == messages
         assert loaded_updates == replay_updates
 
-    async def test_multiple_sessions_persistence(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_multiple_sessions_persistence(self, persistence: FileChatPersistence) -> None:
         """Тест persistence для нескольких сессий."""
         # Сохраняем данные для двух сессий
         await persistence.save_messages(
@@ -396,9 +380,7 @@ class TestFsCallbackExecutorIntegration:
         workspace.mkdir()
         return FsCallbackExecutor(workspace)
 
-    async def test_write_and_read_file(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_write_and_read_file(self, executor: FsCallbackExecutor) -> None:
         """Тест записи и чтения файла."""
         content = "Hello, World!"
 
@@ -412,29 +394,21 @@ class TestFsCallbackExecutorIntegration:
         assert read_content == content
         assert read_error is None
 
-    async def test_nested_directory_creation(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_nested_directory_creation(self, executor: FsCallbackExecutor) -> None:
         """Тест создания вложенных директорий при записи."""
         content = "Nested content"
 
         # Записываем в вложенную директорию
-        success, error = await executor.write_file(
-            "level1/level2/level3/test.txt", content
-        )
+        success, error = await executor.write_file("level1/level2/level3/test.txt", content)
         assert success is True
         assert error is None
 
         # Читаем
-        read_content, read_error = await executor.read_file(
-            "level1/level2/level3/test.txt"
-        )
+        read_content, read_error = await executor.read_file("level1/level2/level3/test.txt")
         assert read_content == content
         assert read_error is None
 
-    async def test_path_traversal_protection(
-        self, executor: FsCallbackExecutor
-    ) -> None:
+    async def test_path_traversal_protection(self, executor: FsCallbackExecutor) -> None:
         """Тест защиты от path traversal."""
         # Пытаемся прочитать файл вне sandbox
         content, error = await executor.read_file("../../etc/passwd")
@@ -443,9 +417,7 @@ class TestFsCallbackExecutorIntegration:
         assert "traversal" in error.lower()
 
         # Пытаемся записать файл вне sandbox
-        success, error = await executor.write_file(
-            "../../etc/malicious.txt", "bad content"
-        )
+        success, error = await executor.write_file("../../etc/malicious.txt", "bad content")
         assert success is False
         assert error is not None
         assert "traversal" in error.lower()
@@ -464,9 +436,7 @@ class TestTerminalCallbackExecutorIntegration:
         """Создает TerminalCallbackExecutor."""
         return TerminalCallbackExecutor(mock_executor)
 
-    async def test_terminal_lifecycle(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_terminal_lifecycle(self, executor: TerminalCallbackExecutor) -> None:
         """Тест полного жизненного цикла терминала."""
         # Создаем терминал
         terminal_id, error = await executor.create_terminal("ls -la")
@@ -489,9 +459,7 @@ class TestTerminalCallbackExecutorIntegration:
         release_error = await executor.release_terminal(terminal_id)
         assert release_error is None
 
-    async def test_multiple_terminals(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_multiple_terminals(self, executor: TerminalCallbackExecutor) -> None:
         """Тест работы с несколькими терминалами одновременно."""
         # Создаем два терминала
         terminal1, _ = await executor.create_terminal("command1")
@@ -510,9 +478,7 @@ class TestTerminalCallbackExecutorIntegration:
         await executor.release_terminal(terminal1)
         await executor.release_terminal(terminal2)
 
-    async def test_kill_terminal(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_kill_terminal(self, executor: TerminalCallbackExecutor) -> None:
         """Тест принудительного завершения терминала."""
         terminal_id, _ = await executor.create_terminal("long_running_command")
 
@@ -531,9 +497,7 @@ class TestTerminalCallbackExecutorIntegration:
 class TestEndToEndWorkflow:
     """End-to-end тесты полного workflow."""
 
-    async def test_complete_session_workflow(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_complete_session_workflow(self, tmp_path: Path) -> None:
         """Тест полного workflow сессии: создание → отправка → получение → сохранение."""
         # Инициализируем компоненты
         workspace = tmp_path / "workspace"

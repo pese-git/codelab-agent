@@ -24,9 +24,7 @@ class TerminalOutputHandler:
     def can_handle(self, method: str) -> bool:
         return method == "terminal/output"
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any] | None:
         terminal_id = params.get("terminalId")
         if not isinstance(terminal_id, str):
             self._logger.warning("missing_terminal_id_parameter", rpc_id=rpc_id)

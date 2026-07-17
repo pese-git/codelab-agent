@@ -712,9 +712,7 @@ class TestOpenAICompatibleProviderStreamCompletion:
         provider._client = MagicMock()
         provider._client.chat = MagicMock()
         provider._client.chat.completions = MagicMock()
-        provider._client.chat.completions.create = AsyncMock(
-            return_value=_async_iter(chunks)
-        )
+        provider._client.chat.completions.create = AsyncMock(return_value=_async_iter(chunks))
         request = CompletionRequest(
             model="gpt-4o",
             messages=[LLMMessage(role="user", content="Hi")],
@@ -766,25 +764,57 @@ class TestOpenAICompatibleProviderStreamCompletion:
         await provider.initialize(config)
 
         chunks = [
-            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
-                tool_calls=[MockDeltaToolCall(
-                    index=0, id="call_1",
-                    function=MockDeltaFunction(name="read_file", arguments=""),
-                )],
-            ))]),
-            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
-                tool_calls=[MockDeltaToolCall(
-                    index=0, function=MockDeltaFunction(arguments='{"path":'),
-                )],
-            ))]),
-            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
-                tool_calls=[MockDeltaToolCall(
-                    index=0, function=MockDeltaFunction(arguments=' "a.md"}'),
-                )],
-            ))]),
-            MockStreamChunk(choices=[MockStreamChoice(
-                delta=MockDelta(), finish_reason="tool_calls",
-            )]),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(
+                            tool_calls=[
+                                MockDeltaToolCall(
+                                    index=0,
+                                    id="call_1",
+                                    function=MockDeltaFunction(name="read_file", arguments=""),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(
+                            tool_calls=[
+                                MockDeltaToolCall(
+                                    index=0,
+                                    function=MockDeltaFunction(arguments='{"path":'),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(
+                            tool_calls=[
+                                MockDeltaToolCall(
+                                    index=0,
+                                    function=MockDeltaFunction(arguments=' "a.md"}'),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(),
+                        finish_reason="tool_calls",
+                    )
+                ]
+            ),
         ]
         result = await self._run_stream(provider, chunks, tools=[{"type": "function"}])
 
@@ -806,15 +836,29 @@ class TestOpenAICompatibleProviderStreamCompletion:
         await provider.initialize(config)
 
         chunks = [
-            MockStreamChunk(choices=[MockStreamChoice(delta=MockDelta(
-                tool_calls=[MockDeltaToolCall(
-                    index=0, id="c1",
-                    function=MockDeltaFunction(name="f", arguments="{not json"),
-                )],
-            ))]),
-            MockStreamChunk(choices=[MockStreamChoice(
-                delta=MockDelta(), finish_reason="tool_calls",
-            )]),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(
+                            tool_calls=[
+                                MockDeltaToolCall(
+                                    index=0,
+                                    id="c1",
+                                    function=MockDeltaFunction(name="f", arguments="{not json"),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+            MockStreamChunk(
+                choices=[
+                    MockStreamChoice(
+                        delta=MockDelta(),
+                        finish_reason="tool_calls",
+                    )
+                ]
+            ),
         ]
         result = await self._run_stream(provider, chunks, tools=[{"type": "function"}])
 

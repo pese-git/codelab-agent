@@ -79,7 +79,7 @@ class SessionUpdateDispatcher:
         if session_info_handler is None:
             session_info_handler = SessionInfoHandler()
         self._handlers.append(session_info_handler)
-        
+
         # Оптимизация: dict для O(1) поиска handler'а по update_type
         self._handler_map: dict[str, Any] = {}
         for handler in self._handlers:
@@ -98,7 +98,7 @@ class SessionUpdateDispatcher:
             ]:
                 if handler.can_handle(update_type):
                     self._handler_map[update_type] = handler
-        
+
         self._logger = structlog.get_logger("session_update_dispatcher")
 
     def dispatch(

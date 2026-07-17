@@ -13,6 +13,8 @@ Python, TypeScript, Dart, Go, Rust, Java, C++.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 import structlog
 
 from codelab.server.agent.context.skeletonizer.languages import LANGUAGE_RULES, LanguageRules
@@ -21,10 +23,13 @@ from codelab.server.agent.context.skeletonizer.strategy import SkeletonizerStrat
 
 logger = structlog.get_logger(__name__)
 
+tree_sitter: ModuleType | None
 try:
-    import tree_sitter
+    import tree_sitter as _tree_sitter
 except ImportError:
-    tree_sitter = None  # type: ignore[assignment]
+    tree_sitter = None
+else:
+    tree_sitter = _tree_sitter
 
 
 class TreeSitterStrategy(SkeletonizerStrategy):
@@ -87,9 +92,7 @@ class TreeSitterStrategy(SkeletonizerStrategy):
             else:
                 first_line = lines[start_row]
                 last_line = lines[end_row]
-                lines[start_row] = (
-                    first_line[:start_col] + placeholder_b + last_line[end_col:]
-                )
+                lines[start_row] = first_line[:start_col] + placeholder_b + last_line[end_col:]
                 for i in range(start_row + 1, end_row + 1):
                     lines[i] = b""
 
@@ -111,13 +114,15 @@ class TreeSitterStrategy(SkeletonizerStrategy):
         if node.type in rules.function_types:
             body = self._find_body(node, rules.body_field)
             if body is not None:
-                replacements.append((
-                    body.start_point[0],
-                    body.start_point[1],
-                    body.end_point[0],
-                    body.end_point[1],
-                    rules.body_placeholder,
-                ))
+                replacements.append(
+                    (
+                        body.start_point[0],
+                        body.start_point[1],
+                        body.end_point[0],
+                        body.end_point[1],
+                        rules.body_placeholder,
+                    )
+                )
                 return
 
         for child in node.children:

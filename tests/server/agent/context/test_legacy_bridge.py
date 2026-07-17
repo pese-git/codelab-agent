@@ -27,10 +27,7 @@ def adapter(legacy_compactor):
 
 
 def make_messages(count, role="user"):
-    return [
-        LLMMessage(role=role, content=f"Message {i} " * 50)
-        for i in range(count)
-    ]
+    return [LLMMessage(role=role, content=f"Message {i} " * 50) for i in range(count)]
 
 
 class TestLegacyContextCompactorAdapter:

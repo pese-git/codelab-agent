@@ -142,32 +142,62 @@ class TestTraceRecorder:
 
     def test_get_spans_by_trace_id(self) -> None:
         recorder = TraceRecorder()
-        recorder.record(TraceSpan(
-            trace_id="t1", span_id="s1", parent_span_id=None,
-            tool_name="tool1", session_id="sess", start_time_ms=1000.0,
-        ))
-        recorder.record(TraceSpan(
-            trace_id="t2", span_id="s2", parent_span_id=None,
-            tool_name="tool2", session_id="sess", start_time_ms=2000.0,
-        ))
-        recorder.record(TraceSpan(
-            trace_id="t1", span_id="s3", parent_span_id="s1",
-            tool_name="tool3", session_id="sess", start_time_ms=3000.0,
-        ))
+        recorder.record(
+            TraceSpan(
+                trace_id="t1",
+                span_id="s1",
+                parent_span_id=None,
+                tool_name="tool1",
+                session_id="sess",
+                start_time_ms=1000.0,
+            )
+        )
+        recorder.record(
+            TraceSpan(
+                trace_id="t2",
+                span_id="s2",
+                parent_span_id=None,
+                tool_name="tool2",
+                session_id="sess",
+                start_time_ms=2000.0,
+            )
+        )
+        recorder.record(
+            TraceSpan(
+                trace_id="t1",
+                span_id="s3",
+                parent_span_id="s1",
+                tool_name="tool3",
+                session_id="sess",
+                start_time_ms=3000.0,
+            )
+        )
 
         t1_spans = recorder.get_spans_by_trace_id("t1")
         assert len(t1_spans) == 2
 
     def test_get_spans_by_session_id(self) -> None:
         recorder = TraceRecorder()
-        recorder.record(TraceSpan(
-            trace_id="t1", span_id="s1", parent_span_id=None,
-            tool_name="tool", session_id="sess_a", start_time_ms=1000.0,
-        ))
-        recorder.record(TraceSpan(
-            trace_id="t2", span_id="s2", parent_span_id=None,
-            tool_name="tool", session_id="sess_b", start_time_ms=2000.0,
-        ))
+        recorder.record(
+            TraceSpan(
+                trace_id="t1",
+                span_id="s1",
+                parent_span_id=None,
+                tool_name="tool",
+                session_id="sess_a",
+                start_time_ms=1000.0,
+            )
+        )
+        recorder.record(
+            TraceSpan(
+                trace_id="t2",
+                span_id="s2",
+                parent_span_id=None,
+                tool_name="tool",
+                session_id="sess_b",
+                start_time_ms=2000.0,
+            )
+        )
 
         spans = recorder.get_spans_by_session_id("sess_a")
         assert len(spans) == 1
@@ -175,10 +205,16 @@ class TestTraceRecorder:
     def test_get_recent_spans(self) -> None:
         recorder = TraceRecorder()
         for i in range(10):
-            recorder.record(TraceSpan(
-                trace_id=f"t{i}", span_id=f"s{i}", parent_span_id=None,
-                tool_name="tool", session_id="sess", start_time_ms=float(i),
-            ))
+            recorder.record(
+                TraceSpan(
+                    trace_id=f"t{i}",
+                    span_id=f"s{i}",
+                    parent_span_id=None,
+                    tool_name="tool",
+                    session_id="sess",
+                    start_time_ms=float(i),
+                )
+            )
 
         recent = recorder.get_recent_spans(limit=5)
         assert len(recent) == 5
@@ -187,20 +223,32 @@ class TestTraceRecorder:
     def test_max_spans_eviction(self) -> None:
         recorder = TraceRecorder(max_spans=10)
         for i in range(15):
-            recorder.record(TraceSpan(
-                trace_id=f"t{i}", span_id=f"s{i}", parent_span_id=None,
-                tool_name="tool", session_id="sess", start_time_ms=float(i),
-            ))
+            recorder.record(
+                TraceSpan(
+                    trace_id=f"t{i}",
+                    span_id=f"s{i}",
+                    parent_span_id=None,
+                    tool_name="tool",
+                    session_id="sess",
+                    start_time_ms=float(i),
+                )
+            )
 
         all_spans = recorder.get_all_spans()
         assert len(all_spans) <= 10
 
     def test_reset(self) -> None:
         recorder = TraceRecorder()
-        recorder.record(TraceSpan(
-            trace_id="t1", span_id="s1", parent_span_id=None,
-            tool_name="tool", session_id="sess", start_time_ms=1000.0,
-        ))
+        recorder.record(
+            TraceSpan(
+                trace_id="t1",
+                span_id="s1",
+                parent_span_id=None,
+                tool_name="tool",
+                session_id="sess",
+                start_time_ms=1000.0,
+            )
+        )
         recorder.reset()
 
         assert recorder.get_all_spans() == []

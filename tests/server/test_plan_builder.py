@@ -218,7 +218,7 @@ class TestPlanBuilderNotification:
         plan_builder: PlanBuilder,
     ) -> None:
         """Строит notification с правильной структурой ACP.
-        
+
         Согласно протоколу ACP, формат должен быть:
         - sessionUpdate: "plan"
         - entries: список {content, priority, status}
@@ -241,7 +241,7 @@ class TestPlanBuilderNotification:
         plan_builder: PlanBuilder,
     ) -> None:
         """Строит plan с правильным форматом ACP.
-        
+
         Entries передаются напрямую без трансформации.
         """
         entries = [
@@ -322,9 +322,19 @@ class TestPlanBuilderSessionUpdate:
         ]
         plan_builder.update_session_plan(session, entries)
 
+        # P2-26: latest_plan хранится в ACP-форме {content, priority, status},
+        # идентично live-notification (не урезается в {title, description}).
         assert len(session.latest_plan) == 2
-        assert session.latest_plan[0]["title"] == "Step 1"
-        assert session.latest_plan[1]["title"] == "Step 2"
+        assert session.latest_plan[0] == {
+            "content": "Step 1",
+            "priority": "high",
+            "status": "pending",
+        }
+        assert session.latest_plan[1] == {
+            "content": "Step 2",
+            "priority": "medium",
+            "status": "pending",
+        }
 
     def test_update_session_plan_empty(
         self,
@@ -332,9 +342,30 @@ class TestPlanBuilderSessionUpdate:
         session: SessionState,
     ) -> None:
         """Очищает план при передаче пустого списка."""
-        session.latest_plan = [{"title": "Old plan"}]
+        session.latest_plan = [{"content": "Old plan", "priority": "medium", "status": "pending"}]
         plan_builder.update_session_plan(session, [])
         assert len(session.latest_plan) == 0
+
+    def test_stored_plan_matches_wire_notification(
+        self,
+        plan_builder: PlanBuilder,
+        session: SessionState,
+    ) -> None:
+        """P2-26: latest_plan байт-идентичен entries в live-notification.
+
+        Гарантирует, что replay на session/load отдаст ту же ACP-форму, что ушла
+        клиенту вживую (никаких {title, description} в хранении).
+        """
+        entries = [
+            {"content": "Step 1", "priority": "high", "status": "in_progress"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
+        ]
+
+        notification = plan_builder.build_plan_notification("sess_1", entries)
+        plan_builder.update_session_plan(session, entries)
+
+        wire_entries = notification.params["update"]["entries"]
+        assert session.latest_plan == wire_entries
 
 
 class TestPlanBuilderUpdates:
@@ -378,7 +409,8 @@ class TestPlanBuilderUpdates:
         plan_builder.build_plan_updates(session, "sess_1", directives)
 
         assert len(session.latest_plan) == 1
-        assert session.latest_plan[0]["title"] == "Task 1"
+        # P2-26: ACP-форма (не {title,description})
+        assert session.latest_plan[0]["content"] == "Task 1"
 
     def test_build_updates_no_valid_entries(
         self,

@@ -40,13 +40,16 @@ class TestConnectionHealthMonitorStop:
         assert monitor._task is not None
         assert not monitor._task.done()
 
-        with patch.object(
-            monitor,
-            "CHECK_INTERVAL_SECONDS",
-            60.0,
-        ), patch(
-            "codelab.client.infrastructure.services.connection_health_monitor.asyncio.wait_for",
-            side_effect=TimeoutError,
+        with (
+            patch.object(
+                monitor,
+                "CHECK_INTERVAL_SECONDS",
+                60.0,
+            ),
+            patch(
+                "codelab.client.infrastructure.services.connection_health_monitor.asyncio.wait_for",
+                side_effect=TimeoutError,
+            ),
         ):
             await monitor.stop()
 
@@ -74,14 +77,17 @@ class TestConnectionHealthMonitorMonitoringLoop:
             session_id="test-session",
         )
 
-        with patch.object(
-            monitor,
-            "_check_health",
-            side_effect=asyncio.CancelledError,
-        ), patch.object(
-            monitor,
-            "CHECK_INTERVAL_SECONDS",
-            0.01,
+        with (
+            patch.object(
+                monitor,
+                "_check_health",
+                side_effect=asyncio.CancelledError,
+            ),
+            patch.object(
+                monitor,
+                "CHECK_INTERVAL_SECONDS",
+                0.01,
+            ),
         ):
             await monitor._monitoring_loop()
 
@@ -113,14 +119,17 @@ class TestConnectionHealthMonitorMonitoringLoop:
                 raise ValueError("health check failed")
             monitor._should_stop = True
 
-        with patch.object(
-            monitor,
-            "_check_health",
-            side_effect=failing_then_stop,
-        ), patch.object(
-            monitor,
-            "CHECK_INTERVAL_SECONDS",
-            0.01,
+        with (
+            patch.object(
+                monitor,
+                "_check_health",
+                side_effect=failing_then_stop,
+            ),
+            patch.object(
+                monitor,
+                "CHECK_INTERVAL_SECONDS",
+                0.01,
+            ),
         ):
             await monitor._monitoring_loop()
 

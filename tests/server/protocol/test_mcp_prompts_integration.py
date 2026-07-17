@@ -72,23 +72,23 @@ class TestRegisterMcpPromptsAsSlashCommands:
     ) -> None:
         """Регистрирует MCP prompts в runtime.mcp_prompt_handlers."""
         mock_manager = MagicMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "test_server": [
-                MCPPrompt(name="code_review", description="Review code"),
-                MCPPrompt(
-                    name="plan",
-                    title="Plan task",
-                    arguments=[MCPPromptArgument(name="task", required=True)],
-                ),
-            ],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "test_server": [
+                    MCPPrompt(name="code_review", description="Review code"),
+                    MCPPrompt(
+                        name="plan",
+                        title="Plan task",
+                        arguments=[MCPPromptArgument(name="task", required=True)],
+                    ),
+                ],
+            }
+        )
 
         # Настраиваем runtime registry чтобы возвращал runtime_state
         manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
 
-        await manager._register_mcp_prompts_as_slash_commands(
-            session, mock_manager, "test_server"
-        )
+        await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
         # Handlers должны быть в runtime, а не в session
         assert "code_review" in runtime_state.mcp_prompt_handlers
@@ -103,24 +103,31 @@ class TestRegisterMcpPromptsAsSlashCommands:
         self,
         manager: MCPSessionManager,
         session: SessionState,
+        runtime_state: SessionRuntimeState,
     ) -> None:
         """Добавляет MCP prompts в session_state.available_commands."""
         mock_manager = MagicMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "test_server": [
-                MCPPrompt(name="test_prompt", description="Test prompt"),
-            ],
-        })
-
-        await manager._register_mcp_prompts_as_slash_commands(
-            session, mock_manager, "test_server"
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "test_server": [
+                    MCPPrompt(name="test_prompt", description="Test prompt"),
+                ],
+            }
         )
+        # Реальный runtime_state вместо дефолтного MagicMock из AsyncMock-registry:
+        # иначе runtime.* даёт MagicMock-цепочку, из которой утекает холостая корутина.
+        manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
+
+        await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
         # Проверяем что prompt добавлен в available_commands
         prompt_commands = [
-            cmd for cmd in session.available_commands
-            if isinstance(cmd, dict) and cmd.get("name") == "test_prompt"
-            or hasattr(cmd, "name") and cmd.name == "test_prompt"
+            cmd
+            for cmd in session.available_commands
+            if isinstance(cmd, dict)
+            and cmd.get("name") == "test_prompt"
+            or hasattr(cmd, "name")
+            and cmd.name == "test_prompt"
         ]
         assert len(prompt_commands) == 1
 
@@ -134,9 +141,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
         mock_manager = MagicMock()
         mock_manager.get_all_prompts = AsyncMock(return_value={"test_server": []})
 
-        await manager._register_mcp_prompts_as_slash_commands(
-            session, mock_manager, "test_server"
-        )
+        await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
         assert len(session.mcp_prompt_handlers) == 0
 
@@ -150,9 +155,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
         mock_manager = MagicMock()
         mock_manager.get_all_prompts = AsyncMock(return_value={"other_server": []})
 
-        await manager._register_mcp_prompts_as_slash_commands(
-            session, mock_manager, "test_server"
-        )
+        await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
         assert len(session.mcp_prompt_handlers) == 0
 
@@ -167,9 +170,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
         mock_manager.get_all_prompts = AsyncMock(side_effect=Exception("Connection failed"))
 
         # Не должно выбрасывать исключение
-        await manager._register_mcp_prompts_as_slash_commands(
-            session, mock_manager, "test_server"
-        )
+        await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
         assert len(session.mcp_prompt_handlers) == 0
 
@@ -341,10 +342,12 @@ class TestRestoreMcpPrompts:
         ]
         mock_manager = MagicMock()
         # get_all_prompts() вызывается один раз и возвращает prompts для обоих серверов
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "server1": [MCPPrompt(name="prompt1", description="Prompt 1")],
-            "server2": [MCPPrompt(name="prompt2", description="Prompt 2")],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "server1": [MCPPrompt(name="prompt1", description="Prompt 1")],
+                "server2": [MCPPrompt(name="prompt2", description="Prompt 2")],
+            }
+        )
 
         # Настраиваем runtime registry
         manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
@@ -375,9 +378,11 @@ class TestRestoreMcpPrompts:
             "not_a_dict",  # не dict
         ]
         mock_manager = MagicMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "valid": [MCPPrompt(name="valid_prompt", description="Valid")],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "valid": [MCPPrompt(name="valid_prompt", description="Valid")],
+            }
+        )
 
         # Настраиваем runtime registry
         manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
@@ -407,9 +412,11 @@ class TestRestoreMcpPrompts:
         session.mcp_servers = [{"name": "server1", "command": "cmd"}]
 
         mock_manager = MagicMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "server1": [MCPPrompt(name="new_prompt", description="New")],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "server1": [MCPPrompt(name="new_prompt", description="New")],
+            }
+        )
 
         # Настраиваем runtime registry
         manager._runtime_registry.get = AsyncMock(return_value=runtime_state)
@@ -448,9 +455,7 @@ class TestEnsureMcpInitializedWithRestore:
 
         manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
-        with patch.object(
-            manager, "_restore_mcp_prompts", new_callable=AsyncMock
-        ) as mock_restore:
+        with patch.object(manager, "_restore_mcp_prompts", new_callable=AsyncMock) as mock_restore:
             result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
@@ -472,9 +477,7 @@ class TestEnsureMcpInitializedWithRestore:
 
         manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
-        with patch.object(
-            manager, "_restore_mcp_prompts", new_callable=AsyncMock
-        ) as mock_restore:
+        with patch.object(manager, "_restore_mcp_prompts", new_callable=AsyncMock) as mock_restore:
             result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
@@ -496,9 +499,7 @@ class TestEnsureMcpInitializedWithRestore:
 
         manager._runtime_registry.get = AsyncMock(return_value=mock_runtime)
 
-        with patch.object(
-            manager, "_restore_mcp_prompts", new_callable=AsyncMock
-        ) as mock_restore:
+        with patch.object(manager, "_restore_mcp_prompts", new_callable=AsyncMock) as mock_restore:
             result = await manager.ensure_initialized(session)
 
             assert result is mock_manager
@@ -694,9 +695,11 @@ class TestMcpPromptChangeCallback:
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "test": [MCPPrompt(name="new_prompt", description="New")],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "test": [MCPPrompt(name="new_prompt", description="New")],
+            }
+        )
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
         manager._tool_registry = MagicMock()
@@ -715,17 +718,15 @@ class TestMcpPromptChangeCallback:
         # Получаем callback и вызываем его
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
-        mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
-            mock_manager, "_prompt_callback", cb
-        ))
+        mock_manager.register_prompt_change_callback = MagicMock(
+            side_effect=lambda cb: setattr(mock_manager, "_prompt_callback", cb)
+        )
 
         with patch(
             "codelab.server.protocol.mcp_session_manager.MCPManager",
             return_value=mock_manager,
         ):
-            await manager._initialize_mcp_servers(
-                session, [{"name": "test", "command": "cmd"}]
-            )
+            await manager._initialize_mcp_servers(session, [{"name": "test", "command": "cmd"}])
 
         # Вызываем callback напрямую
         await mock_manager._prompt_callback()
@@ -774,17 +775,15 @@ class TestMcpPromptChangeCallback:
 
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
-        mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
-            mock_manager, "_prompt_callback", cb
-        ))
+        mock_manager.register_prompt_change_callback = MagicMock(
+            side_effect=lambda cb: setattr(mock_manager, "_prompt_callback", cb)
+        )
 
         with patch(
             "codelab.server.protocol.mcp_session_manager.MCPManager",
             return_value=mock_manager,
         ):
-            await manager._initialize_mcp_servers(
-                session, [{"name": "test", "command": "cmd"}]
-            )
+            await manager._initialize_mcp_servers(session, [{"name": "test", "command": "cmd"}])
 
         await mock_manager._prompt_callback()
 
@@ -810,9 +809,11 @@ class TestMcpPromptChangeCallback:
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "test": [MCPPrompt(name="new_prompt", description="New prompt")],
-        })
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "test": [MCPPrompt(name="new_prompt", description="New prompt")],
+            }
+        )
         mock_manager.get_all_tools = MagicMock(return_value=[])
 
         manager._tool_registry = MagicMock()
@@ -830,17 +831,15 @@ class TestMcpPromptChangeCallback:
 
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
-        mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
-            mock_manager, "_prompt_callback", cb
-        ))
+        mock_manager.register_prompt_change_callback = MagicMock(
+            side_effect=lambda cb: setattr(mock_manager, "_prompt_callback", cb)
+        )
 
         with patch(
             "codelab.server.protocol.mcp_session_manager.MCPManager",
             return_value=mock_manager,
         ):
-            await manager._initialize_mcp_servers(
-                session, [{"name": "test", "command": "cmd"}]
-            )
+            await manager._initialize_mcp_servers(session, [{"name": "test", "command": "cmd"}])
 
         # Очищаем сообщения от инициализации
         sent_messages.clear()
@@ -886,17 +885,15 @@ class TestMcpPromptChangeCallback:
 
         mock_manager.register_tool_change_callback = MagicMock()
         mock_manager.register_server_status_callback = MagicMock()
-        mock_manager.register_prompt_change_callback = MagicMock(side_effect=lambda cb: setattr(
-            mock_manager, "_prompt_callback", cb
-        ))
+        mock_manager.register_prompt_change_callback = MagicMock(
+            side_effect=lambda cb: setattr(mock_manager, "_prompt_callback", cb)
+        )
 
         with patch(
             "codelab.server.protocol.mcp_session_manager.MCPManager",
             return_value=mock_manager,
         ):
-            await manager._initialize_mcp_servers(
-                session, [{"name": "test", "command": "cmd"}]
-            )
+            await manager._initialize_mcp_servers(session, [{"name": "test", "command": "cmd"}])
 
         # Не должно выбрасывать исключение
         await mock_manager._prompt_callback()

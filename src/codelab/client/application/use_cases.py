@@ -526,127 +526,7 @@ class SendPromptUseCase(UseCase):
         )
 
         try:
-            # Загружаем сессию из repository
-            session = await self._session_repo.load(request.session_id)
-            if session is None:
-                self._logger.error("session_not_found", session_id=request.session_id)
-                msg = f"Session {request.session_id} not found"
-                raise ValueError(msg)
-
-            # Извлекаем prompt capabilities из сессии (domain model)
-            capabilities = PromptCapabilities.from_server_capabilities(
-                session.server_capabilities
-            )
-
-            # Делегируем построение content blocks в domain service
-            # ContentBuilder проверяет capabilities и формирует content blocks
-            content_blocks = self._content_builder.build_prompt_content(
-                text=request.prompt_text,
-                capabilities=capabilities,
-                images=request.images,
-                audio=request.audio,
-                resources=request.resources,
-                resource_links=request.resource_links,
-            )
-
-            # Преобразуем domain модели в dict для ACP протокола
-            prompt_content = self._content_builder.to_dicts(content_blocks)
-
-            self._logger.debug(
-                "prompt_content_built",
-                session_id=request.session_id,
-                content_types=[block.type_name for block in content_blocks],
-            )
-
-            # Подготавливаем callbacks для транспорта
-            collected_updates: list[dict[str, Any]] = []
-
-            def handle_update(update_data: dict[str, Any]) -> None:
-                """Обработчик обновлений сессии."""
-                self._logger.debug("session_update_received", update_data=update_data)
-                collected_updates.append(update_data)
-
-                if request.callbacks and request.callbacks.on_update:
-                    try:
-                        request.callbacks.on_update(update_data)
-                    except Exception as e:
-                        self._logger.warning(
-                            "user_update_callback_error",
-                            error=str(e),
-                        )
-
-            transport_callbacks: dict[str, Any] = {
-                "on_update": handle_update,
-            }
-
-            # Добавляем остальные callbacks если предоставлены
-            if request.callbacks:
-                if request.callbacks.on_fs_read:
-                    transport_callbacks["on_fs_read"] = request.callbacks.on_fs_read
-                if request.callbacks.on_fs_write:
-                    transport_callbacks["on_fs_write"] = request.callbacks.on_fs_write
-                if request.callbacks.on_terminal_create:
-                    transport_callbacks["on_terminal_create"] = request.callbacks.on_terminal_create
-                if request.callbacks.on_terminal_output:
-                    transport_callbacks["on_terminal_output"] = request.callbacks.on_terminal_output
-                if request.callbacks.on_terminal_wait_for_exit:
-                    transport_callbacks["on_terminal_wait"] = (
-                        request.callbacks.on_terminal_wait_for_exit
-                    )
-                if request.callbacks.on_terminal_release:
-                    transport_callbacks["on_terminal_release"] = (
-                        request.callbacks.on_terminal_release
-                    )
-                if request.callbacks.on_terminal_kill:
-                    transport_callbacks["on_terminal_kill"] = request.callbacks.on_terminal_kill
-
-            # Отправляем prompt через transport
-            try:
-                prompt_response = await self._transport.request_with_callbacks(
-                    method="session/prompt",
-                    params={
-                        "sessionId": request.session_id,
-                        "prompt": prompt_content,
-                    },
-                    **transport_callbacks,
-                )
-            except ValueError as e:
-                error_msg = f"Failed to send prompt: {e}"
-                self._logger.error("send_prompt_transport_error", error=str(e))
-                raise RuntimeError(error_msg) from e
-
-            # Проверяем ошибки в ответе
-            from codelab.client.messages import ACPMessage
-
-            response = ACPMessage.from_dict(prompt_response)
-
-            if response.error is not None:
-                error_msg = f"Prompt failed: {response.error.message}"
-                self._logger.error(
-                    "prompt_failed",
-                    session_id=request.session_id,
-                    error=error_msg,
-                )
-                raise RuntimeError(error_msg)
-
-            prompt_result = response.result or {}
-
-            # Обновляем сессию в repository
-            session.is_authenticated = True
-            await self._session_repo.save(session)
-
-            self._logger.info(
-                "prompt_completed",
-                session_id=request.session_id,
-                updates_count=len(collected_updates),
-            )
-
-            return SendPromptResponse(
-                session_id=request.session_id,
-                prompt_result=prompt_result,
-                updates=collected_updates,
-            )
-
+            return await self._run_prompt(request)
         except UnsupportedContentError as e:
             # Domain exception - агент не поддерживает тип контента
             self._logger.warning(
@@ -671,6 +551,101 @@ class SendPromptUseCase(UseCase):
             error_msg = f"Failed to send prompt: {e}"
             self._logger.error("send_prompt_unexpected_error", error=str(e))
             raise RuntimeError(error_msg) from e
+
+    async def _run_prompt(self, request: SendPromptRequest) -> SendPromptResponse:
+        """Основной поток отправки prompt (без обёртки обработки ошибок)."""
+        # Загружаем сессию из repository
+        session = await self._session_repo.load(request.session_id)
+        if session is None:
+            self._logger.error("session_not_found", session_id=request.session_id)
+            msg = f"Session {request.session_id} not found"
+            raise ValueError(msg)
+
+        # Извлекаем prompt capabilities из сессии (domain model)
+        capabilities = PromptCapabilities.from_server_capabilities(session.server_capabilities)
+
+        # Делегируем построение content blocks в domain service
+        # ContentBuilder проверяет capabilities и формирует content blocks
+        content_blocks = self._content_builder.build_prompt_content(
+            text=request.prompt_text,
+            capabilities=capabilities,
+            images=request.images,
+            audio=request.audio,
+            resources=request.resources,
+            resource_links=request.resource_links,
+        )
+
+        # Преобразуем domain модели в dict для ACP протокола
+        prompt_content = self._content_builder.to_dicts(content_blocks)
+
+        self._logger.debug(
+            "prompt_content_built",
+            session_id=request.session_id,
+            content_types=[block.type_name for block in content_blocks],
+        )
+
+        # Подготавливаем callbacks для транспорта
+        collected_updates: list[dict[str, Any]] = []
+
+        def handle_update(update_data: dict[str, Any]) -> None:
+            """Обработчик обновлений сессии."""
+            self._logger.debug("session_update_received", update_data=update_data)
+            collected_updates.append(update_data)
+
+            if request.callbacks and request.callbacks.on_update:
+                try:
+                    request.callbacks.on_update(update_data)
+                except Exception as e:
+                    self._logger.warning("user_update_callback_error", error=str(e))
+
+        # Отправляем prompt через transport.
+        # Входящие fs/*, terminal/* RPC обрабатывает ClientRpcDispatcher внутри
+        # транспорта; наверх пробрасывается только session/update (on_update).
+        try:
+            prompt_response = await self._transport.request_with_callbacks(
+                method="session/prompt",
+                params={
+                    "sessionId": request.session_id,
+                    "prompt": prompt_content,
+                },
+                on_update=handle_update,
+            )
+        except ValueError as e:
+            error_msg = f"Failed to send prompt: {e}"
+            self._logger.error("send_prompt_transport_error", error=str(e))
+            raise RuntimeError(error_msg) from e
+
+        # Проверяем ошибки в ответе
+        from codelab.client.messages import ACPMessage
+
+        response = ACPMessage.from_dict(prompt_response)
+
+        if response.error is not None:
+            error_msg = f"Prompt failed: {response.error.message}"
+            self._logger.error(
+                "prompt_failed",
+                session_id=request.session_id,
+                error=error_msg,
+            )
+            raise RuntimeError(error_msg)
+
+        prompt_result = response.result or {}
+
+        # Обновляем сессию в repository
+        session.is_authenticated = True
+        await self._session_repo.save(session)
+
+        self._logger.info(
+            "prompt_completed",
+            session_id=request.session_id,
+            updates_count=len(collected_updates),
+        )
+
+        return SendPromptResponse(
+            session_id=request.session_id,
+            prompt_result=prompt_result,
+            updates=collected_updates,
+        )
 
 
 class ListSessionsUseCase(TransportAwareUseCase):

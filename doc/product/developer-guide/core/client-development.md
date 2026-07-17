@@ -10,11 +10,11 @@
 graph TB
     subgraph TUI["TUI Layer"]
         App[ACPClientApp]
-        Components[46 компонентов]
+        Components["~48 компонентов<br/>+ 5 controllers"]
     end
     
     subgraph Presentation["Presentation Layer"]
-        VM[13 ViewModels]
+        VM[14 ViewModels]
         Obs["Observable&lt;T&gt;"]
     end
     
@@ -58,7 +58,7 @@ container = create_client_container(
 
 **Провайдеры:**
 - `ClientProvider` — инфраструктурные сервисы (транспорт, репозитории, обработчики)
-- `ViewModelProvider` — 13 ViewModels
+- `ViewModelProvider` — 14 ViewModels
 
 **Разрешение циклической зависимости:** `SessionCoordinator ↔ PermissionHandler` разрешается через двухфазную инициализацию в `CoreServices`.
 
@@ -270,22 +270,28 @@ widget.update(prefix + safe_text)
 - `markdown.py` — рендеринг Markdown
 - `help_modal.py`, `session_turn.py`
 
-## NavigationManager
+## Контроллеры TUI (вынесены из `app.py` в P1-4)
 
-Централизованное управление фокусом и навигацией:
+`NavigationManager` удалён в P2-17 как неадоптированная абстракция (анализ показал
+принципиальное несоответствие паттерну модалок приложения). Теперь все модалки
+координируются через `ModalController` + нативный `push_screen(callback=…)`.
+
+**ModalController** — координация модалок и палитры команд:
 
 ```python
-from codelab.client.tui.navigation import NavigationManager
+from codelab.client.tui.controllers import ModalController
 
-nav = NavigationManager()
-await nav.show_screen("permission_modal")
-await nav.hide_screen("permission_modal")
-await nav.reset()  # Закрыть все модалы
+modal = ModalController(self)
+await modal.open_model_selector()
 ```
 
-**OperationQueue** — приоритетная очередь (HIGH/NORMAL/LOW) для последовательного выполнения операций.
-
-**ModalWindowTracker** — отслеживание активных модальных окон с автогенерацией ID.
+**Доступные контроллеры** (`tui/controllers/`):
+- `ModalController` — координация модалок
+- `ConnectionController` — управление подключением
+- `SessionController` — операции с сессиями
+- `ChatController` — операции чата (clear_chat, ...)
+- `ConfigOptionsController` — конфигурационные опции
+- `ToolCallParser` — парсер tool-call (вынесен из `app.py` для снижения сложности)
 
 ## EventBus
 

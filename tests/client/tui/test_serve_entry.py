@@ -17,7 +17,8 @@ class TestServeEntry:
     @patch.dict(os.environ, {}, clear=True)
     @patch("textual_serve.server.Server")
     def test_uses_default_values_when_env_not_set(
-        self, mock_server: MagicMock,
+        self,
+        mock_server: MagicMock,
     ) -> None:
         """При отсутствии переменных окружения используются значения по умолчанию."""
         mock_server_instance = MagicMock()
@@ -41,7 +42,8 @@ class TestServeEntry:
     )
     @patch("textual_serve.server.Server")
     def test_reads_params_from_env(
-        self, mock_server: MagicMock,
+        self,
+        mock_server: MagicMock,
     ) -> None:
         """Параметры читаются из переменных окружения."""
         mock_server_instance = MagicMock()
@@ -62,7 +64,8 @@ class TestServeEntry:
     @patch.dict(os.environ, {}, clear=True)
     @patch("textual_serve.server.Server")
     def test_command_includes_ws_params(
-        self, mock_server: MagicMock,
+        self,
+        mock_server: MagicMock,
     ) -> None:
         """Command для textual-serve включает параметры подключения к WS."""
         mock_server_instance = MagicMock()

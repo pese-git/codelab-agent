@@ -40,7 +40,7 @@ class MCPToolExecutor(ToolExecutor):
 
     Делегирует выполнение инструментов MCP серверам через MCPManager.
     Конвертирует результаты MCP в формат ToolExecutionResult.
-    
+
     Использует chain of decorators:
     - TimeoutDecorator: ограничивает время выполнения
     - RetryDecorator: повторяет вызов при временных ошибках
@@ -136,10 +136,10 @@ class MCPToolExecutor(ToolExecutor):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить MCP инструмент с timeout, retry, metrics и tracing.
-        
+
         Использует chain of decorators:
         Base Executor → TimeoutDecorator → RetryDecorator → MetricsDecorator → TracingDecorator
-        
+
         Это обеспечивает:
         - Timeout: предотвращает бесконечное ожидание
         - Retry: устойчивость к временным сбоям (timeout, connection errors)
@@ -189,23 +189,23 @@ class MCPToolExecutor(ToolExecutor):
         tracing_executor = TracingDecorator(metrics_executor)
 
         return await tracing_executor.execute(session, arguments)
-    
+
     def _create_base_executor(self) -> ToolExecutorProtocol:
         """Создать базовый executor без декораторов.
-        
+
         Возвращает executor, который выполняет базовую логику
         вызова MCP инструмента через MCPManager.
-        
+
         Returns:
             ToolExecutorProtocol для базового выполнения.
         """
-        
+
         class BaseMCPExecutor:
             """Базовый executor для MCP инструментов."""
-            
+
             def __init__(self, outer: MCPToolExecutor) -> None:
                 self._outer = outer
-            
+
             async def execute(
                 self,
                 session: SessionState,
@@ -213,19 +213,17 @@ class MCPToolExecutor(ToolExecutor):
             ) -> ToolExecutionResult:
                 """Выполнить MCP инструмент без декораторов."""
                 tool_name = arguments.get("tool_name", "")
-                
+
                 # Убираем tool_name из arguments перед передачей в MCP
                 mcp_arguments = {k: v for k, v in arguments.items() if k != "tool_name"}
-                
+
                 try:
-                    result = await self._outer._mcp_manager.call_tool(
-                        tool_name, mcp_arguments
-                    )
-                    
+                    result = await self._outer._mcp_manager.call_tool(tool_name, mcp_arguments)
+
                     # Если результат уже ToolExecutionResult — возвращаем напрямую
                     if isinstance(result, ToolExecutionResult):
                         return result
-                    
+
                     # Конвертируем MCP content в текст
                     if hasattr(result, "content") and result.content:
                         output = self._outer._convert_mcp_content_to_text(result.content)
@@ -235,7 +233,7 @@ class MCPToolExecutor(ToolExecutor):
                             output=output,
                             error=output if is_error else None,
                         )
-                    
+
                     return ToolExecutionResult(
                         success=True,
                         output=str(result) if result else "",
@@ -252,7 +250,7 @@ class MCPToolExecutor(ToolExecutor):
                         success=False,
                         error=f"MCP tool execution error: {exc}",
                     )
-        
+
         return BaseMCPExecutor(self)
 
     async def execute_tool(

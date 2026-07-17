@@ -316,9 +316,7 @@ class TestMCPConfigLoader:
     @pytest.fixture(autouse=True)
     def isolate_from_global_config(self) -> None:
         """Изолировать тесты от глобального конфига ~/.codelab/codelab.toml."""
-        with patch(
-            "codelab.client.infrastructure.mcp_config_loader._find_toml_chain"
-        ) as mock_find:
+        with patch("codelab.client.infrastructure.mcp_config_loader._find_toml_chain") as mock_find:
             # Возвращаем только файлы из tmp_path (без глобального конфига)
             def find_chain(cwd: Path | None = None) -> list[Path]:
                 if cwd is None:

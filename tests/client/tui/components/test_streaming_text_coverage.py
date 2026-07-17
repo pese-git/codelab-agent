@@ -35,6 +35,7 @@ class TestStreamingText:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создает виджеты контента и курсора."""
+
         class TestApp(App):
             pass
 
@@ -47,6 +48,7 @@ class TestStreamingText:
 
     async def test_compose_without_markdown(self) -> None:
         """Компонент использует Static вместо Markdown."""
+
         class TestApp(App):
             pass
 
@@ -58,6 +60,7 @@ class TestStreamingText:
 
     async def test_on_mount_starts_cursor(self) -> None:
         """При монтировании запускается анимация курсора."""
+
         class TestApp(App):
             pass
 
@@ -69,6 +72,7 @@ class TestStreamingText:
 
     async def test_toggle_cursor_directly(self) -> None:
         """Прямой вызов _toggle_cursor переключает символ курсора."""
+
         class TestApp(App):
             pass
 
@@ -84,6 +88,7 @@ class TestStreamingText:
 
     async def test_on_mount_no_cursor(self) -> None:
         """При выключенном курсоре таймер не запускается."""
+
         class TestApp(App):
             pass
 
@@ -95,6 +100,7 @@ class TestStreamingText:
 
     async def test_on_unmount_stops_cursor(self) -> None:
         """При размонтировании останавливается таймер."""
+
         class TestApp(App):
             pass
 
@@ -110,6 +116,7 @@ class TestStreamingText:
 
     async def test_toggle_cursor(self) -> None:
         """Переключение видимости курсора."""
+
         class TestApp(App):
             pass
 
@@ -128,6 +135,7 @@ class TestStreamingText:
 
     async def test_watch_text(self) -> None:
         """Изменение текста обновляет контент."""
+
         class TestApp(App):
             pass
 
@@ -141,6 +149,7 @@ class TestStreamingText:
 
     async def test_append_text(self) -> None:
         """Добавление текста к существующему."""
+
         class TestApp(App):
             pass
 
@@ -154,6 +163,7 @@ class TestStreamingText:
 
     async def test_clear(self) -> None:
         """Очистка текста."""
+
         class TestApp(App):
             pass
 
@@ -167,6 +177,7 @@ class TestStreamingText:
 
     async def test_finalize(self) -> None:
         """Завершение streaming убирает курсор."""
+
         class TestApp(App):
             pass
 
@@ -190,6 +201,7 @@ class TestTypewriterText:
 
     async def test_type_text(self) -> None:
         """Печать текста с эффектом typewriter."""
+
         class TestApp(App):
             pass
 
@@ -204,6 +216,7 @@ class TestTypewriterText:
 
     async def test_skip_to_end(self) -> None:
         """Пропуск анимации показывает весь текст."""
+
         class TestApp(App):
             pass
 
@@ -219,6 +232,7 @@ class TestTypewriterText:
 
     async def test_stop_typing(self) -> None:
         """Остановка печати останавливает таймер."""
+
         class TestApp(App):
             pass
 
@@ -233,6 +247,7 @@ class TestTypewriterText:
 
     async def test_type_next_char_completion(self) -> None:
         """Печать последнего символа завершает анимацию."""
+
         class TestApp(App):
             pass
 
@@ -262,6 +277,7 @@ class TestThinkingIndicator:
 
     async def test_mount_and_unmount(self) -> None:
         """Монтирование запускает анимацию, размонтирование останавливает."""
+
         class TestApp(App):
             pass
 
@@ -276,6 +292,7 @@ class TestThinkingIndicator:
 
     async def test_next_frame(self) -> None:
         """Смена кадра анимации."""
+
         class TestApp(App):
             pass
 
@@ -290,6 +307,7 @@ class TestThinkingIndicator:
 
     async def test_set_label(self) -> None:
         """Установка новой метки обновляет отображение."""
+
         class TestApp(App):
             pass
 

@@ -26,7 +26,7 @@ else:
 
 def is_web_ui_available() -> bool:
     """Проверяет доступность Web UI.
-    
+
     Returns:
         True если textual-serve установлен и доступен
     """
@@ -35,15 +35,15 @@ def is_web_ui_available() -> bool:
 
 def create_web_app(server_url: str = "ws://localhost:8765/acp/ws"):
     """Создать веб-приложение для TUI.
-    
+
     ПРИМЕЧАНИЕ: textual-serve запускает локальный веб-сервер для Textual.
-    
+
     Args:
         server_url: URL WebSocket сервера для подключения
-        
+
     Returns:
         Словарь с конфигурацией для запуска textual-serve
-        
+
     Raises:
         RuntimeError: если textual-serve не установлен
     """
@@ -52,10 +52,11 @@ def create_web_app(server_url: str = "ws://localhost:8765/acp/ws"):
             "textual-serve не установлен. "
             "Установите: pip install 'codelab[web]' или pip install textual-serve"
         )
-    
+
     # Извлекаем host и port из server_url для TUI приложения
     # Формат: ws://host:port/acp/ws
     import re
+
     match = re.match(r"wss?://([^:/]+):(\d+)", server_url)
     if match:
         host = match.group(1)
@@ -63,14 +64,14 @@ def create_web_app(server_url: str = "ws://localhost:8765/acp/ws"):
     else:
         host = "localhost"
         port = 8765
-    
+
     logger.info(
         "creating_web_app",
         server_url=server_url,
         host=host,
         port=port,
     )
-    
+
     # Возвращаем конфигурацию вместо TextualWeb instance
     # Web UI реализован через fallback HTML страницу
     return {"host": host, "port": port, "server_url": server_url}
@@ -78,11 +79,11 @@ def create_web_app(server_url: str = "ws://localhost:8765/acp/ws"):
 
 def get_fallback_html(host: str, port: int) -> str:
     """Возвращает HTML страницу-заглушку когда Web UI недоступен.
-    
+
     Args:
         host: Адрес сервера
         port: Порт сервера
-        
+
     Returns:
         HTML строка с инструкциями по установке
     """

@@ -396,8 +396,11 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Initial prompt")
 
         mock_strategy.execute.assert_called_once_with(
-            mock_session, "Initial prompt", None,
-            system_prompt="You are a helpful assistant.", on_delta=None,
+            mock_session,
+            "Initial prompt",
+            None,
+            system_prompt="You are a helpful assistant.",
+            on_delta=None,
         )
         mock_strategy.continue_execution.assert_not_called()
 
@@ -448,9 +451,7 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
-        mock_strategy.continue_execution.assert_called_once_with(
-            mock_session, None, on_delta=None
-        )
+        mock_strategy.continue_execution.assert_called_once_with(mock_session, None, on_delta=None)
 
     def test_add_tool_result_to_history_success(
         self, mock_strategy, mock_session, mock_dependencies
@@ -458,7 +459,7 @@ class TestAgentLoop:
         """_add_tool_result_to_history() добавляет успешный результат."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=True, output="Result text", error=None
         )
 
@@ -475,7 +476,7 @@ class TestAgentLoop:
         """_add_tool_result_to_history() добавляет ошибку."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=False, output=None, error="Something failed"
         )
 
@@ -492,11 +493,42 @@ class TestAgentLoop:
         """_add_tool_result_to_history() использует дефолтное сообщение при отсутствии error."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        loop._add_tool_result_to_history(
+        loop._tool_processor._add_tool_result_to_history(
             mock_session, "tc_1", success=False, output=None, error=None
         )
 
         assert mock_session.history[0]["content"] == "Tool execution failed"
+
+    def test_add_tool_result_to_history_failure_preserves_output(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Неуспех (ненулевой exit code) НЕ теряет output — LLM видит результат команды.
+
+        Регресс: `flutter analyze` возвращает exit code 1 + список проблем в output;
+        раньше в историю попадало 'Tool execution failed', и агент не знал, что чинить.
+        """
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        analyze_output = "9 issues found. error • Missing concrete implementation ..."
+
+        loop._tool_processor._add_tool_result_to_history(
+            mock_session, "tc_1", success=False, output=analyze_output, error=None
+        )
+
+        assert mock_session.history[0]["content"] == analyze_output
+
+    def test_add_tool_result_to_history_failure_combines_output_and_error(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """При наличии и output, и error в историю попадают оба."""
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+
+        loop._tool_processor._add_tool_result_to_history(
+            mock_session, "tc_1", success=False, output="partial output", error="boom"
+        )
+
+        content = mock_session.history[0]["content"]
+        assert "partial output" in content
+        assert "boom" in content
 
     def test_is_cancel_requested_true(self, mock_strategy, mock_session, mock_dependencies):
         """_is_cancel_requested() возвращает True при cancel_requested."""
@@ -976,17 +1008,17 @@ class TestAgentLoopNotificationCallback:
     def test_set_notification_callback_updates_callback(self, mock_strategy, mock_dependencies):
         """set_notification_callback обновляет callback в AgentLoop."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        
+
         # Изначально callback равен None
         assert loop._notification_callback is None
-        
+
         # Устанавливаем callback
         async def mock_callback(msg):
             pass
-        
+
         loop.set_notification_callback(mock_callback)
         assert loop._notification_callback is mock_callback
-        
+
         # Можно установить None
         loop.set_notification_callback(None)
         assert loop._notification_callback is None
@@ -1027,6 +1059,7 @@ class TestAgentLoopNotificationCallback:
 
         # Создаём callback и передаём в AgentLoop
         sent_notifications = []
+
         async def mock_callback(msg):
             sent_notifications.append(msg)
 
@@ -1035,12 +1068,70 @@ class TestAgentLoopNotificationCallback:
             **mock_dependencies,
             notification_callback=mock_callback,
         )
-        
+
         # Запускаем loop с tool call
         await loop.run(mock_session, "test_session", "Read file")
-        
+
         # Проверяем что callback был вызван для tool call notification
         assert len(sent_notifications) > 0, "Callback должен быть вызван хотя бы один раз"
+
+    @pytest.mark.asyncio
+    async def test_tool_exception_delivers_failed_update_immediately(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """P2-25: при исключении tool'а failed-update уходит через callback сразу.
+
+        Раньше exception-ветка буферизовала notification, минуя immediate callback
+        (в отличие от success-ветки) — карточка tool'а флипалась в failed только в
+        конце turn'а. Фикс: exception-ветка тоже emit'ит немедленно.
+        """
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.name = "failing_tool"
+        mock_tool_call.arguments = {}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = ""
+        first_response.tool_calls = [mock_tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Recovered"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        mock_tool_def = MagicMock()
+        mock_tool_def.requires_permission = False
+        mock_tool_def.kind = "other"
+        mock_dependencies["tool_registry"].get.return_value = mock_tool_def
+        mock_dependencies["tool_call_handler"].create_tool_call.return_value = "tc_1"
+        h = mock_dependencies["tool_call_handler"]
+        h.build_tool_call_notification.return_value = MagicMock()
+        # Отличимый sentinel именно для failed-update, чтобы проверить его доставку.
+        failed_update = MagicMock(name="failed_update_notification")
+        h.build_tool_update_notification.return_value = failed_update
+
+        # Tool выбрасывает исключение → exception-ветка _execute_allowed_tool_call.
+        mock_dependencies["tool_registry"].execute_tool.side_effect = RuntimeError("Tool crash")
+
+        sent_notifications = []
+
+        async def mock_callback(msg):
+            sent_notifications.append(msg)
+
+        loop = AgentLoop(
+            strategy=mock_strategy,
+            **mock_dependencies,
+            notification_callback=mock_callback,
+        )
+
+        result = await loop.run(mock_session, "test_session", "Try tool")
+
+        # failed-update доставлен НЕМЕДЛЕННО через callback (а не только в буфере).
+        assert failed_update in sent_notifications
+        # И не осел в буфере (buffer = только не доставленные callback'ом).
+        assert failed_update not in result.notifications
 
     @pytest.mark.asyncio
     async def test_notification_callback_error_does_not_break_loop(
@@ -1090,7 +1181,7 @@ class TestAgentLoopNotificationCallback:
             **mock_dependencies,
             notification_callback=failing_callback,
         )
-        
+
         # Loop должен завершиться успешно несмотря на ошибку в callback
         result = await loop.run(mock_session, "test_session", "Read file")
 

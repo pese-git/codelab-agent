@@ -62,8 +62,16 @@ async def _start_server(
     tmp_cwd: Path, scenario_path: Path, port: int
 ) -> asyncio.subprocess.Process:
     return await asyncio.create_subprocess_exec(
-        "uv", "run", "--directory", str(_PROJECT_ROOT),
-        "codelab", "serve", "--host", "127.0.0.1", "--port", str(port),
+        "uv",
+        "run",
+        "--directory",
+        str(_PROJECT_ROOT),
+        "codelab",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(tmp_cwd),
@@ -101,9 +109,7 @@ class _server:
         port = _free_port()
         self._proc = await _start_server(self._tmp_cwd, scenario_path, port)
         self._session = aiohttp.ClientSession()
-        self._ws = await _connect_with_retry(
-            self._session, f"ws://127.0.0.1:{port}/acp/ws"
-        )
+        self._ws = await _connect_with_retry(self._session, f"ws://127.0.0.1:{port}/acp/ws")
         return WsTransport(self._ws)
 
     async def __aexit__(self, *exc) -> None:
@@ -126,6 +132,7 @@ def tmp_cwd(tmp_path: Path) -> Path:
 # --------------------------------------------------------------------------- #
 # Тесты
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_ws_multi_turn_chat(tmp_cwd: Path) -> None:
@@ -206,9 +213,7 @@ async def test_ws_tool_error_is_handled(tmp_cwd: Path) -> None:
             session_id,
             "прочти missing.md",
             10,
-            responders={
-                "fs/read_text_file": lambda p: h.RpcError(-32000, "file not found")
-            },
+            responders={"fs/read_text_file": lambda p: h.RpcError(-32000, "file not found")},
         )
 
         assert resp["result"]["stopReason"] == "end_turn"
@@ -251,10 +256,14 @@ async def test_ws_fs_write_flow(tmp_cwd: Path) -> None:
             {
                 "when_user": ["запиши", "создай файл"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_write_text_file",
-                         "arguments": {"path": "notes.txt", "content": "привет"}}
-                    ]},
+                    {
+                        "tool_calls": [
+                            {
+                                "name": "fs_write_text_file",
+                                "arguments": {"path": "notes.txt", "content": "привет"},
+                            }
+                        ]
+                    },
                     {"text": "Файл записан."},
                 ],
             },
@@ -277,18 +286,14 @@ async def test_ws_plan_mode_allows_read_rejects_execute(tmp_cwd: Path) -> None:
             {
                 "when_user": ["прочти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "fs_read_text_file", "arguments": {"path": "R.md"}}
-                    ]},
+                    {"tool_calls": [{"name": "fs_read_text_file", "arguments": {"path": "R.md"}}]},
                     {"text": "Прочитал файл."},
                 ],
             },
             {
                 "when_user": ["запусти"],
                 "replies": [
-                    {"tool_calls": [
-                        {"name": "terminal_create", "arguments": {"command": "ls"}}
-                    ]},
+                    {"tool_calls": [{"name": "terminal_create", "arguments": {"command": "ls"}}]},
                     {"text": "Понял, в plan-режиме выполнить нельзя."},
                 ],
             },

@@ -315,9 +315,8 @@ class ConfigOptionSelectorModal(ModalScreen[str | None]):
             self._filtered_options = []
             for option in all_options:
                 # Fuzzy match по названию и описанию
-                if (
-                    self._fuzzy_match(query, option.label.lower())
-                    or self._fuzzy_match(query, option.description.lower())
+                if self._fuzzy_match(query, option.label.lower()) or self._fuzzy_match(
+                    query, option.description.lower()
                 ):
                     self._filtered_options.append(option)
 

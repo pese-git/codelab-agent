@@ -196,9 +196,7 @@ class AgentRegistry:
         from codelab.server.agent.config.models import AgentRole
 
         return {
-            name: agent
-            for name, agent in self._agents.items()
-            if agent.role == AgentRole.PRIMARY
+            name: agent for name, agent in self._agents.items() if agent.role == AgentRole.PRIMARY
         }
 
     def get_subagents(self) -> dict[str, ResolvedAgent]:
@@ -206,9 +204,7 @@ class AgentRegistry:
         from codelab.server.agent.config.models import AgentRole
 
         return {
-            name: agent
-            for name, agent in self._agents.items()
-            if agent.role == AgentRole.SUBAGENT
+            name: agent for name, agent in self._agents.items() if agent.role == AgentRole.SUBAGENT
         }
 
     def get_orchestrator(self) -> ResolvedAgent | None:

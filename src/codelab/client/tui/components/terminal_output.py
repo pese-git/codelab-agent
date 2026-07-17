@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 class TerminalOutputToolbar(Horizontal):
     """Панель инструментов для терминального вывода.
-    
+
     Содержит кнопки:
     - Очистка вывода (🗑)
     - Копирование в буфер (📋)
@@ -76,7 +76,7 @@ class TerminalOutputToolbar(Horizontal):
         classes: str | None = None,
     ) -> None:
         """Инициализирует панель инструментов.
-        
+
         Args:
             title: Заголовок панели
             name: Имя виджета
@@ -102,7 +102,7 @@ class TerminalOutputToolbar(Horizontal):
 
     def set_title(self, title: str) -> None:
         """Устанавливает заголовок панели.
-        
+
         Args:
             title: Новый заголовок
         """
@@ -113,7 +113,7 @@ class TerminalOutputToolbar(Horizontal):
 
 class TerminalOutputContent(Static):
     """Область отображения вывода терминала с ANSI поддержкой.
-    
+
     Отвечает только за рендеринг текста, без управления состоянием.
     """
 
@@ -135,7 +135,7 @@ class TerminalOutputContent(Static):
         classes: str | None = None,
     ) -> None:
         """Инициализирует область вывода.
-        
+
         Args:
             name: Имя виджета
             id: ID виджета
@@ -147,7 +147,7 @@ class TerminalOutputContent(Static):
 
     def set_output(self, text: str) -> None:
         """Устанавливает текст вывода.
-        
+
         Args:
             text: Текст для отображения
         """
@@ -156,7 +156,7 @@ class TerminalOutputContent(Static):
 
     def set_exit_code(self, exit_code: int | None) -> None:
         """Устанавливает код завершения.
-        
+
         Args:
             exit_code: Код завершения процесса или None
         """
@@ -190,15 +190,15 @@ class TerminalOutputContent(Static):
 
 class TerminalOutputPanel(Container):
     """Панель вывода терминала с toolbar и MVVM интеграцией.
-    
+
     Рендерит потоковый terminal output с поддержкой ANSI-последовательностей.
     Интегрирован с TerminalViewModel для управления состоянием вывода через MVVM паттерн.
     Все изменения вывода должны проходить через ViewModel.
-    
+
     Включает:
     - TerminalOutputToolbar с кнопками очистки и копирования
     - TerminalOutputContent для отображения вывода
-    
+
     Атрибуты:
         show_toolbar: Показывать ли панель инструментов (по умолчанию True)
     """
@@ -243,7 +243,7 @@ class TerminalOutputPanel(Container):
         classes: str | None = None,
     ) -> None:
         """Создает панель вывода терминала с ViewModel.
-        
+
         Args:
             terminal_vm: TerminalViewModel для управления состоянием (ТРЕБУЕТСЯ)
             show_toolbar: Показывать панель инструментов (по умолчанию True)
@@ -287,7 +287,7 @@ class TerminalOutputPanel(Container):
 
     def _on_output_changed(self, output: str) -> None:
         """Обработчик изменения вывода в ViewModel.
-        
+
         Args:
             output: Новый текст вывода
         """
@@ -298,7 +298,7 @@ class TerminalOutputPanel(Container):
 
     def _on_has_output_changed(self, has_output: bool) -> None:
         """Обработчик изменения флага наличия вывода.
-        
+
         Args:
             has_output: True если есть вывод, False если пусто
         """
@@ -307,7 +307,7 @@ class TerminalOutputPanel(Container):
 
     def _on_running_changed(self, is_running: bool) -> None:
         """Обработчик изменения статуса выполнения команды.
-        
+
         Args:
             is_running: True если команда выполняется, False если завершена
         """
@@ -341,7 +341,7 @@ class TerminalOutputPanel(Container):
 
     def append_output(self, output: str) -> None:
         """Добавляет очередной chunk stdout/stderr через ViewModel.
-        
+
         Args:
             output: Текст для добавления в конец вывода
         """
@@ -350,7 +350,7 @@ class TerminalOutputPanel(Container):
 
     def set_output(self, output: str) -> None:
         """Установить весь вывод через ViewModel.
-        
+
         Args:
             output: Новый текст вывода (заменяет предыдущий)
         """
@@ -358,7 +358,7 @@ class TerminalOutputPanel(Container):
 
     def set_exit_code(self, exit_code: int | None) -> None:
         """Сохраняет известный exit code завершенного терминального процесса.
-        
+
         Args:
             exit_code: Код завершения процесса или None
         """
@@ -368,7 +368,7 @@ class TerminalOutputPanel(Container):
 
     def set_title(self, title: str) -> None:
         """Устанавливает заголовок toolbar.
-        
+
         Args:
             title: Новый заголовок
         """
@@ -378,7 +378,7 @@ class TerminalOutputPanel(Container):
 
     def render_text(self) -> Text:
         """Возвращает итоговый Rich Text с ANSI-цветами и статусной строкой.
-        
+
         Метод для обратной совместимости с предыдущей версией.
         """
         output = self._terminal_vm.output.value

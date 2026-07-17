@@ -40,17 +40,17 @@ logger = structlog.get_logger()
 
 class StrategyDispatcher:
     """Диспетчер стратегий — ТОЛЬКО маршрутизация.
-    
+
     Responsibilities:
     - Priority chain (slash → config → default)
     - Validation через StrategyRegistry
     - Fallback на доступную стратегию
-    
+
     НЕ отвечает за:
     - Хранение стратегий (это делает StrategyRegistry)
     - Создание экземпляров (это делает Registry)
     - Metadata (это хранится в StrategyDescriptor)
-    
+
     Attributes:
         _strategy_registry: Реестр стратегий
         _agent_registry: Реестр агентов для валидации
@@ -58,7 +58,7 @@ class StrategyDispatcher:
         _default_strategy: Стратегия по умолчанию из server config
         _fallback_strategy: Стратегия для fallback
         _current_strategy_name: Текущая выбранная стратегия
-    
+
     Example:
         >>> dispatcher = StrategyDispatcher(
         ...     strategy_registry=registry,
@@ -80,7 +80,7 @@ class StrategyDispatcher:
         fallback_strategy: str = "single",
     ) -> None:
         """Инициализация StrategyDispatcher.
-        
+
         Args:
             strategy_registry: Реестр стратегий
             agent_registry: Реестр агентов для валидации
@@ -109,16 +109,16 @@ class StrategyDispatcher:
         context_meta: dict[str, Any] | None = None,
     ) -> tuple[str, str | None]:
         """Выбрать стратегию по приоритету.
-        
+
         Priority chain:
         1. context_meta["active_strategy"] — slash command override
         2. session.config_values["_active_strategy"] — persistent config
         3. self._default_strategy — server config default
-        
+
         Args:
             session: Состояние сессии
             context_meta: Метаданные контекста (для slash command override)
-        
+
         Returns:
             Кортеж (strategy_name, fallback_from):
             - strategy_name: имя выбранной стратегии
@@ -189,7 +189,7 @@ class StrategyDispatcher:
 
     def get_current_strategy(self) -> LLMCallStrategy | None:
         """Получить текущий экземпляр стратегии.
-        
+
         Returns:
             Экземпляр стратегии или None если не найдена
         """
@@ -200,10 +200,10 @@ class StrategyDispatcher:
 
     def set_current_strategy(self, name: str) -> bool:
         """Установить текущую стратегию.
-        
+
         Args:
             name: Имя стратегии
-        
+
         Returns:
             True если стратегия установлена, False если не найдена
         """
@@ -214,7 +214,7 @@ class StrategyDispatcher:
 
         old_strategy = self._current_strategy_name
         self._current_strategy_name = name
-        
+
         if old_strategy != name:
             logger.info(
                 "strategy changed",
@@ -226,12 +226,12 @@ class StrategyDispatcher:
                 "strategy unchanged",
                 strategy=name,
             )
-        
+
         return True
 
     def get_strategy(self) -> str:
         """Получить имя текущей стратегии.
-        
+
         Returns:
             Имя текущей стратегии
         """
@@ -239,7 +239,7 @@ class StrategyDispatcher:
 
     def get_available_strategies(self) -> list[str]:
         """Получить список доступных стратегий.
-        
+
         Returns:
             Список имён доступных стратегий
         """
@@ -248,10 +248,10 @@ class StrategyDispatcher:
 
     def is_strategy_available(self, name: str) -> bool:
         """Проверить доступность стратегии.
-        
+
         Args:
             name: Имя стратегии
-        
+
         Returns:
             True если стратегия доступна
         """
@@ -272,20 +272,20 @@ class StrategyDispatcher:
         on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Выполнить стратегию (LLMCallStrategy Protocol).
-        
+
         Этот метод реализует LLMCallStrategy Protocol для обратной совместимости
         с AgentLoop. Выбирает стратегию через select_strategy() и делегирует выполнение.
-        
+
         Args:
             session: Состояние сессии
             prompt: Текст промпта пользователя (None для продолжения)
             mcp_manager: MCP manager
             system_prompt: Системный промпт (keyword-only, опционально)
             parent_span: Родительский span для tracing (keyword-only, опционально)
-        
+
         Returns:
             AgentResponse с результатом выполнения стратегии
-        
+
         Raises:
             ValueError: Если стратегия не найдена
         """
@@ -341,21 +341,19 @@ class StrategyDispatcher:
         on_delta: OnDelta | None = None,
     ) -> AgentResponse:
         """Продолжить выполнение после tool_results (LLMCallStrategy Protocol).
-        
+
         Args:
             session: Состояние сессии
             mcp_manager: MCP manager
             parent_span: Родительский span (keyword-only, опционально)
-        
+
         Returns:
             AgentResponse с результатом
         """
         # Defensive: если стратегия не выбрана (например, resume_after_permission
         # без предварительного execute), выбрать дефолтную
         if self._current_strategy_name is None:
-            self._current_strategy_name, _ = self.select_strategy(
-                session, context_meta=None
-            )
+            self._current_strategy_name, _ = self.select_strategy(session, context_meta=None)
             logger.warning(
                 "continue_execution: strategy was not set, selected default",
                 strategy=self._current_strategy_name,
@@ -401,14 +399,14 @@ class StrategyDispatcher:
 
     def _resolve_agent_name(self, session: SessionState) -> str:
         """Определить имя агента для выполнения.
-        
+
         Порядок приоритета:
         1. session.config_values.get("_agent")
         2. Default agent из Registry (по priority)
-        
+
         Args:
             session: Состояние сессии
-        
+
         Returns:
             Имя агента для вызова
         """
@@ -423,7 +421,7 @@ class StrategyDispatcher:
 
     def _get_default_agent_name(self) -> str:
         """Получить имя агента по умолчанию (по priority).
-        
+
         Returns:
             Имя агента с наименьшим priority значением
         """
@@ -448,13 +446,13 @@ class StrategyDispatcher:
         reason: str,
     ) -> ACPMessage:
         """Построить notification о fallback.
-        
+
         Args:
             session_id: ID сессии
             requested: Запрошенная стратегия
             actual: Фактическая стратегия (fallback)
             reason: Причина fallback
-        
+
         Returns:
             ACPMessage notification
         """

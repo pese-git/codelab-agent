@@ -4,16 +4,28 @@ import pytest
 
 from codelab.server.agent.context.models import TaskType
 from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
+from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
 
 
 class MockLLMForAnalyzer:
     """Mock LLM провайдер для тестирования TaskAnalyzer."""
 
-    def __init__(self, response_text: str) -> None:
+    def __init__(self, response_text: str, *, supports_structured_output: bool = True) -> None:
         self._response_text = response_text
+        self._supports_structured_output = supports_structured_output
+        self.create_completion_calls = 0
+
+    @property
+    def name(self) -> str:
+        return "mock"
+
+    @property
+    def capabilities(self) -> LLMCapabilities:
+        return LLMCapabilities(supports_structured_output=self._supports_structured_output)
 
     async def create_completion(self, request):
+        self.create_completion_calls += 1
         return CompletionResponse(
             text=self._response_text,
             tool_calls=[],
@@ -72,6 +84,34 @@ async def test_task_analyzer_fallback_on_llm_failure():
     assert profile.task_type == TaskType.BUG_FIX
     assert len(profile.search_terms) > 0
     assert profile.investigation_depth >= 1
+
+
+@pytest.mark.asyncio
+async def test_task_analyzer_skips_llm_when_structured_output_unsupported():
+    """Провайдер без structured output → эвристика без холостого LLM-вызова (P2-15)."""
+    llm = MockLLMForAnalyzer(
+        '{"task_type": "feature", "search_terms": ["x"]}',
+        supports_structured_output=False,
+    )
+    analyzer = LLMBasedTaskAnalyzer(llm=llm)
+
+    profile = await analyzer.analyze("Fix bug in authentication module", None)
+
+    assert llm.create_completion_calls == 0
+    assert profile.task_type == TaskType.BUG_FIX
+    assert len(profile.search_terms) > 0
+
+
+@pytest.mark.asyncio
+async def test_task_analyzer_calls_llm_when_structured_output_supported():
+    """Провайдер с structured output → LLM-вызов выполняется."""
+    llm = MockLLMForAnalyzer('{"task_type": "feature", "search_terms": ["auth"]}')
+    analyzer = LLMBasedTaskAnalyzer(llm=llm)
+
+    profile = await analyzer.analyze("Add feature", None)
+
+    assert llm.create_completion_calls == 1
+    assert profile.task_type == TaskType.FEATURE
 
 
 @pytest.mark.asyncio

@@ -88,9 +88,7 @@ class TestMCPServerConfigConnectionParams:
         )
         params = config.get_connection_params()
         assert params["url"] == "http://localhost:8080"
-        assert params["headers"] == [
-            {"name": "Authorization", "value": "Bearer token"}
-        ]
+        assert params["headers"] == [{"name": "Authorization", "value": "Bearer token"}]
 
     def test_sse_connection_params(self):
         """Параметры подключения для sse."""

@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -129,9 +129,7 @@ def session_new(
 
     # Динамическая генерация available_commands из CommandRegistry
     available_commands = (
-        command_registry.get_commands_as_dicts()
-        if command_registry is not None
-        else []
+        command_registry.get_commands_as_dicts() if command_registry is not None else []
     )
 
     session_state = SessionFactory.create_session(
@@ -150,6 +148,31 @@ def session_new(
             "modes": build_modes_state(config_values, config_specs),
         },
     )
+
+
+def _validate_session_load_params(
+    request_id: JsonRpcId | None,
+    session_id: Any,
+    cwd: Any,
+    mcp_servers: Any,
+) -> ACPMessage | None:
+    """Валидирует sessionId/cwd/mcpServers для session/load.
+
+    Возвращает готовый error-response при ошибке, иначе `None`.
+    """
+    if not isinstance(session_id, str):
+        return ACPMessage.error_response(
+            request_id, code=-32602, message="Invalid params: sessionId is required"
+        )
+    if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+        return ACPMessage.error_response(
+            request_id, code=-32602, message="Invalid params: cwd must be an absolute path"
+        )
+    if not isinstance(mcp_servers, list):
+        return ACPMessage.error_response(
+            request_id, code=-32602, message="Invalid params: mcpServers must be an array"
+        )
+    return None
 
 
 async def session_load(
@@ -193,30 +216,13 @@ async def session_load(
     cwd = params.get("cwd")
     mcp_servers = params.get("mcpServers")
 
-    if not isinstance(session_id, str):
-        return ProtocolOutcome(
-            response=ACPMessage.error_response(
-                request_id,
-                code=-32602,
-                message="Invalid params: sessionId is required",
-            )
-        )
-    if not isinstance(cwd, str) or not Path(cwd).is_absolute():
-        return ProtocolOutcome(
-            response=ACPMessage.error_response(
-                request_id,
-                code=-32602,
-                message="Invalid params: cwd must be an absolute path",
-            )
-        )
-    if not isinstance(mcp_servers, list):
-        return ProtocolOutcome(
-            response=ACPMessage.error_response(
-                request_id,
-                code=-32602,
-                message="Invalid params: mcpServers must be an array",
-            )
-        )
+    param_error = _validate_session_load_params(request_id, session_id, cwd, mcp_servers)
+    if param_error is not None:
+        return ProtocolOutcome(response=param_error)
+    # Валидация выше гарантирует типы — сужаем для type-checker'а.
+    session_id = cast(str, session_id)
+    cwd = cast(str, cwd)
+    mcp_servers = cast(list, mcp_servers)
 
     session = await storage.load_session(session_id)
     if session is None:

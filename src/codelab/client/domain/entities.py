@@ -55,35 +55,35 @@ class ClientCapabilities:
 @dataclass
 class Session:
     """Entity для ACP сессии.
-    
+
     Представляет активную сессию с ACP-сервером и хранит:
     - metadata сессии (ID, время создания)
     - конфигурацию сервера (хост, порт)
     - capabilities (возможности клиента и сервера)
     - статус сессии
     """
-    
+
     id: str
     """Уникальный ID сессии."""
-    
+
     server_host: str
     """Адрес ACP сервера."""
-    
+
     server_port: int
     """Порт ACP сервера."""
-    
+
     client_capabilities: ClientCapabilities
     """Возможности этого клиента (fs, terminal и т.д.)."""
-    
+
     server_capabilities: dict[str, Any]
     """Возможности сервера, полученные при initialize."""
-    
+
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     """Время создания сессии."""
-    
+
     is_authenticated: bool = False
     """Авторизован ли клиент на этой сессии."""
-    
+
     @classmethod
     def create(
         cls,
@@ -94,14 +94,14 @@ class Session:
         session_id: str | None = None,
     ) -> Session:
         """Фабрика для создания новой сессии.
-        
+
         Аргументы:
             server_host: Адрес сервера
             server_port: Порт сервера
             client_capabilities: Возможности клиента (dict или ClientCapabilities)
             server_capabilities: Возможности сервера
             session_id: ID сессии (если None, генерируется новый)
-        
+
         Возвращает:
             Новую Session сущность
         """
@@ -122,29 +122,29 @@ class Session:
 @dataclass
 class Permission:
     """Entity для запроса разрешения на действие.
-    
+
     Представляет запрос от сервера на выполнение действия,
     которое требует подтверждения от пользователя.
     """
-    
+
     id: str
     """Уникальный ID запроса разрешения."""
-    
+
     action: str
     """Тип действия (read_file, write_file, run_terminal и т.д.)."""
-    
+
     resource: str
     """Ресурс, на который запрашивается разрешение (путь файла, команда и т.д.)."""
-    
+
     session_id: str
     """ID сессии, которой требуется разрешение."""
-    
+
     details: dict[str, Any] = field(default_factory=dict)
     """Дополнительные детали для пользователя."""
-    
+
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     """Время создания запроса."""
-    
+
     @classmethod
     def create(
         cls,
@@ -154,13 +154,13 @@ class Permission:
         details: dict[str, Any] | None = None,
     ) -> Permission:
         """Фабрика для создания запроса разрешения.
-        
+
         Аргументы:
             action: Тип действия
             resource: Ресурс
             session_id: ID сессии
             details: Дополнительные детали
-        
+
         Возвращает:
             Permission сущность
         """

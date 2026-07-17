@@ -61,7 +61,7 @@ class TestJsonFileStorageLoadErrors:
     ) -> None:
         """Непредвиденная ошибка загрузки оборачивается в StorageError (строки 110-111)."""
         file_path = tmp_path / "s1.json"
-        file_path.write_text('{}')
+        file_path.write_text("{}")
 
         with patch(
             "codelab.server.storage.json_file.aiofiles.open",
@@ -82,7 +82,7 @@ class TestJsonFileStorageDeleteErrors:
     ) -> None:
         """Ошибка удаления файла оборачивается в StorageError (строки 131-132)."""
         file_path = tmp_path / "s1.json"
-        file_path.write_text('{}')
+        file_path.write_text("{}")
 
         with patch.object(Path, "unlink", side_effect=OSError("unlink failed")):
             with pytest.raises(StorageError, match="Failed to delete session s1"):

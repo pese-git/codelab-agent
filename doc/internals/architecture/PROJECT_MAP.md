@@ -94,7 +94,7 @@ codelab-agent/
 
 | Файл | Описание |
 |------|----------|
-| `pipeline/stages/agent_loop.py` | `AgentLoop` — унифицированный цикл итераций LLM |
+| `pipeline/stages/agent_loop/` | `AgentLoop` — унифицированный цикл итераций LLM (пакет: `loop.py`, `llm_caller.py`, `tool_processor.py`, `updates.py`, `loop_detector.py`) |
 | `pipeline/stages/llm_loop.py` | `LLMLoopStage` — адаптер pipeline → AgentLoop |
 | `pipeline/stages/directives.py` | Обработка prompt directives |
 

@@ -127,7 +127,9 @@ class FileEventExporter:
 
             logger.info(
                 "Exported %d events to %s (total: %d)",
-                len(events), file_path, len(existing_events),
+                len(events),
+                file_path,
+                len(existing_events),
             )
             return file_path
         except Exception as e:

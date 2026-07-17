@@ -198,9 +198,7 @@ class TestResolveTUIConnection:
 
         store = TUIConfigStore(file_path=json_path)
         with patch("codelab.client.tui.config.TUIConfigStore", return_value=store):
-            host, port, theme = resolve_tui_connection(
-                host="192.168.1.1", port=9000, theme="dark"
-            )
+            host, port, theme = resolve_tui_connection(host="192.168.1.1", port=9000, theme="dark")
 
         assert host == "192.168.1.1"
         assert port == 9000

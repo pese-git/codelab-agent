@@ -69,9 +69,7 @@ class StrategyCommandHandler(CommandHandler):
             lines.append("")
             lines.append("Для смены: `/strategy <имя>`")
 
-            return CommandResult(
-                content=[{"type": "text", "text": "\n".join(lines)}]
-            )
+            return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
         # Устанавливаем новую strategy
         new_strategy = args[0].lower()
@@ -79,40 +77,48 @@ class StrategyCommandHandler(CommandHandler):
         # Проверить доступность через dispatcher
         if new_strategy not in available_strategies:
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": (
-                        f"❌ Strategy `{new_strategy}` недоступна.\n\n"
-                        f"Доступные: {', '.join(f'`{s}`' for s in available_strategies)}"
-                    ),
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": (
+                            f"❌ Strategy `{new_strategy}` недоступна.\n\n"
+                            f"Доступные: {', '.join(f'`{s}`' for s in available_strategies)}"
+                        ),
+                    }
+                ]
             )
 
         if new_strategy == current_strategy:
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": f"ℹ️ Strategy `{current_strategy}` уже активна.",
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": f"ℹ️ Strategy `{current_strategy}` уже активна.",
+                    }
+                ]
             )
 
         # Устанавливаем новую strategy через dispatcher
         if not self._strategy_dispatcher.set_current_strategy(new_strategy):
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": f"❌ Не удалось установить strategy `{new_strategy}`",
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": f"❌ Не удалось установить strategy `{new_strategy}`",
+                    }
+                ]
             )
 
         # Сохраняем в session.config_values для persistence между turn'ами
         session.config_values["_active_strategy"] = new_strategy
 
         return CommandResult(
-            content=[{
-                "type": "text",
-                "text": f"✅ Strategy изменена: `{current_strategy}` → `{new_strategy}`",
-            }]
+            content=[
+                {
+                    "type": "text",
+                    "text": f"✅ Strategy изменена: `{current_strategy}` → `{new_strategy}`",
+                }
+            ]
         )
 
     def get_definition(self) -> AvailableCommand:
@@ -120,7 +126,7 @@ class StrategyCommandHandler(CommandHandler):
         # Получаем доступные стратегии для hint
         available = self._strategy_dispatcher.get_available_strategies()
         hint = f"имя strategy ({', '.join(available)})"
-        
+
         return AvailableCommand(
             name="strategy",
             description="Показать или изменить execution strategy",

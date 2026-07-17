@@ -31,8 +31,14 @@ jobs:
       - name: Run Formatter Check
         run: uv run ruff format --check .
 
-      - name: Run Tests
-        run: uv run pytest
+      - name: Run Type Check
+        run: uv run ty check
+
+      - name: Check for new large files (guardrail)
+        run: uv run python scripts/check_large_files.py
+
+      - name: Run Tests with coverage threshold
+        run: uv run pytest --cov=src/codelab --cov-report=term-missing --cov-fail-under=85
 
   release:
     needs: verify

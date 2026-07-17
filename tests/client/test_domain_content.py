@@ -181,11 +181,13 @@ class TestPromptCapabilities:
 
     def test_from_dict(self) -> None:
         """from_dict корректно парсит capabilities."""
-        caps = PromptCapabilities.from_dict({
-            "image": True,
-            "audio": True,
-            "embeddedContext": True,
-        })
+        caps = PromptCapabilities.from_dict(
+            {
+                "image": True,
+                "audio": True,
+                "embeddedContext": True,
+            }
+        )
         assert caps.image is True
         assert caps.audio is True
         assert caps.embedded_context is True
@@ -206,12 +208,14 @@ class TestPromptCapabilities:
 
     def test_from_server_capabilities(self) -> None:
         """from_server_capabilities извлекает promptCapabilities."""
-        caps = PromptCapabilities.from_server_capabilities({
-            "promptCapabilities": {
-                "image": True,
-                "embeddedContext": True,
-            },
-        })
+        caps = PromptCapabilities.from_server_capabilities(
+            {
+                "promptCapabilities": {
+                    "image": True,
+                    "embeddedContext": True,
+                },
+            }
+        )
         assert caps.image is True
         assert caps.embedded_context is True
 

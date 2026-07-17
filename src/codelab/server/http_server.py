@@ -113,6 +113,7 @@ class ACPHttpServer:
         """
         if self.storage is None:
             from .storage import InMemoryStorage
+
             self.storage = InMemoryStorage()
 
         logger.debug(
@@ -151,7 +152,7 @@ class ACPHttpServer:
 
         app = web.Application()
         app.router.add_get("/acp/ws", self.handle_ws_request)
-        
+
         if self.enable_web:
             app.router.add_get("/", self.handle_web_ui_request)
 
@@ -180,9 +181,9 @@ class ACPHttpServer:
 
     async def handle_web_ui_request(self, request: web.Request) -> web.Response:
         """Обрабатывает запрос на Web UI.
-        
+
         Делегирует обработку WebUIManager.
-        
+
         Пример использования:
             # вызывается aiohttp автоматически на GET /
         """

@@ -29,10 +29,10 @@ def run_test_session(incremental: bool, session_name: str) -> dict:
     Returns:
         Словарь с метриками сессии
     """
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Запуск сессии: {session_name}")
     print(f"Инкрементальный режим: {incremental}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Обновляем конфигурацию
     config_path = Path.home() / ".codelab" / "codelab.toml"
@@ -41,17 +41,12 @@ def run_test_session(incremental: bool, session_name: str) -> dict:
     # Заменяем incremental значение
     if "incremental = " in config_content:
         config_content = config_content.replace(
-            "incremental = true",
-            f"incremental = {str(incremental).lower()}"
-        ).replace(
-            "incremental = false",
-            f"incremental = {str(incremental).lower()}"
-        )
+            "incremental = true", f"incremental = {str(incremental).lower()}"
+        ).replace("incremental = false", f"incremental = {str(incremental).lower()}")
     else:
         # Добавляем incremental после enabled
         config_content = config_content.replace(
-            "enabled = true",
-            f"enabled = true\nincremental = {str(incremental).lower()}"
+            "enabled = true", f"enabled = true\nincremental = {str(incremental).lower()}"
         )
 
     config_path.write_text(config_content)
@@ -61,9 +56,13 @@ def run_test_session(incremental: bool, session_name: str) -> dict:
     print("Запуск сервера...")
     server_process = subprocess.Popen(
         [
-            sys.executable, "-m", "codelab.server.cli", "serve",
+            sys.executable,
+            "-m",
+            "codelab.server.cli",
+            "serve",
             "--observability-debug",
-            "--log-level", "DEBUG",
+            "--log-level",
+            "DEBUG",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -122,7 +121,9 @@ def run_test_session(incremental: bool, session_name: str) -> dict:
                     "context_baseline_tokens": session_metrics.get("context_baseline_tokens", 0),
                     "context_tail_tokens": session_metrics.get("context_tail_tokens", 0),
                     "context_reconcile_count": session_metrics.get("context_reconcile_count", 0),
-                    "context_epoch_breaks_total": session_metrics.get("context_epoch_breaks_total", 0),
+                    "context_epoch_breaks_total": session_metrics.get(
+                        "context_epoch_breaks_total", 0
+                    ),
                     "llm_total_input_tokens": session_metrics.get("llm_total_input_tokens", 0),
                     "llm_call_count": session_metrics.get("llm_call_count", 0),
                 }
@@ -155,9 +156,9 @@ def compare_results(hydration: dict, incremental: dict) -> None:
         hydration: Метрики сессии с гидратацией
         incremental: Метрики сессии с инкрементальным режимом
     """
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("СРАВНЕНИЕ РЕЗУЛЬТАТОВ")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     if not hydration or not incremental:
         print("Недостаточно данных для сравнения")
@@ -170,7 +171,10 @@ def compare_results(hydration: dict, incremental: dict) -> None:
     h_baseline = hydration.get("context_baseline_tokens", 0)
     i_baseline = incremental.get("context_baseline_tokens", 0)
     baseline_saving = ((h_baseline - i_baseline) / h_baseline * 100) if h_baseline > 0 else 0
-    print(f"{'Baseline токены (сумма)':<40} {h_baseline:>15,} {i_baseline:>15,} {baseline_saving:>14.1f}%")
+    print(
+        f"{'Baseline токены (сумма)':<40} {h_baseline:>15,} "
+        f"{i_baseline:>15,} {baseline_saving:>14.1f}%"
+    )
 
     # Сравниваем tail токены
     h_tail = hydration.get("context_tail_tokens", 0)
@@ -199,9 +203,9 @@ def compare_results(hydration: dict, incremental: dict) -> None:
     i_breaks = incremental.get("context_epoch_breaks_total", 0)
     print(f"{'Разрывов эпох':<40} {h_breaks:>15} {i_breaks:>15}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("ИНТЕРПРЕТАЦИЯ")
-    print("="*60)
+    print("=" * 60)
 
     if llm_saving > 50:
         print(f"✓ Отличный результат! Экономия {llm_saving:.1f}% токенов")
@@ -216,28 +220,26 @@ def compare_results(hydration: dict, incremental: dict) -> None:
 
 def main():
     """Главная функция."""
-    print("="*60)
+    print("=" * 60)
     print("A/B ТЕСТ ФАЗЫ 4: ИНКРЕМЕНТАЛЬНЫЙ РЕЖИМ")
-    print("="*60)
+    print("=" * 60)
 
     # Запускаем тест с гидратацией
     hydration_results = run_test_session(
-        incremental=False,
-        session_name="Гидрация (incremental=false)"
+        incremental=False, session_name="Гидрация (incremental=false)"
     )
 
     # Запускаем тест с инкрементальным режимом
     incremental_results = run_test_session(
-        incremental=True,
-        session_name="Инкрементальный (incremental=true)"
+        incremental=True, session_name="Инкрементальный (incremental=true)"
     )
 
     # Сравниваем результаты
     compare_results(hydration_results, incremental_results)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("ТЕСТ ЗАВЕРШЁН")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

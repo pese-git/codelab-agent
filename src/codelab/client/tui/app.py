@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -22,12 +21,10 @@ from codelab.client.application.session_coordinator import SessionCoordinator
 from codelab.client.domain.services import TransportService
 from codelab.client.infrastructure.container_factory import create_client_container
 from codelab.client.infrastructure.mcp_config_loader import MCPConfigLoader
-from codelab.client.infrastructure.services.acp_transport_service import ACPTransportService
 from codelab.client.messages import PermissionOption, PermissionToolCall
 from codelab.client.presentation.chat_view_model import ChatViewModel
 from codelab.client.presentation.config_option_selector_view_model import (
     AgentSelectorViewModel,
-    ConfigOptionSelectorViewModel,
     ModeSelectorViewModel,
     StrategySelectorViewModel,
 )
@@ -39,20 +36,14 @@ from codelab.client.presentation.plan_view_model import PlanViewModel
 from codelab.client.presentation.session_view_model import SessionViewModel
 from codelab.client.presentation.terminal_log_view_model import TerminalLogViewModel
 from codelab.client.presentation.terminal_view_model import TerminalViewModel
-from codelab.client.presentation.ui_view_model import ConnectionStatus, SidebarTab, UIViewModel
-from codelab.client.tui.navigation import NavigationManager
+from codelab.client.presentation.ui_view_model import SidebarTab, UIViewModel
 
 from .components import (
     ChatView,
-    CommandPalette,
-    ConfigOptionSelectorModal,
-    FileChangePreviewModal,
     FileTree,
     FooterBar,
     HeaderBar,
-    HelpModal,
     MainLayout,
-    ModelSelectorModal,
     PermissionModal,
     PlanPanel,
     PromptInput,
@@ -60,8 +51,18 @@ from .components import (
     ToastContainer,
     ToolCallCard,
     ToolPanel,
+    get_default_textual_bindings,
 )
 from .config import TUIConfigStore, TUITheme, resolve_tui_connection
+from .controllers import (
+    FILE_CHANGE_TOOLS,
+    ChatController,
+    ConfigOptionsController,
+    ConnectionController,
+    ModalController,
+    SessionController,
+    parse_tool_call_file_change,
+)
 from .themes import ThemeManager
 
 
@@ -76,32 +77,10 @@ class ACPClientApp(App[None]):
     # Выход назначен на Ctrl+Q.
     CTRL_C_CAN_QUIT = False
 
-    BINDINGS = [
-        ("ctrl+q", "quit", "Выход"),
-        ("ctrl+n", "new_session", "Новая сессия"),
-        ("ctrl+r", "retry_prompt", "Повторить"),
-        ("ctrl+b", "toggle_sidebar", "Sidebar"),
-        ("ctrl+s", "focus_session_list", "Список сессий"),
-        ("ctrl+j", "next_session", "Следующая сессия"),
-        ("ctrl+k", "previous_session", "Предыдущая сессия"),
-        ("ctrl+l", "clear_chat", "Очистить чат"),
-        ("ctrl+h", "open_help", "Справка"),
-        ("?", "show_hotkeys", "Горячие клавиши"),
-        ("ctrl+tab", "next_sidebar_tab", "Вкладка sidebar"),
-        ("ctrl+shift+tab", "previous_sidebar_tab", "Предыдущая вкладка"),
-        ("ctrl+`", "open_terminal_output", "Терминал"),
-        ("tab", "cycle_focus", "Переключить фокус"),
-        ("ctrl+c", "cancel_prompt", "Отменить"),
-        # Config option selectors
-        ("ctrl+m", "select_model", "Выбрать модель"),
-        ("ctrl+shift+m", "select_mode", "Выбрать режим"),
-        ("ctrl+a", "select_agent", "Выбрать агента"),
-        ("ctrl+shift+a", "select_strategy", "Выбрать стратегию"),
-        # Другие горячие клавиши
-        ("ctrl+p", "command_palette", "Палитра команд"),
-        ("ctrl+t", "toggle_theme", "Переключить тему"),
-        ("escape", "close_modal", "Закрыть"),
-    ]
+    # Единый источник раскладки — KeyboardManager.DEFAULT_BINDINGS (tech-debt #16).
+    # Не хардкодить список здесь: правка клавиш — только в keyboard_manager.py,
+    # иначе footer/справка и реальные биндинги разъедутся (guardrail-тест это ловит).
+    BINDINGS = get_default_textual_bindings()
 
     CSS_PATH = str(Path(__file__).with_name("styles") / "app.tcss")
 
@@ -167,19 +146,9 @@ class ACPClientApp(App[None]):
         self._theme_manager.register_textual_themes()
         # Применяем тему из конфига или CLI
         self._apply_initial_theme(theme)
-        
-        # Флаг видимости sidebar
-        self._sidebar_visible = True
 
-        # NavigationManager будет инициализирован в on_mount
-        self._navigation_manager: NavigationManager | None = None
-        
         # MainLayout будет инициализирован в compose()
         self._main_layout: MainLayout | None = None
-
-        # Блокировка предотвращает параллельные `session/load`, которые могут
-        # перемешивать `session/update` между конкурентными запросами.
-        self._session_history_load_lock = asyncio.Lock()
 
         # Инициализируем DI контейнер через dishka
         try:
@@ -214,7 +183,7 @@ class ACPClientApp(App[None]):
             self._permission_vm = self._container.get(PermissionViewModel)
             self._terminal_vm = self._container.get(TerminalViewModel)
             self._model_selector_vm = self._container.get(ModelSelectorViewModel)
-            
+
             # Специализированные ConfigOptionSelectorViewModel
             self._mode_selector_vm = self._container.get(ModeSelectorViewModel)
             self._agent_selector_vm = self._container.get(AgentSelectorViewModel)
@@ -223,17 +192,56 @@ class ACPClientApp(App[None]):
             self._coordinator = self._container.get(SessionCoordinator)
             self._transport = self._container.get(TransportService)
 
+            # Контроллеры вынесенной из App связной логики.
+            self._modals = ModalController(self, self._session_vm, self._app_logger)
+            self._connection = ConnectionController(
+                self,
+                self._coordinator,
+                self._transport,
+                self._ui_vm,
+                self._session_vm,
+                self._app_logger,
+                host=self._host,
+                port=self._port,
+            )
+            self._sessions = SessionController(
+                self,
+                self._session_vm,
+                self._chat_vm,
+                self._coordinator,
+                self._app_logger,
+                host=self._host,
+                port=self._port,
+                cwd=self._cwd,
+                mcp_servers=self._mcp_servers,
+            )
+            self._chat = ChatController(
+                self,
+                self._session_vm,
+                self._chat_vm,
+                self._app_logger,
+            )
+            self._config_options = ConfigOptionsController(
+                self._model_selector_vm,
+                self._mode_selector_vm,
+                self._agent_selector_vm,
+                self._strategy_selector_vm,
+                self._app_logger,
+            )
+
             self._app_logger.info("all_view_models_resolved")
 
             # Синхронизируем ChatViewModel с выбранной сессией.
-            self._session_vm.selected_session_id.subscribe(self._on_selected_session_changed)
+            self._session_vm.selected_session_id.subscribe(
+                self._sessions.on_selected_session_changed
+            )
             self._chat_vm.set_active_session(self._session_vm.selected_session_id.value)
 
             # Подписываемся на события обновления config options
             try:
                 from codelab.client.domain.events import ConfigOptionUpdatedEvent
 
-                self._ui_vm.on_event(ConfigOptionUpdatedEvent, self._on_config_option_updated)
+                self._ui_vm.on_event(ConfigOptionUpdatedEvent, self._config_options.apply)
             except ImportError:
                 self._app_logger.debug("ConfigOptionUpdatedEvent not available")
 
@@ -249,7 +257,7 @@ class ACPClientApp(App[None]):
 
     def compose(self) -> ComposeResult:
         """Собирает базовый layout приложения в стиле OpenCode.
-        
+
         Структура (OpenCode-style):
         - HeaderBar (titlebar)
         - MainLayout (id="body"):
@@ -295,26 +303,16 @@ class ACPClientApp(App[None]):
         # Монтируем компоненты в контейнеры MainLayout
         self._mount_main_layout_children()
 
-        # Инициализируем NavigationManager
-        try:
-            self._navigation_manager = NavigationManager(self)
-            self._app_logger.debug("navigation_manager_initialized")
-        except Exception as e:
-            self._app_logger.error(
-                "failed_to_initialize_navigation_manager",
-                error=str(e),
-            )
-
         # Инициализируем подключение к серверу
         self._app_logger.info("starting_connection_worker")
-        self.run_worker(self._initialize_connection(), exclusive=False)
+        self.run_worker(self._connection.initialize(), exclusive=False)
         self._on_sidebar_state_changed(None)
 
     def _mount_main_layout_children(self) -> None:
         """Монтирует дочерние компоненты в контейнеры MainLayout (OpenCode-style).
-        
+
         Эта функция вызывается в on_ready после того как MainLayout создан в compose().
-        
+
         OpenCode-style layout:
         - sidebar-column: Sidebar, FileTree
         - main-column:
@@ -325,7 +323,7 @@ class ACPClientApp(App[None]):
         if self._main_layout is None:
             self._app_logger.error("main_layout_not_initialized")
             return
-        
+
         # Монтируем компоненты в sidebar
         sidebar_column = self._main_layout.sidebar_column
         if sidebar_column is not None:
@@ -337,7 +335,7 @@ class ACPClientApp(App[None]):
                 )
             )
             self._app_logger.debug("sidebar_components_mounted")
-        
+
         # Монтируем компоненты в content-area
         content_area = self._main_layout.content_area
         if content_area is not None:
@@ -345,7 +343,7 @@ class ACPClientApp(App[None]):
             content_area.mount(self._chat_view)
             content_area.mount(PlanPanel(self._plan_vm))
             self._app_logger.debug("content_area_components_mounted")
-        
+
         # Монтируем PromptInput в dock-region (OpenCode-style)
         dock_region = self._main_layout.dock_region
         if dock_region is not None:
@@ -363,79 +361,12 @@ class ACPClientApp(App[None]):
                 )
             )
             self._app_logger.debug("dock_region_components_mounted")
-        
+
         # Монтируем ToolPanel в right-panel-column
         right_panel = self._main_layout.right_panel_column
         if right_panel is not None:
             right_panel.mount(ToolPanel(self._chat_vm, self._terminal_vm))
             self._app_logger.debug("right_panel_components_mounted")
-
-    async def _initialize_connection(self) -> None:
-        """Инициализирует подключение к серверу."""
-        self._app_logger.info("connection_worker_started")
-        self._ui_vm.set_connection_status(ConnectionStatus.CONNECTING)
-        self._ui_vm.set_loading(True, "connecting to server")
-        try:
-            # Инициализируем подключение
-            self._app_logger.info("initializing_server_connection")
-            server_info = await self._coordinator.initialize()
-
-            self._app_logger.info(
-                "server_connection_initialized",
-                protocol_version=server_info.get("protocol_version"),
-                auth_methods=len(server_info.get("available_auth_methods", [])),
-            )
-
-            # Обновляем статус подключения в UI
-            self._ui_vm.set_connection_status(ConnectionStatus.CONNECTED)
-            self._ui_vm.set_loading(False)
-
-            # Показываем toast о успешном подключении
-            self.show_toast("Подключено к серверу", level="success")
-
-            # Устанавливаем callback для показа permission modal в UI.
-            # Это необходимо, чтобы при получении session/request_permission от сервера
-            # TUI приложение показало модальное окно для выбора разрешения.
-            try:
-                cast(ACPTransportService, self._transport).set_permission_callback(
-                    self.show_permission_modal
-                )
-                self._app_logger.info("permission_callback_registered_in_transport")
-            except Exception as e:
-                self._app_logger.warning(
-                    "failed_to_set_permission_callback",
-                    error=str(e),
-                )
-
-            # После успешного подключения запрашиваем список сессий с сервера,
-            # чтобы sidebar отображал сохраненные сессии сразу при старте.
-            await self._session_vm.load_sessions_cmd.execute()
-            loaded_count = self._session_vm.session_count.value
-            self._app_logger.info(
-                "sessions_loaded_on_startup",
-                count=loaded_count,
-                host=self._host,
-                port=self._port,
-            )
-            if loaded_count == 0:
-                # Явный warning помогает сразу понять, что сервер вернул пустой session/list.
-                self._app_logger.warning(
-                    "session_list_is_empty_on_startup",
-                    hint="Проверьте, что сервер запущен с persistent --storage json:<path>",
-                )
-
-        except Exception as e:
-            self._app_logger.error(
-                "failed_to_initialize_connection",
-                error=str(e),
-                exc_info=True,
-            )
-            # Обновляем статус подключения в UI
-            self._ui_vm.set_connection_status(ConnectionStatus.DISCONNECTED)
-            self._ui_vm.set_loading(False)
-
-            # Показываем toast об ошибке подключения
-            self.show_toast(f"Ошибка подключения: {e}", level="error")
 
     def show_toast(self, message: str, level: str = "info", timeout: float = 3.0) -> None:
         """Показывает toast-уведомление.
@@ -483,60 +414,31 @@ class ACPClientApp(App[None]):
 
     def action_new_session(self) -> None:
         """Создает новую сессию по горячей клавише Ctrl+N."""
-        self._app_logger.info("new_session_requested", cwd=self._cwd)
-        # Передаем cwd, MCP серверы и client_capabilities при создании новой сессии
-        # TUI клиент поддерживает файловые операции и терминал
-        client_capabilities = {
-            "fs_read": True,
-            "fs_write": True,
-            "terminal": True,
-        }
-        self.run_worker(
-            self._session_vm.create_session_cmd.execute(
-                self._host,
-                self._port,
-                cwd=self._cwd,
-                mcp_servers=self._mcp_servers,
-                client_capabilities=client_capabilities,
-            ),
-            exclusive=False,
-        )
+        self._sessions.create_session()
 
     def action_cancel_prompt(self) -> None:
         """Отменяет текущий LLM-запрос для активной сессии (Ctrl+C / Stop)."""
-        session_id = self._session_vm.selected_session_id.value
-        is_streaming = self._chat_vm.is_streaming.value
-        is_executing = self._chat_vm.cancel_prompt_cmd.is_executing.value
-        self._app_logger.info(
-            "action_cancel_prompt_called",
-            session_id=session_id,
-            is_streaming=is_streaming,
-            is_executing=is_executing,
-        )
-        if not session_id:
-            self._app_logger.warning("cancel_prompt_no_active_session")
-            return
-        if not is_streaming:
-            self._app_logger.debug("cancel_prompt_skipped_not_streaming")
-            return
-        if is_executing:
-            self._app_logger.debug("cancel_prompt_skipped_already_executing")
-            return
-        self._app_logger.info("cancel_prompt_dispatching", session_id=session_id)
-        self.run_worker(
-            self._chat_vm.cancel_prompt_cmd.execute(session_id),
-            exclusive=False,
-        )
+        self._chat.cancel_prompt()
+
+    def action_clear_chat(self) -> None:
+        """Очищает историю активной сессии (Ctrl+L)."""
+        self._chat.clear_chat()
+
+    def action_cycle_focus(self) -> None:
+        """Переводит фокус на следующий виджет по кругу (Tab)."""
+        self.screen.focus_next()
 
     def action_toggle_sidebar(self) -> None:
-        """Показывает/скрывает боковую панель."""
-        try:
-            sidebar_column = self.query_one("#sidebar-column")
-            self._sidebar_visible = not self._sidebar_visible
-            sidebar_column.display = self._sidebar_visible
-            self._app_logger.debug("sidebar_toggled", visible=self._sidebar_visible)
-        except Exception as e:
-            self._app_logger.warning("toggle_sidebar_failed", error=str(e))
+        """Показывает/скрывает боковую панель.
+
+        Единственный источник истины о видимости — reactive `MainLayout.sidebar_visible`
+        (синхронизирует `display` через watcher и `ui_vm.sidebar_collapsed`).
+        """
+        if self._main_layout is None:
+            self._app_logger.warning("toggle_sidebar_failed", error="main_layout_not_initialized")
+            return
+        self._main_layout.toggle_sidebar()
+        self._app_logger.debug("sidebar_toggled", visible=self._main_layout.sidebar_visible)
 
     def action_focus_sidebar(self) -> None:
         """Переводит фокус в список сессий."""
@@ -560,38 +462,16 @@ class ACPClientApp(App[None]):
             context = "file-tree"
         elif isinstance(focused, PromptInput):
             context = "prompt-input"
-        self.push_screen(HelpModal(context=context, show_hotkeys=False))
+        self._modals.open_help(context)
 
     def action_show_hotkeys(self) -> None:
         """Показать отдельный экран со списком горячих клавиш."""
 
-        self.push_screen(HelpModal(context="global", show_hotkeys=True))
+        self._modals.show_hotkeys()
 
     def action_command_palette(self) -> None:
         """Открывает палитру команд."""
-        self._app_logger.debug("opening_command_palette")
-
-        def on_command_selected(result: object) -> None:
-            """Обработка выбранной команды."""
-            if result is not None:
-                # Выполняем action команды
-                from .components import Command
-                if isinstance(result, Command) and result.action:
-                    self._app_logger.debug(
-                        "command_selected",
-                        command_id=result.id,
-                        action=result.action,
-                    )
-                    try:
-                        self.action(result.action)
-                    except Exception as e:
-                        self._app_logger.warning(
-                            "command_action_failed",
-                            action=result.action,
-                            error=str(e),
-                        )
-
-        self.push_screen(CommandPalette(), callback=on_command_selected)
+        self._modals.open_command_palette()
 
     def action_toggle_theme(self) -> None:
         """Переключает между светлой и тёмной темой."""
@@ -600,7 +480,7 @@ class ACPClientApp(App[None]):
             self._theme_manager.set_theme("light")
         else:
             self._theme_manager.set_theme("dark")
-        
+
         # Сохраняем тему в конфиг
         config = self._config_store.load()
         config.theme = cast(TUITheme, self._theme_manager.current_theme_name)
@@ -613,104 +493,19 @@ class ACPClientApp(App[None]):
 
     def action_select_model(self) -> None:
         """Открывает модальное окно выбора LLM модели."""
-        session_id = self._session_vm.selected_session_id.value
-        if not session_id:
-            self._app_logger.warning("select_model_no_active_session")
-            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
-            return
-
-        self._app_logger.debug("opening_model_selector", session_id=session_id)
-
-        def on_model_selected(model_value: str | None) -> None:
-            """Обработка выбранной модели."""
-            if model_value:
-                self._app_logger.info(
-                    "model_selected",
-                    session_id=session_id,
-                    model=model_value,
-                )
-                self.run_worker(
-                    self._model_selector_vm.select_model_cmd.execute(
-                        session_id=session_id,
-                        model_value=model_value,
-                    ),
-                    exclusive=False,
-                )
-                self.show_toast(f"Модель изменена на {model_value.split('/')[-1]}", level="success")
-            else:
-                self._app_logger.debug("model_selection_cancelled")
-
-        self.push_screen(
-            ModelSelectorModal(
-                view_model=self._model_selector_vm,
-                session_id=session_id,
-            ),
-            callback=on_model_selected,
-        )
-
-    def _open_config_option_selector(
-        self,
-        view_model: ConfigOptionSelectorViewModel,
-        config_name: str,
-    ) -> None:
-        """Универсальный метод для открытия модального окна выбора config option.
-
-        Args:
-            view_model: ViewModel для управления состоянием
-            config_name: Название config option для логирования
-        """
-        session_id = self._session_vm.selected_session_id.value
-        if not session_id:
-            self._app_logger.warning(f"select_{config_name}_no_active_session")
-            self.show_toast("Сначала создайте или загрузите сессию", level="warning")
-            return
-
-        self._app_logger.debug(
-            f"opening_{config_name}_selector",
-            session_id=session_id,
-        )
-
-        def on_option_selected(option_value: str | None) -> None:
-            """Обработка выбранной опции."""
-            if option_value:
-                self._app_logger.info(
-                    f"{config_name}_selected",
-                    session_id=session_id,
-                    value=option_value,
-                )
-                self.run_worker(
-                    view_model.select_option_cmd.execute(
-                        session_id=session_id,
-                        value=option_value,
-                    ),
-                    exclusive=False,
-                )
-                self.show_toast(
-                    f"{view_model.title} изменён на {option_value}",
-                    level="success",
-                )
-            else:
-                self._app_logger.debug(f"{config_name}_selection_cancelled")
-
-        self.push_screen(
-            ConfigOptionSelectorModal(
-                view_model=view_model,
-                session_id=session_id,
-            ),
-            callback=on_option_selected,
-        )
+        self._modals.open_model_selector(self._model_selector_vm)
 
     def action_select_mode(self) -> None:
         """Открывает модальное окно выбора режима сессии."""
-        self._open_config_option_selector(self._mode_selector_vm, "mode")
+        self._modals.open_config_option(self._mode_selector_vm, "mode")
 
     def action_select_agent(self) -> None:
         """Открывает модальное окно выбора агента."""
-        self._open_config_option_selector(self._agent_selector_vm, "agent")
+        self._modals.open_config_option(self._agent_selector_vm, "agent")
 
     def action_select_strategy(self) -> None:
         """Открывает модальное окно выбора стратегии выполнения."""
-        self._open_config_option_selector(self._strategy_selector_vm, "strategy")
+        self._modals.open_config_option(self._strategy_selector_vm, "strategy")
 
     def action_close_modal(self) -> None:
         """Закрывает текущее модальное окно."""
@@ -724,37 +519,15 @@ class ACPClientApp(App[None]):
 
     def action_next_session(self) -> None:
         """Выбирает следующую сессию в sidebar и применяет выбор."""
-
-        sidebar = self.query_one(Sidebar)
-        sidebar.select_next()
-        selected_session_id = sidebar.get_selected_session_id()
-        if selected_session_id is None:
-            return
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(selected_session_id),
-            exclusive=False,
-        )
+        self._sessions.select_relative(reverse=False)
 
     def action_previous_session(self) -> None:
         """Выбирает предыдущую сессию в sidebar и применяет выбор."""
-
-        sidebar = self.query_one(Sidebar)
-        sidebar.select_previous()
-        selected_session_id = sidebar.get_selected_session_id()
-        if selected_session_id is None:
-            return
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(selected_session_id),
-            exclusive=False,
-        )
+        self._sessions.select_relative(reverse=True)
 
     def on_sidebar_session_selected(self, event: Sidebar.SessionSelected) -> None:
         """Применяет выбор сессии по Enter в sidebar."""
-
-        self.run_worker(
-            self._session_vm.switch_session_cmd.execute(event.session_id),
-            exclusive=False,
-        )
+        self._sessions.switch_to(event.session_id)
 
     # =========================================================================
     # Обработчики PromptInput
@@ -763,87 +536,11 @@ class ACPClientApp(App[None]):
     def on_prompt_input_cancelled(self, event: PromptInput.Cancelled) -> None:
         """Обработка нажатия кнопки Stop в PromptInput."""
         self._app_logger.info("prompt_input_cancelled_received")
-        self.action_cancel_prompt()
+        self._chat.cancel_prompt()
 
     def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
-        """Обработать отправку промпта пользователем.
-
-        Args:
-            event: Событие с текстом промпта
-        """
-        # Получаем ID активной сессии
-        session_id = self._session_vm.selected_session_id.value
-
-        if not session_id:
-            self._app_logger.warning("prompt_submitted_without_active_session")
-            # Можно показать уведомление пользователю
-            return
-
-        self._app_logger.info(
-            "prompt_submitted",
-            session_id=session_id,
-            prompt_length=len(event.text),
-        )
-
-        # Добавляем сообщение пользователя в чат
-        self._chat_vm.add_message("user", event.text, session_id=session_id)
-
-        # Устанавливаем состояние загрузки ДО запуска async worker'а
-        # чтобы LoadingIndicator показался сразу
-        self._chat_vm.is_streaming.value = True
-
-        # Запускаем отправку промпта асинхронно
-        self.run_worker(
-            self._chat_vm.send_prompt_cmd.execute(session_id, event.text),
-            exclusive=False,
-        )
-
-        # Показываем toast о отправке запроса
-        self.show_toast("Запрос отправлен", level="info")
-
-    def _on_selected_session_changed(self, session_id: str | None) -> None:
-        """Обновляет ChatView при смене активной сессии."""
-
-        self._chat_vm.set_active_session(session_id)
-        if session_id is None:
-            return
-
-        # При выборе сессии сразу запрашиваем `session/load`, чтобы UI получил
-        # историю из серверного persistence даже при пустом локальном кэше.
-        self.run_worker(
-            self._load_selected_session_history(session_id),
-            exclusive=False,
-        )
-
-    async def _load_selected_session_history(self, session_id: str) -> None:
-        """Загружает историю выбранной сессии через `session/load`."""
-
-        async with self._session_history_load_lock:
-            try:
-                loaded = await self._coordinator.load_session(
-                    session_id,
-                    self._host,
-                    self._port,
-                    cwd=self._cwd,
-                    mcp_servers=self._mcp_servers,
-                )
-                replay_updates = loaded.get("replay_updates", [])
-                if isinstance(replay_updates, list):
-                    self._chat_vm.restore_session_from_replay(session_id, replay_updates)
-
-                self._app_logger.info(
-                    "session_history_loaded",
-                    session_id=session_id,
-                    replay_updates_count=(
-                        len(replay_updates) if isinstance(replay_updates, list) else 0
-                    ),
-                )
-            except Exception as error:
-                self._app_logger.warning(
-                    "session_history_load_failed",
-                    session_id=session_id,
-                    error=str(error),
-                )
+        """Обработать отправку промпта пользователем."""
+        self._chat.submit_prompt(event.text)
 
     def show_permission_modal(
         self,
@@ -881,9 +578,7 @@ class ACPClientApp(App[None]):
                     tool_call_title=tool_call.title,
                     options_count=len(options),
                 )
-                self._chat_view.show_permission_request(
-                    request_id, tool_call, options, on_choice
-                )
+                self._chat_view.show_permission_request(request_id, tool_call, options, on_choice)
             else:
                 self._app_logger.warning(
                     "chat_view_not_available_for_permission_widget",
@@ -920,126 +615,42 @@ class ACPClientApp(App[None]):
 
     def on_tool_call_card_selected(self, event: ToolCallCard.Selected) -> None:
         """Обработчик выбора карточки tool call.
-        
+
         Показывает модальное окно FileChangePreviewModal для инструментов
         типа write_file, file_edit и подобных, которые изменяют файлы.
-        
+
         Args:
             event: Событие выбора карточки tool call
         """
         card = event.card
         tool_name = card.tool_name
         tool_call_id = card.tool_call_id
-        
+
         self._app_logger.debug(
             "tool_call_card_selected",
             tool_call_id=tool_call_id,
             tool_name=tool_name,
         )
-        
-        # Проверяем, является ли инструмент файловым
-        file_tools = {"write_file", "file_edit", "create_file", "edit_file", "patch_file"}
-        if tool_name not in file_tools:
-            # Для не-файловых инструментов просто логируем
+
+        if tool_name not in FILE_CHANGE_TOOLS:
             self._app_logger.debug(
                 "tool_call_card_selected_non_file_tool",
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
             )
             return
-        
-        # Получаем данные о tool call из ChatViewModel
-        tool_calls = self._chat_vm.tool_calls.value
-        tool_call_data = None
-        
-        for tc in tool_calls:
-            if isinstance(tc, dict):
-                tc_id = tc.get("toolCallId") or tc.get("id")
-            else:
-                tc_id = getattr(tc, "toolCallId", None) or getattr(tc, "id", None)
-            
-            if tc_id == tool_call_id:
-                tool_call_data = tc
-                break
-        
-        if tool_call_data is None:
-            self._app_logger.warning(
-                "tool_call_data_not_found",
-                tool_call_id=tool_call_id,
-            )
+
+        change = parse_tool_call_file_change(self._chat_vm.tool_calls.value, tool_call_id)
+        if change is None:
+            self._app_logger.warning("tool_call_data_not_found", tool_call_id=tool_call_id)
             return
-        
-        # Извлекаем параметры для FileChangePreview
-        if isinstance(tool_call_data, dict):
-            params = tool_call_data.get("parameters") or tool_call_data.get("rawInput") or {}
-        else:
-            params = getattr(tool_call_data, "parameters", {}) or {}
-        
-        file_path = (
-            params.get("path") or params.get("file_path")
-            or params.get("filePath") or "unknown"
-        )
-        old_content = params.get("old_content") or params.get("oldContent") or ""
-        new_content = (
-            params.get("content") or params.get("new_content")
-            or params.get("newContent") or ""
-        )
-        
-        # Показываем модальное окно предпросмотра изменений
+
         self._app_logger.info(
             "showing_file_change_preview_modal",
             tool_call_id=tool_call_id,
-            file_path=file_path,
+            file_path=change.file_path,
         )
-        
-        modal = FileChangePreviewModal(
-            file_path=file_path,
-            old_content=old_content,
-            new_content=new_content,
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-        )
-        self.push_screen(modal)
-
-    def _on_config_option_updated(self, event: Any) -> None:
-        """Обработать обновление конфигурационных опций сессии.
-
-        Обновляет все selector ViewModel новыми данными из configOptions:
-        - ModelSelectorViewModel (model)
-        - ModeSelectorViewModel (mode)
-        - AgentSelectorViewModel (_agent)
-        - StrategySelectorViewModel (_active_strategy)
-
-        Args:
-            event: ConfigOptionUpdatedEvent
-        """
-        session_id = getattr(event, "session_id", None)
-        config_options = getattr(event, "config_options", [])
-
-        if session_id and config_options:
-            self._app_logger.debug(
-                "config_option_updated",
-                session_id=session_id,
-                config_options_count=len(config_options),
-            )
-            # Обновляем ModelSelectorViewModel (model)
-            self._model_selector_vm.update_models_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            # Обновляем универсальные ConfigOptionSelectorViewModel
-            self._mode_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            self._agent_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
-            self._strategy_selector_vm.update_from_config(
-                config_options=config_options,
-                session_id=session_id,
-            )
+        self._modals.open_file_change_preview(change, tool_call_id, tool_name)
 
     async def on_unmount(self) -> None:
         """Очистка ресурсов при завершении приложения."""
@@ -1086,7 +697,9 @@ def run_tui_app(
         theme: Тема интерфейса ("light" или "dark", если None — из конфига)
     """
     resolved_host, resolved_port, resolved_theme = resolve_tui_connection(
-        host=host, port=port, theme=cast(TUITheme, theme) if theme in ("light", "dark") else None,
+        host=host,
+        port=port,
+        theme=cast(TUITheme, theme) if theme in ("light", "dark") else None,
     )
     app = ACPClientApp(
         host=resolved_host,

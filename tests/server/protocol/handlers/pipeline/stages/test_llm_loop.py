@@ -52,7 +52,7 @@ class TestLLMLoopStageNotificationCallback:
 
         # Создаём AgentLoop напрямую
         from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-        
+
         agent_loop = AgentLoop(
             strategy=mock_strategy_dispatcher,
             tool_registry=mock_dependencies["tool_registry"],
@@ -87,6 +87,7 @@ class TestLLMLoopStageNotificationCallback:
 
         # Проверяем что метод execute_pending_tool принимает notification_callback
         import inspect
+
         sig = inspect.signature(stage.execute_pending_tool)
         assert "notification_callback" in sig.parameters, (
             "execute_pending_tool должен принимать параметр notification_callback"

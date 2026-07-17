@@ -106,9 +106,7 @@ class ChatUpdateSink(Protocol):
         """
         ...
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         """Синхронизирует tool calls с UI.
 
         Args:
@@ -117,9 +115,7 @@ class ChatUpdateSink(Protocol):
         """
         ...
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         """Синхронизирует streaming текст с UI.
 
         Args:

@@ -20,6 +20,7 @@ class TestActionBarCoverage:
 
     async def test_set_action_disabled(self) -> None:
         """set_action_disabled меняет состояние кнопки."""
+
         class TestApp(App):
             pass
 
@@ -38,6 +39,7 @@ class TestActionBarCoverage:
 
     async def test_remove_action(self) -> None:
         """remove_action удаляет кнопку из панели."""
+
         class TestApp(App):
             pass
 
@@ -55,6 +57,7 @@ class TestActionBarCoverage:
 
     async def test_clear_actions(self) -> None:
         """clear_actions удаляет все кнопки из панели."""
+
         class TestApp(App):
             pass
 

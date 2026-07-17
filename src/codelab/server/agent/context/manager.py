@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,7 @@ from codelab.server.agent.context.models import (
     ContextType,
     PayloadEnvelope,
     SubagentResult,
+    TaskProfile,
 )
 from codelab.server.agent.context.reconciler import DefaultContextReconciler
 from codelab.server.agent.context.registry import (
@@ -61,6 +63,17 @@ if TYPE_CHECKING:
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class _GatherStats:
+    """Статистика этапа сбора файлов для baseline (метрики/трейсинг)."""
+
+    files_count: int = 0
+    file_paths: list[str] = field(default_factory=list)
+    file_tokens: list[int] = field(default_factory=list)
+    candidate_count: int = 0
+    gather_ms: float = 0.0
 
 
 class _SessionContext:
@@ -190,9 +203,7 @@ class DefaultContextManager(ContextManager):
                 )
         ctx.dirty_paths.clear()
 
-    async def _read_file(
-        self, session: Any, session_id: Any, path: str
-    ) -> str | None:
+    async def _read_file(self, session: Any, session_id: Any, path: str) -> str | None:
         """Прочитать файл через ToolRegistry (реальный инструмент)."""
         try:
             result = await self._tool_registry.execute_tool(
@@ -278,6 +289,154 @@ class DefaultContextManager(ContextManager):
         )
 
         # Этап 2: Анализ задачи (TaskAnalyzer)
+        profile, analyze_ms = await self._analyze_task(prompt_text, session, session_id)
+
+        # Этап 3: Формирование baseline через ContextRegistry
+        # Сброс таймингов tail/fingerprint — заполнятся внутри хелперов режима.
+        self._last_tail_ms = 0.0
+        self._last_fingerprint_ms = 0.0
+        baseline_start = time.time()
+
+        registry = self._resolve_baseline_registry(ctx, incremental, session_id)
+
+        is_reusing_registry = (
+            incremental
+            and ctx.session_registry is not None
+            and len(ctx.session_registry.list_sources()) > 0
+        )
+
+        gather_stats = await self._populate_baseline_registry(
+            registry,
+            ctx,
+            profile,
+            session,
+            session_id,
+            system_prompt=system_prompt,
+            options=options,
+            is_reusing_registry=is_reusing_registry,
+        )
+
+        # Выбор режима: инкрементальный или гидрация
+        if incremental:
+            # Ленивый рефреш изменённых файлов до reconcile: обновляет контент
+            # источников, чтобы fingerprint отразил изменение и эпоха корректно
+            # перестроилась со свежим содержимым (4.D2).
+            await self._refresh_dirty_sources(ctx, session, session_id)
+            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_incremental(
+                session, ctx, registry, prompt, session_id
+            )
+        else:
+            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_hydration(
+                session, registry, prompt, session_id
+            )
+
+        baseline_ms = (time.time() - baseline_start) * 1000
+        logger.debug(
+            "context.build.baseline.complete",
+            session_id=session_id,
+            baseline_messages=len(baseline),
+            mode="incremental" if incremental else "hydration",
+            elapsed_ms=baseline_ms,
+        )
+
+        # Оценка токенов
+        token_count = self._estimate_total_tokens(baseline, tail)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        baseline_tokens = self._estimate_total_tokens(baseline, [])
+        tail_tokens = self._estimate_total_tokens([], tail)
+
+        logger.info(
+            "context.build.complete",
+            session_id=session_id,
+            baseline_messages=len(baseline),
+            tail_messages=len(tail),
+            token_count=token_count,
+            baseline_fingerprint=baseline_fingerprint,
+            mode="incremental" if incremental else "hydration",
+            epoch_broken=reconcile_info.get("epoch_broken", False),
+            reconcile_state=reconcile_info.get("state", "n/a"),
+            total_elapsed_ms=elapsed_ms,
+        )
+
+        if span is not None and self._tracer is not None:
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "agent_scope": agent_scope,
+                    "task_type": profile.task_type,
+                    "gathered_files": gather_stats.files_count,
+                    "baseline_tokens": baseline_tokens,
+                    "tail_tokens": tail_tokens,
+                    "incremental": incremental,
+                    "epoch_broken": reconcile_info.get("epoch_broken", False),
+                },
+            )
+
+        if self._metrics_tracker is not None:
+            stage_timings = {
+                "extract_ms": extract_ms,
+                "analyze_ms": analyze_ms,
+                "gather_ms": gather_stats.gather_ms,
+                "baseline_ms": baseline_ms,
+                "tail_ms": self._last_tail_ms,
+                "fingerprint_ms": self._last_fingerprint_ms,
+            }
+            self._metrics_tracker.record_context_build(
+                build_duration_ms=elapsed_ms,
+                gathered_files=gather_stats.files_count,
+                baseline_tokens=baseline_tokens,
+                tail_tokens=tail_tokens,
+                session_id=str(session_id),
+                task_type=str(profile.task_type),
+                file_paths=gather_stats.file_paths,
+                file_tokens=gather_stats.file_tokens,
+                candidate_count=gather_stats.candidate_count,
+                stage_timings=stage_timings,
+                graph_stats=ctx.dependency_graph.get_stats(),
+                fingerprint=baseline_fingerprint,
+            )
+            if incremental:
+                self._metrics_tracker.record_context_reconcile(
+                    state=reconcile_info.get("state", "unknown"),
+                    epoch_broken=reconcile_info.get("epoch_broken", False),
+                    changed_sources=reconcile_info.get("changed_sources", []),
+                    session_id=str(session_id),
+                )
+
+        return PayloadEnvelope(
+            baseline=baseline,
+            tail=tail,
+            baseline_fingerprint=baseline_fingerprint,
+            token_count=token_count,
+        )
+
+    def _resolve_baseline_registry(
+        self, ctx: _SessionContext, incremental: bool, session_id: Any
+    ) -> ContextRegistryImpl:
+        """Вернуть session-registry для переиспользования или создать новый."""
+        if incremental and ctx.session_registry is not None:
+            registry = ctx.session_registry
+            logger.debug(
+                "context.build.reusing_session_registry",
+                session_id=session_id,
+                sources_count=len(registry.list_sources()),
+            )
+            return registry
+
+        registry = ContextRegistryImpl()
+        if incremental:
+            ctx.session_registry = registry
+        return registry
+
+    async def _analyze_task(
+        self, prompt_text: str, session: Any, session_id: Any
+    ) -> tuple[TaskProfile, float]:
+        """Этап 2: анализ задачи (TaskAnalyzer) + сохранение TaskProfile для /context.
+
+        Returns:
+            (profile, analyze_ms) — профиль задачи и время анализа в мс.
+        """
         analyze_start = time.time()
         logger.debug(
             "context.build.task_analysis.start",
@@ -312,191 +471,92 @@ class DefaultContextManager(ContextManager):
                 "needs_tests": profile.needs_tests,
             }
 
-        # Этап 3: Формирование baseline через ContextRegistry
-        # Сброс таймингов tail/fingerprint — заполнятся внутри хелперов режима.
-        self._last_tail_ms = 0.0
-        self._last_fingerprint_ms = 0.0
-        baseline_start = time.time()
+        return profile, analyze_ms
 
-        if incremental and ctx.session_registry is not None:
-            registry = ctx.session_registry
-            logger.debug(
-                "context.build.reusing_session_registry",
-                session_id=session_id,
-                sources_count=len(registry.list_sources()),
-            )
-        else:
-            registry = ContextRegistryImpl()
-            if incremental:
-                ctx.session_registry = registry
+    async def _populate_baseline_registry(
+        self,
+        registry: ContextRegistryImpl,
+        ctx: _SessionContext,
+        profile: TaskProfile,
+        session: Any,
+        session_id: Any,
+        *,
+        system_prompt: str | None,
+        options: BuildOptions | None,
+        is_reusing_registry: bool,
+    ) -> _GatherStats:
+        """Этапы 3-4: наполнить baseline-реестр (system_prompt, gather, skill catalog).
 
-        gathered_files_count = 0
-        gather_ms = 0.0
-        gathered_file_paths: list[str] = []
-        gathered_file_tokens: list[int] = []
-        candidate_count = 0
+        При переиспользовании session-registry (incremental) регистрация
+        пропускается. Возвращает статистику этапа сбора файлов.
+        """
+        stats = _GatherStats()
 
-        is_reusing_registry = (
-            incremental
-            and ctx.session_registry is not None
-            and len(ctx.session_registry.list_sources()) > 0
-        )
-
-        if not is_reusing_registry:
-            if system_prompt:
-                registry.register(FileContextSource("system_prompt", system_prompt))
-                logger.debug(
-                    "context.build.baseline.system_prompt_added",
-                    session_id=session_id,
-                    system_prompt_length=len(system_prompt),
-                )
-
-            # Этап 4: Сбор файлов (если включено)
-            if self._config.gather_enabled:
-                gather_start = time.time()
-                logger.info(
-                    "context.build.gather.start",
-                    session_id=session_id,
-                    max_files=options.max_files if options else None,
-                )
-
-                gatherer = ACPContextGatherer(
-                    tool_registry=self._tool_registry,
-                    dependency_graph=ctx.dependency_graph,
-                    session_id=session_id,
-                    tracer=self._tracer,
-                )
-                items = await gatherer.gather(profile, session, options=options)
-                gathered_files_count = len(items)
-                gathered_file_paths = [item.id for item in items]
-                gathered_file_tokens = [item.token_count for item in items]
-                candidate_count = gatherer.last_candidate_count
-                gather_ms = (time.time() - gather_start) * 1000
-
-                logger.info(
-                    "context.build.gather.complete",
-                    session_id=session_id,
-                    files_gathered=gathered_files_count,
-                    file_paths=[item.id for item in items[:10]],
-                    total_tokens=sum(item.token_count for item in items),
-                    elapsed_ms=gather_ms,
-                )
-
-                for item in items:
-                    registry.register(FileContextSource(item.id, item.content))
-
-                logger.debug(
-                    "context.build.baseline.files_registered",
-                    session_id=session_id,
-                    files_count=gathered_files_count,
-                )
-            else:
-                logger.debug(
-                    "context.build.gather.skipped",
-                    session_id=session_id,
-                    reason="gather_enabled=false",
-                )
-
-            # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
-            registry.register(SkillCatalogSource([]))
-        else:
+        if is_reusing_registry:
             logger.debug(
                 "context.build.skipping_registration.reusing_registry",
                 session_id=session_id,
                 sources_count=len(registry.list_sources()),
             )
+            return stats
 
-        # Выбор режима: инкрементальный или гидрация
-        if incremental:
-            # Ленивый рефреш изменённых файлов до reconcile: обновляет контент
-            # источников, чтобы fingerprint отразил изменение и эпоха корректно
-            # перестроилась со свежим содержимым (4.D2).
-            await self._refresh_dirty_sources(ctx, session, session_id)
-            baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_incremental(session, ctx, registry, prompt, session_id)
+        if system_prompt:
+            registry.register(FileContextSource("system_prompt", system_prompt))
+            logger.debug(
+                "context.build.baseline.system_prompt_added",
+                session_id=session_id,
+                system_prompt_length=len(system_prompt),
+            )
+
+        # Этап 4: Сбор файлов (если включено)
+        if self._config.gather_enabled:
+            gather_start = time.time()
+            logger.info(
+                "context.build.gather.start",
+                session_id=session_id,
+                max_files=options.max_files if options else None,
+            )
+
+            gatherer = ACPContextGatherer(
+                tool_registry=self._tool_registry,
+                dependency_graph=ctx.dependency_graph,
+                session_id=session_id,
+                tracer=self._tracer,
+            )
+            items = await gatherer.gather(profile, session, options=options)
+            stats.files_count = len(items)
+            stats.file_paths = [item.id for item in items]
+            stats.file_tokens = [item.token_count for item in items]
+            stats.candidate_count = gatherer.last_candidate_count
+            stats.gather_ms = (time.time() - gather_start) * 1000
+
+            logger.info(
+                "context.build.gather.complete",
+                session_id=session_id,
+                files_gathered=stats.files_count,
+                file_paths=[item.id for item in items[:10]],
+                total_tokens=sum(item.token_count for item in items),
+                elapsed_ms=stats.gather_ms,
+            )
+
+            for item in items:
+                registry.register(FileContextSource(item.id, item.content))
+
+            logger.debug(
+                "context.build.baseline.files_registered",
+                session_id=session_id,
+                files_count=stats.files_count,
             )
         else:
-            baseline, baseline_fingerprint, tail, reconcile_info = (
-                await self._build_hydration(session, registry, prompt, session_id)
+            logger.debug(
+                "context.build.gather.skipped",
+                session_id=session_id,
+                reason="gather_enabled=false",
             )
 
-        baseline_ms = (time.time() - baseline_start) * 1000
-        logger.debug(
-            "context.build.baseline.complete",
-            session_id=session_id,
-            baseline_messages=len(baseline),
-            mode="incremental" if incremental else "hydration",
-            elapsed_ms=baseline_ms,
-        )
-
-        # Оценка токенов
-        token_count = self._estimate_total_tokens(baseline, tail)
-
-        elapsed_ms = (time.time() - start_time) * 1000
-        baseline_tokens = self._estimate_total_tokens(baseline, [])
-        tail_tokens = self._estimate_total_tokens([], tail)
-
-        logger.info(
-            "context.build.complete",
-            session_id=session_id,
-            baseline_messages=len(baseline),
-            tail_messages=len(tail),
-            token_count=token_count,
-            baseline_fingerprint=baseline_fingerprint,
-            mode="incremental" if incremental else "hydration",
-            epoch_broken=reconcile_info.get("epoch_broken", False),
-            reconcile_state=reconcile_info.get("state", "n/a"),
-            total_elapsed_ms=elapsed_ms,
-        )
-
-        if span is not None and self._tracer is not None:
-            self._tracer.end_span(span, attributes={
-                "agent_scope": agent_scope,
-                "task_type": profile.task_type,
-                "gathered_files": gathered_files_count,
-                "baseline_tokens": baseline_tokens,
-                "tail_tokens": tail_tokens,
-                "incremental": incremental,
-                "epoch_broken": reconcile_info.get("epoch_broken", False),
-            })
-
-        if self._metrics_tracker is not None:
-            stage_timings = {
-                "extract_ms": extract_ms,
-                "analyze_ms": analyze_ms,
-                "gather_ms": gather_ms,
-                "baseline_ms": baseline_ms,
-                "tail_ms": self._last_tail_ms,
-                "fingerprint_ms": self._last_fingerprint_ms,
-            }
-            self._metrics_tracker.record_context_build(
-                build_duration_ms=elapsed_ms,
-                gathered_files=gathered_files_count,
-                baseline_tokens=baseline_tokens,
-                tail_tokens=tail_tokens,
-                session_id=str(session_id),
-                task_type=str(profile.task_type),
-                file_paths=gathered_file_paths,
-                file_tokens=gathered_file_tokens,
-                candidate_count=candidate_count,
-                stage_timings=stage_timings,
-                graph_stats=ctx.dependency_graph.get_stats(),
-                fingerprint=baseline_fingerprint,
-            )
-            if incremental:
-                self._metrics_tracker.record_context_reconcile(
-                    state=reconcile_info.get("state", "unknown"),
-                    epoch_broken=reconcile_info.get("epoch_broken", False),
-                    changed_sources=reconcile_info.get("changed_sources", []),
-                    session_id=str(session_id),
-                )
-
-        return PayloadEnvelope(
-            baseline=baseline,
-            tail=tail,
-            baseline_fingerprint=baseline_fingerprint,
-            token_count=token_count,
-        )
+        # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
+        registry.register(SkillCatalogSource([]))
+        return stats
 
     async def ensure_context_fits(
         self,
@@ -877,7 +937,7 @@ class DefaultContextManager(ContextManager):
         sections: list[str] = ["<context>"]
         for item in items:
             if item.type == ContextType.FILE_CONTENT:
-                sections.append(f"<file path=\"{item.id}\">")
+                sections.append(f'<file path="{item.id}">')
                 sections.append(item.content)
                 sections.append("</file>")
 

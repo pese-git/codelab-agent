@@ -48,9 +48,7 @@ async def _handshake_require(
     None, если контент не требует опциональной capability (resource_link/text).
     """
     init = await h.initialize(transport)
-    prompt_caps = (
-        init["result"].get("agentCapabilities", {}).get("promptCapabilities", {})
-    )
+    prompt_caps = init["result"].get("agentCapabilities", {}).get("promptCapabilities", {})
     if capability is not None and not prompt_caps.get(capability):
         pytest.skip(f"агент не объявил promptCapabilities.{capability}")
     return await h.session_new(transport, tmp_cwd)
@@ -65,9 +63,7 @@ async def test_prompt_with_image_content(tmp_cwd: Path) -> None:
             {"type": "text", "text": "What is in this image?"},
             {"type": "image", "data": _IMAGE_PNG, "mimeType": "image/png"},
         ]
-        resp, _, _ = await h.run_prompt(
-            transport, session_id, "", 3, prompt_blocks=prompt_content
-        )
+        resp, _, _ = await h.run_prompt(transport, session_id, "", 3, prompt_blocks=prompt_content)
         assert resp.get("result", {}).get("stopReason") == "end_turn"
 
 
@@ -80,9 +76,7 @@ async def test_prompt_with_audio_content(tmp_cwd: Path) -> None:
             {"type": "text", "text": "Transcribe this audio"},
             {"type": "audio", "data": _AUDIO_MP3, "mimeType": "audio/mp3"},
         ]
-        resp, _, _ = await h.run_prompt(
-            transport, session_id, "", 3, prompt_blocks=prompt_content
-        )
+        resp, _, _ = await h.run_prompt(transport, session_id, "", 3, prompt_blocks=prompt_content)
         assert resp.get("result", {}).get("stopReason") == "end_turn"
 
 
@@ -102,9 +96,7 @@ async def test_prompt_with_resource_content(tmp_cwd: Path) -> None:
                 },
             },
         ]
-        resp, _, _ = await h.run_prompt(
-            transport, session_id, "", 3, prompt_blocks=prompt_content
-        )
+        resp, _, _ = await h.run_prompt(transport, session_id, "", 3, prompt_blocks=prompt_content)
         assert resp.get("result", {}).get("stopReason") == "end_turn"
 
 
@@ -125,9 +117,7 @@ async def test_prompt_with_resource_link_content(tmp_cwd: Path) -> None:
                 "description": "A test website",
             },
         ]
-        resp, _, _ = await h.run_prompt(
-            transport, session_id, "", 3, prompt_blocks=prompt_content
-        )
+        resp, _, _ = await h.run_prompt(transport, session_id, "", 3, prompt_blocks=prompt_content)
         assert resp.get("result", {}).get("stopReason") == "end_turn"
 
 
@@ -145,7 +135,5 @@ async def test_prompt_with_mixed_content(tmp_cwd: Path) -> None:
                 "name": "Reference",
             },
         ]
-        resp, _, _ = await h.run_prompt(
-            transport, session_id, "", 3, prompt_blocks=prompt_content
-        )
+        resp, _, _ = await h.run_prompt(transport, session_id, "", 3, prompt_blocks=prompt_content)
         assert resp.get("result", {}).get("stopReason") == "end_turn"

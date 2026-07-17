@@ -103,7 +103,7 @@ class FileSystemHandler:
 
         try:
             content = await self.executor.read_text_file(path, line=line, limit=limit)
-            
+
             logger.info(
                 "agent_read_text_file_success",
                 session_id=session_id,
@@ -162,7 +162,7 @@ class FileSystemHandler:
 
         try:
             await self.executor.write_text_file(path, content)
-            
+
             logger.info(
                 "agent_write_text_file_success",
                 session_id=session_id,

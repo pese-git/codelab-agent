@@ -86,6 +86,7 @@ class TestSessionTurn:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создаёт секции после монтирования."""
+
         class TestApp(App):
             pass
 
@@ -100,6 +101,7 @@ class TestSessionTurn:
 
     async def test_mount_with_assistant_content(self) -> None:
         """on_mount показывает сообщение ассистента если оно задано."""
+
         class TestApp(App):
             pass
 
@@ -118,6 +120,7 @@ class TestSessionTurn:
 
     async def test_mount_pending_shows_thinking(self) -> None:
         """on_mount показывает индикатор thinking для pending статуса."""
+
         class TestApp(App):
             pass
 
@@ -130,6 +133,7 @@ class TestSessionTurn:
 
     async def test_watch_status(self) -> None:
         """Изменение статуса обновляет индикатор и классы."""
+
         class TestApp(App):
             pass
 
@@ -146,6 +150,7 @@ class TestSessionTurn:
 
     async def test_start_streaming(self) -> None:
         """start_streaming переводит turn в streaming и показывает виджет."""
+
         class TestApp(App):
             pass
 
@@ -162,6 +167,7 @@ class TestSessionTurn:
 
     async def test_update_streaming(self) -> None:
         """update_streaming обновляет текст виджета."""
+
         class TestApp(App):
             pass
 
@@ -177,6 +183,7 @@ class TestSessionTurn:
 
     async def test_append_streaming(self) -> None:
         """append_streaming добавляет текст к виджету."""
+
         class TestApp(App):
             pass
 
@@ -193,6 +200,7 @@ class TestSessionTurn:
 
     async def test_complete(self) -> None:
         """complete завершает turn и показывает ответ ассистента."""
+
         class TestApp(App):
             pass
 
@@ -211,6 +219,7 @@ class TestSessionTurn:
 
     async def test_fail(self) -> None:
         """fail завершает turn с ошибкой."""
+
         class TestApp(App):
             pass
 
@@ -227,6 +236,7 @@ class TestSessionTurn:
 
     async def test_cancel(self) -> None:
         """cancel отменяет turn."""
+
         class TestApp(App):
             pass
 
@@ -243,6 +253,7 @@ class TestSessionTurn:
 
     async def test_add_tool_call(self) -> None:
         """add_tool_call добавляет виджет tool call."""
+
         class TestApp(App):
             pass
 
@@ -258,6 +269,7 @@ class TestSessionTurn:
 
     async def test_add_tool_call_with_result(self) -> None:
         """add_tool_call с результатом отображает его."""
+
         class TestApp(App):
             pass
 
@@ -302,6 +314,7 @@ class TestSessionTurn:
 
     async def test_initial_status_complete(self) -> None:
         """Инициализация с COMPLETE статусом работает корректно."""
+
         class TestApp(App):
             pass
 
@@ -318,6 +331,7 @@ class TestSessionTurn:
 
     async def test_render_tool_calls(self) -> None:
         """_render_tool_calls рендерит tool calls."""
+
         class TestApp(App):
             pass
 
@@ -336,6 +350,7 @@ class TestSessionTurn:
 
     async def test_hide_thinking_when_none(self) -> None:
         """_hide_thinking не падает если индикатора нет."""
+
         class TestApp(App):
             pass
 
@@ -350,6 +365,7 @@ class TestSessionTurn:
 
     async def test_hide_streaming_when_none(self) -> None:
         """_hide_streaming не падает если виджета нет."""
+
         class TestApp(App):
             pass
 
@@ -364,6 +380,7 @@ class TestSessionTurn:
 
     async def test_show_assistant_message_replaces_old(self) -> None:
         """_show_assistant_message заменяет старый bubble."""
+
         class TestApp(App):
             pass
 

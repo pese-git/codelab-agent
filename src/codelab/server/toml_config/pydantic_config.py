@@ -51,8 +51,10 @@ def _flatten_dotted_keys(data: dict[str, Any]) -> dict[str, Any]:
 
     # Ключи которые являются настоящими полями конфигурации модели
     config_keys = {
-        "context_window", "max_output_tokens",
-        "cost_per_input_token", "cost_per_output_token",
+        "context_window",
+        "max_output_tokens",
+        "cost_per_input_token",
+        "cost_per_output_token",
     }
 
     result: dict[str, Any] = {}

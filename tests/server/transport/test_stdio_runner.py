@@ -124,7 +124,9 @@ class TestRunStdioServerInit:
             mock_transport = _make_default_transport_mock()
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -167,7 +169,9 @@ class TestRunStdioServerInit:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -202,7 +206,9 @@ class TestRunStdioServerInit:
             patch(_CLIENT_RPC_SERVICE_PATH, side_effect=capture_rpc_service),
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -245,7 +251,9 @@ class TestRunStdioServerInit:
         ):
             run_task = asyncio.create_task(
                 _run_with_mocks(
-                    mock_storage, mock_config, mock_container,
+                    mock_storage,
+                    mock_config,
+                    mock_container,
                     transport_mock=mock_transport,
                 )
             )
@@ -287,7 +295,9 @@ class TestRunStdioServerInit:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_side_effect=capture_transport,
             )
 
@@ -325,7 +335,9 @@ class TestRunStdioServerLifecycle:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -362,7 +374,9 @@ class TestRunStdioServerLifecycle:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -395,7 +409,9 @@ class TestRunStdioServerLifecycle:
             mock_transport = _make_default_transport_mock(run_side_effect=fake_run)
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -427,7 +443,9 @@ class TestRunStdioServerShutdown:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -456,7 +474,9 @@ class TestRunStdioServerShutdown:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -484,7 +504,9 @@ class TestRunStdioServerShutdown:
             patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -515,7 +537,9 @@ class TestRunStdioServerShutdown:
             mock_rpc_cls.return_value = mock_rpc_service
 
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -543,15 +567,14 @@ class TestRunStdioServerShutdown:
             patch(_LOGGER_PATH) as mock_logger,
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
             info_calls = [c for c in mock_logger.info.call_args_list]
-            assert any(
-                "cancelled" in str(call).lower()
-                for call in info_calls
-            )
+            assert any("cancelled" in str(call).lower() for call in info_calls)
 
 
 class TestRunStdioServerIntegration:
@@ -608,7 +631,9 @@ class TestRunStdioServerIntegration:
             patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -650,7 +675,9 @@ class TestRunStdioServerIntegration:
             patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_side_effect=capture_transport,
             )
 
@@ -709,6 +736,7 @@ class TestObservabilityFlushOnShutdown:
                 return flush_manager
             elif cls.__name__ == "ClientRPCServiceHolder":
                 from codelab.server.rpc_holder import ClientRPCServiceHolder
+
                 return ClientRPCServiceHolder()
             return MagicMock()
 
@@ -726,7 +754,9 @@ class TestObservabilityFlushOnShutdown:
             patch(_CLIENT_RPC_SERVICE_PATH, return_value=mock_rpc_service),
         ):
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 
@@ -749,6 +779,7 @@ class TestObservabilityFlushOnShutdown:
                 return flush_manager
             elif cls.__name__ == "ClientRPCServiceHolder":
                 from codelab.server.rpc_holder import ClientRPCServiceHolder
+
                 return ClientRPCServiceHolder()
             return MagicMock()
 
@@ -767,7 +798,9 @@ class TestObservabilityFlushOnShutdown:
         ):
             # Не должно поднять исключение
             await _run_with_mocks(
-                mock_storage, mock_config, mock_container,
+                mock_storage,
+                mock_config,
+                mock_container,
                 transport_mock=mock_transport,
             )
 

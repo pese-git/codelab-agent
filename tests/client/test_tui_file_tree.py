@@ -16,6 +16,7 @@ pytestmark = pytest.mark.filterwarnings(
 
 class _TestApp(App):
     """Минимальный app для создания Textual контекста в тестах."""
+
     pass
 
 

@@ -98,6 +98,7 @@ class TestMainLayout:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создает колонки layout после монтирования."""
+
         class TestApp(App):
             pass
 
@@ -123,6 +124,7 @@ class TestMainLayout:
 
     async def test_compose_hidden_panels(self) -> None:
         """Скрытые панели получают CSS-класс hidden."""
+
         class TestApp(App):
             pass
 
@@ -142,6 +144,7 @@ class TestMainLayout:
 
     async def test_watch_sidebar_visible(self) -> None:
         """Изменение видимости sidebar обновляет классы и отправляет событие."""
+
         class TestApp(App):
             pass
 
@@ -161,14 +164,13 @@ class TestMainLayout:
 
     async def test_watch_bottom_panel_visible(self) -> None:
         """Изменение видимости dock region обновляет классы и отправляет событие."""
+
         class TestApp(App):
             pass
 
         app = TestApp()
         async with app.run_test() as pilot:
-            layout = MainLayout(
-                config=LayoutConfig(bottom_panel_visible=False)
-            )
+            layout = MainLayout(config=LayoutConfig(bottom_panel_visible=False))
             await pilot.app.mount(layout)
 
             with patch.object(layout, "post_message") as mock_post:
@@ -183,14 +185,13 @@ class TestMainLayout:
 
     async def test_watch_right_panel_visible(self) -> None:
         """Изменение видимости правой панели обновляет классы и отправляет событие."""
+
         class TestApp(App):
             pass
 
         app = TestApp()
         async with app.run_test() as pilot:
-            layout = MainLayout(
-                config=LayoutConfig(right_panel_visible=False)
-            )
+            layout = MainLayout(config=LayoutConfig(right_panel_visible=False))
             await pilot.app.mount(layout)
 
             with patch.object(layout, "post_message") as mock_post:
@@ -205,6 +206,7 @@ class TestMainLayout:
 
     async def test_watch_bottom_panel_hidden(self) -> None:
         """Скрытие dock region добавляет CSS-класс hidden."""
+
         class TestApp(App):
             pass
 
@@ -219,6 +221,7 @@ class TestMainLayout:
 
     async def test_watch_right_panel_hidden(self) -> None:
         """Скрытие правой панели добавляет CSS-класс hidden."""
+
         class TestApp(App):
             pass
 
@@ -267,6 +270,7 @@ class TestMainLayout:
 
     async def test_on_resize_hides_sidebar_on_small_width(self) -> None:
         """При малой ширине sidebar автоматически скрывается."""
+
         class TestApp(App):
             pass
 
@@ -282,6 +286,7 @@ class TestMainLayout:
 
     async def test_on_resize_restores_sidebar_when_enough_space(self) -> None:
         """При достаточной ширине sidebar восстанавливается, если не свернут в VM."""
+
         class TestApp(App):
             pass
 
@@ -301,6 +306,7 @@ class TestMainLayout:
 
     async def test_on_resize_does_not_restore_when_collapsed_in_vm(self) -> None:
         """Если VM считает sidebar свернутым, ширина его не восстанавливает."""
+
         class TestApp(App):
             pass
 
@@ -321,6 +327,7 @@ class TestMainLayout:
 
     async def test_properties_return_containers(self) -> None:
         """Свойства возвращают созданные в compose контейнеры."""
+
         class TestApp(App):
             pass
 

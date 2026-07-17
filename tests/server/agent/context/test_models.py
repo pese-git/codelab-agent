@@ -104,16 +104,20 @@ class TestContextSnapshot:
 
     def test_diff_detects_changes(self):
         """diff() обнаруживает изменённые источники."""
-        snapshot1 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-            "source_c": "hash_c_v1",
-        })
-        snapshot2 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v2",
-            "source_c": "hash_c_v1",
-        })
+        snapshot1 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+                "source_c": "hash_c_v1",
+            }
+        )
+        snapshot2 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v2",
+                "source_c": "hash_c_v1",
+            }
+        )
 
         changed = snapshot1.diff(snapshot2)
 
@@ -121,14 +125,18 @@ class TestContextSnapshot:
 
     def test_diff_detects_multiple_changes(self):
         """diff() обнаруживает несколько изменений."""
-        snapshot1 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-        })
-        snapshot2 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v2",
-            "source_b": "hash_b_v2",
-        })
+        snapshot1 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+            }
+        )
+        snapshot2 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v2",
+                "source_b": "hash_b_v2",
+            }
+        )
 
         changed = snapshot1.diff(snapshot2)
 
@@ -136,14 +144,18 @@ class TestContextSnapshot:
 
     def test_diff_no_changes(self):
         """diff() возвращает пустой список при отсутствии изменений."""
-        snapshot1 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-        })
-        snapshot2 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-        })
+        snapshot1 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+            }
+        )
+        snapshot2 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+            }
+        )
 
         changed = snapshot1.diff(snapshot2)
 
@@ -151,13 +163,17 @@ class TestContextSnapshot:
 
     def test_diff_detects_new_source(self):
         """diff() обнаруживает новые источники."""
-        snapshot1 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-        })
-        snapshot2 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-        })
+        snapshot1 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+            }
+        )
+        snapshot2 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+            }
+        )
 
         changed = snapshot1.diff(snapshot2)
 
@@ -165,13 +181,17 @@ class TestContextSnapshot:
 
     def test_diff_detects_removed_source(self):
         """diff() не обнаруживает удалённые источники (только изменения)."""
-        snapshot1 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-            "source_b": "hash_b_v1",
-        })
-        snapshot2 = ContextSnapshot(fingerprints={
-            "source_a": "hash_a_v1",
-        })
+        snapshot1 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+                "source_b": "hash_b_v1",
+            }
+        )
+        snapshot2 = ContextSnapshot(
+            fingerprints={
+                "source_a": "hash_a_v1",
+            }
+        )
 
         changed = snapshot1.diff(snapshot2)
 

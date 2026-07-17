@@ -91,9 +91,7 @@ class EventBus:
             ValueError: Если обработчик не найден
         """
         if event_type not in self._subscribers:
-            raise ValueError(
-                f"No subscribers for event type {event_type.__name__}"
-            )
+            raise ValueError(f"No subscribers for event type {event_type.__name__}")
 
         try:
             self._subscribers[event_type].remove(handler)
@@ -103,9 +101,7 @@ class EventBus:
                 handler_name=getattr(handler, "__name__", str(handler)),
             )
         except ValueError as e:
-            raise ValueError(
-                f"Handler {handler} not subscribed to {event_type.__name__}"
-            ) from e
+            raise ValueError(f"Handler {handler} not subscribed to {event_type.__name__}") from e
 
     async def publish(self, event: T) -> None:
         """Опубликовать событие всем подписчикам.
@@ -161,9 +157,7 @@ class EventBus:
                     self._logger.error(
                         "handler_async_error",
                         event_type=event_type.__name__,
-                        handler_name=getattr(
-                            handler, "__name__", str(handler)
-                        ),
+                        handler_name=getattr(handler, "__name__", str(handler)),
                         error=str(result),
                         exc_info=True,
                     )
@@ -188,9 +182,7 @@ class EventBus:
         Returns:
             True если есть подписчики, иначе False
         """
-        return event_type in self._subscribers and len(
-            self._subscribers[event_type]
-        ) > 0
+        return event_type in self._subscribers and len(self._subscribers[event_type]) > 0
 
     def clear(self) -> None:
         """Удалить всех подписчиков со всех событий.

@@ -9,7 +9,7 @@ from codelab.server.tools.base import ToolExecutionResult
 
 class ToolExecutor(ABC):
     """Базовый класс для асинхронного выполнения инструментов.
-    
+
     Все executor-ы должны наследоваться от этого класса и реализовать
     метод execute() для выполнения инструмента в контексте сессии.
     """
@@ -21,14 +21,14 @@ class ToolExecutor(ABC):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент в контексте сессии.
-        
+
         Args:
             session: Состояние текущей сессии
             arguments: Словарь аргументов инструмента
-            
+
         Returns:
             ToolExecutionResult с результатом выполнения
-            
+
         Raises:
             Может выбросить исключения, которые будут обработаны
             в execute_tool() реестра.

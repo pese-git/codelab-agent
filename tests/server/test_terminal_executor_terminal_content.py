@@ -97,7 +97,8 @@ class TestTerminalExecutorCreateTerminalContent:
         assert text_item["type"] == "content"
         assert "content" in text_item
         assert text_item["content"]["type"] == "text"
-        assert "Terminal term_test created" in text_item["content"]["text"]
+        # LLM видит короткий alias (term_1), а не сырой client terminalId (см. #18).
+        assert "Terminal term_1 created" in text_item["content"]["text"]
 
     @pytest.mark.asyncio
     async def test_execute_create_terminal_content_first(
@@ -135,6 +136,75 @@ class TestTerminalExecutorCreateTerminalContent:
         text_content = result.content[1]["content"]["text"]
         assert "npm test" in text_content
 
+
+class TestTerminalAliasRoundTrip:
+    """Регресс tech-debt #18: alias для LLM ↔ настоящий client terminalId."""
+
+    @pytest.mark.asyncio
+    async def test_wait_for_exit_resolves_alias_to_client_id(
+        self,
+        executor: TerminalToolExecutor,
+        session: SessionState,
+    ) -> None:
+        """LLM возвращает alias; bridge адресуется настоящим client terminalId."""
+        client_id = "6c8323e0-08bb-4a20-944e-1aeb85afedb1"
+        executor._bridge.create_terminal = AsyncMock(return_value=client_id)
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={"output": "done", "is_complete": True, "exit_code": 0}
+        )
+
+        create = await executor.execute_create(session=session, command="ls")
+        alias = create.metadata["terminal_id"]
+        assert alias == "term_1"
+
+        result = await executor.execute_wait_for_exit(session=session, terminal_id=alias)
+
+        assert result.success is True
+        executor._bridge.terminal_output.assert_awaited_once_with(
+            session=session,
+            terminal_id=client_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_alias_fails_without_touching_bridge(
+        self,
+        executor: TerminalToolExecutor,
+        session: SessionState,
+    ) -> None:
+        """Неизвестный alias → failed с внятной ошибкой, без вызова bridge (нет recreate-loop)."""
+        executor._bridge.terminal_output = AsyncMock()
+        executor._bridge.wait_terminal_exit = AsyncMock()
+
+        result = await executor.execute_wait_for_exit(
+            session=session, terminal_id="term_hallucinated"
+        )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "term_hallucinated" in result.error
+        executor._bridge.terminal_output.assert_not_awaited()
+        executor._bridge.wait_terminal_exit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_release_removes_alias_from_registry(
+        self,
+        executor: TerminalToolExecutor,
+        session: SessionState,
+    ) -> None:
+        """После release alias снимается — повторное обращение даёт ошибку контракта."""
+        executor._bridge.create_terminal = AsyncMock(return_value="client-uuid")
+        executor._bridge.release_terminal = AsyncMock(return_value=True)
+
+        create = await executor.execute_create(session=session, command="ls")
+        alias = create.metadata["terminal_id"]
+
+        released = await executor.execute_release(session=session, terminal_id=alias)
+        assert released.success is True
+        assert session.terminals == {}
+
+        again = await executor.execute_release(session=session, terminal_id=alias)
+        assert again.success is False
+
     @pytest.mark.asyncio
     async def test_execute_create_preserves_output_and_metadata(
         self,
@@ -151,8 +221,14 @@ class TestTerminalExecutorCreateTerminalContent:
 
         assert result.success is True
         assert result.output is not None
-        assert "term_full" in result.output
+        # Наружу (output/metadata/raw_output) идёт alias, а не сырой client id (см. #18).
+        assert "term_1" in result.output
         assert result.metadata is not None
-        assert result.metadata["terminal_id"] == "term_full"
+        assert result.metadata["terminal_id"] == "term_1"
         assert result.metadata["command"] == "ls"
-        assert result.raw_output == {"terminal_id": "term_full"}
+        assert result.raw_output == {"terminal_id": "term_1"}
+        # Client-facing terminal content-item сохраняет родной client terminalId.
+        assert result.content is not None
+        assert result.content[0]["terminalId"] == "term_full"
+        # Маппинг alias → client id зарегистрирован в сессии.
+        assert session.terminals == {"term_1": "term_full"}

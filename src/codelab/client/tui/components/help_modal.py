@@ -37,21 +37,28 @@ class HelpModal(ModalScreen[None]):
 
         self.dismiss(None)
 
+    @staticmethod
+    def _render_hotkeys() -> str:
+        """Сформировать список горячих клавиш из единого источника (tech-debt #16).
+
+        Берём раскладку и группировку из KeyboardManager (тот же источник, что и
+        `App.BINDINGS`), чтобы справка не расходилась с реальными клавишами.
+        """
+        from codelab.client.tui.components.keyboard_manager import get_keyboard_manager
+
+        manager = get_keyboard_manager()
+        blocks: list[str] = []
+        for group in manager.get_help_groups():
+            lines = [f"{group.name}:"]
+            lines += [f"- {manager.format_key(b.key)}: {b.description}" for b in group.bindings]
+            blocks.append("\n".join(lines))
+        return "\n\n".join(blocks)
+
     def _content(self) -> str:
         """Сформировать текст справки под текущий сценарий."""
 
         if self._show_hotkeys:
-            return (
-                "Global:\n"
-                "- F1: контекстная справка\n"
-                "- ?: список горячих клавиш\n"
-                "- Ctrl+Tab: следующая вкладка sidebar\n"
-                "- Ctrl+Shift+Tab: предыдущая вкладка sidebar\n"
-                "- Ctrl+Q: выход\n\n"
-                "Chat:\n"
-                "- Ctrl+Enter: отправить промпт\n"
-                "- Up/Down: история промптов"
-            )
+            return self._render_hotkeys()
 
         context_map: dict[str, str] = {
             "sidebar": (

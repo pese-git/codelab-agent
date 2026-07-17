@@ -86,6 +86,7 @@ class OpenAICompatibleProvider(LLMProvider):
             supports_vision=True,
             supports_audio=True,
             supports_system_prompt=True,
+            supports_structured_output=True,
         )
 
     async def initialize(self, config: LLMConfig) -> None:
@@ -143,8 +144,7 @@ class OpenAICompatibleProvider(LLMProvider):
         openai_messages = self._convert_to_openai_format(request.messages)
         self._validate_message_history(openai_messages)
 
-        model = request.model or self._config.model if self._config else self._default_model
-        model = self._normalize_model_id(model)
+        model = self._resolve_model(request)
 
         request_params: dict[str, Any] = {
             "model": model,
@@ -180,25 +180,9 @@ class OpenAICompatibleProvider(LLMProvider):
             msg = "Provider not initialized"
             raise RuntimeError(msg)
 
-        openai_messages = self._convert_to_openai_format(request.messages)
+        model = self._resolve_model(request)
 
-        model = request.model or self._config.model if self._config else self._default_model
-        model = self._normalize_model_id(model)
-
-        request_params: dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "stream": True,
-            # usage приходит отдельным финальным chunk'ом только с этим флагом
-            "stream_options": {"include_usage": True},
-        }
-
-        if request.tools:
-            request_params["tools"] = request.tools
-            request_params["tool_choice"] = "auto"
-
+        request_params = self._build_stream_request_params(request, model)
         stream = await self._client.chat.completions.create(**request_params)
 
         # Контракт стрима:
@@ -214,12 +198,9 @@ class OpenAICompatibleProvider(LLMProvider):
         usage: dict[str, int] = {}
 
         async for chunk in stream:
-            if getattr(chunk, "usage", None):
-                usage = {
-                    "prompt_tokens": chunk.usage.prompt_tokens,
-                    "completion_tokens": chunk.usage.completion_tokens,
-                    "total_tokens": chunk.usage.total_tokens,
-                }
+            chunk_usage = self._extract_usage(chunk)
+            if chunk_usage is not None:
+                usage = chunk_usage
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -236,18 +217,71 @@ class OpenAICompatibleProvider(LLMProvider):
                     model=model,
                 )
             if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    frag = tool_frags.setdefault(
-                        tc.index, {"id": None, "name": None, "args": ""}
-                    )
-                    if tc.id:
-                        frag["id"] = tc.id
-                    if tc.function is not None:
-                        if tc.function.name:
-                            frag["name"] = tc.function.name
-                        if tc.function.arguments:
-                            frag["args"] += tc.function.arguments
+                self._accumulate_tool_fragments(tool_frags, delta.tool_calls)
 
+        tool_calls = self._build_tool_calls(tool_frags)
+        yield CompletionResponse(
+            text=full_text,
+            tool_calls=tool_calls,
+            stop_reason=self._finish_reason_to_stop_reason(
+                finish_reason, has_tool_calls=bool(tool_calls)
+            ),
+            model=model,
+            usage=usage,
+        )
+
+    def _resolve_model(self, request: CompletionRequest) -> str:
+        """Определить эффективную модель: request > config > default, + нормализация."""
+        model = request.model or self._config.model if self._config else self._default_model
+        return self._normalize_model_id(model)
+
+    def _build_stream_request_params(
+        self, request: CompletionRequest, model: str
+    ) -> dict[str, Any]:
+        """Собрать параметры запроса для streaming chat.completions."""
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": self._convert_to_openai_format(request.messages),
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "stream": True,
+            # usage приходит отдельным финальным chunk'ом только с этим флагом
+            "stream_options": {"include_usage": True},
+        }
+        if request.tools:
+            params["tools"] = request.tools
+            params["tool_choice"] = "auto"
+        return params
+
+    @staticmethod
+    def _extract_usage(chunk: Any) -> dict[str, int] | None:
+        """Извлечь usage из финального chunk'а стрима (или None, если его нет)."""
+        if not getattr(chunk, "usage", None):
+            return None
+        return {
+            "prompt_tokens": chunk.usage.prompt_tokens,
+            "completion_tokens": chunk.usage.completion_tokens,
+            "total_tokens": chunk.usage.total_tokens,
+        }
+
+    @staticmethod
+    def _accumulate_tool_fragments(
+        tool_frags: dict[int, dict[str, Any]], tool_call_deltas: Any
+    ) -> None:
+        """Накопить фрагменты tool_calls по index (id/name/arguments по кускам)."""
+        for tc in tool_call_deltas:
+            frag = tool_frags.setdefault(tc.index, {"id": None, "name": None, "args": ""})
+            if tc.id:
+                frag["id"] = tc.id
+            if tc.function is not None:
+                if tc.function.name:
+                    frag["name"] = tc.function.name
+                if tc.function.arguments:
+                    frag["args"] += tc.function.arguments
+
+    @staticmethod
+    def _build_tool_calls(tool_frags: dict[int, dict[str, Any]]) -> list[LLMToolCall]:
+        """Собрать LLMToolCall из накопленных фрагментов (парсинг arguments-JSON)."""
         tool_calls: list[LLMToolCall] = []
         for idx in sorted(tool_frags):
             frag = tool_frags[idx]
@@ -259,19 +293,8 @@ class OpenAICompatibleProvider(LLMProvider):
                     args = json.loads(frag["args"])
                 except (json.JSONDecodeError, TypeError):
                     args = {}
-            tool_calls.append(
-                LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args)
-            )
-
-        yield CompletionResponse(
-            text=full_text,
-            tool_calls=tool_calls,
-            stop_reason=self._finish_reason_to_stop_reason(
-                finish_reason, has_tool_calls=bool(tool_calls)
-            ),
-            model=model,
-            usage=usage,
-        )
+            tool_calls.append(LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args))
+        return tool_calls
 
     def _convert_to_openai_format(
         self,
@@ -292,9 +315,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
             if msg.content is not None:
                 if isinstance(msg.content, list):
-                    openai_msg["content"] = self._convert_content_parts_to_openai(
-                        msg.content
-                    )
+                    openai_msg["content"] = self._convert_content_parts_to_openai(msg.content)
                 else:
                     openai_msg["content"] = msg.content
 
@@ -496,6 +517,6 @@ class OpenAICompatibleProvider(LLMProvider):
 
         prefix = f"{self.name}/"
         if model.startswith(prefix):
-            return model[len(prefix):]
+            return model[len(prefix) :]
 
         return model

@@ -16,17 +16,17 @@ from textual.widgets import Static
 
 class MarkdownViewer(TextualMarkdown):
     """Расширенный Markdown viewer с улучшенным стилем.
-    
+
     Использует textual.widgets.Markdown как базу и добавляет:
     - Кастомные стили для чата
     - Поддержку inline code
     - Улучшенный syntax highlighting
-    
+
     Пример:
         >>> md = MarkdownViewer("# Hello\\n**Bold** text with `code`")
         >>> # Отобразит форматированный Markdown
     """
-    
+
     DEFAULT_CSS = """
     MarkdownViewer {
         padding: 0;
@@ -38,7 +38,7 @@ class MarkdownViewer(TextualMarkdown):
         color: $secondary;
     }
     """
-    
+
     def __init__(
         self,
         markdown: str = "",
@@ -48,7 +48,7 @@ class MarkdownViewer(TextualMarkdown):
         classes: str | None = None,
     ) -> None:
         """Инициализирует MarkdownViewer.
-        
+
         Args:
             markdown: Markdown текст для рендеринга
             name: Имя виджета
@@ -60,20 +60,20 @@ class MarkdownViewer(TextualMarkdown):
 
 class InlineMarkdown(TextualMarkdown):
     """Компактный Markdown рендер для коротких inline текстов.
-    
+
     Использует textual.widgets.Markdown для корректного парсинга Markdown
     без смешения уровней абстракции (Markdown → Rich markup → парсер).
-    
+
     Преимущества перед ручной конвертацией:
     - Нет проблем с экранированием скобок
     - Нет MarkupError от литеральных Rich-тегов в тексте LLM
     - Корректная обработка всех Markdown элементов
     - Архитектурно чистое решение
-    
+
     Пример:
         >>> text = InlineMarkdown("**Bold** and *italic* with `code`")
     """
-    
+
     DEFAULT_CSS = """
     InlineMarkdown {
         padding: 0;
@@ -101,7 +101,7 @@ class InlineMarkdown(TextualMarkdown):
         margin: 0;
     }
     """
-    
+
     def __init__(
         self,
         content: str = "",
@@ -111,24 +111,24 @@ class InlineMarkdown(TextualMarkdown):
         classes: str | None = None,
     ) -> None:
         """Инициализирует InlineMarkdown.
-        
+
         Args:
             content: Markdown текст
-            name: Имя виджета  
+            name: Имя виджета
             id: ID виджета
             classes: CSS классы
         """
         super().__init__(content, name=name, id=id, classes=classes)
         self._raw_content = content
-    
+
     @property
     def raw_content(self) -> str:
         """Возвращает исходный Markdown текст."""
         return self._raw_content
-    
+
     def update_content(self, content: str) -> None:
         """Обновляет контент с новым Markdown.
-        
+
         Args:
             content: Новый Markdown текст
         """
@@ -138,14 +138,14 @@ class InlineMarkdown(TextualMarkdown):
 
 class CodeBlock(Static):
     """Блок кода с syntax highlighting.
-    
+
     Использует Rich syntax highlighting для отображения кода
     с подсветкой синтаксиса.
-    
+
     Пример:
         >>> code = CodeBlock("def hello():\\n    print('Hi')", language="python")
     """
-    
+
     DEFAULT_CSS = """
     CodeBlock {
         background: $surface;
@@ -154,7 +154,7 @@ class CodeBlock(Static):
         border: solid $primary-background;
     }
     """
-    
+
     def __init__(
         self,
         code: str,
@@ -166,7 +166,7 @@ class CodeBlock(Static):
         theme: str = "monokai",
     ) -> None:
         """Инициализирует CodeBlock.
-        
+
         Args:
             code: Код для отобра
             language: Язык программирования
@@ -176,11 +176,11 @@ class CodeBlock(Static):
             theme: Тема подсветки (monokai для dark, github-light для light)
         """
         from rich.syntax import Syntax
-        
+
         self._code = code
         self._language = language
         self._theme = theme
-        
+
         # Создаем Rich Syntax объект
         syntax = Syntax(
             code,
@@ -189,32 +189,32 @@ class CodeBlock(Static):
             line_numbers=False,
             word_wrap=True,
         )
-        
+
         super().__init__(syntax, name=name, id=id, classes=classes)
-    
+
     @property
     def code(self) -> str:
         """Возвращает исходный код."""
         return self._code
-    
+
     @property
     def language(self) -> str:
         """Возвращает язык программирования."""
         return self._language
-    
+
     def update_code(self, code: str, language: str | None = None) -> None:
         """Обновляет код.
-        
+
         Args:
             code: Новый код
             language: Новый язык (опционально)
         """
         from rich.syntax import Syntax
-        
+
         self._code = code
         if language is not None:
             self._language = language
-        
+
         syntax = Syntax(
             code,
             self._language,

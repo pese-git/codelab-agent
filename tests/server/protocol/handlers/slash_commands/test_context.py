@@ -188,19 +188,25 @@ class TestContextCommandHandler:
 
         # Создаём span'ы
         span1 = tracer.start_span("context.build", session_id="test-session")
-        tracer.end_span(span1, attributes={
-            "agent_scope": "single",
-            "task_type": "feature",
-            "gathered_files": 3,
-            "baseline_tokens": 1000,
-        })
+        tracer.end_span(
+            span1,
+            attributes={
+                "agent_scope": "single",
+                "task_type": "feature",
+                "gathered_files": 3,
+                "baseline_tokens": 1000,
+            },
+        )
 
         span2 = tracer.start_span("context.gather", session_id="test-session")
-        tracer.end_span(span2, attributes={
-            "task_type": "feature",
-            "candidate_files": 10,
-            "selected_files": 3,
-        })
+        tracer.end_span(
+            span2,
+            attributes={
+                "task_type": "feature",
+                "candidate_files": 10,
+                "selected_files": 3,
+            },
+        )
 
         result = handler.execute(["spans"], session)
 

@@ -74,6 +74,9 @@ class ChatView(VerticalScroll):
         self._mounted = False
         self._content_container: Container | None = None
         self._loading_indicator: LoadingIndicator | None = None
+        # Ссылка на активный streaming-виджет для инкрементального обновления
+        # без пересоздания всего DOM чата на каждый chunk (см. фриз event loop).
+        self._streaming_widget: Static | None = None
         self._logger = structlog.get_logger("chat_view")
 
         # Инициализировать менеджер разрешений если ViewModel доступен
@@ -146,11 +149,20 @@ class ChatView(VerticalScroll):
             text=text[:50] if text else "",
             text_length=len(text),
         )
+        # Горячий путь: пока идёт streaming, обновляем ТОЛЬКО текст streaming-виджета
+        # in-place. Полный _update_display() на каждый chunk сносил весь DOM чата и
+        # перерисовывал историю — при ~45 chunk/сек это насыщало event loop и морозило
+        # UI (скролл/переключение сессий). Полный ребилд оставляем только на появление
+        # виджета (первый chunk) и на очистку текста.
+        if text and self._streaming_widget is not None:
+            self._update_streaming_widget_text(text)
+            self._maybe_autoscroll()
+            return
         self._update_display()
 
     def _update_display(self) -> None:
         """Обновить отображение чата на основе текущего состояния.
-        
+
         Очищает контент и пересоздает сообщения/streaming/tool calls.
         Permission widget находится в отдельном контейнере и не затрагивается.
         """
@@ -159,6 +171,9 @@ class ChatView(VerticalScroll):
 
         # Очищаем весь контент
         self._content_container.query("*").remove()
+        # Ссылка на streaming-виджет протухает после teardown — сбрасываем,
+        # чтобы _render_streaming_text переустановил её при пересоздании.
+        self._streaming_widget = None
 
         # Отображаем сообщения
         messages = self.chat_vm.messages.value
@@ -185,8 +200,9 @@ class ChatView(VerticalScroll):
                 self.chat_vm.is_streaming.value and not permission_widget_visible
             )
 
-        # Скроллируем вниз после пересчета layout
-        self.call_after_refresh(self.scroll_end)
+        # Скроллируем вниз после пересчета layout (без анимации и только если
+        # пользователь у нижнего края — не выдёргиваем его при чтении истории).
+        self.call_after_refresh(self._maybe_autoscroll)
 
     def _render_message(self, message: Any) -> None:
         """Отобразить одно сообщение через MessageBubble.
@@ -240,17 +256,38 @@ class ChatView(VerticalScroll):
         if self._content_container is None:
             return
 
-        # Используем Content API для безопасного комбинирования styled prefix
-        # с literal user text (избегаем crash на markup-like символах в тексте LLM)
-        from textual.content import Content
-        prefix = Content.from_markup("[bold green]⟳ [/]")
-        safe_text = Content.from_text(text, markup=False)
         streaming_widget = Static(
-            prefix + safe_text,
+            self._build_streaming_content(text),
             id=f"stream_{time.time_ns()}",
             classes="message",
         )
         self._content_container.mount(streaming_widget)
+        self._streaming_widget = streaming_widget
+
+    @staticmethod
+    def _build_streaming_content(text: str) -> Any:
+        """Собрать Content для streaming-виджета.
+
+        Content API безопасно комбинирует styled prefix с literal-текстом LLM
+        (избегаем crash на markup-подобных символах в тексте).
+        """
+        from textual.content import Content
+
+        return Content.from_markup("[bold green]⟳ [/]") + Content.from_text(text, markup=False)
+
+    def _update_streaming_widget_text(self, text: str) -> None:
+        """Инкрементально обновить текст streaming-виджета без пересоздания DOM."""
+        if self._streaming_widget is not None:
+            self._streaming_widget.update(self._build_streaming_content(text))
+
+    def _maybe_autoscroll(self) -> None:
+        """Прокрутить к концу без анимации, только если пользователь у нижнего края.
+
+        Не выдёргиваем пользователя вниз, если он прокрутил вверх читать историю,
+        и не анимируем (анимация на каждый chunk насыщала event loop → фриз).
+        """
+        if self.max_scroll_y - self.scroll_y <= 2:
+            self.scroll_end(animate=False)
 
     def _render_tool_call(self, tool_call: object) -> None:
         """Отобразить tool call.
@@ -264,6 +301,7 @@ class ChatView(VerticalScroll):
         # Используем Content API для безопасного комбинирования styled prefix
         # с literal user text (избегаем crash на markup-like символах)
         from textual.content import Content
+
         prefix = Content.from_markup("[italic]Tool: [/]")
         safe_text = Content.from_text(str(tool_call), markup=False)
         tool_widget = Static(
@@ -415,7 +453,7 @@ class ChatView(VerticalScroll):
             x_axis: Прокрутка по X
             y_axis: Прокрутка по Y
         """
-        self._logger.info(
+        self._logger.debug(
             "scroll_end_called",
             animate=animate,
             scroll_y=self.scroll_y,

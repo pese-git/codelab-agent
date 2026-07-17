@@ -44,6 +44,7 @@ class TestChatView:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент рендерится и монтируется."""
+
         class TestApp(App):
             pass
 
@@ -59,6 +60,7 @@ class TestChatView:
 
     async def test_on_messages_changed(self) -> None:
         """Изменение сообщений обновляет отображение."""
+
         class TestApp(App):
             pass
 
@@ -73,6 +75,7 @@ class TestChatView:
 
     async def test_on_tool_calls_changed(self) -> None:
         """Изменение tool calls обновляет отображение."""
+
         class TestApp(App):
             pass
 
@@ -86,6 +89,7 @@ class TestChatView:
 
     async def test_on_streaming_changed(self) -> None:
         """Изменение статуса streaming обновляет индикатор."""
+
         class TestApp(App):
             pass
 
@@ -103,6 +107,7 @@ class TestChatView:
 
     async def test_on_streaming_text_changed(self) -> None:
         """Изменение streaming текста обновляет отображение."""
+
         class TestApp(App):
             pass
 
@@ -114,6 +119,38 @@ class TestChatView:
 
             chat_vm.is_streaming.value = True
             chat_vm.streaming_text.value = "streaming..."
+
+    async def test_streaming_chunks_update_in_place_without_full_rebuild(self) -> None:
+        """Последующие streaming-чанки обновляют виджет in-place, без пересоздания DOM.
+
+        Регресс на фриз event loop: полный _update_display() на каждый chunk сносил
+        всю историю чата.
+        """
+
+        class TestApp(App):
+            pass
+
+        app = TestApp()
+        async with app.run_test():
+            chat_vm = FakeChatViewModel()
+            chat_view = ChatView(chat_vm)
+            await app.mount(chat_view)
+
+            chat_vm.is_streaming.value = True
+            chat_vm.streaming_text.value = "a"  # первый chunk — виджет создаётся
+            widget = chat_view._streaming_widget
+            assert widget is not None
+
+            with patch.object(
+                chat_view, "_update_display", wraps=chat_view._update_display
+            ) as spy:
+                chat_vm.streaming_text.value = "ab"
+                chat_vm.streaming_text.value = "abc"
+                # Полный ребилд на последующих чанках не вызывается.
+                spy.assert_not_called()
+
+            # Тот же самый виджет — не пересоздавался.
+            assert chat_view._streaming_widget is widget
 
     async def test_update_display_not_mounted(self) -> None:
         """_update_display без монтирования возвращает управление."""
@@ -133,6 +170,7 @@ class TestChatView:
 
     async def test_update_display_with_messages(self) -> None:
         """_update_display отображает сообщения."""
+
         class TestApp(App):
             pass
 
@@ -151,6 +189,7 @@ class TestChatView:
 
     async def test_update_display_with_streaming_text(self) -> None:
         """_update_display отображает streaming текст."""
+
         class TestApp(App):
             pass
 
@@ -165,6 +204,7 @@ class TestChatView:
 
     async def test_update_display_with_tool_calls(self) -> None:
         """_update_display отображает tool calls."""
+
         class TestApp(App):
             pass
 
@@ -178,6 +218,7 @@ class TestChatView:
 
     async def test_render_message_unknown_type(self) -> None:
         """_render_message обрабатывает неизвестный тип сообщения."""
+
         class TestApp(App):
             pass
 
@@ -191,6 +232,7 @@ class TestChatView:
 
     async def test_render_message_no_role(self) -> None:
         """_render_message обрабатывает сообщение без role."""
+
         class TestApp(App):
             pass
 
@@ -225,6 +267,7 @@ class TestChatView:
 
     async def test_clear_messages(self) -> None:
         """Очистка сообщений."""
+
         class TestApp(App):
             pass
 
@@ -240,6 +283,7 @@ class TestChatView:
 
     async def test_add_user_message(self) -> None:
         """Добавление пользовательского сообщения."""
+
         class TestApp(App):
             pass
 
@@ -255,6 +299,7 @@ class TestChatView:
 
     async def test_add_system_message(self) -> None:
         """Добавление системного сообщения."""
+
         class TestApp(App):
             pass
 
@@ -270,6 +315,7 @@ class TestChatView:
 
     async def test_append_agent_chunk(self) -> None:
         """Добавление chunk от агента."""
+
         class TestApp(App):
             pass
 
@@ -288,6 +334,7 @@ class TestChatView:
 
     async def test_finish_agent_message(self) -> None:
         """Завершение агентского сообщения сохраняет в историю."""
+
         class TestApp(App):
             pass
 
@@ -307,6 +354,7 @@ class TestChatView:
 
     async def test_finish_agent_message_empty(self) -> None:
         """Завершение пустого агентского сообщения не добавляет в историю."""
+
         class TestApp(App):
             pass
 
@@ -321,6 +369,7 @@ class TestChatView:
 
     async def test_show_permission_request_with_manager(self) -> None:
         """show_permission_request делегирует менеджеру."""
+
         class TestApp(App):
             pass
 
@@ -342,6 +391,7 @@ class TestChatView:
 
     async def test_show_permission_request_without_manager(self) -> None:
         """show_permission_request без менеджера логирует предупреждение."""
+
         class TestApp(App):
             pass
 
@@ -359,6 +409,7 @@ class TestChatView:
 
     async def test_hide_permission_request(self) -> None:
         """hide_permission_request делегирует менеджеру."""
+
         class TestApp(App):
             pass
 
@@ -376,6 +427,7 @@ class TestChatView:
 
     async def test_hide_permission_request_without_manager(self) -> None:
         """hide_permission_request без менеджера не вызывает ошибок."""
+
         class TestApp(App):
             pass
 
@@ -389,6 +441,7 @@ class TestChatView:
 
     async def test_permission_widget_is_last_child_after_update_display(self) -> None:
         """Permission widget находится в отдельном контейнере и не удаляется при _update_display."""
+
         class TestApp(App):
             pass
 
@@ -404,7 +457,7 @@ class TestChatView:
                 {"role": "user", "content": "hello"},
                 {"role": "assistant", "content": "hi"},
             ]
-            
+
             # Ждем обновления UI
             await pilot.pause()
 
@@ -413,14 +466,14 @@ class TestChatView:
             options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
             callback = MagicMock()
             chat_view.show_permission_request("req_1", tool_call, options, callback)
-            
+
             # Ждем обновления UI
             await pilot.pause()
 
             # Проверяем что permission widget есть в permission_container
             assert chat_view._permission_manager is not None
             assert chat_view._permission_manager.is_widget_visible()
-            
+
             permission_children = list(chat_view._permission_container.children)
             assert len(permission_children) == 1
             perm_widget_type = type(permission_children[0]).__name__
@@ -428,7 +481,7 @@ class TestChatView:
 
             # Вызываем _update_display (симулируя изменение observable)
             chat_view._update_display()
-            
+
             # Ждем обновления UI
             await pilot.pause()
 
@@ -437,13 +490,14 @@ class TestChatView:
             assert len(permission_children_after) == 1
             perm_widget_type_after = type(permission_children_after[0]).__name__
             assert perm_widget_type_after in ("PermissionRequest", "InlinePermissionWidget")
-            
+
             # Проверяем что контент в основном контейнере обновился
             content_children = list(chat_view._content_container.children)
             assert len(content_children) == 2  # 2 сообщения
 
     async def test_render_tool_call_with_markup_content(self) -> None:
         """Tool call с markdown-контентом не должен падать с MarkupError."""
+
         class TestApp(App):
             pass
 
@@ -461,9 +515,9 @@ class TestChatView:
                 "content": [
                     {
                         "type": "text",
-                        "text": "См. [Документация](doc/readme.md) и [Установка](doc/install.md)"
+                        "text": "См. [Документация](doc/readme.md) и [Установка](doc/install.md)",
                     }
-                ]
+                ],
             }
 
             # Не должно выбросить MarkupError
@@ -471,6 +525,7 @@ class TestChatView:
 
     async def test_render_streaming_text_with_markup_content(self) -> None:
         """Streaming текст с markup-подобными символами не должен падать."""
+
         class TestApp(App):
             pass
 
@@ -488,6 +543,7 @@ class TestChatView:
 
     async def test_loading_indicator_hidden_when_permission_widget_visible(self) -> None:
         """Индикатор загрузки скрыт когда виден permission widget."""
+
         class TestApp(App):
             pass
 

@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from pydantic import BaseModel
 
 from ...messages import ACPMessage
 from ..state import SessionState
@@ -52,14 +53,16 @@ class ReplayManager:
     """
 
     # Типы updates, которые должны реплеиться в порядке их возникновения
-    _REPLAYABLE_UPDATE_TYPES: frozenset[str] = frozenset({
-        "user_message_chunk",
-        "agent_message_chunk",
-        "tool_call",
-        "tool_call_update",
-        "plan",
-        "session_info",
-    })
+    _REPLAYABLE_UPDATE_TYPES: frozenset[str] = frozenset(
+        {
+            "user_message_chunk",
+            "agent_message_chunk",
+            "tool_call",
+            "tool_call_update",
+            "plan",
+            "session_info",
+        }
+    )
 
     def save_user_message_chunk(
         self,
@@ -322,13 +325,21 @@ class ReplayManager:
         if not session.latest_plan:
             return None
 
+        # latest_plan может содержать PlanStep (после десериализации из JSON-хранилища
+        # pydantic коэрсит подходящие dict в PlanStep) — сериализуем в dict, иначе
+        # ACPMessage.to_json падает с "PlanStep is not JSON serializable".
+        entries = [
+            entry.model_dump(exclude_none=True) if isinstance(entry, BaseModel) else entry
+            for entry in session.latest_plan
+        ]
+
         return ACPMessage.notification(
             "session/update",
             {
                 "sessionId": session.session_id,
                 "update": {
                     "sessionUpdate": "plan",
-                    "entries": session.latest_plan,
+                    "entries": entries,
                 },
             },
         )

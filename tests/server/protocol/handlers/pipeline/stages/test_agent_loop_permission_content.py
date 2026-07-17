@@ -86,9 +86,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
         mock_tool_result.success = True
         mock_tool_result.output = "Terminal created"
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         # Extracted content с terminal embedding
         terminal_content = [
@@ -107,7 +105,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         # Act
-        result = await loop._execute_pending_tool(
+        result = await loop._tool_processor.execute_pending(
             mock_session, "test_session", tool_call_id, None
         )
 
@@ -138,9 +136,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
         mock_tool_result.success = True
         mock_tool_result.output = "Terminal created"
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         # Extracted content с terminal embedding
         terminal_content = [
@@ -158,9 +154,9 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
         # Mock build_tool_update_notification
         mock_notification = MagicMock()
-        mock_dependencies["tool_call_handler"].build_tool_update_notification.return_value = (
-            mock_notification
-        )
+        mock_dependencies[
+            "tool_call_handler"
+        ].build_tool_update_notification.return_value = mock_notification
 
         # Mock run() для продолжения цикла
         mock_loop_result = MagicMock()
@@ -214,9 +210,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
         mock_tool_result.success = True
         mock_tool_result.output = "OK"
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         terminal_content = [{"type": "terminal", "terminalId": "term_replay"}]
         mock_extracted = MagicMock()
@@ -225,9 +219,9 @@ class TestAgentLoopPermissionFlowTerminalContent:
             return_value=mock_extracted
         )
 
-        mock_dependencies["tool_call_handler"].build_tool_update_notification.return_value = (
-            MagicMock()
-        )
+        mock_dependencies[
+            "tool_call_handler"
+        ].build_tool_update_notification.return_value = MagicMock()
 
         second_response = MagicMock(spec=AgentResponse)
         second_response.text = "Done"
@@ -237,9 +231,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         # Act
-        await loop.resume_after_permission(
-            mock_session, "test_session", tool_call_id, None
-        )
+        await loop.resume_after_permission(mock_session, "test_session", tool_call_id, None)
 
         # Assert
         mock_dependencies["replay_manager"].save_tool_call_update.assert_called()

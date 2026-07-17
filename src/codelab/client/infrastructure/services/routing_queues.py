@@ -146,9 +146,7 @@ class RoutingQueues:
         """
         await self._permission_queue.put(message)
         params = message.get("params")
-        session_id = (
-            params.get("sessionId") if isinstance(params, dict) else None
-        )
+        session_id = params.get("sessionId") if isinstance(params, dict) else None
         self._logger.info(
             "permission_request_queued",
             request_id=message.get("id"),

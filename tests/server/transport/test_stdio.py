@@ -62,8 +62,10 @@ class TestStdioServerTransportSend:
             params={},
         )
 
-        with patch.object(sys.stdout.buffer, "write") as mock_write, \
-             patch.object(sys.stdout.buffer, "flush") as mock_flush:
+        with (
+            patch.object(sys.stdout.buffer, "write") as mock_write,
+            patch.object(sys.stdout.buffer, "flush") as mock_flush,
+        ):
             await transport.send(message)
 
             mock_write.assert_called_once()
@@ -91,8 +93,10 @@ class TestStdioServerTransportSend:
 
         message = ACPMessage(jsonrpc="2.0", id="1", method="test")
 
-        with patch.object(sys.stdout.buffer, "write", side_effect=BrokenPipeError), \
-             patch("codelab.server.transport.stdio.logger"):
+        with (
+            patch.object(sys.stdout.buffer, "write", side_effect=BrokenPipeError),
+            patch("codelab.server.transport.stdio.logger"),
+        ):
             await transport.send(message)
 
         assert transport._closed is True
@@ -103,8 +107,7 @@ class TestStdioServerTransportSend:
         transport = StdioServerTransport()
         message = ACPMessage(jsonrpc="2.0", id="1", method="test")
 
-        with patch.object(sys.stdout.buffer, "write"), \
-             patch.object(sys.stdout.buffer, "flush"):
+        with patch.object(sys.stdout.buffer, "write"), patch.object(sys.stdout.buffer, "flush"):
             await asyncio.gather(
                 transport.send(message),
                 transport.send(message),
@@ -362,9 +365,7 @@ class TestStdioFinalizeOutcomeAndSend:
         transport._deferred_prompt_tasks["sess_1"] = deferred
 
         with patch.object(transport, "send", new=AsyncMock()):
-            outcome = ProtocolOutcome(
-                response=ACPMessage(jsonrpc="2.0", id="99", result=None)
-            )
+            outcome = ProtocolOutcome(response=ACPMessage(jsonrpc="2.0", id="99", result=None))
             await transport._finalize_outcome_and_send(
                 method_name="session/cancel",
                 session_id="sess_1",
@@ -394,9 +395,7 @@ class TestStdioFinalizeOutcomeAndSend:
             sent.append(m)
 
         with patch.object(transport, "send", side_effect=fake_send):
-            task = asyncio.create_task(
-                transport._complete_deferred_prompt(session_id="sess_x")
-            )
+            task = asyncio.create_task(transport._complete_deferred_prompt(session_id="sess_x"))
             # Регистрируем как deferred, чтобы finalize-логика очистки сработала
             transport._deferred_prompt_tasks["sess_x"] = task
 
@@ -425,9 +424,7 @@ class TestStdioBackgroundPromptProcessing:
             method="session/prompt",
             params={"sessionId": "sess_1"},
         )
-        expected_response = ACPMessage(
-            jsonrpc="2.0", id="p1", result={"stopReason": "end_turn"}
-        )
+        expected_response = ACPMessage(jsonrpc="2.0", id="p1", result={"stopReason": "end_turn"})
         handler = AsyncMock(return_value=ProtocolOutcome(response=expected_response))
 
         sent = []
@@ -460,8 +457,10 @@ class TestStdioBackgroundPromptProcessing:
             raise RuntimeError("boom")
 
         sent = []
-        with patch.object(transport, "send", side_effect=lambda m: sent.append(m)), \
-             patch("codelab.server.transport.stdio.logger"):
+        with (
+            patch.object(transport, "send", side_effect=lambda m: sent.append(m)),
+            patch("codelab.server.transport.stdio.logger"),
+        ):
             await transport._process_prompt_request_in_background(
                 acp_request=prompt_msg,
                 on_message=bad_handler,
@@ -604,9 +603,7 @@ class TestStdioReceiveLoopIntegration:
                             )
                         )
                         transport._prompt_tasks.add(task)
-                        task.add_done_callback(
-                            lambda t: transport._prompt_tasks.discard(t)
-                        )
+                        task.add_done_callback(lambda t: transport._prompt_tasks.discard(t))
                         continue
                     outcome = await fake_handler(acp_request)
                     await transport._finalize_outcome_and_send(
@@ -712,8 +709,7 @@ class TestStdioReceiveLoopIntegration:
         # Готовим stdin: только session/prompt — client response подадим позже
         reader = asyncio.StreamReader()
         reader.feed_data(
-            b'{"jsonrpc":"2.0","id":"p1","method":"session/prompt",'
-            b'"params":{"sessionId":"s1"}}\n'
+            b'{"jsonrpc":"2.0","id":"p1","method":"session/prompt","params":{"sessionId":"s1"}}\n'
         )
         transport._stdin_reader = reader
 
@@ -750,9 +746,7 @@ class TestStdioReceiveLoopIntegration:
                             )
                         )
                         transport._prompt_tasks.add(task)
-                        task.add_done_callback(
-                            lambda t: transport._prompt_tasks.discard(t)
-                        )
+                        task.add_done_callback(lambda t: transport._prompt_tasks.discard(t))
                         continue
                     outcome = await fake_handler(acp_request)
                     await transport._finalize_outcome_and_send(
@@ -768,12 +762,8 @@ class TestStdioReceiveLoopIntegration:
 
             # Даём prompt-task стартовать и отправить fs/read_text_file
             await asyncio.sleep(0.05)
-            rpc_requests = [
-                m for m in sent if m.method == "fs/read_text_file"
-            ]
-            assert len(rpc_requests) == 1, (
-                "session/prompt должен был отправить fs/read_text_file"
-            )
+            rpc_requests = [m for m in sent if m.method == "fs/read_text_file"]
+            assert len(rpc_requests) == 1, "session/prompt должен был отправить fs/read_text_file"
 
             # ИМИТИРУЕМ КЛИЕНТА: отправляем response на stdin
             # (этот шаг раньше приводил к deadlock — никто не читал stdin)
@@ -787,9 +777,7 @@ class TestStdioReceiveLoopIntegration:
             # Ждём финальный prompt response — без deadlock должен прийти быстро
             try:
                 await asyncio.wait_for(
-                    asyncio.shield(
-                        _wait_for_response_id(sent, "p1", timeout=2.0)
-                    ),
+                    asyncio.shield(_wait_for_response_id(sent, "p1", timeout=2.0)),
                     timeout=3.0,
                 )
             finally:
@@ -802,9 +790,7 @@ class TestStdioReceiveLoopIntegration:
         assert len(prompt_responses) == 1
         assert prompt_responses[0].result is not None
         assert prompt_responses[0].result["stopReason"] == "end_turn"
-        assert prompt_responses[0].result["rpcResult"] == {
-            "content": "file contents"
-        }
+        assert prompt_responses[0].result["rpcResult"] == {"content": "file contents"}
 
 
 async def _wait_for_response_id(
@@ -841,8 +827,10 @@ class TestStdioServerTransportSendErrorHandling:
 
         message = ACPMessage(jsonrpc="2.0", id="1", method="test")
 
-        with patch.object(sys.stdout.buffer, "write", side_effect=RuntimeError("boom")), \
-             patch("codelab.server.transport.stdio.logger"):
+        with (
+            patch.object(sys.stdout.buffer, "write", side_effect=RuntimeError("boom")),
+            patch("codelab.server.transport.stdio.logger"),
+        ):
             await transport.send(message)
 
         assert transport._closed is False

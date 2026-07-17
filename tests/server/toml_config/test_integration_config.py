@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from codelab.server.config import AppConfig
 from codelab.server.di import RegistryProvider
@@ -119,3 +120,37 @@ model = "mock-model"
                 os.chdir(old_cwd)
         finally:
             Path(toml_path).unlink()
+
+
+class TestFallbackConfigHonestContract:
+    """Гарантия честного контракта: [llm.fallback] enabled=true предупреждает,
+    что пакет ещё не подключён к исполнению (задел под multi-provider gateway).
+    """
+
+    def test_warns_when_fallback_enabled_but_not_wired(self) -> None:
+        """При enabled=true логируется warning 'configured but not active'."""
+        config = AppConfig.load()
+        config.llm.fallback.enabled = True
+
+        provider = RegistryProvider()
+        with patch("codelab.server.di.llm.logger", MagicMock()) as mock_logger:
+            provider.get_llm_registry(config)
+
+        warning_events = [
+            call.args[0] for call in mock_logger.warning.call_args_list if call.args
+        ]
+        assert "llm fallback configured but not active" in warning_events
+
+    def test_no_warning_when_fallback_disabled(self) -> None:
+        """При enabled=false (default) предупреждения о fallback нет."""
+        config = AppConfig.load()
+        config.llm.fallback.enabled = False
+
+        provider = RegistryProvider()
+        with patch("codelab.server.di.llm.logger", MagicMock()) as mock_logger:
+            provider.get_llm_registry(config)
+
+        warning_events = [
+            call.args[0] for call in mock_logger.warning.call_args_list if call.args
+        ]
+        assert "llm fallback configured but not active" not in warning_events

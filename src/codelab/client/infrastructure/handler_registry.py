@@ -10,7 +10,7 @@
     registry = HandlerRegistry()
     registry.register_permission_handler(my_permission_handler)
     registry.register_fs_handler("read", my_fs_read_handler)
-    
+
     result = await registry.handle_permission(permission_data)
 """
 

@@ -505,9 +505,7 @@ class TestWebSocketTransportProcessPromptInBackground:
             method="session/prompt",
             params={"sessionId": "sess_1"},
         )
-        expected_response = ACPMessage(
-            jsonrpc="2.0", id="p1", result={"stopReason": "end_turn"}
-        )
+        expected_response = ACPMessage(jsonrpc="2.0", id="p1", result={"stopReason": "end_turn"})
         handler = AsyncMock(return_value=ProtocolOutcome(response=expected_response))
         mock_protocol = MagicMock()
 

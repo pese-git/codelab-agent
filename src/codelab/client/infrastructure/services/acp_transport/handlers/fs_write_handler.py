@@ -24,9 +24,7 @@ class FsWriteHandler:
     def can_handle(self, method: str) -> bool:
         return method == "fs/write_text_file"
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any]:
         path = params.get("path")
         if not isinstance(path, str):
             self._logger.warning("missing_path_parameter", rpc_id=rpc_id)

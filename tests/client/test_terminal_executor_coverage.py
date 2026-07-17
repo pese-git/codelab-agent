@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -20,6 +21,18 @@ from codelab.client.infrastructure.services.terminal_executor import (
     TerminalSession,
     TerminalState,
 )
+
+
+@pytest.fixture
+async def executor() -> AsyncGenerator[TerminalExecutor, None]:
+    """TerminalExecutor с teardown: закрывает subprocess-транспорты ДО закрытия
+    event loop, иначе их __del__ при GC пишет unraisable "Event loop is closed"
+    (order-dependent, P0-3c). Использовать во всех тестах, порождающих РЕАЛЬНЫЙ
+    подпроцесс.
+    """
+    ex = TerminalExecutor()
+    yield ex
+    await ex.cleanup_all()
 
 
 class TestTerminalExecutorCreateEdgeCases:
@@ -68,9 +81,8 @@ class TestTerminalExecutorReadOutput:
         await executor._read_output(session)
 
     @pytest.mark.asyncio
-    async def test_read_output_trims_by_byte_limit(self) -> None:
+    async def test_read_output_trims_by_byte_limit(self, executor: TerminalExecutor) -> None:
         """_read_output обрезает буфер при превышении byte limit."""
-        executor = TerminalExecutor()
         terminal_id = await executor.create_terminal("printf", ["%s", "hello\nworld\n"])
         session = executor._terminals[terminal_id]
         session.output_byte_limit = 8
@@ -108,9 +120,8 @@ class TestTerminalExecutorWaitForExit:
     """Тесты для wait_for_exit."""
 
     @pytest.mark.asyncio
-    async def test_wait_for_exit_already_exited(self) -> None:
+    async def test_wait_for_exit_already_exited(self, executor: TerminalExecutor) -> None:
         """wait_for_exit возвращает exit_code если процесс уже завершился."""
-        executor = TerminalExecutor()
         terminal_id = await executor.create_terminal("echo", ["done"])
         await asyncio.sleep(0.2)
 
@@ -122,38 +133,56 @@ class TestTerminalExecutorWaitForExit:
 class TestTerminalExecutorKillAndReleaseErrors:
     """Тесты для обработки ошибок в kill и release."""
 
+    @staticmethod
+    def _register_mock_session(executor: TerminalExecutor, terminal_id: str) -> TerminalSession:
+        """Зарегистрировать сессию с мок-процессом (без реального подпроцесса).
+
+        kill/release-тесты мокают `process.kill`; на реальном `sleep 100` это оставило
+        бы процесс-сироту и незакрытый subprocess-транспорт → order-dependent unraisable
+        "Event loop is closed" при GC (P0-3c). Мок-процесс исключает реальный спавн.
+        """
+        session = TerminalSession(
+            terminal_id=terminal_id,
+            command="sleep",
+            args=["100"],
+            process=Mock(),
+            state=TerminalState.RUNNING,
+        )
+        executor._terminals[terminal_id] = session
+        return session
+
     @pytest.mark.asyncio
     async def test_kill_terminal_raises_runtime_error(self) -> None:
         """kill_terminal бросает RuntimeError при ошибке убийства."""
         executor = TerminalExecutor()
-        terminal_id = await executor.create_terminal("sleep", ["100"])
-        session = executor._terminals[terminal_id]
+        session = self._register_mock_session(executor, "term_kill")
 
         session.process.kill = Mock(side_effect=RuntimeError("kill failed"))
 
         with pytest.raises(RuntimeError, match="Failed to kill terminal"):
-            await executor.kill_terminal(terminal_id)
+            await executor.kill_terminal("term_kill")
 
     @pytest.mark.asyncio
     async def test_release_terminal_ignores_kill_error(self) -> None:
         """release_terminal игнорирует ошибку при убийстве процесса."""
         executor = TerminalExecutor()
-        terminal_id = await executor.create_terminal("sleep", ["100"])
-        session = executor._terminals[terminal_id]
+        session = self._register_mock_session(executor, "term_release")
 
         session.process.kill = Mock(side_effect=RuntimeError("kill failed"))
         session.process.wait = AsyncMock()
 
-        result = await executor.release_terminal(terminal_id)
+        result = await executor.release_terminal("term_release")
 
         assert result is True
-        assert terminal_id not in executor._terminals
+        assert "term_release" not in executor._terminals
 
     @pytest.mark.asyncio
     async def test_cleanup_all_ignores_release_error(self) -> None:
         """cleanup_all логирует ошибки release и не прерывается."""
         executor = TerminalExecutor()
-        terminal_id = await executor.create_terminal("sleep", ["100"])
+        session = self._register_mock_session(executor, "term_cleanup")
+        session.process.wait = AsyncMock(return_value=0)
+        session.process.returncode = 0
 
         with patch.object(
             executor,
@@ -164,10 +193,10 @@ class TestTerminalExecutorKillAndReleaseErrors:
             await executor.cleanup_all()
 
         # Ошибка release не привела к падению, но терминал остался в реестре
-        # т.к. release не отработал. Завершаем процесс вручную.
-        assert terminal_id in executor._terminals
-        await executor.kill_terminal(terminal_id)
-        await executor.release_terminal(terminal_id)
+        # т.к. release не отработал. Завершаем вручную.
+        assert "term_cleanup" in executor._terminals
+        await executor.kill_terminal("term_cleanup")
+        await executor.release_terminal("term_cleanup")
 
 
 class TestTerminalExecutorExecuteEdgeCases:

@@ -17,7 +17,9 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     ToolResult,
 )
 
-_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.logger"
+# Tool-processing логи (пропуск tool без имени, невалидный content) эмитит
+# ToolCallProcessor — патчим его logger.
+_LOGGER_PATH = "codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor.logger"
 
 
 @pytest.fixture
@@ -128,10 +130,12 @@ class TestAgentLoopResume:
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        with patch(_LOGGER_PATH) as mock_logger:
-            result = await loop.resume_after_permission(
-                mock_session, "test_session", "tc_1"
-            )
+        # Реинициализация стратегии переехала в LlmCaller — лог эмитит его logger.
+        llm_caller_logger = (
+            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.llm_caller.logger"
+        )
+        with patch(llm_caller_logger) as mock_logger:
+            result = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_strategy.select_strategy.assert_called_once()
@@ -177,6 +181,53 @@ class TestAgentLoopToolProcessing:
         mock_logger.warning.assert_called_once()
         assert "tool_call has no name" in str(mock_logger.warning.call_args)
         mock_dependencies["tool_registry"].execute_tool.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_rejected_before_permission(
+        self,
+        mock_strategy: MagicMock,
+        mock_session: MagicMock,
+        mock_dependencies: dict[str, MagicMock],
+    ) -> None:
+        """Галлюцинированный tool → failed без permission и без execute_tool (#21)."""
+        tool_call = MagicMock()
+        tool_call.name = "ls"
+        tool_call.id = "call_1"
+        tool_call.arguments = {}
+
+        first_response = MagicMock(spec=AgentResponse)
+        first_response.text = ""
+        first_response.tool_calls = [tool_call]
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "done"
+        second_response.tool_calls = []
+
+        mock_strategy.execute.return_value = first_response
+        mock_strategy.continue_execution.return_value = second_response
+
+        # Инструмента нет в реестре; в списке доступных — реальный fs-tool.
+        mock_dependencies["tool_registry"].get = MagicMock(return_value=None)
+        fake_tool = MagicMock()
+        fake_tool.name = "fs/read_text_file"
+        mock_dependencies["tool_registry"].list_tools = MagicMock(return_value=[fake_tool])
+        mock_dependencies["tool_call_handler"].create_tool_call = MagicMock(
+            return_value="tc_unknown"
+        )
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+
+        with patch(_LOGGER_PATH) as mock_logger:
+            result = await loop.run(mock_session, "test_session", "hello")
+
+        assert result.stop_reason == StopReason.END_TURN
+        # Не дошёл до permission и до реального исполнения.
+        mock_dependencies["permission_manager"].build_permission_request.assert_not_called()
+        mock_dependencies["tool_registry"].execute_tool.assert_not_called()
+        assert any(
+            "tool not found in registry" in str(call)
+            for call in mock_logger.error.call_args_list
+        )
 
     @pytest.mark.asyncio
     async def test_tool_result_validation_failure_is_logged(
@@ -238,9 +289,7 @@ class TestAgentLoopToolProcessing:
 
         assert result.stop_reason == StopReason.END_TURN
         mock_logger.warning.assert_called_once()
-        assert "tool_result_content_validation_failed" in str(
-            mock_logger.warning.call_args
-        )
+        assert "tool_result_content_validation_failed" in str(mock_logger.warning.call_args)
 
 
 class TestAgentLoopExecutePendingTool:
@@ -259,7 +308,7 @@ class TestAgentLoopExecutePendingTool:
         mock_session.tool_calls = {"tc_1": state}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(
+        result = await loop._tool_processor.execute_pending(
             mock_session, "test_session", "tc_1", None
         )
 
@@ -282,10 +331,10 @@ class TestAgentLoopExecutePendingTool:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(
-            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.MCPToolExecutor.is_mcp_tool",
+            "codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor.MCPToolExecutor.is_mcp_tool",
             return_value=True,
         ):
-            result = await loop._execute_pending_tool(
+            result = await loop._tool_processor.execute_pending(
                 mock_session, "test_session", "tc_1", None
             )
 
@@ -318,15 +367,13 @@ class TestAgentLoopExecutePendingTool:
         mock_dependencies["content_extractor"].extract_from_result.return_value = extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop._execute_pending_tool(
+        result = await loop._tool_processor.execute_pending(
             mock_session, "test_session", "tc_1", None
         )
 
         assert isinstance(result, ToolResult)
         assert result.success is False
         assert result.error == "execution failed"
-        update_call = mock_dependencies[
-            "tool_call_handler"
-        ].update_tool_call_status.call_args
+        update_call = mock_dependencies["tool_call_handler"].update_tool_call_status.call_args
         assert update_call is not None
         assert update_call.kwargs.get("content") is not None

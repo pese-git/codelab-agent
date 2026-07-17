@@ -1,6 +1,5 @@
 """Тесты для MetricsTracker."""
 
-
 import pytest
 
 from codelab.server.agent.contracts.base import (

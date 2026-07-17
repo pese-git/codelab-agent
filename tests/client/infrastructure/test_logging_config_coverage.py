@@ -23,12 +23,15 @@ class TestSetupLogging:
         log_file = tmp_path / "logs" / "acp_client.log"
         mock_handler = MagicMock()
 
-        with patch(
-            "codelab.client.infrastructure.logging_config.logging.handlers.RotatingFileHandler",
-            return_value=mock_handler,
-        ) as mock_rotating_handler, patch(
-            "codelab.client.infrastructure.logging_config.logging.basicConfig"
-        ) as mock_basic_config:
+        with (
+            patch(
+                "codelab.client.infrastructure.logging_config.logging.handlers.RotatingFileHandler",
+                return_value=mock_handler,
+            ) as mock_rotating_handler,
+            patch(
+                "codelab.client.infrastructure.logging_config.logging.basicConfig"
+            ) as mock_basic_config,
+        ):
             setup_logging(level="INFO", log_file=str(log_file))
 
         assert log_file.parent.exists()

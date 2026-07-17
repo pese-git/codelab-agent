@@ -98,9 +98,7 @@ class TestAgentLoopExtractedContent:
         mock_tool_result.success = True
         mock_tool_result.output = "Terminal created"
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         # Extracted content с terminal embedding
         terminal_content = [
@@ -112,9 +110,7 @@ class TestAgentLoopExtractedContent:
         ]
         mock_extracted = MagicMock()
         mock_extracted.content_items = terminal_content
-        mock_dependencies["content_extractor"].extract_from_result.return_value = (
-            mock_extracted
-        )
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         await loop.run(mock_session, "test_session", "Run ls")
@@ -163,16 +159,12 @@ class TestAgentLoopExtractedContent:
         mock_tool_result.success = True
         mock_tool_result.output = "File content here"
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         # Extracted content пустой
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
-        mock_dependencies["content_extractor"].extract_from_result.return_value = (
-            mock_extracted
-        )
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         await loop.run(mock_session, "test_session", "Read file")
@@ -224,16 +216,12 @@ class TestAgentLoopExtractedContent:
         mock_tool_result.success = True
         mock_tool_result.output = None
         mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
-            return_value=mock_tool_result
-        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
 
         # Extracted content пустой
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
-        mock_dependencies["content_extractor"].extract_from_result.return_value = (
-            mock_extracted
-        )
+        mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         await loop.run(mock_session, "test_session", "Run tool")

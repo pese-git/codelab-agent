@@ -78,6 +78,7 @@ class LLMLoopStage(PromptStage):
         strategy_dispatcher: StrategyDispatcher | None = None,
         tracer: Tracer | None = None,
         streaming_enabled: bool = False,
+        loop_guard_limit: int = 3,
     ) -> None:
         """Инициализация LLMLoopStage.
 
@@ -102,6 +103,7 @@ class LLMLoopStage(PromptStage):
         self._strategy_dispatcher = strategy_dispatcher
         self._tracer = tracer
         self._streaming_enabled = streaming_enabled
+        self._loop_guard_limit = loop_guard_limit
 
         # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
@@ -185,8 +187,23 @@ class LLMLoopStage(PromptStage):
             session_id=context.session_id,
             has_callback=notification_callback is not None,
         )
-        self._agent_loop = AgentLoop(
-            strategy=self._strategy_dispatcher,
+        self._agent_loop = self._build_agent_loop(
+            self._strategy_dispatcher, notification_callback
+        )
+        return self._agent_loop
+
+    def _build_agent_loop(
+        self,
+        strategy: LLMCallStrategy,
+        notification_callback: Callable[[ACPMessage], Awaitable[None]] | None,
+    ) -> AgentLoop:
+        """Собрать AgentLoop с общими зависимостями stage.
+
+        Единая точка сборки для process() и fallback в execute_pending_tool —
+        устраняет дублирование списка зависимостей.
+        """
+        return AgentLoop(
+            strategy=strategy,
             tool_registry=self._tool_registry,
             tool_call_handler=self._tool_call_handler,
             permission_manager=self._permission_manager,
@@ -200,8 +217,8 @@ class LLMLoopStage(PromptStage):
             global_policy_manager=self._global_policy_manager,
             notification_callback=notification_callback,
             streaming_enabled=self._streaming_enabled,
+            loop_guard_limit=self._loop_guard_limit,
         )
-        return self._agent_loop
 
     async def process(self, context: PromptContext) -> PromptContext:
         """Обработать prompt через AgentLoop.
@@ -218,6 +235,7 @@ class LLMLoopStage(PromptStage):
                 ack_text = f"ACK: {context.raw_text[:80]}"
                 ack_content = {"type": "text", "text": ack_text}
                 from codelab.server.messages import ACPMessage
+
                 context.notifications.append(
                     ACPMessage.notification(
                         "session/update",
@@ -302,23 +320,10 @@ class LLMLoopStage(PromptStage):
                     session_id=session_id,
                 )
                 from codelab.server.protocol.state import LLMLoopResult
+
                 return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-            self._agent_loop = AgentLoop(
-                strategy=strategy,
-                tool_registry=self._tool_registry,
-                tool_call_handler=self._tool_call_handler,
-                permission_manager=self._permission_manager,
-                state_manager=self._state_manager,
-                content_extractor=self._content_extractor,
-                content_validator=self._content_validator,
-                content_formatter=self._content_formatter,
-                replay_manager=self._replay_manager,
-                plan_builder=self._plan_builder,
-                system_prompt_builder=self._system_prompt_builder,
-                global_policy_manager=self._global_policy_manager,
-                notification_callback=notification_callback,
-            )
+            self._agent_loop = self._build_agent_loop(strategy, notification_callback)
         else:
             # Обновить callback в существующем AgentLoop для немедленной отправки notifications
             if notification_callback is not None:
@@ -343,6 +348,7 @@ class LLMLoopStage(PromptStage):
 
         # Конвертировать AgentLoopResult → LLMLoopResult
         from codelab.server.protocol.state import LLMLoopResult
+
         stop_reason = (
             result.stop_reason.value
             if isinstance(result.stop_reason, StopReason)

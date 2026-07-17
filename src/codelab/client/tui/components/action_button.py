@@ -19,16 +19,16 @@ ButtonVariant = Literal["primary", "secondary", "danger", "ghost"]
 
 class ActionButton(Button):
     """Стилизованная кнопка действия.
-    
+
     Расширяет стандартную Button с дополнительной стилизацией
     и поддержкой иконок.
-    
+
     Варианты оформления:
         - primary: основное действие (акцентный цвет)
         - secondary: второстепенное действие (приглушённый)
         - danger: опасное действие (красный)
         - ghost: минималистичный (без фона)
-    
+
     Пример использования:
         >>> button = ActionButton("Save", variant="primary", icon="💾")
         >>> button = ActionButton("Delete", variant="danger", icon="🗑️")
@@ -104,7 +104,7 @@ class ActionButton(Button):
         classes: str | None = None,
     ) -> None:
         """Создаёт кнопку действия.
-        
+
         Args:
             label: Текст кнопки
             variant: Вариант оформления (primary, secondary, danger, ghost)
@@ -116,12 +116,12 @@ class ActionButton(Button):
         """
         # Формируем label с иконкой
         display_label = f"{icon} {label}" if icon else label
-        
+
         # Добавляем класс варианта
         css_classes = variant
         if classes:
             css_classes = f"{variant} {classes}"
-        
+
         super().__init__(
             display_label,
             disabled=disabled,
@@ -129,22 +129,22 @@ class ActionButton(Button):
             id=id,
             classes=css_classes,
         )
-        
+
         # Инициализируем приватные поля ПОСЛЕ вызова super().__init__()
         # _button_variant для нашего стиля (отличается от родительского variant)
         self._button_variant = variant
         self._icon = icon
         self._label = label
-    
+
     @property
     def button_variant(self) -> ButtonVariant:
         """Текущий вариант оформления кнопки (наш стиль)."""
         return self._button_variant
-    
+
     @button_variant.setter
     def button_variant(self, value: ButtonVariant) -> None:
         """Изменить вариант оформления кнопки.
-        
+
         Args:
             value: Новый вариант (primary, secondary, danger, ghost)
         """
@@ -153,16 +153,16 @@ class ActionButton(Button):
         # Устанавливаем новый
         self._button_variant = value
         self.add_class(value)
-    
+
     @property
     def icon(self) -> str | None:
         """Иконка кнопки."""
         return self._icon
-    
+
     @icon.setter
     def icon(self, value: str | None) -> None:
         """Изменить иконку кнопки.
-        
+
         Args:
             value: Новая иконка (emoji/символ) или None для удаления
         """
@@ -174,9 +174,9 @@ class ActionButton(Button):
 
 class IconButton(Static):
     """Кнопка-иконка без текста.
-    
+
     Компактная кнопка только с иконкой для тулбаров и панелей.
-    
+
     Пример использования:
         >>> button = IconButton("❌", variant="ghost", tooltip="Закрыть")
     """
@@ -184,10 +184,10 @@ class IconButton(Static):
     # Сообщение о нажатии кнопки
     class Pressed(Message):
         """Событие нажатия на иконку."""
-        
+
         def __init__(self, button: IconButton) -> None:
             """Создать событие нажатия.
-            
+
             Args:
                 button: Кнопка, на которую нажали
             """
@@ -235,7 +235,7 @@ class IconButton(Static):
         classes: str | None = None,
     ) -> None:
         """Создаёт кнопку-иконку.
-        
+
         Args:
             icon: Иконка (emoji/символ)
             variant: Вариант оформления для цвета
@@ -250,23 +250,23 @@ class IconButton(Static):
             css_classes = f"{variant} {classes}"
         if disabled:
             css_classes = f"{css_classes} -disabled"
-        
+
         super().__init__(icon, name=name, id=id, classes=css_classes)
-        
+
         self._icon = icon
         self._variant = variant
         self._tooltip = tooltip
         self._disabled = disabled
-    
+
     @property
     def disabled(self) -> bool:
         """Отключена ли кнопка."""
         return self._disabled
-    
+
     @disabled.setter
     def disabled(self, value: bool) -> None:
         """Установить состояние disabled.
-        
+
         Args:
             value: True для отключения кнопки
         """
@@ -275,7 +275,7 @@ class IconButton(Static):
             self.add_class("-disabled")
         else:
             self.remove_class("-disabled")
-    
+
     def on_click(self) -> None:
         """Обработчик клика - отправляет событие Pressed."""
         if not self._disabled:

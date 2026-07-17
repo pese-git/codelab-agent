@@ -121,25 +121,19 @@ class TestDecideToolPolicyAsync:
     async def test_async_global_policy_allow(self, session: SessionState) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = "allow_always"
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "allow"
 
     async def test_async_global_policy_reject(self, session: SessionState) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = "reject_always"
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "reject"
 
     async def test_async_global_policy_none_asks(self, session: SessionState) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = None
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "ask"
 
     async def test_async_session_policy_takes_precedence_over_global(
@@ -149,9 +143,7 @@ class TestDecideToolPolicyAsync:
         session.permission_policy["execute"] = "reject_always"
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = "allow_always"
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "reject"
 
     async def test_async_global_policy_not_called_for_plan_mode(
@@ -160,9 +152,7 @@ class TestDecideToolPolicyAsync:
         """В plan mode global policy не проверяется."""
         session.config_values["mode"] = "plan"
         global_policy_manager = AsyncMock()
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "reject"
         global_policy_manager.get_global_policy.assert_not_called()
 
@@ -172,8 +162,6 @@ class TestDecideToolPolicyAsync:
         """В bypass mode global policy не проверяется."""
         session.config_values["mode"] = "bypass"
         global_policy_manager = AsyncMock()
-        result = await decide_tool_policy_async(
-            session, "execute", global_policy_manager
-        )
+        result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "allow"
         global_policy_manager.get_global_policy.assert_not_called()

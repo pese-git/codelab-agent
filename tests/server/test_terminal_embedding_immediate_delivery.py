@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 
 
 @pytest.fixture
@@ -72,11 +72,7 @@ class TestTerminalEmbeddingImmediateDelivery:
             send_times.append(time.time())
 
         # Создание AgentLoop с callback
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Создание notification с terminal content
         start_time = time.time()
@@ -100,7 +96,7 @@ class TestTerminalEmbeddingImmediateDelivery:
         )
 
         # Отправка через immediate delivery
-        await loop._send_notification_immediately(terminal_notification)
+        await sink.emit(terminal_notification)
         end_time = time.time()
 
         # Проверки
@@ -121,11 +117,7 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Создание notification с terminal content
         terminal_notification = ACPMessage.notification(
@@ -143,7 +135,7 @@ class TestTerminalEmbeddingImmediateDelivery:
             },
         )
 
-        await loop._send_notification_immediately(terminal_notification)
+        await sink.emit(terminal_notification)
 
         # Проверка что notification содержит terminalId
         assert len(sent_notifications) == 1
@@ -169,11 +161,7 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Создание notification с terminal content
         terminal_notification = ACPMessage.notification(
@@ -195,7 +183,7 @@ class TestTerminalEmbeddingImmediateDelivery:
             },
         )
 
-        await loop._send_notification_immediately(terminal_notification)
+        await sink.emit(terminal_notification)
 
         # Проверка что notification содержит terminal content
         assert len(sent_notifications) == 1
@@ -225,11 +213,7 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Симуляция получения notification клиентом
         terminal_notification = ACPMessage.notification(
@@ -247,7 +231,7 @@ class TestTerminalEmbeddingImmediateDelivery:
             },
         )
 
-        await loop._send_notification_immediately(terminal_notification)
+        await sink.emit(terminal_notification)
 
         # Проверка что клиент получил notification и может извлечь terminalId
         assert len(sent_notifications) == 1

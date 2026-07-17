@@ -202,22 +202,26 @@ class TestMCPPromptCommandHandlerExecuteAsync:
     async def test_execute_success(self):
         """Успешный вызов prompt."""
         mock_manager = AsyncMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "server1": [
-                MCPPrompt(
-                    name="code_review",
-                    arguments=[
-                        MCPPromptArgument(name="language", required=True),
-                    ],
-                ),
-            ],
-        })
-        mock_manager.get_prompt = AsyncMock(return_value=MCPGetPromptResult(
-            description="Code review prompt",
-            messages=[
-                {"role": "assistant", "content": {"type": "text", "text": "Reviewing..."}},
-            ],
-        ))
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "server1": [
+                    MCPPrompt(
+                        name="code_review",
+                        arguments=[
+                            MCPPromptArgument(name="language", required=True),
+                        ],
+                    ),
+                ],
+            }
+        )
+        mock_manager.get_prompt = AsyncMock(
+            return_value=MCPGetPromptResult(
+                description="Code review prompt",
+                messages=[
+                    {"role": "assistant", "content": {"type": "text", "text": "Reviewing..."}},
+                ],
+            )
+        )
 
         handler = MCPPromptCommandHandler(
             server_id="server1",
@@ -282,14 +286,18 @@ class TestMCPPromptCommandHandlerExecuteAsync:
     async def test_execute_no_arguments(self):
         """Вызов без аргументов."""
         mock_manager = AsyncMock()
-        mock_manager.get_all_prompts = AsyncMock(return_value={
-            "server1": [MCPPrompt(name="simple")],
-        })
-        mock_manager.get_prompt = AsyncMock(return_value=MCPGetPromptResult(
-            messages=[
-                {"role": "assistant", "content": {"type": "text", "text": "Result"}},
-            ],
-        ))
+        mock_manager.get_all_prompts = AsyncMock(
+            return_value={
+                "server1": [MCPPrompt(name="simple")],
+            }
+        )
+        mock_manager.get_prompt = AsyncMock(
+            return_value=MCPGetPromptResult(
+                messages=[
+                    {"role": "assistant", "content": {"type": "text", "text": "Result"}},
+                ],
+            )
+        )
 
         handler = MCPPromptCommandHandler(
             server_id="server1",

@@ -64,6 +64,17 @@ from codelab.client.tui.components.command_palette import Command
 from codelab.client.tui.config import TUIConfig
 
 
+def _close_coro(coro: Any, **_kwargs: Any) -> None:
+    """side_effect для мока run_worker: закрыть переданную корутину.
+
+    В проде run_worker планирует и исполняет корутину; в тестах с мокнутым
+    run_worker корутина иначе утекает незавершённой и порождает order-dependent
+    RuntimeWarning "coroutine was never awaited".
+    """
+    if hasattr(coro, "close"):
+        coro.close()
+
+
 @contextmanager
 def _patched_app(
     *,
@@ -403,9 +414,10 @@ class TestACPClientAppSidebar:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.action_toggle_sidebar()
-                assert app._sidebar_visible is False
+                assert app._main_layout is not None
+                assert app._main_layout.sidebar_visible is False
                 app.action_toggle_sidebar()
-                assert app._sidebar_visible is True
+                assert app._main_layout.sidebar_visible is True
 
     async def test_action_focus_session_list(self) -> None:
         """Фокус на список сессий."""
@@ -506,7 +518,7 @@ class TestACPClientAppSessions:
             )
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await app._load_selected_session_history("sess_1")
+                await app._sessions._load_history("sess_1")
                 deps["coordinator"].load_session.assert_awaited_with(
                     "sess_1",
                     app._host,
@@ -521,7 +533,7 @@ class TestACPClientAppSessions:
             deps["coordinator"].load_session = AsyncMock(side_effect=RuntimeError("fail"))
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await app._load_selected_session_history("sess_1")
+                await app._sessions._load_history("sess_1")
 
 
 class TestACPClientAppPrompt:
@@ -585,6 +597,28 @@ class TestACPClientAppPrompt:
                 await pilot.pause()
                 app.action_cancel_prompt()
                 deps["coordinator"].cancel_prompt.assert_not_awaited()
+
+    async def test_action_clear_chat(self) -> None:
+        """Ctrl+L очищает историю активной сессии через clear_chat_cmd."""
+        with _patched_app() as (app, deps):
+            chat_vm = deps["chat_vm"]
+            chat_vm.messages.value = [{"role": "user", "content": "hi"}]
+            chat_vm.tool_calls.value = [{"id": "t1"}]
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_clear_chat()
+                await pilot.pause()
+                await pilot.pause()
+                assert chat_vm.messages.value == []
+                assert chat_vm.tool_calls.value == []
+
+    async def test_action_cycle_focus(self) -> None:
+        """Tab переводит фокус на следующий виджет без исключений."""
+        with _patched_app() as (app, _deps):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.action_cycle_focus()
+                await pilot.pause()
 
     async def test_on_prompt_input_cancelled(self) -> None:
         """Событие отмены из PromptInput вызывает action_cancel_prompt."""
@@ -767,7 +801,7 @@ class TestACPClientAppPermission:
                 mock_chat_view = MagicMock()
                 mock_chat_view.show_permission_request.side_effect = RuntimeError("no chat")
                 app._chat_view = mock_chat_view
-                
+
                 tool_call = PermissionToolCall(toolCallId="call_1", title="Run")
                 options = [PermissionOption(optionId="allow", name="Allow", kind="allow_once")]
                 callback = MagicMock()
@@ -849,7 +883,7 @@ class TestACPClientAppConfigOptions:
                         "options": [{"value": "openai/gpt-4o", "name": "GPT-4o"}],
                     }
                 ]
-                app._on_config_option_updated(event)
+                app._config_options.apply(event)
                 assert deps["model_selector_vm"].current_model.value == "openai/gpt-4o"
 
     async def test_on_config_option_updated_without_data(self) -> None:
@@ -860,7 +894,7 @@ class TestACPClientAppConfigOptions:
                 event = MagicMock()
                 event.session_id = None
                 event.config_options = []
-                app._on_config_option_updated(event)
+                app._config_options.apply(event)
 
 
 class TestACPClientAppStdioMode:
@@ -918,17 +952,6 @@ class TestACPClientAppAdditionalCoverage:
 
             app = ACPClientApp(host="127.0.0.1", port=8765)
             assert app._ui_vm is ui_vm
-
-    async def test_on_ready_navigation_manager_error(self) -> None:
-        """Ошибка инициализации NavigationManager не прерывает on_ready."""
-        with _patched_app() as (app, _deps):
-            with patch(
-                "codelab.client.tui.app.NavigationManager",
-                side_effect=RuntimeError("fail"),
-            ):
-                async with app.run_test() as pilot:
-                    await pilot.pause()
-                    assert app._navigation_manager is None
 
     async def test_sidebar_state_changed_file_tree_not_found(self) -> None:
         """Исключение при поиске FileTree не прерывает _on_sidebar_state_changed."""
@@ -1008,7 +1031,9 @@ class TestACPClientAppAdditionalCoverage:
                 await pilot.pause()
                 modal = app.screen
                 assert isinstance(modal, ModelSelectorModal)
-                with patch.object(app, "run_worker"):
+                # run_worker в проде потребляет корутину execute(); в тесте закрываем её
+                # сами, иначе она утекает и даёт order-dependent "coroutine never awaited".
+                with patch.object(app, "run_worker", side_effect=_close_coro):
                     modal.dismiss("openai/gpt-4o")
                     await pilot.pause()
                     await pilot.pause()
@@ -1029,12 +1054,12 @@ class TestACPClientAppAdditionalCoverage:
                     mock_worker.assert_not_called()
 
     async def test_open_config_selector_no_session(self) -> None:
-        """_open_config_option_selector без сессии показывает предупреждение."""
+        """ModalController.open_config_option без сессии показывает предупреждение."""
         with _patched_app() as (app, deps):
             async with app.run_test() as pilot:
                 await pilot.pause()
                 deps["session_vm"].selected_session_id.value = None
-                app._open_config_option_selector(deps["mode_selector_vm"], "mode")
+                app._modals.open_config_option(deps["mode_selector_vm"], "mode")
 
     async def test_config_option_callback_selected(self) -> None:
         """on_option_selected callback с value логирует выбор."""
@@ -1045,9 +1070,11 @@ class TestACPClientAppAdditionalCoverage:
                 app.action_select_mode()
                 await pilot.pause()
                 from codelab.client.tui.components import ConfigOptionSelectorModal
+
                 modal = app.screen
                 assert isinstance(modal, ConfigOptionSelectorModal)
-                with patch.object(app, "run_worker"):
+                # см. комментарий в test_select_model_callback_selected: закрываем корутину.
+                with patch.object(app, "run_worker", side_effect=_close_coro):
                     modal.dismiss("code")
                     await pilot.pause()
                     await pilot.pause()
@@ -1061,6 +1088,7 @@ class TestACPClientAppAdditionalCoverage:
                 app.action_select_mode()
                 await pilot.pause()
                 from codelab.client.tui.components import ConfigOptionSelectorModal
+
                 modal = app.screen
                 assert isinstance(modal, ConfigOptionSelectorModal)
                 with patch.object(app, "run_worker") as mock_worker:
@@ -1097,7 +1125,7 @@ class TestACPClientAppAdditionalCoverage:
         with _patched_app() as (app, deps):
             async with app.run_test() as pilot:
                 await pilot.pause()
-                app._on_selected_session_changed(None)
+                app._sessions.on_selected_session_changed(None)
                 await pilot.pause()
                 deps["coordinator"].load_session.assert_not_awaited()
 

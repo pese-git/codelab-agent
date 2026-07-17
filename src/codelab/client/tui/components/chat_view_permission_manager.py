@@ -36,21 +36,22 @@ if TYPE_CHECKING:
 @dataclass
 class PermissionWidgetInfo:
     """Информация о текущем виджете разрешения для пересоздания."""
-    
+
     request_id: str | int
     tool_call: PermissionToolCall
     options: list[PermissionOption]
     on_choice: Callable[[str | int, str], None]
     auto_deny_seconds: int | None = None
+    message: str = ""
 
 
 class PermissionWidgetType(Enum):
     """Тип виджета разрешения.
-    
+
     - INLINE: базовый виджет с кнопками (InlinePermissionWidget)
     - REQUEST: расширенный виджет с иконками и автоотклонением (PermissionRequest)
     """
-    
+
     INLINE = "inline"
     REQUEST = "request"
 
@@ -109,6 +110,10 @@ class ChatViewPermissionManager:
         self.widget_type = widget_type
         self._current_widget: InlinePermissionWidget | PermissionRequest | None = None
         self._current_widget_info: PermissionWidgetInfo | None = None
+        # Очередь ещё не показанных запросов: второй запрос не вытесняет
+        # неотвеченный первый (иначе первый оставался без ответа на сервере),
+        # а ждёт его разрешения (tech-debt #19).
+        self._queue: list[PermissionWidgetInfo] = []
         self._logger = structlog.get_logger("chat_view_permission_manager")
 
         # Подписаться на изменения видимости в ViewModel
@@ -146,19 +151,31 @@ class ChatViewPermissionManager:
             has_existing_widget=self._current_widget is not None,
         )
 
-        # Если виджет уже показан, скрыть его перед созданием нового
-        if self._current_widget is not None:
-            self._logger.info("hiding_existing_permission_widget_before_showing_new")
-            self.hide_permission_request()
-
-        # Сохранить информацию о виджете для пересоздания
-        self._current_widget_info = PermissionWidgetInfo(
+        info = PermissionWidgetInfo(
             request_id=request_id,
             tool_call=tool_call,
             options=options,
             on_choice=on_choice,
             auto_deny_seconds=auto_deny_seconds,
+            message=self.permission_vm.message.value,
         )
+
+        # Не вытесняем неотвеченный запрос: ставим новый в очередь и покажем,
+        # когда текущий будет разрешён (tech-debt #19).
+        if self._current_widget is not None:
+            self._queue.append(info)
+            self._logger.info(
+                "permission_request_queued",
+                request_id=request_id,
+                queue_len=len(self._queue),
+            )
+            return
+
+        self._show_widget(info)
+
+    def _show_widget(self, info: PermissionWidgetInfo) -> None:
+        """Создать и смонтировать виджет разрешения из сохранённой информации."""
+        self._current_widget_info = info
 
         # Установить is_visible = True, чтобы hide() мог уведомить подписчиков
         self.permission_vm.is_visible.value = True
@@ -166,34 +183,34 @@ class ChatViewPermissionManager:
         # Создать виджет в зависимости от типа
         if self.widget_type == PermissionWidgetType.REQUEST:
             # Определяем тип разрешения из tool_call.kind
-            kind = tool_call.kind or "unknown"
+            kind = info.tool_call.kind or "unknown"
             permission_type = self._get_permission_type(kind)
-            
+
             self._logger.info(
                 "creating_permission_request_widget",
                 permission_type=permission_type,
-                resource=tool_call.title or "",
+                resource=info.tool_call.title or "",
             )
-            
+
             self._current_widget = PermissionRequest(
                 permission_vm=self.permission_vm,
-                request_id=request_id,
+                request_id=info.request_id,
                 permission_type=permission_type,
-                resource=tool_call.title or "",
-                message=self.permission_vm.message.value,
-                options=options,
-                on_choice=on_choice,
-                auto_deny_seconds=auto_deny_seconds,
+                resource=info.tool_call.title or "",
+                message=info.message,
+                options=info.options,
+                on_choice=info.on_choice,
+                auto_deny_seconds=info.auto_deny_seconds,
             )
         else:
             # Создать InlinePermissionWidget (INLINE по умолчанию для обратной совместимости)
             self._logger.info("creating_inline_permission_widget")
             self._current_widget = InlinePermissionWidget(
                 permission_vm=self.permission_vm,
-                request_id=request_id,
-                tool_call=tool_call,
-                options=options,
-                on_choice=on_choice,
+                request_id=info.request_id,
+                tool_call=info.tool_call,
+                options=info.options,
+                on_choice=info.on_choice,
             )
 
         # Монтировать в permission_container если он доступен
@@ -204,26 +221,26 @@ class ChatViewPermissionManager:
                 widget_type=type(self._current_widget).__name__,
             )
             self.chat_view._permission_container.mount(self._current_widget)
-            
+
             self._logger.info(
                 "permission_widget_mounted",
-                request_id=request_id,
-                tool_call_kind=tool_call.kind,
+                request_id=info.request_id,
+                tool_call_kind=info.tool_call.kind,
                 widget_type=self.widget_type.value,
             )
         else:
             self._logger.error(
                 "chat_view_permission_container_not_available",
-                request_id=request_id,
+                request_id=info.request_id,
                 chat_view_id=self.chat_view.id,
             )
-    
+
     def _get_permission_type(self, kind: str) -> PermissionType:
         """Преобразовать tool_call.kind в PermissionType.
-        
+
         Args:
             kind: Тип tool call
-            
+
         Returns:
             Соответствующий PermissionType
         """
@@ -251,7 +268,7 @@ class ChatViewPermissionManager:
                     has_parent=widget_parent is not None,
                     parent_type=type(widget_parent).__name__ if widget_parent else None,
                 )
-                
+
                 if widget_parent is not None:
                     # Удаляем виджет напрямую
                     widget.remove()
@@ -306,10 +323,27 @@ class ChatViewPermissionManager:
         if not is_visible:
             self._logger.info("visibility_became_false_calling_hide")
             self.hide_permission_request()
+            # Текущий запрос разрешён — показать следующий из очереди (#19).
+            # Отложенно: чтобы remove() старого виджета завершился до монтирования
+            # нового (нет оверлея) и без вложенной нотификации is_visible.
+            if self._queue:
+                self.chat_view.call_after_refresh(self._show_next_queued)
+
+    def _show_next_queued(self) -> None:
+        """Показать следующий запрос из очереди, если он есть (fix #19)."""
+        if self._current_widget is not None or not self._queue:
+            return
+        next_info = self._queue.pop(0)
+        self._logger.info(
+            "showing_next_queued_permission_request",
+            request_id=next_info.request_id,
+            queue_len=len(self._queue),
+        )
+        self._show_widget(next_info)
 
     def get_widget_info(self) -> PermissionWidgetInfo | None:
         """Получить информацию о текущем виджете для пересоздания.
-        
+
         Returns:
             PermissionWidgetInfo если виджет существует, None иначе
         """
@@ -317,9 +351,9 @@ class ChatViewPermissionManager:
 
     def recreate_widget(self, info: PermissionWidgetInfo) -> None:
         """Пересоздать виджет разрешения с сохранённой информацией.
-        
+
         Используется при _update_display() для перемещения виджета в конец.
-        
+
         Args:
             info: Информация о виджете для пересоздания
         """
@@ -328,24 +362,24 @@ class ChatViewPermissionManager:
             request_id=info.request_id,
             widget_type=self.widget_type.value,
         )
-        
+
         # Скрыть текущий виджет если есть
         if self._current_widget is not None:
             self.hide_permission_request()
-        
+
         # Создать новый виджет с уникальным ID
         unique_id = f"perm-req-{info.request_id}-{int(time.time() * 1000000)}"
-        
+
         if self.widget_type == PermissionWidgetType.REQUEST:
             kind = info.tool_call.kind or "unknown"
             permission_type = self._get_permission_type(kind)
-            
+
             self._current_widget = PermissionRequest(
                 permission_vm=self.permission_vm,
                 request_id=info.request_id,
                 permission_type=permission_type,
                 resource=info.tool_call.title or "",
-                message=self.permission_vm.message.value,
+                message=info.message,
                 options=info.options,
                 on_choice=info.on_choice,
                 auto_deny_seconds=info.auto_deny_seconds,
@@ -360,7 +394,7 @@ class ChatViewPermissionManager:
                 on_choice=info.on_choice,
                 id=unique_id,
             )
-        
+
         # Монтировать в контейнер ChatView
         if self.chat_view._content_container is not None:
             self.chat_view._content_container.mount(self._current_widget)

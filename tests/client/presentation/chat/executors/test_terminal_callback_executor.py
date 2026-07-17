@@ -47,9 +47,7 @@ class TestTerminalCallbackExecutor:
         mock_executor.create_terminal.assert_called_once_with("echo hello")
 
     @pytest.mark.asyncio
-    async def test_create_terminal_empty_command(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_create_terminal_empty_command(self, executor: TerminalCallbackExecutor) -> None:
         """create_terminal должен отклонять пустые команды."""
         terminal_id, error = await executor.create_terminal("")
 
@@ -82,9 +80,7 @@ class TestTerminalCallbackExecutor:
         assert "failed" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_get_output_success(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_get_output_success(self, executor: TerminalCallbackExecutor) -> None:
         """get_output должен успешно получать вывод терминала."""
         terminal_id, _ = await executor.create_terminal("test")
         assert terminal_id is not None
@@ -97,9 +93,7 @@ class TestTerminalCallbackExecutor:
         assert output["truncated"] is False
 
     @pytest.mark.asyncio
-    async def test_get_output_not_found(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_get_output_not_found(self, executor: TerminalCallbackExecutor) -> None:
         """get_output должен возвращать ошибку для несуществующего терминала."""
         output, error = await executor.get_output("nonexistent")
 
@@ -125,9 +119,7 @@ class TestTerminalCallbackExecutor:
         assert "released" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_wait_for_exit_success(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_wait_for_exit_success(self, executor: TerminalCallbackExecutor) -> None:
         """wait_for_exit должен успешно ожидать завершения."""
         terminal_id, _ = await executor.create_terminal("test")
         assert terminal_id is not None
@@ -141,9 +133,7 @@ class TestTerminalCallbackExecutor:
         assert output == "final output"
 
     @pytest.mark.asyncio
-    async def test_wait_for_exit_not_found(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_wait_for_exit_not_found(self, executor: TerminalCallbackExecutor) -> None:
         """wait_for_exit должен возвращать ошибку для несуществующего терминала."""
         result, error = await executor.wait_for_exit("nonexistent")
 
@@ -165,9 +155,7 @@ class TestTerminalCallbackExecutor:
         mock_executor.release_terminal.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_release_terminal_not_found(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_release_terminal_not_found(self, executor: TerminalCallbackExecutor) -> None:
         """release_terminal должен возвращать ошибку для несуществующего терминала."""
         error = await executor.release_terminal("nonexistent")
 
@@ -175,9 +163,7 @@ class TestTerminalCallbackExecutor:
         assert "not found" in error.lower()
 
     @pytest.mark.asyncio
-    async def test_release_terminal_idempotent(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_release_terminal_idempotent(self, executor: TerminalCallbackExecutor) -> None:
         """release_terminal должен быть идемпотентным."""
         terminal_id, _ = await executor.create_terminal("test")
         assert terminal_id is not None
@@ -205,9 +191,7 @@ class TestTerminalCallbackExecutor:
         mock_executor.kill_terminal.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_kill_terminal_not_found(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_kill_terminal_not_found(self, executor: TerminalCallbackExecutor) -> None:
         """kill_terminal должен возвращать ошибку для несуществующего терминала."""
         success, error = await executor.kill_terminal("nonexistent")
 
@@ -235,9 +219,7 @@ class TestTerminalCallbackExecutor:
         assert info is None
 
     @pytest.mark.asyncio
-    async def test_get_terminal_info(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_get_terminal_info(self, executor: TerminalCallbackExecutor) -> None:
         """get_terminal_info должен возвращать информацию о терминале."""
         terminal_id, _ = await executor.create_terminal("echo test")
         assert terminal_id is not None
@@ -250,18 +232,14 @@ class TestTerminalCallbackExecutor:
         assert info["is_released"] is False
 
     @pytest.mark.asyncio
-    async def test_get_terminal_info_not_found(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_get_terminal_info_not_found(self, executor: TerminalCallbackExecutor) -> None:
         """get_terminal_info должен возвращать None для несуществующего терминала."""
         info = await executor.get_terminal_info("nonexistent")
 
         assert info is None
 
     @pytest.mark.asyncio
-    async def test_full_lifecycle(
-        self, executor: TerminalCallbackExecutor
-    ) -> None:
+    async def test_full_lifecycle(self, executor: TerminalCallbackExecutor) -> None:
         """Полный жизненный цикл терминала должен работать корректно."""
         # Создание
         terminal_id, error = await executor.create_terminal("test command")
@@ -286,3 +264,41 @@ class TestTerminalCallbackExecutor:
         info = await executor.get_terminal_info(terminal_id)
         assert info is not None
         assert info["is_released"] is True
+
+    @pytest.mark.asyncio
+    async def test_build_prompt_callbacks_wires_all_terminal_ops(
+        self, executor: TerminalCallbackExecutor, mock_executor: MockTerminalExecutor
+    ) -> None:
+        """build_prompt_callbacks строит on_terminal_* поверх реальных операций."""
+        callbacks = executor.build_prompt_callbacks()
+
+        assert set(callbacks) == {
+            "on_terminal_create",
+            "on_terminal_output",
+            "on_terminal_wait_for_exit",
+            "on_terminal_release",
+            "on_terminal_kill",
+        }
+
+        terminal_id = await callbacks["on_terminal_create"]("echo hi")
+        assert terminal_id is not None
+        mock_executor.create_terminal.assert_called_once_with("echo hi")
+
+        output = await callbacks["on_terminal_output"](terminal_id)
+        assert output["isComplete"] is True
+        assert "output" in output
+
+        await callbacks["on_terminal_wait_for_exit"](terminal_id)
+        await callbacks["on_terminal_release"](terminal_id)
+        killed = await callbacks["on_terminal_kill"](terminal_id)
+        assert killed is True
+
+    @pytest.mark.asyncio
+    async def test_build_prompt_callbacks_create_raises_on_error(
+        self, executor: TerminalCallbackExecutor
+    ) -> None:
+        """on_terminal_create бросает RuntimeError при ошибке создания."""
+        callbacks = executor.build_prompt_callbacks()
+
+        with pytest.raises(RuntimeError, match="Terminal creation failed"):
+            await callbacks["on_terminal_create"]("")

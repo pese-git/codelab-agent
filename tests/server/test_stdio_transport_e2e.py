@@ -28,12 +28,14 @@ CLI_PATH = str((_PROJECT_ROOT / "src" / "codelab" / "cli.py").resolve())
 
 def _make_request(method: str, params: dict, request_id: int = 1) -> str:
     """Создать JSON-RPC request строку."""
-    return json.dumps({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": method,
-        "params": params,
-    })
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        }
+    )
 
 
 async def _read_json_response(proc: asyncio.subprocess.Process, timeout: float = 10.0) -> dict:
@@ -99,12 +101,14 @@ async def _read_until_response(
 def _server_env(tmp_cwd: Path) -> dict[str, str]:
     """Создать окружение для запуска сервера."""
     env = os.environ.copy()
-    env.update({
-        "CODELAB_LLM_PROVIDER": "mock",
-        "CODELAB_HOME": str(tmp_cwd / ".codelab"),
-        # Фиктивный API ключ для предотвращения ошибок инициализации провайдеров
-        "OPENAI_API_KEY": "test-key-not-real",
-    })
+    env.update(
+        {
+            "CODELAB_LLM_PROVIDER": "mock",
+            "CODELAB_HOME": str(tmp_cwd / ".codelab"),
+            # Фиктивный API ключ для предотвращения ошибок инициализации провайдеров
+            "OPENAI_API_KEY": "test-key-not-real",
+        }
+    )
     return env
 
 
@@ -169,12 +173,18 @@ async def test_stdio_server_starts_and_responds_to_initialize(tmp_cwd: Path) -> 
 
         # Отправляем initialize
         assert proc.stdin is not None
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         # Читаем ответ
@@ -201,24 +211,37 @@ async def test_stdio_server_session_lifecycle(tmp_cwd: Path) -> None:
         assert proc.stdin is not None
 
         # 1. Initialize
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         init_response = await _read_json_response(proc)
         assert init_response["result"]["protocolVersion"] == 1
 
         # 2. Session new
-        proc.stdin.write((
-            _make_request("session/new", {
-                "cwd": str(tmp_cwd),
-                "mcpServers": [],
-            }, request_id=2) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "session/new",
+                    {
+                        "cwd": str(tmp_cwd),
+                        "mcpServers": [],
+                    },
+                    request_id=2,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         new_response = await _read_json_response(proc)
@@ -228,9 +251,7 @@ async def test_stdio_server_session_lifecycle(tmp_cwd: Path) -> None:
         assert session_id.startswith("sess_")
 
         # 3. Session list
-        proc.stdin.write((
-            _make_request("session/list", {}, request_id=3) + "\n"
-        ).encode())
+        proc.stdin.write((_make_request("session/list", {}, request_id=3) + "\n").encode())
         await proc.stdin.drain()
 
         list_response = await _read_json_response(proc)
@@ -279,9 +300,7 @@ async def test_stdio_server_handles_method_not_found(tmp_cwd: Path) -> None:
         assert proc.stdin is not None
 
         # Отправляем неизвестный метод
-        proc.stdin.write((
-            _make_request("unknown/method", {}, request_id=42) + "\n"
-        ).encode())
+        proc.stdin.write((_make_request("unknown/method", {}, request_id=42) + "\n").encode())
         await proc.stdin.drain()
 
         response = await _read_json_response(proc)
@@ -318,12 +337,18 @@ async def test_stdio_server_handles_empty_lines(tmp_cwd: Path) -> None:
 
         # Отправляем пустую строку, затем валидный запрос
         proc.stdin.write(b"\n")
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         # Должен прийти ответ на initialize
@@ -345,24 +370,38 @@ async def test_stdio_server_multiple_requests_in_sequence(tmp_cwd: Path) -> None
         assert proc.stdin is not None
 
         # Отправляем initialize
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }, request_id=1) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                    request_id=1,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         response1 = await _read_json_response(proc)
         assert response1["id"] == 1
 
         # Создаем сессию
-        proc.stdin.write((
-            _make_request("session/new", {
-                "cwd": str(tmp_cwd),
-                "mcpServers": [],
-            }, request_id=2) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "session/new",
+                    {
+                        "cwd": str(tmp_cwd),
+                        "mcpServers": [],
+                    },
+                    request_id=2,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         response2 = await _read_json_response(proc)
@@ -370,13 +409,20 @@ async def test_stdio_server_multiple_requests_in_sequence(tmp_cwd: Path) -> None
         session_id = response2["result"]["sessionId"]
 
         # Загружаем сессию
-        proc.stdin.write((
-            _make_request("session/load", {
-                "sessionId": session_id,
-                "cwd": str(tmp_cwd),
-                "mcpServers": [],
-            }, request_id=3) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "session/load",
+                    {
+                        "sessionId": session_id,
+                        "cwd": str(tmp_cwd),
+                        "mcpServers": [],
+                    },
+                    request_id=3,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         # Load возвращает response + notifications
@@ -400,12 +446,18 @@ async def test_stdio_server_logs_go_to_stderr(tmp_cwd: Path) -> None:
         assert proc.stdin is not None
 
         # Отправляем запрос
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         # Читаем ответ из stdout
@@ -464,10 +516,7 @@ async def test_stdio_send_lock_prevents_race_condition() -> None:
 
     with patch.object(sys, "stdout", buffer=mock_buffer):
         # Запускаем несколько concurrent send() вызовов
-        messages = [
-            ACPMessage.response(i, {"value": i})
-            for i in range(1, 21)
-        ]
+        messages = [ACPMessage.response(i, {"value": i}) for i in range(1, 21)]
 
         tasks = [transport.send(msg) for msg in messages]
         await asyncio.gather(*tasks)
@@ -508,35 +557,56 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
         assert proc.stdin is not None
 
         # 1. initialize
-        proc.stdin.write((
-            _make_request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-            }, request_id=1) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "initialize",
+                    {
+                        "protocolVersion": 1,
+                        "clientCapabilities": {},
+                    },
+                    request_id=1,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
         init_response = await _read_json_response(proc)
         assert init_response["id"] == 1
 
         # 2. session/new
-        proc.stdin.write((
-            _make_request("session/new", {
-                "cwd": str(tmp_cwd),
-                "mcpServers": [],
-            }, request_id=2) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "session/new",
+                    {
+                        "cwd": str(tmp_cwd),
+                        "mcpServers": [],
+                    },
+                    request_id=2,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
         new_response = await _read_json_response(proc)
         assert new_response["id"] == 2
         session_id = new_response["result"]["sessionId"]
 
         # 3. session/prompt — отправляем текстовый промпт агенту
-        proc.stdin.write((
-            _make_request("session/prompt", {
-                "sessionId": session_id,
-                "prompt": [{"type": "text", "text": "Привет, агент"}],
-            }, request_id=3) + "\n"
-        ).encode())
+        proc.stdin.write(
+            (
+                _make_request(
+                    "session/prompt",
+                    {
+                        "sessionId": session_id,
+                        "prompt": [{"type": "text", "text": "Привет, агент"}],
+                    },
+                    request_id=3,
+                )
+                + "\n"
+            ).encode()
+        )
         await proc.stdin.drain()
 
         # Читаем стрим notifications до финального ответа на prompt
@@ -546,15 +616,13 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
         assert prompt_response["result"]["stopReason"] == "end_turn"
 
         # Среди notifications должен быть session/update с ответом mock LLM
-        session_updates = [
-            n for n in notifications if n.get("method") == "session/update"
-        ]
+        session_updates = [n for n in notifications if n.get("method") == "session/update"]
         assert session_updates, "ожидались session/update notifications во время turn"
 
         agent_chunks = [
-            n for n in session_updates
-            if n.get("params", {}).get("update", {}).get("sessionUpdate")
-            == "agent_message_chunk"
+            n
+            for n in session_updates
+            if n.get("params", {}).get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
         assert agent_chunks, "ожидался хотя бы один agent_message_chunk"
 
@@ -565,8 +633,7 @@ async def test_stdio_full_prompt_turn_streams_agent_response(tmp_cwd: Path) -> N
         # Окружение изолировано (CODELAB_HOME указывает на пустую tmp-директорию,
         # CODELAB_LLM_PROVIDER=mock), поэтому ответ детерминирован — mock LLM.
         streamed_text = "".join(
-            chunk["params"]["update"].get("content", {}).get("text", "")
-            for chunk in agent_chunks
+            chunk["params"]["update"].get("content", {}).get("text", "") for chunk in agent_chunks
         )
         assert "Mock response" in streamed_text
 

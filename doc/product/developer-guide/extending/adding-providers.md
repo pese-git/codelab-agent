@@ -186,10 +186,10 @@ MY_PROVIDER_INFO = ProviderInfo(
 
 ## Шаг 3: Зарегистрировать провайдер в Registry
 
-Добавьте регистрацию в DI контейнер (`di.py`):
+Добавьте регистрацию в DI контейнер (пакет `di/`, `llm.py`):
 
 ```python
-# codelab/server/di.py
+# codelab/server/di/llm.py
 
 from codelab.server.llm.providers.my_provider import MyProvider, MY_PROVIDER_INFO
 

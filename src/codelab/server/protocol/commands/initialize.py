@@ -40,8 +40,7 @@ class InitializeCommandHandler:
         auth_methods: list[dict[str, Any]],
         mcp_http_enabled: bool = True,
         mcp_sse_enabled: bool = True,
-        on_capabilities_negotiated: Callable[[ClientRuntimeCapabilities], None]
-        | None = None,
+        on_capabilities_negotiated: Callable[[ClientRuntimeCapabilities], None] | None = None,
     ) -> None:
         """Инициализирует обработчик.
 
@@ -84,17 +83,13 @@ class InitializeCommandHandler:
         # Сохраняем согласованные runtime-возможности клиента
         client_capabilities = params.get("clientCapabilities")
         if isinstance(client_capabilities, dict):
-            parsed_capabilities = auth.parse_client_runtime_capabilities(
-                client_capabilities
-            )
+            parsed_capabilities = auth.parse_client_runtime_capabilities(client_capabilities)
             if self._on_capabilities_negotiated:
                 self._on_capabilities_negotiated(parsed_capabilities)
 
         logger.debug(
             "initialize_handshake_completed",
-            protocol_version=response.result.get("protocolVersion")
-            if response.result
-            else None,
+            protocol_version=response.result.get("protocolVersion") if response.result else None,
         )
 
         return ProtocolOutcome(response=response)

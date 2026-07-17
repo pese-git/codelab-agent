@@ -69,9 +69,7 @@ class CommandRegistry:
             ValueError: Если handler с таким method_name уже зарегистрирован.
         """
         if handler.method_name in self._handlers:
-            raise ValueError(
-                f"Handler for method '{handler.method_name}' is already registered"
-            )
+            raise ValueError(f"Handler for method '{handler.method_name}' is already registered")
         self._handlers[handler.method_name] = handler
 
     def register_extension(self, handler: CommandHandler) -> None:
@@ -86,9 +84,7 @@ class CommandRegistry:
             ValueError: Если method_name не начинается с '_' или уже зарегистрирован.
         """
         if not handler.method_name.startswith("_"):
-            raise ValueError(
-                f"Extension method '{handler.method_name}' must start with '_'"
-            )
+            raise ValueError(f"Extension method '{handler.method_name}' must start with '_'")
         self.register(handler)
 
     def get(self, method: str) -> CommandHandler | None:

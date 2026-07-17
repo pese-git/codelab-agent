@@ -14,20 +14,20 @@ from codelab.client.presentation.observable import Observable
 
 class PlanViewModel(BaseViewModel):
     """ViewModel для отображения плана агента.
-    
+
     Хранит состояние плана:
     - plan_text: текст плана
     - has_plan: флаг наличия активного плана
-    
+
     Пример использования:
         >>> vm = PlanViewModel()
-        >>> 
+        >>>
         >>> # Подписаться на изменения плана
         >>> vm.plan_text.subscribe(lambda p: print(f"Plan: {p}"))
-        >>> 
+        >>>
         >>> # Установить новый план
         >>> vm.set_plan("1. Задача A\\n2. Задача B")
-        >>> 
+        >>>
         >>> # Очистить план
         >>> vm.clear_plan()
     """
@@ -38,13 +38,13 @@ class PlanViewModel(BaseViewModel):
         logger: Any | None = None,
     ) -> None:
         """Инициализировать PlanViewModel.
-        
+
         Args:
             event_bus: EventBus для публикации/подписки на события
             logger: Logger для логирования
         """
         super().__init__(event_bus, logger)
-        
+
         # Observable свойства
         self._plan_text: Observable[str] = Observable("")
         self._has_plan: Observable[bool] = Observable(False)
@@ -61,7 +61,7 @@ class PlanViewModel(BaseViewModel):
 
     def set_plan(self, plan: str) -> None:
         """Установить новый план.
-        
+
         Args:
             plan: Текст плана
         """

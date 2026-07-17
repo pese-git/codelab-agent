@@ -91,8 +91,11 @@ class SessionNotificationBus:
             try:
                 # Используем asyncio для async доставки
                 import asyncio
+
                 loop = asyncio.get_running_loop()
-                loop.create_task(callback(message))
+                # callback возвращает Awaitable[None] (не обязательно Coroutine),
+                # поэтому планируем через ensure_future, а не loop.create_task.
+                asyncio.ensure_future(callback(message), loop=loop)
             except RuntimeError:
                 # Нет running loop — пропускаем
                 logger.warning(

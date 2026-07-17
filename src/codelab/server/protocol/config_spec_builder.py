@@ -180,11 +180,13 @@ class ConfigSpecBuilder:
 
         options = []
         for agent in sorted_agents:
-            options.append({
-                "value": agent.name,
-                "name": agent.name.capitalize(),
-                "description": f"{agent.model} (priority: {agent.priority})",
-            })
+            options.append(
+                {
+                    "value": agent.name,
+                    "name": agent.name.capitalize(),
+                    "description": f"{agent.model} (priority: {agent.priority})",
+                }
+            )
 
         default_agent = sorted_agents[0].name
 
@@ -242,11 +244,13 @@ class ConfigSpecBuilder:
         options = []
         for descriptor in available:
             meta = _STRATEGY_METADATA.get(descriptor.name, {})
-            options.append({
-                "value": descriptor.name,
-                "name": meta.get("name", descriptor.display_name),
-                "description": meta.get("description", descriptor.description),
-            })
+            options.append(
+                {
+                    "value": descriptor.name,
+                    "name": meta.get("name", descriptor.display_name),
+                    "description": meta.get("description", descriptor.description),
+                }
+            )
 
         # Текущая стратегия по умолчанию — первая доступная
         default_strategy = available[0].name if available else "single"

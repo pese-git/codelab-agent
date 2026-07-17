@@ -19,28 +19,29 @@ from pydantic import BaseModel, ConfigDict, Field
 @dataclass
 class PendingRequest:
     """Ожидающий RPC запрос с поддержкой отмены.
-    
+
     Хранит состояние ожидающего RPC запроса, включая Future для получения
     результата и Event для координированной отмены без timeout.
-    
+
     Attributes:
         future: asyncio.Future для получения результата от клиента
         cancellation_event: Event для сигнализации об отмене запроса
         method: Имя вызываемого RPC метода (для логирования/диагностики)
         created_at: Время создания запроса (Unix timestamp)
     """
-    
+
     future: asyncio.Future[Any]
     cancellation_event: asyncio.Event = field(default_factory=asyncio.Event)
     method: str = ""
     created_at: float = field(default_factory=time.time)
+
 
 # ===== File System Models =====
 
 
 class ReadTextFileRequest(BaseModel):
     """Запрос на чтение текстового файла (отправляется клиенту).
-    
+
     Используется для чтения содержимого текстового файла из окружения клиента.
     Поддерживает чтение с начальной строки и лимитом строк.
     """
@@ -62,7 +63,7 @@ class ReadTextFileRequest(BaseModel):
 
 class ReadTextFileResponse(BaseModel):
     """Ответ с содержимым файла (получен от клиента).
-    
+
     Возвращает полное содержимое файла или подмножество строк.
     """
 
@@ -72,7 +73,7 @@ class ReadTextFileResponse(BaseModel):
 
 class WriteTextFileRequest(BaseModel):
     """Запрос на запись файла (отправляется клиенту).
-    
+
     Используется для записи содержимого в текстовый файл в окружении клиента.
     """
 
@@ -90,7 +91,7 @@ class WriteTextFileRequest(BaseModel):
 
 class WriteTextFileResponse(BaseModel):
     """Подтверждение записи (получено от клиента).
-    
+
     Согласно ACP spec, response не содержит полей кроме опционального _meta.
     Наличие ответа (без ошибки) означает успешную запись.
     """
@@ -103,7 +104,7 @@ class WriteTextFileResponse(BaseModel):
 
 class TerminalCreateRequest(BaseModel):
     """Запрос на создание терминала и запуск команды.
-    
+
     Используется для создания нового терминального сеанса в окружении клиента
     и запуска в нём команды.
     """
@@ -131,7 +132,7 @@ class TerminalCreateRequest(BaseModel):
 
 class TerminalCreateResponse(BaseModel):
     """Ответ с ID терминала (получен от клиента).
-    
+
     Возвращает уникальный идентификатор созданного терминала.
     """
 
@@ -143,7 +144,7 @@ class TerminalCreateResponse(BaseModel):
 
 class TerminalOutputRequest(BaseModel):
     """Запрос на получение output терминала.
-    
+
     Используется для получения текущего output из работающего терминала.
     """
 
@@ -158,7 +159,7 @@ class TerminalOutputRequest(BaseModel):
 
 class TerminalExitStatus(BaseModel):
     """Статус завершения терминала (часть terminal/output response).
-    
+
     Соответствует ACP spec TerminalExitStatus.
     """
 
@@ -173,7 +174,7 @@ class TerminalExitStatus(BaseModel):
 
 class TerminalOutputResponse(BaseModel):
     """Ответ с output терминала (получен от клиента).
-    
+
     Соответствует ACP spec для terminal/output.
     """
 
@@ -191,7 +192,7 @@ class TerminalOutputResponse(BaseModel):
 
 class TerminalWaitForExitRequest(BaseModel):
     """Запрос на ожидание завершения команды в терминале.
-    
+
     Используется для блокирующего ожидания завершения команды.
     """
 
@@ -209,7 +210,7 @@ class TerminalWaitForExitRequest(BaseModel):
 
 class TerminalWaitForExitResponse(BaseModel):
     """Ответ после завершения команды (получен от клиента).
-    
+
     Возвращает код завершения и сигнал (по ACP spec).
     """
 
@@ -224,7 +225,7 @@ class TerminalWaitForExitResponse(BaseModel):
 
 class TerminalKillRequest(BaseModel):
     """Запрос на прерывание команды в терминале.
-    
+
     Используется для отправки сигнала завершения команде в терминале.
     """
 
@@ -242,7 +243,7 @@ class TerminalKillRequest(BaseModel):
 
 class TerminalKillResponse(BaseModel):
     """Подтверждение прерывания команды (получено от клиента).
-    
+
     Согласно ACP spec, response не содержит полей кроме опционального _meta.
     Наличие ответа (без ошибки) означает успешную отправку сигнала.
     """
@@ -252,7 +253,7 @@ class TerminalKillResponse(BaseModel):
 
 class TerminalReleaseRequest(BaseModel):
     """Запрос на освобождение ресурсов терминала.
-    
+
     Используется для закрытия терминального сеанса и освобождения ресурсов.
     """
 
@@ -267,7 +268,7 @@ class TerminalReleaseRequest(BaseModel):
 
 class TerminalReleaseResponse(BaseModel):
     """Подтверждение освобождения ресурсов (получено от клиента).
-    
+
     Согласно ACP spec, response не содержит полей кроме опционального _meta.
     Наличие ответа (без ошибки) означает успешное освобождение ресурсов.
     """

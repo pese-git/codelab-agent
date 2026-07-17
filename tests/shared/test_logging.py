@@ -98,10 +98,7 @@ class TestSetupLogging:
 
         # Проверяем что handler настроен
         root_logger = logging.getLogger()
-        file_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in root_logger.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) >= 1
 
     def test_without_log_file_no_file_handler(self, tmp_path: Path) -> None:
@@ -116,10 +113,7 @@ class TestSetupLogging:
         )
 
         root_logger = logging.getLogger()
-        file_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in root_logger.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) == 0
 
     def test_stderr_only_adds_stderr_handler(self, tmp_path: Path) -> None:
@@ -144,9 +138,9 @@ class TestSetupLogging:
 
         root_logger = std_logging.getLogger()
         stderr_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, std_logging.StreamHandler)
-            and h.stream is sys.stderr
+            h
+            for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler) and h.stream is sys.stderr
         ]
         assert len(stderr_handlers) >= 1
 
@@ -171,9 +165,9 @@ class TestSetupLogging:
 
         root_logger = std_logging.getLogger()
         stdout_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, std_logging.StreamHandler)
-            and h.stream is sys.stdout
+            h
+            for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler) and h.stream is sys.stdout
         ]
         assert len(stdout_handlers) == 0
 
@@ -198,8 +192,8 @@ class TestSetupLogging:
 
         root_logger = std_logging.getLogger()
         stdout_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, std_logging.StreamHandler)
-            and h.stream is sys.stdout
+            h
+            for h in root_logger.handlers
+            if isinstance(h, std_logging.StreamHandler) and h.stream is sys.stdout
         ]
         assert len(stdout_handlers) >= 1

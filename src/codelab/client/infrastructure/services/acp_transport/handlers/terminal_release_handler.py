@@ -24,9 +24,7 @@ class TerminalReleaseHandler:
     def can_handle(self, method: str) -> bool:
         return method == "terminal/release"
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any]:
         terminal_id = params.get("terminalId")
         if not isinstance(terminal_id, str):
             self._logger.warning("missing_terminal_id_parameter", rpc_id=rpc_id)

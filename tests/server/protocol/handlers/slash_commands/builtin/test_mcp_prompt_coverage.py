@@ -74,6 +74,9 @@ class TestMCPPromptCommandHandlerExecute:
         call_arg = loop.run_until_complete.call_args[0][0]
         # run_until_complete получает coroutine от _execute_async
         assert call_arg.__name__ == handler._execute_async.__name__
+        # Закрываем захваченную корутину: замоканный run_until_complete её не
+        # исполняет, иначе она утекает незавершённой → unraisable (P0-3a).
+        call_arg.close()
 
     async def test_execute_with_running_loop_uses_executor(
         self,

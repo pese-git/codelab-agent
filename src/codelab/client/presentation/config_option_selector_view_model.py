@@ -214,9 +214,7 @@ class ConfigOptionSelectorViewModel(BaseViewModel):
             # Проверяем что опция доступна
             available_values = {opt.value for opt in self.available_options.value}
             if value not in available_values:
-                raise ValueError(
-                    f"Option {value} is not available for {self._config_id}"
-                )
+                raise ValueError(f"Option {value} is not available for {self._config_id}")
 
             # Отправляем запрос на смену через coordinator
             result = await self.coordinator.set_config_option(

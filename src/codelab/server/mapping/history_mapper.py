@@ -46,9 +46,7 @@ class HistoryMapper:
         role = _parse_role(protocol.role)
         content = _parse_content(protocol.content)
         timestamp = (
-            datetime.fromisoformat(protocol.timestamp)
-            if protocol.timestamp
-            else datetime.now()
+            datetime.fromisoformat(protocol.timestamp) if protocol.timestamp else datetime.now()
         )
         return ConversationMessage(
             role=role,

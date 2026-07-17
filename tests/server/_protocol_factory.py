@@ -91,6 +91,7 @@ class _Assembler:
             return self._mcp_session_manager
         if self._tool_registry is None:
             from codelab.server.tools.registry import SimpleToolRegistry
+
             self._tool_registry = SimpleToolRegistry()
         from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 
@@ -128,6 +129,7 @@ class _Assembler:
 
         if self._tool_registry is None:
             from codelab.server.tools.registry import SimpleToolRegistry
+
             self._tool_registry = SimpleToolRegistry()
 
         llm_loop_stage = LLMLoopStage(
@@ -293,7 +295,8 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             if not isinstance(session_id, str):
                 return ProtocolOutcome(
                     response=ACPMessage.error_response(
-                        message.id, code=-32602,
+                        message.id,
+                        code=-32602,
                         message="Invalid params: sessionId is required",
                     )
                 )
@@ -301,7 +304,8 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             if sess is None:
                 return ProtocolOutcome(
                     response=ACPMessage.error_response(
-                        message.id, code=-32001,
+                        message.id,
+                        code=-32001,
                         message=f"Session not found: {session_id}",
                     )
                 )
@@ -332,9 +336,7 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
                 return ProtocolOutcome(
                     response=ACPMessage.response(message.id, None), notifications=[]
                 )
-            outcome = orchestrator.handle_cancel(
-                request_id=message.id, params=params, session=sess
-            )
+            outcome = orchestrator.handle_cancel(request_id=message.id, params=params, session=sess)
             if st._llm_adapter is not None:
                 await st._llm_adapter.cancel_prompt(session_id)
             await st._storage.save_session(sess)
@@ -377,7 +379,10 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
             params = message.params or {}
             return await config.session_set_config_option(
-                message.id, params, st._storage, st._config_specs,
+                message.id,
+                params,
+                st._storage,
+                st._config_specs,
                 model_resolver=st._model_resolver,
             )
 
@@ -386,15 +391,19 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
             params = message.params or {}
-            return await config.session_set_mode(
-                message.id, params, st._storage, st._config_specs
-            )
+            return await config.session_set_mode(message.id, params, st._storage, st._config_specs)
 
     for wrapper in (
-        _InitializeWrapper(), _AuthenticateWrapper(), _SessionNewWrapper(),
-        _SessionLoadWrapper(), _SessionListWrapper(), _SessionPromptWrapper(),
-        _SessionCancelWrapper(), _PermissionResponseWrapper(),
-        _SetConfigOptionWrapper(), _SetModeWrapper(),
+        _InitializeWrapper(),
+        _AuthenticateWrapper(),
+        _SessionNewWrapper(),
+        _SessionLoadWrapper(),
+        _SessionListWrapper(),
+        _SessionPromptWrapper(),
+        _SessionCancelWrapper(),
+        _PermissionResponseWrapper(),
+        _SetConfigOptionWrapper(),
+        _SetModeWrapper(),
     ):
         registry.register(wrapper)
     return registry

@@ -24,11 +24,11 @@ logger = structlog.get_logger()
 
 class RetryDecorator(ToolExecutorDecorator):
     """Добавляет retry логику для временных ошибок.
-    
+
     Использует exponential backoff: delay = backoff_factor ^ attempt.
     Retry применяется только к retryable ошибкам (MCPTimeoutError, MCPConnectionError).
     Non-retryable ошибки (MCPValidationError, MCPServerError) возвращаются сразу.
-    
+
     Example:
         >>> executor = RetryDecorator(
         ...     timeout_executor,
@@ -37,13 +37,13 @@ class RetryDecorator(ToolExecutorDecorator):
         ... )
         >>> result = await executor.execute(session, arguments)
     """
-    
+
     # Ошибки, которые можно retry (временные ошибки)
     RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
         MCPTimeoutError,
         MCPConnectionError,
     )
-    
+
     def __init__(
         self,
         wrapped: ToolExecutorProtocol,
@@ -51,7 +51,7 @@ class RetryDecorator(ToolExecutorDecorator):
         backoff_factor: float = 2.0,
     ) -> None:
         """Инициализация декоратора.
-        
+
         Args:
             wrapped: Оборачиваемый executor.
             max_retries: Максимальное количество попыток (default: 3).
@@ -60,27 +60,27 @@ class RetryDecorator(ToolExecutorDecorator):
         super().__init__(wrapped)
         self._max_retries = max_retries
         self._backoff_factor = backoff_factor
-    
+
     async def execute(
         self,
         session: SessionState,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с retry.
-        
+
         Args:
             session: Состояние сессии.
             arguments: Аргументы инструмента.
-        
+
         Returns:
             Результат выполнения инструмента.
-        
+
         Raises:
             Exception: Если все попытки исчерпаны и ошибка non-retryable.
         """
         tool_name = arguments.get("tool_name", "unknown")
         last_error: Exception | None = None
-        
+
         for attempt in range(self._max_retries):
             try:
                 logger.debug(
@@ -90,9 +90,9 @@ class RetryDecorator(ToolExecutorDecorator):
                     max_retries=self._max_retries,
                     session_id=session.session_id,
                 )
-                
+
                 result = await self._wrapped.execute(session, arguments)
-                
+
                 if attempt > 0:
                     logger.info(
                         "retry_succeeded",
@@ -100,14 +100,14 @@ class RetryDecorator(ToolExecutorDecorator):
                         attempt=attempt + 1,
                         session_id=session.session_id,
                     )
-                
+
                 return result
-                
+
             except self.RETRYABLE_ERRORS as e:
                 last_error = e
-                
+
                 if attempt < self._max_retries - 1:
-                    delay = self._backoff_factor ** attempt
+                    delay = self._backoff_factor**attempt
                     logger.warning(
                         "retryable_error_retrying",
                         tool_name=tool_name,
@@ -127,7 +127,7 @@ class RetryDecorator(ToolExecutorDecorator):
                         error_message=str(e),
                         session_id=session.session_id,
                     )
-            
+
             except Exception as e:
                 # Non-retryable ошибка — возвращаем сразу
                 logger.warning(
@@ -138,7 +138,7 @@ class RetryDecorator(ToolExecutorDecorator):
                     session_id=session.session_id,
                 )
                 raise
-        
+
         # Все попытки исчерпаны
         # Возвращаем ToolExecutionResult с ошибкой вместо поднятия исключения
         # Это позволяет клиенту получить информативное сообщение об ошибке
@@ -146,7 +146,7 @@ class RetryDecorator(ToolExecutorDecorator):
             f"MCP tool '{tool_name}' failed after {self._max_retries} attempts. "
             f"Last error: {last_error}"
         )
-        
+
         logger.error(
             "tool_execution_failed_after_retries",
             tool_name=tool_name,
@@ -154,19 +154,19 @@ class RetryDecorator(ToolExecutorDecorator):
             error_message=error_message,
             session_id=session.session_id,
         )
-        
+
         return ToolExecutionResult(
             success=False,
             error=error_message,
         )
-    
+
     @staticmethod
     def is_retryable_error(error: Exception) -> bool:
         """Проверить, является ли ошибка retryable.
-        
+
         Args:
             error: Исключение для проверки.
-        
+
         Returns:
             True если ошибка retryable (временная).
         """

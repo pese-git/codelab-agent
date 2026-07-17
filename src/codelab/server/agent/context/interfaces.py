@@ -168,7 +168,10 @@ class ConversationSummarizer(ABC):
 
     @abstractmethod
     async def summarize(
-        self, messages: list[LLMMessage], *, target_tokens: int,
+        self,
+        messages: list[LLMMessage],
+        *,
+        target_tokens: int,
     ) -> LLMMessage:
         """Суммаризовать диалог, сохранив ключевые решения."""
 
@@ -182,7 +185,9 @@ class ContextReconciler(ABC):
 
     @abstractmethod
     async def reconcile(
-        self, epoch: ContextEpoch, registry: ContextRegistry,
+        self,
+        epoch: ContextEpoch,
+        registry: ContextRegistry,
     ) -> ReconcileResult:
         """Определить изменения на границе хода."""
 
@@ -246,7 +251,9 @@ class ChildSessionManager(ABC):
 
     @abstractmethod
     async def create_child(
-        self, parent: object, subagent_scope: str,
+        self,
+        parent: object,
+        subagent_scope: str,
     ) -> object:
         """Создать изолированную дочернюю сессию."""
 

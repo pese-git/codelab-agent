@@ -44,7 +44,4 @@ class ToolResultMapper:
     @staticmethod
     def locations_to_dicts(locations: list[FileLocation]) -> list[dict[str, Any]]:
         """Конвертировать FileLocation в dict format для ACP."""
-        return [
-            {"path": loc.path, "line": loc.line}
-            for loc in locations
-        ]
+        return [{"path": loc.path, "line": loc.line} for loc in locations]

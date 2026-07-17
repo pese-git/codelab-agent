@@ -14,6 +14,7 @@ from codelab.server.protocol.notification_bus import SessionNotificationBus
 
 def _collector(sink: list):
     """Async-подписчик, складывающий сообщения в sink."""
+
     async def _cb(message) -> None:
         sink.append(message)
 

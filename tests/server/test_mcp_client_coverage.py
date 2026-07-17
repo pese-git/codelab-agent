@@ -15,6 +15,27 @@ import pytest
 from codelab.server.mcp.client import MCPClient, MCPClientError, MCPClientState
 from codelab.server.mcp.models import MCPServerConfig
 from codelab.server.mcp.transport import StdioTransportError
+from codelab.server.mcp.transport_factory import MCPTransport
+
+
+def _wait_for_script(*outcomes: object) -> object:
+    """side_effect для мокнутого asyncio.wait_for.
+
+    Закрывает переданную `queue.get()`-корутину (замоканный wait_for её не
+    исполняет → иначе утечка "coroutine was never awaited", P0-3a), затем по
+    очереди возвращает/бросает запланированные результаты.
+    """
+    it = iter(outcomes)
+
+    def _side_effect(coro: object, *_a: object, **_k: object) -> object:
+        if hasattr(coro, "close"):
+            coro.close()  # type: ignore[attr-defined]
+        outcome = next(it)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    return _side_effect
 
 
 @pytest.fixture
@@ -23,7 +44,7 @@ def ready_client() -> MCPClient:
     config = MCPServerConfig(name="test", type="stdio", command="mcp-server")
     client = MCPClient(config)
     client._state = MCPClientState.READY
-    client._transport = AsyncMock()
+    client._transport = AsyncMock(spec=MCPTransport)
     client._capabilities = MagicMock()
     client._capabilities.tools = {}
     client._capabilities.resources = {}
@@ -55,9 +76,7 @@ class TestMCPClientListToolsGuards:
     @pytest.mark.asyncio
     async def test_list_tools_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to list tools"):
             await ready_client.list_tools()
@@ -87,9 +106,7 @@ class TestMCPClientListResourcesGuards:
     @pytest.mark.asyncio
     async def test_list_resources_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to list resources"):
             await ready_client.list_resources()
@@ -117,13 +134,9 @@ class TestMCPClientListResourceTemplatesGuards:
             await ready_client.list_resource_templates()
 
     @pytest.mark.asyncio
-    async def test_list_resource_templates_transport_error(
-        self, ready_client: MCPClient
-    ) -> None:
+    async def test_list_resource_templates_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to list resource templates"):
             await ready_client.list_resource_templates()
@@ -143,9 +156,7 @@ class TestMCPClientReadResourceGuards:
     @pytest.mark.asyncio
     async def test_read_resource_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to read resource"):
             await ready_client.read_resource("file:///tmp/test.txt")
@@ -175,9 +186,7 @@ class TestMCPClientListPromptsGuards:
     @pytest.mark.asyncio
     async def test_list_prompts_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to list prompts"):
             await ready_client.list_prompts()
@@ -197,9 +206,7 @@ class TestMCPClientGetPromptGuards:
     @pytest.mark.asyncio
     async def test_get_prompt_transport_error(self, ready_client: MCPClient) -> None:
         """StdioTransportError превращается в MCPClientError."""
-        ready_client._transport.send_request = AsyncMock(
-            side_effect=StdioTransportError("broken")
-        )
+        ready_client._transport.send_request = AsyncMock(side_effect=StdioTransportError("broken"))
 
         with pytest.raises(MCPClientError, match="Failed to get prompt"):
             await ready_client.get_prompt("test_prompt")
@@ -242,7 +249,9 @@ class TestMCPClientNotificationHandling:
         client._state = MCPClientState.READY
 
         with patch.object(
-            asyncio, "wait_for", side_effect=[TimeoutError(), asyncio.CancelledError()]
+            asyncio,
+            "wait_for",
+            side_effect=_wait_for_script(TimeoutError(), asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()
@@ -255,7 +264,9 @@ class TestMCPClientNotificationHandling:
         client._state = MCPClientState.READY
 
         with patch.object(
-            asyncio, "wait_for", side_effect=[ValueError("boom"), asyncio.CancelledError()]
+            asyncio,
+            "wait_for",
+            side_effect=_wait_for_script(ValueError("boom"), asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()
@@ -282,7 +293,7 @@ class TestMCPClientNotificationHandling:
         with patch.object(
             asyncio,
             "wait_for",
-            side_effect=[notification, asyncio.CancelledError()],
+            side_effect=_wait_for_script(notification, asyncio.CancelledError()),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await client._process_notifications()

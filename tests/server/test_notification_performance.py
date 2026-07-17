@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 
 
 @pytest.fixture
@@ -45,9 +45,7 @@ class TestNotificationPerformanceBenchmark:
     """Performance benchmarks для notification delivery."""
 
     @pytest.mark.asyncio
-    async def test_notification_latency_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_notification_latency_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить latency для 100 notifications."""
         latencies = []
 
@@ -55,11 +53,7 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Измерение latency для 100 notifications
         for i in range(100):
@@ -79,7 +73,7 @@ class TestNotificationPerformanceBenchmark:
             )
 
             start_time = time.time()
-            await loop._send_notification_immediately(notification)
+            await sink._send_immediately(notification)
             end_time = time.time()
 
             latency_ms = (end_time - start_time) * 1000
@@ -107,9 +101,7 @@ class TestNotificationPerformanceBenchmark:
         assert p99_latency < 200, f"P99 latency {p99_latency}ms > 200ms"
 
     @pytest.mark.asyncio
-    async def test_terminal_embedding_latency_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_terminal_embedding_latency_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить latency для terminal embedding notifications."""
         latencies = []
 
@@ -117,11 +109,7 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        loop = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         # Измерение latency для 100 terminal embedding notifications
         for i in range(100):
@@ -148,7 +136,7 @@ class TestNotificationPerformanceBenchmark:
             )
 
             start_time = time.time()
-            await loop._send_notification_immediately(notification)
+            await sink._send_immediately(notification)
             end_time = time.time()
 
             latency_ms = (end_time - start_time) * 1000
@@ -176,16 +164,10 @@ class TestNotificationPerformanceBenchmark:
         assert p99_latency < 200, f"P99 latency {p99_latency}ms > 200ms"
 
     @pytest.mark.asyncio
-    async def test_callback_overhead_benchmark(
-        self, mock_strategy, mock_dependencies
-    ):
+    async def test_callback_overhead_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить overhead от использования callback."""
         # Измерение без callback
-        loop_without_callback = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=None,
-        )
+        sink_without_callback = SessionUpdateSink(MagicMock(), None, [])
 
         notification = ACPMessage.notification(
             "session/update",
@@ -202,7 +184,7 @@ class TestNotificationPerformanceBenchmark:
         # Измерение без callback
         start_time = time.time()
         for _ in range(1000):
-            await loop_without_callback._send_notification_immediately(notification)
+            await sink_without_callback._send_immediately(notification)
         end_time = time.time()
         time_without_callback_ms = (end_time - start_time) * 1000
 
@@ -210,22 +192,18 @@ class TestNotificationPerformanceBenchmark:
         async def mock_callback(notification: ACPMessage) -> None:
             pass
 
-        loop_with_callback = AgentLoop(
-            strategy=mock_strategy,
-            **mock_dependencies,
-            notification_callback=mock_callback,
-        )
+        sink_with_callback = SessionUpdateSink(MagicMock(), mock_callback, [])
 
         start_time = time.time()
         for _ in range(1000):
-            await loop_with_callback._send_notification_immediately(notification)
+            await sink_with_callback._send_immediately(notification)
         end_time = time.time()
         time_with_callback_ms = (end_time - start_time) * 1000
 
         # Вычисление overhead
         overhead_ms = time_with_callback_ms - time_without_callback_ms
         if time_without_callback_ms > 0:
-            overhead_percent = (overhead_ms / time_without_callback_ms * 100)
+            overhead_percent = overhead_ms / time_without_callback_ms * 100
         else:
             overhead_percent = 0
 
@@ -237,7 +215,7 @@ class TestNotificationPerformanceBenchmark:
         # Overhead должен быть приемлемым (< 500% для async callback)
         # Note: async callback добавляет overhead, но absolute latency всё ещё очень низкая
         assert overhead_percent < 500, f"Callback overhead {overhead_percent}% > 500%"
-        
+
         # Absolute latency с callback должна быть < 1ms (1000 микросекунд)
         # Порог 1ms выбран как реалистичный для async Python кода,
         # обеспечивающий real-time UX (человеческий глаз не замечает задержки < 100ms)

@@ -199,9 +199,7 @@ class TestFallbackNotification:
             assert "single" in content["text"]
 
     @pytest.mark.asyncio
-    async def test_fallback_notification_sent_on_unavailable_strategy(
-        self, config, storage
-    ):
+    async def test_fallback_notification_sent_on_unavailable_strategy(self, config, storage):
         """Fallback notification отправляется когда запрошенная стратегия недоступна."""
         # Создаём registry только с single стратегией
         registry = StrategyRegistry()

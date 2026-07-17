@@ -62,9 +62,7 @@ class TestClientRPCBridgeReadFileErrors:
         session: SessionState,
     ) -> None:
         """Timeout при чтении файла возвращает None."""
-        bridge._service.read_text_file = AsyncMock(
-            side_effect=ClientRPCTimeoutError("timeout")
-        )
+        bridge._service.read_text_file = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
 
         result = await bridge.read_file(session, "/tmp/test.txt")
 
@@ -96,9 +94,7 @@ class TestClientRPCBridgeWriteFileErrors:
         session: SessionState,
     ) -> None:
         """Timeout при записи файла возвращает False."""
-        bridge._service.write_text_file = AsyncMock(
-            side_effect=ClientRPCTimeoutError("timeout")
-        )
+        bridge._service.write_text_file = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
 
         result = await bridge.write_file(session, "/tmp/test.txt", "data")
 
@@ -115,9 +111,7 @@ class TestClientRPCBridgeCreateTerminalErrors:
         session: SessionState,
     ) -> None:
         """RPC-ошибка при создании терминала возвращает None."""
-        bridge._service.create_terminal = AsyncMock(
-            side_effect=ClientRPCError("terminal failed")
-        )
+        bridge._service.create_terminal = AsyncMock(side_effect=ClientRPCError("terminal failed"))
 
         result = await bridge.create_terminal(session, command="ls")
 

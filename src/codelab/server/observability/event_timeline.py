@@ -154,11 +154,7 @@ class EventTimeline:
         """
         if self.debug:
             # Полный payload
-            return {
-                k: v
-                for k, v in event.__dict__.items()
-                if not k.startswith("_")
-            }
+            return {k: v for k, v in event.__dict__.items() if not k.startswith("_")}
         else:
             # Минимальные детали
             return {"session_id": event.session_id}
@@ -189,5 +185,5 @@ class EventTimeline:
         Подписки на EventBus не затрагиваются.
         """
         if self._exported_count > 0:
-            self._events = self._events[self._exported_count:]
+            self._events = self._events[self._exported_count :]
             self._exported_count = 0

@@ -192,6 +192,7 @@ class TestCancellation:
     @pytest.mark.asyncio
     async def test_cancel_active_task(self, adapter, mock_llm_provider):
         """Отмена активной задачи → cancelled result."""
+
         async def slow_completion(request):
             await asyncio.sleep(10)
             return CompletionResponse(text="done")
@@ -311,7 +312,10 @@ class TestToolNameMapping:
 
     @pytest.mark.asyncio
     async def test_tool_name_mapped_in_llm_call(
-        self, adapter, mock_llm_provider, mock_tool_registry,
+        self,
+        adapter,
+        mock_llm_provider,
+        mock_tool_registry,
     ):
         """Имена инструментов конвертируются через acp_name_to_llm_name."""
         mock_llm_provider.create_completion = AsyncMock(
@@ -357,11 +361,11 @@ class TestPlanExtraction:
     @pytest.mark.asyncio
     async def test_plan_extracted_from_text(self, adapter, mock_llm_provider):
         """План извлекается из текстового ответа."""
-        response_text = '''Here is my plan:
+        response_text = """Here is my plan:
 ```json
 {"plan": [{"content": "Step 1", "priority": "high", "status": "pending"}]}
 ```
-'''
+"""
         mock_llm_provider.create_completion = AsyncMock(
             return_value=CompletionResponse(
                 text=response_text,
@@ -472,6 +476,7 @@ class TestCancelMethods:
     @pytest.mark.asyncio
     async def test_cancel_all_active_tasks(self, adapter, mock_llm_provider):
         """cancel() отменяет все активные задачи."""
+
         async def slow_completion(request):
             await asyncio.sleep(10)
             return CompletionResponse(text="done")
@@ -508,6 +513,7 @@ class TestCancelMethods:
     @pytest.mark.asyncio
     async def test_cancel_prompt_by_session_id(self, adapter, mock_llm_provider):
         """cancel_prompt() отменяет задачу по session_id."""
+
         async def slow_completion(request):
             await asyncio.sleep(10)
             return CompletionResponse(text="done")
@@ -540,9 +546,7 @@ class TestStreamingHandler:
     """Тесты стриминг-handler'а адаптера (_handle_request_streaming)."""
 
     @pytest.mark.asyncio
-    async def test_stream_yields_text_deltas_then_agent_result(
-        self, adapter, mock_llm_provider
-    ):
+    async def test_stream_yields_text_deltas_then_agent_result(self, adapter, mock_llm_provider):
         """Дельты провайдера → str-дельты, финал → AgentResult с полными данными."""
         from codelab.server.agent.contracts.base import AgentResult
 
@@ -550,7 +554,8 @@ class TestStreamingHandler:
             CompletionResponse(text="Hel", stop_reason=StopReason.STREAMING),
             CompletionResponse(text="lo", stop_reason=StopReason.STREAMING),
             CompletionResponse(
-                text="Hello", stop_reason=StopReason.END_TURN,
+                text="Hello",
+                stop_reason=StopReason.END_TURN,
                 usage={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
             ),
         ]
@@ -567,9 +572,7 @@ class TestStreamingHandler:
         assert final.stop_reason == "end_turn"
 
     @pytest.mark.asyncio
-    async def test_stream_assembles_tool_calls_in_final(
-        self, adapter, mock_llm_provider
-    ):
+    async def test_stream_assembles_tool_calls_in_final(self, adapter, mock_llm_provider):
         """tool_calls из финального chunk'а попадают в AgentResult."""
         from codelab.server.agent.contracts.base import AgentResult
 

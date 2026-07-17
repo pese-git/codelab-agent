@@ -15,6 +15,7 @@ stdio транспорта. Создаёт DI контейнер, ClientRPCServi
 from __future__ import annotations
 
 import asyncio
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -28,9 +29,125 @@ from codelab.server.storage import SessionStorage
 from codelab.server.transport.stdio import StdioServerTransport
 
 if TYPE_CHECKING:
-    pass
+    from dishka import AsyncContainer
+
+    from codelab.server.client_rpc.service import ClientRPCService
+    from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
 
 logger = structlog.get_logger()
+
+
+async def _build_pending_prompt_response(
+    protocol: ACPProtocol, session_id: str
+) -> ACPMessage | None:
+    """Строит финальный prompt-response из pending-состояния сессии.
+
+    Используется при отмене deferred prompt task через ``session/cancel`` —
+    финальный response клиенту строится из сохранённого состояния сессии.
+    """
+    try:
+        session = await protocol._storage.load_session(session_id)
+    except Exception as exc:
+        logger.debug(
+            "load_pending_prompt_response: storage error",
+            session_id=session_id,
+            error=str(exc),
+        )
+        return None
+
+    if session is None or session.pending_prompt_response is None:
+        return None
+
+    prompt_resp = session.pending_prompt_response
+    response = ACPMessage.response(
+        prompt_resp["request_id"],
+        {"stopReason": prompt_resp["stop_reason"]},
+    )
+    # Очищаем pending — response уже будет отправлен
+    session.pending_prompt_response = None
+    try:
+        await protocol._storage.save_session(session)
+    except Exception as exc:
+        logger.debug(
+            "load_pending_prompt_response: save error",
+            session_id=session_id,
+            error=str(exc),
+        )
+    return response
+
+
+async def _unsubscribe_stdio_notification_bus(
+    runtime_registry: SessionRuntimeRegistry,
+    transport: StdioServerTransport,
+    session_id: str,
+) -> None:
+    """Отписывает stdio-транспорт от notification bus сессии при закрытии."""
+    try:
+        bus = await runtime_registry.get_notification_bus(session_id)
+        bus.unsubscribe(transport.send)
+        logger.info("unsubscribed_from_notification_bus", session_id=session_id)
+    except Exception as e:
+        logger.warning("failed_to_unsubscribe_from_notification_bus", error=str(e))
+
+
+async def _shutdown_stdio_server(
+    container: AsyncContainer,
+    client_rpc_service: ClientRPCService | None,
+) -> None:
+    """Финализирует stdio-сервер: flush observability, отмена RPC, закрытие DI."""
+    try:
+        flush_manager = await container.get(ObservabilityFlushManager)
+        await flush_manager.flush_all()
+        logger.debug("observability data flushed on shutdown")
+    except Exception as e:
+        logger.warning("failed to flush observability data on shutdown", error=str(e))
+
+    if client_rpc_service is not None:
+        cancelled = client_rpc_service.cancel_all_pending_requests(
+            reason="stdio server shutting down",
+        )
+        if cancelled > 0:
+            logger.info("pending client rpc cancelled", cancelled_rpc_count=cancelled)
+
+    await container.close()
+
+
+async def _update_stdio_subscription(
+    runtime_registry: SessionRuntimeRegistry,
+    transport: StdioServerTransport,
+    current_session_id: str | None,
+    acp_request: ACPMessage,
+) -> str | None:
+    """Переподписать stdio-транспорт на notification bus при смене session_id.
+
+    Возвращает актуальный current_session_id (новый при смене, иначе прежний).
+    """
+    session_id = None
+    if isinstance(acp_request.params, dict):
+        raw_session_id = acp_request.params.get("sessionId")
+        if isinstance(raw_session_id, str):
+            session_id = raw_session_id
+
+    if session_id is None or session_id == current_session_id:
+        return current_session_id
+
+    # Отписываемся от старого bus если был
+    if current_session_id is not None:
+        old_bus = await runtime_registry.get_notification_bus(current_session_id)
+        old_bus.unsubscribe(transport.send)
+
+    # Подписываемся на новый bus
+    new_bus = await runtime_registry.get_notification_bus(session_id)
+    # Реконнект (session/load): реплей истории авторитетен, поэтому чистим буфер
+    # ДО подписки, чтобы subscribe не доставил устаревшие сообщения повторно.
+    if acp_request.method == "session/load":
+        new_bus.clear_buffer()
+    new_bus.subscribe(transport.send)
+    logger.info(
+        "subscribed_to_notification_bus",
+        session_id=session_id,
+    )
+    return session_id
 
 
 async def run_stdio_server(
@@ -124,56 +241,15 @@ async def run_stdio_server(
             async def _should_auto_complete(session_id: str) -> bool:
                 return await protocol.should_auto_complete_active_turn(session_id)
 
-            async def _complete_active_turn(
-                session_id: str, stop_reason: str
-            ) -> ACPMessage | None:
-                return await protocol.complete_active_turn(
-                    session_id, stop_reason=stop_reason
-                )
-
-            async def _load_pending_prompt_response(
-                session_id: str,
-            ) -> ACPMessage | None:
-                """Достаёт pending_prompt_response из session и формирует ACPMessage.
-
-                Используется при отмене deferred prompt task через
-                ``session/cancel`` — финальный response клиенту строится из
-                сохранённого состояния сессии.
-                """
-                try:
-                    session = await protocol._storage.load_session(session_id)
-                except Exception as exc:
-                    logger.debug(
-                        "load_pending_prompt_response: storage error",
-                        session_id=session_id,
-                        error=str(exc),
-                    )
-                    return None
-
-                if session is None or session.pending_prompt_response is None:
-                    return None
-
-                prompt_resp = session.pending_prompt_response
-                response = ACPMessage.response(
-                    prompt_resp["request_id"],
-                    {"stopReason": prompt_resp["stop_reason"]},
-                )
-                # Очищаем pending — response уже будет отправлен
-                session.pending_prompt_response = None
-                try:
-                    await protocol._storage.save_session(session)
-                except Exception as exc:
-                    logger.debug(
-                        "load_pending_prompt_response: save error",
-                        session_id=session_id,
-                        error=str(exc),
-                    )
-                return response
+            async def _complete_active_turn(session_id: str, stop_reason: str) -> ACPMessage | None:
+                return await protocol.complete_active_turn(session_id, stop_reason=stop_reason)
 
             transport = StdioServerTransport(
                 should_auto_complete=_should_auto_complete,
                 complete_active_turn=_complete_active_turn,
-                load_pending_prompt_response=_load_pending_prompt_response,
+                load_pending_prompt_response=functools.partial(
+                    _build_pending_prompt_response, protocol
+                ),
             )
             transport_ref["transport"] = transport
 
@@ -182,6 +258,7 @@ async def run_stdio_server(
 
             # Получаем runtime registry для подписки на notification bus
             from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+
             runtime_registry = await request_scope.get(SessionRuntimeRegistry)
 
             # Отслеживаем текущую сессию для подписки на notification bus
@@ -191,37 +268,9 @@ async def run_stdio_server(
             # чтобы фоновые задачи (pending_tool_execution) работали корректно
             async def on_message(acp_request: ACPMessage) -> Any:
                 nonlocal current_session_id
-
-                # Извлекаем session_id из запроса
-                session_id = None
-                if isinstance(acp_request.params, dict):
-                    raw_session_id = acp_request.params.get("sessionId")
-                    if isinstance(raw_session_id, str):
-                        session_id = raw_session_id
-
-                # Подписываемся на notification bus при получении session_id
-                if session_id is not None and session_id != current_session_id:
-                    # Отписываемся от старого bus если был
-                    if current_session_id is not None:
-                        old_bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
-                        old_bus.unsubscribe(transport.send)
-
-                    # Подписываемся на новый bus
-                    current_session_id = session_id
-                    new_bus = await runtime_registry.get_notification_bus(session_id)
-                    # Реконнект (session/load): реплей истории авторитетен,
-                    # поэтому чистим буфер ДО подписки, чтобы subscribe не
-                    # доставил устаревшие сообщения повторно (двойная доставка).
-                    if acp_request.method == "session/load":
-                        new_bus.clear_buffer()
-                    new_bus.subscribe(transport.send)
-                    logger.info(
-                        "subscribed_to_notification_bus",
-                        session_id=session_id,
-                    )
-
+                current_session_id = await _update_stdio_subscription(
+                    runtime_registry, transport, current_session_id, acp_request
+                )
                 return await protocol.handle_and_process(acp_request)
 
             try:
@@ -229,20 +278,9 @@ async def run_stdio_server(
             finally:
                 # Отписываемся от notification bus при закрытии
                 if current_session_id is not None:
-                    try:
-                        bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
-                        bus.unsubscribe(transport.send)
-                        logger.info(
-                            "unsubscribed_from_notification_bus",
-                            session_id=current_session_id,
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "failed_to_unsubscribe_from_notification_bus",
-                            error=str(e),
-                        )
+                    await _unsubscribe_stdio_notification_bus(
+                        runtime_registry, transport, current_session_id
+                    )
 
     except asyncio.CancelledError:
         logger.info("stdio server cancelled")
@@ -253,26 +291,6 @@ async def run_stdio_server(
             exc_info=True,
         )
     finally:
-        # Flush observability data перед закрытием
-        try:
-            flush_manager = await container.get(ObservabilityFlushManager)
-            await flush_manager.flush_all()
-            logger.debug("observability data flushed on shutdown")
-        except Exception as e:
-            logger.warning("failed to flush observability data on shutdown", error=str(e))
-
-        # Cleanup: отменяем pending RPC requests
-        if client_rpc_service is not None:
-            cancelled = client_rpc_service.cancel_all_pending_requests(
-                reason="stdio server shutting down",
-            )
-            if cancelled > 0:
-                logger.info(
-                    "pending client rpc cancelled",
-                    cancelled_rpc_count=cancelled,
-                )
-
-        # Закрываем DI контейнер
-        await container.close()
+        await _shutdown_stdio_server(container, client_rpc_service)
 
         logger.info("stdio server stopped")

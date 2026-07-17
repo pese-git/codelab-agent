@@ -9,6 +9,7 @@ import structlog
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
+from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
 
@@ -17,12 +18,12 @@ logger = structlog.get_logger()
 
 class TerminalToolExecutor(ToolExecutor):
     """Executor для терминальных операций через ClientRPC.
-    
+
     Поддерживает:
     - terminal/create (запуск команды)
     - terminal/wait_for_exit (ожидание завершения)
     - terminal/release (освобождение терминала)
-    
+
     Интегрирует проверку разрешений, логирование и lifecycle management.
     """
 
@@ -32,13 +33,44 @@ class TerminalToolExecutor(ToolExecutor):
         permission_checker: PermissionChecker,
     ) -> None:
         """Инициализировать executor с зависимостями.
-        
+
         Args:
             client_rpc_bridge: Адаптер для ClientRPCService.
             permission_checker: Адаптер для PermissionManager.
         """
         self._bridge = client_rpc_bridge
         self._permission_checker = permission_checker
+        self._aliases = TerminalAliasRegistry()
+
+    def _resolve_terminal(
+        self,
+        session: SessionState,
+        alias: str,
+    ) -> tuple[str | None, ToolExecutionResult | None]:
+        """Разрешает alias LLM в настоящий client terminalId.
+
+        Возвращает ``(client_terminal_id, None)`` при успехе либо
+        ``(None, error_result)`` с готовым failed-результатом, если alias
+        неизвестен. Промах логируется как ошибка контракта (а не warning):
+        LLM оперирует коротким alias, поэтому промах означает галлюцинацию id
+        или обращение к уже освобождённому терминалу.
+        """
+        client_terminal_id = self._aliases.resolve(session, alias)
+        if client_terminal_id is not None:
+            return client_terminal_id, None
+
+        known = sorted(session.terminals)
+        logger.error(
+            "terminal_alias_not_found",
+            session_id=session.session_id,
+            alias=alias,
+            known_aliases=known,
+        )
+        available = ", ".join(known) if known else "нет активных терминалов"
+        return None, ToolExecutionResult(
+            success=False,
+            error=f"Неизвестный терминал '{alias}'. Доступные терминалы: {available}.",
+        )
 
     async def execute(
         self,
@@ -46,17 +78,17 @@ class TerminalToolExecutor(ToolExecutor):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент на основе аргументов.
-        
+
         Args:
             session: Состояние сессии.
             arguments: Словарь аргументов инструмента.
                 Ожидается поле 'operation' для выбора метода.
-                
+
         Returns:
             ToolExecutionResult с результатом выполнения.
         """
         operation = arguments.get("operation")
-        
+
         if operation == "create":
             return await self.execute_create(
                 session=session,
@@ -92,7 +124,7 @@ class TerminalToolExecutor(ToolExecutor):
         output_byte_limit: int | None = None,
     ) -> ToolExecutionResult:
         """Создать терминал и запустить команду через ClientRPC.
-        
+
         Args:
             session: Состояние сессии.
             command: Команда для выполнения.
@@ -100,7 +132,7 @@ class TerminalToolExecutor(ToolExecutor):
             env: Переменные окружения (опционально).
             cwd: Рабочая директория (опционально).
             output_byte_limit: Лимит байт output (опционально).
-            
+
         Returns:
             ToolExecutionResult с terminal_id в metadata.
         """
@@ -113,13 +145,13 @@ class TerminalToolExecutor(ToolExecutor):
                     "cwd": cwd,
                 },
             )
-            
+
             # Примечание: Проверка разрешений выполняется в
             # PromptOrchestrator._decide_tool_execution() перед вызовом executor.
             # Здесь мы только выполняем операцию.
-            
+
             # Вызов ClientRPC для создания терминала
-            terminal_id = await self._bridge.create_terminal(
+            client_terminal_id = await self._bridge.create_terminal(
                 session=session,
                 command=command,
                 args=args,
@@ -127,52 +159,57 @@ class TerminalToolExecutor(ToolExecutor):
                 cwd=cwd,
                 output_byte_limit=output_byte_limit,
             )
-            
-            if terminal_id is None:
+
+            if client_terminal_id is None:
                 return ToolExecutionResult(
                     success=False,
                     error=f"Ошибка при создании терминала для команды: {command}",
                 )
-            
+
+            # LLM оперирует коротким alias (см. tech-debt #18), а клиент — своим
+            # родным id. Регистрируем маппинг и отдаём наружу alias.
+            alias = self._aliases.register(session, client_terminal_id)
+
             logger.debug(
                 "Терминал успешно создан",
                 extra={
                     "session_id": session.session_id,
-                    "terminal_id": terminal_id,
+                    "terminal_id": alias,
+                    "client_terminal_id": client_terminal_id,
                     "command": command,
                 },
             )
-            
+
             # Формируем ToolCallContent items для ACP (10-Terminal.md: Embedding in Tool Calls)
             # Terminal content идёт первым — клиент может сразу начать отображение
-            # Text content (обёрнутый в content wrapper) — fallback для LLM
+            # (адресуется СВОИМ terminalId). Text content — fallback для LLM (alias).
             content_items = [
                 {
                     "type": "terminal",
-                    "terminalId": terminal_id,
+                    "terminalId": client_terminal_id,
                 },
                 {
                     "type": "content",
                     "content": {
                         "type": "text",
-                        "text": f"Terminal {terminal_id} created for command: {command}",
+                        "text": f"Terminal {alias} created for command: {command}",
                     },
                 },
             ]
-            
+
             return ToolExecutionResult(
                 success=True,
-                output=f"Терминал создан с ID: {terminal_id}",
+                output=f"Терминал создан с ID: {alias}",
                 metadata={
-                    "terminal_id": terminal_id,
+                    "terminal_id": alias,
                     "command": command,
                 },
                 raw_output={
-                    "terminal_id": terminal_id,
+                    "terminal_id": alias,
                 },
                 content=content_items,
             )
-            
+
         except Exception as e:
             logger.error(
                 "Ошибка при создании терминала",
@@ -193,14 +230,14 @@ class TerminalToolExecutor(ToolExecutor):
         terminal_id: str,
     ) -> ToolExecutionResult:
         """Ожидать завершения терминала через ClientRPC.
-        
+
         По ACP spec terminal/wait_for_exit возвращает только exitCode/signal.
         Output получается через отдельный вызов terminal/output.
-        
+
         Args:
             session: Состояние сессии.
             terminal_id: ID терминала.
-            
+
         Returns:
             ToolExecutionResult с exit_code и output.
         """
@@ -212,23 +249,28 @@ class TerminalToolExecutor(ToolExecutor):
                     "terminal_id": terminal_id,
                 },
             )
-            
+
+            client_terminal_id, error_result = self._resolve_terminal(session, terminal_id)
+            if error_result is not None:
+                return error_result
+            assert client_terminal_id is not None  # resolve вернул id, раз нет ошибки
+
             # 1. Сначала пытаемся получить текущий output и статус
             output_data = await self._bridge.terminal_output(
                 session=session,
-                terminal_id=terminal_id,
+                terminal_id=client_terminal_id,
             )
-            
+
             output = ""
             exit_code: int | None = -1
             signal: str | None = None
-            
+
             if output_data:
                 output = output_data.get("output", "")
                 is_complete = output_data.get("is_complete", False)
                 exit_code = output_data.get("exit_code")
                 signal = output_data.get("signal")
-                
+
                 # Если терминал уже завершён — не нужно ждать
                 if is_complete and (exit_code is not None or signal is not None):
                     logger.debug(
@@ -253,32 +295,32 @@ class TerminalToolExecutor(ToolExecutor):
                             "output": output,
                         },
                     )
-            
+
             # 2. Если ещё не завершён — ждём через wait_for_exit
             wait_result = await self._bridge.wait_terminal_exit(
                 session=session,
-                terminal_id=terminal_id,
+                terminal_id=client_terminal_id,
             )
-            
+
             if wait_result is None:
                 return ToolExecutionResult(
                     success=False,
                     error=f"Ошибка при ожидании завершения терминала: {terminal_id}",
                 )
-            
+
             exit_code = wait_result.get("exit_code")
             signal = wait_result.get("signal")
-            
+
             # 3. После завершения — получаем финальный output
             final_output_data = await self._bridge.terminal_output(
                 session=session,
-                terminal_id=terminal_id,
+                terminal_id=client_terminal_id,
             )
             if final_output_data:
                 output = final_output_data.get("output", "")
-            
+
             resolved_exit_code = exit_code if exit_code is not None else -1
-            
+
             logger.debug(
                 "Терминал завершен",
                 extra={
@@ -288,7 +330,7 @@ class TerminalToolExecutor(ToolExecutor):
                     "signal": signal,
                 },
             )
-            
+
             return ToolExecutionResult(
                 success=resolved_exit_code == 0,
                 output=output,
@@ -303,7 +345,7 @@ class TerminalToolExecutor(ToolExecutor):
                     "output": output,
                 },
             )
-            
+
         except Exception as e:
             logger.error(
                 "Ошибка при ожидании завершения терминала",
@@ -324,11 +366,11 @@ class TerminalToolExecutor(ToolExecutor):
         terminal_id: str,
     ) -> ToolExecutionResult:
         """Освободить терминал через ClientRPC.
-        
+
         Args:
             session: Состояние сессии.
             terminal_id: ID терминала.
-            
+
         Returns:
             ToolExecutionResult с результатом освобождения.
         """
@@ -340,19 +382,28 @@ class TerminalToolExecutor(ToolExecutor):
                     "terminal_id": terminal_id,
                 },
             )
-            
+
+            client_terminal_id, error_result = self._resolve_terminal(session, terminal_id)
+            if error_result is not None:
+                return error_result
+            assert client_terminal_id is not None  # resolve вернул id, раз нет ошибки
+
             # Вызов ClientRPC для освобождения терминала
             success = await self._bridge.release_terminal(
                 session=session,
-                terminal_id=terminal_id,
+                terminal_id=client_terminal_id,
             )
-            
+
             if not success:
                 return ToolExecutionResult(
                     success=False,
                     error=f"Ошибка при освобождении терминала: {terminal_id}",
                 )
-            
+
+            # Терминал освобождён — снимаем alias, чтобы повторные обращения
+            # получали внятную ошибку контракта, а не промах по client id.
+            self._aliases.release(session, terminal_id)
+
             logger.debug(
                 "Терминал успешно освобожден",
                 extra={
@@ -360,7 +411,7 @@ class TerminalToolExecutor(ToolExecutor):
                     "terminal_id": terminal_id,
                 },
             )
-            
+
             return ToolExecutionResult(
                 success=True,
                 output=f"Терминал {terminal_id} успешно освобожден",
@@ -368,7 +419,7 @@ class TerminalToolExecutor(ToolExecutor):
                     "terminal_id": terminal_id,
                 },
             )
-            
+
         except Exception as e:
             logger.error(
                 "Ошибка при освобождении терминала",

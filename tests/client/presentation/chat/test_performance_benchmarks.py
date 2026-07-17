@@ -78,7 +78,7 @@ class TestDispatcherBenchmark:
 
         # Должно обрабатывать 1000 обновлений менее чем за 100ms
         assert elapsed < 0.1, f"Too slow: {elapsed:.3f}s for 1000 updates"
-        print(f"\nDispatch 1000 updates: {elapsed*1000:.2f}ms")
+        print(f"\nDispatch 1000 updates: {elapsed * 1000:.2f}ms")
 
     def test_dispatch_mixed_types(
         self, dispatcher: SessionUpdateDispatcher, context: ChatUpdateContext
@@ -86,47 +86,49 @@ class TestDispatcherBenchmark:
         """Измеряет время обработки смешанных типов обновлений."""
         updates = []
         for i in range(250):
-            updates.extend([
-                {
-                    "params": {
-                        "sessionId": "test-session",
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {"text": f"Message {i}"},
-                        },
-                    }
-                },
-                {
-                    "params": {
-                        "sessionId": "test-session",
-                        "update": {
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": f"tc-{i}",
-                            "title": f"Tool {i}",
-                            "status": "pending",
-                        },
-                    }
-                },
-                {
-                    "params": {
-                        "sessionId": "test-session",
-                        "update": {
-                            "sessionUpdate": "tool_call_update",
-                            "toolCallId": f"tc-{i}",
-                            "status": "completed",
-                        },
-                    }
-                },
-                {
-                    "params": {
-                        "sessionId": "test-session",
-                        "update": {
-                            "sessionUpdate": "plan",
-                            "entries": [{"content": f"Step {i}"}],
-                        },
-                    }
-                },
-            ])
+            updates.extend(
+                [
+                    {
+                        "params": {
+                            "sessionId": "test-session",
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {"text": f"Message {i}"},
+                            },
+                        }
+                    },
+                    {
+                        "params": {
+                            "sessionId": "test-session",
+                            "update": {
+                                "sessionUpdate": "tool_call",
+                                "toolCallId": f"tc-{i}",
+                                "title": f"Tool {i}",
+                                "status": "pending",
+                            },
+                        }
+                    },
+                    {
+                        "params": {
+                            "sessionId": "test-session",
+                            "update": {
+                                "sessionUpdate": "tool_call_update",
+                                "toolCallId": f"tc-{i}",
+                                "status": "completed",
+                            },
+                        }
+                    },
+                    {
+                        "params": {
+                            "sessionId": "test-session",
+                            "update": {
+                                "sessionUpdate": "plan",
+                                "entries": [{"content": f"Step {i}"}],
+                            },
+                        }
+                    },
+                ]
+            )
 
         start = time.perf_counter()
         for update in updates:
@@ -135,7 +137,7 @@ class TestDispatcherBenchmark:
 
         # 1000 смешанных обновлений
         assert elapsed < 0.2, f"Too slow: {elapsed:.3f}s for 1000 mixed updates"
-        print(f"\nDispatch 1000 mixed updates: {elapsed*1000:.2f}ms")
+        print(f"\nDispatch 1000 mixed updates: {elapsed * 1000:.2f}ms")
 
 
 class TestPersistenceBenchmark:
@@ -159,7 +161,7 @@ class TestPersistenceBenchmark:
 
         # Сохранение 100 сообщений должно быть менее 50ms
         assert elapsed < 0.05, f"Too slow: {elapsed:.3f}s for 100 messages"
-        print(f"\nSave 100 messages: {elapsed*1000:.2f}ms")
+        print(f"\nSave 100 messages: {elapsed * 1000:.2f}ms")
 
     async def test_save_1000_messages(self, persistence: FileChatPersistence) -> None:
         """Измеряет время сохранения 1000 сообщений."""
@@ -174,7 +176,7 @@ class TestPersistenceBenchmark:
 
         # Сохранение 1000 сообщений должно быть менее 200ms
         assert elapsed < 0.2, f"Too slow: {elapsed:.3f}s for 1000 messages"
-        print(f"\nSave 1000 messages: {elapsed*1000:.2f}ms")
+        print(f"\nSave 1000 messages: {elapsed * 1000:.2f}ms")
 
     async def test_load_1000_messages(self, persistence: FileChatPersistence) -> None:
         """Измеряет время загрузки 1000 сообщений."""
@@ -193,7 +195,7 @@ class TestPersistenceBenchmark:
         assert len(loaded) == 1000
         # Загрузка 1000 сообщений должна быть менее 100ms
         assert elapsed < 0.1, f"Too slow: {elapsed:.3f}s to load 1000 messages"
-        print(f"\nLoad 1000 messages: {elapsed*1000:.2f}ms")
+        print(f"\nLoad 1000 messages: {elapsed * 1000:.2f}ms")
 
     async def test_rapid_saves(self, persistence: FileChatPersistence) -> None:
         """Измеряет время множественных быстрых сохранений (имитация streaming)."""
@@ -207,7 +209,7 @@ class TestPersistenceBenchmark:
 
         # 100 последовательных сохранений должны быть менее 500ms
         assert elapsed < 0.5, f"Too slow: {elapsed:.3f}s for 100 rapid saves"
-        print(f"\n100 rapid saves: {elapsed*1000:.2f}ms ({elapsed*10:.2f}ms per save)")
+        print(f"\n100 rapid saves: {elapsed * 1000:.2f}ms ({elapsed * 10:.2f}ms per save)")
 
 
 class TestObservableBenchmark:
@@ -231,7 +233,7 @@ class TestObservableBenchmark:
         assert counter[0] == 1000
         # 1000 обновлений должны быть менее 50ms
         assert elapsed < 0.05, f"Too slow: {elapsed:.3f}s for 1000 updates"
-        print(f"\nObservable 1000 updates: {elapsed*1000:.2f}ms")
+        print(f"\nObservable 1000 updates: {elapsed * 1000:.2f}ms")
 
     def test_observable_multiple_observers(self) -> None:
         """Измеряет время уведомлений с множественными observers."""
@@ -251,7 +253,7 @@ class TestObservableBenchmark:
         assert all(c == 100 for c in counters)
         # 100 обновлений с 100 observers должны быть менее 100ms
         assert elapsed < 0.1, f"Too slow: {elapsed:.3f}s for 100 updates with 100 observers"
-        print(f"\nObservable 100 updates with 100 observers: {elapsed*1000:.2f}ms")
+        print(f"\nObservable 100 updates with 100 observers: {elapsed * 1000:.2f}ms")
 
 
 class TestDebounceBenchmark:
@@ -262,9 +264,7 @@ class TestDebounceBenchmark:
         """Создает FileChatPersistence."""
         return FileChatPersistence(tmp_path / "history")
 
-    async def test_debounce_streaming_simulation(
-        self, persistence: FileChatPersistence
-    ) -> None:
+    async def test_debounce_streaming_simulation(self, persistence: FileChatPersistence) -> None:
         """Имитирует streaming с debounce - 100 chunks должны сохранить только 1 раз."""
         from unittest.mock import MagicMock
 
@@ -301,4 +301,4 @@ class TestDebounceBenchmark:
 
         # Должно быть только 1 реальное сохранение благодаря debounce
         assert save_count[0] == 1, f"Expected 1 save, got {save_count[0]}"
-        print(f"\nDebounce streaming (100 chunks): {elapsed*1000:.2f}ms, saves: {save_count[0]}")
+        print(f"\nDebounce streaming (100 chunks): {elapsed * 1000:.2f}ms, saves: {save_count[0]}")

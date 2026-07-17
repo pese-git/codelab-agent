@@ -25,11 +25,11 @@ logger = structlog.get_logger(__name__)
 class HotkeyCategory(Enum):
     """Категории горячих клавиш для группировки в справке."""
 
-    NAVIGATION = "navigation"      # Навигация
-    SESSION = "session"            # Управление сессиями
-    EDITING = "editing"            # Редактирование
-    VIEW = "view"                  # Отображение
-    SYSTEM = "system"              # Системные
+    NAVIGATION = "navigation"  # Навигация
+    SESSION = "session"  # Управление сессиями
+    EDITING = "editing"  # Редактирование
+    VIEW = "view"  # Отображение
+    SYSTEM = "system"  # Системные
 
 
 @dataclass
@@ -62,153 +62,66 @@ class HotkeyGroup:
     bindings: list[HotkeyBinding] = field(default_factory=list)
 
 
-# Стандартные горячие клавиши CodeLab TUI
+# Стандартные горячие клавиши CodeLab TUI.
+#
+# ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ о раскладке: `ACPClientApp.BINDINGS` собирается из этого
+# списка через get_default_textual_bindings(), а справка (`HelpModal`) — через
+# get_help_groups(). Порядок объявления совпадает с порядком в footer App.
+# Раскладка канонизирована по фактически работавшему `App.BINDINGS` (tech-debt #16):
+# менять клавишу здесь = менять контракт UX.
 DEFAULT_BINDINGS: list[HotkeyBinding] = [
-    # Системные
+    HotkeyBinding("ctrl+q", "quit", "Выход", HotkeyCategory.SYSTEM, priority=10),
+    HotkeyBinding("ctrl+n", "new_session", "Новая сессия", HotkeyCategory.SESSION, priority=20),
+    HotkeyBinding("ctrl+b", "toggle_sidebar", "Sidebar", HotkeyCategory.NAVIGATION, priority=40),
     HotkeyBinding(
-        key="ctrl+q",
-        action="quit",
-        description="Выход из приложения",
-        category=HotkeyCategory.SYSTEM,
-        priority=1,
+        "ctrl+s", "focus_session_list", "Список сессий", HotkeyCategory.NAVIGATION, priority=50
     ),
     HotkeyBinding(
-        key="ctrl+k",
-        action="command_palette",
-        description="Открыть палитру команд",
-        category=HotkeyCategory.SYSTEM,
-        priority=2,
+        "ctrl+j", "next_session", "Следующая сессия", HotkeyCategory.SESSION, priority=60
     ),
     HotkeyBinding(
-        key="ctrl+h",
-        action="open_help",
-        description="Открыть справку",
-        category=HotkeyCategory.SYSTEM,
-        priority=3,
+        "ctrl+k", "previous_session", "Предыдущая сессия", HotkeyCategory.SESSION, priority=70
+    ),
+    HotkeyBinding("ctrl+l", "clear_chat", "Очистить чат", HotkeyCategory.SESSION, priority=80),
+    HotkeyBinding("ctrl+h", "open_help", "Справка", HotkeyCategory.SYSTEM, priority=90),
+    HotkeyBinding("?", "show_hotkeys", "Горячие клавиши", HotkeyCategory.SYSTEM, priority=100),
+    HotkeyBinding(
+        "ctrl+tab", "next_sidebar_tab", "Вкладка sidebar", HotkeyCategory.NAVIGATION, priority=110
     ),
     HotkeyBinding(
-        key="?",
-        action="show_hotkeys",
-        description="Показать горячие клавиши",
-        category=HotkeyCategory.SYSTEM,
-        priority=4,
+        "ctrl+shift+tab",
+        "previous_sidebar_tab",
+        "Предыдущая вкладка",
+        HotkeyCategory.NAVIGATION,
+        priority=120,
     ),
     HotkeyBinding(
-        key="escape",
-        action="close_modal",
-        description="Закрыть модальное окно / Отмена",
-        category=HotkeyCategory.SYSTEM,
-        priority=5,
+        "tab", "cycle_focus", "Переключить фокус", HotkeyCategory.NAVIGATION, priority=140
     ),
-    # Сессии
+    HotkeyBinding("ctrl+c", "cancel_prompt", "Отменить", HotkeyCategory.SESSION, priority=150),
+    HotkeyBinding("ctrl+m", "select_model", "Выбрать модель", HotkeyCategory.VIEW, priority=160),
     HotkeyBinding(
-        key="ctrl+n",
-        action="new_session",
-        description="Новая сессия",
-        category=HotkeyCategory.SESSION,
-        priority=10,
+        "ctrl+shift+m", "select_mode", "Выбрать режим", HotkeyCategory.VIEW, priority=170
+    ),
+    HotkeyBinding("ctrl+a", "select_agent", "Выбрать агента", HotkeyCategory.VIEW, priority=180),
+    HotkeyBinding(
+        "ctrl+shift+a", "select_strategy", "Выбрать стратегию", HotkeyCategory.VIEW, priority=190
     ),
     HotkeyBinding(
-        key="ctrl+j",
-        action="next_session",
-        description="Следующая сессия",
-        category=HotkeyCategory.SESSION,
-        priority=11,
+        "ctrl+p", "command_palette", "Палитра команд", HotkeyCategory.SYSTEM, priority=200
     ),
-    HotkeyBinding(
-        key="ctrl+shift+k",
-        action="previous_session",
-        description="Предыдущая сессия",
-        category=HotkeyCategory.SESSION,
-        priority=12,
-    ),
-    HotkeyBinding(
-        key="ctrl+r",
-        action="retry_prompt",
-        description="Повторить последний запрос",
-        category=HotkeyCategory.SESSION,
-        priority=13,
-    ),
-    HotkeyBinding(
-        key="ctrl+c",
-        action="cancel_prompt",
-        description="Отменить текущий запрос",
-        category=HotkeyCategory.SESSION,
-        priority=14,
-    ),
-    HotkeyBinding(
-        key="ctrl+l",
-        action="clear_chat",
-        description="Очистить чат",
-        category=HotkeyCategory.SESSION,
-        priority=15,
-    ),
-    # Навигация
-    HotkeyBinding(
-        key="ctrl+b",
-        action="toggle_sidebar",
-        description="Показать/скрыть боковую панель",
-        category=HotkeyCategory.NAVIGATION,
-        priority=20,
-    ),
-    HotkeyBinding(
-        key="ctrl+s",
-        action="focus_sidebar",
-        description="Фокус на боковую панель",
-        category=HotkeyCategory.NAVIGATION,
-        priority=21,
-    ),
-    HotkeyBinding(
-        key="tab",
-        action="cycle_focus",
-        description="Переключить фокус",
-        category=HotkeyCategory.NAVIGATION,
-        priority=22,
-    ),
-    HotkeyBinding(
-        key="ctrl+tab",
-        action="next_sidebar_tab",
-        description="Следующая вкладка sidebar",
-        category=HotkeyCategory.NAVIGATION,
-        priority=23,
-    ),
-    HotkeyBinding(
-        key="ctrl+shift+tab",
-        action="previous_sidebar_tab",
-        description="Предыдущая вкладка sidebar",
-        category=HotkeyCategory.NAVIGATION,
-        priority=24,
-    ),
-    # Отображение
-    HotkeyBinding(
-        key="ctrl+t",
-        action="toggle_theme",
-        description="Переключить тему",
-        category=HotkeyCategory.VIEW,
-        priority=30,
-    ),
-    HotkeyBinding(
-        key="ctrl+`",
-        action="open_terminal_output",
-        description="Открыть вывод терминала",
-        category=HotkeyCategory.VIEW,
-        priority=31,
-    ),
-    HotkeyBinding(
-        key="ctrl+p",
-        action="toggle_plan_panel",
-        description="Показать/скрыть панель плана",
-        category=HotkeyCategory.VIEW,
-        priority=32,
-    ),
-    HotkeyBinding(
-        key="ctrl+/",
-        action="toggle_tool_panel",
-        description="Показать/скрыть панель инструментов",
-        category=HotkeyCategory.VIEW,
-        priority=33,
-    ),
+    HotkeyBinding("ctrl+t", "toggle_theme", "Переключить тему", HotkeyCategory.VIEW, priority=210),
+    HotkeyBinding("escape", "close_modal", "Закрыть", HotkeyCategory.SYSTEM, priority=220),
 ]
+
+
+def get_default_textual_bindings() -> list[tuple[str, str, str]]:
+    """Единый источник `App.BINDINGS`: (key, action, description) в порядке объявления.
+
+    App собирает свои BINDINGS отсюда, чтобы раскладка не расходилась с
+    KeyboardManager/справкой (tech-debt #16).
+    """
+    return [(b.key, b.action, b.description) for b in DEFAULT_BINDINGS]
 
 # Названия категорий на русском
 CATEGORY_NAMES: dict[HotkeyCategory, str] = {

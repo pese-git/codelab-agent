@@ -27,7 +27,7 @@ class PromptContext:
     # Результаты, накапливаемые по ходу pipeline
     notifications: list[ACPMessage] = field(default_factory=list)
     stop_reason: str = "end_turn"
-    should_stop: bool = False       # True — прервать pipeline досрочно
+    should_stop: bool = False  # True — прервать pipeline досрочно
     error_response: ACPMessage | None = None
     pending_permission: bool = False  # True — turn отложен, ожидает разрешения
 

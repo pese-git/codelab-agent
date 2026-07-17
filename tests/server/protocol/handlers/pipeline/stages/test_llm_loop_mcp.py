@@ -19,6 +19,7 @@ from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
@@ -167,11 +168,11 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -200,11 +201,11 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=None,  # Нет MCP manager
         )
 
@@ -248,11 +249,11 @@ class TestMcpToolDelegation:
         ]
 
         notifications: list = []
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=None,
         )
 
@@ -281,11 +282,11 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -311,11 +312,11 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -336,11 +337,11 @@ class TestMcpToolLifecycle:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -363,11 +364,11 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -395,11 +396,11 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 
@@ -421,11 +422,11 @@ class TestMcpToolPermission:
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
 
-        result = await agent_loop._process_tool_calls(
+        result = await agent_loop._tool_processor.process_batch(
             session=session,
             session_id="test-session",
             tool_calls=tool_calls,
-            notifications=notifications,
+            sink=SessionUpdateSink(MagicMock(), None, notifications),
             mcp_manager=mock_mcp_manager,
         )
 

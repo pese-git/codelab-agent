@@ -16,7 +16,6 @@ import pytest
 from codelab.client.application.dto import (
     CreateSessionRequest,
     LoadSessionRequest,
-    PromptCallbacks,
     SendPromptRequest,
 )
 from codelab.client.application.use_cases import (
@@ -103,101 +102,6 @@ class TestSendPromptUseCaseCoverage:
 
         use_case = SendPromptUseCase(transport=transport, session_repo=session_repo)
         return use_case, transport, session_repo
-
-    @pytest.mark.asyncio
-    async def test_execute_passes_on_terminal_create_callback(self, base_setup) -> None:
-        """UseCase передаёт on_terminal_create callback."""
-        use_case, transport, _ = base_setup
-        callback = Mock()
-        callbacks = PromptCallbacks(on_terminal_create=callback)
-
-        await use_case.execute(
-            SendPromptRequest(
-                session_id="sess_123",
-                prompt_text="Hello",
-                callbacks=callbacks,
-            )
-        )
-
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_create" in call_kwargs
-        assert call_kwargs["on_terminal_create"] is callback
-
-    @pytest.mark.asyncio
-    async def test_execute_passes_on_terminal_output_callback(self, base_setup) -> None:
-        """UseCase передаёт on_terminal_output callback."""
-        use_case, transport, _ = base_setup
-        callback = Mock()
-        callbacks = PromptCallbacks(on_terminal_output=callback)
-
-        await use_case.execute(
-            SendPromptRequest(
-                session_id="sess_123",
-                prompt_text="Hello",
-                callbacks=callbacks,
-            )
-        )
-
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_output" in call_kwargs
-        assert call_kwargs["on_terminal_output"] is callback
-
-    @pytest.mark.asyncio
-    async def test_execute_passes_on_terminal_wait_callback(self, base_setup) -> None:
-        """UseCase передаёт on_terminal_wait callback."""
-        use_case, transport, _ = base_setup
-        callback = Mock()
-        callbacks = PromptCallbacks(on_terminal_wait_for_exit=callback)
-
-        await use_case.execute(
-            SendPromptRequest(
-                session_id="sess_123",
-                prompt_text="Hello",
-                callbacks=callbacks,
-            )
-        )
-
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_wait" in call_kwargs
-        assert call_kwargs["on_terminal_wait"] is callback
-
-    @pytest.mark.asyncio
-    async def test_execute_passes_on_terminal_release_callback(self, base_setup) -> None:
-        """UseCase передаёт on_terminal_release callback."""
-        use_case, transport, _ = base_setup
-        callback = Mock()
-        callbacks = PromptCallbacks(on_terminal_release=callback)
-
-        await use_case.execute(
-            SendPromptRequest(
-                session_id="sess_123",
-                prompt_text="Hello",
-                callbacks=callbacks,
-            )
-        )
-
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_release" in call_kwargs
-        assert call_kwargs["on_terminal_release"] is callback
-
-    @pytest.mark.asyncio
-    async def test_execute_passes_on_terminal_kill_callback(self, base_setup) -> None:
-        """UseCase передаёт on_terminal_kill callback."""
-        use_case, transport, _ = base_setup
-        callback = Mock()
-        callbacks = PromptCallbacks(on_terminal_kill=callback)
-
-        await use_case.execute(
-            SendPromptRequest(
-                session_id="sess_123",
-                prompt_text="Hello",
-                callbacks=callbacks,
-            )
-        )
-
-        call_kwargs = transport.request_with_callbacks.call_args.kwargs
-        assert "on_terminal_kill" in call_kwargs
-        assert call_kwargs["on_terminal_kill"] is callback
 
     @pytest.mark.asyncio
     async def test_execute_unexpected_exception_wrapped(self, base_setup) -> None:

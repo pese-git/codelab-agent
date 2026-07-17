@@ -216,12 +216,12 @@ class TestBackgroundReceiveLoop:
 
         # Loop должна попытаться перезапуститься, но после MAX_RETRIES остановиться
         await asyncio.sleep(0.3)
-        
+
         # Проверяем, что были попытки рестарта
         stats = loop.get_stats()
         assert stats["restarts_count"] >= 1
         assert stats["consecutive_errors"] >= loop.MAX_CONSECUTIVE_RETRIES
-        
+
         # После превышения лимита loop должна остановиться
         assert not loop.is_running()
 
@@ -253,7 +253,7 @@ class TestBackgroundReceiveLoop:
         stats = loop.get_stats()
         assert stats["restarts_count"] >= 1
         assert stats["consecutive_errors"] >= loop.MAX_CONSECUTIVE_RETRIES
-        
+
         # После превышения лимита loop должна остановиться
         assert not loop.is_running()
 

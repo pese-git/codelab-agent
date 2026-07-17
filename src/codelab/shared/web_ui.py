@@ -168,7 +168,7 @@ class WebUIManager:
         except ValueError:
             pass
         # Проверить как hostname (только буквы, цифры, дефисы, точки)
-        if re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,253}[a-zA-Z0-9])?$', host):
+        if re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,253}[a-zA-Z0-9])?$", host):
             return host
         raise ValueError(f"Invalid host: {host!r}")
 

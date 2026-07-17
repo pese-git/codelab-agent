@@ -258,7 +258,7 @@ class SessionCoordinator:
                 request_id=request.id,
                 session_id=request.params.sessionId,
             )
-            
+
             # Ждём ответа пользователя с timeout (5 минут по умолчанию)
             # Если пользователь не ответил, автоматически отменяем запрос
             PERMISSION_TIMEOUT_SECONDS = 300  # 5 минут
@@ -283,7 +283,7 @@ class SessionCoordinator:
                 session_id=request.params.sessionId,
                 tool_call_id=request.params.toolCall.toolCallId,
                 outcome=outcome.outcome,
-                option_id=getattr(outcome, 'optionId', None),
+                option_id=getattr(outcome, "optionId", None),
             )
 
             return outcome
@@ -301,9 +301,7 @@ class SessionCoordinator:
             # Cleanup - удалить request из manager после завершения
             if self._permission_handler is not None:
                 try:
-                    self._permission_handler.get_request_manager().remove_request(
-                        request.id
-                    )
+                    self._permission_handler.get_request_manager().remove_request(request.id)
                     self._logger.debug(
                         "permission_request_removed",
                         request_id=request.id,
@@ -333,7 +331,7 @@ class SessionCoordinator:
             request_id=request_id,
             option_id=option_id,
         )
-        
+
         if self._permission_handler is None:
             self._logger.warning(
                 "permission_handler_not_available_for_resolve",

@@ -106,7 +106,8 @@ class TerminalLogModal(ModalScreen[None]):
     def action_close(self) -> None:
         """Закрывает модальное окно по hotkey.
 
-        Только обновляет ViewModel, NavigationManager сам удалит виджет.
+        Обновляет ViewModel (is_visible=False); фактическое снятие модалки
+        выполняет владелец, показавший её.
         """
         self.terminal_log_vm.hide()
 

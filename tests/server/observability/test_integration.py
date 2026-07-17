@@ -1,6 +1,5 @@
 """Integration тесты: Tracer + EventBus + MetricsTracker + EventTimeline вместе."""
 
-
 import pytest
 
 from codelab.server.agent.contracts.base import (

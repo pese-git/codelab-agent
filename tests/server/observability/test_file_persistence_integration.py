@@ -139,6 +139,7 @@ class TestObservabilityFilePersistenceIntegration:
 
         # Небольшая задержка для уникальности имени файла
         import time
+
         time.sleep(0.1)
 
         # Второй flush

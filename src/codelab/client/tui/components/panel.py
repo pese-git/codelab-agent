@@ -25,15 +25,15 @@ if TYPE_CHECKING:
 
 class CollapsiblePanel(Container):
     """Сворачиваемая панель с заголовком.
-    
+
     Панель состоит из:
     - Header: заголовок с иконкой, текстом и кнопкой toggle
     - Content: основной контент, скрываемый при сворачивании
-    
+
     Примеры использования:
         >>> panel = CollapsiblePanel(title="Настройки", icon="⚙️")
         >>> panel.mount(Static("Содержимое панели"))
-        
+
         >>> # С начально свернутым состоянием
         >>> panel = CollapsiblePanel(title="Логи", collapsed=True)
     """
@@ -42,7 +42,7 @@ class CollapsiblePanel(Container):
     collapsed: reactive[bool] = reactive(False)
     title: reactive[str] = reactive("")
     icon: reactive[str] = reactive("")
-    
+
     DEFAULT_CSS = """
     CollapsiblePanel {
         width: 100%;
@@ -96,7 +96,7 @@ class CollapsiblePanel(Container):
 
         def __init__(self, panel: CollapsiblePanel, collapsed: bool) -> None:
             """Сохраняет информацию о состоянии.
-            
+
             Args:
                 panel: Панель, состояние которой изменилось
                 collapsed: Новое состояние (True = свернуто)
@@ -131,7 +131,7 @@ class CollapsiblePanel(Container):
         self._title = title
         self._icon = icon
         self._initial_collapsed = collapsed
-        
+
         # Виджеты для обновления
         self._icon_widget: Static | None = None
         self._title_widget: Static | None = None
@@ -144,14 +144,14 @@ class CollapsiblePanel(Container):
         with Container(classes="panel-header"):
             self._icon_widget = Static(self._icon, classes="panel-icon")
             yield self._icon_widget
-            
+
             self._title_widget = Static(self._title, classes="panel-title")
             yield self._title_widget
-            
+
             toggle_icon = "▼" if not self._initial_collapsed else "▶"
             self._toggle_button = Button(toggle_icon, classes="panel-toggle")
             yield self._toggle_button
-        
+
         # Content
         self._content_container = Vertical(classes="panel-content")
         if self._initial_collapsed:
@@ -164,7 +164,7 @@ class CollapsiblePanel(Container):
         self.title = self._title
         self.icon = self._icon
         self.collapsed = self._initial_collapsed
-        
+
         # Монтируем дочерние виджеты в контейнер контента
         if self._content_container is not None and self._initial_children:
             for child in self._initial_children:
@@ -190,7 +190,7 @@ class CollapsiblePanel(Container):
 
     def watch_collapsed(self, collapsed: bool) -> None:
         """Реагирует на изменение состояния свернутости.
-        
+
         Args:
             collapsed: Новое состояние
         """
@@ -201,10 +201,10 @@ class CollapsiblePanel(Container):
             else:
                 self._content_container.remove_class("hidden")
                 self.remove_class("collapsed")
-        
+
         if self._toggle_button is not None:
             self._toggle_button.label = "▶" if collapsed else "▼"
-        
+
         # Отправляем событие
         self.post_message(self.Toggled(self, collapsed))
 
@@ -234,11 +234,11 @@ class CollapsiblePanel(Container):
 
 class AccordionPanel(Container):
     """Группа панелей, где только одна может быть развернута.
-    
+
     Работает как аккордеон - при разворачивании одной панели,
     остальные автоматически сворачиваются.
     """
-    
+
     DEFAULT_CSS = """
     AccordionPanel {
         width: 100%;
@@ -273,12 +273,12 @@ class AccordionPanel(Container):
 
     def on_collapsible_panel_toggled(self, event: CollapsiblePanel.Toggled) -> None:
         """Обрабатывает событие toggle панели.
-        
+
         При развертывании панели сворачивает остальные (если allow_multiple=False).
         """
         if self._allow_multiple:
             return
-            
+
         if not event.collapsed:
             # Сворачиваем все остальные панели
             for panel in self.query(CollapsiblePanel):

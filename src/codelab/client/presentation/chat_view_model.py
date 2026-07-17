@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from codelab.client.application.replay_reducer import ReplayReducer
 from codelab.client.presentation.base_view_model import BaseViewModel
 from codelab.client.presentation.chat.chat_session_state import ChatSessionState
 from codelab.client.presentation.observable import Observable, ObservableCommand
@@ -88,6 +89,9 @@ class ChatViewModel(BaseViewModel):
         self._fs_callback_executor = fs_callback_executor
         self._terminal_callback_executor = terminal_callback_executor
 
+        # Чистая пересборка сообщений из replay (application-слой).
+        self._replay_reducer = ReplayReducer()
+
         # Observable свойства
         self.messages: Observable[list[Any]] = Observable([])
         self.tool_calls: Observable[list[Any]] = Observable([])
@@ -147,53 +151,11 @@ class ChatViewModel(BaseViewModel):
         self._set_last_stop_reason(session_id, None)
 
         try:
-            terminal_callbacks: dict[str, Any] = {}
-            if self._terminal_callback_executor is not None:
-                _executor = self._terminal_callback_executor
-
-                async def _on_terminal_create(command: str) -> str:
-                    terminal_id, error = await _executor.create_terminal(command)
-                    if error:
-                        raise RuntimeError(f"Terminal creation failed: {error}")
-                    return terminal_id
-
-                async def _on_terminal_output(terminal_id: str) -> dict[str, Any]:
-                    output_data, error = await _executor.get_output(terminal_id)
-                    if error:
-                        return {"output": "", "isComplete": True, "exitCode": None}
-                    output = ""
-                    if isinstance(output_data, dict):
-                        output = output_data.get("output", "")
-                    elif isinstance(output_data, str):
-                        output = output_data
-                    return {
-                        "output": output,
-                        "isComplete": True,
-                        "exitCode": None,
-                    }
-
-                async def _on_terminal_wait_for_exit(
-                    terminal_id: str,
-                ) -> tuple[int | None, str | None]:
-                    result, error = await _executor.wait_for_exit(terminal_id)
-                    if error or result is None:
-                        return (None, error or "")
-                    return result
-
-                async def _on_terminal_release(terminal_id: str) -> None:
-                    await _executor.release_terminal(terminal_id)
-
-                async def _on_terminal_kill(terminal_id: str) -> bool:
-                    success, _ = await _executor.kill_terminal(terminal_id)
-                    return success
-
-                terminal_callbacks = {
-                    "on_terminal_create": _on_terminal_create,
-                    "on_terminal_output": _on_terminal_output,
-                    "on_terminal_wait_for_exit": _on_terminal_wait_for_exit,
-                    "on_terminal_release": _on_terminal_release,
-                    "on_terminal_kill": _on_terminal_kill,
-                }
+            terminal_callbacks: dict[str, Any] = (
+                self._terminal_callback_executor.build_prompt_callbacks()
+                if self._terminal_callback_executor is not None
+                else {}
+            )
 
             # Отправить prompt через coordinator с callback для обработки обновлений
             # SessionCoordinator должен обработать updates и опубликовать события
@@ -208,27 +170,8 @@ class ChatViewModel(BaseViewModel):
             )
 
             # Гарантированное добавление streaming текста в историю после завершения
-            # (на случай, если PromptCompletedEvent не был опубликован)
-            session_state = self._get_or_create_session_state(session_id)
-            streaming_text = session_state.streaming_text
-            if streaming_text:
-                session_state.messages.append({"role": "assistant", "content": streaming_text})
-                session_state.streaming_text = ""
-                session_state.is_streaming = False
-                self._session_states[session_id] = session_state
-                self._persist_messages(
-                    session_id,
-                    session_state.messages,
-                    replay_updates=session_state.replay_updates,
-                )
-                if self._active_session_id == session_id:
-                    self.messages.value = list(session_state.messages)
-                    self.streaming_text.value = ""
-                    self.is_streaming.value = False
-                self.logger.info(
-                    "Agent response added to message history (fallback)",
-                    text_length=len(streaming_text),
-                )
+            # (на случай, если PromptCompletedEvent не был опубликован).
+            self._finalize_agent_turn(session_id)
 
         except Exception as e:
             self.logger.exception("Error sending prompt", error=str(e))
@@ -276,30 +219,8 @@ class ChatViewModel(BaseViewModel):
         permission_id: str,
         **kwargs: Any,
     ) -> None:
-        """Утвердить разрешение.
-
-        Args:
-            session_id: ID сессии
-            permission_id: ID разрешения
-            **kwargs: Дополнительные параметры
-        """
-        try:
-            self.logger.info(
-                "Approving permission",
-                session_id=session_id,
-                permission_id=permission_id,
-            )
-            await self.coordinator.handle_permission(
-                session_id,
-                permission_id,
-                approved=True,
-                **kwargs,
-            )
-            # Удалить из pending
-            self._remove_pending_permission(permission_id)
-        except Exception as e:
-            self.logger.exception("Error approving permission", error=str(e))
-            raise
+        """Утвердить разрешение."""
+        await self._resolve_permission(session_id, permission_id, approved=True, **kwargs)
 
     async def _reject_permission(
         self,
@@ -307,29 +228,41 @@ class ChatViewModel(BaseViewModel):
         permission_id: str,
         **kwargs: Any,
     ) -> None:
-        """Отклонить разрешение.
+        """Отклонить разрешение."""
+        await self._resolve_permission(session_id, permission_id, approved=False, **kwargs)
+
+    async def _resolve_permission(
+        self,
+        session_id: str,
+        permission_id: str,
+        *,
+        approved: bool,
+        **kwargs: Any,
+    ) -> None:
+        """Разрешить или отклонить permission и убрать его из pending.
 
         Args:
             session_id: ID сессии
             permission_id: ID разрешения
+            approved: True — утвердить, False — отклонить
             **kwargs: Дополнительные параметры
         """
         try:
             self.logger.info(
-                "Rejecting permission",
+                "Resolving permission",
                 session_id=session_id,
                 permission_id=permission_id,
+                approved=approved,
             )
             await self.coordinator.handle_permission(
                 session_id,
                 permission_id,
-                approved=False,
+                approved=approved,
                 **kwargs,
             )
-            # Удалить из pending
             self._remove_pending_permission(permission_id)
         except Exception as e:
-            self.logger.exception("Error rejecting permission", error=str(e))
+            self.logger.exception("Error resolving permission", error=str(e), approved=approved)
             raise
 
     async def _clear_chat(self) -> None:
@@ -489,97 +422,10 @@ class ChatViewModel(BaseViewModel):
             replay_updates_count=len(replay_updates),
         )
 
-        # Пересобираем сообщения из message chunks для быстрого восстановления UI.
-        # Это отдельный проход, чтобы сразу установить messages.value до обработки
-        # остальных обновлений через _handle_session_update.
-        rebuilt_messages: list[dict[str, str]] = []
-        last_role: str | None = None
-        current_text_parts: list[str] = []
-
-        for idx, update_data in enumerate(replay_updates):
-            params = update_data.get("params", {})
-            if params.get("sessionId") != session_id:
-                self.logger.debug(
-                    "restore_skipping_wrong_session",
-                    idx=idx,
-                    expected_session=session_id,
-                    actual_session=params.get("sessionId"),
-                )
-                continue
-
-            update = params.get("update", {})
-            update_type = update.get("sessionUpdate")
-            content = update.get("content")
-
-            self.logger.debug(
-                "restore_processing_update",
-                idx=idx,
-                update_type=update_type,
-                has_content=content is not None,
-                content_type=type(content).__name__ if content is not None else None,
-            )
-
-            # Обрабатываем только message chunks для пересборки истории
-            if not isinstance(content, dict):
-                self.logger.debug(
-                    "restore_skipping_no_content",
-                    idx=idx,
-                    update_type=update_type,
-                )
-                continue
-
-            text = content.get("text")
-            if not isinstance(text, str) or text == "":
-                self.logger.debug(
-                    "restore_skipping_no_text",
-                    idx=idx,
-                    update_type=update_type,
-                    has_text=text is not None,
-                )
-                continue
-
-            # Определяем роль для текущего chunk
-            if update_type == "user_message_chunk":
-                current_role = "user"
-            elif update_type == "agent_message_chunk":
-                current_role = "assistant"
-            else:
-                continue
-
-            # Агрегируем последовательные chunks одного типа в одно сообщение
-            if current_role != last_role and last_role is not None:
-                # Роль изменилась — сохраняем предыдущее сообщение
-                rebuilt_messages.append(
-                    {
-                        "role": last_role,
-                        "content": "".join(current_text_parts),
-                    }
-                )
-                current_text_parts = []
-
-            last_role = current_role
-            current_text_parts.append(text)
-
-            self.logger.debug(
-                "restore_aggregating_chunk",
-                idx=idx,
-                role=current_role,
-                text_length=len(text),
-            )
-
-        # Сохраняем последнее сообщение (если есть)
-        if last_role is not None and current_text_parts:
-            rebuilt_messages.append(
-                {
-                    "role": last_role,
-                    "content": "".join(current_text_parts),
-                }
-            )
-            self.logger.info(
-                "restore_added_final_message",
-                role=last_role,
-                text_length=len("".join(current_text_parts)),
-            )
+        # Пересобираем сообщения из message chunks единым reducer'ом (та же логика,
+        # что и при загрузке из persisted-кэша) для быстрого восстановления UI —
+        # до обработки остальных обновлений через _handle_session_update.
+        rebuilt_messages = self._replay_reducer.reduce(session_id, replay_updates)
 
         # Записываем пересобранное состояние в кэш конкретной сессии.
         # ВАЖНО: НЕ сохраняем replay_updates здесь - это сделает _handle_session_update
@@ -696,9 +542,7 @@ class ChatViewModel(BaseViewModel):
         # Планируем новое сохранение с задержкой
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(
-                self._debounced_save(session_id, messages, replay_updates)
-            )
+            task = loop.create_task(self._debounced_save(session_id, messages, replay_updates))
             self._pending_saves[session_id] = task
         except RuntimeError:
             # Нет running event loop - сохраняем синхронно через legacy fallback
@@ -794,29 +638,7 @@ class ChatViewModel(BaseViewModel):
     ) -> list[dict[str, str]]:
         """Восстанавливает сообщения из кэшированных replay updates одной сессии."""
 
-        rebuilt_messages: list[dict[str, str]] = []
-
-        for update_data in replay_updates:
-            params = update_data.get("params", {})
-            if params.get("sessionId") != session_id:
-                continue
-
-            update = params.get("update", {})
-            update_type = update.get("sessionUpdate")
-            content = update.get("content")
-            if not isinstance(content, dict):
-                continue
-
-            text = content.get("text")
-            if not isinstance(text, str) or text == "":
-                continue
-
-            if update_type == "user_message_chunk":
-                rebuilt_messages.append({"role": "user", "content": text})
-            elif update_type == "agent_message_chunk":
-                rebuilt_messages.append({"role": "assistant", "content": text})
-
-        return rebuilt_messages
+        return self._replay_reducer.reduce(session_id, replay_updates)
 
     def _set_streaming_state(
         self, session_id: str, *, is_streaming: bool, clear_text: bool
@@ -888,26 +710,41 @@ class ChatViewModel(BaseViewModel):
         if not isinstance(session_id, str):
             return
 
-        state = self._get_or_create_session_state(session_id)
-        streaming_text = state.streaming_text
-        if streaming_text:
-            state.messages.append({"role": "assistant", "content": streaming_text})
-            self._session_states[session_id] = state
-            self._persist_messages(
-                session_id,
-                state.messages,
-                replay_updates=state.replay_updates,
-            )
-            if self._active_session_id == session_id:
-                self.messages.value = list(state.messages)
-            self.logger.debug(
-                "Agent response saved to message history",
-                text_length=len(streaming_text),
-            )
+        self._finalize_agent_turn(session_id)
 
         # Отключаем streaming и очищаем буфер
         self._set_streaming_state(session_id, is_streaming=False, clear_text=True)
         self._set_last_stop_reason(session_id, getattr(event, "stop_reason", None))
+
+    def _finalize_agent_turn(self, session_id: str) -> None:
+        """Сохраняет накопленный streaming-текст агента как сообщение в истории.
+
+        Общий приём для fallback в `_send_prompt` и обработчика PromptCompletedEvent:
+        гарантирует, что финальный ответ агента попадает в messages ровно один раз.
+        Ничего не делает, если буфер streaming пуст.
+        """
+        state = self._get_or_create_session_state(session_id)
+        streaming_text = state.streaming_text
+        if not streaming_text:
+            return
+
+        state.messages.append({"role": "assistant", "content": streaming_text})
+        state.streaming_text = ""
+        state.is_streaming = False
+        self._session_states[session_id] = state
+        self._persist_messages(
+            session_id,
+            state.messages,
+            replay_updates=state.replay_updates,
+        )
+        if self._active_session_id == session_id:
+            self.messages.value = list(state.messages)
+            self.streaming_text.value = ""
+            self.is_streaming.value = False
+        self.logger.debug(
+            "Agent response saved to message history",
+            text_length=len(streaming_text),
+        )
 
     def _handle_permission_requested(self, event: Any) -> None:
         """Обработать запрос разрешения.

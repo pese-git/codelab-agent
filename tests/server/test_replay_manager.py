@@ -38,9 +38,9 @@ class TestSaveUserMessageChunk:
     ) -> None:
         """Проверяет сохранение текстового сообщения пользователя."""
         content = {"type": "text", "text": "Hello, agent!"}
-        
+
         replay_manager.save_user_message_chunk(session, content)
-        
+
         assert len(session.events_history) == 1
         event = session.events_history[0]
         assert event["type"] == "session_update"
@@ -58,10 +58,10 @@ class TestSaveUserMessageChunk:
             {"type": "text", "text": "First message"},
             {"type": "image", "data": "base64data", "mimeType": "image/png"},
         ]
-        
+
         for chunk in chunks:
             replay_manager.save_user_message_chunk(session, chunk)
-        
+
         assert len(session.events_history) == 2
 
 
@@ -75,9 +75,9 @@ class TestSaveAgentMessageChunk:
     ) -> None:
         """Проверяет сохранение ответа агента."""
         content = {"type": "text", "text": "Agent response"}
-        
+
         replay_manager.save_agent_message_chunk(session, content)
-        
+
         assert len(session.events_history) == 1
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "agent_message_chunk"
@@ -100,7 +100,7 @@ class TestSaveToolCall:
             kind="read",
             status="pending",
         )
-        
+
         assert len(session.events_history) == 1
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "tool_call"
@@ -116,7 +116,7 @@ class TestSaveToolCall:
     ) -> None:
         """Проверяет сохранение tool_call с контентом."""
         content = [{"type": "text", "text": "Initial content"}]
-        
+
         replay_manager.save_tool_call(
             session=session,
             tool_call_id="call_002",
@@ -125,7 +125,7 @@ class TestSaveToolCall:
             status="pending",
             content=content,
         )
-        
+
         event = session.events_history[0]
         assert event["update"]["content"] == content
 
@@ -144,7 +144,7 @@ class TestSaveToolCallUpdate:
             tool_call_id="call_001",
             status="in_progress",
         )
-        
+
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "tool_call_update"
         assert event["update"]["toolCallId"] == "call_001"
@@ -157,14 +157,14 @@ class TestSaveToolCallUpdate:
     ) -> None:
         """Проверяет сохранение completed обновления с контентом."""
         content = [{"type": "content", "content": {"type": "text", "text": "Result"}}]
-        
+
         replay_manager.save_tool_call_update(
             session=session,
             tool_call_id="call_001",
             status="completed",
             content=content,
         )
-        
+
         event = session.events_history[0]
         assert event["update"]["status"] == "completed"
         assert event["update"]["content"] == content
@@ -183,9 +183,9 @@ class TestSavePlan:
             {"title": "Step 1", "description": "First step"},
             {"title": "Step 2", "description": "Second step"},
         ]
-        
+
         replay_manager.save_plan(session, entries)
-        
+
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "plan"
         assert event["update"]["entries"] == entries
@@ -205,7 +205,7 @@ class TestSaveSessionInfo:
             title="Test session",
             updated_at="2024-01-01T00:00:00Z",
         )
-        
+
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "session_info"
         assert event["update"]["title"] == "Test session"
@@ -222,7 +222,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay пустой истории."""
         notifications = replay_manager.replay_history(session)
-        
+
         assert notifications == []
 
     def test_replays_user_and_agent_messages(
@@ -232,23 +232,19 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay сообщений пользователя и агента."""
         # Сохраняем историю
-        replay_manager.save_user_message_chunk(
-            session, {"type": "text", "text": "User question"}
-        )
-        replay_manager.save_agent_message_chunk(
-            session, {"type": "text", "text": "Agent answer"}
-        )
-        
+        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "User question"})
+        replay_manager.save_agent_message_chunk(session, {"type": "text", "text": "Agent answer"})
+
         # Воспроизводим
         notifications = replay_manager.replay_history(session)
-        
+
         assert len(notifications) == 2
-        
+
         # Проверяем user_message_chunk
         assert notifications[0].method == "session/update"
         assert notifications[0].params["sessionId"] == "sess_test_001"
         assert notifications[0].params["update"]["sessionUpdate"] == "user_message_chunk"
-        
+
         # Проверяем agent_message_chunk
         assert notifications[1].params["update"]["sessionUpdate"] == "agent_message_chunk"
 
@@ -277,10 +273,10 @@ class TestReplayHistory:
             status="completed",
             content=[{"type": "text", "text": "File content"}],
         )
-        
+
         # Воспроизводим
         notifications = replay_manager.replay_history(session)
-        
+
         assert len(notifications) == 3
         assert notifications[0].params["update"]["sessionUpdate"] == "tool_call"
         assert notifications[1].params["update"]["sessionUpdate"] == "tool_call_update"
@@ -295,9 +291,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay полной беседы с tool calls."""
         # Симулируем полную беседу
-        replay_manager.save_user_message_chunk(
-            session, {"type": "text", "text": "Read file.txt"}
-        )
+        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
         replay_manager.save_tool_call(
             session=session,
             tool_call_id="call_001",
@@ -316,16 +310,14 @@ class TestReplayHistory:
         replay_manager.save_session_info(
             session, title="Read file.txt", updated_at="2024-01-01T00:00:00Z"
         )
-        
+
         # Воспроизводим
         notifications = replay_manager.replay_history(session)
-        
+
         assert len(notifications) == 5
-        
+
         # Проверяем порядок
-        update_types = [
-            n.params["update"]["sessionUpdate"] for n in notifications
-        ]
+        update_types = [n.params["update"]["sessionUpdate"] for n in notifications]
         assert update_types == [
             "user_message_chunk",
             "tool_call",
@@ -341,18 +333,18 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет что события не из _REPLAYABLE_UPDATE_TYPES пропускаются."""
         # Добавляем событие напрямую в events_history с неизвестным типом
-        session.events_history.append({
-            "type": "session_update",
-            "update": {"sessionUpdate": "unknown_type", "data": "test"},
-            "timestamp": "2024-01-01T00:00:00Z",
-        })
-        # И валидное событие
-        replay_manager.save_user_message_chunk(
-            session, {"type": "text", "text": "Hello"}
+        session.events_history.append(
+            {
+                "type": "session_update",
+                "update": {"sessionUpdate": "unknown_type", "data": "test"},
+                "timestamp": "2024-01-01T00:00:00Z",
+            }
         )
-        
+        # И валидное событие
+        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "Hello"})
+
         notifications = replay_manager.replay_history(session)
-        
+
         # Только валидное событие должно быть в replay
         assert len(notifications) == 1
         assert notifications[0].params["update"]["sessionUpdate"] == "user_message_chunk"
@@ -368,7 +360,7 @@ class TestReplayLatestPlan:
     ) -> None:
         """Проверяет возврат None когда плана нет."""
         result = replay_manager.replay_latest_plan(session)
-        
+
         assert result is None
 
     def test_replays_latest_plan(
@@ -376,19 +368,46 @@ class TestReplayLatestPlan:
         replay_manager: ReplayManager,
         session: SessionState,
     ) -> None:
-        """Проверяет replay последнего плана."""
+        """Проверяет replay последнего плана в ACP-форме (P2-26)."""
         session.latest_plan = [
-            {"title": "Step 1", "status": "completed"},
-            {"title": "Step 2", "status": "pending"},
+            {"content": "Step 1", "priority": "high", "status": "completed"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
         ]
-        
+
         notification = replay_manager.replay_latest_plan(session)
-        
+
         assert notification is not None
         assert notification.method == "session/update"
         assert notification.params["sessionId"] == "sess_test_001"
         assert notification.params["update"]["sessionUpdate"] == "plan"
         assert notification.params["update"]["entries"] == session.latest_plan
+
+    def test_replays_plan_with_planstep_objects_is_serializable(
+        self,
+        replay_manager: ReplayManager,
+        session: SessionState,
+    ) -> None:
+        """Регресс: план из PlanStep-объектов (после загрузки из JSON) сериализуется.
+
+        Ранее session/load сессии с планом крашил WS-соединение с
+        `TypeError: Object of type PlanStep is not JSON serializable`.
+        """
+        from codelab.server.models import PlanStep
+
+        session.latest_plan = [
+            PlanStep(description="Step 1", status="completed"),
+            PlanStep(description="Step 2", status="pending"),
+        ]
+
+        notification = replay_manager.replay_latest_plan(session)
+
+        assert notification is not None
+        # Не должно падать: entries сериализованы в dict.
+        payload = notification.to_json()
+        assert "Step 1" in payload
+        entries = notification.params["update"]["entries"]
+        assert all(isinstance(entry, dict) for entry in entries)
+        assert entries[0]["description"] == "Step 1"
 
 
 class TestIntegrationWithSessionLoad:
@@ -426,7 +445,7 @@ class TestIntegrationWithSessionLoad:
         replay_manager.save_agent_message_chunk(
             session, {"type": "text", "text": "The config contains..."}
         )
-        
+
         # Turn 2: Пользователь просит изменить
         replay_manager.save_user_message_chunk(
             session, {"type": "text", "text": "Change key to newvalue"}
@@ -446,25 +465,25 @@ class TestIntegrationWithSessionLoad:
         replay_manager.save_agent_message_chunk(
             session, {"type": "text", "text": "Done! The file has been updated."}
         )
-        
+
         # Session info
         replay_manager.save_session_info(
             session, title="What is in config.json?", updated_at="2024-01-01T12:00:00Z"
         )
-        
+
         # Воспроизводим историю
         notifications = replay_manager.replay_history(session)
-        
+
         # Проверяем количество - 10 событий
         # Turn 1: user_message_chunk, tool_call, tool_call_update x2, agent_message_chunk (5)
         # Turn 2: user_message_chunk, tool_call, tool_call_update, agent_message_chunk (4)
         # session_info (1)
         assert len(notifications) == 10
-        
+
         # Проверяем что все sessionId корректны
         for notification in notifications:
             assert notification.params["sessionId"] == "sess_test_001"
-        
+
         # Проверяем порядок событий
         update_types = [n.params["update"]["sessionUpdate"] for n in notifications]
         # session_info в REPLAYABLE, проверяем последний

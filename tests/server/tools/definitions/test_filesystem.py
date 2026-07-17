@@ -119,6 +119,55 @@ class TestReadHandlerNormalizesPath:
         assert "outside working directory" in result.error
 
 
+class TestReadHandlerValidatesPath:
+    """Валидация path в read_handler до RPC (#21)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_path", ["", "   ", None])
+    async def test_read_handler_rejects_empty_path(self, bad_path: object) -> None:
+        """Пустой/пробельный/отсутствующий path → failed, executor не вызывается."""
+        mock_executor = MagicMock()
+        mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="c"))
+        mock_executor.execute = mock_execute
+
+        FileSystemToolDefinitions.register_all(
+            tool_registry=FakeRegistry(),
+            executor=mock_executor,
+        )
+        session = SessionState(session_id="sess_1", cwd="/workspace")
+        handler = FakeRegistry.read_handler
+
+        kwargs = {} if bad_path is None else {"path": bad_path}
+        result = await handler(session=session, **kwargs)
+
+        mock_execute.assert_not_called()
+        assert result.success is False
+        assert "path" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_read_handler_rejects_directory(self, tmp_path) -> None:
+        """Путь-директория → failed с внятным сообщением, без RPC."""
+        mock_executor = MagicMock()
+        mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="c"))
+        mock_executor.execute = mock_execute
+
+        subdir = tmp_path / "src"
+        subdir.mkdir()
+
+        FileSystemToolDefinitions.register_all(
+            tool_registry=FakeRegistry(),
+            executor=mock_executor,
+        )
+        session = SessionState(session_id="sess_1", cwd=str(tmp_path))
+        handler = FakeRegistry.read_handler
+
+        result = await handler(session=session, path="src")
+
+        mock_execute.assert_not_called()
+        assert result.success is False
+        assert "директория" in result.error
+
+
 class TestWriteHandlerNormalizesPath:
     """Тесты что write_handler нормализует путь."""
 

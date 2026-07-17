@@ -80,9 +80,7 @@ def _make_session(mode: str = "standard") -> SessionState:
         cwd="/tmp",
         mcp_servers=[],
         config_values={"mode": mode},
-        runtime_capabilities=ClientRuntimeCapabilities(
-            terminal=True, fs_read=True, fs_write=True
-        ),
+        runtime_capabilities=ClientRuntimeCapabilities(terminal=True, fs_read=True, fs_write=True),
     )
 
 
@@ -101,24 +99,17 @@ def _make_context(
 
 def _has_permission_request(result) -> bool:
     """Проверить наличие permission request в результате."""
-    return any(
-        n.method == "session/request_permission"
-        for n in result.notifications
-    )
+    return any(n.method == "session/request_permission" for n in result.notifications)
 
 
 class TestToolExecutionIntegration:
     """Integration тесты tool execution по mode."""
 
     @pytest.mark.asyncio
-    async def test_plan_mode_blocks_all_write_operations(
-        self, stage: DirectivesStage
-    ) -> None:
+    async def test_plan_mode_blocks_all_write_operations(self, stage: DirectivesStage) -> None:
         """В plan mode все write операции должны быть заблокированы."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1", session_id="sess_1"
-        )
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
 
         blocked_kinds = ["edit", "delete", "execute"]
 
@@ -140,14 +131,10 @@ class TestToolExecutionIntegration:
             assert result.stop_reason == "cancelled", msg
 
     @pytest.mark.asyncio
-    async def test_plan_mode_allows_all_read_operations(
-        self, stage: DirectivesStage
-    ) -> None:
+    async def test_plan_mode_allows_all_read_operations(self, stage: DirectivesStage) -> None:
         """В plan mode все read операции должны быть разрешены."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1", session_id="sess_1"
-        )
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
 
         allowed_kinds = ["read", "search", "think", "fetch", "move"]
 
@@ -170,18 +157,19 @@ class TestToolExecutionIntegration:
             assert not _has_permission_request(result)
 
     @pytest.mark.asyncio
-    async def test_bypass_mode_allows_all_operations(
-        self, stage: DirectivesStage
-    ) -> None:
+    async def test_bypass_mode_allows_all_operations(self, stage: DirectivesStage) -> None:
         """В bypass mode все операции должны выполняться автоматически."""
         session = _make_session(mode="bypass")
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1", session_id="sess_1"
-        )
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
 
         all_kinds = [
-            "edit", "delete", "execute", "bash", "terminal",
-            "read", "search",
+            "edit",
+            "delete",
+            "execute",
+            "bash",
+            "terminal",
+            "read",
+            "search",
         ]
 
         for kind in all_kinds:
@@ -208,9 +196,7 @@ class TestToolExecutionIntegration:
     ) -> None:
         """В standard mode write операции должны запрашивать permission."""
         session = _make_session(mode="standard")
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1", session_id="sess_1"
-        )
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
 
         write_kinds = ["edit", "delete", "execute", "bash", "terminal"]
 

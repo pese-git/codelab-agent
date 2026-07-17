@@ -58,7 +58,7 @@ class TestInlineMarkdown:
 
     def test_literal_rich_tags_preserved(self) -> None:
         """Литеральные Rich-теги в тексте сохраняются как есть.
-        
+
         Это ключевой тест — раньше [/bold] в тексте LLM ломал Rich парсер.
         Теперь textual.widgets.Markdown парсит Markdown, а не Rich markup,
         поэтому литеральные скобки не вызывают MarkupError.
@@ -97,20 +97,23 @@ class TestMarkdownViewer:
 
 class TestMarkupErrorResistance:
     """Тесты устойчивости к MarkupError.
-    
+
     Проверяют, что литеральные Rich-теги в тексте LLM
     не вызывают MarkupError при рендеринге.
     """
 
-    @pytest.mark.parametrize("dangerous_text", [
-        "text with [/bold] tag",
-        "text with [bold] tag",
-        "[/italic] orphan close tag",
-        "[bold]unclosed tag",
-        "array[0] with [1] indices",
-        "**bold [/bold] text**",
-        "code `[/bold]` in backticks",
-    ])
+    @pytest.mark.parametrize(
+        "dangerous_text",
+        [
+            "text with [/bold] tag",
+            "text with [bold] tag",
+            "[/italic] orphan close tag",
+            "[bold]unclosed tag",
+            "array[0] with [1] indices",
+            "**bold [/bold] text**",
+            "code `[/bold]` in backticks",
+        ],
+    )
     def test_dangerous_text_does_not_crash(self, dangerous_text: str) -> None:
         """Опасный текст не вызывает ошибок при создании виджета."""
         # Если виджет создаётся без исключений — тест пройден

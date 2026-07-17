@@ -34,14 +34,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         self.synced_messages.append((session_id, list(messages)))
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         self.synced_tool_calls.append((session_id, list(tool_calls)))
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         self.synced_streaming.append((session_id, text, is_streaming))
 
 
@@ -199,11 +195,13 @@ class TestToolCallHandler:
     ) -> None:
         """Handler должен обновлять существующий tool call."""
         # Сначала создаём tool call
-        context.state.add_tool_call({
-            "toolCallId": "tc-1",
-            "title": "Read file",
-            "status": "pending",
-        })
+        context.state.add_tool_call(
+            {
+                "toolCallId": "tc-1",
+                "title": "Read file",
+                "status": "pending",
+            }
+        )
 
         update_data = {
             "params": {
@@ -309,9 +307,7 @@ class TestPlanUpdateHandler:
         assert context.plan_vm.set_plan.called
         assert context.plan_vm.set_plan.call_args[0][0] == ""
 
-    def test_handle_plan_without_plan_vm(
-        self, handler: PlanUpdateHandler
-    ) -> None:
+    def test_handle_plan_without_plan_vm(self, handler: PlanUpdateHandler) -> None:
         """Handler должен работать без plan_vm."""
         state = ChatSessionState()
         sink = MockSink()
@@ -349,9 +345,11 @@ class TestConfigOptionHandler:
         state = ChatSessionState()
         sink = MockSink()
         event_bus = MagicMock()
+
         # Делаем publish async mock
         async def async_publish(*args: Any, **kwargs: Any) -> None:
             pass
+
         event_bus.publish = MagicMock(side_effect=async_publish)
         return ChatUpdateContext(
             session_id="test-session",
@@ -360,9 +358,7 @@ class TestConfigOptionHandler:
             event_bus=event_bus,
         )
 
-    def test_can_handle_config_option_update(
-        self, handler: ConfigOptionHandler
-    ) -> None:
+    def test_can_handle_config_option_update(self, handler: ConfigOptionHandler) -> None:
         """Handler должен обрабатывать config_option_update."""
         assert handler.can_handle("config_option_update") is True
 

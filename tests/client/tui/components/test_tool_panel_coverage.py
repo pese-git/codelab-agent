@@ -91,6 +91,7 @@ class TestToolPanel:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создаёт вложенные виджеты после монтирования."""
+
         class TestApp(App):
             pass
 
@@ -107,6 +108,7 @@ class TestToolPanel:
 
     async def test_on_tool_calls_changed_empty(self) -> None:
         """Пустой список tool calls скрывает прогресс-бар."""
+
         class TestApp(App):
             pass
 
@@ -124,6 +126,7 @@ class TestToolPanel:
 
     async def test_on_tool_calls_changed_with_dicts(self) -> None:
         """Список словарей tool calls обновляет панель и прогресс-бар."""
+
         class TestApp(App):
             pass
 
@@ -146,6 +149,7 @@ class TestToolPanel:
 
     async def test_on_tool_calls_changed_with_objects(self) -> None:
         """Список объектов tool calls обновляет панель."""
+
         class TestApp(App):
             pass
 
@@ -188,6 +192,7 @@ class TestToolPanel:
 
     async def test_update_progress_visibility(self) -> None:
         """Показ/скрытие прогресс-бара работает корректно."""
+
         class TestApp(App):
             pass
 
@@ -206,6 +211,7 @@ class TestToolPanel:
 
     async def test_reset(self) -> None:
         """reset очищает локальное состояние и ToolCallList."""
+
         class TestApp(App):
             pass
 
@@ -228,6 +234,7 @@ class TestToolPanel:
 
     async def test_apply_update_creates_tool_call(self) -> None:
         """apply_update добавляет новый tool call."""
+
         class TestApp(App):
             pass
 
@@ -252,6 +259,7 @@ class TestToolPanel:
 
     async def test_apply_update_with_terminal_output(self) -> None:
         """apply_update сохраняет terminal output и exit code."""
+
         class TestApp(App):
             pass
 
@@ -295,6 +303,7 @@ class TestToolPanel:
 
     async def test_update_progress_from_tool_calls_dict(self) -> None:
         """Прогресс обновляется на основе локального словаря."""
+
         class TestApp(App):
             pass
 
@@ -318,6 +327,7 @@ class TestToolPanel:
 
     async def test_update_progress_from_tool_calls_dict_all_completed(self) -> None:
         """Прогресс успешен когда все tool calls завершены."""
+
         class TestApp(App):
             pass
 
@@ -338,6 +348,7 @@ class TestToolPanel:
 
     async def test_update_progress_from_tool_calls_dict_with_error(self) -> None:
         """Прогресс предупреждает при наличии ошибок."""
+
         class TestApp(App):
             pass
 
@@ -428,6 +439,7 @@ class TestToolPanel:
 
     async def test_on_mount_hides_progress(self) -> None:
         """on_mount скрывает прогресс-бар по умолчанию."""
+
         class TestApp(App):
             pass
 
@@ -443,6 +455,7 @@ class TestToolPanel:
 
     async def test_apply_update_reuses_terminal_view(self) -> None:
         """apply_update переиспользует существующий TerminalOutputPanel."""
+
         class TestApp(App):
             pass
 
@@ -475,6 +488,7 @@ class TestToolPanel:
 
     async def test_render_text_with_terminal_output(self) -> None:
         """_render_text включает output терминала если он не пустой."""
+
         class TestApp(App):
             pass
 
@@ -527,6 +541,7 @@ class TestToolPanelAdditionalCoverage:
 
     async def test_update_progress_from_calls_all_completed_success(self) -> None:
         """_update_progress_from_calls устанавливает SUCCESS variant при завершении."""
+
         class TestApp(App):
             pass
 
@@ -536,10 +551,12 @@ class TestToolPanelAdditionalCoverage:
             terminal_vm = FakeTerminalViewModel()
             panel = ToolPanel(chat_vm, terminal_vm)
             await pilot.app.mount(panel)
-            panel._update_progress_from_calls([
-                {"toolCallId": "tc1", "status": "completed"},
-                {"toolCallId": "tc2", "status": "completed"},
-            ])
+            panel._update_progress_from_calls(
+                [
+                    {"toolCallId": "tc1", "status": "completed"},
+                    {"toolCallId": "tc2", "status": "completed"},
+                ]
+            )
 
     async def test_update_progress_from_calls_with_exception(self) -> None:
         """_update_progress_from_calls обрабатывает исключение если виджет не смонтирован."""
@@ -557,6 +574,7 @@ class TestToolPanelAdditionalCoverage:
 
     async def test_apply_update_status_from_previous(self) -> None:
         """apply_update использует status из previous если не указан в payload."""
+
         class TestApp(App):
             pass
 

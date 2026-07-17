@@ -55,9 +55,16 @@ class Theme:
         # Textual Theme требует primary, background, foreground, surface, panel
         # Остальные цвета идут в variables для использования в TCSS
         standard_keys = {
-            "primary", "secondary", "warning", "error",
-            "success", "accent", "foreground", "background",
-            "surface", "panel",
+            "primary",
+            "secondary",
+            "warning",
+            "error",
+            "success",
+            "accent",
+            "foreground",
+            "background",
+            "surface",
+            "panel",
         }
 
         return TextualTheme(
@@ -75,11 +82,7 @@ class Theme:
             dark=is_dark,
             # Дополнительные CSS-variables для использования в TCSS
             # Textual TCSS использует $variable синтаксис, поэтому убираем --
-            variables={
-                k: v
-                for k, v in colors.items()
-                if k not in standard_keys
-            },
+            variables={k: v for k, v in colors.items() if k not in standard_keys},
         )
 
     def get_css_variables(self) -> str:
@@ -111,14 +114,14 @@ DARK_THEME = Theme(
         "error": "#f7768e",
         "info": "#7dcfff",
         # Границы (улучшенный контраст)
-        "border": "#565f89",               # Было #3b4261 (1.58:1 → 2.8:1)
+        "border": "#565f89",  # Было #3b4261 (1.58:1 → 2.8:1)
         "border-focus": "#7aa2f7",
         # Header/Footer
         "header-bg": "#1e2030",
         "footer-bg": "#1e2030",
         # Sidebar
         "sidebar-bg": "#1f2335",
-        "sidebar-border": "#565f89",       # Было #3b4261
+        "sidebar-border": "#565f89",  # Было #3b4261
         # Chat
         "chat-bg": "#1a1b26",
         "message-user-bg": "#2a3a5a",
@@ -126,7 +129,7 @@ DARK_THEME = Theme(
         "message-error-bg": "#3b2428",
         # Input
         "input-bg": "#24283b",
-        "input-border": "#565f89",         # Было #3b4261
+        "input-border": "#565f89",  # Было #3b4261
         "input-focus-border": "#7aa2f7",
         # Buttons
         "button-bg": "#3b4261",

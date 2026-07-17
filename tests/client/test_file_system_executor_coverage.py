@@ -33,9 +33,7 @@ class TestFileSystemExecutorAsyncErrors:
     """Тесты для обработки ошибок в async методах."""
 
     @pytest.mark.asyncio
-    async def test_read_text_file_raises_os_error_on_read_failure(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_read_text_file_raises_os_error_on_read_failure(self, tmp_path: Path) -> None:
         """read_text_file оборачивает ошибку чтения в OSError."""
         test_file = tmp_path / "unreadable.txt"
         test_file.write_text("content")
@@ -49,9 +47,7 @@ class TestFileSystemExecutorAsyncErrors:
                 await executor.read_text_file("unreadable.txt")
 
     @pytest.mark.asyncio
-    async def test_write_text_file_raises_os_error_on_write_failure(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_write_text_file_raises_os_error_on_write_failure(self, tmp_path: Path) -> None:
         """write_text_file оборачивает ошибку записи в OSError."""
         executor = FileSystemExecutor(base_path=tmp_path)
 

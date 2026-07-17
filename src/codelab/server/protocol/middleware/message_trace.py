@@ -110,19 +110,23 @@ async def message_trace_middleware(
     outgoing_parts: list[dict[str, Any]] = []
 
     if outcome.response is not None:
-        outgoing_parts.append({
-            "type": "response",
-            "id": outcome.response.id,
-            "result": outcome.response.result,
-            "error": outcome.response.error.model_dump() if outcome.response.error else None,
-        })
+        outgoing_parts.append(
+            {
+                "type": "response",
+                "id": outcome.response.id,
+                "result": outcome.response.result,
+                "error": outcome.response.error.model_dump() if outcome.response.error else None,
+            }
+        )
 
     for notification in outcome.notifications:
-        outgoing_parts.append({
-            "type": "notification",
-            "method": notification.method,
-            "params": notification.params,
-        })
+        outgoing_parts.append(
+            {
+                "type": "notification",
+                "method": notification.method,
+                "params": notification.params,
+            }
+        )
 
     if outgoing_parts:
         outgoing_context: dict[str, Any] = {

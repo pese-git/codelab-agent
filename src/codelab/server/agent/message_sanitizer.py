@@ -37,9 +37,7 @@ class MessageSanitizer:
                 while j < len(messages) and messages[j].role == "tool":
                     tool_msgs.append(messages[j])
                     j += 1
-                satisfied_ids = {
-                    m.tool_call_id for m in tool_msgs if m.tool_call_id
-                }
+                satisfied_ids = {m.tool_call_id for m in tool_msgs if m.tool_call_id}
                 orphaned_ids = expected_ids - satisfied_ids
                 result.append(msg)
                 result.extend(tool_msgs)

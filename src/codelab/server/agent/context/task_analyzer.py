@@ -69,7 +69,7 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
             TaskProfile с классификацией и стратегией поиска
         """
         start_time = time.time()
-        
+
         logger.info(
             "context.task_analyze.start",
             prompt_length=len(prompt),
@@ -93,18 +93,38 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
             )
             return profile
 
+        # Провайдеры без гарантии structured output (LM Studio, Ollama) всё равно
+        # не вернут валидный JSON — LLM-вызов был бы холостым (~7 сек на локальной
+        # модели) и всегда откатывался бы к эвристике. Идём в эвристику сразу.
+        if not self._llm.capabilities.supports_structured_output:
+            logger.info(
+                "context.task_analyze.structured_output_unsupported",
+                provider=self._llm.name,
+                model=self._model,
+                reason="using_heuristic_classification",
+            )
+            profile = self._fallback_classify(prompt)
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "context.task_analyze.complete",
+                method="heuristic_no_structured_output",
+                task_type=profile.task_type,
+                elapsed_ms=elapsed_ms,
+            )
+            return profile
+
         try:
             llm_start = time.time()
             logger.debug(
                 "context.task_analyze.llm_call.start",
                 model=self._model,
             )
-            
+
             profile = await self._llm_classify(prompt)
-            
+
             llm_ms = (time.time() - llm_start) * 1000
             elapsed_ms = (time.time() - start_time) * 1000
-            
+
             logger.info(
                 "context.task_analyze.complete",
                 method="llm",
@@ -285,10 +305,39 @@ class LLMBasedTaskAnalyzer(TaskAnalyzer):
         words = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b", prompt)
 
         stop_words = {
-            "the", "and", "for", "with", "that", "this", "from", "have", "was",
-            "are", "been", "will", "can", "should", "would", "could", "might",
-            "must", "need", "want", "like", "just", "about", "into", "your",
-            "you", "our", "their", "its", "some", "any", "all", "each",
+            "the",
+            "and",
+            "for",
+            "with",
+            "that",
+            "this",
+            "from",
+            "have",
+            "was",
+            "are",
+            "been",
+            "will",
+            "can",
+            "should",
+            "would",
+            "could",
+            "might",
+            "must",
+            "need",
+            "want",
+            "like",
+            "just",
+            "about",
+            "into",
+            "your",
+            "you",
+            "our",
+            "their",
+            "its",
+            "some",
+            "any",
+            "all",
+            "each",
         }
 
         keywords = [w.lower() for w in words if w.lower() not in stop_words]

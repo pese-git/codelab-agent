@@ -25,25 +25,28 @@ class TestMCPClientListResources:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "resources": [
-                {
-                    "uri": "file:///tmp/test.txt",
-                    "name": "test.txt",
-                    "description": "A test file",
-                    "mimeType": "text/plain",
-                },
-                {
-                    "uri": "file:///tmp/data.json",
-                    "name": "data.json",
-                    "mimeType": "application/json",
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "resources": [
+                    {
+                        "uri": "file:///tmp/test.txt",
+                        "name": "test.txt",
+                        "description": "A test file",
+                        "mimeType": "text/plain",
+                    },
+                    {
+                        "uri": "file:///tmp/data.json",
+                        "name": "data.json",
+                        "mimeType": "application/json",
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
 
         # Добавляем capabilities с resources
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(resources={"subscribe": False})
 
         resources = await client.list_resources()
@@ -68,22 +71,25 @@ class TestMCPClientListResources:
 
         mock_transport = AsyncMock()
         # Первый вызов возвращает nextCursor, второй — без
-        mock_transport.send_request = AsyncMock(side_effect=[
-            {
-                "resources": [
-                    {"uri": "file:///a.txt", "name": "a.txt"},
-                ],
-                "nextCursor": "page2",
-            },
-            {
-                "resources": [
-                    {"uri": "file:///b.txt", "name": "b.txt"},
-                ],
-            },
-        ])
+        mock_transport.send_request = AsyncMock(
+            side_effect=[
+                {
+                    "resources": [
+                        {"uri": "file:///a.txt", "name": "a.txt"},
+                    ],
+                    "nextCursor": "page2",
+                },
+                {
+                    "resources": [
+                        {"uri": "file:///b.txt", "name": "b.txt"},
+                    ],
+                },
+            ]
+        )
         client._transport = mock_transport
 
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(resources={})
 
         resources = await client.list_resources()
@@ -132,6 +138,7 @@ class TestMCPClientListResources:
 
         # Capabilities без resources
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(tools={"listChanged": True})
 
         resources = await client.list_resources()
@@ -151,14 +158,16 @@ class TestMCPClientReadResource:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "Hello, world!",
-                }
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "Hello, world!",
+                    }
+                ]
+            }
+        )
         client._transport = mock_transport
 
         result = await client.read_resource("file:///tmp/test.txt")
@@ -186,6 +195,7 @@ class TestMCPClientReadResource:
 
         # Добавляем в кэш
         from codelab.server.mcp.models import MCPReadResourceResult
+
         client._resources_cache["file:///tmp/test.txt"] = MCPReadResourceResult(
             contents=[{"type": "text", "text": "Cached content"}]
         )
@@ -217,24 +227,27 @@ class TestMCPClientListResourceTemplates:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "resourceTemplates": [
-                {
-                    "uriTemplate": "file:///{path}",
-                    "name": "Project Files",
-                    "description": "Access project files",
-                    "mimeType": "application/octet-stream",
-                },
-                {
-                    "uriTemplate": "db:///{table}/{id}",
-                    "name": "DB Record",
-                    "mimeType": "application/json",
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "resourceTemplates": [
+                    {
+                        "uriTemplate": "file:///{path}",
+                        "name": "Project Files",
+                        "description": "Access project files",
+                        "mimeType": "application/octet-stream",
+                    },
+                    {
+                        "uriTemplate": "db:///{table}/{id}",
+                        "name": "DB Record",
+                        "mimeType": "application/json",
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
 
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(resources={})
 
         templates = await client.list_resource_templates()
@@ -258,22 +271,25 @@ class TestMCPClientListResourceTemplates:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(side_effect=[
-            {
-                "resourceTemplates": [
-                    {"uriTemplate": "file:///{path}", "name": "Files"},
-                ],
-                "nextCursor": "tpl_page2",
-            },
-            {
-                "resourceTemplates": [
-                    {"uriTemplate": "db:///{table}", "name": "Tables"},
-                ],
-            },
-        ])
+        mock_transport.send_request = AsyncMock(
+            side_effect=[
+                {
+                    "resourceTemplates": [
+                        {"uriTemplate": "file:///{path}", "name": "Files"},
+                    ],
+                    "nextCursor": "tpl_page2",
+                },
+                {
+                    "resourceTemplates": [
+                        {"uriTemplate": "db:///{table}", "name": "Tables"},
+                    ],
+                },
+            ]
+        )
         client._transport = mock_transport
 
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(resources={})
 
         templates = await client.list_resource_templates()
@@ -290,9 +306,7 @@ class TestMCPClientListResourceTemplates:
         client = MCPClient(config)
         client._state = MCPClientState.CREATED
 
-        with pytest.raises(
-            MCPClientError, match="Cannot list resource templates"
-        ):
+        with pytest.raises(MCPClientError, match="Cannot list resource templates"):
             await client.list_resource_templates()
 
     @pytest.mark.asyncio
@@ -306,6 +320,7 @@ class TestMCPClientListResourceTemplates:
         client._transport = mock_transport
 
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(tools={"listChanged": True})
 
         templates = await client.list_resource_templates()
@@ -336,29 +351,32 @@ class TestMCPClientListPrompts:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "prompts": [
-                {
-                    "name": "code_review",
-                    "description": "Review code for best practices",
-                    "arguments": [
-                        {
-                            "name": "language",
-                            "description": "Programming language",
-                            "required": True,
-                        }
-                    ],
-                },
-                {
-                    "name": "summarize",
-                    "description": "Summarize text",
-                },
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "prompts": [
+                    {
+                        "name": "code_review",
+                        "description": "Review code for best practices",
+                        "arguments": [
+                            {
+                                "name": "language",
+                                "description": "Programming language",
+                                "required": True,
+                            }
+                        ],
+                    },
+                    {
+                        "name": "summarize",
+                        "description": "Summarize text",
+                    },
+                ]
+            }
+        )
         client._transport = mock_transport
 
         # Добавляем capabilities с prompts
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(prompts={"listChanged": True})
 
         prompts = await client.list_prompts()
@@ -384,22 +402,25 @@ class TestMCPClientListPrompts:
 
         mock_transport = AsyncMock()
         # Первый вызов возвращает nextCursor, второй — без
-        mock_transport.send_request = AsyncMock(side_effect=[
-            {
-                "prompts": [
-                    {"name": "prompt1", "description": "First prompt"},
-                ],
-                "nextCursor": "page2",
-            },
-            {
-                "prompts": [
-                    {"name": "prompt2", "description": "Second prompt"},
-                ],
-            },
-        ])
+        mock_transport.send_request = AsyncMock(
+            side_effect=[
+                {
+                    "prompts": [
+                        {"name": "prompt1", "description": "First prompt"},
+                    ],
+                    "nextCursor": "page2",
+                },
+                {
+                    "prompts": [
+                        {"name": "prompt2", "description": "Second prompt"},
+                    ],
+                },
+            ]
+        )
         client._transport = mock_transport
 
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(prompts={})
 
         prompts = await client.list_prompts()
@@ -437,6 +458,7 @@ class TestMCPClientListPrompts:
 
         # Capabilities без prompts
         from codelab.server.mcp.models import MCPCapabilities
+
         client._capabilities = MCPCapabilities(tools={"listChanged": True})
 
         prompts = await client.list_prompts()
@@ -456,18 +478,20 @@ class TestMCPClientGetPrompt:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "description": "Code review prompt",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Review this Python code:",
-                    },
-                }
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "description": "Code review prompt",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": "Review this Python code:",
+                        },
+                    }
+                ],
+            }
+        )
         client._transport = mock_transport
 
         result = await client.get_prompt(
@@ -500,6 +524,7 @@ class TestMCPClientGetPrompt:
 
         # Добавляем в кэш
         from codelab.server.mcp.models import MCPGetPromptResult
+
         cache_key = "code_review:[('language', 'python')]"
         client._prompts_cache[cache_key] = MCPGetPromptResult(
             description="Cached prompt",
@@ -532,18 +557,20 @@ class TestMCPClientGetPrompt:
         client._state = MCPClientState.READY
 
         mock_transport = AsyncMock()
-        mock_transport.send_request = AsyncMock(return_value={
-            "description": "Simple prompt",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Hello!",
-                    },
-                }
-            ]
-        })
+        mock_transport.send_request = AsyncMock(
+            return_value={
+                "description": "Simple prompt",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": "Hello!",
+                        },
+                    }
+                ],
+            }
+        )
         client._transport = mock_transport
 
         result = await client.get_prompt("greeting")

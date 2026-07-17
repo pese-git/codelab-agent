@@ -377,9 +377,13 @@ class TestSingleStrategyStreaming:
         """Со on_delta стратегия зовёт send_request_streaming, дельты доставлены,
         финальный AgentResponse конвертирован в BaseAgentResponse."""
         final = AgentResponse(
-            request_id="r1", text="Hello", tool_calls=[],
-            usage=TokenUsage(1, 1, 2), stop_reason="end_turn",
-            agent_name="primary", session_id="s1",
+            request_id="r1",
+            text="Hello",
+            tool_calls=[],
+            usage=TokenUsage(1, 1, 2),
+            stop_reason="end_turn",
+            agent_name="primary",
+            session_id="s1",
         )
         mock_event_bus.send_request_streaming = lambda **kw: _agen(["Hel", "lo", final])
 
@@ -394,9 +398,7 @@ class TestSingleStrategyStreaming:
         async def on_delta(d: str) -> None:
             deltas.append(d)
 
-        result = await strategy.execute(
-            session=mock_session, prompt="Hi", on_delta=on_delta
-        )
+        result = await strategy.execute(session=mock_session, prompt="Hi", on_delta=on_delta)
 
         assert deltas == ["Hel", "lo"]
         assert result.text == "Hello"

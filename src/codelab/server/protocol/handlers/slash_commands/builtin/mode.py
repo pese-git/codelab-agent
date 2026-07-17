@@ -61,9 +61,7 @@ class ModeCommandHandler(CommandHandler):
             lines.append("")
             lines.append("Для смены режима: `/mode <имя_режима>`")
 
-            return CommandResult(
-                content=[{"type": "text", "text": "\n".join(lines)}]
-            )
+            return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
         # Устанавливаем новый режим
         new_mode = args[0].lower()
@@ -72,21 +70,24 @@ class ModeCommandHandler(CommandHandler):
         if new_mode not in VALID_MODES and new_mode not in ("ask", "code", "architect", "debug"):
             valid_list = ", ".join(f"`{m}`" for m in sorted(VALID_MODES))
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": (
-                        f"❌ Неизвестный режим: `{new_mode}`\n\n"
-                        f"Доступные режимы: {valid_list}"
-                    ),
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": (
+                            f"❌ Неизвестный режим: `{new_mode}`\n\nДоступные режимы: {valid_list}"
+                        ),
+                    }
+                ]
             )
 
         if normalized == current_mode:
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": f"ℹ️ Режим `{current_mode}` уже активен.",
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": f"ℹ️ Режим `{current_mode}` уже активен.",
+                    }
+                ]
             )
 
         # Устанавливаем новый режим в config_values
@@ -103,10 +104,12 @@ class ModeCommandHandler(CommandHandler):
             msg += f" (нормализовано из `{new_mode}`)"
 
         return CommandResult(
-            content=[{
-                "type": "text",
-                "text": msg,
-            }],
+            content=[
+                {
+                    "type": "text",
+                    "text": msg,
+                }
+            ],
             updates=[mode_update],
         )
 
@@ -115,7 +118,5 @@ class ModeCommandHandler(CommandHandler):
         return AvailableCommand(
             name="mode",
             description="Показать или изменить режим сессии",
-            input=AvailableCommandInput(
-                hint="режим (plan, standard, bypass)"
-            ),
+            input=AvailableCommandInput(hint="режим (plan, standard, bypass)"),
         )

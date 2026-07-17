@@ -138,7 +138,7 @@ class TestPermissionResponseRouting:
         if updated_session.active_turn is not None:
             assert updated_session.active_turn.permission_request_id is None
             assert updated_session.active_turn.permission_tool_call_id is None
-        
+
         # ✅ Новый flow: pending_tool_execution сигнализирует о необходимости
         # асинхронного выполнения tool через http_server
         assert outcome.pending_tool_execution is not None
@@ -365,19 +365,19 @@ class TestPermissionResponseIntegration:
 
         # Этап 5: Проверяем, что разрешение обработано корректно
         updated_session = await protocol._storage.load_session("sess_1")
-        
+
         # ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Когда permission allowed
         # 1. Permission request ID очищен
         # 2. Tool call остается в памяти
         # 3. Turn завершается и отправляется followup response
-        
+
         # Permission request ID должен быть очищен
         if updated_session.active_turn is not None:
             assert updated_session.active_turn.permission_request_id is None
-        
+
         # Tool call все еще в памяти для выполнения
         assert "tool_1" in updated_session.tool_calls
-        
+
         # ✅ Новый flow: pending_tool_execution вместо followup_responses
         # Turn completion происходит в http_server после асинхронного выполнения tool
         assert outcome.pending_tool_execution is not None
@@ -485,7 +485,7 @@ class TestPermissionResponseIntegration:
 
 class TestDeferredTurnScenarios:
     """Тесты для deferred turn сценариев при ожидании permission.
-    
+
     Эти тесты проверяют критическое исправление в prompt_orchestrator.py:
     когда active_turn.phase == "awaiting_permission", turn НЕ завершается,
     а response откладывается (deferred response).
@@ -504,13 +504,13 @@ class TestDeferredTurnScenarios:
         protocol: ACPProtocol,
     ) -> None:
         """✅ Проверяет, что turn откладывается при ожидании permission.
-        
+
         Когда prompt обработан и требуется разрешение пользователя:
         - active_turn НЕ завершается (остается в памяти)
         - phase устанавливается на "awaiting_permission"
         - Response на session/prompt НЕ отправляется
         - Возвращается ProtocolOutcome только с notifications
-        
+
         Это критическое исправление для корректной обработки permission flow
         согласно протоколу ACP (doc/Agent Client Protocol/protocol/05-Prompt Turn.md).
         """
@@ -521,7 +521,7 @@ class TestDeferredTurnScenarios:
             mcp_servers=[],
             config_values={"mode": "ask"},
         )
-        
+
         # Создаём активный turn в фазе ожидания разрешения
         session.active_turn = ActiveTurnState(
             prompt_request_id="req_1",
@@ -530,7 +530,7 @@ class TestDeferredTurnScenarios:
             permission_tool_call_id="tool_1",
             phase="awaiting_permission",  # КРИТИЧНО: фаза ожидания permission
         )
-        
+
         # Добавляем tool call, требующий разрешения
         session.tool_calls["tool_1"] = ToolCallState(
             tool_call_id="tool_1",
@@ -538,14 +538,14 @@ class TestDeferredTurnScenarios:
             kind="read",
             status="pending",
         )
-        
+
         await protocol._storage.save_session(session)
-        
+
         # Act: имитируем ситуацию, когда turn уже в фазе awaiting_permission
         # (например, после обработки prompt, который требует permission)
         # Проверяем состояние turn
         current_session = await protocol._storage.load_session("sess_1")
-        
+
         # Assert: Проверяем, что turn НЕ завершен
         assert current_session.active_turn is not None
         assert current_session.active_turn.phase == "awaiting_permission"
@@ -558,14 +558,14 @@ class TestDeferredTurnScenarios:
         protocol: ACPProtocol,
     ) -> None:
         """✅ Проверяет цикл обработки permission response при активном turn.
-        
+
         Тестирует полный flow:
         1. Session создана
         2. Active turn находится в фазе awaiting_permission
         3. Permission request отправлен клиенту
         4. Клиент отправляет response с разрешением
         5. Turn завершается и отправляется response на session/prompt
-        
+
         Это интеграционный тест для верификации правильной последовательности
         обработки permission response в контексте prompt turn.
         """
@@ -576,7 +576,7 @@ class TestDeferredTurnScenarios:
             mcp_servers=[],
             config_values={"mode": "ask"},
         )
-        
+
         session.active_turn = ActiveTurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
@@ -584,20 +584,20 @@ class TestDeferredTurnScenarios:
             permission_tool_call_id="tool_1",
             phase="awaiting_permission",
         )
-        
+
         session.tool_calls["tool_1"] = ToolCallState(
             tool_call_id="tool_1",
             title="Read File",
             kind="read",
             status="pending",
         )
-        
+
         await protocol._storage.save_session(session)
-        
+
         # Этап 2: Проверяем начальное состояние - turn ждет permission
         assert session.active_turn is not None
         assert session.active_turn.phase == "awaiting_permission"
-        
+
         # Этап 3: Клиент отправляет response на permission request
         permission_response = ACPMessage(
             id="perm_1",
@@ -610,27 +610,27 @@ class TestDeferredTurnScenarios:
                 }
             },
         )
-        
+
         # Act: обрабатываем permission response
         outcome = await protocol.handle(permission_response)
-        
+
         # Assert: Проверяем, что response был обработан
         assert outcome is not None
         assert isinstance(outcome, ProtocolOutcome)
-        
+
         # Этап 4: Проверяем, что permission request ID очищен
         updated_session = await protocol._storage.load_session("sess_1")
         if updated_session.active_turn is not None:
             # После обработки permission, ID должен быть очищен
             assert updated_session.active_turn.permission_request_id is None
             assert updated_session.active_turn.permission_tool_call_id is None
-        
+
         # Этап 5: Проверяем pending_tool_execution (новый async flow)
         # Turn completion происходит после асинхронного выполнения tool в http_server
         assert outcome.pending_tool_execution is not None
         assert outcome.pending_tool_execution.session_id == "sess_1"
         assert outcome.pending_tool_execution.tool_call_id == "tool_1"
-        
+
         # Проверяем, что имеются notifications об обновлении tool_call статуса
         assert outcome.notifications is not None
 
@@ -640,12 +640,12 @@ class TestDeferredTurnScenarios:
         protocol: ACPProtocol,
     ) -> None:
         """✅ Проверяет, что turn завершается сразу, если НЕ требуется permission.
-        
+
         Когда prompt обработан и НЕ требуется разрешение:
         - Turn завершается немедленно (active_turn очищается)
         - Response на session/prompt отправляется сразу
         - phase остается "running" (никогда не переходит в awaiting_permission)
-        
+
         Это тест для базового сценария без permission flow.
         """
         # Arrange: создаём сессию БЕЗ active turn или с завершённым turn
@@ -655,7 +655,7 @@ class TestDeferredTurnScenarios:
             mcp_servers=[],
             config_values={"mode": "ask"},
         )
-        
+
         # Создаём завершённый turn (active_turn=None означает, что он уже завершен)
         # или turn, который находится в фазе "running" без permission
         session.active_turn = ActiveTurnState(
@@ -665,24 +665,24 @@ class TestDeferredTurnScenarios:
             permission_tool_call_id=None,
             phase="running",  # Остается в фазе running, не переходит в awaiting_permission
         )
-        
+
         await protocol._storage.save_session(session)
-        
+
         # Act: Имитируем завершение turn без permission
         # В реальном сценарии это происходит в prompt_orchestrator.handle_prompt()
         # когда условие "if session.active_turn.phase == 'awaiting_permission'" ложно
         current_session = await protocol._storage.load_session("sess_1")
-        
+
         # Выполняем очистку turn (как это делает turn_lifecycle_manager.clear_active_turn)
         # Для теста просто устанавливаем active_turn в None
         current_session.active_turn = None
-        
+
         # Assert: Проверяем, что turn завершен
         assert current_session.active_turn is None
-        
+
         # Проверяем, что tool calls все еще хранятся в памяти для истории
         # (они удаляются только при окончании сессии)
         # Но в реальном код это зависит от реализации turn_lifecycle_manager
-        
+
         # Ключевое утверждение: turn завершен БЕЗ ожидания permission
         # Это означает, что response был отправлен сразу клиенту

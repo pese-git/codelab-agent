@@ -92,38 +92,38 @@ class TestBackgroundReceiveLoopAutoRestart:
 
         # Проверяем расчёт backoff для разных попыток
         # backoff = min(INITIAL * (MULTIPLIER ^ (attempt - 1)), MAX)
-        
+
         # attempt 1: 1.0 * (2.0 ^ 0) = 1.0
         backoff_1 = min(
-            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER ** 0),
+            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER**0),
             loop.MAX_BACKOFF_SECONDS,
         )
         assert backoff_1 == 1.0
 
         # attempt 2: 1.0 * (2.0 ^ 1) = 2.0
         backoff_2 = min(
-            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER ** 1),
+            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER**1),
             loop.MAX_BACKOFF_SECONDS,
         )
         assert backoff_2 == 2.0
 
         # attempt 3: 1.0 * (2.0 ^ 2) = 4.0
         backoff_3 = min(
-            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER ** 2),
+            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER**2),
             loop.MAX_BACKOFF_SECONDS,
         )
         assert backoff_3 == 4.0
 
         # attempt 5: 1.0 * (2.0 ^ 4) = 16.0
         backoff_5 = min(
-            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER ** 4),
+            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER**4),
             loop.MAX_BACKOFF_SECONDS,
         )
         assert backoff_5 == 16.0
 
         # attempt 6: 1.0 * (2.0 ^ 5) = 32.0, но capped at MAX (30.0)
         backoff_6 = min(
-            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER ** 5),
+            loop.INITIAL_BACKOFF_SECONDS * (loop.BACKOFF_MULTIPLIER**5),
             loop.MAX_BACKOFF_SECONDS,
         )
         assert backoff_6 == 30.0

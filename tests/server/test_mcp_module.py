@@ -116,7 +116,7 @@ class TestMCPToolAdapter:
     def test_parse_namespaced_name_valid(self) -> None:
         """Проверяет парсинг корректного namespaced имени."""
         result = MCPToolAdapter.parse_namespaced_name("mcp:fs-server:read_file")
-        
+
         assert result is not None
         assert result == ("mcp", "fs-server", "read_file")
 
@@ -179,8 +179,12 @@ class TestMCPToolAdapter:
         adapter = MCPToolAdapter("test", mock_client)
 
         for name in [
-            "write_file", "create_file", "update_content",
-            "edit_text", "modify_data", "append_log",
+            "write_file",
+            "create_file",
+            "update_content",
+            "edit_text",
+            "modify_data",
+            "append_log",
         ]:
             tool = MCPTool(name=name, description="test")
             assert adapter._infer_kind(tool) == "edit", f"Failed for {name}"
@@ -334,14 +338,14 @@ class TestMCPClient:
     ) -> None:
         """Проверяет ошибку при повторном connect."""
         client = MCPClient(mcp_server_config)
-        
+
         # Первый connect
         with patch(
             "codelab.server.mcp.client.TransportFactory",
         ) as mock_factory:
             mock_factory.create.return_value = mock_transport
             await client.connect()
-        
+
         # Повторный connect должен вызвать ошибку
         with pytest.raises(MCPClientError, match="Cannot connect"):
             await client.connect()
@@ -373,11 +377,9 @@ class TestMCPClient:
         assert client.state == MCPClientState.READY
         assert client.is_ready is True
         assert capabilities is not None
-        
+
         # Проверяем, что отправлен notifications/initialized
-        mock_transport.send_notification.assert_called_once_with(
-            method="notifications/initialized"
-        )
+        mock_transport.send_notification.assert_called_once_with(method="notifications/initialized")
 
     @pytest.mark.asyncio
     async def test_disconnect_closes_transport(
@@ -425,7 +427,7 @@ class TestMCPManager:
     def test_has_server(self) -> None:
         """Проверяет проверку наличия сервера."""
         manager = MCPManager("session_123")
-        
+
         assert manager.has_server("non-existent") is False
 
     @pytest.mark.asyncio
@@ -438,7 +440,7 @@ class TestMCPManager:
         manager = MCPManager("session_123")
 
         # Создаём mock клиент
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -462,7 +464,7 @@ class TestMCPManager:
         """Проверяет ошибку при добавлении существующего сервера."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -485,7 +487,7 @@ class TestMCPManager:
         """Проверяет успешное удаление MCP сервера."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -494,7 +496,7 @@ class TestMCPManager:
             return_value=mock_client,
         ):
             await manager.add_server(mcp_server_config)
-            
+
             # Удаляем сервер
             await manager.remove_server("test-server")
 
@@ -519,7 +521,7 @@ class TestMCPManager:
         """Проверяет получение всех инструментов."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -544,7 +546,7 @@ class TestMCPManager:
         """Проверяет, что shutdown закрывает все серверы."""
         manager = MCPManager("session_123")
 
-        mock_client = AsyncMock()
+        mock_client = AsyncMock(spec=MCPClient)
         mock_client.state = MCPClientState.READY
         mock_client.list_tools = AsyncMock(return_value=sample_mcp_tools)
 
@@ -691,7 +693,7 @@ class TestSessionMCPIntegration:
         self,
     ) -> None:
         """Проверяет, что session/new с mcpServers инициализирует MCPManager.
-        
+
         При передаче mcpServers в session/new, протокол должен:
         1. Создать MCPManager для сессии
         2. Попытаться подключиться к каждому серверу (graceful degradation при ошибках)
@@ -716,7 +718,7 @@ class TestSessionMCPIntegration:
             },
         )
         await protocol.handle(init_msg)
-        
+
         # Создаём сессию с MCP серверами (намеренно используем несуществующий сервер
         # для проверки graceful degradation)
         session_new_msg = ACPMessage.request(
@@ -734,18 +736,18 @@ class TestSessionMCPIntegration:
                 ],
             },
         )
-        
+
         # Выполняем session/new - ожидаем успех даже при ошибке подключения к MCP
         # (graceful degradation: ошибка логируется, но не прерывает создание сессии)
         outcome = await protocol.handle(session_new_msg)
-        
+
         # Проверяем успешный ответ session/new
         assert outcome.response is not None
         assert outcome.response.result is not None
         assert "sessionId" in outcome.response.result
-        
+
         session_id = outcome.response.result["sessionId"]
-        
+
         # Проверяем, что сессия создана и MCPManager инициализирован в runtime registry
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
@@ -753,7 +755,7 @@ class TestSessionMCPIntegration:
         assert runtime is not None
         assert runtime.mcp_manager is not None
         assert isinstance(runtime.mcp_manager, MCPManager)
-        
+
         # Проверяем, что MCPManager привязан к правильной сессии
         assert runtime.mcp_manager.session_id == session_id
 
@@ -783,14 +785,14 @@ class TestSessionMCPIntegration:
                 "cwd": "/tmp",
             },
         )
-        
+
         outcome = await protocol.handle(session_new_msg)
-        
+
         # Проверяем успешный ответ
         assert outcome.response is not None
         assert outcome.response.result is not None
         session_id = outcome.response.result["sessionId"]
-        
+
         # Проверяем, что MCPManager НЕ создан (нет mcpServers)
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
@@ -823,12 +825,12 @@ class TestSessionMCPIntegration:
                 "mcpServers": [],
             },
         )
-        
+
         outcome = await protocol.handle(session_new_msg)
-        
+
         assert outcome.response is not None
         session_id = outcome.response.result["sessionId"]
-        
+
         # Пустой список - MCPManager не создаётся
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None
@@ -870,14 +872,14 @@ class TestSessionMCPIntegration:
                 ],
             },
         )
-        
+
         # Сессия должна создаться успешно (graceful degradation)
         outcome = await protocol.handle(session_new_msg)
-        
+
         assert outcome.response is not None
         assert outcome.response.result is not None
         session_id = outcome.response.result["sessionId"]
-        
+
         # MCPManager создан, но без серверов (все были невалидные)
         session_state = await protocol._storage.load_session(session_id)
         assert session_state is not None

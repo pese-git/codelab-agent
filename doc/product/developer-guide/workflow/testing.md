@@ -4,25 +4,40 @@
 
 ## Обзор
 
-CodeLab имеет ~2200 тестов, покрывающих клиентскую и серверную части, включая unit, integration и E2E тесты.
+CodeLab имеет **~7250 тестов** (7254 passed на 2026-07-16, см. `make check`),
+покрывающих клиентскую и серверную части, включая unit, integration и E2E тесты.
 
 ```
 tests/
-├── client/                 # Тесты клиента (~1100)
+├── client/                 # Тесты клиента (~3000 файлов тестов)
 │   ├── domain/
 │   ├── application/
 │   ├── infrastructure/
 │   ├── presentation/
 │   └── tui/
-├── server/                 # Тесты сервера (~700)
+├── server/                 # Тесты сервера (~4000 файлов тестов)
 │   ├── protocol/
 │   ├── agent/
 │   ├── tools/
 │   ├── storage/
 │   ├── mcp/
-│   └── e2e/               # E2E тесты (24)
+│   └── e2e/               # E2E тесты
 └── conftest.py
 ```
+
+## Метрики (актуально на 2026-07-16)
+
+| Метрика | Значение | Источник |
+|---|---|---|
+| Тестов (passed) | **7254** | `make check` |
+| Покрытие | **96.33%** | `pytest --cov=src/codelab` |
+| Ruff-нарушений | **0** | `ruff check .` |
+| Ошибок `ty` (typecheck) | **0** | `ty check` |
+| Max cyclomatic complexity | **10** (guardrail `C901`) | `pyproject.toml` |
+| Файлов > 1000 строк | **1** (`messages.py` — оправданно) | `wc -l` |
+| Coverage threshold в CI | **85%** | `.github/workflows/release.yml` |
+
+> Подробный аудит: [`doc/internals/tech-debt.md`](../../internals/tech-debt.md).
 
 ## Запуск тестов
 

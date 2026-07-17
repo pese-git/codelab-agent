@@ -24,9 +24,7 @@ class RpcHandler(Protocol):
         """
         ...
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any] | None:
         """Обрабатывает RPC запрос.
 
         Args:

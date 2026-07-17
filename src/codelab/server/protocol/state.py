@@ -18,6 +18,29 @@ from ..agent.config.models import SessionMetrics
 from ..messages import ACPMessage, JsonRpcId
 from ..models import AvailableCommand, HistoryMessage, PlanStep
 
+_ACP_PRIORITIES = {"low", "medium", "high"}
+_ACP_STATUSES = {"pending", "in_progress", "completed"}
+
+
+def _migrate_plan_entry_to_acp(entry: Any) -> dict[str, Any]:
+    """Приводит одну plan-запись к ACP-форме ``{content, priority, status}`` (P2-26).
+
+    Legacy-форма ``{title, description}`` (невалидна по ACP 11-Agent Plan) конвертируется:
+    ``title``/``description`` → ``content``. Уже-ACP записи и `PlanStep`-подобные
+    (`description` как основной текст) сохраняют доступную информацию; отсутствующие
+    ``priority``/``status`` заполняются валидными дефолтами.
+    """
+    if not isinstance(entry, dict):
+        return entry
+    content = entry.get("content") or entry.get("title") or entry.get("description") or ""
+    priority = entry.get("priority")
+    if priority not in _ACP_PRIORITIES:
+        priority = "medium"
+    status = entry.get("status")
+    if status not in _ACP_STATUSES:
+        status = "pending"
+    return {"content": content, "priority": priority, "status": status}
+
 
 class SessionState(BaseModel):
     """ACP Protocol Model — контракт сессии согласно ACP 03-Session Setup.
@@ -34,7 +57,7 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=4)
+    schema_version: int = Field(default=6)
 
     session_id: str
     cwd: str
@@ -58,6 +81,13 @@ class SessionState(BaseModel):
     tool_call_counter: int = 0
     # Реестр созданных tool calls и их состояний.
     tool_calls: dict[str, ToolCallState] = Field(default_factory=dict)
+    # Маппинг короткого alias, выдаваемого LLM, → настоящий client-side terminalId.
+    # LLM теряет символы при дословной ретрансляции длинного UUID, поэтому наружу
+    # отдаётся короткий alias, а клиент по-прежнему адресуется своим родным id
+    # (см. tech-debt #18, TerminalAliasRegistry).
+    terminals: dict[str, str] = Field(default_factory=dict)
+    # Монотонный счётчик для детерминированной генерации terminal alias.
+    terminal_counter: int = 0
     # Набор доступных slash-команд для `available_commands_update`.
     available_commands: list[AvailableCommand | dict[str, Any]] = Field(default_factory=list)
     # Последний опубликованный план выполнения для `session/update: plan`.
@@ -143,6 +173,24 @@ class SessionState(BaseModel):
         if version < 4:
             data["schema_version"] = 4
             version = 4
+
+        # v4 → v5: terminal alias registry (tech-debt #18)
+        if version < 5:
+            data.setdefault("terminals", {})
+            data.setdefault("terminal_counter", 0)
+            data["schema_version"] = 5
+            version = 5
+
+        # v5 → v6: latest_plan в ACP-форме {content,priority,status} (tech-debt P2-26).
+        # Ранее часть путей хранила невалидный по ACP {title,description} — конвертируем,
+        # чтобы replay на session/load отдавал ACP-валидные entries со статусами.
+        if version < 6:
+            data["latest_plan"] = [
+                _migrate_plan_entry_to_acp(entry)
+                for entry in data.get("latest_plan", [])
+            ]
+            data["schema_version"] = 6
+            version = 6
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})

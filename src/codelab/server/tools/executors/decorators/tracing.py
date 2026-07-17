@@ -126,7 +126,8 @@ def generate_span_id() -> str:
 
 
 _current_span_context: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
-    "trace_span_context", default=None,
+    "trace_span_context",
+    default=None,
 )
 
 

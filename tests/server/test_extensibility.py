@@ -158,9 +158,7 @@ async def test_session_list_response_contains_meta() -> None:
     )
 
     # List sessions
-    outcome = await protocol.handle(
-        ACPMessage.request("session/list", {})
-    )
+    outcome = await protocol.handle(ACPMessage.request("session/list", {}))
 
     assert outcome.response is not None
     assert outcome.response.error is None
@@ -793,9 +791,7 @@ async def test_registered_extension_method_is_handled() -> None:
         method_name = "_test/echo"
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-            return ProtocolOutcome(
-                response=ACPMessage.response(message.id, {"echo": True})
-            )
+            return ProtocolOutcome(response=ACPMessage.response(message.id, {"echo": True}))
 
     registry = CommandRegistry()
     registry.register_extension(EchoHandler())

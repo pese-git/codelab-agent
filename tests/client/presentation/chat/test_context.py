@@ -14,14 +14,10 @@ class MockSink:
     def sync_messages(self, session_id: str, messages: list[dict[str, str]]) -> None:
         pass
 
-    def sync_tool_calls(
-        self, session_id: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
+    def sync_tool_calls(self, session_id: str, tool_calls: list[dict[str, Any]]) -> None:
         pass
 
-    def sync_streaming(
-        self, session_id: str, text: str, is_streaming: bool
-    ) -> None:
+    def sync_streaming(self, session_id: str, text: str, is_streaming: bool) -> None:
         pass
 
 

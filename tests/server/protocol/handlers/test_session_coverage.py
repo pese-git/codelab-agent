@@ -260,10 +260,12 @@ class TestSessionListEdgeCases:
         )
 
         storage = AsyncMock()
-        storage.list_sessions = AsyncMock(side_effect=[
-            ([first], "cursor_2"),
-            ([second], None),
-        ])
+        storage.list_sessions = AsyncMock(
+            side_effect=[
+                ([first], "cursor_2"),
+                ([second], None),
+            ]
+        )
 
         response = await session_list(
             request_id="req_1",

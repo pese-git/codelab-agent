@@ -78,7 +78,7 @@ def prompt_input(chat_view_model: ChatViewModel) -> PromptInput:
 def test_prompt_input_initializes_with_chat_view_model(chat_view_model: ChatViewModel) -> None:
     """Проверить что PromptInput инициализируется с ChatViewModel."""
     prompt_input = PromptInput(chat_view_model)
-    
+
     assert prompt_input.chat_vm is chat_view_model
     assert prompt_input.id == "prompt-input"
 
@@ -133,6 +133,3 @@ async def test_prompt_input_enables_when_streaming_done(
         chat_view_model.is_streaming.value = False
         await pilot.pause()
         assert prompt_input._text_area.disabled is False
-
-
-

@@ -36,6 +36,7 @@ def _make_test_container() -> Any:
 
     return make_container(TestProvider())
 
+
 # ============================================================================
 # Mock Plugin Classes for Testing
 # ============================================================================
@@ -154,9 +155,7 @@ class MockEventPlugin(EventPlugin):
             SessionCreatedEvent: self._on_session_created,
         }
 
-    async def _on_session_created(
-        self, event: SessionCreatedEvent
-    ) -> None:
+    async def _on_session_created(self, event: SessionCreatedEvent) -> None:
         self.events_received.append(f"session_created:{event.session_id}")
 
     async def initialize(self, context: PluginContext) -> None:
@@ -616,7 +615,5 @@ class SecondPlugin(Plugin):
             )
             manager = PluginManager(context)
 
-            with pytest.raises(
-                PluginLoadError, match="Multiple Plugin classes found"
-            ):
+            with pytest.raises(PluginLoadError, match="Multiple Plugin classes found"):
                 manager.load_plugin(plugin_file)

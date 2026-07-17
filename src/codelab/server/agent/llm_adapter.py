@@ -122,9 +122,7 @@ class LLMAdapter:
         start_time = time.time()
 
         # Создаём задачу для отслеживания отмены
-        task = asyncio.create_task(
-            self._single_call(messages, tools, config, model)
-        )
+        task = asyncio.create_task(self._single_call(messages, tools, config, model))
         task_id = id(task)
         self._active_tasks[task_id] = task
 
@@ -207,14 +205,18 @@ class LLMAdapter:
             self._plan_extractor.extract_from_tool_call(response.tool_calls)
 
         # Конвертируем tool_calls в контракт шины
-        tool_calls = [
-            ToolCall(
-                id=tc.id,
-                name=tc.name,
-                arguments=tc.arguments,
-            )
-            for tc in response.tool_calls
-        ] if response.tool_calls else []
+        tool_calls = (
+            [
+                ToolCall(
+                    id=tc.id,
+                    name=tc.name,
+                    arguments=tc.arguments,
+                )
+                for tc in response.tool_calls
+            ]
+            if response.tool_calls
+            else []
+        )
 
         return AgentResult(
             text=response.text or "",
@@ -274,10 +276,11 @@ class LLMAdapter:
         if final.tool_calls:
             self._plan_extractor.extract_from_tool_call(final.tool_calls)
 
-        tool_calls = [
-            ToolCall(id=tc.id, name=tc.name, arguments=tc.arguments)
-            for tc in final.tool_calls
-        ] if final.tool_calls else []
+        tool_calls = (
+            [ToolCall(id=tc.id, name=tc.name, arguments=tc.arguments) for tc in final.tool_calls]
+            if final.tool_calls
+            else []
+        )
 
         yield AgentResult(
             text=final.text or "",
@@ -378,9 +381,7 @@ class LLMAdapter:
         Реализует StreamingRequestHandler Protocol для send_request_streaming.
         """
         model = self._model or self._llm_provider.name
-        async for item in self._stream_call(
-            request.messages, request.tools, {}, model
-        ):
+        async for item in self._stream_call(request.messages, request.tools, {}, model):
             yield item
 
     async def register_with_bus(

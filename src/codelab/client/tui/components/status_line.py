@@ -24,10 +24,10 @@ if TYPE_CHECKING:
 class StatusMode(Enum):
     """Режимы работы приложения."""
 
-    NORMAL = "normal"       # Обычный режим
-    CHAT = "chat"           # Ввод сообщения
-    COMMAND = "command"     # Ввод команды
-    SEARCH = "search"       # Режим поиска
+    NORMAL = "normal"  # Обычный режим
+    CHAT = "chat"  # Ввод сообщения
+    COMMAND = "command"  # Ввод команды
+    SEARCH = "search"  # Режим поиска
 
 
 @dataclass

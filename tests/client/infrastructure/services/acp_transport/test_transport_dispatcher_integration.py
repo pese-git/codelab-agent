@@ -14,6 +14,7 @@ from codelab.client.infrastructure.services.acp_transport_service import (
     ACPTransportService,
 )
 from codelab.client.infrastructure.services.routing_queues import RoutingQueues
+from codelab.client.infrastructure.transport import WebSocketTransport
 
 
 class MockRpcHandler:
@@ -27,9 +28,7 @@ class MockRpcHandler:
     def can_handle(self, method: str) -> bool:
         return method == self._method
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any] | None:
         self.handle_calls.append((rpc_id, params))
         return self._result
 
@@ -39,7 +38,7 @@ class TestACPTransportServiceWithDispatcher:
 
     @pytest.fixture
     def mock_transport(self) -> AsyncMock:
-        transport = AsyncMock()
+        transport = AsyncMock(spec=WebSocketTransport)
         transport.is_connected.return_value = True
         transport.send_str = AsyncMock()
         return transport
@@ -60,9 +59,7 @@ class TestACPTransportServiceWithDispatcher:
         return service
 
     @pytest.fixture
-    def service_without_dispatcher(
-        self, mock_transport: AsyncMock
-    ) -> ACPTransportService:
+    def service_without_dispatcher(self, mock_transport: AsyncMock) -> ACPTransportService:
         return ACPTransportService(mock_transport)
 
     def test_constructor_accepts_dispatcher(
@@ -71,9 +68,7 @@ class TestACPTransportServiceWithDispatcher:
         service = ACPTransportService(mock_transport, rpc_dispatcher=dispatcher)
         assert service._rpc_dispatcher is dispatcher
 
-    def test_constructor_works_without_dispatcher(
-        self, mock_transport: AsyncMock
-    ) -> None:
+    def test_constructor_works_without_dispatcher(self, mock_transport: AsyncMock) -> None:
         service = ACPTransportService(mock_transport)
         assert service._rpc_dispatcher is None
 
@@ -92,18 +87,11 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"path": "test.txt"},
         }
 
-        await service_with_dispatcher._handle_notification_or_client_rpc(
+        await service_with_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         assert len(mock_handler.handle_calls) == 1
@@ -127,39 +115,28 @@ class TestACPTransportServiceWithDispatcher:
             "params": {},
         }
 
-        await service._handle_notification_or_client_rpc(
+        await service._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         mock_transport.send_str.assert_called_once()
         sent_data = mock_transport.send_str.call_args[0][0]
         import json
+
         parsed = json.loads(sent_data)
         assert "error" in parsed
         assert parsed["error"]["code"] == -32602
 
-    async def test_handle_without_dispatcher_uses_callbacks(
+    async def test_handle_without_dispatcher_sends_empty_response(
         self,
         service_without_dispatcher: ACPTransportService,
         mock_transport: AsyncMock,
     ) -> None:
+        """Без dispatcher client-RPC получает пустой ответ (сервер не зависает)."""
         service_without_dispatcher._queues = RoutingQueues()
-        callback_called = False
-
-        async def on_fs_read(path: str) -> str:
-            nonlocal callback_called
-            callback_called = True
-            return "callback content"
 
         notification_data = {
             "jsonrpc": "2.0",
@@ -168,22 +145,19 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"path": "test.txt"},
         }
 
-        await service_without_dispatcher._handle_notification_or_client_rpc(
+        await service_without_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
             on_update=None,
-            on_fs_read=on_fs_read,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
-        assert callback_called is True
         mock_transport.send_str.assert_called_once()
+        import json
+
+        parsed = json.loads(mock_transport.send_str.call_args[0][0])
+        assert parsed["id"] == "rpc-1"
+        assert parsed["result"] == {}
 
     async def test_dispatcher_session_update_still_uses_callback(
         self,
@@ -204,18 +178,11 @@ class TestACPTransportServiceWithDispatcher:
             "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
         }
 
-        await service_with_dispatcher._handle_notification_or_client_rpc(
+        await service_with_dispatcher._coordinator._handle_notification_or_client_rpc(
             method="session/prompt",
             request_id="req-1",
             notification_data=notification_data,
             on_update=on_update,
-            on_fs_read=None,
-            on_fs_write=None,
-            on_terminal_create=None,
-            on_terminal_output=None,
-            on_terminal_wait=None,
-            on_terminal_release=None,
-            on_terminal_kill=None,
         )
 
         assert update_received is True

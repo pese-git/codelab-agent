@@ -100,7 +100,7 @@ graph TB
 | **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`src/codelab/server/protocol/handlers/`](src/codelab/server/protocol/handlers/) |
 | **PromptPipeline** | Protocol | 7-stage pipeline: Validation → SlashCommand → PlanBuilding → TurnLifecycle(open) → Directives → LLMLoop → TurnLifecycle(close) | [`src/codelab/server/protocol/handlers/pipeline/`](src/codelab/server/protocol/handlers/pipeline/) |
 | **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
-| **AgentLoop** | Agent | Цикл LLM tool-calling итераций | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py`](src/codelab/server/protocol/handlers/pipeline/stages/agent_loop.py) |
+| **AgentLoop** | Agent | Цикл LLM tool-calling итераций (пакет) | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/`](src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/) |
 | **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`src/codelab/server/agent/execution_engine.py`](src/codelab/server/agent/execution_engine.py) |
 | **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–3 реализованы | [`src/codelab/server/agent/context/manager.py`](src/codelab/server/agent/context/manager.py) |
 | **ContextGatherer** | Agent | Сбор релевантных файлов через ACP ToolRegistry (пайплайн: project_tree → search → read_file → graph → отбор) | [`src/codelab/server/agent/context/gatherer.py`](src/codelab/server/agent/context/gatherer.py) |
@@ -364,7 +364,7 @@ graph LR
     end
     
     subgraph Processing["Processing"]
-        AgentLoop["AgentLoop<br/>LLM итерации + streaming"]
+        AgentLoop["AgentLoop (пакет)<br/>loop + llm_caller<br/>+ tool_processor + updates<br/>+ loop_detector"]
         Engine["ExecutionEngine<br/>HistoryBuilder + ToolFilter + LLMAdapter"]
         ContextMgr["ContextManager<br/>4-слойная архитектура A–D<br/>(Phase 0–3 реализованы)"]
         ToolReg["ToolRegistry<br/>Управление инструментами"]
@@ -1724,10 +1724,9 @@ class MyLLMProvider(BaseLLMProvider):
 
 ### Специальные документы
 
-- **[AGENTS.md](AGENTS.md)** — инструкции для агентных ассистентов
-- **[doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md](doc/architecture/ACP_IMPLEMENTATION_VERIFICATION.md)** — верифицированная матрица соответствия ACP спецификации (3,302 теста)
-- **[doc/architecture/FULL_ARCHITECTURE.md](doc/architecture/FULL_ARCHITECTURE.md)** — полная схема проекта с мультиагентной экосистемой
-- **[doc/Agent Client Protocol/](doc/Agent%20Client%20Protocol/)** — официальная спецификация ACP (не менять!)
+- **[AGENTS.md](../../../AGENTS.md)** — инструкции для агентных ассистентов
+- **[FULL_ARCHITECTURE.md](FULL_ARCHITECTURE.md)** — полная схема проекта с мультиагентной экосистемой
+- **[doc/Agent Client Protocol/](../../protocols/Agent%20Client%20Protocol/)** — официальная спецификация ACP (не менять!)
 
 ---
 

@@ -94,9 +94,7 @@ class PluginManager:
             )
 
             if spec is None or spec.loader is None:
-                raise PluginLoadError(
-                    f"Could not load spec from {plugin_path}"
-                )
+                raise PluginLoadError(f"Could not load spec from {plugin_path}")
 
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
@@ -113,15 +111,11 @@ class PluginManager:
                     and item is not EventPlugin
                 ):
                     if plugin_class is not None:
-                        raise PluginLoadError(
-                            f"Multiple Plugin classes found in {plugin_path}"
-                        )
+                        raise PluginLoadError(f"Multiple Plugin classes found in {plugin_path}")
                     plugin_class = item
 
             if plugin_class is None:
-                raise PluginLoadError(
-                    f"No Plugin class found in {plugin_path}"
-                )
+                raise PluginLoadError(f"No Plugin class found in {plugin_path}")
 
             # Создать экземпляр плагина
             plugin = plugin_class()
@@ -137,9 +131,7 @@ class PluginManager:
         except PluginLoadError:
             raise
         except Exception as e:
-            raise PluginLoadError(
-                f"Failed to load plugin from {plugin_path}: {e}"
-            ) from e
+            raise PluginLoadError(f"Failed to load plugin from {plugin_path}: {e}") from e
 
     def register_plugin(self, plugin: Plugin) -> None:
         """Зарегистрировать загруженный плагин.
@@ -153,9 +145,7 @@ class PluginManager:
             ValueError: Если плагин с таким именем уже зарегистрирован
         """
         if plugin.name in self._plugins:
-            raise ValueError(
-                f"Plugin with name '{plugin.name}' already registered"
-            )
+            raise ValueError(f"Plugin with name '{plugin.name}' already registered")
 
         self._plugins[plugin.name] = plugin
         self._logger.debug(
@@ -174,9 +164,7 @@ class PluginManager:
             PluginInitializationError: Если инициализация не удалась
         """
         if plugin_name not in self._plugins:
-            raise PluginNotFoundError(
-                f"Plugin '{plugin_name}' not found"
-            )
+            raise PluginNotFoundError(f"Plugin '{plugin_name}' not found")
 
         plugin = self._plugins[plugin_name]
 
@@ -246,9 +234,7 @@ class PluginManager:
                     errors.append((plugin_name, e))
 
         if errors:
-            error_msgs = "\n".join(
-                f"  {name}: {str(error)}" for name, error in errors
-            )
+            error_msgs = "\n".join(f"  {name}: {str(error)}" for name, error in errors)
             raise PluginInitializationError(
                 f"Failed to initialize {len(errors)} plugin(s):\n{error_msgs}"
             )
@@ -263,9 +249,7 @@ class PluginManager:
             PluginNotFoundError: Если плагин не найден
         """
         if plugin_name not in self._plugins:
-            raise PluginNotFoundError(
-                f"Plugin '{plugin_name}' not found"
-            )
+            raise PluginNotFoundError(f"Plugin '{plugin_name}' not found")
 
         plugin = self._plugins[plugin_name]
 
@@ -322,10 +306,7 @@ class PluginManager:
         Returns:
             Список кортежей (name, version, description)
         """
-        return [
-            (p.name, p.version, p.description)
-            for p in self._plugins.values()
-        ]
+        return [(p.name, p.version, p.description) for p in self._plugins.values()]
 
     def list_initialized_plugins(self) -> list[str]:
         """Получить список имён инициализированных плагинов.

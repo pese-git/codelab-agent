@@ -50,9 +50,7 @@ class TestExtractPromptDirectivesSlashCommands:
 
     def test_tool_execute_sets_request_tool_and_kind(self) -> None:
         """Slash-команда /tool execute устанавливает request_tool и tool_kind."""
-        directives = extract_prompt_directives(
-            "/tool execute", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/tool execute", self._DEFAULT_TOOL_KINDS)
 
         assert directives.request_tool is True
         assert directives.keep_tool_pending is False
@@ -60,9 +58,7 @@ class TestExtractPromptDirectivesSlashCommands:
 
     def test_tool_pending_read_sets_request_and_keep_pending(self) -> None:
         """Slash-команда /tool-pending read устанавливает pending-флаги."""
-        directives = extract_prompt_directives(
-            "/tool-pending read", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/tool-pending read", self._DEFAULT_TOOL_KINDS)
 
         assert directives.request_tool is True
         assert directives.keep_tool_pending is True
@@ -70,9 +66,7 @@ class TestExtractPromptDirectivesSlashCommands:
 
     def test_fs_read_sets_path(self) -> None:
         """Slash-команда /fs-read устанавливает fs_read_path."""
-        directives = extract_prompt_directives(
-            "/fs-read /tmp/file.txt", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/fs-read /tmp/file.txt", self._DEFAULT_TOOL_KINDS)
 
         assert directives.fs_read_path == "/tmp/file.txt"
         assert directives.fs_write_path is None
@@ -89,17 +83,13 @@ class TestExtractPromptDirectivesSlashCommands:
 
     def test_term_run_sets_terminal_command(self) -> None:
         """Slash-команда /term-run устанавливает terminal_command."""
-        directives = extract_prompt_directives(
-            "/term-run ls -la", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/term-run ls -la", self._DEFAULT_TOOL_KINDS)
 
         assert directives.terminal_command == "ls -la"
 
     def test_unknown_tool_kind_falls_back_to_other(self) -> None:
         """Неизвестный tool kind нормализуется к 'other'."""
-        directives = extract_prompt_directives(
-            "/tool unknown", self._DEFAULT_TOOL_KINDS
-        )
+        directives = extract_prompt_directives("/tool unknown", self._DEFAULT_TOOL_KINDS)
 
         assert directives.request_tool is True
         assert directives.tool_kind == "other"
@@ -148,9 +138,7 @@ class TestResolvePromptDirectivesMetaOverrides:
 
     def test_fs_read_path_override(self) -> None:
         """fsReadPath override устанавливает путь чтения."""
-        directives = self._resolve(
-            "plain text", {"fsReadPath": "  /tmp/read.txt  "}
-        )
+        directives = self._resolve("plain text", {"fsReadPath": "  /tmp/read.txt  "})
 
         assert directives.fs_read_path == "/tmp/read.txt"
 
@@ -169,9 +157,7 @@ class TestResolvePromptDirectivesMetaOverrides:
 
     def test_terminal_command_override(self) -> None:
         """terminalCommand override устанавливает команду терминала."""
-        directives = self._resolve(
-            "plain text", {"terminalCommand": "  echo hi  "}
-        )
+        directives = self._resolve("plain text", {"terminalCommand": "  echo hi  "})
 
         assert directives.terminal_command == "echo hi"
 
@@ -298,9 +284,7 @@ class TestNormalizeSessionPath:
 
     def test_relative_path_resolved_against_cwd(self) -> None:
         """Относительный путь разрешается относительно cwd."""
-        assert normalize_session_path("/tmp", "file.txt") == str(
-            Path("/tmp") / "file.txt"
-        )
+        assert normalize_session_path("/tmp", "file.txt") == str(Path("/tmp") / "file.txt")
 
     def test_empty_or_whitespace_returns_none(self) -> None:
         """Пустая строка или whitespace возвращает None."""
@@ -353,18 +337,19 @@ class TestRuntimeCapabilityChecks:
 
     def test_can_run_tool_runtime_various_combinations(self) -> None:
         """tool-runtime доступен при любой из fs_read/fs_write/terminal."""
-        assert can_run_tool_runtime(
-            self._make_session(ClientRuntimeCapabilities(fs_read=True))
-        ) is True
-        assert can_run_tool_runtime(
-            self._make_session(ClientRuntimeCapabilities(fs_write=True))
-        ) is True
-        assert can_run_tool_runtime(
-            self._make_session(ClientRuntimeCapabilities(terminal=True))
-        ) is True
-        assert can_run_tool_runtime(
-            self._make_session(ClientRuntimeCapabilities())
-        ) is False
+        assert (
+            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(fs_read=True)))
+            is True
+        )
+        assert (
+            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(fs_write=True)))
+            is True
+        )
+        assert (
+            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(terminal=True)))
+            is True
+        )
+        assert can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities())) is False
 
     def test_can_use_fs_client_rpc_no_caps(self) -> None:
         """Отсутствие capabilities запрещает fs client RPC."""
@@ -375,21 +360,34 @@ class TestRuntimeCapabilityChecks:
 
     def test_can_use_fs_client_rpc_various_combinations(self) -> None:
         """fs RPC доступен только при соответствующей capability."""
-        assert can_use_fs_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(fs_read=True)), "fs_read"
-        ) is True
-        assert can_use_fs_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(fs_write=True)), "fs_read"
-        ) is False
-        assert can_use_fs_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(fs_write=True)), "fs_write"
-        ) is True
-        assert can_use_fs_client_rpc(
-            self._make_session(ClientRuntimeCapabilities()), "fs_read"
-        ) is False
-        assert can_use_fs_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(fs_read=True)), "unknown"
-        ) is False
+        assert (
+            can_use_fs_client_rpc(
+                self._make_session(ClientRuntimeCapabilities(fs_read=True)), "fs_read"
+            )
+            is True
+        )
+        assert (
+            can_use_fs_client_rpc(
+                self._make_session(ClientRuntimeCapabilities(fs_write=True)), "fs_read"
+            )
+            is False
+        )
+        assert (
+            can_use_fs_client_rpc(
+                self._make_session(ClientRuntimeCapabilities(fs_write=True)), "fs_write"
+            )
+            is True
+        )
+        assert (
+            can_use_fs_client_rpc(self._make_session(ClientRuntimeCapabilities()), "fs_read")
+            is False
+        )
+        assert (
+            can_use_fs_client_rpc(
+                self._make_session(ClientRuntimeCapabilities(fs_read=True)), "unknown"
+            )
+            is False
+        )
 
     def test_can_use_terminal_client_rpc_no_caps(self) -> None:
         """Отсутствие capabilities запрещает terminal client RPC."""
@@ -399,12 +397,14 @@ class TestRuntimeCapabilityChecks:
 
     def test_can_use_terminal_client_rpc_various_combinations(self) -> None:
         """terminal RPC доступен только при terminal capability."""
-        assert can_use_terminal_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(terminal=True))
-        ) is True
-        assert can_use_terminal_client_rpc(
-            self._make_session(ClientRuntimeCapabilities(fs_read=True))
-        ) is False
-        assert can_use_terminal_client_rpc(
-            self._make_session(ClientRuntimeCapabilities())
-        ) is False
+        assert (
+            can_use_terminal_client_rpc(
+                self._make_session(ClientRuntimeCapabilities(terminal=True))
+            )
+            is True
+        )
+        assert (
+            can_use_terminal_client_rpc(self._make_session(ClientRuntimeCapabilities(fs_read=True)))
+            is False
+        )
+        assert can_use_terminal_client_rpc(self._make_session(ClientRuntimeCapabilities())) is False

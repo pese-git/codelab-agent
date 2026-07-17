@@ -158,9 +158,7 @@ class TestSessionUpdateParsers:
         notification = _session_update_notification(
             {
                 "sessionUpdate": "plan",
-                "entries": [
-                    {"content": "step", "priority": "medium", "status": "pending"}
-                ],
+                "entries": [{"content": "step", "priority": "medium", "status": "pending"}],
             }
         )
 

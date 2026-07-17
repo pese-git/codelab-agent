@@ -37,9 +37,7 @@ class TestGlobalPolicyFallbackChain:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     @pytest_asyncio.fixture
-    async def global_manager_with_policies(
-        self, temp_policy_storage: Path
-    ) -> GlobalPolicyManager:
+    async def global_manager_with_policies(self, temp_policy_storage: Path) -> GlobalPolicyManager:
         """Создать GlobalPolicyManager с тестовыми policies."""
         storage = GlobalPolicyStorage(storage_path=temp_policy_storage)
         manager = GlobalPolicyManager(storage=storage)

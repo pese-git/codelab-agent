@@ -120,10 +120,12 @@ class HelpCommandHandler(CommandHandler):
 
         if not commands:
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": "ℹ️ Нет доступных команд.",
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": "ℹ️ Нет доступных команд.",
+                    }
+                ]
             )
 
         lines = [
@@ -141,9 +143,7 @@ class HelpCommandHandler(CommandHandler):
 
         lines.append("Для справки по команде: `/help <команда>`")
 
-        return CommandResult(
-            content=[{"type": "text", "text": "\n".join(lines)}]
-        )
+        return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
     def _help_for_command(
         self,
@@ -157,10 +157,12 @@ class HelpCommandHandler(CommandHandler):
 
         if cmd is None:
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": f"❌ Команда `/{command_name}` не найдена.",
-                }]
+                content=[
+                    {
+                        "type": "text",
+                        "text": f"❌ Команда `/{command_name}` не найдена.",
+                    }
+                ]
             )
 
         lines = [
@@ -177,16 +179,12 @@ class HelpCommandHandler(CommandHandler):
             lines.append("")
             lines.append(f"**Использование:** `/{cmd.name}`")
 
-        return CommandResult(
-            content=[{"type": "text", "text": "\n".join(lines)}]
-        )
+        return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
     def get_definition(self) -> AvailableCommand:
         """Возвращает определение команды /help."""
         return AvailableCommand(
             name="help",
             description="Показать список доступных команд",
-            input=AvailableCommandInput(
-                hint="имя команды для подробной справки"
-            ),
+            input=AvailableCommandInput(hint="имя команды для подробной справки"),
         )

@@ -128,13 +128,15 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Notification до initialize игнорируется без ответа."""
         protocol = _make_protocol()
-        ws = _make_connection([
-            WsMessage(
-                WSMsgType.TEXT,
-                ACPMessage.notification("session/cancel", {"sessionId": "sess_1"}).to_json(),
-            ),
-            WsMessage(WSMsgType.CLOSE),
-        ])
+        ws = _make_connection(
+            [
+                WsMessage(
+                    WSMsgType.TEXT,
+                    ACPMessage.notification("session/cancel", {"sessionId": "sess_1"}).to_json(),
+                ),
+                WsMessage(WSMsgType.CLOSE),
+            ]
+        )
         container = _make_container(protocol)
         transport = WebSocketTransport(
             connection=ws,
@@ -155,10 +157,12 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Сообщение WSMsgType.CLOSE завершает цикл обработки."""
         protocol = _make_protocol()
-        ws = _make_connection([
-            WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
-            WsMessage(WSMsgType.CLOSE),
-        ])
+        ws = _make_connection(
+            [
+                WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
+                WsMessage(WSMsgType.CLOSE),
+            ]
+        )
         container = _make_container(protocol)
         transport = WebSocketTransport(
             connection=ws,
@@ -179,10 +183,12 @@ class TestWebSocketTransportRunLifecycle:
     ) -> None:
         """Сообщение WSMsgType.CLOSING завершает цикл обработки."""
         protocol = _make_protocol()
-        ws = _make_connection([
-            WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
-            WsMessage(WSMsgType.CLOSING),
-        ])
+        ws = _make_connection(
+            [
+                WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
+                WsMessage(WSMsgType.CLOSING),
+            ]
+        )
         container = _make_container(protocol)
         transport = WebSocketTransport(
             connection=ws,
@@ -248,7 +254,9 @@ class TestWebSocketTransportRunCleanup:
         """При disconnect отменяются отложенные deferred prompt-задачи."""
         protocol = _make_protocol()
         protocol.should_auto_complete_active_turn = AsyncMock(return_value=True)
-        protocol.complete_active_turn = AsyncMock(side_effect=asyncio.sleep(60))
+        # side_effect — фабрика корутин, а не готовая asyncio.sleep(60): иначе
+        # единственная корутина создаётся сразу и утекает незавершённой (P0-3a).
+        protocol.complete_active_turn = AsyncMock(side_effect=lambda *_a, **_k: asyncio.sleep(60))
 
         deferred_created = asyncio.Event()
         ws = _make_connection([])
@@ -295,10 +303,12 @@ class TestWebSocketTransportRunCleanup:
         protocol = _make_protocol()
         protocol.cancel_active_turns_on_disconnect = AsyncMock(return_value=3)
 
-        ws = _make_connection([
-            WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
-            WsMessage(WSMsgType.CLOSE),
-        ])
+        ws = _make_connection(
+            [
+                WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
+                WsMessage(WSMsgType.CLOSE),
+            ]
+        )
         container = _make_container(protocol)
         transport = WebSocketTransport(
             connection=ws,
@@ -327,10 +337,12 @@ class TestWebSocketTransportRunCleanup:
             "codelab.server.transport.websocket.ClientRPCService",
             return_value=service_mock,
         ):
-            ws = _make_connection([
-                WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
-                WsMessage(WSMsgType.CLOSE),
-            ])
+            ws = _make_connection(
+                [
+                    WsMessage(WSMsgType.TEXT, ACPMessage.request("initialize", {}).to_json()),
+                    WsMessage(WSMsgType.CLOSE),
+                ]
+            )
             container = _make_container(protocol)
             transport = WebSocketTransport(
                 connection=ws,

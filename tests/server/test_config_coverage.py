@@ -39,9 +39,7 @@ class TestEnvHelpers:
 
         assert result is None
 
-    def test_get_env_typed_converts_value(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_env_typed_converts_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_get_env_typed приводит значение переменной к указанному типу."""
         monkeypatch.setenv("TEST_CODELAB_INT", "42")
 
@@ -60,9 +58,7 @@ class TestEnvHelpers:
 
         assert result == "default"
 
-    def test_get_env_typed_converts_float(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_env_typed_converts_float(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_get_env_typed корректно приводит значение к float."""
         monkeypatch.setenv("TEST_CODELAB_FLOAT", "3.14")
 
@@ -117,9 +113,7 @@ class TestLoadMergedTomlData:
 
         assert result == {}
 
-    def test_valid_file_still_merged_with_invalid(
-        self, tmp_path: Path
-    ) -> None:
+    def test_valid_file_still_merged_with_invalid(self, tmp_path: Path) -> None:
         """Корректные файлы объединяются даже если в списке есть некорректные."""
         valid = tmp_path / "valid.toml"
         valid.write_text("[llm]\nprovider = 'openai'\n")
@@ -205,9 +199,7 @@ class TestNonDictNestedConfigs:
 
     def test_fallback_non_dict_uses_default(self, tmp_path: Path) -> None:
         """Если llm.fallback в TOML не dict, используется FallbackConfig по умолчанию."""
-        (tmp_path / "codelab.toml").write_text(
-            "[llm]\nprovider = 'openai'\nfallback = 'enabled'\n"
-        )
+        (tmp_path / "codelab.toml").write_text("[llm]\nprovider = 'openai'\nfallback = 'enabled'\n")
 
         old_cwd = os.getcwd()
         try:
@@ -226,8 +218,7 @@ class TestNonDictNestedConfigs:
     def test_observability_non_dict_uses_default(self, tmp_path: Path) -> None:
         """Если observability в TOML не dict, используется ObservabilityConfig по умолчанию."""
         (tmp_path / "codelab.toml").write_text(
-            "observability = 'enabled'\n"
-            "[llm]\nprovider = 'openai'\n"
+            "observability = 'enabled'\n[llm]\nprovider = 'openai'\n"
         )
 
         old_cwd = os.getcwd()
@@ -246,10 +237,7 @@ class TestNonDictNestedConfigs:
 
     def test_agents_non_dict_uses_default(self, tmp_path: Path) -> None:
         """Если agents в TOML не dict, используется AgentsConfig по умолчанию."""
-        (tmp_path / "codelab.toml").write_text(
-            "agents = 'multi'\n"
-            "[llm]\nprovider = 'openai'\n"
-        )
+        (tmp_path / "codelab.toml").write_text("agents = 'multi'\n[llm]\nprovider = 'openai'\n")
 
         old_cwd = os.getcwd()
         try:
@@ -269,17 +257,13 @@ class TestNonDictNestedConfigs:
 class TestNoTomlPathBranches:
     """Тесты веток load() при отсутствии TOML-файлов."""
 
-    def test_no_toml_path_processes_providers_and_fallback(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_toml_path_processes_providers_and_fallback(self, tmp_path: Path) -> None:
         """При отсутствии TOML providers и fallback обрабатываются корректно."""
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
             with patch.dict(os.environ, {}, clear=True):
-                with patch.object(
-                    AppConfig, "_find_toml_files", return_value=[]
-                ):
+                with patch.object(AppConfig, "_find_toml_files", return_value=[]):
                     merged = {
                         "provider": "mock",
                         "model": "gpt-4o",
@@ -292,9 +276,7 @@ class TestNoTomlPathBranches:
                         },
                         "fallback": "not-a-dict",
                     }
-                    with patch.object(
-                        AppConfig, "_merge_llm_config", return_value=merged
-                    ):
+                    with patch.object(AppConfig, "_merge_llm_config", return_value=merged):
                         config = AppConfig.load()
         finally:
             os.chdir(old_cwd)

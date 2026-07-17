@@ -20,16 +20,16 @@ if TYPE_CHECKING:
 @dataclass
 class StrategyDependencies:
     """Контейнер зависимостей для создания стратегии.
-    
+
     Единый контейнер для DI, упрощает factory в StrategyDescriptor.
-    
+
     Attributes:
         event_bus: Шина событий для вызова агентов
         execution_engine: Движок выполнения для сборки контекста
         tracer: Tracer для observability (опционально)
         agent_name: Имя агента по умолчанию
     """
-    
+
     event_bus: AgentEventBus
     execution_engine: ExecutionEngine
     tracer: Tracer | None = None
@@ -39,21 +39,21 @@ class StrategyDependencies:
 @dataclass
 class StrategyDescriptor:
     """Self-describing стратегия выполнения.
-    
+
     Содержит всю информацию о стратегии:
     - name: уникальный идентификатор
     - display_name: отображаемое имя для UI
     - description: описание для UI
     - factory: создает экземпляр стратегии
     - validator: проверяет доступность через AgentRegistry
-    
+
     Attributes:
         name: Уникальный идентификатор ("single", "hierarchical", etc.)
         display_name: Отображаемое имя для UI ("Single", "Hierarchical", etc.)
         description: Описание стратегии для UI
         factory: Callable[[StrategyDependencies], LLMCallStrategy] — создает экземпляр
         validator: Callable[[AgentRegistry], bool] — проверяет доступность
-    
+
     Example:
         >>> descriptor = StrategyDescriptor(
         ...     name="single",
@@ -63,30 +63,30 @@ class StrategyDescriptor:
         ...     validator=lambda registry: True,
         ... )
     """
-    
+
     name: str
     display_name: str
     description: str
     factory: Callable[[StrategyDependencies], LLMCallStrategy]
     validator: Callable[[AgentRegistry], bool]
-    
+
     def is_available(self, registry: AgentRegistry) -> bool:
         """Проверить доступность стратегии.
-        
+
         Args:
             registry: AgentRegistry для проверки агентов
-        
+
         Returns:
             True если стратегия доступна для выполнения
         """
         return self.validator(registry)
-    
+
     def create_instance(self, deps: StrategyDependencies) -> LLMCallStrategy:
         """Создать экземпляр стратегии.
-        
+
         Args:
             deps: Зависимости для создания стратегии
-        
+
         Returns:
             Экземпляр стратегии (LLMCallStrategy)
         """

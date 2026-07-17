@@ -18,10 +18,7 @@ def compactor():
 
 def make_messages(count, role="user"):
     """Создать N сообщений."""
-    return [
-        LLMMessage(role=role, content=f"Message {i} " * 50)
-        for i in range(count)
-    ]
+    return [LLMMessage(role=role, content=f"Message {i} " * 50) for i in range(count)]
 
 
 class TestCompactionGuards:

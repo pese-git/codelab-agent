@@ -112,9 +112,7 @@ class ContentFormatter:
                 old_text = item.get("oldText", "")
                 new_text = item.get("newText", "")
                 formatted = (
-                    f"File: {path}\n\n"
-                    f"Old:\n```\n{old_text}\n```\n\n"
-                    f"New:\n```\n{new_text}\n```"
+                    f"File: {path}\n\nOld:\n```\n{old_text}\n```\n\nNew:\n```\n{new_text}\n```"
                 )
                 parts.append(formatted)
 

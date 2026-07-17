@@ -102,6 +102,7 @@ class ACPProtocol:
         """
         if storage is None:
             from ..storage import InMemoryStorage
+
             storage = InMemoryStorage()
         self._storage = storage
         self._method_registry = method_registry
@@ -129,10 +130,7 @@ class ACPProtocol:
         )
         return {
             method: handler.handle
-            for method, handler in [
-                (m, self._method_registry.get(m))
-                for m in methods
-            ]
+            for method, handler in [(m, self._method_registry.get(m)) for m in methods]
             if handler is not None
         }
 
@@ -187,9 +185,7 @@ class ACPProtocol:
 
         return await wrapped(message)
 
-    async def handle_and_process(
-        self, message: ACPMessage
-    ) -> ProtocolOutcome:
+    async def handle_and_process(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает сообщение и запускает фоновые задачи если нужно.
 
         Расширяет handle() логикой постобработки outcome:

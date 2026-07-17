@@ -236,17 +236,18 @@ class ContextCommandHandler(CommandHandler):
         tool_tokens = int(max_tokens * self._config.tool_output_share)
         buffer_tokens = int(max_tokens * self._config.response_buffer_share)
 
-        lines.extend([
-            f"• system: `{int(self._config.system_share * 100)}%` → "
-            f"`{system_tokens:,} tokens`",
-            f"• history: `{int(self._config.history_share * 100)}%` → "
-            f"`{history_tokens:,} tokens`",
-            f"• tool_output: `{int(self._config.tool_output_share * 100)}%` → "
-            f"`{tool_tokens:,} tokens`",
-            f"• response_buffer: "
-            f"`{int(self._config.response_buffer_share * 100)}%` → "
-            f"`{buffer_tokens:,} tokens`",
-        ])
+        lines.extend(
+            [
+                f"• system: `{int(self._config.system_share * 100)}%` → `{system_tokens:,} tokens`",
+                f"• history: `{int(self._config.history_share * 100)}%` → "
+                f"`{history_tokens:,} tokens`",
+                f"• tool_output: `{int(self._config.tool_output_share * 100)}%` → "
+                f"`{tool_tokens:,} tokens`",
+                f"• response_buffer: "
+                f"`{int(self._config.response_buffer_share * 100)}%` → "
+                f"`{buffer_tokens:,} tokens`",
+            ]
+        )
 
         # Runtime overrides
         overrides = {k: v for k, v in session.config_values.items() if k.startswith("context_")}

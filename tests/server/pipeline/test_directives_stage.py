@@ -284,7 +284,8 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         assert result.should_stop is False
         # Plan notification должен быть добавлен
         plan_notifications = [
-            n for n in result.notifications
+            n
+            for n in result.notifications
             if n.params and n.params.get("update", {}).get("sessionUpdate") == "plan"
         ]
         assert len(plan_notifications) == 1

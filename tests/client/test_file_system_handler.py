@@ -56,9 +56,7 @@ class TestFileSystemHandlerReadFile:
 
         # Проверка
         assert result == {"content": test_content}
-        executor_mock.read_text_file.assert_called_once_with(
-            "test.txt", line=1, limit=10
-        )
+        executor_mock.read_text_file.assert_called_once_with("test.txt", line=1, limit=10)
 
     async def test_handle_read_text_file_no_range(
         self, handler: FileSystemHandler, executor_mock: AsyncMock
@@ -70,13 +68,9 @@ class TestFileSystemHandlerReadFile:
         result = await handler.handle_read_text_file(params)
 
         assert result == {"content": "Full content"}
-        executor_mock.read_text_file.assert_called_once_with(
-            "file.txt", line=None, limit=None
-        )
+        executor_mock.read_text_file.assert_called_once_with("file.txt", line=None, limit=None)
 
-    async def test_handle_read_text_file_missing_path(
-        self, handler: FileSystemHandler
-    ) -> None:
+    async def test_handle_read_text_file_missing_path(self, handler: FileSystemHandler) -> None:
         """Тест ошибки при отсутствии параметра path."""
         params = {"sessionId": "sess_123"}
 
@@ -87,9 +81,7 @@ class TestFileSystemHandlerReadFile:
         self, handler: FileSystemHandler, executor_mock: AsyncMock
     ) -> None:
         """Тест ошибки когда файл не найден."""
-        executor_mock.read_text_file.side_effect = FileNotFoundError(
-            "File not found"
-        )
+        executor_mock.read_text_file.side_effect = FileNotFoundError("File not found")
         params = {"sessionId": "sess_123", "path": "nonexistent.txt"}
 
         with pytest.raises(FileNotFoundError):
@@ -123,37 +115,27 @@ class TestFileSystemHandlerWriteFile:
         result = await handler.handle_write_text_file(params)
 
         assert result == {}
-        executor_mock.write_text_file.assert_called_once_with(
-            "output.txt", "New content"
-        )
+        executor_mock.write_text_file.assert_called_once_with("output.txt", "New content")
 
-    async def test_handle_write_text_file_missing_path(
-        self, handler: FileSystemHandler
-    ) -> None:
+    async def test_handle_write_text_file_missing_path(self, handler: FileSystemHandler) -> None:
         """Тест ошибки при отсутствии параметра path."""
         params = {"sessionId": "sess_123", "content": "data"}
 
         with pytest.raises(ValueError, match="Missing required parameter: path"):
             await handler.handle_write_text_file(params)
 
-    async def test_handle_write_text_file_missing_content(
-        self, handler: FileSystemHandler
-    ) -> None:
+    async def test_handle_write_text_file_missing_content(self, handler: FileSystemHandler) -> None:
         """Тест ошибки при отсутствии параметра content."""
         params = {"sessionId": "sess_123", "path": "file.txt"}
 
-        with pytest.raises(
-            ValueError, match="Missing required parameter: content"
-        ):
+        with pytest.raises(ValueError, match="Missing required parameter: content"):
             await handler.handle_write_text_file(params)
 
     async def test_handle_write_text_file_io_error(
         self, handler: FileSystemHandler, executor_mock: AsyncMock
     ) -> None:
         """Тест ошибки IO при записи."""
-        executor_mock.write_text_file.side_effect = OSError(
-            "Permission denied"
-        )
+        executor_mock.write_text_file.side_effect = OSError("Permission denied")
         params = {
             "sessionId": "sess_123",
             "path": "test.txt",

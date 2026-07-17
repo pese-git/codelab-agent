@@ -152,9 +152,7 @@ class ClientProvider(Provider):
         return FileSystemExecutor(base_path=config.cwd)
 
     @provide(scope=Scope.APP)
-    def get_fs_handler(
-        self, fs_executor: FileSystemExecutor
-    ) -> FileSystemHandler:
+    def get_fs_handler(self, fs_executor: FileSystemExecutor) -> FileSystemHandler:
         """Создаёт FileSystemHandler поверх FileSystemExecutor."""
         return FileSystemHandler(fs_executor)
 
@@ -185,16 +183,12 @@ class ClientProvider(Provider):
         return TerminalCallbackExecutor(adapter)
 
     @provide(scope=Scope.APP)
-    def get_fs_read_handler(
-        self, fs_executor: FsCallbackExecutor
-    ) -> FsReadHandler:
+    def get_fs_read_handler(self, fs_executor: FsCallbackExecutor) -> FsReadHandler:
         """Создаёт FsReadHandler для обработки fs/read_text_file."""
         return FsReadHandler(fs_executor)
 
     @provide(scope=Scope.APP)
-    def get_fs_write_handler(
-        self, fs_executor: FsCallbackExecutor
-    ) -> FsWriteHandler:
+    def get_fs_write_handler(self, fs_executor: FsCallbackExecutor) -> FsWriteHandler:
         """Создаёт FsWriteHandler для обработки fs/write_text_file."""
         return FsWriteHandler(fs_executor)
 
@@ -309,8 +303,6 @@ class ClientProvider(Provider):
         return core.coordinator
 
     @provide(scope=Scope.APP)
-    def get_permission_handler(
-        self, core: CoreServices
-    ) -> PermissionHandler:
+    def get_permission_handler(self, core: CoreServices) -> PermissionHandler:
         """Извлекает PermissionHandler из CoreServices."""
         return core.permission_handler

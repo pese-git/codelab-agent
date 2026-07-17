@@ -31,6 +31,17 @@ if TYPE_CHECKING:
     from pytest import MonkeyPatch
 
 
+def _close_coro(coro: object) -> None:
+    """Закрыть корутину, переданную в замоканный asyncio.run.
+
+    Тесты патчат asyncio.run, не исполняя переданную корутину (run_stdio_server/
+    server.run). Без close() она утекает незавершённой → order-dependent unraisable
+    "coroutine was never awaited" (P0-3a).
+    """
+    if hasattr(coro, "close"):
+        coro.close()  # type: ignore[attr-defined]
+
+
 class TestEnsureHomeDirectory:
     """Тесты для ensure_home_directory()."""
 
@@ -254,7 +265,7 @@ class TestRunServe:
         )
         monkeypatch.setattr(
             "codelab.cli.asyncio.run",
-            lambda coro: run_calls.append(coro),
+            lambda coro: (_close_coro(coro), run_calls.append(coro)),
         )
         monkeypatch.setattr("codelab.shared.logging.setup_logging", lambda **kwargs: None)
 
@@ -299,7 +310,7 @@ class TestRunServe:
         )
         monkeypatch.setattr(
             "codelab.cli.asyncio.run",
-            lambda coro: run_calls.append(coro),
+            lambda coro: (_close_coro(coro), run_calls.append(coro)),
         )
         monkeypatch.setattr("codelab.shared.logging.setup_logging", lambda **kwargs: None)
 
@@ -347,7 +358,7 @@ class TestRunServe:
             "codelab.server.config.AppConfig.from_env",
             classmethod(lambda cls: "config"),
         )
-        monkeypatch.setattr("codelab.cli.asyncio.run", lambda coro: coro)
+        monkeypatch.setattr("codelab.cli.asyncio.run", _close_coro)
         monkeypatch.setattr("codelab.shared.logging.setup_logging", lambda **kwargs: None)
         monkeypatch.setenv("ACP_SERVER_API_KEY", "secret-key")
 
@@ -383,7 +394,7 @@ class TestRunServe:
         monkeypatch.setattr("codelab.shared.logging.setup_logging", lambda **kwargs: None)
         monkeypatch.setattr(
             "codelab.cli.asyncio.run",
-            lambda coro: (_ for _ in ()).throw(KeyboardInterrupt),
+            lambda coro: (_close_coro(coro), (_ for _ in ()).throw(KeyboardInterrupt)),
         )
 
         args = argparse.Namespace(
@@ -412,7 +423,7 @@ class TestRunServe:
         monkeypatch.setattr("codelab.shared.logging.setup_logging", lambda **kwargs: None)
         monkeypatch.setattr(
             "codelab.cli.asyncio.run",
-            lambda coro: (_ for _ in ()).throw(KeyboardInterrupt),
+            lambda coro: (_close_coro(coro), (_ for _ in ()).throw(KeyboardInterrupt)),
         )
 
         args = argparse.Namespace(

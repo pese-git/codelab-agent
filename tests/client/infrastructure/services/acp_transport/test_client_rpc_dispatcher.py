@@ -28,9 +28,7 @@ class MockRpcHandler:
     def can_handle(self, method: str) -> bool:
         return method == self._method
 
-    async def handle(
-        self, rpc_id: str | int, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def handle(self, rpc_id: str | int, params: dict[str, Any]) -> dict[str, Any] | None:
         self.handle_calls.append((rpc_id, params))
         if self._raises is not None:
             raise self._raises

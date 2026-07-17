@@ -45,8 +45,10 @@ class TestMenuDataClasses:
 
     def test_menu_item_full(self) -> None:
         """MenuItem сохраняет все переданные значения."""
+
         def action():
             return None
+
         item = MenuItem(
             id="test",
             label="Test",
@@ -140,13 +142,14 @@ class TestContextMenuItem:
         assert len(posted) == 1
         assert posted[0].item is item
 
-    def test_on_click_disabled(self) -> None:
+    async def test_on_click_disabled(self) -> None:
         """Клик по отключённому пункту не отправляет Selected."""
         item = MenuItem(id="test", label="Test", disabled=True)
         widget = ContextMenuItem(item)
         posted: list[ContextMenuItem.Selected] = []
         widget.post_message = posted.append
-        widget.on_click()
+        # on_click — async; awaited, иначе корутина утекает незавершённой (P0-3a).
+        await widget.on_click()
         assert len(posted) == 0
 
 
@@ -258,10 +261,12 @@ class TestContextMenu:
 
     def test_select_first_enabled(self) -> None:
         """Первый доступный пункт выделяется."""
-        menu = ContextMenu([
-            MenuItem(id="disabled", label="D", disabled=True),
-            MenuItem(id="enabled", label="E"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="disabled", label="D", disabled=True),
+                MenuItem(id="enabled", label="E"),
+            ]
+        )
         list(menu.compose())
         menu._select_first_enabled()
         assert menu._selected_index == 1
@@ -269,10 +274,12 @@ class TestContextMenu:
 
     def test_select_item(self) -> None:
         """_select_item переключает выделение."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A"),
-            MenuItem(id="b", label="B"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A"),
+                MenuItem(id="b", label="B"),
+            ]
+        )
         list(menu.compose())
         menu._select_item(0)
         assert menu._selected_index == 0
@@ -289,10 +296,12 @@ class TestContextMenu:
 
     def test_action_move_up(self) -> None:
         """action_move_up переключает выделение вверх."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A"),
-            MenuItem(id="b", label="B"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A"),
+                MenuItem(id="b", label="B"),
+            ]
+        )
         list(menu.compose())
         menu._select_item(1)
         menu.action_move_up()
@@ -300,10 +309,12 @@ class TestContextMenu:
 
     def test_action_move_up_skips_disabled(self) -> None:
         """action_move_up пропускает отключённые пункты."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A", disabled=True),
-            MenuItem(id="b", label="B"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A", disabled=True),
+                MenuItem(id="b", label="B"),
+            ]
+        )
         list(menu.compose())
         menu._select_item(1)
         menu.action_move_up()
@@ -317,10 +328,12 @@ class TestContextMenu:
 
     def test_action_move_down(self) -> None:
         """action_move_down переключает выделение вниз."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A"),
-            MenuItem(id="b", label="B"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A"),
+                MenuItem(id="b", label="B"),
+            ]
+        )
         list(menu.compose())
         menu._select_item(0)
         menu.action_move_down()
@@ -328,10 +341,12 @@ class TestContextMenu:
 
     def test_action_move_down_wraps(self) -> None:
         """action_move_down переходит с последнего на первый."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A"),
-            MenuItem(id="b", label="B"),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A"),
+                MenuItem(id="b", label="B"),
+            ]
+        )
         list(menu.compose())
         menu._select_item(1)
         menu.action_move_down()
@@ -339,10 +354,12 @@ class TestContextMenu:
 
     def test_action_move_down_skips_disabled(self) -> None:
         """action_move_down пропускает отключённые пункты."""
-        menu = ContextMenu([
-            MenuItem(id="a", label="A"),
-            MenuItem(id="b", label="B", disabled=True),
-        ])
+        menu = ContextMenu(
+            [
+                MenuItem(id="a", label="A"),
+                MenuItem(id="b", label="B", disabled=True),
+            ]
+        )
         list(menu.compose())
         menu._select_item(0)
         menu.action_move_down()
@@ -413,10 +430,12 @@ class TestContextMenu:
         """Монтирование выделяет первый доступный пункт."""
         app = ThemedApp()
         async with app.run_test() as pilot:
-            menu = ContextMenu([
-                MenuItem(id="a", label="A"),
-                MenuItem(id="b", label="B"),
-            ])
+            menu = ContextMenu(
+                [
+                    MenuItem(id="a", label="A"),
+                    MenuItem(id="b", label="B"),
+                ]
+            )
             await pilot.app.mount(menu)
             assert menu._selected_index == 0
             assert menu._menu_items[0].is_selected is True

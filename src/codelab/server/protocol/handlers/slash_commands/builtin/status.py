@@ -59,24 +59,19 @@ class StatusCommandHandler(CommandHandler):
 
         # Информация о tool calls
         active_calls = [
-            tc for tc in session.tool_calls.values()
-            if tc.status in ("pending", "in_progress")
+            tc for tc in session.tool_calls.values() if tc.status in ("pending", "in_progress")
         ]
         if active_calls:
             lines.append(f"**Активных tool calls:** {len(active_calls)}")
 
         # Информация о config values
         if session.config_values:
-            config_str = ", ".join(
-                f"{k}={v}" for k, v in session.config_values.items()
-            )
+            config_str = ", ".join(f"{k}={v}" for k, v in session.config_values.items())
             lines.append(f"**Конфигурация:** {config_str}")
 
         # Информация о permission policy
         if session.permission_policy:
-            policy_str = ", ".join(
-                f"{k}={v}" for k, v in session.permission_policy.items()
-            )
+            policy_str = ", ".join(f"{k}={v}" for k, v in session.permission_policy.items())
             lines.append(f"**Permission policy:** {policy_str}")
 
         content = [{"type": "text", "text": "\n".join(lines)}]

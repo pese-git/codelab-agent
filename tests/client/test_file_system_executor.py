@@ -67,16 +67,12 @@ class TestFileSystemExecutorReadFile:
         test_file.write_text("".join(lines))
 
         # Действие
-        result = await executor_with_sandbox.read_text_file(
-            "test.txt", line=2, limit=2
-        )
+        result = await executor_with_sandbox.read_text_file("test.txt", line=2, limit=2)
 
         # Проверка
         assert result == "Line 2\nLine 3\n"
 
-    async def test_read_file_not_found(
-        self, executor_with_sandbox: FileSystemExecutor
-    ) -> None:
+    async def test_read_file_not_found(self, executor_with_sandbox: FileSystemExecutor) -> None:
         """Тест ошибки когда файл не найден."""
         with pytest.raises(FileNotFoundError, match="File not found"):
             await executor_with_sandbox.read_text_file("nonexistent.txt")
@@ -126,9 +122,7 @@ class TestFileSystemExecutorWriteFile:
     ) -> None:
         """Тест записи нового файла."""
         # Действие
-        result = await executor_with_sandbox.write_text_file(
-            "new_file.txt", "New content\n"
-        )
+        result = await executor_with_sandbox.write_text_file("new_file.txt", "New content\n")
 
         # Проверка
         assert result is True
@@ -145,9 +139,7 @@ class TestFileSystemExecutorWriteFile:
         test_file.write_text("Old content\n")
 
         # Действие
-        result = await executor_with_sandbox.write_text_file(
-            "test.txt", "New content\n"
-        )
+        result = await executor_with_sandbox.write_text_file("test.txt", "New content\n")
 
         # Проверка
         assert result is True
@@ -160,9 +152,7 @@ class TestFileSystemExecutorWriteFile:
     ) -> None:
         """Тест создания родительских директорий."""
         # Действие
-        result = await executor_with_sandbox.write_text_file(
-            "subdir/nested/file.txt", "Content\n"
-        )
+        result = await executor_with_sandbox.write_text_file("subdir/nested/file.txt", "Content\n")
 
         # Проверка
         assert result is True
@@ -175,9 +165,7 @@ class TestFileSystemExecutorWriteFile:
     ) -> None:
         """Тест защиты от path traversal при записи."""
         with pytest.raises(ValueError, match="Path traversal"):
-            await executor_with_sandbox.write_text_file(
-                "../../etc/passwd", "hacked"
-            )
+            await executor_with_sandbox.write_text_file("../../etc/passwd", "hacked")
 
     async def test_write_empty_file(
         self,
@@ -214,9 +202,7 @@ class TestFileSystemExecutorWithoutSandbox:
         """Тест записи файла без sandbox ограничения."""
         test_file = tmp_path / "test.txt"
 
-        result = await executor_without_sandbox.write_text_file(
-            str(test_file), "Test content\n"
-        )
+        result = await executor_without_sandbox.write_text_file(str(test_file), "Test content\n")
         assert result is True
         assert test_file.read_text() == "Test content\n"
 
@@ -242,9 +228,7 @@ class TestPathTraversalValidation:
         with pytest.raises(ValueError, match="Path traversal"):
             executor._validate_path("../../../etc/passwd")
 
-    async def test_path_traversal_similar_name_blocked(
-        self, sandbox: Path, tmp_path: Path
-    ) -> None:
+    async def test_path_traversal_similar_name_blocked(self, sandbox: Path, tmp_path: Path) -> None:
         """Директория с похожим именем должна быть заблокирована."""
         # Создаём директорию рядом с sandbox с похожим именем
         evil_dir = tmp_path.parent / (tmp_path.name + "_evil")

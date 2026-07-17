@@ -100,6 +100,4 @@ def create_client_container(
             "failed_to_create_client_container",
             error=str(e),
         )
-        raise RuntimeError(
-            f"Failed to create DI container: {e}. Check logs for details."
-        ) from e
+        raise RuntimeError(f"Failed to create DI container: {e}. Check logs for details.") from e

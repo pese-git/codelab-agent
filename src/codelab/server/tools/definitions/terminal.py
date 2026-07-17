@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 class TerminalToolDefinitions:
     """Фабрика для создания определений терминальных инструментов.
-    
+
     Поддерживает:
     - terminal/create: Создание терминала и запуск команды
     - terminal/wait_for_exit: Ожидание завершения процесса
@@ -23,10 +23,10 @@ class TerminalToolDefinitions:
     @staticmethod
     def create() -> ToolDefinition:
         """Создать определение для инструмента terminal/create.
-        
+
         Позволяет LLM создавать терминалы и запускать команды
         в окружении клиента с поддержкой параметров запуска.
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -75,10 +75,10 @@ class TerminalToolDefinitions:
     @staticmethod
     def wait_for_exit() -> ToolDefinition:
         """Создать определение для инструмента terminal/wait_for_exit.
-        
+
         Позволяет LLM ожидать завершения выполнения команды в терминале
         и получить exit code вместе с output.
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -110,9 +110,9 @@ class TerminalToolDefinitions:
     @staticmethod
     def release() -> ToolDefinition:
         """Создать определение для инструмента terminal/release.
-        
+
         Позволяет LLM освобождать ресурсы терминала после завершения работы.
-        
+
         Returns:
             ToolDefinition для регистрации в реестре.
         """
@@ -157,6 +157,7 @@ class TerminalToolDefinitions:
             executor: Executor для выполнения терминальных операций
                 (TerminalToolExecutor или декоратор, оборачивающий его)
         """
+
         # Создать обработчик для создания терминала и запуска команды
         async def create_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/create."""
@@ -169,7 +170,8 @@ class TerminalToolDefinitions:
 
         # Создать обработчик для ожидания завершения
         async def wait_for_exit_handler(
-            session: SessionState, **arguments: Any,
+            session: SessionState,
+            **arguments: Any,
         ) -> ToolExecutionResult:
             """Обработчик для terminal/wait_for_exit."""
             # Добавить тип операции в аргументы

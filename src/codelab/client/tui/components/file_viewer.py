@@ -171,7 +171,8 @@ class FileViewerModal(ModalScreen[None]):
     def action_close(self) -> None:
         """Закрывает окно просмотра файла по hotkey.
 
-        Только обновляет ViewModel, NavigationManager сам удалит виджет.
+        Обновляет ViewModel (is_visible=False); фактическое снятие модалки
+        выполняет владелец, показавший её.
         """
         self.file_viewer_vm.hide()
 

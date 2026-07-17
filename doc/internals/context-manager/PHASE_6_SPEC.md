@@ -1,5 +1,9 @@
 # Phase 6 — Мультиагент (спецификация для разработки)
 
+> 📋 **Статус: спецификация, НЕ реализовано** (на 2026-07-10). `ChildSessionManager`,
+> `process_subagent_response()` и интеграция стратегий с ContextManager в коде отсутствуют.
+> Зависит от нереализованных стратегий (см. MULTIAGENT_TECHNICAL_SPECIFICATION.md).
+> Отслеживается в `openspec/changes/context-manager-implementation` (Фаза 6).
 > **Статус:** 🔲 Готово к разработке после предыдущих фаз — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
 > **Длительность:** 2 недели
 > **Цель:** реализовать обработку ответов субагентов (`process_subagent_response`) и изоляцию субагентов в child-сессиях через `ChildSessionManager` — это **дефолт и единственный путь MVP**. Федеративный `share_item()` — опционально за флагом и кандидат на отказ.

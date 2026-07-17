@@ -75,9 +75,7 @@ class TestConcurrentReceiveCalls:
         # Создаем mock транспорт
         mock_transport = AsyncMock()
         mock_transport.is_connected = Mock(return_value=True)
-        mock_transport.receive_text = AsyncMock(
-            side_effect=receive_text_with_concurrent_check
-        )
+        mock_transport.receive_text = AsyncMock(side_effect=receive_text_with_concurrent_check)
 
         # Создаем сервис и подключаемся
         service = _create_service_for_test()
@@ -177,9 +175,7 @@ class TestConcurrentReceiveCalls:
         """
         mock_transport = AsyncMock()
         mock_transport.is_connected = Mock(return_value=True)
-        mock_transport.receive_text = AsyncMock(
-            side_effect=asyncio.CancelledError()
-        )
+        mock_transport.receive_text = AsyncMock(side_effect=asyncio.CancelledError())
 
         service = _create_service_for_test()
         service._transport = mock_transport  # noqa: SLF001 - test setup

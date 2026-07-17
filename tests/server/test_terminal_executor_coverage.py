@@ -16,12 +16,17 @@ from codelab.server.tools.executors.terminal_executor import TerminalToolExecuto
 
 @pytest.fixture
 def session() -> SessionState:
-    """Тестовая сессия."""
+    """Тестовая сессия.
+
+    ``term_1`` предрегистрирован тождественным маппингом: wait/release-тесты
+    проверяют dispatch, а не выдачу alias (см. TerminalAliasRegistry, #18).
+    """
     return SessionState(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
         config_values={},
+        terminals={"term_1": "term_1"},
     )
 
 
@@ -56,13 +61,15 @@ class TestTerminalExecutorDispatch:
         self, executor: TerminalToolExecutor, session: SessionState
     ) -> None:
         """execute dispatch'ит operation=wait_for_exit в execute_wait_for_exit."""
-        executor._bridge.terminal_output = AsyncMock(return_value={
-            "output": "done",
-            "truncated": False,
-            "is_complete": True,
-            "exit_code": 0,
-            "signal": None,
-        })
+        executor._bridge.terminal_output = AsyncMock(
+            return_value={
+                "output": "done",
+                "truncated": False,
+                "is_complete": True,
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
 
         result = await executor.execute(
             session,
@@ -127,26 +134,30 @@ class TestTerminalExecutorWaitForExitSignal:
         session: SessionState,
     ) -> None:
         """Сигнал после wait_for_exit корректно отображается в результате."""
-        executor._bridge.terminal_output = AsyncMock(side_effect=[
-            {
-                "output": "partial",
-                "truncated": False,
-                "is_complete": False,
-                "exit_code": None,
-                "signal": None,
-            },
-            {
-                "output": "killed",
-                "truncated": False,
-                "is_complete": True,
+        executor._bridge.terminal_output = AsyncMock(
+            side_effect=[
+                {
+                    "output": "partial",
+                    "truncated": False,
+                    "is_complete": False,
+                    "exit_code": None,
+                    "signal": None,
+                },
+                {
+                    "output": "killed",
+                    "truncated": False,
+                    "is_complete": True,
+                    "exit_code": None,
+                    "signal": "SIGTERM",
+                },
+            ]
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(
+            return_value={
                 "exit_code": None,
                 "signal": "SIGTERM",
-            },
-        ])
-        executor._bridge.wait_terminal_exit = AsyncMock(return_value={
-            "exit_code": None,
-            "signal": "SIGTERM",
-        })
+            }
+        )
 
         result = await executor.execute_wait_for_exit(session, terminal_id="term_1")
 

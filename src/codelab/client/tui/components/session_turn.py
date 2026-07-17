@@ -27,18 +27,18 @@ from codelab.client.tui.components.streaming_text import StreamingText, Thinking
 
 class TurnStatus(Enum):
     """Статусы turn."""
-    
-    PENDING = "pending"      # Ожидает ответа агента
+
+    PENDING = "pending"  # Ожидает ответа агента
     STREAMING = "streaming"  # Streaming ответ агента
-    COMPLETE = "complete"    # Завершен успешно
-    ERROR = "error"          # Завершен с ошибкой
+    COMPLETE = "complete"  # Завершен успешно
+    ERROR = "error"  # Завершен с ошибкой
     CANCELLED = "cancelled"  # Отменен
 
 
 @dataclass
 class TurnData:
     """Данные одного turn (prompt + response)."""
-    
+
     turn_id: str
     user_content: str
     user_timestamp: datetime | None = None
@@ -51,7 +51,7 @@ class TurnData:
 
 class TurnStatusIndicator(Static):
     """Индикатор статуса turn."""
-    
+
     DEFAULT_CSS = """
     TurnStatusIndicator {
         width: auto;
@@ -79,7 +79,7 @@ class TurnStatusIndicator(Static):
         color: $warning;
     }
     """
-    
+
     STATUS_ICONS = {
         TurnStatus.PENDING: "⏳",
         TurnStatus.STREAMING: "📡",
@@ -87,7 +87,7 @@ class TurnStatusIndicator(Static):
         TurnStatus.ERROR: "❌",
         TurnStatus.CANCELLED: "🚫",
     }
-    
+
     STATUS_LABELS = {
         TurnStatus.PENDING: "Ожидание...",
         TurnStatus.STREAMING: "Streaming...",
@@ -95,7 +95,7 @@ class TurnStatusIndicator(Static):
         TurnStatus.ERROR: "Ошибка",
         TurnStatus.CANCELLED: "Отменено",
     }
-    
+
     def __init__(
         self,
         status: TurnStatus = TurnStatus.PENDING,
@@ -105,7 +105,7 @@ class TurnStatusIndicator(Static):
         classes: str | None = None,
     ) -> None:
         """Инициализирует TurnStatusIndicator.
-        
+
         Args:
             status: Начальный статус
             name: Имя виджета
@@ -114,16 +114,16 @@ class TurnStatusIndicator(Static):
         """
         self._status = status
         status_class = status.value if classes is None else f"{classes} {status.value}"
-        
+
         icon = self.STATUS_ICONS.get(status, "")
         label = self.STATUS_LABELS.get(status, "")
         text = f"{icon} {label}".strip() if label else icon
-        
+
         super().__init__(text, name=name, id=id, classes=status_class)
-    
+
     def update_status(self, status: TurnStatus) -> None:
         """Обновляет статус.
-        
+
         Args:
             status: Новый статус
         """
@@ -131,7 +131,7 @@ class TurnStatusIndicator(Static):
         self.remove_class(self._status.value)
         self._status = status
         self.add_class(status.value)
-        
+
         icon = self.STATUS_ICONS.get(status, "")
         label = self.STATUS_LABELS.get(status, "")
         text = f"{icon} {label}".strip() if label else icon
@@ -140,7 +140,7 @@ class TurnStatusIndicator(Static):
 
 class ToolCallWidget(Static):
     """Виджет отображения tool call."""
-    
+
     DEFAULT_CSS = """
     ToolCallWidget {
         width: 100%;
@@ -161,7 +161,7 @@ class ToolCallWidget(Static):
         margin-left: 2;
     }
     """
-    
+
     def __init__(
         self,
         tool_name: str,
@@ -173,7 +173,7 @@ class ToolCallWidget(Static):
         classes: str | None = None,
     ) -> None:
         """Инициализирует ToolCallWidget.
-        
+
         Args:
             tool_name: Имя инструмента
             arguments: Аргументы вызова
@@ -185,26 +185,26 @@ class ToolCallWidget(Static):
         self._tool_name = tool_name
         self._arguments = arguments
         self._result = result
-        
+
         # Форматируем отображение
         lines = [f"[bold]🔧 {tool_name}[/bold]"]
-        
+
         if arguments:
             args_str = ", ".join(f"{k}={v!r}" for k, v in list(arguments.items())[:3])
             if len(arguments) > 3:
                 args_str += ", ..."
             lines.append(f"  [dim]Args: {args_str}[/dim]")
-        
+
         if result:
             result_preview = result[:100] + "..." if len(result) > 100 else result
             lines.append(f"  [dim]→ {result_preview}[/dim]")
-        
+
         super().__init__("\n".join(lines), name=name, id=id, classes=classes, markup=True)
 
 
 class SessionTurn(Vertical):
     """Компонент для отображения одного turn (prompt + response).
-    
+
     Turn объединяет:
     - Сообщение пользователя (prompt)
     - Индикатор thinking (при ожидании)
@@ -212,7 +212,7 @@ class SessionTurn(Vertical):
     - Сообщение ассистента (response)
     - Tool calls (если есть)
     - Статус turn
-    
+
     Пример:
         >>> turn = SessionTurn(
         ...     turn_id="turn-1",
@@ -223,7 +223,7 @@ class SessionTurn(Vertical):
         >>> turn.update_streaming("Всё хорошо!")
         >>> turn.complete("Всё хорошо!")
     """
-    
+
     DEFAULT_CSS = """
     SessionTurn {
         width: 100%;
@@ -264,11 +264,11 @@ class SessionTurn(Vertical):
         margin-top: 1;
     }
     """
-    
+
     # Реактивные свойства
     status: reactive[TurnStatus] = reactive(TurnStatus.PENDING)
     is_collapsed: reactive[bool] = reactive(False)
-    
+
     def __init__(
         self,
         turn_id: str,
@@ -285,7 +285,7 @@ class SessionTurn(Vertical):
         classes: str | None = None,
     ) -> None:
         """Инициализирует SessionTurn.
-        
+
         Args:
             turn_id: Уникальный ID turn
             user_content: Сообщение пользователя
@@ -307,9 +307,9 @@ class SessionTurn(Vertical):
         self._assistant_bubble: MessageBubble | None = None
         self._assistant_section: Container | None = None
         self._tool_calls_section: Container | None = None
-        
+
         super().__init__(name=name, id=id or turn_id, classes=classes)
-        
+
         self.turn_id = turn_id
         self._user_content = user_content
         self._user_timestamp = user_timestamp or datetime.now()
@@ -317,10 +317,10 @@ class SessionTurn(Vertical):
         self._assistant_timestamp = assistant_timestamp
         self._tool_calls = tool_calls or []
         self._collapsible = collapsible
-        
+
         # Устанавливаем статус после инициализации атрибутов
         self.status = status
-    
+
     def compose(self) -> ComposeResult:
         """Создает структуру turn."""
         # Заголовок с ID и статусом
@@ -328,7 +328,7 @@ class SessionTurn(Vertical):
             yield Static(f"[dim]Turn #{self.turn_id[-8:]}[/dim]", markup=True)
             self._status_indicator = TurnStatusIndicator(self.status)
             yield self._status_indicator
-        
+
         # Секция пользователя
         with Container(classes="user-section"):
             yield MessageBubble(
@@ -338,15 +338,15 @@ class SessionTurn(Vertical):
                 show_avatar=True,
                 show_header=True,
             )
-        
+
         # Секция ассистента
         self._assistant_section = Container(classes="assistant-section")
         yield self._assistant_section
-        
+
         # Секция tool calls
         self._tool_calls_section = Container(classes="tool-calls-section")
         yield self._tool_calls_section
-    
+
     def on_mount(self) -> None:
         """Инициализирует начальное состояние при монтировании."""
         # Если уже есть ответ - показываем его
@@ -354,66 +354,66 @@ class SessionTurn(Vertical):
             self._show_assistant_message()
         elif self.status == TurnStatus.PENDING:
             self._show_thinking()
-        
+
         # Показываем tool calls если есть
         self._render_tool_calls()
-    
+
     def watch_status(self, new_status: TurnStatus) -> None:
         """Реагирует на изменение статуса.
-        
+
         Args:
             new_status: Новый статус
         """
         if self._status_indicator is not None:
             self._status_indicator.update_status(new_status)
-        
+
         # Обновляем класс для стилизации
         self.remove_class("pending", "streaming", "complete", "error", "cancelled")
         self.add_class(new_status.value)
-    
+
     def _show_thinking(self) -> None:
         """Показывает индикатор thinking."""
         if self._assistant_section is None:
             return
-        
+
         self._hide_thinking()
         self._thinking_indicator = ThinkingIndicator("Агент думает")
         self._assistant_section.mount(self._thinking_indicator)
-    
+
     def _hide_thinking(self) -> None:
         """Скрывает индикатор thinking."""
         if self._thinking_indicator is not None:
             self._thinking_indicator.remove()
             self._thinking_indicator = None
-    
+
     def _show_streaming(self, initial_text: str = "") -> None:
         """Показывает streaming виджет.
-        
+
         Args:
             initial_text: Начальный текст
         """
         if self._assistant_section is None:
             return
-        
+
         self._hide_streaming()
         self._streaming_widget = StreamingText(initial_text)
         self._assistant_section.mount(self._streaming_widget)
-    
+
     def _hide_streaming(self) -> None:
         """Скрывает streaming виджет."""
         if self._streaming_widget is not None:
             self._streaming_widget.remove()
             self._streaming_widget = None
-    
+
     def _show_assistant_message(self) -> None:
         """Показывает финальное сообщение ассистента."""
         if self._assistant_section is None:
             return
-        
+
         # Удаляем старый bubble если есть
         if self._assistant_bubble is not None:
             self._assistant_bubble.remove()
-        
+
         self._assistant_bubble = MessageBubble(
             role=MessageRole.ASSISTANT,
             content=self._assistant_content,
@@ -422,120 +422,120 @@ class SessionTurn(Vertical):
             show_header=True,
         )
         self._assistant_section.mount(self._assistant_bubble)
-    
+
     def _render_tool_calls(self) -> None:
         """Рендерит tool calls."""
         if self._tool_calls_section is None:
             return
-        
+
         self._tool_calls_section.query("*").remove()
-        
+
         for tc in self._tool_calls:
             tool_name = tc.get("name", "unknown")
             arguments = tc.get("arguments", {})
             result = tc.get("result")
-            
+
             widget = ToolCallWidget(tool_name, arguments, result)
             self._tool_calls_section.mount(widget)
-    
+
     # --- Public API ---
-    
+
     def start_streaming(self) -> None:
         """Переводит turn в режим streaming."""
         self._hide_thinking()
         self.status = TurnStatus.STREAMING
         self._show_streaming()
-    
+
     def update_streaming(self, text: str) -> None:
         """Обновляет streaming текст.
-        
+
         Args:
             text: Новый полный текст
         """
         if self._streaming_widget is not None:
             self._streaming_widget.set_text(text)
-    
+
     def append_streaming(self, chunk: str) -> None:
         """Добавляет chunk к streaming.
-        
+
         Args:
             chunk: Порция текста
         """
         if self._streaming_widget is not None:
             self._streaming_widget.append_text(chunk)
-    
+
     def complete(self, assistant_content: str, timestamp: datetime | None = None) -> None:
         """Завершает turn успешно.
-        
+
         Args:
             assistant_content: Финальный ответ ассистента
             timestamp: Время ответа
         """
         self._hide_thinking()
         self._hide_streaming()
-        
+
         self._assistant_content = assistant_content
         self._assistant_timestamp = timestamp or datetime.now()
         self.status = TurnStatus.COMPLETE
-        
+
         self._show_assistant_message()
-    
+
     def fail(self, error_message: str) -> None:
         """Завершает turn с ошибкой.
-        
+
         Args:
             error_message: Текст ошибки
         """
         self._hide_thinking()
         self._hide_streaming()
-        
+
         self._assistant_content = f"❌ Ошибка: {error_message}"
         self.status = TurnStatus.ERROR
-        
+
         self._show_assistant_message()
-    
+
     def cancel(self) -> None:
         """Отменяет turn."""
         self._hide_thinking()
         self._hide_streaming()
-        
+
         self._assistant_content = "🚫 Запрос отменен"
         self.status = TurnStatus.CANCELLED
-        
+
         self._show_assistant_message()
-    
+
     def add_tool_call(self, tool_call: dict[str, Any]) -> None:
         """Добавляет tool call.
-        
+
         Args:
             tool_call: Данные tool call
         """
         self._tool_calls.append(tool_call)
         self._render_tool_calls()
-    
+
     @property
     def user_content(self) -> str:
         """Возвращает сообщение пользователя."""
         return self._user_content
-    
+
     @property
     def assistant_content(self) -> str:
         """Возвращает ответ ассистента."""
         return self._assistant_content
-    
+
     @property
     def tool_calls(self) -> list[dict[str, Any]]:
         """Возвращает список tool calls."""
         return self._tool_calls.copy()
-    
+
     @classmethod
     def from_data(cls, data: TurnData, **kwargs: Any) -> SessionTurn:
         """Создает SessionTurn из TurnData.
-        
+
         Args:
             data: Данные turn
             **kwargs: Дополнительные аргументы
-            
+
         Returns:
             Экземпляр SessionTurn
         """

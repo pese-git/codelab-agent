@@ -46,7 +46,7 @@ class FileSystemExecutor:
         Пример:
             # С sandbox ограничением
             executor = FileSystemExecutor(base_path=Path("/home/user/projects"))
-            
+
             # Без ограничений
             executor = FileSystemExecutor()
         """
@@ -89,8 +89,7 @@ class FileSystemExecutor:
             # /home/user/projects_evil НЕ является относительным к /home/user/projects
             if not file_path.is_relative_to(base_resolved):
                 msg = (
-                    f"Path traversal detected: '{path}' "
-                    f"resolves outside sandbox '{base_resolved}'"
+                    f"Path traversal detected: '{path}' resolves outside sandbox '{base_resolved}'"
                 )
                 logger.warning(
                     "path_traversal_attempt",

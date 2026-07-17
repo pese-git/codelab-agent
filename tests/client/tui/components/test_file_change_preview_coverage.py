@@ -133,6 +133,7 @@ class TestFileChangePreviewCompose:
 
     async def test_compose_structure(self) -> None:
         """Компонент создаёт заголовок, статистику и содержимое."""
+
         class TestApp(App):
             pass
 
@@ -153,6 +154,7 @@ class TestFileChangePreviewCompose:
 
     async def test_compose_truncates_lines(self) -> None:
         """compose ограничивает количество отображаемых строк."""
+
         class TestApp(App):
             pass
 
@@ -209,6 +211,7 @@ class TestFileChangePreviewSetDiff:
 
     async def test_set_diff_updates_state(self) -> None:
         """set_diff пересчитывает diff и обновляет счётчики."""
+
         class TestApp(App):
             pass
 
@@ -232,6 +235,7 @@ class TestFileChangePreviewCollapse:
 
     async def test_collapse(self) -> None:
         """collapse сворачивает Collapsible."""
+
         class TestApp(App):
             pass
 
@@ -250,6 +254,7 @@ class TestFileChangePreviewCollapse:
 
     async def test_expand(self) -> None:
         """expand разворачивает Collapsible."""
+
         class TestApp(App):
             pass
 
@@ -265,6 +270,7 @@ class TestFileChangePreviewCollapse:
 
     async def test_toggle(self) -> None:
         """toggle переключает состояние."""
+
         class TestApp(App):
             pass
 

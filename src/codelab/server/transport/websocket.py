@@ -14,7 +14,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from aiohttp import WSMsgType
@@ -30,11 +31,31 @@ from codelab.server.transport.websocket_connection import WebSocketConnection
 
 if TYPE_CHECKING:
     from codelab.server.config import AppConfig
+    from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
 
 # Константа: максимальное время ожидания для deferred prompt tasks (в секундах)
 DEFERRED_PROMPT_TIMEOUT = 30.0
 
 logger = structlog.get_logger()
+
+
+@dataclass
+class _WsRunState:
+    """Изменяемое состояние одного прохода WebSocketTransport.run.
+
+    Собирает воедино зависимости REQUEST scope и изменяемое состояние
+    соединения, разделяемое между обработкой сообщений и cleanup.
+    """
+
+    client_rpc_service: ClientRPCService
+    protocol: ACPProtocol
+    runtime_registry: SessionRuntimeRegistry
+    handler: Callable[[ACPMessage], Awaitable[ProtocolOutcome]]
+    deferred_prompt_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    prompt_request_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    initialized: bool = False
+    current_session_id: str | None = None
+    notification_bus_subscribed: bool = False
 
 
 def _truncate_payload(payload: str, max_length: int = 500) -> str:
@@ -108,16 +129,10 @@ class WebSocketTransport(AcpServerTransport):
 
         self._conn_logger.info("ws connection established")
 
-        # Создаём ClientRPCService с callback на отправку
         client_rpc_service = ClientRPCService(
             send_request_callback=self._send_rpc_request,
             client_capabilities={},
         )
-
-        # Состояние соединения
-        deferred_prompt_tasks: dict[str, asyncio.Task[None]] = {}
-        prompt_request_tasks: set[asyncio.Task[None]] = set()
-        initialized = False
 
         # Используем REQUEST scope для этого WebSocket соединения
         if self._app_container is None:
@@ -129,15 +144,11 @@ class WebSocketTransport(AcpServerTransport):
         holder = await self._app_container.get(ClientRPCServiceHolder)
         holder.service = client_rpc_service
 
-        # Отслеживаем текущую сессию для подписки на notification bus
-        current_session_id: str | None = None
-        notification_bus_subscribed = False
-
         async with self._app_container() as request_scope:
             protocol = await request_scope.get(ACPProtocol)
 
-            # Получаем runtime registry для подписки на notification bus
             from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+
             runtime_registry = await request_scope.get(SessionRuntimeRegistry)
 
             # Настраиваем send_callback для отправки сообщений из фоновых задач
@@ -147,163 +158,18 @@ class WebSocketTransport(AcpServerTransport):
                 callback_type="self._send_protocol_message",
             )
 
-            # Если on_message не передан, используем protocol.handle_and_process
             handler = on_message if on_message is not None else protocol.handle_and_process
+            state = _WsRunState(
+                client_rpc_service=client_rpc_service,
+                protocol=protocol,
+                runtime_registry=runtime_registry,
+                handler=handler,
+            )
 
             try:
                 async for message in self._connection:
                     if message.type == WSMsgType.TEXT:
-                        method_name: str | None = None
-                        session_id: str | None = None
-                        request_id: str | None = None
-                        try:
-                            acp_request = ACPMessage.from_json(message.data)
-                            method_name = acp_request.method
-                            request_id = (
-                                str(acp_request.id)
-                                if acp_request.id is not None
-                                else None
-                            )
-
-                            self._conn_logger.debug(
-                                "message received",
-                                direction="in",
-                                trace_type="message_trace",
-                                payload=_truncate_payload(message.data),
-                            )
-
-                            # Обработка initialize
-                            if method_name == "initialize":
-                                initialized = True
-                                if isinstance(acp_request.params, dict):
-                                    caps = acp_request.params.get("clientCapabilities", {})
-                                    if isinstance(caps, dict):
-                                        client_rpc_service._capabilities = caps
-                                        self._conn_logger.debug(
-                                            "client_rpc_service capabilities updated",
-                                            capabilities=caps,
-                                        )
-                            elif not initialized:
-                                # Требуют инициализацию перед другими методами
-                                if acp_request.is_notification:
-                                    outcome = ProtocolOutcome()
-                                else:
-                                    outcome = ProtocolOutcome(
-                                        response=ACPMessage.error_response(
-                                            acp_request.id,
-                                            code=-32000,
-                                            message="Initialize required before session methods",
-                                        )
-                                    )
-                                method_name = None
-                                session_id = None
-                                await self._send_outcome(outcome, request_id=request_id)
-                                continue
-
-                            # Извлекаем sessionId
-                            if isinstance(acp_request.params, dict):
-                                raw_session_id = acp_request.params.get("sessionId")
-                                if isinstance(raw_session_id, str):
-                                    session_id = raw_session_id
-
-                            # Подписываемся на notification bus при получении session_id
-                            if (
-                                session_id is not None
-                                and session_id != current_session_id
-                            ):
-                                # Отписываемся от старого bus если был
-                                if current_session_id is not None:
-                                    old_bus = await runtime_registry.get_notification_bus(
-                                        current_session_id
-                                    )
-                                    old_bus.unsubscribe(self._send_protocol_message)
-
-                                # Подписываемся на новый bus
-                                current_session_id = session_id
-                                new_bus = await runtime_registry.get_notification_bus(
-                                    session_id
-                                )
-                                # Реконнект (session/load): реплей истории
-                                # авторитетен, чистим буфер ДО подписки, чтобы
-                                # не было двойной доставки при повторной подписке.
-                                if acp_request.method == "session/load":
-                                    new_bus.clear_buffer()
-                                new_bus.subscribe(self._send_protocol_message)
-                                notification_bus_subscribed = True
-                                self._conn_logger.info(
-                                    "subscribed_to_notification_bus",
-                                    session_id=session_id,
-                                )
-
-                            # session/prompt — выполняем в фоне
-                            if method_name == "session/prompt":
-                                prompt_task = asyncio.create_task(
-                                    self._process_prompt_request_in_background(
-                                        acp_request=acp_request,
-                                        handler=handler,
-                                        method_name=method_name,
-                                        session_id=session_id,
-                                        request_id=request_id,
-                                        deferred_prompt_tasks=deferred_prompt_tasks,
-                                        protocol=protocol,
-                                    )
-                                )
-                                prompt_request_tasks.add(prompt_task)
-                                prompt_task.add_done_callback(
-                                    lambda finished_task: prompt_request_tasks.discard(
-                                        finished_task
-                                    )
-                                )
-                                self._conn_logger.debug(
-                                    "prompt request scheduled in background",
-                                    request_id=request_id,
-                                    session_id=session_id,
-                                )
-                                continue
-
-                            # Response от клиента (Agent→Client RPC)
-                            if method_name is None and acp_request.id is not None:
-                                self._conn_logger.info(
-                                    "response received, routing to handle_and_process",
-                                    request_id=request_id,
-                                )
-                                # Используем handle_and_process для запуска фоновых задач
-                                outcome = await protocol.handle_and_process(acp_request)
-                            else:
-                                outcome = await handler(acp_request)
-
-                            self._conn_logger.info(
-                                "request received",
-                                method=method_name,
-                                request_id=request_id,
-                                session_id=session_id,
-                            )
-
-                        except Exception as exc:
-                            self._conn_logger.error(
-                                "request parse error",
-                                request_id=request_id,
-                                error=str(exc),
-                                exc_info=True,
-                            )
-                            outcome = ProtocolOutcome(
-                                response=ACPMessage.error_response(
-                                    None,
-                                    code=-32700,
-                                    message="Parse error",
-                                    data=str(exc),
-                                )
-                            )
-
-                        await self._finalize_outcome_and_send(
-                            method_name=method_name,
-                            session_id=session_id,
-                            request_id=request_id,
-                            outcome=outcome,
-                            deferred_prompt_tasks=deferred_prompt_tasks,
-                            protocol=protocol,
-                        )
-
+                        await self._handle_text_message(message, state)
                     elif message.type == WSMsgType.ERROR:
                         self._conn_logger.warning(
                             "ws_error",
@@ -315,90 +181,266 @@ class WebSocketTransport(AcpServerTransport):
                         break
                     elif message.type in {WSMsgType.CLOSE, WSMsgType.CLOSING}:
                         break
-
             finally:
-                # Отписываемся от notification bus при закрытии
-                if notification_bus_subscribed and current_session_id is not None:
-                    try:
-                        bus = await runtime_registry.get_notification_bus(
-                            current_session_id
-                        )
-                        bus.unsubscribe(self._send_protocol_message)
-                        self._conn_logger.info(
-                            "unsubscribed_from_notification_bus",
-                            session_id=current_session_id,
-                        )
-                    except Exception as e:
-                        self._conn_logger.warning(
-                            "failed_to_unsubscribe_from_notification_bus",
-                            error=str(e),
-                        )
+                await self._cleanup_connection(state, start_time)
 
-                # Cleanup: отменяем все prompt tasks
-                if prompt_request_tasks:
-                    self._conn_logger.info(
-                        "cleaning up prompt request tasks",
-                        pending_tasks_count=len(prompt_request_tasks),
-                    )
-                    for prompt_task in list(prompt_request_tasks):
-                        if not prompt_task.done():
-                            prompt_task.cancel()
-                    await asyncio.gather(*prompt_request_tasks, return_exceptions=True)
-                    prompt_request_tasks.clear()
+    async def _handle_text_message(self, message: object, state: _WsRunState) -> None:
+        """Обработать одно TEXT-сообщение: parse → маршрутизация → отправка outcome."""
+        method_name: str | None = None
+        session_id: str | None = None
+        request_id: str | None = None
+        outcome: ProtocolOutcome
+        try:
+            acp_request = ACPMessage.from_json(message.data)
+            method_name = acp_request.method
+            request_id = str(acp_request.id) if acp_request.id is not None else None
 
-                # Cleanup: отменяем deferred prompt tasks
-                if deferred_prompt_tasks:
-                    self._conn_logger.info(
-                        "cleaning up deferred prompt tasks",
-                        pending_tasks_count=len(deferred_prompt_tasks),
-                    )
-                    for sid, task in list(deferred_prompt_tasks.items()):
-                        if not task.done():
-                            task.cancel()
-                            self._conn_logger.debug(
-                                "deferred prompt task cancelled",
-                                session_id=sid,
-                            )
-                        deferred_prompt_tasks.pop(sid, None)
+            self._conn_logger.debug(
+                "message received",
+                direction="in",
+                trace_type="message_trace",
+                payload=_truncate_payload(message.data),
+            )
 
-                # Отменяем активные turns при отключении
-                cancelled_turns_count = await protocol.cancel_active_turns_on_disconnect()
-                if cancelled_turns_count > 0:
-                    self._conn_logger.info(
-                        "active turns cancelled on disconnect",
-                        cancelled_turns_count=cancelled_turns_count,
-                    )
+            # Требование инициализации перед session-методами
+            if await self._apply_initialization_gate(acp_request, state, request_id):
+                return
 
-                # Flush observability data при disconnect
-                try:
-                    from codelab.server.di import ObservabilityFlushManager
+            # Извлекаем sessionId
+            if isinstance(acp_request.params, dict):
+                raw_session_id = acp_request.params.get("sessionId")
+                if isinstance(raw_session_id, str):
+                    session_id = raw_session_id
 
-                    flush_manager = await self._app_container.get(ObservabilityFlushManager)
-                    await flush_manager.flush_all()
-                    self._conn_logger.debug("observability data flushed on disconnect")
-                except Exception as e:
-                    self._conn_logger.warning(
-                        "failed to flush observability data on disconnect",
-                        error=str(e),
-                    )
+            # Подписываемся на notification bus при смене session_id
+            if session_id is not None and session_id != state.current_session_id:
+                await self._update_notification_subscription(acp_request, session_id, state)
 
-                # Отменяем pending ClientRPC requests
-                if client_rpc_service is not None:
-                    cancelled_rpc_count = client_rpc_service.cancel_all_pending_requests(
-                        reason="WS connection closed before client response",
-                    )
-                    if cancelled_rpc_count > 0:
-                        self._conn_logger.info(
-                            "pending client rpc cancelled on disconnect",
-                            cancelled_rpc_count=cancelled_rpc_count,
-                        )
-
-                duration = time.time() - start_time
-                self._conn_logger.info(
-                    "ws connection closed",
-                    duration=round(duration, 3),
-                    pending_deferred_tasks=len(deferred_prompt_tasks),
+            # session/prompt — выполняем в фоне
+            if method_name == "session/prompt":
+                self._schedule_prompt_in_background(
+                    acp_request, state, method_name, session_id, request_id
                 )
+                return
+
+            # Response от клиента (Agent→Client RPC) vs обычный запрос
+            if method_name is None and acp_request.id is not None:
+                self._conn_logger.info(
+                    "response received, routing to handle_and_process",
+                    request_id=request_id,
+                )
+                outcome = await state.protocol.handle_and_process(acp_request)
+            else:
+                outcome = await state.handler(acp_request)
+
+            self._conn_logger.info(
+                "request received",
+                method=method_name,
+                request_id=request_id,
+                session_id=session_id,
+            )
+
+        except Exception as exc:
+            self._conn_logger.error(
+                "request parse error",
+                request_id=request_id,
+                error=str(exc),
+                exc_info=True,
+            )
+            outcome = ProtocolOutcome(
+                response=ACPMessage.error_response(
+                    None,
+                    code=-32700,
+                    message="Parse error",
+                    data=str(exc),
+                )
+            )
+
+        await self._finalize_outcome_and_send(
+            method_name=method_name,
+            session_id=session_id,
+            request_id=request_id,
+            outcome=outcome,
+            deferred_prompt_tasks=state.deferred_prompt_tasks,
+            protocol=state.protocol,
+        )
+
+    async def _apply_initialization_gate(
+        self, acp_request: ACPMessage, state: _WsRunState, request_id: str | None
+    ) -> bool:
+        """Обработать initialize и запретить session-методы до инициализации.
+
+        Returns:
+            True, если сообщение уже полностью обработано (вызывающему нужно return).
+        """
+        if acp_request.method == "initialize":
+            state.initialized = True
+            if isinstance(acp_request.params, dict):
+                caps = acp_request.params.get("clientCapabilities", {})
+                if isinstance(caps, dict):
+                    state.client_rpc_service._capabilities = caps
+                    self._conn_logger.debug(
+                        "client_rpc_service capabilities updated",
+                        capabilities=caps,
+                    )
+            return False
+
+        if not state.initialized:
+            if acp_request.is_notification:
+                outcome = ProtocolOutcome()
+            else:
+                outcome = ProtocolOutcome(
+                    response=ACPMessage.error_response(
+                        acp_request.id,
+                        code=-32000,
+                        message="Initialize required before session methods",
+                    )
+                )
+            await self._send_outcome(outcome, request_id=request_id)
+            return True
+
+        return False
+
+    async def _update_notification_subscription(
+        self, acp_request: ACPMessage, session_id: str, state: _WsRunState
+    ) -> None:
+        """Переподписать соединение на notification bus новой сессии."""
+        if state.current_session_id is not None:
+            old_bus = await state.runtime_registry.get_notification_bus(state.current_session_id)
+            old_bus.unsubscribe(self._send_protocol_message)
+
+        state.current_session_id = session_id
+        new_bus = await state.runtime_registry.get_notification_bus(session_id)
+        # Реконнект (session/load): реплей истории авторитетен, чистим буфер ДО
+        # подписки, чтобы не было двойной доставки при повторной подписке.
+        if acp_request.method == "session/load":
+            new_bus.clear_buffer()
+        new_bus.subscribe(self._send_protocol_message)
+        state.notification_bus_subscribed = True
+        self._conn_logger.info(
+            "subscribed_to_notification_bus",
+            session_id=session_id,
+        )
+
+    def _schedule_prompt_in_background(
+        self,
+        acp_request: ACPMessage,
+        state: _WsRunState,
+        method_name: str,
+        session_id: str | None,
+        request_id: str | None,
+    ) -> None:
+        """Запустить обработку session/prompt в фоновой задаче."""
+        prompt_task = asyncio.create_task(
+            self._process_prompt_request_in_background(
+                acp_request=acp_request,
+                handler=state.handler,
+                method_name=method_name,
+                session_id=session_id,
+                request_id=request_id,
+                deferred_prompt_tasks=state.deferred_prompt_tasks,
+                protocol=state.protocol,
+            )
+        )
+        state.prompt_request_tasks.add(prompt_task)
+        prompt_task.add_done_callback(
+            lambda finished_task: state.prompt_request_tasks.discard(finished_task)
+        )
+        self._conn_logger.debug(
+            "prompt request scheduled in background",
+            request_id=request_id,
+            session_id=session_id,
+        )
+
+    async def _cleanup_connection(self, state: _WsRunState, start_time: float) -> None:
+        """Освободить ресурсы соединения: отписка, отмена задач, flush, лог."""
+        # Отписываемся от notification bus при закрытии
+        if state.notification_bus_subscribed and state.current_session_id is not None:
+            try:
+                bus = await state.runtime_registry.get_notification_bus(state.current_session_id)
+                bus.unsubscribe(self._send_protocol_message)
+                self._conn_logger.info(
+                    "unsubscribed_from_notification_bus",
+                    session_id=state.current_session_id,
+                )
+            except Exception as e:
+                self._conn_logger.warning(
+                    "failed_to_unsubscribe_from_notification_bus",
+                    error=str(e),
+                )
+
+        await self._cancel_prompt_request_tasks(state)
+        self._cancel_deferred_prompt_tasks(state)
+
+        # Отменяем активные turns при отключении
+        cancelled_turns_count = await state.protocol.cancel_active_turns_on_disconnect()
+        if cancelled_turns_count > 0:
+            self._conn_logger.info(
+                "active turns cancelled on disconnect",
+                cancelled_turns_count=cancelled_turns_count,
+            )
+
+        # Flush observability data при disconnect
+        try:
+            from codelab.server.di import ObservabilityFlushManager
+
+            flush_manager = await self._app_container.get(ObservabilityFlushManager)
+            await flush_manager.flush_all()
+            self._conn_logger.debug("observability data flushed on disconnect")
+        except Exception as e:
+            self._conn_logger.warning(
+                "failed to flush observability data on disconnect",
+                error=str(e),
+            )
+
+        # Отменяем pending ClientRPC requests
+        if state.client_rpc_service is not None:
+            cancelled_rpc_count = state.client_rpc_service.cancel_all_pending_requests(
+                reason="WS connection closed before client response",
+            )
+            if cancelled_rpc_count > 0:
+                self._conn_logger.info(
+                    "pending client rpc cancelled on disconnect",
+                    cancelled_rpc_count=cancelled_rpc_count,
+                )
+
+        duration = time.time() - start_time
+        self._conn_logger.info(
+            "ws connection closed",
+            duration=round(duration, 3),
+            pending_deferred_tasks=len(state.deferred_prompt_tasks),
+        )
+
+    async def _cancel_prompt_request_tasks(self, state: _WsRunState) -> None:
+        """Отменить и дождаться завершения фоновых prompt-задач."""
+        if not state.prompt_request_tasks:
+            return
+        self._conn_logger.info(
+            "cleaning up prompt request tasks",
+            pending_tasks_count=len(state.prompt_request_tasks),
+        )
+        for prompt_task in list(state.prompt_request_tasks):
+            if not prompt_task.done():
+                prompt_task.cancel()
+        await asyncio.gather(*state.prompt_request_tasks, return_exceptions=True)
+        state.prompt_request_tasks.clear()
+
+    def _cancel_deferred_prompt_tasks(self, state: _WsRunState) -> None:
+        """Отменить отложенные (deferred) prompt-задачи."""
+        if not state.deferred_prompt_tasks:
+            return
+        self._conn_logger.info(
+            "cleaning up deferred prompt tasks",
+            pending_tasks_count=len(state.deferred_prompt_tasks),
+        )
+        for sid, task in list(state.deferred_prompt_tasks.items()):
+            if not task.done():
+                task.cancel()
+                self._conn_logger.debug(
+                    "deferred prompt task cancelled",
+                    session_id=sid,
+                )
+            state.deferred_prompt_tasks.pop(sid, None)
 
     async def send(self, message: ACPMessage) -> None:
         """Отправить сообщение через WebSocket.
@@ -635,61 +677,10 @@ class WebSocketTransport(AcpServerTransport):
         try:
             # Небольшая задержка оставляет окно для входящего `session/cancel`
             await asyncio.sleep(0.05)
-
-            try:
-                response = await protocol.complete_active_turn(
-                    session_id, stop_reason="end_turn"
-                )
-            except TimeoutError:
-                conn_logger.warning(
-                    "deferred prompt completion timeout",
-                    timeout_sec=DEFERRED_PROMPT_TIMEOUT,
-                )
-                response = None
-            except Exception as exc:
-                conn_logger.error(
-                    "deferred prompt completion error",
-                    error=str(exc),
-                    exc_info=True,
-                )
-                response = None
-
-            # Отправляем response если он есть и соединение ещё живо
-            if response is not None and not self._connection.closed:
-                try:
-                    await self._connection.send_str(response.to_json())
-                    conn_logger.info("deferred prompt completed successfully")
-                except Exception as exc:
-                    conn_logger.error(
-                        "deferred prompt send error",
-                        error=str(exc),
-                        exc_info=True,
-                    )
-            elif self._connection.closed:
-                conn_logger.debug("deferred prompt skipped (websocket closed)")
-            else:
-                conn_logger.debug("deferred prompt skipped (no response)")
-
+            await self._emit_deferred_completion(protocol, session_id, conn_logger)
         except asyncio.CancelledError:
             conn_logger.info("deferred prompt cancelled by client")
-            try:
-                session = await protocol._storage.load_session(session_id)
-                if session is not None and session.pending_prompt_response is not None:
-                    prompt_resp = session.pending_prompt_response
-                    response = ACPMessage.response(
-                        prompt_resp["request_id"],
-                        {"stopReason": prompt_resp["stop_reason"]},
-                    )
-                    session.pending_prompt_response = None
-                    await protocol._storage.save_session(session)
-                    if not self._connection.closed:
-                        await self._connection.send_str(response.to_json())
-                        conn_logger.info("deferred prompt cancelled response sent")
-            except Exception as exc:
-                conn_logger.debug(
-                    "deferred prompt cancelled response error",
-                    error=str(exc),
-                )
+            await self._emit_deferred_cancel_response(protocol, session_id, conn_logger)
             return
         except Exception as exc:
             conn_logger.error(
@@ -701,3 +692,50 @@ class WebSocketTransport(AcpServerTransport):
             removed = deferred_prompt_tasks.pop(session_id, None)
             if removed is not None:
                 conn_logger.debug("deferred prompt task removed from tracking")
+
+    async def _emit_deferred_completion(
+        self, protocol: ACPProtocol, session_id: str, conn_logger: Any
+    ) -> None:
+        """Штатное завершение turn: вычислить финальный response и отправить его."""
+        try:
+            response = await protocol.complete_active_turn(session_id, stop_reason="end_turn")
+        except TimeoutError:
+            conn_logger.warning(
+                "deferred prompt completion timeout",
+                timeout_sec=DEFERRED_PROMPT_TIMEOUT,
+            )
+            response = None
+        except Exception as exc:
+            conn_logger.error("deferred prompt completion error", error=str(exc), exc_info=True)
+            response = None
+
+        if response is not None and not self._connection.closed:
+            try:
+                await self._connection.send_str(response.to_json())
+                conn_logger.info("deferred prompt completed successfully")
+            except Exception as exc:
+                conn_logger.error("deferred prompt send error", error=str(exc), exc_info=True)
+        elif self._connection.closed:
+            conn_logger.debug("deferred prompt skipped (websocket closed)")
+        else:
+            conn_logger.debug("deferred prompt skipped (no response)")
+
+    async def _emit_deferred_cancel_response(
+        self, protocol: ACPProtocol, session_id: str, conn_logger: Any
+    ) -> None:
+        """Путь отмены: достать pending_prompt_response из хранилища и отправить."""
+        try:
+            session = await protocol._storage.load_session(session_id)
+            if session is not None and session.pending_prompt_response is not None:
+                prompt_resp = session.pending_prompt_response
+                response = ACPMessage.response(
+                    prompt_resp["request_id"],
+                    {"stopReason": prompt_resp["stop_reason"]},
+                )
+                session.pending_prompt_response = None
+                await protocol._storage.save_session(session)
+                if not self._connection.closed:
+                    await self._connection.send_str(response.to_json())
+                    conn_logger.info("deferred prompt cancelled response sent")
+        except Exception as exc:
+            conn_logger.debug("deferred prompt cancelled response error", error=str(exc))

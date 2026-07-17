@@ -61,9 +61,7 @@ class TestMessageTraceMiddleware:
         )
 
         # Вызываем middleware
-        outcome = await message_trace_middleware(
-            sample_request, next_handler, enabled=True
-        )
+        outcome = await message_trace_middleware(sample_request, next_handler, enabled=True)
 
         # next_handler был вызван
         next_handler.assert_called_once_with(sample_request)
@@ -79,9 +77,7 @@ class TestMessageTraceMiddleware:
             return_value=ProtocolOutcome(response=ACPMessage.response(1, {"ok": True}))
         )
 
-        outcome = await message_trace_middleware(
-            sample_request, next_handler, enabled=False
-        )
+        outcome = await message_trace_middleware(sample_request, next_handler, enabled=False)
 
         next_handler.assert_called_once_with(sample_request)
         assert outcome.response is not None
@@ -98,9 +94,7 @@ class TestMessageTraceMiddleware:
             )
         )
 
-        outcome = await message_trace_middleware(
-            sample_request, next_handler, enabled=True
-        )
+        outcome = await message_trace_middleware(sample_request, next_handler, enabled=True)
 
         assert outcome.response is not None
         assert len(outcome.notifications) == 1
@@ -203,10 +197,13 @@ class TestMessageTraceIntegration:
         # Применяем middleware в обратном порядке (onion pattern)
         wrapped = handler
         for mw in [mw2, mw1]:
+
             async def make_wrapper(next_h, middleware_func):
                 async def wrapper(msg):
                     return await middleware_func(msg, next_h)
+
                 return wrapper
+
             wrapped = await make_wrapper(wrapped, mw)
 
         request = ACPMessage.request("test", {}, request_id=1)

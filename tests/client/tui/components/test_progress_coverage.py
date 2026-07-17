@@ -55,6 +55,7 @@ class TestProgressBarCompose:
 
     async def test_compose_and_mount(self) -> None:
         """Компонент создаёт заполнение и метку."""
+
         class TestApp(App):
             pass
 
@@ -73,6 +74,7 @@ class TestProgressBarWatchers:
 
     async def test_watch_progress_updates_fill(self) -> None:
         """Изменение прогресса обновляет ширину заполнения."""
+
         class TestApp(App):
             pass
 
@@ -86,6 +88,7 @@ class TestProgressBarWatchers:
 
     async def test_watch_progress_clamps(self) -> None:
         """Прогресс ограничивается диапазоном [0, 1]."""
+
         class TestApp(App):
             pass
 
@@ -102,6 +105,7 @@ class TestProgressBarWatchers:
 
     async def test_watch_progress_without_label(self) -> None:
         """При отключённой метке label не обновляется."""
+
         class TestApp(App):
             pass
 
@@ -116,6 +120,7 @@ class TestProgressBarWatchers:
 
     async def test_watch_indeterminate_starts_animation(self) -> None:
         """Включение indeterminate запускает анимацию."""
+
         class TestApp(App):
             pass
 
@@ -134,6 +139,7 @@ class TestProgressBarWatchers:
 
     async def test_watch_show_label(self) -> None:
         """Изменение show_label добавляет/убирает класс."""
+
         class TestApp(App):
             pass
 
@@ -179,6 +185,7 @@ class TestProgressBarAnimation:
 
     async def test_start_animation(self) -> None:
         """_start_animation создаёт задачу анимации."""
+
         class TestApp(App):
             pass
 
@@ -195,6 +202,7 @@ class TestProgressBarAnimation:
 
     async def test_start_animation_does_not_duplicate(self) -> None:
         """Повторный вызов _start_animation не создаёт вторую задачу."""
+
         class TestApp(App):
             pass
 
@@ -215,6 +223,7 @@ class TestProgressBarProgressMethods:
 
     async def test_set_progress(self) -> None:
         """set_progress ограничивает значение."""
+
         class TestApp(App):
             pass
 
@@ -234,6 +243,7 @@ class TestProgressBarProgressMethods:
 
     async def test_advance(self) -> None:
         """advance увеличивает прогресс, не превышая 1."""
+
         class TestApp(App):
             pass
 
@@ -247,6 +257,7 @@ class TestProgressBarProgressMethods:
 
     async def test_set_steps(self) -> None:
         """set_steps устанавливает current, total и progress."""
+
         class TestApp(App):
             pass
 
@@ -262,6 +273,7 @@ class TestProgressBarProgressMethods:
 
     async def test_set_steps_zero_total(self) -> None:
         """set_steps с нулевым total устанавливает progress в 0."""
+
         class TestApp(App):
             pass
 
@@ -275,6 +287,7 @@ class TestProgressBarProgressMethods:
 
     async def test_reset(self) -> None:
         """reset сбрасывает прогресс."""
+
         class TestApp(App):
             pass
 
@@ -289,6 +302,7 @@ class TestProgressBarProgressMethods:
 
     async def test_complete(self) -> None:
         """complete устанавливает прогресс в 100% и отключает indeterminate."""
+
         class TestApp(App):
             pass
 
@@ -307,6 +321,7 @@ class TestProgressBarVariant:
 
     async def test_set_variant(self) -> None:
         """set_variant меняет CSS класс варианта."""
+
         class TestApp(App):
             pass
 
@@ -322,6 +337,7 @@ class TestProgressBarVariant:
 
     async def test_set_variant_default(self) -> None:
         """set_variant в DEFAULT убирает все вариантные классы."""
+
         class TestApp(App):
             pass
 
@@ -340,6 +356,7 @@ class TestProgressBarLifecycle:
 
     async def test_on_unmount_stops_animation(self) -> None:
         """Размонтирование останавливает анимацию."""
+
         class TestApp(App):
             pass
 

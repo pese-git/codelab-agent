@@ -168,6 +168,7 @@ class TestEndToEndWithStorage:
         )
 
         from codelab.server.storage import InMemoryStorage
+
         storage = InMemoryStorage()
         await storage.save_session(session)
 

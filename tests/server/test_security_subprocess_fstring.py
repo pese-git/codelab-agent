@@ -60,7 +60,8 @@ class TestStartWebUISubprocess:
 
     @patch("codelab.server.web_app.is_web_ui_available")
     def test_returns_false_when_web_ui_not_available(
-        self, mock_available: MagicMock,
+        self,
+        mock_available: MagicMock,
     ) -> None:
         mock_available.return_value = False
         manager = WebUIManager(host="127.0.0.1", port=8080)
@@ -73,7 +74,9 @@ class TestStartWebUISubprocess:
     @patch("codelab.server.web_app.is_web_ui_available")
     @patch("codelab.shared.web_ui.subprocess.Popen")
     def test_passes_params_via_env_not_via_fstring(
-        self, mock_popen: MagicMock, mock_available: MagicMock,
+        self,
+        mock_popen: MagicMock,
+        mock_available: MagicMock,
     ) -> None:
         """Параметры должны передаваться через env, а не через f-string в код."""
         mock_available.return_value = True
@@ -102,7 +105,9 @@ class TestStartWebUISubprocess:
     @patch("codelab.server.web_app.is_web_ui_available")
     @patch("codelab.shared.web_ui.subprocess.Popen")
     def test_validates_host_before_passing_to_env(
-        self, mock_popen: MagicMock, mock_available: MagicMock,
+        self,
+        mock_popen: MagicMock,
+        mock_available: MagicMock,
     ) -> None:
         """Хост должен быть валидирован перед передачей в env."""
         mock_available.return_value = True
@@ -120,7 +125,8 @@ class TestStartWebUISubprocess:
 
     @patch("codelab.server.web_app.is_web_ui_available")
     def test_invalid_host_raises_value_error(
-        self, mock_available: MagicMock,
+        self,
+        mock_available: MagicMock,
     ) -> None:
         """Некорректный хост должен вызывать ValueError."""
         mock_available.return_value = True
@@ -137,7 +143,9 @@ class TestStartWebUISubprocess:
     @patch("codelab.server.web_app.is_web_ui_available")
     @patch("codelab.shared.web_ui.subprocess.Popen")
     def test_web_ui_url_is_set_correctly(
-        self, mock_popen: MagicMock, mock_available: MagicMock,
+        self,
+        mock_popen: MagicMock,
+        mock_available: MagicMock,
     ) -> None:
         """URL Web UI должен быть установлен корректно."""
         mock_available.return_value = True
@@ -154,7 +162,9 @@ class TestStartWebUISubprocess:
     @patch("codelab.server.web_app.is_web_ui_available")
     @patch("codelab.shared.web_ui.subprocess.Popen")
     def test_subprocess_uses_devnull_for_stdio(
-        self, mock_popen: MagicMock, mock_available: MagicMock,
+        self,
+        mock_popen: MagicMock,
+        mock_available: MagicMock,
     ) -> None:
         """Subprocess должен использовать DEVNULL для stdout/stderr."""
         mock_available.return_value = True

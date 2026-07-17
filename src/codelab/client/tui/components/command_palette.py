@@ -87,15 +87,6 @@ DEFAULT_COMMANDS: list[Command] = [
         icon="➕",
     ),
     Command(
-        id="retry_prompt",
-        name="Повторить запрос",
-        description="Повторить последний запрос",
-        category=CommandCategory.SESSION,
-        action="retry_prompt",
-        hotkey="Ctrl+R",
-        icon="🔄",
-    ),
-    Command(
         id="cancel_prompt",
         name="Отменить запрос",
         description="Отменить текущий запрос",
@@ -159,15 +150,6 @@ DEFAULT_COMMANDS: list[Command] = [
         action="toggle_theme",
         hotkey="Ctrl+T",
         icon="🌓",
-    ),
-    Command(
-        id="open_terminal",
-        name="Терминал",
-        description="Открыть вывод терминала",
-        category=CommandCategory.VIEW,
-        action="open_terminal_output",
-        hotkey="Ctrl+`",
-        icon="🖥",
     ),
     Command(
         id="toggle_plan",

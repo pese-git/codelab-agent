@@ -201,25 +201,27 @@ class AnthropicProvider(LLMProvider):
                         content.append({"type": "text", "text": msg.content})
 
                 for tc in msg.tool_calls:
-                    content.append({
-                        "type": "tool_use",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "input": tc.arguments,
-                    })
+                    content.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": tc.arguments,
+                        }
+                    )
 
                 anthropic_msg["content"] = content
             elif msg.role == "tool":
-                anthropic_msg["content"] = [{
-                    "type": "tool_result",
-                    "tool_use_id": msg.tool_call_id or "",
-                    "content": msg.content or "",
-                }]
+                anthropic_msg["content"] = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": msg.tool_call_id or "",
+                        "content": msg.content or "",
+                    }
+                ]
             else:
                 if isinstance(msg.content, list):
-                    anthropic_msg["content"] = self._convert_content_parts_to_anthropic(
-                        msg.content
-                    )
+                    anthropic_msg["content"] = self._convert_content_parts_to_anthropic(msg.content)
                 else:
                     anthropic_msg["content"] = msg.content or ""
 
@@ -281,11 +283,13 @@ class AnthropicProvider(LLMProvider):
         anthropic_tools: list[dict[str, Any]] = []
 
         for tool in tools:
-            anthropic_tools.append({
-                "name": tool.get("name", ""),
-                "description": tool.get("description", ""),
-                "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
-            })
+            anthropic_tools.append(
+                {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
+                }
+            )
 
         return anthropic_tools
 

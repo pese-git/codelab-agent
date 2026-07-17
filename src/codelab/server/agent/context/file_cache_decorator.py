@@ -72,7 +72,7 @@ class FileCacheDecorator(ToolExecutorDecorator):
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с кэшированием файловых операций.
-        
+
         При fs/read сначала проверяет кэш. При попадании возвращает
         содержимое из кэша без вызова wrapped.execute(). При промахе
         выполняет RPC и сохраняет результат в кэш.
@@ -89,20 +89,9 @@ class FileCacheDecorator(ToolExecutorDecorator):
         )
 
         # Проверка кэша перед чтением файла
-        if operation == "read" and path:
-            cache = self._get_cache_for_session(session)
-            if cache is not None:
-                try:
-                    cached_content = cache.get(path)
-                    if cached_content is not None:
-                        logger.debug("file_cache_hit", path=path)
-                        return ToolExecutionResult(
-                            success=True,
-                            output=cached_content,
-                            metadata={"from_cache": True, "path": path},
-                        )
-                except Exception:
-                    logger.exception("file_cache_get_failed", path=path)
+        cached = self._try_cache_hit(session, operation, path)
+        if cached is not None:
+            return cached
 
         # Кэш не содержит файл — выполняем RPC
         result = await self._wrapped.execute(session, arguments)
@@ -130,6 +119,28 @@ class FileCacheDecorator(ToolExecutorDecorator):
             )
 
         return result
+
+    def _try_cache_hit(
+        self, session: SessionState, operation: str, path: str
+    ) -> ToolExecutionResult | None:
+        """Возвращает результат из кэша при fs/read-попадании, иначе None."""
+        if operation != "read" or not path:
+            return None
+        cache = self._get_cache_for_session(session)
+        if cache is None:
+            return None
+        try:
+            cached_content = cache.get(path)
+            if cached_content is not None:
+                logger.debug("file_cache_hit", path=path)
+                return ToolExecutionResult(
+                    success=True,
+                    output=cached_content,
+                    metadata={"from_cache": True, "path": path},
+                )
+        except Exception:
+            logger.exception("file_cache_get_failed", path=path)
+        return None
 
     def _handle_read(self, path: str, result: ToolExecutionResult, cache: FileContentCache) -> None:
         """Обработать успешный fs/read — сохранить в кэш."""

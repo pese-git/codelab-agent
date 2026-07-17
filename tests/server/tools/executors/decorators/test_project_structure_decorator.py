@@ -77,16 +77,22 @@ class TestProjectStructureDecorator:
         session = self._make_session()
 
         # 1. terminal/create
-        await decorator.execute(session, {
-            "operation": "create",
-            "command": "find . -type f",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "create",
+                "command": "find . -type f",
+            },
+        )
 
         # 2. terminal/wait_for_exit
-        await decorator.execute(session, {
-            "operation": "wait_for_exit",
-            "terminal_id": "term_1",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "wait_for_exit",
+                "terminal_id": "term_1",
+            },
+        )
 
         assert "project_structure" in session.config_values
         files = json.loads(session.config_values["project_structure"])
@@ -163,15 +169,21 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
 
-        await decorator.execute(session, {
-            "operation": "create",
-            "command": "find . -type f",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "create",
+                "command": "find . -type f",
+            },
+        )
 
-        await decorator.execute(session, {
-            "operation": "wait_for_exit",
-            "terminal_id": "term_1",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "wait_for_exit",
+                "terminal_id": "term_1",
+            },
+        )
 
         files = json.loads(session.config_values["project_structure"])
         assert "src/main.py" in files
@@ -221,15 +233,21 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
 
-        await decorator.execute(session, {
-            "operation": "create",
-            "command": "find . -type f",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "create",
+                "command": "find . -type f",
+            },
+        )
 
-        await decorator.execute(session, {
-            "operation": "wait_for_exit",
-            "terminal_id": "term_1",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "wait_for_exit",
+                "terminal_id": "term_1",
+            },
+        )
 
         assert "project_structure" not in session.config_values
 
@@ -275,15 +293,21 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
 
-        await decorator.execute(session, {
-            "operation": "create",
-            "command": "find . -type f",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "create",
+                "command": "find . -type f",
+            },
+        )
 
-        await decorator.execute(session, {
-            "operation": "wait_for_exit",
-            "terminal_id": "term_1",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "wait_for_exit",
+                "terminal_id": "term_1",
+            },
+        )
 
         files = json.loads(session.config_values["project_structure"])
         assert "src/main.py" in files
@@ -309,17 +333,23 @@ class TestProjectStructureDecorator:
 
         session = self._make_session()
 
-        await decorator.execute(session, {
-            "operation": "create",
-            "command": "find . -type f",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "create",
+                "command": "find . -type f",
+            },
+        )
 
         assert "term_1" in decorator._terminal_commands
 
-        await decorator.execute(session, {
-            "operation": "wait_for_exit",
-            "terminal_id": "term_1",
-        })
+        await decorator.execute(
+            session,
+            {
+                "operation": "wait_for_exit",
+                "terminal_id": "term_1",
+            },
+        )
 
         assert "term_1" not in decorator._terminal_commands
 
@@ -406,14 +436,7 @@ class TestParseLsOutput:
 
     def test_parses_recursive_ls(self):
         """Должен парсить рекурсивный ls -R."""
-        output = (
-            "./lib:\n"
-            "main.dart\n"
-            "utils.dart\n"
-            "\n"
-            "./src:\n"
-            "service.dart\n"
-        )
+        output = "./lib:\nmain.dart\nutils.dart\n\n./src:\nservice.dart\n"
         paths = ProjectStructureDecorator._parse_ls_output("ls -R", output)
         assert "lib/main.dart" in paths
         assert "lib/utils.dart" in paths

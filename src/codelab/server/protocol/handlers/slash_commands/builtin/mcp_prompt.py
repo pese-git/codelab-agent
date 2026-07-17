@@ -88,6 +88,7 @@ class MCPPromptCommandHandler(CommandHandler):
             if loop.is_running():
                 # Если уже в async контексте, создаём task
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     loop.run_in_executor(
                         pool,
@@ -107,10 +108,12 @@ class MCPPromptCommandHandler(CommandHandler):
         """Синхронное выполнение (fallback)."""
         # Для синхронного вызова возвращаем ошибку — нужен async контекст
         return CommandResult(
-            content=[{
-                "type": "text",
-                "text": f"⚠️ MCP prompt '{self._prompt_name}' требует async контекст.",
-            }],
+            content=[
+                {
+                    "type": "text",
+                    "text": f"⚠️ MCP prompt '{self._prompt_name}' требует async контекст.",
+                }
+            ],
             stop_reason="end_turn",
         )
 
@@ -167,10 +170,12 @@ class MCPPromptCommandHandler(CommandHandler):
                 e,
             )
             return CommandResult(
-                content=[{
-                    "type": "text",
-                    "text": f"❌ Ошибка при вызове MCP prompt '{self._prompt_name}': {e}",
-                }],
+                content=[
+                    {
+                        "type": "text",
+                        "text": f"❌ Ошибка при вызове MCP prompt '{self._prompt_name}': {e}",
+                    }
+                ],
                 stop_reason="end_turn",
             )
 
@@ -233,10 +238,12 @@ class MCPPromptCommandHandler(CommandHandler):
                 content.append({"type": "text", "text": text})
             else:
                 # user messages — как контекст
-                content.append({
-                    "type": "text",
-                    "text": f"**User:** {text}",
-                })
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"**User:** {text}",
+                    }
+                )
 
         return content
 

@@ -123,11 +123,13 @@ class MetricsTracker:
         metrics.bus_dispatch_total_ms += latency_ms
 
         if self.debug:
-            metrics.dispatch_details.append({
-                "target_agent": target_agent,
-                "latency_ms": latency_ms,
-                "timestamp": time.time(),
-            })
+            metrics.dispatch_details.append(
+                {
+                    "target_agent": target_agent,
+                    "latency_ms": latency_ms,
+                    "timestamp": time.time(),
+                }
+            )
 
     def record_llm_call(
         self,
@@ -144,13 +146,15 @@ class MetricsTracker:
         metrics.llm_total_output_tokens += output_tokens
 
         if self.debug:
-            metrics.llm_call_details.append({
-                "model": model,
-                "latency_ms": latency_ms,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "timestamp": time.time(),
-            })
+            metrics.llm_call_details.append(
+                {
+                    "model": model,
+                    "latency_ms": latency_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "timestamp": time.time(),
+                }
+            )
 
     def record_agent_response(
         self,
@@ -169,16 +173,18 @@ class MetricsTracker:
             metrics.agent_errors += 1
 
         if self.debug:
-            metrics.agent_response_details.append({
-                "agent_name": agent_name,
-                "stop_reason": stop_reason,
-                "usage": {
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "total_tokens": usage.total_tokens,
-                },
-                "timestamp": time.time(),
-            })
+            metrics.agent_response_details.append(
+                {
+                    "agent_name": agent_name,
+                    "stop_reason": stop_reason,
+                    "usage": {
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "total_tokens": usage.total_tokens,
+                    },
+                    "timestamp": time.time(),
+                }
+            )
 
     def record_compression(
         self,
@@ -258,20 +264,22 @@ class MetricsTracker:
         metrics.context_tail_tokens += tail_tokens
 
         # Сохраняем детали всегда для /context files, /context last, /context graph
-        metrics.context_build_details.append({
-            "build_duration_ms": build_duration_ms,
-            "gathered_files": gathered_files,
-            "baseline_tokens": baseline_tokens,
-            "tail_tokens": tail_tokens,
-            "task_type": task_type,
-            "file_paths": file_paths or [],
-            "file_tokens": file_tokens or [],
-            "candidate_count": candidate_count,
-            "stage_timings": stage_timings or {},
-            "graph_stats": graph_stats or {},
-            "fingerprint": fingerprint,
-            "timestamp": time.time(),
-        })
+        metrics.context_build_details.append(
+            {
+                "build_duration_ms": build_duration_ms,
+                "gathered_files": gathered_files,
+                "baseline_tokens": baseline_tokens,
+                "tail_tokens": tail_tokens,
+                "task_type": task_type,
+                "file_paths": file_paths or [],
+                "file_tokens": file_tokens or [],
+                "candidate_count": candidate_count,
+                "stage_timings": stage_timings or {},
+                "graph_stats": graph_stats or {},
+                "fingerprint": fingerprint,
+                "timestamp": time.time(),
+            }
+        )
 
     def record_context_compaction(
         self,
@@ -323,9 +331,7 @@ class MetricsTracker:
         Returns:
             SessionMetrics (пустые если сессия не найдена).
         """
-        return self._sessions.get(
-            session_id, SessionMetrics(session_id=session_id)
-        )
+        return self._sessions.get(session_id, SessionMetrics(session_id=session_id))
 
     def get_or_create_metrics(self, session_id: str) -> SessionMetrics:
         """Получить или создать метрики сессии с сохранением.

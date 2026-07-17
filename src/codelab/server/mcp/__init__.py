@@ -10,13 +10,13 @@
 
 Example:
     >>> from codelab.server.mcp import MCPClient, MCPServerConfig
-    >>> 
+    >>>
     >>> config = MCPServerConfig(
     ...     name="filesystem",
     ...     command="mcp-server-filesystem",
     ...     args=["--stdio"]
     ... )
-    >>> 
+    >>>
     >>> async with MCPClient(config) as client:
     ...     tools = await client.list_tools()
     ...     result = await client.call_tool("read_file", {"path": "/tmp/test.txt"})
@@ -100,6 +100,7 @@ from .transport import (
     HttpTimeoutError,
     HttpTransport,
     HttpTransportError,
+    MCPTransportError,
     ProcessExitedError,
     ProcessNotStartedError,
     SseTransport,
@@ -139,6 +140,7 @@ __all__ = [
     "mcp_prompts_to_available_commands",
     # Transport
     "MCPTransport",
+    "MCPTransportError",
     "TransportFactory",
     "StdioTransport",
     "StdioTransportError",

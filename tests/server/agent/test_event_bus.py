@@ -292,12 +292,8 @@ class TestRegisterSendRequest:
 class TestBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_to_two_agents(self, bus):
-        handler1 = MockRequestHandler(
-            result=AgentResult(text="response1", agent_name="coder")
-        )
-        handler2 = MockRequestHandler(
-            result=AgentResult(text="response2", agent_name="reviewer")
-        )
+        handler1 = MockRequestHandler(result=AgentResult(text="response1", agent_name="coder"))
+        handler2 = MockRequestHandler(result=AgentResult(text="response2", agent_name="reviewer"))
 
         await bus.register_agent("coder", handler1)
         await bus.register_agent("reviewer", handler2)
@@ -506,14 +502,13 @@ class TestSendRequestStreaming:
     async def test_streaming_yields_deltas_then_final(self, bus):
         """stream_handler отдаёт дельты (str), затем финальный AgentResult;
         шина отдаёт дельты и финальный AgentResponse."""
+
         async def stream_handler(request, parent_span=None):
             yield "Hel"
             yield "lo"
             yield AgentResult(text="Hello", agent_name="coder", stop_reason="end_turn")
 
-        await bus.register_agent(
-            "coder", MockRequestHandler(), stream_handler=stream_handler
-        )
+        await bus.register_agent("coder", MockRequestHandler(), stream_handler=stream_handler)
 
         request = AgentRequest(target_agent="coder", session_id="s1", correlation_id="c1")
         items = [item async for item in bus.send_request_streaming(request)]
@@ -552,6 +547,7 @@ class TestSendRequestStreaming:
     @pytest.mark.asyncio
     async def test_streaming_without_final_raises(self, bus):
         """stream_handler без финального AgentResult → AgentDispatchError."""
+
         async def bad_handler(request, parent_span=None):
             yield "only delta"
 
@@ -576,9 +572,7 @@ class TestSendRequestStreaming:
             yield "x"
             yield AgentResult(text="x", agent_name="coder")
 
-        await bus.register_agent(
-            "coder", MockRequestHandler(), stream_handler=stream_handler
-        )
+        await bus.register_agent("coder", MockRequestHandler(), stream_handler=stream_handler)
         request = AgentRequest(target_agent="coder", session_id="s1")
         async for _ in bus.send_request_streaming(request):
             pass

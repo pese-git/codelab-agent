@@ -49,11 +49,13 @@ class SessionMapper:
             role_value = msg.role.value
             if role_value == "tool":
                 role_value = "assistant"
-            history.append(HistoryMessage(
-                role=role_value,  # type: ignore[arg-type]
-                content=msg.content.text,
-                timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
-            ))
+            history.append(
+                HistoryMessage(
+                    role=role_value,  # type: ignore[arg-type]
+                    content=msg.content.text,
+                    timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
+                )
+            )
 
         # Конвертируем tool calls
         tool_calls = {}
@@ -70,11 +72,13 @@ class SessionMapper:
         # Конвертируем plan
         latest_plan = []
         for step in session.plan.get_steps():
-            latest_plan.append({
-                "content": step.content,
-                "priority": step.priority.value,
-                "status": step.status.value,
-            })
+            latest_plan.append(
+                {
+                    "content": step.content,
+                    "priority": step.priority.value,
+                    "status": step.status.value,
+                }
+            )
 
         # Создаем SessionState
         state = SessionState(
@@ -97,6 +101,7 @@ class SessionMapper:
         # Runtime capabilities
         if session.config.runtime_capabilities:
             from codelab.server.protocol.state import ClientRuntimeCapabilities
+
             state.runtime_capabilities = ClientRuntimeCapabilities(
                 fs_read=session.config.runtime_capabilities.fs_read,
                 fs_write=session.config.runtime_capabilities.fs_write,
@@ -131,47 +136,8 @@ class SessionMapper:
             runtime_capabilities=runtime_caps,
         )
 
-        # Создаем ConversationHistory
-        history = ConversationHistory()
-        for msg_data in state.history:
-            # msg_data может быть HistoryMessage или dict
-            if hasattr(msg_data, "role"):
-                # Это HistoryMessage объект
-                role_str = msg_data.role
-                content_text = msg_data.content if isinstance(msg_data.content, str) else ""
-            elif isinstance(msg_data, dict):
-                # Это dict
-                role_str = msg_data.get("role", "user")
-                content_text = msg_data.get("content", "")
-                if not isinstance(content_text, str):
-                    content_text = ""
-            else:
-                continue
-
-            try:
-                role = MessageRole(role_str)
-            except ValueError:
-                role = MessageRole.USER
-
-            content = MessageContent(text=content_text)
-            msg = ConversationMessage(role=role, content=content)
-            history.add(msg)
-
-        # Создаем ToolCallRegistry
-        tool_calls = ToolCallRegistry()
-        tool_calls.counter = state.tool_call_counter
-        for tc_id, tc_state in state.tool_calls.items():
-            try:
-                status = ToolCallStatus(tc_state.status)
-            except ValueError:
-                status = ToolCallStatus.PENDING
-            tc = ToolCall(
-                id=tc_state.tool_call_id,
-                tool_name=tc_state.tool_name or tc_state.title,
-                arguments=tc_state.tool_arguments,
-                status=status,
-            )
-            tool_calls.calls[tc_id] = tc
+        history = SessionMapper._build_history(state)
+        tool_calls = SessionMapper._build_tool_calls(state)
 
         # Создаем PermissionState
         permissions = PermissionState(
@@ -179,23 +145,7 @@ class SessionMapper:
             cancelled_requests={str(r) for r in state.cancelled_permission_requests},
         )
 
-        # Создаем AgentPlan
-        plan = AgentPlan()
-        for step_data in state.latest_plan:
-            if isinstance(step_data, dict):
-                content = step_data.get("content", "")
-                priority_str = step_data.get("priority", "medium")
-                status_str = step_data.get("status", "pending")
-                try:
-                    priority = PlanPriority(priority_str)
-                except ValueError:
-                    priority = PlanPriority.MEDIUM
-                try:
-                    status = PlanStatus(status_str)
-                except ValueError:
-                    status = PlanStatus.PENDING
-                step = PlanEntry(content=content, priority=priority, status=status)
-                plan.add_step(step)
+        plan = SessionMapper._build_plan(state)
 
         # Создаем MultiAgentState
         multi_agent = MultiAgentState(
@@ -216,3 +166,65 @@ class SessionMapper:
             plan=plan,
             multi_agent=multi_agent,
         )
+
+    @staticmethod
+    def _build_history(state: SessionState) -> ConversationHistory:
+        """Собирает ConversationHistory из protocol-history (HistoryMessage или dict)."""
+        history = ConversationHistory()
+        for msg_data in state.history:
+            if hasattr(msg_data, "role"):
+                role_str = msg_data.role
+                content_text = msg_data.content if isinstance(msg_data.content, str) else ""
+            elif isinstance(msg_data, dict):
+                role_str = msg_data.get("role", "user")
+                content_text = msg_data.get("content", "")
+                if not isinstance(content_text, str):
+                    content_text = ""
+            else:
+                continue
+
+            try:
+                role = MessageRole(role_str)
+            except ValueError:
+                role = MessageRole.USER
+
+            history.add(ConversationMessage(role=role, content=MessageContent(text=content_text)))
+        return history
+
+    @staticmethod
+    def _build_tool_calls(state: SessionState) -> ToolCallRegistry:
+        """Собирает ToolCallRegistry из protocol tool_calls."""
+        tool_calls = ToolCallRegistry()
+        tool_calls.counter = state.tool_call_counter
+        for tc_id, tc_state in state.tool_calls.items():
+            try:
+                status = ToolCallStatus(tc_state.status)
+            except ValueError:
+                status = ToolCallStatus.PENDING
+            tool_calls.calls[tc_id] = ToolCall(
+                id=tc_state.tool_call_id,
+                tool_name=tc_state.tool_name or tc_state.title,
+                arguments=tc_state.tool_arguments,
+                status=status,
+            )
+        return tool_calls
+
+    @staticmethod
+    def _build_plan(state: SessionState) -> AgentPlan:
+        """Собирает AgentPlan из protocol latest_plan (только dict-записи)."""
+        plan = AgentPlan()
+        for step_data in state.latest_plan:
+            if not isinstance(step_data, dict):
+                continue
+            try:
+                priority = PlanPriority(step_data.get("priority", "medium"))
+            except ValueError:
+                priority = PlanPriority.MEDIUM
+            try:
+                status = PlanStatus(step_data.get("status", "pending"))
+            except ValueError:
+                status = PlanStatus.PENDING
+            plan.add_step(
+                PlanEntry(content=step_data.get("content", ""), priority=priority, status=status)
+            )
+        return plan

@@ -76,3 +76,9 @@ class TestLMStudioProviderInit:
     async def test_default_model(self, provider):
         """Модель по умолчанию должна быть 'local-model'."""
         assert provider._default_model == "local-model"
+
+    def test_structured_output_unsupported(self, provider):
+        """LM Studio не гарантирует structured output (P2-15)."""
+        assert provider.capabilities.supports_structured_output is False
+        # прочие возможности не теряются при override через replace
+        assert provider.capabilities.supports_tools is True

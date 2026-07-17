@@ -21,11 +21,13 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={"test": True})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "req_1",
-            "result": {"sessionId": "sess_new_123"},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "req_1",
+                "result": {"sessionId": "sess_new_123"},
+            }
+        )
 
         session_repo = AsyncMock()
         session_repo.save = AsyncMock()
@@ -89,20 +91,22 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(side_effect=[
-            # Auth response
-            {
-                "jsonrpc": "2.0",
-                "id": "auth_req",
-                "result": {"authenticated": True},
-            },
-            # Session response
-            {
-                "jsonrpc": "2.0",
-                "id": "session_req",
-                "result": {"sessionId": "sess_auth_123"},
-            },
-        ])
+        transport.receive = AsyncMock(
+            side_effect=[
+                # Auth response
+                {
+                    "jsonrpc": "2.0",
+                    "id": "auth_req",
+                    "result": {"authenticated": True},
+                },
+                # Session response
+                {
+                    "jsonrpc": "2.0",
+                    "id": "session_req",
+                    "result": {"sessionId": "sess_auth_123"},
+                },
+            ]
+        )
 
         session_repo = AsyncMock()
         session_repo.save = AsyncMock()
@@ -131,14 +135,16 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "auth_req",
-            "error": {
-                "code": -32000,
-                "message": "Invalid credentials",
-            },
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "auth_req",
+                "error": {
+                    "code": -32000,
+                    "message": "Invalid credentials",
+                },
+            }
+        )
 
         session_repo = AsyncMock()
 
@@ -163,14 +169,16 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "session_req",
-            "error": {
-                "code": -32600,
-                "message": "Invalid Request",
-            },
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "session_req",
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+        )
 
         session_repo = AsyncMock()
 
@@ -193,11 +201,13 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "session_req",
-            "result": {},  # Нет sessionId
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "session_req",
+                "result": {},  # Нет sessionId
+            }
+        )
 
         session_repo = AsyncMock()
 
@@ -220,11 +230,13 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "session_req",
-            "result": {"sessionId": "sess_mcp_123"},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "session_req",
+                "result": {"sessionId": "sess_mcp_123"},
+            }
+        )
 
         session_repo = AsyncMock()
         session_repo.save = AsyncMock()
@@ -259,11 +271,13 @@ class TestCreateSessionUseCase:
         transport.is_connected = Mock(return_value=True)
         transport.get_server_capabilities = Mock(return_value={})
         transport.send = AsyncMock()
-        transport.receive = AsyncMock(return_value={
-            "jsonrpc": "2.0",
-            "id": "session_req",
-            "result": {"sessionId": "sess_caps_123"},
-        })
+        transport.receive = AsyncMock(
+            return_value={
+                "jsonrpc": "2.0",
+                "id": "session_req",
+                "result": {"sessionId": "sess_caps_123"},
+            }
+        )
 
         session_repo = AsyncMock()
         session_repo.save = AsyncMock()

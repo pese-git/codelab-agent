@@ -16,13 +16,21 @@ from __future__ import annotations
 
 import json
 import time
-from difflib import SequenceMatcher
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
+from codelab.server.agent.context.file_matching import (
+    deduplicate,
+    filter_paths,
+    find_similar_files,
+    get_fallback_files,
+    is_binary,
+    is_empty,
+    normalize_path,
+    parse_find_output,
+)
 from codelab.server.agent.context.interfaces import ContextGatherer
 from codelab.server.agent.context.models import (
     BuildOptions,
@@ -37,23 +45,6 @@ if TYPE_CHECKING:
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger(__name__)
-
-BINARY_EXTENSIONS = {
-    ".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".obj", ".o",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-    ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv",
-    ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".db", ".sqlite", ".sqlite3", ".mdb",
-}
-
-IGNORE_DIRS = {
-    ".git", "__pycache__", "venv", ".venv", "node_modules",
-    ".idea", ".vscode", "build", "dist", ".dart_tool",
-    ".fvm", "android", "ios", "macos", "linux", "windows", "web",
-    ".DS_Store", ".gradle", ".codelab", ".cocoindex_code",
-}
 
 
 class ACPContextGatherer(ContextGatherer):
@@ -111,6 +102,69 @@ class ACPContextGatherer(ContextGatherer):
         )
 
         # Этап 0: Получаем структуру проекта из кэша сессии
+        project_files = await self._load_project_files(session)
+
+        # Этапы 1-2: кандидаты из target_modules и поиска по search_terms
+        candidates = await self._collect_candidates(profile, project_files, session)
+
+        # Этап 3: Дедупликация кандидатов
+        unique_candidates = deduplicate(candidates)
+        logger.info(
+            "context.gather.candidates.deduplicated",
+            session_id=self._session_id,
+            before_dedup=len(candidates),
+            after_dedup=len(unique_candidates),
+            duplicates_removed=len(candidates) - len(unique_candidates),
+            candidates=unique_candidates[:20],
+        )
+
+        # Этап 3.5: Fallback — если кандидатов нет, собрать основные файлы проекта
+        if not unique_candidates and project_files:
+            fallback_files = get_fallback_files(project_files, max_files)
+            unique_candidates = fallback_files
+            logger.info(
+                "context.gather.fallback_files",
+                session_id=self._session_id,
+                count=len(fallback_files),
+                files=fallback_files[:10],
+            )
+
+        # Число уникальных кандидатов до отбора по бюджету (для /context last).
+        self.last_candidate_count = len(unique_candidates)
+
+        # Этап 4: Чтение файлов и построение графа зависимостей
+        items = await self._read_candidate_files(unique_candidates, max_files, session)
+
+        # Этап 5: Добавление зависимых файлов
+        await self._add_dependent_files(items, max_files, session)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        total_tokens = sum(item.token_count for item in items)
+
+        logger.info(
+            "context.gather.complete",
+            session_id=self._session_id,
+            files_gathered=len(items),
+            total_tokens=total_tokens,
+            file_paths=[item.id for item in items],
+            total_elapsed_ms=elapsed_ms,
+        )
+
+        if span is not None and self._tracer is not None:
+            self._tracer.end_span(
+                span,
+                attributes={
+                    "task_type": profile.task_type,
+                    "search_terms": profile.search_terms,
+                    "candidate_files": len(unique_candidates),
+                    "selected_files": len(items),
+                },
+            )
+
+        return items
+
+    async def _load_project_files(self, session: Any) -> list[str]:
+        """Стадия 0: структура проекта из кэша сессии (с bootstrap-fallback)."""
         project_files_start = time.time()
         project_files = self._list_project_files(session)
 
@@ -125,24 +179,29 @@ class ACPContextGatherer(ContextGatherer):
             count=len(project_files),
             elapsed_ms=project_files_ms,
         )
+        return project_files
 
-        # Этап 1: Сбор кандидатов из target_modules с адаптивным поиском
+    async def _collect_candidates(
+        self,
+        profile: TaskProfile,
+        project_files: list[str],
+        session: Any,
+    ) -> list[str]:
+        """Стадии 1-2: кандидаты из target_modules и поиска по search_terms."""
         candidates: list[str] = []
-        
-        # Получаем корень проекта для нормализации путей
         project_root = getattr(session, "cwd", None)
 
         if profile.target_modules:
             for module in profile.target_modules:
                 # Нормализуем путь модуля
-                normalized_module = self._normalize_path(module, project_root)
-                
+                normalized_module = normalize_path(module, project_root)
+
                 # Проверяем существование файла в реальной структуре
                 if normalized_module in project_files:
                     candidates.append(normalized_module)
                 else:
                     # Fallback: ищем похожие файлы
-                    similar = self._find_similar_files(normalized_module, project_files)
+                    similar = find_similar_files(normalized_module, project_files)
                     candidates.extend(similar)
                     logger.info(
                         "context.gather.target_module.fallback",
@@ -160,18 +219,15 @@ class ACPContextGatherer(ContextGatherer):
                 modules=candidates[:10],
             )
 
-        # Этап 2: Поиск файлов по поисковым терминам в реальной структуре
+        # Поиск файлов по поисковым терминам в реальной структуре
         search_start = time.time()
-        search_results_by_term: dict[str, list[str]] = {}
-        
         for term in profile.search_terms[:5]:
             term_start = time.time()
             search_results = await self._search_in_files(term, project_files, session)
             term_ms = (time.time() - term_start) * 1000
-            
-            search_results_by_term[term] = search_results
+
             candidates.extend(search_results)
-            
+
             logger.debug(
                 "context.gather.search.term",
                 session_id=self._session_id,
@@ -189,33 +245,15 @@ class ACPContextGatherer(ContextGatherer):
             total_results=len(candidates),
             elapsed_ms=search_ms,
         )
+        return candidates
 
-        # Этап 3: Дедупликация кандидатов
-        unique_candidates = self._deduplicate(candidates)
-        logger.info(
-            "context.gather.candidates.deduplicated",
-            session_id=self._session_id,
-            before_dedup=len(candidates),
-            after_dedup=len(unique_candidates),
-            duplicates_removed=len(candidates) - len(unique_candidates),
-            candidates=unique_candidates[:20],
-        )
-
-        # Этап 3.5: Fallback — если кандидатов нет, собрать основные файлы проекта
-        if not unique_candidates and project_files:
-            fallback_files = self._get_fallback_files(project_files, max_files)
-            unique_candidates = fallback_files
-            logger.info(
-                "context.gather.fallback_files",
-                session_id=self._session_id,
-                count=len(fallback_files),
-                files=fallback_files[:10],
-            )
-
-        # Число уникальных кандидатов до отбора по бюджету (для /context last).
-        self.last_candidate_count = len(unique_candidates)
-
-        # Этап 4: Чтение файлов и построение графа зависимостей
+    async def _read_candidate_files(
+        self,
+        unique_candidates: list[str],
+        max_files: int,
+        session: Any,
+    ) -> list[ContextItem]:
+        """Стадия 4: чтение файлов, построение графа зависимостей, сборка items."""
         read_start = time.time()
         items: list[ContextItem] = []
         files_read = 0
@@ -224,7 +262,7 @@ class ACPContextGatherer(ContextGatherer):
         files_skipped_error = 0
 
         for path in unique_candidates[:max_files]:
-            if self._is_binary(path):
+            if is_binary(path):
                 files_skipped_binary += 1
                 logger.debug(
                     "context.gather.file.skipped_binary",
@@ -244,7 +282,7 @@ class ACPContextGatherer(ContextGatherer):
                 )
                 continue
 
-            if self._is_empty(content):
+            if is_empty(content):
                 files_skipped_empty += 1
                 logger.debug(
                     "context.gather.file.skipped_empty",
@@ -256,7 +294,7 @@ class ACPContextGatherer(ContextGatherer):
             # Парсинг импортов и добавление в граф зависимостей
             imports = self._dependency_graph.parse_imports(content)
             self._dependency_graph.add_file(path, imports)
-            
+
             logger.debug(
                 "context.gather.file.processed",
                 session_id=self._session_id,
@@ -290,11 +328,18 @@ class ACPContextGatherer(ContextGatherer):
             files_skipped_error=files_skipped_error,
             elapsed_ms=read_ms,
         )
+        return items
 
-        # Этап 5: Добавление зависимых файлов
+    async def _add_dependent_files(
+        self,
+        items: list[ContextItem],
+        max_files: int,
+        session: Any,
+    ) -> None:
+        """Стадия 5: добавить зависимые файлы (по графу) в items (мутирует список)."""
         dependents_start = time.time()
         dependent_files = self._get_dependents(items)
-        
+
         logger.debug(
             "context.gather.dependents.found",
             session_id=self._session_id,
@@ -314,11 +359,11 @@ class ACPContextGatherer(ContextGatherer):
             if any(item.id == dep_path for item in items):
                 continue
 
-            if self._is_binary(dep_path):
+            if is_binary(dep_path):
                 continue
 
             content = await self._read_file(dep_path, session)
-            if content is None or self._is_empty(content):
+            if content is None or is_empty(content):
                 continue
 
             token_count = DefaultTokenBudgetManager.estimate_tokens(content)
@@ -342,28 +387,6 @@ class ACPContextGatherer(ContextGatherer):
             dependents_added=dependents_added,
             elapsed_ms=dependents_ms,
         )
-
-        elapsed_ms = (time.time() - start_time) * 1000
-        total_tokens = sum(item.token_count for item in items)
-
-        logger.info(
-            "context.gather.complete",
-            session_id=self._session_id,
-            files_gathered=len(items),
-            total_tokens=total_tokens,
-            file_paths=[item.id for item in items],
-            total_elapsed_ms=elapsed_ms,
-        )
-
-        if span is not None and self._tracer is not None:
-            self._tracer.end_span(span, attributes={
-                "task_type": profile.task_type,
-                "search_terms": profile.search_terms,
-                "candidate_files": len(unique_candidates),
-                "selected_files": len(items),
-            })
-
-        return items
 
     async def _read_file(self, path: str, session: Any) -> str | None:
         """Прочитать файл через ToolRegistry."""
@@ -401,27 +424,6 @@ class ACPContextGatherer(ContextGatherer):
         # baseline_fingerprint и инкрементальной модели (Phase 4).
         return sorted(dependents)
 
-    @staticmethod
-    def _deduplicate(paths: list[str]) -> list[str]:
-        """Удалить дубликаты путей."""
-        seen: set[str] = set()
-        result: list[str] = []
-        for path in paths:
-            if path and path not in seen:
-                seen.add(path)
-                result.append(path)
-        return result
-
-    @staticmethod
-    def _is_binary(path: str) -> bool:
-        """Проверить, является ли файл бинарным."""
-        return any(path.lower().endswith(ext) for ext in BINARY_EXTENSIONS)
-
-    @staticmethod
-    def _is_empty(content: str) -> bool:
-        """Проверить, пуст ли файл."""
-        return len(content.strip()) == 0
-
     def _list_project_files(self, session: Any) -> list[str]:
         """Получить список файлов проекта из кэша сессии.
 
@@ -454,10 +456,9 @@ class ACPContextGatherer(ContextGatherer):
                 if isinstance(raw_files, list):
                     # Нормализуем все пути относительно корня проекта
                     normalized_files = [
-                        self._normalize_path(str(f), project_root) 
-                        for f in raw_files
+                        normalize_path(str(f), project_root) for f in raw_files
                     ]
-                    filtered = self._filter_paths(normalized_files)
+                    filtered = filter_paths(normalized_files)
                     self._dependency_graph.set_project_files(filtered)
                     logger.info(
                         "context.gather.project_files.from_session",
@@ -533,13 +534,11 @@ class ACPContextGatherer(ContextGatherer):
                 )
                 return []
 
-            raw_files = self._parse_find_output(wait_result.output)
+            raw_files = parse_find_output(wait_result.output)
             project_root = getattr(session, "cwd", None)
             # Нормализуем пути относительно корня проекта
-            normalized_files = [
-                self._normalize_path(f, project_root) for f in raw_files
-            ]
-            filtered = self._filter_paths(normalized_files)
+            normalized_files = [normalize_path(f, project_root) for f in raw_files]
+            filtered = filter_paths(normalized_files)
 
             if filtered:
                 self._dependency_graph.set_project_files(filtered)
@@ -561,313 +560,6 @@ class ACPContextGatherer(ContextGatherer):
                 session_id=self._session_id,
             )
             return []
-
-    @staticmethod
-    def _get_fallback_files(project_files: list[str], max_files: int) -> list[str]:
-        """Собрать основные файлы проекта, когда нет кандидатов.
-
-        Приоритет:
-        1. Конфигурационные файлы проекта (pubspec.yaml, package.json, pyproject.toml)
-        2. Главные файлы (main.dart, main.py, index.js, App.tsx)
-        3. Остальные файлы исходного кода (lib/, src/, app/)
-
-        Args:
-            project_files: Список всех путей в проекте
-            max_files: Максимальное количество файлов
-
-        Returns:
-            Список основных файлов проекта
-        """
-        config_files = {
-            "pubspec.yaml", "package.json", "pyproject.toml", "setup.py",
-            "setup.cfg", "Cargo.toml", "go.mod", "pom.xml", "build.gradle",
-            "build.gradle.kts", "CMakeLists.txt", "Makefile", "README.md",
-        }
-        main_files_patterns = {
-            "main.dart", "main.py", "index.js", "index.ts", "index.tsx",
-            "App.tsx", "App.jsx", "app.py", "server.py",
-        }
-        source_dirs = {"lib", "src", "app", "pkg", "cmd"}
-
-        priority_1: list[str] = []
-        priority_2: list[str] = []
-        priority_3: list[str] = []
-
-        for path in project_files:
-            filename = PurePosixPath(path).name
-            parts = PurePosixPath(path).parts
-
-            if any(part in IGNORE_DIRS for part in parts):
-                continue
-
-            if path in config_files or filename in config_files:
-                priority_1.append(path)
-            elif filename in main_files_patterns:
-                priority_2.append(path)
-            elif len(parts) > 1 and parts[0] in source_dirs:
-                priority_3.append(path)
-
-        result: list[str] = []
-        for group in [priority_1, priority_2, priority_3]:
-            for path in group:
-                if len(result) >= max_files:
-                    return result
-                if path not in result:
-                    result.append(path)
-
-        return result
-
-    @staticmethod
-    def _parse_find_output(output: str) -> list[str]:
-        """Парсить вывод find команды в список путей."""
-        paths = []
-        for line in output.split("\n"):
-            line = line.strip()
-            if not line or line.startswith("find:"):
-                continue
-            if line.startswith("./"):
-                line = line[2:]
-            if line:
-                paths.append(line)
-        return paths
-
-    @staticmethod
-    def _normalize_path(path: str, project_root: str | None = None) -> str:
-        """Нормализовать путь к относительному формату.
-
-        Удаляет абсолютные пути, приводя их к относительным от корня проекта.
-        Убирает префиксы ./, заменяет \\ на /.
-
-        Args:
-            path: Путь для нормализации
-            project_root: Корень проекта (опционально)
-
-        Returns:
-            Нормализованный относительный путь
-        """
-        if not path:
-            return ""
-
-        # Заменяем backslash на forward slash
-        normalized = path.replace("\\", "/").strip()
-
-        # Убираем префикс ./
-        if normalized.startswith("./"):
-            normalized = normalized[2:]
-
-        # Если путь абсолютный, пытаемся сделать его относительным
-        if normalized.startswith("/"):
-            if project_root:
-                # Убираем project_root из начала пути
-                project_root_normalized = project_root.replace("\\", "/").rstrip("/")
-                if normalized.startswith(project_root_normalized + "/"):
-                    normalized = normalized[len(project_root_normalized) + 1:]
-                elif normalized.startswith(project_root_normalized):
-                    normalized = normalized[len(project_root_normalized):]
-            # Если не удалось сделать относительным, берем только последнюю часть
-            # Это fallback для случаев, когда project_root не совпадает
-            if normalized.startswith("/"):
-                # Берем только имя файла или последние компоненты пути
-                parts = normalized.split("/")
-                # Ищем первые осмысленные компоненты (не корень /)
-                meaningful_parts = [p for p in parts if p]
-                if len(meaningful_parts) >= 2:
-                    # Берем последние 2-3 компонента (например, lib/main.dart)
-                    normalized = "/".join(meaningful_parts[-2:])
-                elif meaningful_parts:
-                    normalized = meaningful_parts[-1]
-
-        return normalized
-
-    @staticmethod
-    def _filter_paths(paths: list[str]) -> list[str]:
-        """Отфильтровать мусорные папки и файлы.
-
-        Args:
-            paths: Список путей
-
-        Returns:
-            Отфильтрованный список путей
-        """
-        filtered = []
-        for path in paths:
-            normalized = path.replace("\\", "/").strip()
-
-            if not normalized or normalized in (".", "./"):
-                continue
-
-            if normalized.startswith("./"):
-                normalized = normalized[2:]
-
-            if not normalized:
-                continue
-
-            parts = normalized.split("/")
-
-            if any(part in IGNORE_DIRS for part in parts):
-                continue
-
-            filtered.append(normalized)
-
-        return filtered
-
-    @staticmethod
-    def _detect_project_type(project_files: list[str]) -> str:
-        """Определить тип проекта по файлам.
-
-        Args:
-            project_files: Список путей в проекте
-
-        Returns:
-            Тип проекта: "dart", "python", "javascript", "unknown"
-        """
-        file_set = set(project_files)
-
-        if "pubspec.yaml" in file_set:
-            return "dart"
-        if any(f.endswith(".dart") for f in project_files[:50]):
-            return "dart"
-
-        if any(f in file_set for f in ("pyproject.toml", "setup.py", "setup.cfg")):
-            return "python"
-        if any(f.endswith(".py") for f in project_files[:50]):
-            return "python"
-
-        if "package.json" in file_set:
-            return "javascript"
-        if any(f.endswith((".js", ".ts", ".jsx", ".tsx")) for f in project_files[:50]):
-            return "javascript"
-
-        return "unknown"
-
-    @staticmethod
-    def _map_path_to_project(target: str, project_type: str) -> list[str]:
-        """Сгенерировать варианты путей для поиска в проекте.
-
-        Args:
-            target: Целевой путь от LLM (например, "src/auth.py")
-            project_type: Тип проекта ("dart", "python", "javascript")
-
-        Returns:
-            Список вариантов путей для поиска
-        """
-        target_path = PurePosixPath(target)
-        target_stem = target_path.stem
-        target_suffix = target_path.suffix
-
-        candidates: list[str] = []
-
-        if project_type == "dart":
-            if target_suffix in (".py", ".js", ".ts"):
-                candidates.append(f"lib/{target_stem}.dart")
-                candidates.append(f"lib/src/{target_stem}.dart")
-                candidates.append(f"lib/screens/{target_stem}_screen.dart")
-                candidates.append(f"lib/widgets/{target_stem}_widget.dart")
-                candidates.append(f"lib/pages/{target_stem}_page.dart")
-                candidates.append(f"lib/models/{target_stem}.dart")
-                candidates.append(f"lib/services/{target_stem}_service.dart")
-                candidates.append(f"lib/providers/{target_stem}_provider.dart")
-            else:
-                candidates.append(target)
-
-        elif project_type == "python":
-            if target_suffix == ".dart":
-                candidates.append(f"src/{target_stem}.py")
-                candidates.append(f"app/{target_stem}.py")
-            else:
-                candidates.append(target)
-
-        elif project_type == "javascript":
-            if target_suffix in (".py", ".dart"):
-                candidates.append(f"src/{target_stem}.js")
-                candidates.append(f"src/{target_stem}.ts")
-                candidates.append(f"src/{target_stem}.jsx")
-                candidates.append(f"src/{target_stem}.tsx")
-                candidates.append(f"lib/{target_stem}.js")
-                candidates.append(f"lib/{target_stem}.ts")
-            else:
-                candidates.append(target)
-
-        else:
-            candidates.append(target)
-
-        return candidates
-
-    def _find_similar_files(self, target: str, project_files: list[str]) -> list[str]:
-        """Найти похожие файлы по имени с fuzzy matching и маппингом путей.
-
-        Args:
-            target: Целевой путь от LLM (например, "src/auth.py")
-            project_files: Список реальных путей в проекте
-
-        Returns:
-            Список похожих путей (максимум 5)
-        """
-        project_type = self._detect_project_type(project_files)
-        mapped_paths = self._map_path_to_project(target, project_type)
-
-        matches: list[tuple[float, str]] = []
-        seen_paths: set[str] = set()
-
-        for mapped_path in mapped_paths:
-            if mapped_path in project_files and mapped_path not in seen_paths:
-                matches.append((1.0, mapped_path))
-                seen_paths.add(mapped_path)
-
-        target_stem = PurePosixPath(target).stem.lower()
-        target_words = set(target_stem.replace("_", " ").replace("-", " ").split())
-        target_words = {w for w in target_words if len(w) > 2}
-
-        for file_path in project_files:
-            if file_path in seen_paths:
-                continue
-
-            file_stem = PurePosixPath(file_path).stem.lower()
-
-            if target_stem in file_stem or file_stem in target_stem:
-                matches.append((0.9, file_path))
-                seen_paths.add(file_path)
-                continue
-
-            file_words = set(file_stem.replace("_", " ").replace("-", " ").split())
-            file_words = {w for w in file_words if len(w) > 2}
-
-            common_words = target_words & file_words
-            if common_words:
-                score = 0.7 + 0.1 * len(common_words)
-                matches.append((min(score, 0.89), file_path))
-                seen_paths.add(file_path)
-                continue
-
-            ratio = SequenceMatcher(None, target_stem, file_stem).ratio()
-            if ratio >= 0.6:
-                matches.append((ratio * 0.7, file_path))
-                seen_paths.add(file_path)
-
-        path_segments = PurePosixPath(target).parts
-        target_segment_words = set()
-        for segment in path_segments:
-            segment_stem = PurePosixPath(segment).stem.lower()
-            target_segment_words.update(
-                w for w in segment_stem.replace("_", " ").replace("-", " ").split()
-                if len(w) > 2
-            )
-
-        for file_path in project_files:
-            if file_path in seen_paths:
-                continue
-
-            file_lower = file_path.lower()
-            segment_match_score = sum(
-                1 for word in target_segment_words if word in file_lower
-            )
-
-            if segment_match_score >= 2:
-                matches.append((0.5 + segment_match_score * 0.05, file_path))
-                seen_paths.add(file_path)
-
-        matches.sort(key=lambda x: x[0], reverse=True)
-        return [path for _, path in matches[:5]]
 
     async def _search_in_files(
         self, term: str, project_files: list[str], session: Any
@@ -904,11 +596,11 @@ class ACPContextGatherer(ContextGatherer):
         )
 
         for file_path in files_to_check[:content_search_limit]:
-            if self._is_binary(file_path):
+            if is_binary(file_path):
                 continue
 
             content = await self._read_file(file_path, session)
-            if content is None or self._is_empty(content):
+            if content is None or is_empty(content):
                 continue
 
             if term_lower in content.lower():

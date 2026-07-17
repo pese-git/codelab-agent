@@ -88,11 +88,11 @@ class TestIconButton:
         """IconButton можно включить и выключить."""
         button = IconButton("❌", disabled=False)
         assert button.disabled is False
-        
+
         button.disabled = True
         assert button.disabled is True
         assert "-disabled" in button.classes
-        
+
         button.disabled = False
         assert button.disabled is False
         assert "-disabled" not in button.classes
@@ -142,7 +142,7 @@ class TestPermissionBadge:
         """Изменение статуса обновляет CSS классы."""
         badge = PermissionBadge("pending")
         assert "pending" in badge.classes
-        
+
         badge.status = "granted"
         assert badge._status == "granted"
         assert "granted" in badge.classes
@@ -246,7 +246,7 @@ class TestToolCallList:
             tool_name="read_file",
             parameters={"path": "/file.txt"},
         )
-        
+
         assert tool_list.count == 1
         assert card.tool_call_id == "call_1"
 
@@ -254,9 +254,9 @@ class TestToolCallList:
         """ToolCallList обновляет статус tool call."""
         tool_list = ToolCallList()
         tool_list.add_tool_call("call_1", "read_file")
-        
+
         tool_list.update_status("call_1", "success", result="Content")
-        
+
         tc_data = tool_list.get_tool_call("call_1")
         assert tc_data is not None
         assert tc_data["status"] == "success"
@@ -267,7 +267,7 @@ class TestToolCallList:
         # Добавляем напрямую в хранилище без монтирования
         tool_list._tool_calls["call_1"] = {"name": "read_file", "status": "pending"}
         assert tool_list.count == 1
-        
+
         # Удаляем только из данных
         tool_list._tool_calls.pop("call_1", None)
         assert tool_list.count == 0
@@ -279,7 +279,7 @@ class TestToolCallList:
         tool_list._tool_calls["call_1"] = {"name": "read_file", "status": "pending"}
         tool_list._tool_calls["call_2"] = {"name": "write_file", "status": "pending"}
         assert tool_list.count == 2
-        
+
         # Очищаем только данные
         tool_list._tool_calls.clear()
         assert tool_list.count == 0
@@ -291,7 +291,7 @@ class TestToolCallList:
         tool_list.add_tool_call("call_2", "test", status="success")
         tool_list.add_tool_call("call_3", "test", status="error")
         tool_list.add_tool_call("call_4", "test", status="running")
-        
+
         assert tool_list.pending_count == 2  # pending + running
         assert tool_list.completed_count == 1
         assert tool_list.failed_count == 1
@@ -301,7 +301,7 @@ class TestToolCallList:
         tool_list = ToolCallList()
         tool_list.add_tool_call("call_1", "test", status="success")
         tool_list.add_tool_call("call_2", "test", status="pending")
-        
+
         summary = tool_list._format_summary()
         assert "completed" in summary
         assert "pending" in summary
@@ -309,51 +309,51 @@ class TestToolCallList:
     def test_tool_call_list_status_mapping(self) -> None:
         """ToolCallList маппит статусы протокола на внутренние."""
         from unittest.mock import MagicMock
-        
+
         tool_list = ToolCallList()
-        
+
         # Создаём mock объекты tool call с протокольными статусами
         tc_pending = MagicMock()
         tc_pending.id = "call_1"
         tc_pending.name = "test"
         tc_pending.status = "pending"  # pending -> pending
         tc_pending.parameters = {}
-        
+
         tc_in_progress = MagicMock()
         tc_in_progress.id = "call_2"
         tc_in_progress.name = "test"
         tc_in_progress.status = "in_progress"  # in_progress -> running
         tc_in_progress.parameters = {}
-        
+
         tc_completed = MagicMock()
         tc_completed.id = "call_3"
         tc_completed.name = "test"
         tc_completed.status = "completed"  # completed -> success
         tc_completed.parameters = {}
-        
+
         tc_failed = MagicMock()
         tc_failed.id = "call_4"
         tc_failed.name = "test"
         tc_failed.status = "failed"  # failed -> error
         tc_failed.parameters = {}
-        
+
         # Вызываем обработчик
         tool_list._on_tool_calls_changed([tc_pending, tc_in_progress, tc_completed, tc_failed])
-        
+
         # Проверяем маппинг статусов
         assert tool_list.get_tool_call("call_1")["status"] == "pending"
         assert tool_list.get_tool_call("call_2")["status"] == "running"
         assert tool_list.get_tool_call("call_3")["status"] == "success"
         assert tool_list.get_tool_call("call_4")["status"] == "error"
-    
+
     def test_tool_call_list_handles_dict_tool_calls(self) -> None:
         """ToolCallList корректно обрабатывает словари из ChatViewModel.
-        
+
         ChatViewModel хранит tool_calls как список словарей с ключом 'toolCallId',
         а не как объекты с атрибутом 'id'.
         """
         tool_list = ToolCallList()
-        
+
         # Словари как в ChatViewModel (см. chat_view_model.py строки 316-328)
         dict_tool_calls = [
             {
@@ -375,20 +375,20 @@ class TestToolCallList:
                 "status": "completed",
             },
         ]
-        
+
         # Вызываем обработчик со словарями
         tool_list._on_tool_calls_changed(dict_tool_calls)
-        
+
         # Проверяем что tool calls добавлены с правильными ID
         assert "tc_001" in tool_list._tool_calls
         assert "tc_002" in tool_list._tool_calls
         assert "tc_003" in tool_list._tool_calls
-        
+
         # Проверяем маппинг статусов для словарей
         assert tool_list.get_tool_call("tc_001")["status"] == "pending"
         assert tool_list.get_tool_call("tc_002")["status"] == "running"  # in_progress -> running
         assert tool_list.get_tool_call("tc_003")["status"] == "success"  # completed -> success
-        
+
         # Проверяем что title используется как name
         assert tool_list.get_tool_call("tc_001")["name"] == "read_file"
         assert tool_list.get_tool_call("tc_002")["name"] == "write_file"
@@ -441,7 +441,7 @@ class TestFileChangePreview:
             old_content="line1\nline2",
             new_content="line1\nline3\nline4",
         )
-        
+
         # Должны быть добавленные и удалённые строки
         assert preview.added_count > 0
 
@@ -451,12 +451,12 @@ class TestFileChangePreview:
             DiffLine("added line", "added", None, 1),
             DiffLine("removed line", "removed", 1, None),
         ]
-        
+
         preview = FileChangePreview(
             file_path="/test.py",
             diff_lines=lines,
         )
-        
+
         assert preview.added_count == 1
         assert preview.removed_count == 1
 
@@ -467,19 +467,19 @@ class TestFileChangePreview:
             old_content="",
             new_content="",
         )
-        
+
         assert preview.added_count == 0
         assert preview.removed_count == 0
 
     def test_file_change_preview_set_diff(self) -> None:
         """FileChangePreview обновляет diff через set_diff."""
         preview = FileChangePreview(file_path="/test.py")
-        
+
         preview.set_diff(
             old_content="old",
             new_content="new",
         )
-        
+
         # После обновления diff должен пересчитаться
         assert preview._old_content == "old"
         assert preview._new_content == "new"
@@ -502,7 +502,7 @@ class TestActionBar:
         # Симулируем добавление кнопки в словарь без mount
         button = ActionButton("Save", variant="primary", id="save")
         bar._buttons["save"] = button
-        
+
         assert "save" in bar._buttons
         assert bar._buttons["save"] == button
 
@@ -511,14 +511,14 @@ class TestActionBar:
         bar = ActionBar()
         button = ActionButton("Save", id="save")
         bar._buttons["save"] = button
-        
+
         result = bar.get_action("save")
         assert result == button
 
     def test_action_bar_get_nonexistent_action(self) -> None:
         """ActionBar возвращает None для несуществующего ID."""
         bar = ActionBar()
-        
+
         button = bar.get_action("nonexistent")
         assert button is None
 
@@ -528,7 +528,7 @@ class TestActionBar:
         button = ActionButton("Save", id="save")
         bar._buttons["save"] = button
         assert "save" in bar._buttons
-        
+
         bar._buttons.pop("save", None)
         assert "save" not in bar._buttons
 
@@ -538,7 +538,7 @@ class TestActionBar:
         bar._buttons["save"] = ActionButton("Save", id="save")
         bar._buttons["cancel"] = ActionButton("Cancel", id="cancel")
         assert len(bar._buttons) == 2
-        
+
         bar._buttons.clear()
         assert len(bar._buttons) == 0
 

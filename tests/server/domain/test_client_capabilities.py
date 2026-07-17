@@ -66,13 +66,15 @@ class TestClientCapabilities:
         assert caps.terminal is False
 
     def test_from_dict_full(self) -> None:
-        caps = ClientCapabilities.from_dict({
-            "fs_read": True,
-            "fs_write": True,
-            "terminal": True,
-            "image_prompts": True,
-            "embedded_context": True,
-        })
+        caps = ClientCapabilities.from_dict(
+            {
+                "fs_read": True,
+                "fs_write": True,
+                "terminal": True,
+                "image_prompts": True,
+                "embedded_context": True,
+            }
+        )
         assert caps.fs_read is True
         assert caps.fs_write is True
         assert caps.terminal is True

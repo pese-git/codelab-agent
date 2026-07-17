@@ -62,10 +62,10 @@ class TestMainLayout:
         """toggle_sidebar переключает видимость sidebar."""
         layout = MainLayout()
         assert layout.sidebar_visible is True
-        
+
         layout.toggle_sidebar()
         assert layout.sidebar_visible is False
-        
+
         layout.toggle_sidebar()
         assert layout.sidebar_visible is True
 
@@ -74,20 +74,20 @@ class TestMainLayout:
         layout = MainLayout()
         # OpenCode-style: dock region виден по умолчанию
         assert layout.bottom_panel_visible is True
-        
+
         layout.toggle_bottom_panel()
         assert layout.bottom_panel_visible is False
-        
+
         layout.toggle_bottom_panel()
         assert layout.bottom_panel_visible is True
 
     def test_sidebar_collapsed_sync(self, ui_vm: UIViewModel) -> None:
         """sidebar_collapsed в UIViewModel синхронизируется с layout."""
         layout = MainLayout(ui_vm=ui_vm)
-        
+
         # Изначально sidebar виден
         assert layout.sidebar_visible is True
-        
+
         # Изменяем через UIViewModel
         ui_vm.sidebar_collapsed.value = True
         assert layout.sidebar_visible is False
@@ -140,7 +140,7 @@ class TestStyledContainer:
         """set_variant изменяет вариант контейнера."""
         container = StyledContainer(variant=ContainerVariant.DEFAULT)
         assert container.variant == ContainerVariant.DEFAULT
-        
+
         container.set_variant(ContainerVariant.BORDERED)
         assert container.variant == ContainerVariant.BORDERED
         assert "bordered" in container.classes
@@ -188,10 +188,10 @@ class TestCollapsiblePanel:
         """toggle переключает состояние панели."""
         panel = CollapsiblePanel(title="Test")
         panel.collapsed = False
-        
+
         panel.toggle()
         assert panel.collapsed is True
-        
+
         panel.toggle()
         assert panel.collapsed is False
 
@@ -199,7 +199,7 @@ class TestCollapsiblePanel:
         """expand разворачивает панель."""
         panel = CollapsiblePanel(title="Test", collapsed=True)
         panel.collapsed = True
-        
+
         panel.expand()
         assert panel.collapsed is False
 
@@ -207,7 +207,7 @@ class TestCollapsiblePanel:
         """collapse сворачивает панель."""
         panel = CollapsiblePanel(title="Test")
         panel.collapsed = False
-        
+
         panel.collapse()
         assert panel.collapsed is True
 
@@ -260,25 +260,25 @@ class TestHeaderBar:
     def test_header_status_icon(self, ui_vm: UIViewModel) -> None:
         """HeaderBar показывает корректную иконку статуса."""
         header = HeaderBar(ui_vm)
-        
+
         # Connected
         ui_vm.connection_status.value = ConnectionStatus.CONNECTED
         assert header._get_status_icon(ConnectionStatus.CONNECTED) == "🟢"
-        
+
         # Disconnected
         assert header._get_status_icon(ConnectionStatus.DISCONNECTED) == "⚪"
-        
+
         # Error
         assert header._get_status_icon(ConnectionStatus.ERROR) == "🔴"
 
     def test_header_loading_indicator(self, ui_vm: UIViewModel) -> None:
         """HeaderBar показывает индикатор загрузки."""
         header = HeaderBar(ui_vm)
-        
+
         ui_vm.is_loading.value = False
         right_part = header._build_right_part()
         assert "⟳" not in right_part
-        
+
         ui_vm.is_loading.value = True
         right_part = header._build_right_part()
         assert "⟳" in right_part
@@ -301,7 +301,7 @@ class TestFooterBar:
         """FooterBar отображает токены при включенной опции."""
         footer = FooterBar(ui_vm, show_tokens=True)
         assert footer._show_tokens is True
-        
+
         footer = FooterBar(ui_vm, show_tokens=False)
         assert footer._show_tokens is False
 
@@ -313,10 +313,10 @@ class TestFooterBar:
     def test_set_agent_status(self, ui_vm: UIViewModel) -> None:
         """set_agent_status обновляет статус агента."""
         footer = FooterBar(ui_vm)
-        
+
         footer.set_agent_status(AgentStatus.THINKING)
         assert footer._agent_status == AgentStatus.THINKING
-        
+
         footer.set_agent_status(AgentStatus.IDLE)
         assert footer._agent_status == AgentStatus.IDLE
 
@@ -324,14 +324,14 @@ class TestFooterBar:
         """update_tokens обновляет информацию о токенах."""
         footer = FooterBar(ui_vm)
         footer.update_tokens(1500, 0.0025)
-        
+
         assert footer._tokens_used == 1500
         assert footer._cost == 0.0025
 
     def test_footer_status_prefix(self, ui_vm: UIViewModel) -> None:
         """FooterBar показывает корректный префикс статуса."""
         footer = FooterBar(ui_vm)
-        
+
         assert footer._status_prefix(ConnectionStatus.CONNECTED) == "✓"
         assert footer._status_prefix(ConnectionStatus.CONNECTING) == "⟳"
         assert footer._status_prefix(ConnectionStatus.RECONNECTING) == "⟳"
@@ -341,12 +341,12 @@ class TestFooterBar:
     def test_footer_error_priority(self, ui_vm: UIViewModel) -> None:
         """FooterBar отображает ошибку с высшим приоритетом."""
         footer = FooterBar(ui_vm)
-        
+
         # Устанавливаем все сообщения
         ui_vm.error_message.value = "Critical error"
         ui_vm.warning_message.value = "Warning"
         ui_vm.info_message.value = "Info"
-        
+
         footer._update_display()
         # Проверяем что отображается именно ошибка (не можем проверить текст напрямую)
         assert ui_vm.error_message.value == "Critical error"
@@ -355,7 +355,7 @@ class TestFooterBar:
         """FooterBar генерирует текст с горячими клавишами."""
         footer = FooterBar(ui_vm)
         hotkeys_text = footer._build_hotkeys_text()
-        
+
         assert "F1" in hotkeys_text
         assert "help" in hotkeys_text
 
@@ -364,7 +364,7 @@ class TestFooterBar:
         footer = FooterBar(ui_vm)
         footer._tokens_used = 1000
         footer._cost = 0.001
-        
+
         tokens_text = footer._build_tokens_text()
         assert "1,000" in tokens_text
         assert "$0.0010" in tokens_text
@@ -414,10 +414,10 @@ class TestCoreLayoutIntegration:
         """Изменение connection_status в UIViewModel обновляет компоненты."""
         header = HeaderBar(ui_vm)
         footer = FooterBar(ui_vm)
-        
+
         # Изменяем статус
         ui_vm.connection_status.value = ConnectionStatus.CONNECTED
-        
+
         # Проверяем что компоненты имеют доступ к актуальному статусу
         assert header.ui_vm.connection_status.value == ConnectionStatus.CONNECTED
         assert footer.ui_vm.connection_status.value == ConnectionStatus.CONNECTED
@@ -426,9 +426,9 @@ class TestCoreLayoutIntegration:
         """Изменение is_loading в UIViewModel обновляет компоненты."""
         header = HeaderBar(ui_vm)
         footer = FooterBar(ui_vm)
-        
+
         ui_vm.is_loading.value = True
-        
+
         assert header.ui_vm.is_loading.value is True
         assert footer.ui_vm.is_loading.value is True
         # FooterBar должен изменить статус агента
@@ -437,11 +437,11 @@ class TestCoreLayoutIntegration:
     def test_sidebar_collapsed_state(self, ui_vm: UIViewModel) -> None:
         """sidebar_collapsed корректно синхронизируется."""
         layout = MainLayout(ui_vm=ui_vm)
-        
+
         # Сворачиваем через layout
         layout.toggle_sidebar()
         assert ui_vm.sidebar_collapsed.value is True
-        
+
         # Разворачиваем через layout
         layout.toggle_sidebar()
         assert ui_vm.sidebar_collapsed.value is False

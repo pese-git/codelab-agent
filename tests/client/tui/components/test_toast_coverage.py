@@ -81,6 +81,7 @@ class TestToastMountAndDismiss:
 
     async def test_on_mount_creates_task(self) -> None:
         """on_mount создаёт задачу авто-скрытия."""
+
         class TestApp(App):
             pass
 
@@ -96,6 +97,7 @@ class TestToastMountAndDismiss:
 
     async def test_on_mount_zero_duration_no_task(self) -> None:
         """on_mount не создаёт задачу при duration=0."""
+
         class TestApp(App):
             pass
 
@@ -109,6 +111,7 @@ class TestToastMountAndDismiss:
 
     async def test_auto_dismiss(self) -> None:
         """_auto_dismiss вызывает dismiss после задержки."""
+
         class TestApp(App):
             pass
 
@@ -126,6 +129,7 @@ class TestToastMountAndDismiss:
 
     async def test_dismiss_adds_fading_class(self) -> None:
         """dismiss добавляет класс -fading и запускает таймер."""
+
         class TestApp(App):
             pass
 
@@ -151,6 +155,7 @@ class TestToastMountAndDismiss:
 
     async def test_remove_posts_dismissed_and_removes(self) -> None:
         """_remove отправляет сообщение и удаляет виджет."""
+
         class TestApp(App):
             pass
 
@@ -170,6 +175,7 @@ class TestToastMountAndDismiss:
 
     async def test_on_click_cancels_task_and_dismisses(self) -> None:
         """Клик отменяет задачу и закрывает уведомление."""
+
         class TestApp(App):
             pass
 
@@ -191,6 +197,7 @@ class TestToastMountAndDismiss:
 
     async def test_on_click_without_task(self) -> None:
         """Клик без задачи закрывает уведомление."""
+
         class TestApp(App):
             pass
 
@@ -228,6 +235,7 @@ class TestToastContainerShowToast:
 
     async def test_show_toast_adds_toast(self) -> None:
         """show_toast добавляет уведомление в контейнер."""
+
         class TestApp(App):
             pass
 
@@ -243,6 +251,7 @@ class TestToastContainerShowToast:
 
     async def test_show_toast_with_title_and_type(self) -> None:
         """show_toast передаёт параметры в ToastData."""
+
         class TestApp(App):
             pass
 
@@ -265,6 +274,7 @@ class TestToastContainerShowToast:
 
     async def test_show_toast_max_limit(self) -> None:
         """При превышении лимита старые уведомления закрываются."""
+
         class TestApp(App):
             pass
 
@@ -295,6 +305,7 @@ class TestToastContainerDismiss:
 
     async def test_dismiss_toast_existing(self) -> None:
         """dismiss_toast закрывает существующее уведомление."""
+
         class TestApp(App):
             pass
 
@@ -313,6 +324,7 @@ class TestToastContainerDismiss:
 
     async def test_dismiss_toast_unknown(self) -> None:
         """dismiss_toast для неизвестного ID не падает."""
+
         class TestApp(App):
             pass
 
@@ -325,6 +337,7 @@ class TestToastContainerDismiss:
 
     async def test_dismiss_all(self) -> None:
         """dismiss_all закрывает все уведомления."""
+
         class TestApp(App):
             pass
 
@@ -345,6 +358,7 @@ class TestToastContainerDismiss:
 
     async def test_on_toast_dismissed_removes_from_dict(self) -> None:
         """on_toast_dismissed удаляет уведомление из словаря."""
+
         class TestApp(App):
             pass
 
@@ -365,6 +379,7 @@ class TestToastContainerConvenienceMethods:
 
     async def test_info(self) -> None:
         """info показывает информационное уведомление."""
+
         class TestApp(App):
             pass
 
@@ -382,6 +397,7 @@ class TestToastContainerConvenienceMethods:
 
     async def test_success(self) -> None:
         """success показывает уведомление об успехе."""
+
         class TestApp(App):
             pass
 
@@ -397,6 +413,7 @@ class TestToastContainerConvenienceMethods:
 
     async def test_warning(self) -> None:
         """warning показывает предупреждение."""
+
         class TestApp(App):
             pass
 
@@ -412,6 +429,7 @@ class TestToastContainerConvenienceMethods:
 
     async def test_error(self) -> None:
         """error показывает уведомление об ошибке без авто-скрытия."""
+
         class TestApp(App):
             pass
 

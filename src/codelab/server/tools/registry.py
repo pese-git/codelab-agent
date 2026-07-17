@@ -201,7 +201,7 @@ class SimpleToolRegistry(ToolRegistry):
             arguments=arguments,
             has_session=session is not None,
         )
-        
+
         # Проверка существования инструмента (по ACP имени)
         if acp_tool_name not in self._tools:
             logger.error(
@@ -218,7 +218,7 @@ class SimpleToolRegistry(ToolRegistry):
         # Получение обработчика
         handler = self._handlers[acp_tool_name]
         is_async = inspect.iscoroutinefunction(handler)
-        
+
         logger.debug(
             "tool handler found",
             tool_name=tool_name,
@@ -263,7 +263,7 @@ class SimpleToolRegistry(ToolRegistry):
                 has_error=bool(result.error),
                 has_metadata=bool(result.metadata),
             )
-            
+
             # Возвращаем результат с сохранением metadata
             return result
 

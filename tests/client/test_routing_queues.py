@@ -52,9 +52,7 @@ class TestRoutingQueues:
         await queues.put_notification(notification)
 
         # Получаем из очереди уведомлений
-        received = await asyncio.wait_for(
-            queues.notification_queue.get(), timeout=1.0
-        )
+        received = await asyncio.wait_for(queues.notification_queue.get(), timeout=1.0)
         assert received == notification
 
     @pytest.mark.asyncio
@@ -70,9 +68,7 @@ class TestRoutingQueues:
         await queues.put_permission_request(permission_req)
 
         # Получаем из очереди разрешений
-        received = await asyncio.wait_for(
-            queues.permission_queue.get(), timeout=1.0
-        )
+        received = await asyncio.wait_for(queues.permission_queue.get(), timeout=1.0)
         assert received == permission_req
 
     @pytest.mark.asyncio

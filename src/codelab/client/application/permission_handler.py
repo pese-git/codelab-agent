@@ -163,7 +163,7 @@ class PermissionRequestManager:
 
     Пример использования:
         manager = PermissionRequestManager()
-        
+
         # Создание нового запроса
         request = manager.create_request(
             request_id="perm_1",
@@ -171,10 +171,10 @@ class PermissionRequestManager:
             tool_call=tool_call_data,
             options=option_list,
         )
-        
+
         # Ожидание результата
         outcome = await request.wait_for_outcome()
-        
+
         # Удаление завершенного запроса
         manager.remove_request("perm_1")
     """
@@ -323,10 +323,10 @@ class PermissionHandler:
             transport=transport,
             logger=logger,
         )
-        
+
         # Обработать входящий request
         outcome = await handler.handle_request(request_message)
-        
+
         # Response автоматически отправляется на сервер
     """
 
@@ -406,7 +406,7 @@ class PermissionHandler:
 
         Пример:
             from codelab.client.messages import parse_request_permission_request
-            
+
             raw_message = {
                 "jsonrpc": "2.0",
                 "id": "perm_1",
@@ -418,7 +418,7 @@ class PermissionHandler:
                 # С callback - показывает UI modal через callback
                 def show_modal(req_id, tool_call, options, on_choice):
                     app.show_permission_modal(req_id, tool_call, options, on_choice)
-                
+
                 outcome = await handler.handle_request(request, callback=show_modal)
         """
         request_id = request.id
@@ -453,11 +453,9 @@ class PermissionHandler:
                     tool_call_id=tool_call.toolCallId,
                 )
 
-                def on_choice(
-                    req_id: str | int, option_id: str
-                ) -> None:
+                def on_choice(req_id: str | int, option_id: str) -> None:
                     """Callback для обработки выбора пользователя.
-                    
+
                     Args:
                         req_id: ID permission request (дублируется для совместимости с интерфейсом)
                         option_id: ID выбранной опции или "cancelled"
@@ -470,8 +468,7 @@ class PermissionHandler:
                     )
                     # Найти опцию по ID
                     selected_option = next(
-                        (opt for opt in options if opt.optionId == option_id),
-                        None
+                        (opt for opt in options if opt.optionId == option_id), None
                     )
                     if selected_option:
                         perm_request.resolve_with_option(option_id)
@@ -548,7 +545,7 @@ class PermissionHandler:
                 session_id=session_id,
                 tool_call_id=tool_call.toolCallId,
                 outcome=outcome.outcome,
-                option_id=getattr(outcome, 'optionId', None),
+                option_id=getattr(outcome, "optionId", None),
             )
             await self._transport.send(response.to_dict())
 
@@ -598,7 +595,7 @@ class PermissionHandler:
                 optionId="allow_once"
             )
             response = handler.build_response("perm_1", outcome)
-            
+
             # response.to_dict() => {
             #     "jsonrpc": "2.0",
             #     "id": "perm_1",

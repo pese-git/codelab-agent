@@ -65,10 +65,7 @@ class ContentValidator:
 
         return True, None
 
-    def validate_content_list(
-        self,
-        content_items: list[dict[str, Any]]
-    ) -> tuple[bool, list[str]]:
+    def validate_content_list(self, content_items: list[dict[str, Any]]) -> tuple[bool, list[str]]:
         """
         Валидировать список content items.
 
@@ -89,9 +86,7 @@ class ContentValidator:
 
         if not all_valid:
             logger.warning(
-                "content_validation_failed",
-                total_items=len(content_items),
-                errors=errors
+                "content_validation_failed", total_items=len(content_items), errors=errors
             )
 
         return all_valid, errors
