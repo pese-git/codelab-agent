@@ -128,8 +128,8 @@ MCP Roots избыточны для:
 ## Связанные документы
 
 - [MCP Specification - Roots](https://modelcontextprotocol.io/docs/concepts/roots)
-- [ACP Specification - File System](../Agent%20Client%20Protocol/protocol/09-File%20System.md)
-- [MCP Integration Plan](./MCP_INTEGRATION_PLAN.md)
+- [ACP Specification - File System](../../protocols/Agent%20Client%20Protocol/protocol/09-File%20System.md)
+- [MCP Integration Architecture](./MCP_INTEGRATION_ARCHITECTURE.md)
 
 ## Вывод
 

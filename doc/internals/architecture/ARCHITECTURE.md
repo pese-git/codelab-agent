@@ -24,8 +24,8 @@
 ACP (Agent Client Protocol) — стандартный протокол взаимодействия между LLM-агентами и клиентами для выполнения задач с инструментами.
 
 Проект реализован как **монорепозиторий** с двумя независимыми Python-компонентами:
-- **[codelab/server](src/codelab/server/)** — серверная реализация протокола с LLM-агентом и управлением сессиями
-- **[codelab/client](src/codelab/client/)** — клиентская реализация с TUI интерфейсом на базе Clean Architecture
+- **[codelab/server](../../../src/codelab/server/)** — серверная реализация протокола с LLM-агентом и управлением сессиями
+- **[codelab/client](../../../src/codelab/client/)** — клиентская реализация с TUI интерфейсом на базе Clean Architecture
 
 ---
 
@@ -84,43 +84,43 @@ graph TB
 | **TUI** | Presentation | Textual компоненты, User Interaction | `src/codelab/client/tui/` |
 | **ViewModels** | Presentation | MVVM паттерн, Observable state (14 ViewModels) | `src/codelab/client/presentation/` |
 | **Use Cases** | Application | Business scenarios, DTOs | `src/codelab/client/application/` |
-| **DIContainer** | Infrastructure | Dependency Injection (dishka) | [`src/codelab/client/infrastructure/di_container.py`](src/codelab/client/infrastructure/di_container.py:33) |
-| **BackgroundReceiveLoop** | Infrastructure | Единственный receive() на транспорт | [`src/codelab/client/infrastructure/services/background_receive_loop.py`](src/codelab/client/infrastructure/services/background_receive_loop.py:22) |
-| **MessageRouter** | Infrastructure | Маршрутизация сообщений | [`src/codelab/client/infrastructure/services/message_router.py`](src/codelab/client/infrastructure/services/message_router.py:26) |
-| **EventBus** | Infrastructure | Pub/Sub система событий | [`src/codelab/client/infrastructure/events/bus.py`](src/codelab/client/infrastructure/events/bus.py) |
-| **StdioClientTransport** | Infrastructure | stdio транспорт (subprocess) | [`src/codelab/client/infrastructure/stdio_transport.py`](src/codelab/client/infrastructure/stdio_transport.py) |
-| **ACPProtocol** | Protocol | Facade: маршрутизация через CommandRegistry, middleware, lifecycle. Делегирует обработку CommandHandler-ам | [`src/codelab/server/protocol/core.py`](src/codelab/server/protocol/core.py:52) |
-| **CommandRegistry** | Protocol | Реестр обработчиков команд (Command Pattern) | [`src/codelab/server/protocol/commands/`](src/codelab/server/protocol/commands/) |
-| **ResponseRouter** | Protocol | Маршрутизация ответов от клиента (permission, client RPC) | [`src/codelab/server/protocol/response_router.py`](src/codelab/server/protocol/response_router.py:27) |
-| **BackgroundExecutor** | Protocol | Фоновое выполнение tools после permission approval, завершение turns | [`src/codelab/server/protocol/background_executor.py`](src/codelab/server/protocol/background_executor.py:30) |
-| **MCPSessionManager** | Protocol | Управление MCP серверами для сессий (init, reconnect, prompts) | [`src/codelab/server/protocol/mcp_session_manager.py`](src/codelab/server/protocol/mcp_session_manager.py:36) |
-| **ConfigSpecBuilder** | Protocol | Построение конфигурационных спецификаций из AgentRegistry, StrategyRegistry, LLMProviderRegistry | [`src/codelab/server/protocol/config_spec_builder.py`](src/codelab/server/protocol/config_spec_builder.py) |
-| **PromptOrchestratorBuilder** | Protocol | Builder для PromptOrchestrator (12+ компонентов) | [`src/codelab/server/protocol/orchestrator_builder.py`](src/codelab/server/protocol/orchestrator_builder.py:19) |
-| **SessionNotificationBus** | Protocol | Per-session Observer: бизнес-логика публикует, транспорт доставляет. Буферизация до подписки | [`src/codelab/server/protocol/notification_bus.py`](src/codelab/server/protocol/notification_bus.py:32) |
-| **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`src/codelab/server/protocol/handlers/`](src/codelab/server/protocol/handlers/) |
-| **PromptPipeline** | Protocol | 7-stage pipeline: Validation → SlashCommand → PlanBuilding → TurnLifecycle(open) → Directives → LLMLoop → TurnLifecycle(close) | [`src/codelab/server/protocol/handlers/pipeline/`](src/codelab/server/protocol/handlers/pipeline/) |
-| **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](src/codelab/server/protocol/handlers/prompt_orchestrator.py:32) |
-| **AgentLoop** | Agent | Цикл LLM tool-calling итераций (пакет) | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/`](src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/) |
-| **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`src/codelab/server/agent/execution_engine.py`](src/codelab/server/agent/execution_engine.py) |
-| **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–3 реализованы | [`src/codelab/server/agent/context/manager.py`](src/codelab/server/agent/context/manager.py) |
-| **ContextGatherer** | Agent | Сбор релевантных файлов через ACP ToolRegistry (пайплайн: project_tree → search → read_file → graph → отбор) | [`src/codelab/server/agent/context/gatherer.py`](src/codelab/server/agent/context/gatherer.py) |
-| **TaskAnalyzer** | Agent | LLM-классификация задач (bug_fix/feature/refactor/architecture) | [`src/codelab/server/agent/context/task_analyzer.py`](src/codelab/server/agent/context/task_analyzer.py) |
-| **PayloadEnvelope** | Agent | Конверт payload с явным разделением baseline (стабильный префикс) и tail (дельты) | [`src/codelab/server/agent/context/models.py`](src/codelab/server/agent/context/models.py) |
-| **ContextConfig** | Agent | Feature-флаги Context Manager (TOML + env-overrides + runtime override) | [`src/codelab/server/agent/context/models.py`](src/codelab/server/agent/context/models.py) |
-| **ContextCommandHandler** | Protocol | Slash-команда `/context` — наблюдаемость, диагностика, управление Context Manager | [`src/codelab/server/protocol/handlers/slash_commands/builtin/context.py`](src/codelab/server/protocol/handlers/slash_commands/builtin/context.py) |
-| **ProjectStructureDecorator** | Tools | Автоизвлечение структуры проекта из terminal output (find/ls) | [`src/codelab/server/tools/executors/decorators/project_structure.py`](src/codelab/server/tools/executors/decorators/project_structure.py) |
-| **ToolRegistry** | Tools | Регистрация и управление инструментами | [`src/codelab/server/tools/registry.py`](src/codelab/server/tools/registry.py) |
-| **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`src/codelab/server/tools/mapping.py`](src/codelab/server/tools/mapping.py) |
-| **MCPManager** | MCP | Управление MCP-серверами (stdio/HTTP/SSE, auto-reconnect, roots) | [`src/codelab/server/mcp/manager.py`](src/codelab/server/mcp/manager.py) |
-| **Storage** | Storage | Persistence для сессий | [`src/codelab/server/storage/`](src/codelab/server/storage/) |
-| **WebSocketTransport** | Transport | WebSocket endpoint, подписка на NotificationBus | [`src/codelab/server/transport/websocket.py`](src/codelab/server/transport/websocket.py) |
-| **WebSocketConnection** | Transport | Protocol-абстракция WebSocket соединения (тестируемость) | [`src/codelab/server/transport/websocket_connection.py`](src/codelab/server/transport/websocket_connection.py:26) |
-| **WebUIManager** | Shared | Управление textual-serve subprocess и HTML generation | [`src/codelab/shared/web_ui.py`](src/codelab/shared/web_ui.py:33) |
-| **StdioServerTransport** | Transport | stdio транспорт (stdin/stdout) | [`src/codelab/server/transport/stdio.py`](src/codelab/server/transport/stdio.py) |
-| **StdioRunner** | Transport | Запуск stdio сервера с DI | [`src/codelab/server/transport/stdio_runner.py`](src/codelab/server/transport/stdio_runner.py) |
-| **Tracer** | Observability | Distributed tracing | [`src/codelab/server/observability/tracer.py`](src/codelab/server/observability/tracer.py) |
-| **MetricsTracker** | Observability | Metrics collection + auto-log | [`src/codelab/server/observability/metrics_tracker.py`](src/codelab/server/observability/metrics_tracker.py) |
-| **EventTimeline** | Observability | Хронология событий | [`src/codelab/server/observability/event_timeline.py`](src/codelab/server/observability/event_timeline.py) |
+| **DIContainer** | Infrastructure | Dependency Injection (dishka) | [`src/codelab/client/infrastructure/container_factory.py`](../../../src/codelab/client/infrastructure/container_factory.py) |
+| **BackgroundReceiveLoop** | Infrastructure | Единственный receive() на транспорт | [`src/codelab/client/infrastructure/services/background_receive_loop.py`](../../../src/codelab/client/infrastructure/services/background_receive_loop.py) |
+| **MessageRouter** | Infrastructure | Маршрутизация сообщений | [`src/codelab/client/infrastructure/services/message_router.py`](../../../src/codelab/client/infrastructure/services/message_router.py) |
+| **EventBus** | Infrastructure | Pub/Sub система событий | [`src/codelab/client/infrastructure/events/bus.py`](../../../src/codelab/client/infrastructure/events/bus.py) |
+| **StdioClientTransport** | Infrastructure | stdio транспорт (subprocess) | [`src/codelab/client/infrastructure/stdio_transport.py`](../../../src/codelab/client/infrastructure/stdio_transport.py) |
+| **ACPProtocol** | Protocol | Facade: маршрутизация через CommandRegistry, middleware, lifecycle. Делегирует обработку CommandHandler-ам | [`src/codelab/server/protocol/core.py`](../../../src/codelab/server/protocol/core.py) |
+| **CommandRegistry** | Protocol | Реестр обработчиков команд (Command Pattern) | [`src/codelab/server/protocol/commands/`](../../../src/codelab/server/protocol/commands/) |
+| **ResponseRouter** | Protocol | Маршрутизация ответов от клиента (permission, client RPC) | [`src/codelab/server/protocol/response_router.py`](../../../src/codelab/server/protocol/response_router.py) |
+| **BackgroundExecutor** | Protocol | Фоновое выполнение tools после permission approval, завершение turns | [`src/codelab/server/protocol/background_executor.py`](../../../src/codelab/server/protocol/background_executor.py) |
+| **MCPSessionManager** | Protocol | Управление MCP серверами для сессий (init, reconnect, prompts) | [`src/codelab/server/protocol/mcp_session_manager.py`](../../../src/codelab/server/protocol/mcp_session_manager.py) |
+| **ConfigSpecBuilder** | Protocol | Построение конфигурационных спецификаций из AgentRegistry, StrategyRegistry, LLMProviderRegistry | [`src/codelab/server/protocol/config_spec_builder.py`](../../../src/codelab/server/protocol/config_spec_builder.py) |
+| **PromptOrchestratorBuilder** | Protocol | Builder для PromptOrchestrator (12+ компонентов) | [`src/codelab/server/protocol/orchestrator_builder.py`](../../../src/codelab/server/protocol/orchestrator_builder.py) |
+| **SessionNotificationBus** | Protocol | Per-session Observer: бизнес-логика публикует, транспорт доставляет. Буферизация до подписки | [`src/codelab/server/protocol/notification_bus.py`](../../../src/codelab/server/protocol/notification_bus.py) |
+| **Handlers** | Protocol | Обработчики методов (auth, session, prompt) | [`src/codelab/server/protocol/handlers/`](../../../src/codelab/server/protocol/handlers/) |
+| **PromptPipeline** | Protocol | 7-stage pipeline: Validation → SlashCommand → PlanBuilding → TurnLifecycle(open) → Directives → LLMLoop → TurnLifecycle(close) | [`src/codelab/server/protocol/handlers/pipeline/`](../../../src/codelab/server/protocol/handlers/pipeline/) |
+| **PromptOrchestrator** | Protocol | Главный оркестратор prompt-turn | [`src/codelab/server/protocol/handlers/prompt_orchestrator.py`](../../../src/codelab/server/protocol/handlers/prompt_orchestrator.py) |
+| **AgentLoop** | Agent | Цикл LLM tool-calling итераций (пакет) | [`src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/`](../../../src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/) |
+| **ExecutionEngine** | Agent | Композиция HistoryBuilder, ToolFilter, LLMAdapter, MessageSanitizer, PlanExtractor, ContextCompactor | [`src/codelab/server/agent/execution_engine.py`](../../../src/codelab/server/agent/execution_engine.py) |
+| **DefaultContextManager** | Agent | Единая точка входа для управления контекстом (4-слойная архитектура A–D). Phase 0–3 реализованы | [`src/codelab/server/agent/context/manager.py`](../../../src/codelab/server/agent/context/manager.py) |
+| **ContextGatherer** | Agent | Сбор релевантных файлов через ACP ToolRegistry (пайплайн: project_tree → search → read_file → graph → отбор) | [`src/codelab/server/agent/context/gatherer.py`](../../../src/codelab/server/agent/context/gatherer.py) |
+| **TaskAnalyzer** | Agent | LLM-классификация задач (bug_fix/feature/refactor/architecture) | [`src/codelab/server/agent/context/task_analyzer.py`](../../../src/codelab/server/agent/context/task_analyzer.py) |
+| **PayloadEnvelope** | Agent | Конверт payload с явным разделением baseline (стабильный префикс) и tail (дельты) | [`src/codelab/server/agent/context/models.py`](../../../src/codelab/server/agent/context/models.py) |
+| **ContextConfig** | Agent | Feature-флаги Context Manager (TOML + env-overrides + runtime override) | [`src/codelab/server/agent/context/models.py`](../../../src/codelab/server/agent/context/models.py) |
+| **ContextCommandHandler** | Protocol | Slash-команда `/context` — наблюдаемость, диагностика, управление Context Manager | [`src/codelab/server/protocol/handlers/slash_commands/builtin/context.py`](../../../src/codelab/server/protocol/handlers/slash_commands/builtin/context.py) |
+| **ProjectStructureDecorator** | Tools | Автоизвлечение структуры проекта из terminal output (find/ls) | [`src/codelab/server/tools/executors/decorators/project_structure.py`](../../../src/codelab/server/tools/executors/decorators/project_structure.py) |
+| **ToolRegistry** | Tools | Регистрация и управление инструментами | [`src/codelab/server/tools/registry.py`](../../../src/codelab/server/tools/registry.py) |
+| **ToolMapping** | Tools | Маппинг имён ACP ↔ LLM (fs/read → fs_read) | [`src/codelab/server/tools/mapping.py`](../../../src/codelab/server/tools/mapping.py) |
+| **MCPManager** | MCP | Управление MCP-серверами (stdio/HTTP/SSE, auto-reconnect, roots) | [`src/codelab/server/mcp/manager.py`](../../../src/codelab/server/mcp/manager.py) |
+| **Storage** | Storage | Persistence для сессий | [`src/codelab/server/storage/`](../../../src/codelab/server/storage/) |
+| **WebSocketTransport** | Transport | WebSocket endpoint, подписка на NotificationBus | [`src/codelab/server/transport/websocket.py`](../../../src/codelab/server/transport/websocket.py) |
+| **WebSocketConnection** | Transport | Protocol-абстракция WebSocket соединения (тестируемость) | [`src/codelab/server/transport/websocket_connection.py`](../../../src/codelab/server/transport/websocket_connection.py) |
+| **WebUIManager** | Shared | Управление textual-serve subprocess и HTML generation | [`src/codelab/shared/web_ui.py`](../../../src/codelab/shared/web_ui.py) |
+| **StdioServerTransport** | Transport | stdio транспорт (stdin/stdout) | [`src/codelab/server/transport/stdio.py`](../../../src/codelab/server/transport/stdio.py) |
+| **StdioRunner** | Transport | Запуск stdio сервера с DI | [`src/codelab/server/transport/stdio_runner.py`](../../../src/codelab/server/transport/stdio_runner.py) |
+| **Tracer** | Observability | Distributed tracing | [`src/codelab/server/observability/tracer.py`](../../../src/codelab/server/observability/tracer.py) |
+| **MetricsTracker** | Observability | Metrics collection + auto-log | [`src/codelab/server/observability/metrics_tracker.py`](../../../src/codelab/server/observability/metrics_tracker.py) |
+| **EventTimeline** | Observability | Хронология событий | [`src/codelab/server/observability/event_timeline.py`](../../../src/codelab/server/observability/event_timeline.py) |
 
 ---
 
@@ -1306,7 +1306,7 @@ graph TD
 
 **Проблема:** Нужна гибкость в выборе хранилища (в памяти для dev, на диске для prod).
 
-**Решение:** [`SessionStorage(ABC)`](src/codelab/server/storage/base.py) — интерфейс с двумя реализациями:
+**Решение:** [`SessionStorage(ABC)`](../../../src/codelab/server/storage/base.py) — интерфейс с двумя реализациями:
 
 ```mermaid
 graph TB
@@ -1398,7 +1398,7 @@ graph TB
 
 **Проблема:** ACP протокол использует имена инструментов с `/` (например `fs/read_text_file`, `terminal/create`), но некоторые LLM провайдеры (Azure через OpenRouter) не поддерживают символ `/` в именах функций. Допустимый паттерн: `^[a-zA-Z0-9_\.-]+$`.
 
-**Решение:** [`tools/mapping.py`](src/codelab/server/tools/mapping.py) обеспечивает двусторонний маппинг:
+**Решение:** [`tools/mapping.py`](../../../src/codelab/server/tools/mapping.py) обеспечивает двусторонний маппинг:
 
 ```mermaid
 graph LR
@@ -1457,7 +1457,7 @@ graph LR
 
 **Проблема:** Не все клиенты поддерживают все инструменты (например, некоторые не поддерживают file system операции).
 
-**Решение:** [`ClientRuntimeCapabilities`](src/codelab/server/protocol/state.py) для фильтрации:
+**Решение:** [`ClientRuntimeCapabilities`](../../../src/codelab/server/protocol/state.py) для фильтрации:
 
 ```python
 # Пример из PromptOrchestrator
@@ -1476,7 +1476,7 @@ available_tools = [
 
 **Проблема:** Инструменты (fs/*, terminal/*) должны выполняться асинхронно на клиенте, а сервер ждет результата.
 
-**Решение:** [`ClientRPCService`](src/codelab/server/client_rpc/service.py) управляет [`asyncio.Future`](src/codelab/server/client_rpc/models.py):
+**Решение:** [`ClientRPCService`](../../../src/codelab/server/client_rpc/service.py) управляет [`asyncio.Future`](../../../src/codelab/server/client_rpc/models.py):
 
 ```mermaid
 graph TD
@@ -1502,7 +1502,7 @@ graph TD
 
 **Проблема:** По спецификации ACP `terminal/wait_for_exit` возвращает только `exitCode` и `signal` — без output. Output получается через отдельный метод `terminal/output`.
 
-**Решение:** [`TerminalToolExecutor.execute_wait_for_exit()`](src/codelab/server/tools/executors/terminal_executor.py) реализует корректный flow:
+**Решение:** [`TerminalToolExecutor.execute_wait_for_exit()`](../../../src/codelab/server/tools/executors/terminal_executor.py) реализует корректный flow:
 
 ```mermaid
 sequenceDiagram
@@ -1542,7 +1542,7 @@ sequenceDiagram
 
 **Проблема:** Обработка prompt-turn включает множество этапов (валидация, LLM, tools, permissions, обновления).
 
-**Решение:** [`PromptOrchestrator`](src/codelab/server/protocol/handlers/prompt_orchestrator.py) интегрирует все компоненты:
+**Решение:** [`PromptOrchestrator`](../../../src/codelab/server/protocol/handlers/prompt_orchestrator.py) интегрирует все компоненты:
 
 ```python
 class PromptOrchestrator:
@@ -1637,10 +1637,10 @@ graph TB
 | Cleanup при disconnect | ✅ `prompt_request_tasks` cleanup | ✅ `_cleanup_background_tasks` |
 
 **Файлы:**
-- [`src/codelab/server/transport/stdio.py`](src/codelab/server/transport/stdio.py) — основная логика
-- [`src/codelab/server/transport/stdio_runner.py`](src/codelab/server/transport/stdio_runner.py) — проброс callbacks из `ACPProtocol`
+- [`src/codelab/server/transport/stdio.py`](../../../src/codelab/server/transport/stdio.py) — основная логика
+- [`src/codelab/server/transport/stdio_runner.py`](../../../src/codelab/server/transport/stdio_runner.py) — проброс callbacks из `ACPProtocol`
 
-**Тесты:** 14 новых unit-тестов в [`tests/server/transport/test_stdio.py`](tests/server/transport/test_stdio.py), включая регрессионный тест `test_bypass_mode_client_rpc_response_routes_during_prompt`.
+**Тесты:** 14 новых unit-тестов в [`tests/server/transport/test_stdio.py`](../../../tests/server/transport/test_stdio.py), включая регрессионный тест `test_bypass_mode_client_rpc_response_routes_during_prompt`.
 
 ---
 
@@ -1677,7 +1677,7 @@ tool_registry.register("my/tool", MyToolDefinition(), MyToolExecutor())
 ### Добавление нового обработчика в codelab.client
 
 1. **Создать handler** в `infrastructure/handlers/`
-2. **Зарегистрировать** в [`HandlerRegistry`](src/codelab/client/infrastructure/handler_registry.py)
+2. **Зарегистрировать** в [`HandlerRegistry`](../../../src/codelab/client/infrastructure/handler_registry.py)
 3. **Добавить tests** в `tests/`
 
 Пример:
@@ -1697,7 +1697,7 @@ registry.register("my/method", MyHandler())
 
 ### Интеграция нового LLM провайдера
 
-1. **Наследовать** [`BaseLLMProvider`](src/codelab/server/llm/base.py)
+1. **Наследовать** [`BaseLLMProvider`](../../../src/codelab/server/llm/base.py)
 2. **Реализовать** `async generate()` метод
 3. **Зарегистрировать** в CLI флаге `--llm-provider`
 
@@ -1719,8 +1719,8 @@ class MyLLMProvider(BaseLLMProvider):
 
 ### Справочная документация
 
-- **[codelab/README.md](codelab/README.md)** — основная документация проекта
-- **[doc/product/developer-guide/](doc/product/developer-guide/)** — руководство разработчика
+- **[README.md](../../../README.md)** — основная документация проекта
+- **[doc/product/developer-guide/](../../../doc/product/developer-guide/)** — руководство разработчика
 
 ### Специальные документы
 

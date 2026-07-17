@@ -2544,14 +2544,14 @@ PromptOrchestrator
 
 **Назначение:** Инструмент `update_plan` позволяет LLM декларативно обновлять
 план выполнения задач. План передаётся клиенту через `session/update: plan`
-согласно [ACP spec 11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md)
+согласно [ACP spec 11-Agent Plan.md](../../protocols/Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md)
 и отображается в TUI через `PlanPanel`.
 
 > **Статус:** Полностью реализовано в текущем коде. В мультиагентной архитектуре
 > сохраняется и расширяется — добавляется поддержка планов в child sessions.
 
 > **ACP compliance:** Формат `session/update: plan` строго соответствует
-> [11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md).
+> [11-Agent Plan.md](../../protocols/Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md).
 > `update_plan` tool — internal implementation detail CodeLab, не часть ACP.
 
 #### Компоненты
@@ -2567,7 +2567,7 @@ PromptOrchestrator
 
 #### Формат плана (ACP-compliant)
 
-Согласно [11-Agent Plan.md](../../Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md):
+Согласно [11-Agent Plan.md](../../protocols/Agent%20Client%20Protocol/protocol/11-Agent%20Plan.md):
 
 ```python
 plan_entry = {
@@ -3243,7 +3243,7 @@ class ToolDefinition:
 
 **Передача `agent_name` через ACP `_meta`:**
 
-Согласно [15-Extensibility.md](../Agent%20Client%20Protocol/protocol/15-Extensibility.md), все типы в протоколе включают `_meta` field для кастомной информации. `agent_name` передаётся в `session/request_permission`:
+Согласно [15-Extensibility.md](../../protocols/Agent%20Client%20Protocol/protocol/15-Extensibility.md), все типы в протоколе включают `_meta` field для кастомной информации. `agent_name` передаётся в `session/request_permission`:
 
 ```json
 {
@@ -3655,7 +3655,7 @@ class ToolDefinition:
 ## 10. УДАЛЯЕМЫЕ КОМПОНЕНТЫ
 
 > **Обновлено 12 июня 2026** — анализ зависимостей показал, что `base.py` был переписан
-> и остаётся рабочим компонентом. См. [`doc/architecture/LEGACY_FILES_ANALYSIS.md`](./LEGACY_FILES_ANALYSIS.md).
+> и остаётся рабочим компонентом. См. [`doc/architecture/LEGACY_FILES_ANALYSIS.md`](../archive/LEGACY_FILES_ANALYSIS.md).
 
 ### 10.1. Уже удалённые
 
