@@ -183,7 +183,9 @@ async def test_context_manager_process_subagent_response():
 
     assert result is not None
     assert result.source_scope == "child"
-    assert "child" in result.summary
+    assert result.summary == "(субагент не выполнил действий)"
+    assert result.token_count == 0
+    assert result.shared_items == []
 
 
 @pytest.mark.asyncio

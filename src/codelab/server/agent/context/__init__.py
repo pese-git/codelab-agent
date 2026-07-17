@@ -7,6 +7,7 @@
 - Слой D: Мультиагент (ChildSessionManager, process_subagent_response)
 """
 
+from codelab.server.agent.context.child_session import DefaultChildSessionManager
 from codelab.server.agent.context.compactor import ThreePhaseCompactor
 from codelab.server.agent.context.epoch import EpochManager
 from codelab.server.agent.context.file_cache import (
@@ -54,6 +55,7 @@ __all__ = [
     "ContextRegistryImpl",
     "ContextSource",
     "ConversationSummarizer",
+    "DefaultChildSessionManager",
     "DefaultContextReconciler",
     "EpochManager",
     "FileCacheDecorator",

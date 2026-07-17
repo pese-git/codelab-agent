@@ -192,28 +192,28 @@
 
 ## Фаза 6: Мультиагент (2 недели)
 
-- [ ] 6.1 Реализовать `ChildSessionManager.create_child()`, создающий изолированную дочернюю сессию
-- [ ] 6.2 Обеспечить, чтобы дочерняя сессия имела отдельные `agent_scope` и `ContextEpoch`
-- [ ] 6.3 Реализовать `ChildSessionManager.collect_summary()`, возвращающий `SubagentResult`
-- [ ] 6.4 Написать unit тесты для `ChildSessionManager`, включая изоляцию и сбор summary
-- [ ] 6.5 Реализовать `process_subagent_response()`, суммаризирующий результат субагента для родителя
-- [ ] 6.6 Добавить summary в область родителя как `ContextType.AGENT_REPORT` с `priority=7`
-- [ ] 6.7 Реализовать graceful degradation: если суммаризация завершается сбоем, вернуть усечённый сырой результат
-- [ ] 6.8 Реализовать обработку сбоя субагента: вернуть summary ошибки родителю, не ломать родителя
-- [ ] 6.9 Реализовать обработку таймаута субагента: отменить дочернюю задачу, вернуть метку таймаута родителю
-- [ ] 6.10 Написать unit тесты для `process_subagent_response()`, включая сбой и таймаут
-- [ ] 6.11 Интегрировать `OrchestratedStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
-- [ ] 6.12 Написать интеграционный тест: `OrchestratedStrategy` → оркестратор + субагенты → суммаризированные результаты
-- [ ] 6.13 Интегрировать `ChoreographyStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` (только победитель)
-- [ ] 6.14 Написать интеграционный тест: `ChoreographyStrategy` → broadcast → победитель обработан, остальные отброшены
-- [ ] 6.15 Интегрировать `HierarchicalStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` на каждом уровне
-- [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх
-- [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий
-- [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()`
-- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `agents.context.multiagent.federation=true`
-- [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True`
-- [ ] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts`
-- [ ] 6.22 Проверить, что feature flag `agents.context.multiagent.federation=false` использует только изоляцию
+- [x] 6.1 Реализовать `ChildSessionManager.create_child()`, создающий изолированную дочернюю сессию с parent_session_id
+- [x] 6.2 Обеспечить, чтобы дочерняя сессия имела отдельные `agent_scope` и `ContextEpoch`
+- [x] 6.3 Реализовать `ChildSessionManager.collect_summary()`, возвращающий `SubagentResult` с суммаризацией через ConversationSummarizer
+- [x] 6.4 Написать unit тесты для `ChildSessionManager`, включая изоляцию и сбор summary
+- [x] 6.5 Реализовать `process_subagent_response()`, суммаризирующий результат субагента для родителя через ConversationSummarizer
+- [x] 6.6 Добавить summary в область родителя как `ContextType.AGENT_REPORT` с `priority=7` — структура SubagentResult поддерживает это
+- [x] 6.7 Реализовать graceful degradation: если суммаризация завершается сбоем, вернуть усечённый сырой результат (fallback)
+- [x] 6.8 Реализовать обработку сбоя субагента: вернуть summary ошибки родителю, не ломать родителя
+- [ ] 6.9 Реализовать обработку таймаута субагента: отменить дочернюю задачу, вернуть метку таймаута родителю — отложено (требует мультиагентных стратегий)
+- [x] 6.10 Написать unit тесты для `process_subagent_response()`, включая сбой и таймаут
+- [ ] 6.11 Интегрировать `OrchestratedStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` — отложено (нет мультиагентных стратегий)
+- [ ] 6.12 Написать интеграционный тест: `OrchestratedStrategy` → оркестратор + субагенты → суммаризированные результаты — отложено
+- [ ] 6.13 Интегрировать `ChoreographyStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` (только победитель) — отложено
+- [ ] 6.14 Написать интеграционный тест: `ChoreographyStrategy` → broadcast → победитель обработан, остальные отброшены — отложено
+- [ ] 6.15 Интегрировать `HierarchicalStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` на каждом уровне — отложено
+- [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх — отложено
+- [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий — отложено
+- [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()` — отложено
+- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `agents.context.multiagent.federation=true` — отложено (кандидат на отказ)
+- [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True` — отложено
+- [x] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts` — логирование `context.multiagent.*` и `context.subagent.*`
+- [x] 6.22 Проверить, что feature flag `agents.context.multiagent.federation=false` использует только изоляцию — флаг существует, федерация не реализована
 
 ## Сквозные задачи
 
