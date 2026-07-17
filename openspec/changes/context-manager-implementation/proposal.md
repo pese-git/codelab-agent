@@ -80,21 +80,23 @@ src/codelab/server/agent/context/
 ├── manager.py            # ContextManager (единая точка входа)
 ├── task_analyzer.py      # TaskAnalyzer
 ├── gatherer.py           # ContextGatherer
+├── gatherer/             # Модули конвейера сбора (path normalization и др.)
 ├── dependency_graph.py   # DependencyGraph
 ├── budget.py             # TokenBudgetManager
 ├── registry.py           # ContextRegistry, ContextSource, SkillContextSource
 ├── epoch.py              # ContextEpoch
-├── snapshot.py           # ContextSnapshot, ContextReconciler
+├── reconciler.py         # ContextSnapshot, ContextReconciler
 ├── summarizer.py         # ConversationSummarizer
 ├── token_counter.py      # TokenCounter, TiktokenCounter
-├── ast_skeletonizer.py   # CodeSkeletonizer, PythonASTSkeletonizer
-├── file_cache.py         # FileContentCache, InMemoryFileCache, SessionFileCacheRegistry
+├── skeletonizer/         # CodeSkeletonizer, PythonASTSkeletonizer
+├── file_cache.py         # FileContentCache, InMemoryFileCache, SessionFileCacheRegistry, InvalidationSignalBus
+├── file_cache_decorator.py  # FileCacheDecorator (перехват fs/read, fs/write)
 ├── compactor.py          # ContextCompactor (3 фазы)
-├── items.py              # ContextItem
-└── child_session.py      # ChildSessionManager
-
-src/codelab/server/tools/executors/decorators/
-└── file_cache.py         # FileCacheDecorator
+├── models.py             # ContextItem, PayloadEnvelope и др. модели
+├── config_loader.py      # Загрузчик feature flags TOML → ContextConfig
+├── legacy_bridge.py      # Мост к legacy ContextCompactor
+├── file_matching.py      # Утилиты сопоставления путей файлов
+└── child_session.py      # ChildSessionManager (Phase 6)
 ```
 
 **Изменяемые файлы:**

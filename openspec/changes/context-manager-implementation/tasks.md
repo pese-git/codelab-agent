@@ -130,7 +130,7 @@
 - [x] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
 - [x] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
 - [x] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
-- [ ] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе — **НЕ работает**: `reconcile()` возвращает только `UNCHANGED`/`UPDATED`, `defer_changes()` нигде не вызывается (мёртвый путь)
+- [x] 4.9 ~~Реализовать состояние `DEFERRED`~~ — **Rejected via ADR-002**: mid-turn reconcile не запланирован, eventual consistency на границах ходов достаточно
 - [x] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
 - [x] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
 - [x] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
@@ -143,7 +143,7 @@
 - [x] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
 - [x] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
 - [x] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
-- [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применяют вместе на следующей границе — **НЕ работает**: зависит от `DEFERRED` (4.9), который не задействован
+- [x] 4.22 ~~Реализовать debounce `DEFERRED`~~ — **Rejected via ADR-002**: зависит от 4.9, который отклонён
 - [x] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
 - [x] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
 - [x] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline пересобирается каждый ход)
@@ -167,9 +167,7 @@
   меняется → эпоха ломается со свежим содержимым.
 - [x] 4.D3 **Тест реального рефреша добавлен** (`TestDirtySourceRefresh`): регресс-гард
   на `fs/read_text_file` (не `fs/read`) + обновление контента через ToolRegistry.
-- [ ] 4.D4 **DEFERRED-путь мёртв** (см. 4.9, 4.22) — в текущей архитектуре reconcile
-  вызывается только на границе хода (build_context), поэтому DEFERRED не возникает;
-  оставлено до появления mid-turn reconcile.
+- [x] 4.D4 ~~DEFERRED-путь мёртв~~ — **Rejected via ADR-002**: состояние DEFERRED отклонено, reconcile вызывается только на границе хода
 - [ ] 4.D5 **(слой A) граф зависимостей укоренялся в cwd сервера** вместо `session.cwd`.
   Исправлено (`set_project_root`); относится к gather, не к lifecycle. *(закрыто)*
 - [x] 4.28 Интегрировать `SessionFileCacheRegistry` в DI контейнер (app scope)
