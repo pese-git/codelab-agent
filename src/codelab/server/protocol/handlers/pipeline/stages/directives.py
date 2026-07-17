@@ -112,11 +112,14 @@ class DirectivesStage(PromptStage):
                 },
             )
         )
-        # Сохраняем план в сессии для replay
+        # Сохраняем план в сессии для replay в ACP-форме {content, priority, status} —
+        # идентично тому, что ушло в wire выше (P2-26). Раньше урезалось до
+        # {title, description}, что невалидно по ACP и теряло статусы при replay.
         context.session.latest_plan = [
             {
-                "title": entry.get("content", ""),
-                "description": entry.get("description", ""),
+                "content": entry.get("content", ""),
+                "priority": entry.get("priority", "medium"),
+                "status": entry.get("status", "pending"),
             }
             for entry in plan_entries
         ]

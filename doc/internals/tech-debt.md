@@ -1237,7 +1237,23 @@ update` в except-ветке безопасно — повторного выб�
 
 ---
 
-### 26. Формат плана нарушает ACP на replay-пути: `latest_plan` хранит `{title,description}` вместо ACP `{content,priority,status}` — ⬜ ОТКРЫТ (приоритет №2 — соответствие ACP)
+### 26. Формат плана нарушает ACP на replay-пути: `latest_plan` хранит `{title,description}` вместо ACP `{content,priority,status}` — ✅ ЗАКРЫТО (2026-07-17)
+
+> ✅ **Фикс (2026-07-17):** оба writer'а, урезавших план до невалидного `{title,description}`
+> (`plan_builder.update_session_plan`, `directives.py::_apply_publish_plan`), приведены к
+> ACP-форме `{content,priority,status}` — идентично тому, что уходит в live
+> `session/update: plan`. Теперь `replay_latest_plan` на `session/load` отдаёт ACP-валидные
+> entries со статусами (live ≡ replay). Миграция схемы **v5 → v6**
+> (`state.py::migrate_schema` + хелпер `_migrate_plan_entry_to_acp`): старые сессии с
+> `{title,description}` конвертируются (`title`→`content`, статусы/priority — валидные
+> дефолты), уже-ACP entries сохраняются как есть. Тесты: `test_stored_plan_matches_wire_
+> notification` (live≡stored), миграция v5→v6 legacy и preserve-ACP, обновлён
+> `test_replays_latest_plan` на ACP-форму. `make check` зелёный.
+>
+> **Сужение типа `list[PlanStep | dict]` — осознанно отложено:** defensive-ветка в
+> `replay_latest_plan` (`model_dump` для BaseModel) защищает от P2-12 (регресс-тест с
+> `PlanStep`-объектами), сужение с ней конфликтует и добавляет риск при малой пользе. Все
+> writer'ы теперь пишут dict-и в ACP-форме, так что полиморфизм де-факто не возникает.
 
 > Наблюдение из P1-4; при проверке против спецификации (`doc/protocols/Agent Client
 > Protocol/protocol/11-Agent Plan.md` + `17-Schema.md`) оказалось **нарушением ACP**, а не

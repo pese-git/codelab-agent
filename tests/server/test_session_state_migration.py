@@ -28,7 +28,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 5
+        assert session.schema_version == 6
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -48,7 +48,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 5
+        assert session.schema_version == 6
         assert session.events_history == []
         assert session.config_values == {}
         assert session.active_strategy == "single"
@@ -59,7 +59,7 @@ class TestSessionStateMigrationV1toV4:
         """Новые поля имеют правильные значения по умолчанию."""
         session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
 
-        assert session.schema_version == 5
+        assert session.schema_version == 6
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -135,7 +135,7 @@ class TestSessionStateMigrationV1toV4:
         assert session.permission_policy == {"execute": "allow_always"}
 
         # Новые поля добавлены
-        assert session.schema_version == 5
+        assert session.schema_version == 6
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -189,10 +189,10 @@ class TestSessionStateMigrationV1toV4:
         assert len(session.events_history) == 1
 
     def test_schema_version_updated_after_migration(self) -> None:
-        """После миграции schema_version равен 5."""
+        """После миграции schema_version равен 6."""
         # v0
         session_v0 = SessionState(session_id="test", cwd="/tmp")
-        assert session_v0.schema_version == 5
+        assert session_v0.schema_version == 6
 
         # v1
         session_v1 = SessionState(
@@ -201,7 +201,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v1.schema_version == 5
+        assert session_v1.schema_version == 6
 
         # v3
         session_v3 = SessionState(
@@ -210,7 +210,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v3.schema_version == 5
+        assert session_v3.schema_version == 6
 
         # v4
         session_v4 = SessionState(
@@ -219,16 +219,25 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v4.schema_version == 5
+        assert session_v4.schema_version == 6
 
-        # v5 (текущая)
+        # v5
         session_v5 = SessionState(
             schema_version=5,
             session_id="test",
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v5.schema_version == 5
+        assert session_v5.schema_version == 6
+
+        # v6 (текущая)
+        session_v6 = SessionState(
+            schema_version=6,
+            session_id="test",
+            cwd="/tmp",
+            mcp_servers=[],
+        )
+        assert session_v6.schema_version == 6
 
     def test_migration_v4_to_v5_adds_terminal_registry(self) -> None:
         """v4 → v5: добавляются поля terminal alias registry с defaults (#18)."""
@@ -241,7 +250,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 5
+        assert session.schema_version == 6
         assert session.terminals == {}
         assert session.terminal_counter == 0
 
@@ -260,3 +269,47 @@ class TestSessionStateMigrationV1toV4:
 
         assert session.terminals == {"term_1": "client-uuid"}
         assert session.terminal_counter == 1
+
+    def test_migration_v5_to_v6_plan_legacy_to_acp(self) -> None:
+        """v5 → v6: legacy latest_plan {title,description} → ACP {content,priority,status}.
+
+        P2-26: старая форма невалидна по ACP и теряла статусы при replay.
+        """
+        old_data = {
+            "schema_version": 5,
+            "session_id": "test-session",
+            "cwd": "/tmp",
+            "mcp_servers": [],
+            "latest_plan": [
+                {"title": "Step 1", "description": "First"},
+                {"title": "Step 2", "description": "Second"},
+            ],
+        }
+
+        session = SessionState(**old_data)
+
+        assert session.schema_version == 6
+        assert session.latest_plan == [
+            {"content": "Step 1", "priority": "medium", "status": "pending"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
+        ]
+
+    def test_migration_v5_to_v6_preserves_acp_entries(self) -> None:
+        """Уже-ACP entries со статусами не портятся миграцией (статусы сохраняются)."""
+        data = {
+            "schema_version": 5,
+            "session_id": "test-session",
+            "cwd": "/tmp",
+            "mcp_servers": [],
+            "latest_plan": [
+                {"content": "Done step", "priority": "high", "status": "completed"},
+                {"content": "Active step", "priority": "low", "status": "in_progress"},
+            ],
+        }
+
+        session = SessionState(**data)
+
+        assert session.latest_plan == [
+            {"content": "Done step", "priority": "high", "status": "completed"},
+            {"content": "Active step", "priority": "low", "status": "in_progress"},
+        ]

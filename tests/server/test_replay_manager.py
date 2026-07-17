@@ -368,10 +368,10 @@ class TestReplayLatestPlan:
         replay_manager: ReplayManager,
         session: SessionState,
     ) -> None:
-        """Проверяет replay последнего плана."""
+        """Проверяет replay последнего плана в ACP-форме (P2-26)."""
         session.latest_plan = [
-            {"title": "Step 1", "status": "completed"},
-            {"title": "Step 2", "status": "pending"},
+            {"content": "Step 1", "priority": "high", "status": "completed"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
         ]
 
         notification = replay_manager.replay_latest_plan(session)

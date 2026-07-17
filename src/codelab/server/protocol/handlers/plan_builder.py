@@ -176,11 +176,15 @@ class PlanBuilder:
             session: Состояние сессии
             plan_entries: Нормализованные entries
         """
-        # Преобразуем для сохранения в сессии
+        # Храним план в ACP-форме {content, priority, status} — идентично тому, что
+        # уходит в live `session/update: plan`, чтобы replay на `session/load` отдавал
+        # тот же ACP-валидный формат (ACP 11-Agent Plan: content/priority/status —
+        # required; title/description в схеме нет). См. P2-26.
         session.latest_plan = [
             {
-                "title": entry.get("content", ""),
-                "description": entry.get("description", ""),
+                "content": entry.get("content", ""),
+                "priority": entry.get("priority", "medium"),
+                "status": entry.get("status", "pending"),
             }
             for entry in plan_entries
         ]
