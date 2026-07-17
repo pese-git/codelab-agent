@@ -29,7 +29,6 @@
 - ProgressBar, ProgressVariant: индикатор прогресса
 - Spinner, LoadingIndicator, SpinnerSize, SpinnerVariant: индикаторы загрузки
 - ContextMenu, ContextMenuScreen, MenuItem, MenuSeparator, MenuGroup: контекстное меню
-- TerminalPanel, TerminalSession, TerminalOutput, TerminalToolbar: панель терминала
 """
 
 from .action_bar import ActionBar
@@ -94,7 +93,6 @@ from .terminal_output import (
     TerminalOutputPanel,
     TerminalOutputToolbar,
 )
-from .terminal_panel import TerminalOutput, TerminalPanel, TerminalSession, TerminalToolbar
 from .toast import Toast, ToastContainer, ToastData, ToastType
 from .tool_call_card import ToolCallCard, ToolCallStatus
 from .tool_call_list import ToolCallList
@@ -192,10 +190,6 @@ __all__ = [
     "MenuItem",
     "MenuSeparator",
     "MenuGroup",
-    "TerminalPanel",
-    "TerminalSession",
-    "TerminalOutput",
-    "TerminalToolbar",
     # Фаза 5: Polish компоненты
     "KeyboardManager",
     "HotkeyBinding",
