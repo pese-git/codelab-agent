@@ -1,7 +1,7 @@
 # Context Manager — Модели данных
 
 > **Статус:** Канон (Phase 0) — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17: ContentPart для multimodal LLMMessage, уточнения по Phase 5/6)
 >
 > Структуры данных, на которых строятся [интерфейсы](./INTERFACES.md). Все — `@dataclass`,
 > предпочтительно `frozen=True` (иммутабельность для кэш-стабильности).
@@ -33,6 +33,42 @@ class PayloadEnvelope:
 **Поведение по фазам:**
 - **Phase 1 (гидрация):** `baseline` пересобирается каждый ход; `baseline_fingerprint` может меняться.
 - **Phase 4 (инкрементальная):** `baseline` фиксируется на старте эпохи; меняется только `tail`; стабильный `baseline_fingerprint` → кэш-хит.
+- **Phase 5 (recursive deps):** `baseline` может расти за счёт транзитивных импортов (depth=3), но `fingerprint` остаётся стабильным, пока содержимое файлов не меняется.
+
+### 1.1. LLMMessage (расширение из LLM-слоя)
+
+`PayloadEnvelope` содержит `list[LLMMessage]`. Тип `LLMMessage` определён в
+`src/codelab/server/llm/models.py` (не в `context/`) и расширен для поддержки
+multimodal-контента.
+
+```python
+from typing import Any
+
+@dataclass(frozen=True)
+class ContentPart:
+    """Часть multimodal-контента (text/image/audio)."""
+    type: str                          # "text" | "image" | "audio"
+    text: str | None = None
+    data: str | None = None            # base64 для image/audio
+    mime_type: str | None = None
+    extras: dict[str, Any] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class LLMMessage:
+    role: str                          # "system" | "user" | "assistant" | "tool"
+    content: str | list[ContentPart] | None  # str для текста, list для multimodal
+    tool_call_id: str | None = None
+    tool_calls: list[LLMToolCall] | None = None
+    cache_control: dict[str, Any] | None = None  # Phase 4: prompt-cache marker (план)
+```
+
+**Особенности для Context Manager:**
+- `baseline` обычно содержит только `text` (`content: str`).
+- `tail` может содержать `list[ContentPart]` (результаты tool с изображениями, аудио).
+- В `process_subagent_response()` (Phase 6) поддерживается извлечение текста из
+  `list[ContentPart]` для суммаризации через `ConversationSummarizer`.
+- `cache_control` (Phase 4, **план не реализован**) — для прокидывания
+  `cache_control: {"type": "ephemeral"}` в Anthropic API.
 
 ---
 
@@ -53,7 +89,7 @@ class TaskProfile:
     task_type: TaskType
     search_terms: list[str]
     target_modules: list[str]
-    investigation_depth: int          # 1–3
+    investigation_depth: int          # 1–3 (Phase 1+, используется в Phase 5 для max_depth)
     needs_tests: bool
 
 @dataclass(frozen=True)
@@ -143,6 +179,10 @@ class ReconcileResult:
     epoch_broken: bool                # True → baseline пересобран (потеря кэша)
 ```
 
+**Текущий статус (Phase 4):** `DEFERRED` **отклонён через ADR-002** (mid-turn
+reconcile не запланирован, eventual consistency на границах ходов достаточна).
+`ContextReconciler` оперирует только `UNCHANGED` / `UPDATED` / `epoch_broken=True`.
+
 ---
 
 ## 5. Слой D — модели мультиагента
@@ -157,6 +197,9 @@ class SubagentResult:
     shared_items: list[ContextItem] = field(default_factory=list)  # пусто без федерации
 ```
 
+**Текущий статус (Phase 6):** `shared_items` всегда пуст (без федерации).
+Федеративный `share_item()` — **кандидат на отказ** (ADR-002).
+
 ---
 
 ## 6. Конфигурация
@@ -169,8 +212,9 @@ class ContextConfig:
     enabled: bool = False
     # gather (Phase 1 / 5)
     gather_enabled: bool = True
-    recursive_dependencies: bool = False
-    use_tree_sitter: bool = False
+    recursive_dependencies: bool = False   # Phase 5
+    use_tree_sitter: bool = False          # Phase 5 (отложен)
+    analyzer_model: str = "openai/gpt-4o-mini"
     # storage (Phase 2)
     use_tiktoken: bool = True
     file_cache: bool = True

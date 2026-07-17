@@ -1,7 +1,7 @@
 # Context Manager — Консолидированная архитектура
 
 > **Статус:** Канон (отражает [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md))
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17: Phase 5/6 реализованы, уточнены слои A и D)
 > **Заменяет:** дизайн-документы `doc/internals/architecture/fcm/` (FCM v2.3) — архивируются на Phase 0.
 >
 > Этот документ — единый source-of-truth по архитектуре менеджера контекста.
@@ -91,7 +91,7 @@ ContextManager (единая точка входа)
 |-----------|------------------|
 | `TaskAnalyzer` | Классифицирует задачу (bug_fix/feature/refactor/architecture), извлекает поисковые термины, глубину исследования. LLM-классификация |
 | `ContextGatherer` | Пайплайн: `project_tree()` → `search()` → `read_file()` → построение графа → отбор целевых файлов. Через ACP `ToolRegistry` |
-| `DependencyGraph` | Карта импортов/зависимостей. `get_dependencies()`/`get_dependents()`. Phase 1 — regex, Phase 5 — рекурсия/tree-sitter |
+| `DependencyGraph` / `RegexDependencyGraph` | Карта импортов/зависимостей. `get_dependencies()`/`get_dependents()`. **Phase 1** — regex, **Phase 5** — рекурсия с `max_depth` (из `investigation_depth`). Поддержка Python и Dart (regex: `import '...'`, `export '...'`). Tree-sitter — отложен (опц.) |
 | `TokenBudgetManager` | Аллокация бюджета (system/history/tool/response) — `allocate()`, `bound_content()` |
 | `ContextRegistry` / `ContextSource` | Реестр источников контекста; `render_baseline()` / `render_updates()` |
 | `SkillContextSource` | Каталог доступных скиллов в системном промпте + отслеживание изменений |
@@ -120,9 +120,14 @@ ContextManager (единая точка входа)
 
 | Компонент | Ответственность |
 |-----------|------------------|
-| `ChildSessionManager` | Изоляция субагентов в child-сессиях (по умолчанию) |
-| `process_subagent_response()` | Суммаризация ответа субагента для родителя |
-| `share_item()` (опц.) | Федеративный шеринг между скоупами. **Кандидат на отказ** (§8) |
+| `ChildSessionManager` / `DefaultChildSessionManager` | **Phase 6**: изоляция субагентов в child-сессиях (создаются через `SessionFactory` с `parent_session_id` в `config_values`). Суммаризация истории child-сессии через `ConversationSummarizer` |
+| `process_subagent_response()` | **Phase 6** (в `DefaultContextManager`): возвращает `SubagentResult.summary` родителю. Поддерживает `list[LLMMessage]`, `str`, `dict`, пустой `response`. Graceful degradation через fallback (усечение) |
+| `share_item()` (опц.) | Федеративный шеринг между скоупами. **Кандидат на отказ** (§8). Реализация за флагом `federation` |
+
+**Текущий статус (2026-07-17):**
+- ✅ Ядро реализовано: `ChildSessionManager` + `process_subagent_response` + graceful degradation.
+- ❌ Мультиагентные стратегии (`OrchestratedStrategy`, `ChoreographyStrategy`, `HierarchicalStrategy`) **не реализованы** в проекте — это отдельная работа.
+- ❌ Таймауты субагентов (T6.9) — отложены.
 
 ---
 
@@ -401,7 +406,7 @@ src/codelab/server/tools/executors/decorators/
 
 # Изменяемые файлы
 src/codelab/server/agent/execution_engine.py   # единый путь build_context()
-src/codelab/server/di.py                        # DI-интеграция ContextManager
+src/codelab/server/di/                          # DI-интеграция ContextManager (пакет: agent.py, services.py)
 src/codelab/server/protocol/handlers/slash_commands/builtin/context.py  # /context
 ```
 

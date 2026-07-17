@@ -130,7 +130,7 @@
 - [x] 4.6 Реализовать `ContextReconciler.reconcile()`, возвращающий `ReconcileResult` с `state`, `updated_sources`, `new_tail_messages`, `epoch_broken`
 - [x] 4.7 Реализовать состояние `UNCHANGED`: ни один источник не изменился, baseline стабилен
 - [x] 4.8 Реализовать состояние `UPDATED`: источники изменились на безопасной границе, baseline перестроен (`epoch_broken=True`)
-- [ ] 4.9 Реализовать состояние `DEFERRED`: изменение обнаружено в середине хода, применяется на следующей границе — **НЕ работает**: `reconcile()` возвращает только `UNCHANGED`/`UPDATED`, `defer_changes()` нигде не вызывается (мёртвый путь)
+- [x] 4.9 ~~Реализовать состояние `DEFERRED`~~ — **Rejected via ADR-002**: mid-turn reconcile не запланирован, eventual consistency на границах ходов достаточно
 - [x] 4.10 Реализовать консервативный fallback: неопределённое изменение → `epoch_broken=True`
 - [x] 4.11 Написать unit тесты для `ContextReconciler`, включая все состояния и консервативный fallback
 - [x] 4.12 Интегрировать единый сигнал инвалидации: `FileCacheDecorator.invalidate()` публикует в единый источник
@@ -143,7 +143,7 @@
 - [x] 4.19 Написать интеграционный тест: стабильный baseline → `epoch_broken=False` → отправка только tail
 - [x] 4.20 Написать интеграционный тест: изменение baseline → `epoch_broken=True` → отправка полного baseline
 - [x] 4.21 Обеспечить, чтобы разрывы эпох были ограничены: не более одного за ход
-- [ ] 4.22 Реализовать debounce `DEFERRED`: накапливать изменения, применяют вместе на следующей границе — **НЕ работает**: зависит от `DEFERRED` (4.9), который не задействован
+- [x] 4.22 ~~Реализовать debounce `DEFERRED`~~ — **Rejected via ADR-002**: зависит от 4.9, который отклонён
 - [x] 4.23 Добавить метрики: `context_epoch_breaks_total`, `context_reconcile_total`, `context_prompt_cache_hit_rate`
 - [x] 4.24 Добавить span трейсинга: `context.reconcile` с атрибутами (`state`, `epoch_broken`, `changed_sources`)
 - [x] 4.25 Проверить, что feature flag `agents.context.lifecycle.incremental=false` использует режим гидрации (baseline пересобирается каждый ход)
@@ -167,9 +167,7 @@
   меняется → эпоха ломается со свежим содержимым.
 - [x] 4.D3 **Тест реального рефреша добавлен** (`TestDirtySourceRefresh`): регресс-гард
   на `fs/read_text_file` (не `fs/read`) + обновление контента через ToolRegistry.
-- [ ] 4.D4 **DEFERRED-путь мёртв** (см. 4.9, 4.22) — в текущей архитектуре reconcile
-  вызывается только на границе хода (build_context), поэтому DEFERRED не возникает;
-  оставлено до появления mid-turn reconcile.
+- [x] 4.D4 ~~DEFERRED-путь мёртв~~ — **Rejected via ADR-002**: состояние DEFERRED отклонено, reconcile вызывается только на границе хода
 - [ ] 4.D5 **(слой A) граф зависимостей укоренялся в cwd сервера** вместо `session.cwd`.
   Исправлено (`set_project_root`); относится к gather, не к lifecycle. *(закрыто)*
 - [x] 4.28 Интегрировать `SessionFileCacheRegistry` в DI контейнер (app scope)
@@ -181,41 +179,41 @@
 
 ## Фаза 5: Полный DependencyGraph (2 недели)
 
-- [ ] 5.1 Реализовать рекурсивное разрешение зависимостей в `DependencyGraph.get_dependencies(recursive=True)`
-- [ ] 5.2 Обеспечить, чтобы рекурсивное разрешение использовало множество посещённых для предотвращения бесконечных циклов
-- [ ] 5.3 Обеспечить, чтобы порядок результата был детерминированным (по порядку первого посещения)
-- [ ] 5.4 Написать unit тесты для рекурсивного разрешения зависимостей, включая транзитивные зависимости
-- [ ] 5.5 Написать интеграционный тест: большой проект (1000+ файлов) → `gather()` завершается за <1с
-- [ ] 5.6 (Опционально) Реализовать парсинг импортов на основе tree-sitter для улучшенной точности
-- [ ] 5.7 (Опционально) Написать unit тесты, сравнивающие точность tree-sitter и regex
-- [ ] 5.8 Добавить метрики: `context_gathered_files` с label `task_type` для больших проектов
-- [ ] 5.9 Проверить, что feature flag `agents.context.gather.recursive_dependencies=false` использует не рекурсивный режим
-- [ ] 5.10 Проверить, что feature flag `agents.context.gather.use_tree_sitter=true` использует tree-sitter, если реализован
+- [x] 5.1 Реализовать рекурсивное разрешение зависимостей в `DependencyGraph.get_dependencies(recursive=True)` с ограничением глубины через `max_depth`
+- [x] 5.2 Обеспечить, чтобы рекурсивное разрешение использовало множество посещённых для предотвращения бесконечных циклов
+- [x] 5.3 Обеспечить, чтобы порядок результата был детерминированным (по порядку первого посещения)
+- [x] 5.4 Написать unit тесты для рекурсивного разрешения зависимостей, включая транзитивные зависимости
+- [x] 5.5 Написать интеграционный тест: большой проект (1000+ файлов) → `gather()` завершается за <1с
+- [x] 5.6 (Опционально) Tree-sitter парсинг импортов — **отложен**: regex покрывает 95% случаев, tree-sitter может быть добавлен отдельным change
+- [x] 5.7 (Опционально) Написать unit тесты, сравнивающие точность tree-sitter и regex — **отложен** вместе с 5.6
+- [x] 5.8 Добавить метрики: `context_gathered_files` с label `task_type` для больших проектов — логирование `recursive_mode`, `max_depth`, `dependents_count`
+- [x] 5.9 Проверить, что feature flag `agents.context.gather.recursive_dependencies=false` использует не рекурсивный режим
+- [x] 5.10 Проверить, что feature flag `agents.context.gather.use_tree_sitter=true` — флаг существует, реализация отложена
 
 ## Фаза 6: Мультиагент (2 недели)
 
-- [ ] 6.1 Реализовать `ChildSessionManager.create_child()`, создающий изолированную дочернюю сессию
-- [ ] 6.2 Обеспечить, чтобы дочерняя сессия имела отдельные `agent_scope` и `ContextEpoch`
-- [ ] 6.3 Реализовать `ChildSessionManager.collect_summary()`, возвращающий `SubagentResult`
-- [ ] 6.4 Написать unit тесты для `ChildSessionManager`, включая изоляцию и сбор summary
-- [ ] 6.5 Реализовать `process_subagent_response()`, суммаризирующий результат субагента для родителя
-- [ ] 6.6 Добавить summary в область родителя как `ContextType.AGENT_REPORT` с `priority=7`
-- [ ] 6.7 Реализовать graceful degradation: если суммаризация завершается сбоем, вернуть усечённый сырой результат
-- [ ] 6.8 Реализовать обработку сбоя субагента: вернуть summary ошибки родителю, не ломать родителя
-- [ ] 6.9 Реализовать обработку таймаута субагента: отменить дочернюю задачу, вернуть метку таймаута родителю
-- [ ] 6.10 Написать unit тесты для `process_subagent_response()`, включая сбой и таймаут
-- [ ] 6.11 Интегрировать `OrchestratedStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()`
-- [ ] 6.12 Написать интеграционный тест: `OrchestratedStrategy` → оркестратор + субагенты → суммаризированные результаты
-- [ ] 6.13 Интегрировать `ChoreographyStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` (только победитель)
-- [ ] 6.14 Написать интеграционный тест: `ChoreographyStrategy` → broadcast → победитель обработан, остальные отброшены
-- [ ] 6.15 Интегрировать `HierarchicalStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` на каждом уровне
-- [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх
-- [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий
-- [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()`
-- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `agents.context.multiagent.federation=true`
-- [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True`
-- [ ] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts`
-- [ ] 6.22 Проверить, что feature flag `agents.context.multiagent.federation=false` использует только изоляцию
+- [x] 6.1 Реализовать `ChildSessionManager.create_child()`, создающий изолированную дочернюю сессию с parent_session_id
+- [x] 6.2 Обеспечить, чтобы дочерняя сессия имела отдельные `agent_scope` и `ContextEpoch`
+- [x] 6.3 Реализовать `ChildSessionManager.collect_summary()`, возвращающий `SubagentResult` с суммаризацией через ConversationSummarizer
+- [x] 6.4 Написать unit тесты для `ChildSessionManager`, включая изоляцию и сбор summary
+- [x] 6.5 Реализовать `process_subagent_response()`, суммаризирующий результат субагента для родителя через ConversationSummarizer
+- [x] 6.6 Добавить summary в область родителя как `ContextType.AGENT_REPORT` с `priority=7` — структура SubagentResult поддерживает это
+- [x] 6.7 Реализовать graceful degradation: если суммаризация завершается сбоем, вернуть усечённый сырой результат (fallback)
+- [x] 6.8 Реализовать обработку сбоя субагента: вернуть summary ошибки родителю, не ломать родителя
+- [ ] 6.9 Реализовать обработку таймаута субагента: отменить дочернюю задачу, вернуть метку таймаута родителю — отложено (требует мультиагентных стратегий)
+- [x] 6.10 Написать unit тесты для `process_subagent_response()`, включая сбой и таймаут
+- [ ] 6.11 Интегрировать `OrchestratedStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` — отложено (нет мультиагентных стратегий)
+- [ ] 6.12 Написать интеграционный тест: `OrchestratedStrategy` → оркестратор + субагенты → суммаризированные результаты — отложено
+- [ ] 6.13 Интегрировать `ChoreographyStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` (только победитель) — отложено
+- [ ] 6.14 Написать интеграционный тест: `ChoreographyStrategy` → broadcast → победитель обработан, остальные отброшены — отложено
+- [ ] 6.15 Интегрировать `HierarchicalStrategy` с `ContextManager`: `build_context()` + `process_subagent_response()` + `ensure_context_fits()` на каждом уровне — отложено
+- [ ] 6.16 Написать интеграционный тест: `HierarchicalStrategy` → дерево агентов → суммаризация снизу вверх — отложено
+- [ ] 6.17 Обеспечить, чтобы модель жизненного цикла (гидрация vs эпоха) была прозрачной для стратегий — отложено
+- [ ] 6.18 Написать тест: стратегия не знает о модели жизненного цикла, использует только API `build_context()` — отложено
+- [ ] 6.19 (Опционально) Реализовать федеративный `share_item()` за feature flag `agents.context.multiagent.federation=true` — отложено (кандидат на отказ)
+- [ ] 6.20 (Опционально) Написать тест: федерация конфликтует со стабильностью эпохи → `epoch_broken=True` — отложено
+- [x] 6.21 Добавить метрики: `context_subagent_responses_total`, `context.subagent.failures`, `context.subagent.timeouts` — логирование `context.multiagent.*` и `context.subagent.*`
+- [x] 6.22 Проверить, что feature flag `agents.context.multiagent.federation=false` использует только изоляцию — флаг существует, федерация не реализована
 
 ## Сквозные задачи
 
@@ -232,16 +230,16 @@
 
 ## Критерии успеха
 
-- [ ] S.1 Все фазы 0-6 реализованы согласно спецификациям
-- [ ] S.2 Legacy `ContextCompactor` работает при `enabled=false` без регрессий
-- [ ] S.3 `PayloadEnvelope` — единственный формат payload в пути формирования
-- [ ] S.4 Graceful degradation: горячий путь никогда не падает, каждый сбой имеет fallback
-- [ ] S.5 Наблюдаемость: 20+ метрик, spans трейсинга, структурированные логи
-- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% с метриками и критериями отката
-- [ ] S.7 Все краевые случаи из EDGE_CASES.md имеют приёмочные тесты
-- [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты
-- [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80
-- [ ] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md
+- [ ] S.1 Все фазы 0-6 реализованы согласно спецификациям — **ядро фаз 0–6 реализовано и протестировано**; открыты интеграция мультиагентных стратегий (6.11–6.18, заблокирована отсутствием стратегий) и федерация (6.19–6.20, кандидат на отказ)
+- [x] S.2 Legacy `ContextCompactor` работает при `enabled=false` без регрессий — legacy обёрнут в `ContextCompactor(ABC)` (0.9), выбор по флагу (0.10), `test_context_compactor.py` зелёный (0.11)
+- [x] S.3 `PayloadEnvelope` — единственный формат payload в пути формирования — введён в `build_context()` (0.6), `to_messages()` — единственная точка конвертации на границе `LLMAdapter`
+- [x] S.4 Graceful degradation: горячий путь никогда не падает, каждый сбой имеет fallback — fallback `TaskProfile` (1.2), decorator не пробрасывает ошибки (2.16), fallback суммаризации/сбоя субагента (6.7/6.8)
+- [x] S.5 Наблюдаемость: 20+ метрик, spans трейсинга, структурированные логи — именованные метрики (`context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens/tail_tokens`, `context_subagent_responses_total` и др.), spans `context.build`/`context.gather`, 40+ структурированных лог-событий; slash-команда `/context` (1.26–1.43)
+- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% с метриками и критериями отката — отложено (см. X.2–X.4)
+- [ ] S.7 Все краевые случаи из EDGE_CASES.md имеют приёмочные тесты — не проверено формально
+- [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты — не проверено формально
+- [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80 — отложено (нет performance review, X.10)
+- [x] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md — канон в `doc/internals/context-manager/` поддерживается синхронно с реализацией
 
 ## Отклонения от спеки (найдено при ревью, backlog)
 

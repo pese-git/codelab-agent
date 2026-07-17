@@ -37,7 +37,7 @@ tests/
 | Файлов > 1000 строк | **1** (`messages.py` — оправданно) | `wc -l` |
 | Coverage threshold в CI | **85%** | `.github/workflows/release.yml` |
 
-> Подробный аудит: [`doc/internals/tech-debt.md`](../../internals/tech-debt.md).
+> Подробный аудит: [`doc/internals/tech-debt.md`](../../../internals/tech-debt.md).
 
 ## Запуск тестов
 

@@ -162,10 +162,10 @@ graph TB
     end
     
     subgraph Agent["Agent Layer"]
-        AO[AgentOrchestrator]
         EE[ExecutionEngine]
         CM[ContextManager]
         AL[AgentLoop]
+        SS[SingleStrategy]
         LLM["LLM Registry<br/>8+ Providers"]
     end
     
@@ -200,7 +200,7 @@ graph TB
     PO --> Pipeline
     V --> SC --> PB --> TL1 --> DS --> LL --> TL2
     PO --> SM & PBuilder & TLCM & TCH & PM & CRH & GPM
-    LL --> AO --> EE --> LLM
+    LL --> AL --> SS --> EE --> LLM
     EE --> CM
     LL --> TR --> FS & TE --> Bridge
     LL --> MM --> MT
@@ -237,16 +237,16 @@ graph TB
 
 ### Context Manager
 
-`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+`ContextManager` — 4-слойная архитектура (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–6 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие, инкрементальность, полный граф зависимостей, мультиагент по ядру).
 
 **Слои:**
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | ✅ Реализовано (Phase 4) |
 | C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | ✅ Ядро реализовано (Phase 6) |
 
 **Путь формирования payload:** `ExecutionEngine` → `DefaultContextManager.build_context()` → `TaskAnalyzer` → `ContextGatherer` (через `ToolRegistry`) → `TokenBudgetManager` → `PayloadEnvelope` (baseline + tail) → `to_messages()` → LLM.
 
@@ -254,7 +254,9 @@ graph TB
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением.
 
-> Полная документация: [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
+> Руководство пользователя: [Context Manager](../user-guide/server/context-manager.md)
+> Реализация и расширение: [Context Manager для разработчиков](../developer-guide/extending/context-manager.md)
+> Полная документация (канон): [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
 
 ## Background Receive Loop (Клиент)
 

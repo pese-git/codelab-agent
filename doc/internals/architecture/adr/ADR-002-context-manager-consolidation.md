@@ -287,6 +287,111 @@ ContextManager (единая точка входа — из CM)
 
 ---
 
+## Решение по prompt-cache маркерам у LLM-провайдера
+
+В Phase 4 (T4.6) спецификация обещала «прокинуть стабильный префикс в адаптер так,
+чтобы провайдерский cache-маркер ставился на `baseline`». По состоянию на 2026-07-17
+это **не реализовано**: стабильный `baseline_fingerprint` есть, но явного проброса
+`cache_control` / `prompt_caching` маркера в LLM API нет.
+
+### Анализ
+
+| Провайдер | Механизм | Что делает агент сегодня | Что нужно для cache hit |
+|-----------|----------|--------------------------|--------------------------|
+| **Anthropic** (Claude) | Explicit `cache_control: {"type": "ephemeral"}` на сообщении | Ничего | Ставить маркер на `baseline[-1]` при `incremental=true` |
+| **OpenAI** (gpt-4o) | Automatic prefix matching (≥1024 токенов) | Ничего (провайдер сам матчит) | Ничего — работает неявно |
+| **Google** (Gemini) | Implicit caching | Ничего (провайдер сам кэширует) | Ничего — работает неявно |
+| **OpenRouter** | Зависит от upstream | Если upstream = Anthropic, нужен маркер | Аналогично Anthropic |
+| **Локальные** (vLLM, llama.cpp) | KV-prefix-cache | Ничего (стабильный префикс = cache hit) | Ничего — работает неявно |
+
+### Текущий статус
+
+**Что работает без явных маркеров:**
+- ✅ Стабильный `baseline_fingerprint` → OpenAI/Google/локальные могут закэшировать автоматически (prefix matching / KV-cache).
+- ✅ Локальные LLM (vLLM, llama.cpp) автоматически хитают KV-prefix-cache при стабильном префиксе.
+
+**Что НЕ работает:**
+- ❌ Anthropic без `cache_control` — провайдер **не** кэширует префикс автоматически (требует явного маркера).
+- ❌ Метрика `context_prompt_cache_hit_rate` отсутствует.
+- ❌ UI-индикатор cache hit / miss в `/context` отсутствует.
+
+### Решение
+
+**Оставить как есть на текущем этапе** (без cache_control маркера). Обоснование:
+
+1. **Текущая экономия достаточна** — для OpenAI/Google/локальных провайдеров стабильный
+   `baseline_fingerprint` уже даёт cache hit (неявно). Целевая аудитория CodeLab —
+   локальные модели и openrouter, не Anthropic-only.
+
+2. **Стоимость реализации vs выгода** — Anthropic — премиальный провайдер, для которого
+   явный `cache_control` критичен. Но добавление `cache_control: dict | None` в
+   `LLMMessage` + прокидывание в `AnthropicProvider._convert_to_anthropic_format()` +
+   установка маркера на `baseline[-1]` — ~50 строк кода, низкий риск.
+
+3. **Открытый вопрос для Phase 7:** когда именно включать `cache_control`?
+   - Вариант A: всегда при `incremental=true` (на `baseline[-1]`) — простая эвристика.
+   - Вариант B: явный флаг `agents.context.cache_control` — для тонкой настройки.
+   - Вариант C: per-provider конфиг (только для Anthropic).
+
+### Условие пересмотра
+
+Если CodeLab начнёт массово использоваться с Anthropic Claude (≥30% трафика
+на Claude) — реализация `cache_control` становится приоритетом. План:
+
+1. Добавить `cache_control: dict[str, Any] | None` в `LLMMessage` (`src/codelab/server/llm/models.py`).
+2. Прокидывать в `AnthropicProvider._convert_to_anthropic_format()` (`src/codelab/server/llm/providers/anthropic.py`).
+3. В `ExecutionEngine` (или `ContextManager`): ставить `cache_control` на
+   **последний** message из `baseline` (или на `system`, если `baseline` пуст) —
+   только при `incremental=true`.
+4. Метрика `context_prompt_cache_hit_rate` через `response.usage.cache_read_input_tokens` (Anthropic).
+5. UI-индикатор в `/context`.
+
+**Текущий статус в коде:** `LLMMessage.cache_control` поле уже существует в `models.py`,
+но не заполняется и не прокидывается.
+
+### Документация
+
+- [doc/product/user-guide/server/context-manager.md §«Кэширование токенов у LLM-провайдера»](../../../../product/user-guide/server/context-manager.md) — для пользователя.
+- [doc/internals/context-manager/PHASE_4_SPEC.md §T4.6](../context-manager/PHASE_4_SPEC.md) — спецификация (частично закрыт).
+- [doc/internals/context-manager/OBSERVABILITY.md §1.1](../context-manager/OBSERVABILITY.md) — `context_prompt_cache_hit_rate` помечен как «план, не реализовано».
+
+---
+
+## Решение по состоянию DEFERRED в ContextReconciler
+
+В Phase 4 (Инкрементальный жизненный цикл) проектом `ContextReconciler.reconcile()` предусмотрены три состояния: `UNCHANGED`, `UPDATED`, `DEFERRED`. Состояние `DEFERRED` предназначалось для ситуации, когда изменение источника обнаружено в середине хода агента и должно быть отложено до следующей безопасной границы.
+
+### Анализ выполнимости
+
+Состояние `DEFERRED` **невозможно задействовать** в текущей архитектуре по следующим причинам:
+
+1. **`reconcile()` вызывается только на границе хода.** Единственная точка вызова — `DefaultContextManager.build_context()`, который стартует в начале хода (до запроса к LLM). Внутри хода (между tool calls) реконсиляция не происходит.
+
+2. **Mid-turn reconcile не запланирован.** Для появления `DEFERRED` необходим паттерн «mid-turn reconcile» — вызов `reconcile()` между tool calls внутри хода. Этот паттерн:
+   - не реализован ни в одной фазе (0–6);
+   - противоречит цели prompt cache (каждый mid-turn update baseline = новый fingerprint = промах кэша);
+   - добавляет сложность (checkpoint-механизм, дополнительные вызовы) без явной выгоды.
+
+3. **Eventual consistency на границах ходов достаточна.** Агент работает с актуальными данными через `ToolRegistry` (`fs/read` возвращает свежее содержимое). Баззлайн — снимок для prompt cache, а не источник истины; его обновление на следующем ходе корректно.
+
+4. **`_refresh_dirty_sources` закрывает задачу обновления.** В `build_context()` реализован ленивый рефреш грязных источников: сигнал от `InvalidationSignalBus` → перечитывание через `ToolRegistry` → обновление fingerprint → разрыв эпохи при необходимости. DEFERRED-механизм дублирует эту функциональность.
+
+### Решение
+
+**Состояние `DEFERRED` отклоняется.** Задачи 4.9, 4.22, 4.D4 в roadmap закрываются как отклонённые.
+
+`ContextReconciler` оперирует двумя состояниями:
+- `UNCHANGED` — ни один источник не изменился, baseline стабилен.
+- `UPDATED` — источники изменились, baseline перестроен (`epoch_broken=True`).
+
+Консервативный fallback (неопределённое изменение → `epoch_broken=True`) покрывает все краевые случаи, ранее отнесённые к `DEFERRED`.
+
+### Условие пересмотра
+
+Если в будущем появится конкретный сценарий, требующий mid-turn reconcile (например, параллельная запись в общие файлы из нескольких субагентов с необходимостью мгновенной видимости), решение может быть пересмотрено. Бремя доказательства — на том, кто предложит сценарий, не закрываемый `_refresh_dirty_sources` на границе хода.
+
+---
+
 ## Схема конфиг-флагов
 
 Флаги мапятся на слои/фазы roadmap → канареечный rollout без переписывания конфига. Master-switch заменяет FCM-флаг `agents.context.enable_fcm`.
@@ -382,7 +487,25 @@ federation = false               # share_item() между скоупами.
 
 ## Статус реализации
 
-Оба дизайна — **design-only**. Из кода существует только legacy `src/codelab/server/agent/context_compactor.py` (двухфазный Prune→Summarize, покрыт тестами). Любая реализация единой архитектуры стартует от него как baseline.
+Фазы 0–6 реализованы и покрыты тестами. Из кода реализовано:
+
+- **Фазы 0–4 (полностью):** `PayloadEnvelope` (baseline/tail), `ContextItem` (priority),
+  `ContextEpoch` (fingerprint), `ContextReconciler` (с Codec-детектом),
+  `ThreePhaseCompactor` (Prune→Skeletonize→Summarize), `FileContentCache` +
+  `FileCacheDecorator` + `InvalidationSignalBus` (единый сигнал), `CodeSkeletonizer`
+  (детерминированный AST), `TiktokenCounter` + `ApproximateTokenCounter`,
+  `LLMBasedTaskAnalyzer` + fallback, `ACPContextGatherer` через `ToolRegistry`.
+  `DEFERRED` явно отклонён через раздел «Решение по состоянию DEFERRED».
+- **Фаза 5 (полностью):** `RegexDependencyGraph` с `max_depth` (Phase 5 recursive),
+  защита от циклов, поддержка Dart imports (`import '...'`, `export '...'`,
+  `package:` resolution). Tree-sitter отложен как опциональный.
+- **Фаза 6 (ядро):** `DefaultChildSessionManager` (create_child + collect_summary),
+  `process_subagent_response` в `DefaultContextManager` (с graceful degradation
+  через fallback). Мультиагентные стратегии (`Orchestrated`/`Choreography`/`Hierarchical`)
+  не реализованы в проекте — это отдельная работа.
+- **Phase 4 T4.6 (частично):** стабильный `baseline_fingerprint` есть, но явный проброс
+  `cache_control` маркера в LLM API не реализован (см. раздел «Решение по
+  prompt-cache маркерам»). Метрика `context_prompt_cache_hit_rate` — план.
 
 ---
 
@@ -397,4 +520,7 @@ federation = false               # share_item() между скоупами.
 | 2026-06-25 | Добавлен раздел «Решение по мультиагентному обмену» — закрыт открытый вопрос №3 |
 | 2026-06-25 | Добавлен раздел «Схема конфиг-флагов» (TOML + env-overrides) — закрыт открытый вопрос №4 |
 | 2026-06-25 | Добавлен раздел «Решение по владельцу канона и судьбе fcm/» — закрыт открытый вопрос №5; все 5 вопросов решены |
+| 2026-07-17 | Добавлен раздел «Решение по состоянию DEFERRED в ContextReconciler» — DEFERRED отклонён (mid-turn reconcile не запланирован, eventual consistency на границах ходов достаточно) |
+| 2026-07-17 | Добавлен раздел «Решение по prompt-cache маркерам у LLM-провайдера» — стабильный `baseline_fingerprint` уже работает для OpenAI/Google/локальных, явный `cache_control` для Anthropic отложен (план в разделе) |
 | 2026-06-25 | Статус изменён на «Принято» — все решения зафиксированы, документация доведена до состояния «готово к разработке» (фазы 0–6) |
+| 2026-07-17 | Добавлен раздел «Решение по состоянию DEFERRED в ContextReconciler» — DEFERRED отклонён (mid-turn reconcile не запланирован, eventual consistency на границах ходов достаточно) |

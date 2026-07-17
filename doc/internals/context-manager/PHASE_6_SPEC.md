@@ -1,11 +1,11 @@
 # Phase 6 — Мультиагент (спецификация для разработки)
 
-> 📋 **Статус: спецификация, НЕ реализовано** (на 2026-07-10). `ChildSessionManager`,
-> `process_subagent_response()` и интеграция стратегий с ContextManager в коде отсутствуют.
-> Зависит от нереализованных стратегий (см. MULTIAGENT_TECHNICAL_SPECIFICATION.md).
+> 📋 **Статус: РЕАЛИЗОВАНО** (2026-07-17). `ChildSessionManager` создан, `process_subagent_response()`
+> реализован с суммаризацией через ConversationSummarizer. Интеграция с мультиагентными стратегиями
+> отложена (см. MULTIAGENT_TECHNICAL_SPECIFICATION.md).
 > Отслеживается в `openspec/changes/context-manager-implementation` (Фаза 6).
-> **Статус:** 🔲 Готово к разработке после предыдущих фаз — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
-> **Длительность:** 2 недели
+> **Статус:** ✅ Завершено — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
+> **Длительность:** 2 недели (план), 1 день (факт — инфраструктура была готова)
 > **Цель:** реализовать обработку ответов субагентов (`process_subagent_response`) и изоляцию субагентов в child-сессиях через `ChildSessionManager` — это **дефолт и единственный путь MVP**. Федеративный `share_item()` — опционально за флагом и кандидат на отказ.
 
 Phase 6 опирается на `ContextManager.process_subagent_response()` ([INTERFACES.md §1](./INTERFACES.md)),
@@ -49,12 +49,12 @@ Phase 6 опирается на `ContextManager.process_subagent_response()` ([I
 
 ## Definition of Done для Phase 6
 
-- [ ] `ChildSessionManager` изолирует субагентов в child-сессиях — дефолт и единственный путь MVP.
-- [ ] `process_subagent_response` возвращает `SubagentResult.summary`; родитель не получает полный диалог субагента.
-- [ ] Без федерации `shared_items` всегда пуст; контекст родителя не загрязняется.
-- [ ] Федеративный `share_item()` за флагом `agents.context.multiagent.federation`, по умолчанию выключен.
-- [ ] Обоснование включения федерации задокументировано; без него флаг не включается.
-- [ ] Сигнатуры `ContextManager`/`ChildSessionManager` не изменены (заморозка Phase 0 соблюдена).
+- [x] `ChildSessionManager` изолирует субагентов в child-сессиях — дефолт и единственный путь MVP.
+- [x] `process_subagent_response` возвращает `SubagentResult.summary`; родитель не получает полный диалог субагента.
+- [x] Без федерации `shared_items` всегда пуст; контекст родителя не загрязняется.
+- [ ] Федеративный `share_item()` за флагом `agents.context.multiagent.federation`, по умолчанию выключен (отложен).
+- [ ] Обоснование включения федерации задокументировано; без него флаг не включается (отложено).
+- [x] Сигнатуры `ContextManager`/`ChildSessionManager` не изменены (заморозка Phase 0 соблюдена).
 
 ---
 

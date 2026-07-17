@@ -781,7 +781,7 @@ class MCPClient:
 ## Ссылки
 
 - [MCP Specification](https://modelcontextprotocol.io/)
-- [ACP Session Setup](../Agent%20Client%20Protocol/protocol/03-Session%20Setup.md)
-- [ACP Extensibility](../Agent%20Client%20Protocol/protocol/15-Extensibility.md)
-- [Tool Registry](../../src/codelab/server/tools/registry.py)
-- [Session Factory](../../src/codelab/server/protocol/session_factory.py)
+- [ACP Session Setup](../../protocols/Agent%20Client%20Protocol/protocol/03-Session%20Setup.md)
+- [ACP Extensibility](../../protocols/Agent%20Client%20Protocol/protocol/15-Extensibility.md)
+- [Tool Registry](../../../src/codelab/server/tools/registry.py)
+- [Session Factory](../../../src/codelab/server/protocol/session_factory.py)

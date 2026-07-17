@@ -1,11 +1,12 @@
 # Context Manager — Пример работы (agent loop, шаг за шагом)
 
 > **Статус:** Канон (иллюстрация) — [ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md)
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17: добавлены итерации 5 и 6 для Phase 5/6)
 >
 > Сквозной прогон: какие данные подаются на **вход**, какие **преобразования** происходят
 > внутри (слои A→B→C), и что получается на **выходе** (`PayloadEnvelope`). Показаны несколько
-> итераций agent loop, включая кэш файлов, скелетирование, 3-фазное сжатие и инкрементальную эпоху.
+> итераций agent loop, включая кэш файлов, скелетирование, 3-фазное сжатие, инкрементальную
+> эпоху, рекурсивные зависимости (Phase 5) и child session (Phase 6).
 >
 > Числа токенов — иллюстративные, для наглядности пропорций. Термины и компоненты —
 > из [INTERFACES.md](./INTERFACES.md) / [DATA_MODELS.md](./DATA_MODELS.md).
@@ -234,6 +235,129 @@ PayloadEnvelope(
 
 ---
 
+## Итерация 5 — рекурсивные зависимости (Phase 5)
+
+Включён `agents.context.gather.recursive_dependencies=true`. `TaskAnalyzer`
+выставил `investigation_depth=3` (сложный рефакторинг — агент смотрит глубоко).
+
+`auth/validators.py` импортирует `auth/login.py` импортирует `auth/utils.py`
+импортирует `auth/constants.py` — цепочка 3 уровня.
+
+### Вход
+
+```python
+session.history = [...предыдущие ходы...]
+prompt = [{"role": "user", "content": "Отрефактори валидаторы: разнеси по слоям"}]
+```
+
+### Преобразования
+
+**Слой A — Phase 5:**
+1. `ContextGatherer.gather()` читает `auth/validators.py` и парсит импорты (regex: Python + Dart).
+2. `dependency_graph.parse_imports(content)` → `["auth.login", "auth.utils"]`.
+3. `dependency_graph.add_file("auth/validators.py", ["auth/login.py", "auth/utils.py"])`.
+4. `set_max_depth(investigation_depth=3)` — настраиваем граф.
+5. `_get_dependents(items, profile)`:
+   - для каждого `item` вызывает `get_dependents()` (reverse: кто импортирует) +
+     `get_dependencies(recursive=True, max_depth=3)` (forward: транзитивные).
+6. `get_dependencies("auth/validators.py", recursive=True)`:
+   - depth=0: validators → [login, utils]
+   - depth=1: login → [utils], utils → [constants]
+   - depth=2: constants → (нет импортов)
+   - visited-set защищает от циклов.
+   - Результат: `["auth/login.py", "auth/utils.py", "auth/constants.py"]`.
+
+### Выход
+
+```python
+# Граф зависимостей после итерации 5:
+# validators.py → login.py, utils.py
+# login.py → utils.py
+# utils.py → constants.py
+# constants.py → (нет)
+
+# В контекст попали:
+#   auth/validators.py  (target)
+#   auth/login.py       (depth 1)
+#   auth/utils.py       (depth 1)
+#   auth/constants.py   (depth 2)
+```
+
+```
+context.gather.dependents.resolved  dependents_count=3  recursive_mode=True
+                                    max_depth=3  graph_stats={files_in_graph: 4,
+                                    total_dependencies: 4, total_dependents: 0}
+```
+
+> **Без `recursive_dependencies=true`** в контекст попал бы только `validators.py`
+> (target), и LLM пришлось бы самому делать `fs/read` для `login.py`/`utils.py`/
+> `constants.py` — лишние round-trips.
+
+**Лог:** `context.gather.file.imports_parsed` для каждого файла (список импортов).
+
+---
+
+## Итерация 6 — мультиагент: child session (Phase 6)
+
+Стратегия (когда будет реализована) или прямой тест-multimodal создаёт **child session**
+для субагента, который решает изолированную подзадачу (например, анализ логов).
+
+### Вход
+
+```python
+subagent_scope = "log-analyzer"
+parent_session_id = "sess_main"
+```
+
+### Преобразования
+
+**Слой D — Phase 6:**
+1. `ChildSessionManager.create_child(parent, "log-analyzer")`:
+   - генерирует `child_session_id = "sess_main_child_log-analyzer"` через `SessionFactory.create_session(cwd=parent.cwd, session_id=...)`;
+   - сохраняет `parent_session_id` и `subagent_scope` в `config_values`;
+   - вызывает `SessionStorage.save_session(child_state)`.
+2. Субагент работает в изоляции: свой `agent_scope`, свой `ContextEpoch`, свой `FileContentCache`.
+3. После завершения субагента: `collect_summary(child)`:
+   - `history_builder.build(history)` → `list[LLMMessage]`;
+   - `summarizer.summarize(messages, target_tokens=2000)` → `LLMMessage(content="...")`;
+   - извлечение `content` (str | list[ContentPart] | None);
+   - `token_counter.count_messages([summary])` → `summary_tokens`;
+   - возврат `SubagentResult(summary, token_count, source_scope)`.
+4. `process_subagent_response(parent="orchestrator", subagent="log-analyzer", response=...)`:
+   - `summarizer.summarize(messages, target_tokens=N)` → суммаризация;
+   - `SubagentResult(summary="...", token_count=..., source_scope="log-analyzer", shared_items=[])`;
+   - родитель получает **только** summary, не сырой контекст.
+
+### Выход
+
+```python
+SubagentResult(
+    summary="Log-анализ: 3 аномалии в auth/login.py, 1 в auth/validators.py. Подозрение на race condition.",
+    token_count=85,
+    source_scope="log-analyzer",
+    shared_items=[],   # без федерации
+)
+```
+
+```
+context.multiagent.create_child  parent=sess_main child=sess_main_child_log-analyzer
+context.multiagent.collect_summary.start  child=sess_main_child_log-analyzer
+context.multiagent.collect_summary.complete  child=... summary_length=312
+                                                summary_tokens=85 history_messages=12
+context.subagent.process.start  parent=orchestrator subagent=log-analyzer
+context.subagent.process.complete  parent=orchestrator subagent=log-analyzer
+                                  summary_length=312 token_count=85 fallback=False
+```
+
+> **Изоляция:** субагент не загрязнил контекст родителя промежуточными ходами.
+> Родитель получил только `summary` (85 токенов), а не полный диалог субагента (12 сообщений,
+> ~2000 токенов). Экономия ~95%.
+
+**Graceful degradation:** если `summarizer` недоступен или `summarize()` упал,
+`process_subagent_response` возвращает усечённый результат с `fallback=True` в логах.
+
+---
+
 ## Сводка: вход → преобразования → выход
 
 | Итерация | Вход | Ключевое преобразование | Выход (токены) |
@@ -243,12 +367,16 @@ PayloadEnvelope(
 | 3 | большой файл, длинная история | Слой C: **скелет** session.py (3500→250); `ensure_context_fits`: **Prune** 135k→52k | baseline 52000 |
 | 4a | обычный ход | Слой B: `diff`=UNCHANGED → **baseline из эпохи, шлётся только tail** | tail 30 (кэш-хит на 52k) |
 | 4b | `fs/write` | **единый сигнал инвалидации** → reconcile UPDATED → новая эпоха `fp_c2` | baseline пересобран 52010 |
+| 5 | рефакторинг (Phase 5) | Слой A: **recursive deps** (max_depth=3) + Dart imports | 4 файла вместо 1 (target) |
+| 6 | мультиагент (Phase 6) | Слой D: **child session** + ConversationSummarizer → `SubagentResult.summary` (85t) | summary 85t вместо 2000t |
 
 **Что демонстрирует пример:**
 - **Слой A** (итер. 1) — агент сам собрал нужные файлы, пользователь не прикладывал контекст вручную.
 - **Слой C** (итер. 2–3) — кэш файлов убирает повторные RPC; AST-скелет умещает большой файл в окно.
 - **Сжатие** (итер. 3) — длинный диалог влезает в лимит без слепой обрезки.
 - **Слой B** (итер. 4) — на длинной сессии переотправляется только дельта (экономия), а правки файлов корректно обновляют baseline через единый сигнал.
+- **Слой A — Phase 5** (итер. 5) — recursive dependencies дают транзитивные импорты (глубина 3), Dart-импорты (`import '...'`, `export '...'`) распознаются.
+- **Слой D — Phase 6** (итер. 6) — child session изолирует субагента, родитель получает только summary (экономия ~95% токенов).
 
 ---
 

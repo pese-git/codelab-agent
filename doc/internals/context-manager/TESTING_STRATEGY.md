@@ -34,16 +34,17 @@
 |-----------------|-------------------|
 | `TaskAnalyzer.analyze()` | возвращает `TaskProfile` с валидным `task_type`/`investigation_depth` (1–3); `prompt` = текст текущего хода, не вся история |
 | `ContextGatherer.gather()` | пайплайн `project_tree()`→`search()`→`read_file()` только через `ToolRegistry`; собственного I/O нет |
-| `DependencyGraph` | `add_file()` / `get_dependencies(recursive=...)` / `get_dependents()`; regex-режим (Phase 1) |
+| `DependencyGraph` | `add_file()` / `get_dependencies(recursive=..., max_depth=...)` / `get_dependents()`; regex-режим (Phase 1); **Phase 5** — recursive + max_depth + защита от циклов; **Dart imports** (regex: `import '...'`, `export '...'`) |
 | `TokenBudgetManager` | `allocate()` даёт корректный `BudgetAllocation` (суммы долей); `bound_content()` сохраняет начало и конец |
 | `ContextSource` / `ContextRegistry` | `render_baseline()` / `render_updates()` / `detect_changes()`; `fingerprint()` — Codec, не таймстемп |
 | `TokenCounter` | `count()` / `count_messages()`; `TiktokenCounter` точность, `ApproximateTokenCounter` fallback |
 | `CodeSkeletonizer` | `can_handle()`; `skeletonize()` детерминизм + доля сжатия (см. §2) |
 | `FileContentCache` | `get()`/`set()`/`invalidate()`; LRU eviction при `cache_max_files`; `invalidate()` публикует сигнал (см. §2) |
 | `ContextCompactor` | `compact_if_needed()` — 3 фазы Prune→Skeletonize→Summarize; сигнатура совместима с legacy |
-| `ConversationSummarizer` | `summarize()` сохраняет ключевые решения; деградация при отсутствии `LLMProvider` |
-| `ContextReconciler` | `snapshot()` / `reconcile()` → корректный `ReconcileResult` (см. §2) |
-| `ChildSessionManager` | `create_child()` изолирует; `collect_summary()` → `SubagentResult` |
+| `ConversationSummarizer` | `summarize()` сохраняет ключевые решения; деградация при отсутствии `LLMProvider`; поддержка `target_tokens` |
+| `ContextReconciler` | `snapshot()` / `reconcile()` → корректный `ReconcileResult` (см. §2); **DEFERRED отклонён через ADR-002** |
+| `ChildSessionManager` (**Phase 6**) | `create_child()` изолирует (создаёт child-сессию через `SessionFactory` с `parent_session_id` в `config_values`); `collect_summary()` → `SubagentResult` через `ConversationSummarizer`; пустая история → fallback `"(субагент не выполнил действий)"` |
+| `process_subagent_response` (**Phase 6**) | `list[LLMMessage]` → `ConversationSummarizer.summarize(messages, target_tokens=N)` → извлечение `content` (str | list[ContentPart] | None); `str` / `dict` → fallback (усечение); пустой `response` → заглушка; graceful degradation при сбое summarize |
 
 ---
 
@@ -92,6 +93,48 @@
   - `TaskAnalyzer` недоступен → сбор работает по дефолтному профилю;
   - `build_context()` возвращает валидный `PayloadEnvelope` без LLM-вызовов.
 
+### 2.6. Ограничение глубины рекурсии `DependencyGraph` (Phase 5)
+
+- **Риск:** рекурсивный обход без ограничения может взорваться на больших проектах (тысячи транзитивных импортов).
+- **Тесты:**
+  - `set_max_depth(1)` → только прямые зависимости (без транзитивных);
+  - `set_max_depth(2)` → прямые + 1 уровень транзитивных;
+  - `set_max_depth(None)` → полная рекурсия без ограничений;
+  - цепочка `a→b→c→d→e` с `max_depth=3` → возвращает `[b, c, d]`, `e` не попадает;
+  - **защита от циклов:** граф `a→b→a` не приводит к зацикливанию (visited-set);
+  - `set_max_depth()` переключает глубину в runtime;
+  - **Dart imports:** `import 'package:myapp/utils.dart'` → резолвится в `lib/utils.dart`;
+  - **Dart imports:** `import 'src/utils.dart'` → относительный путь.
+
+### 2.7. `process_subagent_response` graceful degradation (Phase 6)
+
+- **Риск:** `ConversationSummarizer.summarize()` падает → горячий путь ломается; parent не получает результат субагента.
+- **Тесты:**
+  - `response=None` → `SubagentResult(summary="(субагент не выполнил действий)", token_count=0)`;
+  - `response=str` → fallback (усечение до 500 символов) + `fallback=True` в логах;
+  - `response=dict` → `response["content"]` или fallback;
+  - `response=list[LLMMessage]` → `summarizer.summarize(messages, target_tokens=N)` → `LLMMessage` → извлечение `content` (str | list[ContentPart] | None) → если падает, fallback;
+  - `summarizer=None` → fallback без LLM-вызова;
+  - `summarizer.summarize()` бросает исключение → fallback + WARN-лог `summarize_failed`;
+  - **изоляция:** `shared_items == []` всегда (без федерации).
+
+### 2.8. `ChildSessionManager.collect_summary` (Phase 6)
+
+- **Риск:** субагент не выполнил действий → собрать пустую историю, не упасть.
+- **Тесты:**
+  - `history=[]` → `SubagentResult(summary="(субагент не выполнил действий)", token_count=0)`;
+  - `history=[2 messages]` → `summarizer.summarize(messages, target_tokens=N)` → результат;
+  - **parent_session_id** сохраняется в `config_values` child-сессии;
+  - **cwd наследуется** от parent.
+
+### 2.9. Производительность Phase 5 на больших проектах
+
+- **Риск:** 1000+ файлов → `gather()` > 1с (SLO) → плохой UX.
+- **Тесты:**
+  - генерация 150 файлов с цепочками зависимостей;
+  - `gather()` завершается за < 1с (см. `test_phase5_recursive.py::test_gather_performance_large_project`);
+  - `get_dependencies(recursive=True, max_depth=3)` на 100-файловом проекте < 50мс (p95).
+
 ---
 
 ## 3. Golden / snapshot-тесты `PayloadEnvelope`
@@ -103,6 +146,8 @@
 | golden `baseline_fingerprint` | стабильность отпечатка на неизменном входе |
 | golden скелета файла | эталонный выход `skeletonize()` (см. §2.1) |
 | snapshot `ContextSnapshot.diff()` | список изменённых `source_id` для пары снимков |
+| **golden Dart imports (Phase 5)** | эталонный вывод `parse_imports()` на Dart-файле: `import 'package:flutter/material.dart'` → `['package:flutter/material.dart']`; `import 'src/utils.dart'` → `['src/utils.dart']`; `dart:async` отфильтровано |
+| **golden recursive depth (Phase 5)** | `get_dependencies(recursive=True, max_depth=N)` на графе `a→b→c→d→e` → детерминированный результат с правильным N |
 
 > Snapshot-тесты обновляются осознанно (review-gate): изменение эталона `PayloadEnvelope`
 > или fingerprint без причины — сигнал регрессии prompt-cache.

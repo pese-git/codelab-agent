@@ -199,7 +199,7 @@ graph TB
             MS[MessageSanitizer]
             PE[PlanExtractor]
             
-            subgraph CONTEXT_MGR["Context Manager (Phase 0–3)"]
+            subgraph CONTEXT_MGR["Context Manager (Phase 0–6)"]
                 CMgr["DefaultContextManager<br/>(единая точка входа)"]
                 TA["TaskAnalyzer<br/>(LLM-классификация)"]
                 CG["ContextGatherer<br/>(сбор файлов через ToolRegistry)"]
@@ -679,7 +679,7 @@ chat_vm = ChatViewModel(
 **~48 компонентов** в `tui/components/` + 5 controllers в `tui/controllers/`:
 - **Основные:** `ChatView`, `Sidebar`, `FileTree`, `PromptInput`, `ToolPanel`, `HeaderBar`, `FooterBar`
 - **Сообщения:** `MessageBubble`, `MessageList`, `StreamingText`, `ThinkingIndicator`
-- **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutput`, `TerminalPanel`
+- **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutputPanel`, `TerminalLogModal`
 - **Разрешения:** `PermissionModal`, `PermissionBadge`, `InlinePermissionWidget`
 - **Файлы:** `FileViewer`, `FileChangePreview`, `FileChangePreviewModal`
 - **Навигация:** `CommandPalette`, `Tabs`, `CollapsiblePanel`, `ContextMenu`
@@ -750,8 +750,8 @@ chat_vm = ChatViewModel(
 | `session/new` | `handlers/session.py` | Создание сессии |
 | `session/load` | `handlers/session.py` | Загрузка сессии |
 | `session/list` | `handlers/session.py` | Список сессий |
-| `session/prompt` | `handlers/prompt.py` | Обработка промпта (через PromptOrchestrator) |
-| `session/cancel` | `handlers/prompt.py` | Отмена промпта |
+| `session/prompt` | `handlers/prompt/` | Обработка промпта (через PromptOrchestrator) |
+| `session/cancel` | `handlers/prompt/` | Отмена промпта |
 | `session/request_permission_response` | `handlers/permissions.py` | Ответ на запрос разрешения |
 | `session/set_config_option` | `handlers/config.py` | Установка опции |
 | `session/set_mode` | `handlers/config.py` | Установка режима |
@@ -806,14 +806,14 @@ chat_vm = ChatViewModel(
 
 ### Context Manager (`server/agent/context/`)
 
-**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–6 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие, инкрементальность, полный граф зависимостей, мультиагент по ядру).
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | ✅ Реализовано (Phase 4) |
 | C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | ✅ Ядро реализовано (Phase 6); интеграция стратегий отложена |
 
 **Путь формирования payload:**
 1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()` (при `enabled=true`)
@@ -837,7 +837,8 @@ reserved_tokens = 4096
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](../../internals/context-manager/SLASH_COMMAND.md).
 
-> Полная документация: [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
+> Руководство по реализации и расширению: [Context Manager — реализация и расширение](extending/context-manager.md)
+> Полная документация (канон): [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
 
 ### Tool System (`server/tools/`)
 
@@ -1052,8 +1053,8 @@ cancel_prompt(session_id) → обходит _callbacks_request_lock
 
 ## Дополнительные материалы
 
-- [Разработка клиента](client-development.md) — детали реализации клиента
-- [Разработка сервера](server-development.md) — детали реализации сервера
-- [Обработчики протокола](protocol-handlers.md) — создание новых handlers
-- [Тестирование](testing.md) — запуск и написание тестов
-- [Вклад в проект](contributing.md) — как внести вклад
+- [Разработка клиента](core/client-development.md) — детали реализации клиента
+- [Разработка сервера](core/server-development.md) — детали реализации сервера
+- [Обработчики протокола](protocols/protocol-handlers.md) — создание новых handlers
+- [Тестирование](workflow/testing.md) — запуск и написание тестов
+- [Вклад в проект](workflow/contributing.md) — как внести вклад

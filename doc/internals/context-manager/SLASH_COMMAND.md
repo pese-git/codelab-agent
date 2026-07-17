@@ -1,6 +1,6 @@
 # Slash-команда /context — наблюдаемость Context Manager
 
-> **Статус:** Реализовано (Phase 1)
+> **Статус:** Реализовано (Phase 1; расширенная наблюдаемость — config/last/files/graph/profile)
 > **Компонент:** `src/codelab/server/protocol/handlers/slash_commands/builtin/context.py`
 > **Зависимости:** MetricsTracker, ContextConfig, Tracer (опционально)
 
@@ -21,7 +21,12 @@ Context Manager — критический компонент, отвечающ�
 ## Синтаксис
 
 ```
-/context              # Сводка метрик (по умолчанию)
+/context              # Расширенная сводка (Контекст, LLM, Агент)
+/context config       # Полная действующая конфигурация с бюджетом
+/context last         # Детали последней сборки (тайминги стадий, файлы, токены)
+/context files        # Список собранных файлов с токенами
+/context graph        # Статистика графа зависимостей
+/context profile      # Последний профиль задачи (TaskAnalyzer)
 /context spans        # Последние трассировочные span'ы
 /context on           # Включить Context Manager
 /context off          # Выключить Context Manager
@@ -31,9 +36,10 @@ Context Manager — критический компонент, отвечающ�
 
 ## Подкоманды
 
-### `/context` (без аргументов) — сводка метрик
+### `/context` (без аргументов) — расширенная сводка
 
-Показывает текущее состояние Context Manager и агрегированные метрики сессии.
+Показывает текущее состояние Context Manager и агрегированные метрики сессии по трём
+секциям: **Контекст**, **LLM**, **Агент**.
 
 **Вывод:**
 ```
@@ -41,34 +47,159 @@ Context Manager — критический компонент, отвечающ�
 
 **Статус:** `enabled=true`, `gather=on`
 
-**Метрики сессии:**
-• Сборок контекста: `15`
-• Среднее время сборки: `245.3ms`
+**Контекст:**
+• Сборок: `15`
+• Среднее время: `245.3ms`
 • Собрано файлов: `42`
 • Baseline токенов: `18,450`
 • Tail токенов: `3,200`
 
-**Последние сборки:**
-  1. `180ms`, 5 файлов, 12,300 токенов
-  2. `310ms`, 8 файлов, 15,600 токенов
-  3. `220ms`, 4 файла, 9,800 токенов
-  4. `290ms`, 7 файлов, 14,200 токенов
-  5. `260ms`, 6 файлов, 11,500 токенов
+**LLM:**
+• Вызовов: `15`
+• Input tokens: `210,300`
+• Output tokens: `18,400`
 
+**Агент:**
+• Ответов: `15`
+• Ошибок: `0`
+
+Для конфигурации: `/context config`
+Для деталей: `/context last`
+Для файлов: `/context files`
+Для графа: `/context graph`
+Для профиля: `/context profile`
 Для span'ов: `/context spans`
 Для управления: `/context on|off`
 ```
 
 **Источники данных:**
-- `MetricsTracker.get_metrics(session_id)` — агрегированные метрики
-- `session.config_values["context_enabled"]` — runtime override (приоритет над конфигом)
-- `ContextConfig.enabled` — конфигурация из TOML
-- `MetricsTracker.debug` — флаг включения детальных деталей
+- `MetricsTracker.get_metrics(session_id)` — агрегированные метрики (Контекст, LLM, Агент)
+- `session.config_values["context_enabled"]` / `["context_gather_enabled"]` — runtime override (приоритет над конфигом)
+- `ContextConfig.enabled` / `.gather_enabled` — конфигурация из TOML
 
 **Логика:**
-- Если `context_build_count == 0` → выводится «нет данных (сборок не было)»
-- Если `debug == true` → показываются последние 5 сборок с деталями
+- Каждая секция при отсутствии данных выводит «нет данных (…)»
 - Runtime override из `session.config_values` имеет приоритет над `ContextConfig`
+
+---
+
+### `/context config` — действующая конфигурация
+
+Показывает полную конфигурацию `ContextConfig` с бюджетом, рассчитанным в токенах из
+процентных долей, и runtime-override'ами из `session.config_values` (ключи `context_*`).
+
+**Вывод:**
+```
+📋 **Конфигурация Context Manager:**
+
+**Общие:**
+• enabled: `true`
+• gather_enabled: `true`
+• incremental: `false`
+• federation: `false`
+
+**Анализ:**
+• analyzer_model: `openai/gpt-4o-mini`
+• recursive_dependencies: `false`
+
+**Оптимизация:**
+• use_tree_sitter: `false`
+• use_tiktoken: `true`
+• file_cache: `true` (max: `1,000` файлов)
+• skeletonize: `true`
+
+**Бюджет:**
+• max_context_tokens: `128,000`
+• reserved_tokens: `4,096`
+• system: `20%` → `25,600 tokens`
+• history: `50%` → `64,000 tokens`
+• tool_output: `20%` → `25,600 tokens`
+• response_buffer: `10%` → `12,800 tokens`
+```
+
+---
+
+### `/context last` — детали последней сборки
+
+Показывает детали последней сборки из `MetricsTracker` `context_build_details[-1]`:
+тайминги стадий, тип задачи, fingerprint, число выбранных/кандидатных файлов, токены,
+статистику графа и первые 10 файлов с токенами.
+
+**Вывод:**
+```
+🔬 **Последняя сборка контекста:**
+
+**Общее:**
+• Длительность: `245ms`
+• task_type: `feature`
+• fingerprint: `a1b2c3…`
+
+**Стадии:**
+• extract: `2ms`
+• analyze: `120ms`
+• gather: `95ms`
+• baseline: `18ms`
+• tail: `5ms`
+• fingerprint: `5ms`
+
+**Файлы:**
+• selected: `5`
+• candidates: `12`
+
+**Токены:**
+• baseline: `12,300`
+• tail: `3,200`
+```
+
+Если сборок не было → «📭 Детали недоступны. Сборок контекста ещё не было.»
+
+---
+
+### `/context files` — собранные файлы
+
+Список файлов последней сборки с токенами на файл и суммой токенов.
+
+**Вывод:**
+```
+📁 **Собранные файлы** (последняя сборка, 3 файла, 12,300 tokens):
+
+1. `auth.py` — `5,400 tokens`
+2. `validators.py` — `4,200 tokens`
+3. `utils.py` — `2,700 tokens`
+```
+
+---
+
+### `/context graph` — граф зависимостей
+
+Статистика графа зависимостей из `DependencyGraph.get_stats()` последней сборки.
+
+**Вывод:**
+```
+🕸️ **Граф зависимостей:**
+
+• files_in_graph: `42`
+• total_dependencies: `128`
+• total_dependents: `95`
+• project_files_cached: `310`
+```
+
+---
+
+### `/context profile` — профиль задачи
+
+Последний профиль задачи из `MetricsTracker.last_task_profile` (результат `TaskAnalyzer`).
+
+**Вывод:**
+```
+🎯 **Последний профиль задачи:**
+
+• task_type: `bug_fix`
+• search_terms: `['auth', 'email', 'validation']`
+• target_modules: `['auth.py', 'login.py']`
+• investigation_depth: `2`
+• needs_tests: `true`
+```
 
 ---
 
@@ -179,7 +310,7 @@ Context Manager — критический компонент, отвечающ�
 
 **Интеграция в DI:**
 ```python
-# src/codelab/server/di.py
+# src/codelab/server/di/services.py
 @provide(scope=Scope.APP)
 async def provide_context_command_handler(
     self,

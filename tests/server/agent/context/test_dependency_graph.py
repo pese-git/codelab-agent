@@ -1,5 +1,7 @@
 """Unit тесты для DependencyGraph."""
 
+from pathlib import Path
+
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 
 
@@ -117,6 +119,57 @@ from collections.abc import Callable
     assert "collections.abc" in imports
 
 
+def test_dependency_graph_parse_dart_imports():
+    """Тест парсинга Dart импортов."""
+    graph = RegexDependencyGraph()
+    code = """
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:async';
+import 'src/utils.dart';
+import 'src/models/user.dart' as model;
+export 'src/widgets.dart';
+"""
+    imports = graph.parse_imports(code)
+
+    assert "package:flutter/material.dart" in imports
+    assert "package:flutter_bloc/flutter_bloc.dart" in imports
+    assert "src/utils.dart" in imports
+    assert "src/models/user.dart" in imports
+    assert "src/widgets.dart" in imports
+    assert "dart:async" not in imports
+
+
+def test_dependency_graph_resolve_dart_package_import():
+    """Тест разрешения Dart package импортов."""
+    import tempfile
+    graph = RegexDependencyGraph()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        graph.set_project_root(Path(tmpdir))
+        lib_dir = Path(tmpdir) / "lib"
+        lib_dir.mkdir()
+        (lib_dir / "utils.dart").write_text("void helper() {}")
+
+        result = graph._resolve_import("package:myapp/utils.dart")
+        assert result == "lib/utils.dart"
+
+
+def test_dependency_graph_resolve_dart_relative_import():
+    """Тест разрешения Dart относительных импортов."""
+    import tempfile
+    graph = RegexDependencyGraph()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        graph.set_project_root(Path(tmpdir))
+        src_dir = Path(tmpdir) / "src"
+        src_dir.mkdir()
+        (src_dir / "utils.dart").write_text("void helper() {}")
+
+        result = graph._resolve_import("src/utils.dart")
+        assert result == "src/utils.dart"
+
+
 def test_dependency_graph_get_stats_empty():
     """Тест get_stats() для пустого графа."""
     graph = RegexDependencyGraph()
@@ -142,3 +195,93 @@ def test_dependency_graph_get_stats_with_files():
     assert stats["total_dependencies"] == 3
     assert stats["total_dependents"] == 3
     assert stats["project_files_cached"] == 4
+
+
+def test_dependency_graph_recursive_depth_1():
+    """Тест рекурсии с ограничением глубины 1 (только прямые зависимости)."""
+    graph = RegexDependencyGraph(max_depth=1)
+
+    graph.add_file("src/a.py", ["src/b.py"])
+    graph.add_file("src/b.py", ["src/c.py"])
+    graph.add_file("src/c.py", ["src/d.py"])
+
+    deps = graph.get_dependencies("src/a.py", recursive=True)
+
+    assert "src/b.py" in deps
+    assert "src/c.py" not in deps
+    assert "src/d.py" not in deps
+
+
+def test_dependency_graph_recursive_depth_2():
+    """Тест рекурсии с ограничением глубины 2."""
+    graph = RegexDependencyGraph(max_depth=2)
+
+    graph.add_file("src/a.py", ["src/b.py"])
+    graph.add_file("src/b.py", ["src/c.py"])
+    graph.add_file("src/c.py", ["src/d.py"])
+
+    deps = graph.get_dependencies("src/a.py", recursive=True)
+
+    assert "src/b.py" in deps
+    assert "src/c.py" in deps
+    assert "src/d.py" not in deps
+
+
+def test_dependency_graph_recursive_depth_3():
+    """Тест рекурсии с ограничением глубины 3."""
+    graph = RegexDependencyGraph(max_depth=3)
+
+    graph.add_file("src/a.py", ["src/b.py"])
+    graph.add_file("src/b.py", ["src/c.py"])
+    graph.add_file("src/c.py", ["src/d.py"])
+    graph.add_file("src/d.py", ["src/e.py"])
+
+    deps = graph.get_dependencies("src/a.py", recursive=True)
+
+    assert "src/b.py" in deps
+    assert "src/c.py" in deps
+    assert "src/d.py" in deps
+    assert "src/e.py" not in deps
+
+
+def test_dependency_graph_recursive_no_depth_limit():
+    """Тест рекурсии без ограничения глубины."""
+    graph = RegexDependencyGraph()
+
+    graph.add_file("src/a.py", ["src/b.py"])
+    graph.add_file("src/b.py", ["src/c.py"])
+    graph.add_file("src/c.py", ["src/d.py"])
+    graph.add_file("src/d.py", ["src/e.py"])
+
+    deps = graph.get_dependencies("src/a.py", recursive=True)
+
+    assert "src/b.py" in deps
+    assert "src/c.py" in deps
+    assert "src/d.py" in deps
+    assert "src/e.py" in deps
+
+
+def test_dependency_graph_set_max_depth():
+    """Тест переключения глубины через set_max_depth."""
+    graph = RegexDependencyGraph()
+
+    graph.add_file("src/a.py", ["src/b.py"])
+    graph.add_file("src/b.py", ["src/c.py"])
+    graph.add_file("src/c.py", ["src/d.py"])
+
+    depth_1_deps = graph.get_dependencies("src/a.py", recursive=True)
+    assert "src/b.py" in depth_1_deps
+    assert "src/c.py" in depth_1_deps
+    assert "src/d.py" in depth_1_deps
+
+    graph.set_max_depth(1)
+
+    limited_deps = graph.get_dependencies("src/a.py", recursive=True)
+    assert "src/b.py" in limited_deps
+    assert "src/c.py" not in limited_deps
+    assert "src/d.py" not in limited_deps
+
+    graph.set_max_depth(None)
+
+    unlimited_deps = graph.get_dependencies("src/a.py", recursive=True)
+    assert "src/d.py" in unlimited_deps

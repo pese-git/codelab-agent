@@ -522,6 +522,7 @@ class DefaultContextManager(ContextManager):
                 dependency_graph=ctx.dependency_graph,
                 session_id=session_id,
                 tracer=self._tracer,
+                config=self._config,
             )
             items = await gatherer.gather(profile, session, options=options)
             stats.files_count = len(items)
@@ -689,15 +690,16 @@ class DefaultContextManager(ContextManager):
     ) -> SubagentResult:
         """Обработать ответ субагента для родителя.
 
-        Phase 1: заглушка, полная реализация в Phase 6.
+        Phase 6: суммаризирует ответ субагента через ConversationSummarizer.
+        Родитель получает только summary (изоляция), shared_items пуст (без федерации).
 
         Args:
             parent_scope: Область родителя
             subagent_scope: Область субагента
-            response: Ответ субагента
+            response: Ответ субагента (строка или список сообщений)
 
         Returns:
-            SubagentResult с summary
+            SubagentResult с summary для родителя
         """
         logger.info(
             "context.subagent.process.start",
@@ -706,11 +708,86 @@ class DefaultContextManager(ContextManager):
             response_type=type(response).__name__ if response else None,
         )
 
-        summary = f"[Subagent {subagent_scope} response placeholder]"
+        # Если ответ пустой — возвращаем пустой summary
+        if not response:
+            result = SubagentResult(
+                summary="(субагент не выполнил действий)",
+                token_count=0,
+                source_scope=subagent_scope,
+                shared_items=[],
+            )
+            logger.info(
+                "context.subagent.process.complete",
+                parent_scope=parent_scope,
+                subagent_scope=subagent_scope,
+                summary_length=len(result.summary),
+                token_count=result.token_count,
+            )
+            return result
+
+        # Конвертируем ответ в строку для суммаризации
+        # Поддерживаем: str, list[LLMMessage], dict с "content"
+        if isinstance(response, str):
+            response_text = response
+        elif isinstance(response, dict):
+            response_text = response.get("content", str(response))
+        elif isinstance(response, list):
+            # list[LLMMessage] — суммаризируем напрямую
+            if self._summarizer is not None:
+                try:
+                    target_tokens = min(len(response) * 100, 2000)
+                    summary_message = await self._summarizer.summarize(
+                        response, target_tokens=target_tokens
+                    )
+                    # Извлекаем текст из LLMMessage
+                    if hasattr(summary_message, 'content'):
+                        content = summary_message.content
+                        if isinstance(content, str):
+                            summary_text = content
+                        elif isinstance(content, list):
+                            summary_text = " ".join(
+                                part.text if hasattr(part, 'text') else str(part)
+                                for part in content
+                            )
+                        else:
+                            summary_text = str(content)
+                    else:
+                        summary_text = str(summary_message)
+                    summary_tokens = self._token_counter.count_messages([summary_message])
+
+                    result = SubagentResult(
+                        summary=summary_text,
+                        token_count=summary_tokens,
+                        source_scope=subagent_scope,
+                        shared_items=[],
+                    )
+
+                    logger.info(
+                        "context.subagent.process.complete",
+                        parent_scope=parent_scope,
+                        subagent_scope=subagent_scope,
+                        summary_length=len(summary_text),
+                        token_count=summary_tokens,
+                        history_messages=len(response),
+                    )
+
+                    return result
+                except Exception:
+                    logger.exception(
+                        "context.subagent.process.summarize_failed",
+                        subagent_scope=subagent_scope,
+                    )
+            response_text = str(response)
+        else:
+            response_text = str(response)
+
+        # Fallback: если суммаризатор недоступен или не смог обработать
+        summary_text = response_text[:500] if len(response_text) > 500 else response_text
+        summary_tokens = self._token_counter.count(summary_text)
 
         result = SubagentResult(
-            summary=summary,
-            token_count=0,
+            summary=summary_text,
+            token_count=summary_tokens,
             source_scope=subagent_scope,
             shared_items=[],
         )
@@ -719,9 +796,9 @@ class DefaultContextManager(ContextManager):
             "context.subagent.process.complete",
             parent_scope=parent_scope,
             subagent_scope=subagent_scope,
-            summary_length=len(summary),
+            summary_length=len(summary_text),
             token_count=result.token_count,
-            shared_items_count=len(result.shared_items),
+            fallback=True,
         )
 
         return result

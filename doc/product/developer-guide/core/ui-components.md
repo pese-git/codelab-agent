@@ -310,14 +310,14 @@ menu = ContextMenu(items=[
 ])
 ```
 
-### TerminalPanel
+### TerminalOutputPanel
 
-Панель терминала:
+Панель вывода терминала:
 
 ```python
-from codelab.client.tui.components import TerminalPanel
+from codelab.client.tui.components import TerminalOutputPanel
 
-terminal = TerminalPanel(terminal_vm=terminal_view_model)
+terminal = TerminalOutputPanel(terminal_vm=terminal_view_model)
 ```
 
 ## Фаза 5: Polish

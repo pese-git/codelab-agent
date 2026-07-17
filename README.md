@@ -511,7 +511,7 @@ graph TD
 - **`LLMCallStrategy`** Protocol (`agent/strategies/base.py`) — интерфейс для стратегий вызова LLM.
 - **`StrategyDispatcher`** (`agent/strategies/dispatcher.py`) — диспетчер стратегий через EventBus.
 - **`SingleStrategy`** (`protocol/handlers/strategies/single_strategy.py`) — **единственная реализованная стратегия**. Один LLM-вызов → обработка tool_calls → повтор.
-- **`AgentLoop`** (`protocol/handlers/pipeline/stages/agent_loop.py`) — универсальный цикл итераций с обработкой tool_calls, permission pause/resume, cancellation.
+- **`AgentLoop`** (`protocol/handlers/pipeline/stages/agent_loop/`) — универсальный цикл итераций с обработкой tool_calls, permission pause/resume, cancellation (пакет: `loop`/`llm_caller`/`tool_processor`/`updates`/`loop_detector`).
 - **`LLMLoopStage`** (`pipeline/stages/llm_loop.py`) — тонкий адаптер pipeline → AgentLoop.
 
 > **Важно:** Config specs ссылаются на `multi_orchestrated`, `multi_choreographed`, `hierarchical` стратегии, но они **не реализованы**. Попытка использовать их приведёт к ошибке.
@@ -525,7 +525,7 @@ graph TD
 
 ### Context Manager — интеллектуальный сбор контекста
 
-`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-3 (Phase 4-6 в очереди, см. [INDEX канона](doc/internals/context-manager/INDEX.md)).
+`ContextManager` (4-слойная архитектура A–D) отвечает за сбор, бюджетирование и оптимизацию контекста для LLM. Реализованы Phase 0-6 по функциональному ядру (интеграция мультиагентных стратегий отложена — см. [INDEX канона](doc/internals/context-manager/INDEX.md)).
 
 ```mermaid
 graph TD
@@ -547,7 +547,7 @@ graph TD
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager`, `ContextRegistry` | ✅ Реализовано |
 | B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | ✅ Реализовано |
 | C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | Phase 6 |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | ✅ Ядро реализовано (Phase 6) |
 
 **Путь формирования payload:**
 1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()`
@@ -586,7 +586,9 @@ reserved_tokens = 4096
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](doc/internals/context-manager/SLASH_COMMAND.md).
 
-**Документация:** [Руководство пользователя](doc/user-guides/context-manager.md) — полное описание возможностей, конфигурации и troubleshooting.
+**Документация:**
+- [Руководство пользователя](doc/product/user-guide/server/context-manager.md) — назначение, конфигурация, `/context`, рецепты, troubleshooting.
+- [Реализация и расширение](doc/product/developer-guide/extending/context-manager.md) — устройство подсистем и точки расширения (для разработчиков).
 
 **ProjectStructureDecorator** — декоратор инструментов, автоматически извлекающий структуру проекта из вывода `terminal/create` + `terminal/wait_for_exit` (команды `find`/`ls`). Сохраняет в `session.config_values["project_structure"]`.
 
