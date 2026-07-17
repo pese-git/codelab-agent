@@ -65,35 +65,365 @@ CODELAB_CONTEXT_ENABLED=true codelab
 
 ---
 
-## Как это работает (кратко)
+## Как это работает — полный алгоритм
 
-Каждый ход агента Context Manager строит **PayloadEnvelope** — контекст, разбитый на
-две части:
+### Общая схема: где включается Context Manager
 
-- **baseline** — стабильная часть: системные правила, каталог скиллов, собранные
-  файлы проекта. Она кэшируется и меняется только когда меняются её источники;
-- **tail** — изменяющаяся часть: последние сообщения диалога и результаты инструментов.
+Context Manager — это **отдельная подсистема сервера**, которая активируется
+внутри стратегии выполнения (LLM-call) при вызове `ExecutionEngine.build_context()`.
+Решение «использовать новый Context Manager или legacy-режим» принимается по
+флагам `agents.context.enabled` и runtime-команде `/context on|off`.
 
 ```mermaid
-flowchart LR
-    A["Запрос пользователя"] --> B["TaskAnalyzer<br/>классифицирует задачу"]
-    B --> C["ContextGatherer<br/>подбирает файлы"]
-    C --> D["DependencyGraph<br/>добавляет зависимости"]
-    D --> E["TokenBudgetManager<br/>распределяет бюджет"]
-    E --> F["PayloadEnvelope<br/>baseline + tail"]
-    F --> G["LLM"]
+sequenceDiagram
+    participant User
+    participant Client as TUI / Web Client
+    participant Server as CodeLab Server
+    participant EE as ExecutionEngine
+    participant CM as ContextManager
+    participant LLM as LLM Provider
+    participant FS as File System (через ACP ToolRegistry)
+
+    User->>Client: "Поправь баг в авторизации"
+    Client->>Server: session/prompt (ACP)
+    Server->>EE: execute(session, prompt)
+    Note over EE: build_context() вызывается<br/>ПЕРЕД каждым LLM-запросом
+    EE->>CM: build_context(session, prompt, agent_scope)
+    activate CM
+    CM->>CM: Проверка enabled/runtime flag
+    alt enabled = true
+        CM->>CM: TaskAnalyzer.analyze()
+        CM->>FS: project_tree() (через ToolRegistry)
+        CM->>FS: search() (через ToolRegistry)
+        CM->>FS: read_file() (через ToolRegistry)
+        CM->>CM: DependencyGraph (импорты)
+        CM->>CM: TokenBudgetManager.allocate()
+        CM->>CM: build PayloadEnvelope
+    else enabled = false
+        Note over CM: Legacy-путь: только история + сжатие
+        CM->>CM: Legacy compaction
+    end
+    CM-->>EE: PayloadEnvelope (baseline + tail)
+    EE->>LLM: AgentRequest(messages = envelope.to_messages())
+    activate LLM
+    LLM-->>EE: AgentResponse(tool_calls / text)
+    deactivate LLM
+    EE->>FS: tool execution (fs/read, fs/write, terminal/...)
+    FS-->>EE: tool result
+    EE->>CM: ensure_context_fits(envelope) (если переполнение)
+    deactivate CM
+    EE-->>Server: session/update (события для клиента)
+    Server-->>Client: поток ответов и tool calls
+    Client-->>User: видит прогресс
 ```
 
-Когда контекст перестаёт помещаться в окно, включается трёхфазное сжатие:
+> **Ключевой момент:** `build_context()` вызывается **перед каждым LLM-запросом**
+> внутри стратегии (Single/Orchestrated/…), а не один раз за сессию. На длинной
+> сессии Context Manager отрабатывает десятки и сотни раз, переиспользуя
+> кэш и эпохи для ускорения.
 
-1. **Prune** — удаляет самые старые результаты инструментов (по приоритету:
-   `tool` → `assistant` → `user` → `system`);
-2. **Skeletonize** — сжимает код до сигнатур функций/классов для файлов, которые агент
-   только читает (не редактирует);
-3. **Summarize** — просит LLM суммировать историю, сохранив ключевые решения.
+### Алгоритм `build_context()` по шагам
 
-Если LLM недоступен, третья фаза пропускается, а сжатие ограничивается Prune +
-Skeletonize (мягкая деградация).
+```mermaid
+flowchart TD
+    Start([prompt + session]) --> Extract[Этап 1<br/>Извлечь текст промпта]
+    Extract --> ResolveMode{incremental?}
+    ResolveMode -->|true| LoadEpoch[Загрузить<br/>предыдущую эпоху]
+    ResolveMode -->|false| NewEpoch[Новая эпоха<br/>baseline пересобирается]
+
+    LoadEpoch --> Reconcile[ContextReconciler.reconcile<br/>сравнить snapshot отпечатков]
+    NewEpoch --> Analyze[Этап 2<br/>TaskAnalyzer.analyze<br/>→ TaskProfile]
+
+    Analyze --> G[Этап 3<br/>ContextGatherer.gather]
+    G --> Dep[DependencyGraph<br/>прямые + транзитивные<br/>импорты]
+    Dep --> Register[Регистрация источников<br/>в ContextRegistry]
+    Register --> Allocate[TokenBudgetManager.allocate]
+
+    Reconcile --> Register
+    Allocate --> RefreshDirty{Есть<br/>грязные<br/>источники?}
+    RefreshDirty -->|да| RefreshSource[Перечитать через<br/>fs/read_text_file]
+    RefreshDirty -->|нет| BuildEnvelope
+    RefreshSource --> BuildEnvelope[build PayloadEnvelope<br/>baseline + tail]
+    BuildEnvelope --> Done([PayloadEnvelope])
+
+    Reconcile -.изменения<br/>есть.-> EpochBroken([epoch_broken = true<br/>новая эпоха])
+    EpochBroken --> NewEpoch
+```
+
+#### Этап 1: Извлечение текста промпта
+
+```python
+prompt_text = _extract_prompt_text(prompt)
+```
+
+Промпт приходит от клиента как список блоков (ACP-формат: `text`, `image`,
+`resource` и т.д.). Для анализа нужен только текст.
+
+**Когда включается:** всегда, при любом запросе.
+
+#### Этап 2: TaskAnalyzer — классификация задачи
+
+```python
+profile = await analyzer.analyze(prompt_text, session)
+```
+
+`LLMBasedTaskAnalyzer` отправляет LLM короткий запрос с structured output,
+чтобы получить `TaskProfile`:
+- `task_type` — `BUG_FIX` / `FEATURE` / `REFACTOR` / `ARCHITECTURE`;
+- `search_terms` — ключевые слова для поиска файлов;
+- `target_modules` — целевые модули/файлы (например, `src/auth.py`);
+- `investigation_depth` — 1, 2 или 3 (глубина рекурсивного обхода графа);
+- `needs_tests` — нужно ли сразу подбирать тесты.
+
+**Graceful degradation:** если LLM недоступен или не поддерживает
+structured output, используется fallback — эвристика на основе
+ключевых слов в промпте.
+
+**Когда включается:** при `agents.context.gather_enabled=true` (по умолчанию `true`).
+
+#### Этап 3: ContextGatherer — подбор файлов
+
+```python
+items = await gatherer.gather(profile, session, options=options)
+```
+
+`ACPContextGatherer` выполняет пайплайн:
+
+1. **Загрузка структуры проекта** — `project_tree()` через `ToolRegistry`
+   (берётся из кэша сессии, при необходимости — bootstrap через `find . -type f`);
+2. **Отбор кандидатов** — `target_modules` + `search_terms` → `search()`;
+3. **Чтение файлов** — `read_file()` для каждого кандидата;
+4. **Парсинг импортов** — `dependency_graph.parse_imports(content)`;
+5. **Добавление зависимостей** — прямые + транзитивные (при `recursive_dependencies=true`);
+6. **Чтение зависимых файлов** — `read_file()` для каждого;
+7. **Отбор по бюджету** — `max_files` (по умолчанию 20).
+
+**Граф зависимостей (Phase 5):**
+- **Прямой:** `get_dependencies(file, recursive=False)` — только непосредственные импорты;
+- **Транзитивный:** `get_dependencies(file, recursive=True, max_depth=investigation_depth)`;
+- **Обратный:** `get_dependents(file)` — кто импортирует данный файл;
+- **Языки:** Python (regex) и Dart (regex: `import '...';`, `export '...';`);
+- **Защита от циклов:** visited-set.
+
+**Когда включается:** при `gather_enabled=true`.
+
+#### Этап 4: Регистрация источников
+
+Каждый найденный файл оборачивается в `FileContextSource` и регистрируется
+в `ContextRegistryImpl`. Также регистрируется `SkillCatalogSource`
+(пока пустой — SkillRegistry отсутствует).
+
+#### Этап 5: Формирование baseline
+
+```python
+baseline_text = await registry.render_baseline()
+baseline = [LLMMessage(role="system", content=baseline_text)]
+```
+
+**В режиме гидрации (`incremental=false`):** baseline пересобирается
+заново из текущего состояния реестра. Медленно, но предсказуемо.
+
+**В инкрементальном режиме (`incremental=true`):**
+1. `ContextReconciler.reconcile()` сравнивает отпечатки источников с прошлым snapshot;
+2. Если ничего не изменилось — эпоха стабильна, отправляются только `tail`
+   (prompt cache hit у провайдера);
+3. Если изменилось — `epoch_broken=true`, baseline пересобирается;
+4. **Грязные источники** (помеченные `InvalidationSignalBus` после `fs/write`)
+   перечитываются через `_refresh_dirty_sources()` лениво.
+
+**Когда включается:** всегда. Выбор режима (гидрация vs эпоха) — по `incremental` flag.
+
+#### Этап 6: TokenBudgetManager
+
+```python
+allocation = budget_manager.allocate(max_context_tokens - reserved_tokens)
+# allocation: system_tokens, history_tokens, tool_output_tokens, response_buffer_tokens
+```
+
+Делит доступный бюджет по долям (`system_share`, `history_share`, …).
+`bound_content()` усекает длинные файлы, сохраняя начало и конец.
+
+#### Этап 7: PayloadEnvelope
+
+```python
+envelope = PayloadEnvelope(
+    baseline=baseline_messages,      # system + file contents
+    tail=tail_messages,              # история диалога + tool results
+    baseline_fingerprint=hash,       # для детекта изменений
+    token_count=total_tokens,
+)
+```
+
+**Результат:** единая форма payload, с которой работают все стратегии.
+
+---
+
+### `ensure_context_fits()` — 3-фазное сжатие
+
+Когда `PayloadEnvelope` превышает `max_context_tokens - reserved_tokens`:
+
+```mermaid
+flowchart TD
+    Start([envelope]) --> Check{Помещается<br/>в окно?}
+    Check -->|да| OK([вернуть как есть])
+    Check -->|нет| Phase1[Фаза 1: PRUNE<br/>удалить старые tool results<br/>по приоритету: tool→assistant→user]
+    Phase1 --> Check2{Помещается?}
+    Check2 -->|да| Done1([готово])
+    Check2 -->|нет| Phase2[Фаза 2: SKELETONIZE<br/>сжать read-only файлы<br/>до сигнатур]
+    Phase2 --> Check3{Помещается?}
+    Check3 -->|да| Done2([готово])
+    Check3 -->|нет| Phase4{LLM<br/>доступен?}
+    Phase4 -->|да| Phase3[Фаза 3: SUMMARIZE<br/>LLM-суммаризация истории]
+    Phase4 -->|нет| Warn([warning: graceful degradation<br/>возвращаем частично сжатый результат])
+    Phase3 --> Check5{Помещается<br/>строго?}
+    Check5 -->|да| Done3([готово])
+    Check5 -->|нет| Retry[Retry с safety_margin=0.9<br/>лог budget_underestimated_retry]
+    Retry --> Done4([готово])
+```
+
+**Приоритеты eviction** (в Phase 0 зафиксированы):
+
+| Категория | Priority | Когда удаляется |
+|-----------|----------|-----------------|
+| `system` | 10 | Никогда (если нет критического переполнения) |
+| `user` | 8 | После tool/assistant |
+| `assistant` | 6 | После tool |
+| `tool` | 4 | Первыми |
+
+**Мягкая деградация:** если фаза 3 невозможна (LLM недоступен), горячий
+путь возвращает частично сжатый результат. После сжатия делается
+пост-проверка; при недооценке ApproximateTokenCounter — повтор со
+строгим лимитом (`budget_underestimated_retry`).
+
+---
+
+### Пример сессии: исправление бага
+
+**Конфигурация:** `~/.codelab/codelab.toml`
+```toml
+[agents.context]
+enabled = true
+gather_enabled = true
+incremental = true
+recursive_dependencies = true
+[agents.context.budget]
+max_context_tokens = 128000
+```
+
+**Сессия 1: «Найди баг в авторизации пользователя»**
+
+```
+[Пользователь] Найди баг в авторизации пользователя
+```
+
+**Шаг 1 — `ExecutionEngine.execute()` → `build_context()`**
+
+Логи:
+```
+context.build.start  agent_scope=single  gather_enabled=True  incremental=True
+context.task_analyze.start  prompt_length=37
+context.task_analyze.complete  task_type=bug_fix  investigation_depth=2  search_terms=5
+context.gather.start  search_terms=['auth', 'login', 'user', 'session', 'token']
+context.gather.target_module.fallback  normalized=src/auth.py
+context.gather.content_search.match  file_path=src/auth.py
+context.gather.file.imports_parsed  path=src/auth.py  imports=['src.user', 'src.utils', ...]
+context.gather.dependents.resolved  dependents_count=15  recursive_mode=True  max_depth=2
+context.gather.complete  files_gathered=18  total_tokens=24500
+context.build.gather.complete  files_gathered=18  elapsed_ms=420
+context.build.incremental.new_epoch  baseline_fingerprint=a1b2c3d4
+context.build.complete  baseline_messages=1  tail_messages=2  token_count=25100
+context.ensure_fits.ok  available=111513  margin=86413
+```
+
+**Что увидит LLM в первом ходе:**
+- `system` — собранные файлы (`<file path="src/auth.py">...</file>`);
+- `user` — «Найди баг в авторизации пользователя»;
+- `assistant` — (пустой, LLM ещё не ответил).
+
+**Шаг 2 — LLM отвечает: «Прочитай `src/auth.py:42-50`»**
+
+Стратегия выполняет `fs/read_text_file`, файл кэшируется через
+`FileCacheDecorator` (сигнал `InvalidationSignalBus` отсутствует —
+чтение не публикует invalidation).
+
+**Шаг 3 — `build_context()` для следующего хода**
+
+```
+context.build.start  incremental=True
+context.gather.file.imports_parsed  path=src/auth.py  imports=[...]
+context.gather.dependents.resolved  dependents_count=15  recursive_mode=True
+context.build.complete  baseline_messages=1  tail_messages=4  reconcile_state=unchanged
+```
+
+**Что важно:** `reconcile_state=unchanged` — `baseline_fingerprint`
+совпадает с прошлым ходом → prompt cache hit у провайдера (если поддерживается).
+
+---
+
+**Сессия 2 (на той же сессии): «Агент записывает фикс в `src/auth.py`»**
+
+Стратегия выполняет `fs/write_text_file`:
+```
+context.multiagent → нет, это SingleStrategy
+file_cache.invalidate  path=src/auth.py
+InvalidationSignalBus  emit path=src/auth.py
+DefaultContextManager._dispatch_file_invalidated  → ctx.dirty_paths.add("src/auth.py")
+```
+
+**Следующий `build_context()`** (перед очередным LLM-вызовом):
+```
+context.build.start  incremental=True
+_refresh_dirty_sources  path=src/auth.py  (вызывается до reconcile)
+context.build.complete  reconcile_state=updated  epoch_broken=True
+```
+
+**Что произошло:**
+1. `FileCacheDecorator` поймал `fs/write` → `cache.invalidate("src/auth.py")`;
+2. `InvalidationSignalBus` получил сигнал → `dirty_paths.add(...)`;
+3. На границе хода `_refresh_dirty_sources()` перечитал файл
+   через `fs/read_text_file` (с обновлённым содержимым);
+4. `ContextReconciler` сравнил отпечатки — изменился `src/auth.py` →
+   `epoch_broken=True`, baseline пересобран с **новым** содержимым.
+
+**Двойная защита:** даже если сигнал потеряется, `ContextSnapshot.diff()`
+обнаружит изменение по Codec-fingerprint на следующем reconcile.
+
+---
+
+**Сессия 3 (длинная): контекст переполняется**
+
+После 30+ ходов:
+```
+context.ensure_fits.exceeded  current=145000  available=124000  exceeded_by=21000
+context.compact.phase_prune  tokens_before=145000  tokens_after=128000
+context.compact.phase_skeletonize  tokens_before=128000  tokens_after=115000
+context.compact.phase_summarize  tokens_before=115000  tokens_after=98000
+context.ensure_fits.compacted  tokens_before=145000  tokens_after=98000
+```
+
+**Что делает LLM в этом случае:**
+- Видит тот же baseline (стабильная часть), но с сокращённым `tail`
+  (история сжата через 3 фазы);
+- `Phase 2: SKELETONIZE` — большие read-only файлы заменены на сигнатуры;
+- `Phase 3: SUMMARIZE` — старые сообщения диалога суммаризированы LLM-ом.
+
+---
+
+### Slash-команда `/context` — наблюдаемость
+
+В клиенте доступна полная диагностика работы Context Manager:
+
+| Команда | Что показывает |
+|---------|----------------|
+| `/context` | Сводка: статус, число сборок, среднее время, токены baseline/tail |
+| `/context config` | Полная действующая конфигурация с бюджетом в токенах |
+| `/context last` | Детали последней сборки: тайминги стадий, тип задачи, файлы, токены |
+| `/context files` | Список файлов из последней сборки с токенами на файл |
+| `/context graph` | Статистика графа зависимостей (файлы, импорты, зависимые) |
+| `/context profile` | Профиль последней задачи из `TaskAnalyzer` |
+| `/context spans` | Последние трассировочные span'ы (`context.build`, `context.gather`) |
+| `/context on` | Включить Context Manager для текущей сессии |
+| `/context off` | Выключить Context Manager для текущей сессии (вернуться к legacy) |
 
 ---
 
