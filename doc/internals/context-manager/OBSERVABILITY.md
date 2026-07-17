@@ -34,6 +34,10 @@ gauge — мгновенное значение, histogram — распреде�
 | `context_file_cache_evictions` | counter | Число вытеснений из кэша (LRU / priority-based eviction по `ContextItem.priority`) | Phase 2 (слой C) |
 | `context_file_cache_size_bytes` | gauge | Текущий объём контент-кэша (per-session или агрегат через `SessionFileCacheRegistry`). Label: `session` | Phase 2 (слой C) |
 | `context_gathered_files` | gauge | Число файлов, отобранных `ContextGatherer` за один `build_context()`. Label: `agent_scope`, `task_type` | Phase 1 (слой A) |
+| `context_gathered_dependents` | gauge | Число файлов, добавленных через `DependencyGraph` (прямые + транзитивные). Label: `agent_scope`, `task_type` | Phase 5 (слой A) |
+| `context_recursive_depth_max` | gauge | Максимальная глубина рекурсивного обхода графа зависимостей за `build_context()`. Label: `task_type` | Phase 5 (слой A) |
+| `context_graph_files` | gauge | Число файлов в графе зависимостей. Label: `agent_scope` | Phase 5 (слой A) |
+| `context_graph_dependencies` | gauge | Число рёбер в графе зависимостей. Label: `agent_scope` | Phase 5 (слой A) |
 | `context_baseline_tokens` | gauge | Размер иммутабельного baseline (`PayloadEnvelope.baseline`) в токенах. Label: `agent_scope` | Phase 0/1 (форма payload) |
 | `context_tail_tokens` | gauge | Размер дельт (`PayloadEnvelope.tail`) в токенах. Label: `agent_scope` | Phase 0/1 (форма payload) |
 | `context_build_duration_ms` | histogram | Длительность `build_context()` от входа до готового `PayloadEnvelope`, мс. Label: `agent_scope`, `task_type` | Phase 1 |
@@ -43,10 +47,13 @@ gauge — мгновенное значение, histogram — распреде�
 | `context_compaction_degraded_total` | counter | Число деградаций компактора: фаза Summarize пропущена (LLM недоступен) → только Prune+Skeletonize. Label: `reason` (`llm_unavailable`/`timeout`) | Phase 3 |
 | `context_skeleton_savings_ratio` | histogram | Экономия токенов фазой Skeletonize (`CodeSkeletonizer`): `1 - skeleton_tokens / original_tokens` | Phase 2/3 (слой C) |
 | `context_epoch_breaks_total` | counter | Число разрывов эпохи (`ContextEpoch` пересобран → baseline отправляется заново). Label: `reason` (`source_changed`/`compaction`/`overflow`) | Phase 4 (слой B) |
-| `context_reconcile_total` | counter | Число реконсиляций (`ContextReconciler.reconcile()`). Label: `state` (`unchanged`/`updated`/`deferred`) | Phase 4 (слой B) |
-| `context_prompt_cache_hit_rate` | gauge | Доля попаданий provider/KV prompt-cache по стабильному префиксу (baseline). Источник — `AgentResponse.usage` (cached tokens) | Phase 4 (слой B) |
+| `context_reconcile_total` | counter | Число реконсиляций (`ContextReconciler.reconcile()`). Label: `state` (`unchanged`/`updated`) | Phase 4 (слой B) |
+| `context_prompt_cache_hit_rate` | gauge | **План, не реализовано.** Доля попаданий provider/KV prompt-cache по стабильному префиксу (baseline). Источник — `AgentResponse.usage` (cached tokens). См. `doc/product/user-guide/server/context-manager.md` §«Кэширование токенов у LLM-провайдера» | Phase 4 (слой B) |
 | `context_token_count_duration_ms` | histogram | Длительность подсчёта токенов (`TokenCounter`/`TiktokenCounter`), мс | Phase 2 (слой C) |
-| `context_subagent_responses_total` | counter | Число обработанных `process_subagent_response()`. Label: `parent_scope` | Phase 6 (слой D) |
+| `context_subagent_responses_total` | counter | Число обработанных `process_subagent_response()`. Label: `parent_scope`, `fallback` (bool) | Phase 6 (слой D) |
+| `context_subagent_summary_tokens` | histogram | Размер `SubagentResult.summary` в токенах. Label: `subagent_scope` | Phase 6 (слой D) |
+| `context_subagent_child_sessions` | counter | Число созданных child-сессий (`ChildSessionManager.create_child()`). Label: `subagent_scope` | Phase 6 (слой D) |
+| `context_subagent_fallback_total` | counter | Число fallback'ов в `process_subagent_response` (summarize упал, использован fallback). Label: `reason` | Phase 6 (слой D) |
 | `context_errors_total` | counter | Ошибки в слоях Context Manager. Label: `layer` (`a_gather`/`b_lifecycle`/`c_storage`/`d_multiagent`), `op` | Phase 1+ |
 
 ### 1.2. Производные показатели (вычисляются в дашборде/алертах)
@@ -57,6 +64,8 @@ gauge — мгновенное значение, histogram — распреде�
 | Prompt-cache эффективность | `context_prompt_cache_hit_rate` | растёт по длине сессии (Phase 4) |
 | Доля деградаций | `context_compaction_degraded_total / context_compaction_total` | < 0.05 |
 | Error rate | `rate(context_errors_total) / rate(context_build_*_calls)` | < 0.001 (перед 100% rollout) |
+| Рекурсивный сбор (Phase 5) | `context_gathered_dependents / (context_gathered_files + context_gathered_dependents)` | > 0.20 (транзитивные зависимости добавляют контекст) |
+| Fallback rate субагента (Phase 6) | `context_subagent_fallback_total / context_subagent_responses_total` | < 0.05 |
 
 ### 1.3. Привязка SLO (из PERFORMANCE_REQUIREMENTS)
 

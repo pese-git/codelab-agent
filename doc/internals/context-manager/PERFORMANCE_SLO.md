@@ -1,7 +1,7 @@
 # Context Manager — Performance SLO
 
 > **Статус:** Канон ([ADR-002](../architecture/adr/ADR-002-context-manager-consolidation.md))
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17: добавлены SLO для Phase 5/6)
 >
 > Числовые цели производительности консолидированного `ContextManager` (слои A–D).
 > Опирается на [CONSOLIDATED_ARCHITECTURE.md](./CONSOLIDATED_ARCHITECTURE.md),
@@ -40,6 +40,9 @@
 | `TokenCounter.count()` / `count_messages()` (tiktoken) на файл ~5000 LOC | < 50 мс | < 200 мс | таймер вокруг `TiktokenCounter`; батч по items | Phase 2 |
 | `CodeSkeletonizer.skeletonize()` (AST) на файл ~5000 LOC | < 200 мс | < 500 мс | таймер вокруг `PythonASTSkeletonizer`; самая тяжёлая CPU-операция p95 | Phase 2 |
 | `TaskAnalyzer.analyze()` (LLM-классификация) | вне p95 | < 2 с | отдельная гистограмма; кэшируется per-turn | Phase 1 |
+| `DependencyGraph.get_dependencies(recursive=True)` (Phase 5) | < 50 мс | < 200 мс | таймер на 100-файловом проекте; рекурсия с max_depth=3 | Phase 5 |
+| `ChildSessionManager.create_child()` (Phase 6) | < 10 мс | < 50 мс | таймер на создании child-сессии через `SessionFactory` + `SessionStorage.save_session` | Phase 6 |
+| `ChildSessionManager.collect_summary()` (Phase 6) | < 1 с | < 3 с | таймер на суммаризации истории child-сессии; основное время — `ConversationSummarizer.summarize()` | Phase 6 |
 
 **Замечание о деградации.** При недоступности LLM фазы `Summarize` и `TaskAnalyzer`
 выпадают (см. CONSOLIDATED_ARCHITECTURE §7); SLO `ensure_context_fits` сохраняется,
@@ -142,7 +145,8 @@ AST-скелеты, приоритеты) и экономией на длинн�
 | **Phase 2** | `TokenCounter`, `CodeSkeletonizer`, `FileContentCache` hit rate | § 1 (counting/skeletonize), § 2 (cache hit > 90%), § 3 (сжатие 80–85%) |
 | **Phase 3** | компактор end-to-end, деградация без LLM | `ensure_context_fits` p95 § 1; `priority>=10` не усекается § 3 |
 | **Phase 4** | prompt-cache hit, экономия дельт, `epoch_broken` | весь § 2 |
-| **Phase 5** | `gather()` на больших проектах (сценарий 5) | точность отбора, latency § 4 |
+| **Phase 5** | `gather()` на больших проектах, `get_dependencies(recursive=True)` | точность отбора, latency § 4 (сценарий 5), рекурсия § 1 (DependencyGraph) |
+| **Phase 6** | `create_child()`, `collect_summary()`, `process_subagent_response()` | child session latency § 1, изоляция (нет утечки состояния между parent/child), graceful degradation (fallback при сбое summarizer) |
 
 > Числа подлежат калибровке: после первого бенчмарк-прогона фазы значения в таблицах
 > § 1–§ 3 пересматриваются и фиксируются как baseline для алертов

@@ -1,12 +1,17 @@
 # Context Manager — Competitive Backlog (идеи из анализа конкурентов)
 
 > **Статус:** Исследовательский backlog для фаз после Phase 6
-> **Дата:** 25 июня 2026
+> **Дата:** 25 июня 2026 (обновлено 2026-07-17: Phase 5/6 реализованы, идеи остаются актуальными)
 > **Источники анализа:** OpenCode CLI (archived, → Crush), Hermes Agent (NousResearch)
 >
 > Документ содержит идеи, заимствованные из анализа конкурентов. Каждая идея оценена
 > по ценности для пользователя, сложности реализации и приоритету для включения
 > в будущие фазы развития Context Manager.
+>
+> **Контекст (2026-07-17):** Phase 5 (recursive dependencies + Dart imports) и
+> Phase 6 (ChildSessionManager + process_subagent_response) реализованы и
+> стабилизированы. Идеи в этом документе остаются актуальными для Phase 7+:
+> персистентная память, learning loop, LSP, user modeling и т.д.
 
 ---
 
@@ -391,6 +396,57 @@ Phase 10 — Advanced memory (4-8 недель)
 - **High value + High complexity:** Требует отдельного ADR, планировать в roadmap
 - **Medium value + Low complexity:** Включать по возможности (quick win)
 - **Low value:** Отложить до востребованности
+
+---
+
+## 5. Идеи из Phase 5/6 (реализованные)
+
+В этом разделе — идеи, которые уже реализованы в Phase 5/6 и могут быть
+унаследованы или расширены в Phase 7+.
+
+### 5.1. Recursive dependency resolution (Phase 5) — реализовано
+
+**Источник:** внутренняя идея + аналоги в OpenCode, Cursor
+**Описание:** `get_dependencies(recursive=True, max_depth=investigation_depth)` —
+рекурсивный обход графа импортов с защитой от циклов и ограничением глубины.
+**Поддержка языков:** Python (regex), Dart (regex: `import '...'`, `export '...'`).
+Tree-sitter — отложен как опциональная фаза (regex покрывает 95% случаев).
+
+**Потенциал для Phase 7:**
+- Расширение на TypeScript/JavaScript (npm-пакеты)
+- TypeScript/JSX/TSX с tree-sitter (более точное разрешение модулей)
+- Rust/Cargo (use-statements)
+
+### 5.2. Child session для субагентов (Phase 6) — реализовано (ядро)
+
+**Источник:** внутренняя идея + ADR-002
+**Описание:** `DefaultChildSessionManager.create_child()` + `process_subagent_response()`
+— изолированные child-сессии для субагентов с суммаризацией результата через
+`ConversationSummarizer`. Родитель получает только `SubagentResult.summary`,
+а не сырой контекст.
+
+**Потенциал для Phase 7:**
+- Реализация самих мультиагентных стратегий (`OrchestratedStrategy`,
+  `ChoreographyStrategy`, `HierarchicalStrategy`)
+- Таймауты для субагентов (задача T6.9)
+- Кэширование child-сессий (переиспользование между ходами)
+
+### 5.3. Cache markers для провайдеров (Phase 4, не реализовано)
+
+**Источник:** Anthropic (cache_control), OpenAI (automatic), Google (implicit)
+**Описание:** явная передача `cache_control: {"type": "ephemeral"}` в LLM API
+для стабильного `baseline`. **Не реализовано** в коде (см.
+`doc/product/user-guide/server/context-manager.md` §«Кэширование токенов»).
+
+**Потенциал для Phase 7:**
+- Добавить `cache_control: dict | None` в `LLMMessage`
+- Прокидывать в `AnthropicProvider._convert_to_anthropic_format()`
+- Ставить маркер на `baseline[-1]` только при `incremental=true`
+- Метрика `context_prompt_cache_hit_rate` через `usage.cached_tokens`
+- UI-индикатор cache hit / miss в `/context`
+
+**Ценность:** На длинных сессиях с стабильным `baseline_fingerprint` — до
+~43× дешевле (780000 → 18000 токенов на 30 ходов для 25000 baseline_tokens).
 
 ---
 
