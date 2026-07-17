@@ -310,7 +310,7 @@ Context Manager — критический компонент, отвечающ�
 
 **Интеграция в DI:**
 ```python
-# src/codelab/server/di.py
+# src/codelab/server/di/services.py
 @provide(scope=Scope.APP)
 async def provide_context_command_handler(
     self,

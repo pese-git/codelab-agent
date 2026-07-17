@@ -401,7 +401,7 @@ src/codelab/server/tools/executors/decorators/
 
 # Изменяемые файлы
 src/codelab/server/agent/execution_engine.py   # единый путь build_context()
-src/codelab/server/di.py                        # DI-интеграция ContextManager
+src/codelab/server/di/                          # DI-интеграция ContextManager (пакет: agent.py, services.py)
 src/codelab/server/protocol/handlers/slash_commands/builtin/context.py  # /context
 ```
 

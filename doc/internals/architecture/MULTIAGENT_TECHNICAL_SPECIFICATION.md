@@ -3675,7 +3675,7 @@ class ToolDefinition:
 
 | Файл | Причина |
 |---|---|
-| `server/agent/base.py` | **Переписан, не legacy.** Содержит рабочие классы: `AgentContext`, `ContinuationContext`, `AgentResponse` (dataclass), `LLMAgent` (ABC). Активно используется 7 файлами: `execution_engine.py`, `strategies/dispatcher.py`, `strategies/base.py`, `llm_adapter.py`, `pipeline/stages/agent_loop.py`, `strategies/single_strategy.py`, `agent/__init__.py`. Директория `server/agent/core/` (указанная в spec как замена) не существует. |
+| `server/agent/base.py` | **Переписан, не legacy.** Содержит рабочие классы: `AgentContext`, `ContinuationContext`, `AgentResponse` (dataclass), `LLMAgent` (ABC). Активно используется 7 файлами: `execution_engine.py`, `strategies/dispatcher.py`, `strategies/base.py`, `llm_adapter.py`, `pipeline/stages/agent_loop/`, `strategies/single_strategy.py`, `agent/__init__.py`. Директория `server/agent/core/` (указанная в spec как замена) не существует. |
 | `server/llm/telemetry/` | **Задепрекейтить, не удалять.** Оставить как legacy-интерфейс пока InMemoryTracer полностью не покрывает все сценарии. |
 
 ---
