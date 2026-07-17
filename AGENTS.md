@@ -186,7 +186,7 @@ uv run python -m pytest
 - Интеграционные тесты: `test_manager.py`, `test_integration.py`
 - Golden тесты для детерминизма: `test_skeletonizer.py::TestDeterminism`
 
-**Документация:** `doc/internals/context-manager/` (канон), `doc/user-guides/context-manager.md` (пользователь)
+**Документация:** `doc/internals/context-manager/` (канон), `doc/product/user-guide/server/context-manager.md` (пользователь), `doc/product/developer-guide/extending/context-manager.md` (разработчик)
 
 ---
 
