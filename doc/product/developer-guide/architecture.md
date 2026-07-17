@@ -806,14 +806,14 @@ chat_vm = ChatViewModel(
 
 ### Context Manager (`server/agent/context/`)
 
-**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–3 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие).
+**4-слойная архитектура** (A–D) для сбора, бюджетирования и оптимизации контекста для LLM. Реализованы Phase 0–6 (каркас, MVP-сбор, слой хранения, 3-фазное сжатие, инкрементальность, полный граф зависимостей, мультиагент по ядру).
 
 | Слой | Компоненты | Статус |
 |------|-----------|--------|
 | A — Сбор | `TaskAnalyzer`, `ContextGatherer`, `DependencyGraph`, `TokenBudgetManager` | ✅ Реализовано |
-| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | 🔲 Phase 4 |
+| B — Жизненный цикл | `ContextEpoch`, `ContextSnapshot`, `ContextReconciler` | ✅ Реализовано (Phase 4) |
 | C — Хранение | `FileContentCache`, `CodeSkeletonizer`, `TokenCounter`, `ThreePhaseCompactor` | ✅ Реализовано |
-| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | 🔲 Phase 6 |
+| D — Мультиагент | `ChildSessionManager`, `process_subagent_response()` | ✅ Ядро реализовано (Phase 6); интеграция стратегий отложена |
 
 **Путь формирования payload:**
 1. `ExecutionEngine.build_context()` вызывает `DefaultContextManager.build_context()` (при `enabled=true`)
@@ -837,7 +837,8 @@ reserved_tokens = 4096
 
 **Наблюдаемость:** slash-команда `/context` показывает метрики, span'ы и позволяет управлять включением. См. [SLASH_COMMAND.md](../../internals/context-manager/SLASH_COMMAND.md).
 
-> Полная документация: [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
+> Руководство по реализации и расширению: [Context Manager — реализация и расширение](extending/context-manager.md)
+> Полная документация (канон): [doc/internals/context-manager/INDEX.md](../../internals/context-manager/INDEX.md)
 
 ### Tool System (`server/tools/`)
 
