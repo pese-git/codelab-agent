@@ -1225,19 +1225,69 @@ update` в except-ветке безопасно — повторного выб�
 историческая (перенос 1:1 при P1-4).
 
 **Задачи:**
-- [ ] В except-ветке `_execute_allowed_tool_call` заменить `buffer_and_save_tool_update`
+- [x] В except-ветке `_execute_allowed_tool_call` заменить `buffer_and_save_tool_update`
       на `await emit_and_save_tool_update` (ветка уже async).
-- [ ] Тест: при исключении tool'а `failed` уходит через callback немедленно и в порядке
-      относительно последующих immediate-событий.
-- [ ] Отметить как изменение wire-поведения (тайминг/порядок событий) — формально контракт.
+- [x] Тест `test_tool_exception_delivers_failed_update_immediately` (failed уходит через
+      callback немедленно, не оседает в буфере).
+- [x] Осиротевший `buffer_and_save_tool_update` удалён; изменение wire-тайминга отмечено.
 
 **Оценка:** 0.5 дня.
 **Критерий приемки:** exception-ветка доставляет `tool_call_update(failed)` немедленно
 (как success-ветка); replay-детерминизм сохранён; порядок живых событий причинно-верный.
 
-> **Родственное наблюдение (P1-4, не заводится отдельным пунктом):** расхождение формата
-> плана — session `{title,description}` vs wire `{content,priority,status}`. Оставлено как
-> есть; трогать только при отдельном запросе.
+---
+
+### 26. Формат плана нарушает ACP на replay-пути: `latest_plan` хранит `{title,description}` вместо ACP `{content,priority,status}` — ⬜ ОТКРЫТ (приоритет №2 — соответствие ACP)
+
+> Наблюдение из P1-4; при проверке против спецификации (`doc/protocols/Agent Client
+> Protocol/protocol/11-Agent Plan.md` + `17-Schema.md`) оказалось **нарушением ACP**, а не
+> просто внутренней несогласованностью. По иерархии CLAUDE.md — приоритет №2 (соответствие
+> ACP), выше обратной совместимости.
+
+**Что говорит ACP.** `PlanEntry` (11-Agent Plan.md:56-74, схема:2332) имеет ровно три
+**обязательных** поля: `content` (string), `priority` (`high`/`medium`/`low`), `status`
+(`pending`/`in_progress`/`completed`). Полей `title`/`description` в схеме **нет**. Плюс
+жёсткое правило (11-Agent Plan.md:80): агент **MUST** слать полный список entries с их
+статусами, клиент **MUST** заменить план целиком.
+
+**Дефект.** `latest_plan: list[PlanStep | dict]` (`state.py`) не имеет единой схемы — два
+writer'а пишут разные формы:
+- `plan_builder.update_session_plan` (~180) и `directives.py` (~116): `{title: content,
+  description: ""}` — **невалидно по ACP** (нет ни одного required-поля, есть два
+  несхемных); `priority`/`status` **выброшены**.
+- `agent_loop/loop.py` (~456) и `tool_processor.py` (~839): wire-форма
+  `{content,priority,status}` как есть.
+
+`replay_latest_plan` (`replay_manager.py`) шлёт `latest_plan` обратно клиенту на
+`session/load` **как записано**. Итог:
+1. **Live ≠ replay.** Один план приходит клиенту в разных формах (`{content,...}` live vs
+   `{title,description}` replay для directives-пути).
+2. **Нарушение ACP на replay + правила «replace completely».** Клиент по спеке затирает
+   корректный план невалидными entries без статусов.
+3. **Потеря статусов при reload.** Урезание в `{title,description}` теряет `status` —
+   прогресс плана (`in_progress`/`completed`), показанный живьём, после `session/load`
+   пропадает.
+4. Полиморфное `list[PlanStep | dict]` — рассадник латентных багов (из той же
+   полиморфности вырос уже закрытый краш P2-12).
+
+**Severity.** Не краш (P2-12 прикрыл сериализацию), но нарушение протокола + наблюдаемая
+деградация UX и потеря данных о прогрессе при reload. Live-сессия не затронута (там всегда
+wire-форма).
+
+**Направление фикса (канон определён спецификацией — не наш выбор):**
+- [ ] Свести обоих writer'ов `latest_plan` к ACP-форме `{content,priority,status}` (убрать
+      урезание в `{title,description}` в `plan_builder`/`directives`).
+- [ ] Миграция уже сохранённых сессий с `{title,description}` → ACP-форма (изменение формата
+      хранения → обратная совместимость по CLAUDE.md; bump `schema_version` + ветка
+      `migrate_schema`).
+- [ ] Тест: live-notification и `replay_latest_plan` одного плана дают байт-идентичные
+      ACP-валидные entries; статусы переживают reload.
+- [ ] По возможности сузить тип `latest_plan` (убрать полиморфизм `PlanStep | dict`).
+
+**Оценка:** 0.5–1 день.
+**Критерий приемки:** `replay_latest_plan` отдаёт ACP-валидные `{content,priority,status}`,
+идентичные live-форме; статусы плана сохраняются при `session/load`; миграция старого
+формата покрыта тестом.
 
 ---
 
