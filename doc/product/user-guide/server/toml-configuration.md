@@ -167,11 +167,15 @@ CODELAB_CONTEXT_RESERVED_TOKENS=4096
 ```
 /context on     # включить Context Manager
 /context off    # выключить Context Manager
-/context        # показать метрики
-/context spans  # показать трассировочные span'ы
+/context        # показать сводку метрик
+/context config # показать действующую конфигурацию
+/context last   # детали последней сборки
+/context files  # файлы последней сборки с токенами
+/context graph  # статистика графа зависимостей
+/context spans  # трассировочные span'ы
 ```
 
-> Подробнее: [SLASH_COMMAND.md](../../../internals/context-manager/SLASH_COMMAND.md)
+> Подробное руководство пользователя: [Context Manager](./context-manager.md)
 
 ## Полные примеры конфигураций
 
