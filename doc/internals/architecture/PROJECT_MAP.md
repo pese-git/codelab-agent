@@ -3,6 +3,9 @@
 > **ACP (Agent Client Protocol)** — унифицированная реализация сервера агента и клиента в одном Python-пакете.
 >
 > **Дата генерации:** 2026-07-05 | **Ветка:** feature/context-manager-sync
+> **Актуализация:** 2026-07-17 — структура приведена к состоянию после рефакторинга тех-долга
+> (God Objects → пакеты: `di/`, `handlers/prompt/`, `agent_loop/`, `acp_transport/`;
+> удалены `tui/navigation/` (P2-17) и `TerminalPanel` (P2-8)).
 
 ---
 
@@ -76,7 +79,7 @@ codelab-agent/
 |------|------------|
 | `handlers/auth.py` | `authenticate`, `initialize` |
 | `handlers/session.py` | `session/new`, `session/load`, `session/list` |
-| `handlers/prompt.py` | `session/prompt`, `session/cancel`, turn completion |
+| `handlers/prompt/` | `session/prompt`, `session/cancel`, turn completion (пакет: normalization/validation/directives/tool_calls/client_requests/permission_response) |
 | `handlers/prompt_orchestrator.py` | Главный координатор prompt-turn |
 | `handlers/permissions.py` | `session/request_permission` |
 | `handlers/permission_manager.py` | Менеджер политик разрешений |
@@ -358,7 +361,7 @@ codelab-agent/
 |------|----------|
 | `cli.py` | CLI entry point (`codelab serve`, `codelab connect`) |
 | `config.py` | `AppConfig` — глобальная конфигурация |
-| `di.py` | DI-контейнер Dishka (APP/REQUEST scope) |
+| `di/` | DI-контейнер Dishka (APP/REQUEST scope) — пакет по доменам: agent/llm/pipeline/observability/request/services |
 | `http_server.py` | WebSocket HTTP сервер |
 | `web_app.py` | Web UI (Textual Web) |
 | `messages.py` | JSON-RPC сообщения (совместимость) |
@@ -514,14 +517,9 @@ codelab-agent/
 | `components/chat_view_permission_manager.py` | Менеджер разрешений чата |
 | `components/markdown.py` | Рендер Markdown |
 
-#### Навигация (tui/navigation/)
-
-| Файл | Описание |
-|------|----------|
-| `navigation/manager.py` | `NavigationManager` — главный менеджер |
-| `navigation/queue.py` | `OperationQueue` — приоритетная очередь |
-| `navigation/tracker.py` | `ModalWindowTracker` — отслеживание модалей |
-| `navigation/operations.py` | Операции навигации |
+> **Удалено (P2-17):** пакет `tui/navigation/` (`NavigationManager`, `OperationQueue`,
+> `ModalWindowTracker`, `NavigationOperations`) — неадоптированная абстракция; управление
+> модалями ведёт `ModalController`.
 
 #### Темы (tui/themes/)
 
