@@ -478,6 +478,192 @@ eventual consistency на границах ходов достаточна дл�
 
 ---
 
+### Кэширование токенов у LLM-провайдера
+
+Стабильный `baseline` (при `incremental=true`) — это **префикс, который
+можно закэшировать** у провайдера, чтобы:
+
+- удешевить каждый следующий ход (`cached_input_tokens` дешевле обычных);
+- ускорить ответ (провайдер не пересчитывает KV-cache);
+- сэкономить локальные ресурсы (KV-prefix-cache в vLLM/llama.cpp).
+
+Это отдельный механизм от `FileContentCache` (слой C, кэш в памяти сервера).
+Здесь речь о кэше **у провайдера**, на стороне LLM API или локального runtime.
+
+#### Текущее состояние vs план
+
+| Аспект | Статус | Где |
+|--------|--------|-----|
+| `PayloadEnvelope` с разделением `baseline` / `tail` | ✅ Реализовано | `models.py` (Phase 0) |
+| `ContextEpoch` с фиксированным `baseline` | ✅ Реализовано | `epoch.py` (Phase 4) |
+| Детерминированный `CodeSkeletonizer` (стабильный baseline) | ✅ Реализовано | `skeletonizer/` (Phase 2) |
+| `baseline_fingerprint` (Codec-хэш стабильного префикса) | ✅ Реализовано | `reconciler.py` (Phase 4) |
+| Прокидывание cache-маркера в LLM API | ❌ **Не реализовано** | — |
+| Метрика `context_prompt_cache_hit_rate` | ❌ **Не реализовано** | — |
+| UI-индикатор cache hit / miss | ❌ **Не реализовано** | — |
+
+> **Roadmap:** явная передача `cache_control` / `prompt_caching` маркеров
+> провайдеру — отдельная задача (см. `PHASE_4_SPEC.md` §T4.6). Без неё провайдер
+> всё равно может закэшировать префикс автоматически (OpenAI), но Anthropic
+> требует явного `cache_control` на сообщении.
+
+#### Как работает кэширование у разных провайдеров
+
+| Провайдер | Механизм | Что делает агент | Экономия |
+|-----------|----------|------------------|-----------|
+| **Anthropic** (Claude) | Explicit cache breakpoints | Ставит `cache_control: {"type": "ephemeral", "ttl": "5m"}` на **последний** message из baseline | До 90% на cache hit |
+| **OpenAI** (gpt-4o) | Automatic prefix matching | Ничего — провайдер сам матчит префиксы ≥1024 токенов | До 50% автоматически |
+| **Google** (Gemini) | Implicit caching | Ничего — провайдер кэширует по умолчанию | По умолчанию |
+| **OpenRouter** | Зависит от upstream | Если upstream — Anthropic, нужен cache_control | Различается |
+| **Локальные** (vLLM, llama.cpp) | KV-prefix-cache | Ничего — стабильный префикс = cache hit автоматически | Зависит от длины сессии |
+
+#### Sequence-диаграмма: что должно происходить (план)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CM as ContextManager
+    participant Adapter as LLM Adapter
+    participant Provider as Anthropic API
+    participant KV as Provider Cache
+
+    Note over CM: Ход 1: baseline формируется
+    User->>CM: запрос
+    CM->>CM: TaskAnalyzer → Gatherer → ContextEpoch
+    CM->>Adapter: AgentRequest(messages = [baseline, tail])
+    Note over Adapter: Ход 1: cache miss<br/>стабильного префикса ещё нет
+    Adapter->>Provider: messages with cache_control на baseline[-1]
+    Provider->>KV: store prefix (baseline + ttl=5m)
+    Provider-->>Adapter: response (full input_tokens)
+    Adapter-->>CM: CompletionResponse
+
+    Note over CM: Ход 2: baseline стабилен, tail — новые сообщения
+    User->>CM: следующий запрос
+    CM->>CM: reconcile: baseline_fingerprint unchanged
+    CM->>Adapter: AgentRequest(messages = [baseline, tail'])
+    Note over Adapter: Ход 2: cache hit!<br/>prefix совпадает с ходом 1
+    Adapter->>Provider: messages with cache_control
+    Provider->>KV: lookup prefix
+    KV-->>Provider: cached prefix (match!)
+    Provider-->>Adapter: response (input_tokens=baseline_tokens, cached=baseline_tokens)
+    Adapter-->>CM: CompletionResponse (usage.cached_tokens > 0)
+```
+
+**Что нужно добавить в код (план, отдельный change):**
+
+1. **`LLMMessage` (models.py):**
+   ```python
+   @dataclass(frozen=True)
+   class LLMMessage:
+       role: str
+       content: str | list[ContentPart] | None
+       tool_call_id: str | None = None
+       cache_control: dict[str, Any] | None = None  # НОВОЕ
+   ```
+
+2. **`AnthropicProvider._convert_to_anthropic_format()`:** прокидывать
+   `cache_control` в message:
+   ```python
+   if msg.cache_control:
+       anthropic_msg["cache_control"] = msg.cache_control
+   ```
+
+3. **`ExecutionEngine` (или `ContextManager`):** ставить `cache_control` на
+   **последний** message из `baseline` (или на `system`, если `baseline` пуст):
+   ```python
+   baseline[-1] = baseline[-1].model_copy(update={"cache_control": {"type": "ephemeral"}})
+   ```
+
+4. **Только при `incremental=true`** — иначе baseline пересобирается, маркер
+   бесполезен.
+
+5. **Метрика `context_prompt_cache_hit_rate`** через `response.usage.cached_tokens`
+   (Anthropic отдаёт `cache_read_input_tokens` в usage).
+
+#### Что кэшируется
+
+**Да:** `baseline` — стабильная часть:
+- `system` message (собранные файлы: `<file path="src/auth.py">...</file>`);
+- стабильные `user`/`assistant` из `mid_conversation_messages` (если есть).
+
+**Нет:** `tail` — изменяющаяся часть:
+- последний `user` (новый запрос);
+- `tool` results (новые вызовы);
+- последний `assistant` (ещё не отправлен, генерируется).
+
+**Правило:** cache-маркер ставится на **границу** baseline/tail — это
+единственное место, где провайдер увидит «здесь начинается новое».
+
+#### Пример расчёта экономии (Anthropic)
+
+Допустим, 30 ходов, `baseline_tokens=25000`, `delta_tail=1000`, Anthropic Sonnet:
+
+| Режим | input_tokens за сессию | Стоимость (~$3/M input) |
+|-------|------------------------|--------------------------|
+| **Без cache** | 30 × (25000 + 1000) = 780000 | $2.34 |
+| **С cache_control + стабильный baseline** | 1 × 25000 (miss) + 29 × 1000 (hit only tail) | $0.054 |
+| **Экономия** | **~43× дешевле** | — |
+
+> Реальная экономия зависит от провайдера и тарифа. У Anthropic
+> `cache_read_input_tokens` стоит ~10% от обычных. У OpenAI automatic
+> caching — до 50% (без явного API).
+
+#### Связь с `baseline_fingerprint`
+
+```python
+# В ContextReconciler:
+if baseline_fingerprint unchanged:
+    # baseline стабилен → cache_control на baseline[-1] остаётся валидным
+    # провайдер найдёт закэшированный префикс
+    state = UNCHANGED
+elif baseline_fingerprint changed:
+    # baseline изменился → cache_control невалиден, провайдер не найдёт
+    # закэшированный префикс → cache miss
+    state = UPDATED
+    # НЕ пересобираем baseline (если можно выразить дельтой)
+elif file in baseline changed (fs/write):
+    # baseline пересобран → cache miss на этом ходе,
+    # но следующий ход уже попадёт в cache
+    state = UPDATED with epoch_broken=True
+```
+
+**Двойная защита:** даже если провайдер не нашёл cache (TTL истёк,
+eviction), агенту не страшно — следующий ход перезапишет cache.
+
+#### Текущий статус в CodeLab
+
+**Не реализовано.** Phase 4 закрыл инфраструктуру (стабильный baseline,
+fingerprint, эпохи), но **не прокидывает cache-маркеры в LLM API**.
+Это отдельная задача, за рамками Phase 0-6.
+
+**Что работает уже сейчас (без явных маркеров):**
+- стабильный `baseline_fingerprint` → OpenAI/Google могут закэшировать
+  автоматически (prefix matching);
+- локальные LLM (vLLM, llama.cpp) автоматически хитают KV-prefix-cache
+  при стабильном префиксе.
+
+**Что НЕ работает:**
+- Anthropic без `cache_control` — провайдер **не** кэширует префикс
+  автоматически (требует явного маркера);
+- метрика cache hit rate отсутствует;
+- нельзя оценить, сколько токенов реально сэкономлено.
+
+#### Дальнейшие шаги (если нужно)
+
+1. Реализовать проброс `cache_control` для Anthropic (см. выше).
+2. Добавить метрику `context_prompt_cache_hit_rate` через
+   `usage.cached_tokens` / `usage.cache_read_input_tokens`.
+3. Расширить `/context` команду: показать cache hit rate последней сессии.
+4. Протестировать: стабильный baseline → cache hit; изменение baseline →
+   cache miss с переходом на hit.
+
+**Связанные документы:**
+- [`doc/internals/context-manager/PHASE_4_SPEC.md` §T4.6](../../../internals/context-manager/PHASE_4_SPEC.md) — спецификация включения provider/KV prefix-cache.
+- [`doc/internals/context-manager/ERROR_HANDLING.md` §2](../../../internals/context-manager/ERROR_HANDLING.md) — обработка недетерминированного baseline (риск промаха cache).
+- [`doc/internals/context-manager/TESTING_STRATEGY.md` §2.3](../../../internals/context-manager/TESTING_STRATEGY.md) — стабильность `baseline_fingerprint` для cache hit.
+- [`doc/internals/context-manager/WALKTHROUGH_EXAMPLE.md`](../../../internals/context-manager/WALKTHROUGH_EXAMPLE.md) — пример с `fp_b7 - prompt-cache хит`.
+- [Разработка Context Manager](../../developer-guide/extending/context-manager.md) — детали для разработчиков.
+
 ### Slash-команда `/context` — наблюдаемость
 
 В клиенте доступна полная диагностика работы Context Manager:
