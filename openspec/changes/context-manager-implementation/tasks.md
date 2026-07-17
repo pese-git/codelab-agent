@@ -230,16 +230,16 @@
 
 ## Критерии успеха
 
-- [ ] S.1 Все фазы 0-6 реализованы согласно спецификациям
-- [ ] S.2 Legacy `ContextCompactor` работает при `enabled=false` без регрессий
-- [ ] S.3 `PayloadEnvelope` — единственный формат payload в пути формирования
-- [ ] S.4 Graceful degradation: горячий путь никогда не падает, каждый сбой имеет fallback
-- [ ] S.5 Наблюдаемость: 20+ метрик, spans трейсинга, структурированные логи
-- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% с метриками и критериями отката
-- [ ] S.7 Все краевые случаи из EDGE_CASES.md имеют приёмочные тесты
-- [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты
-- [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80
-- [ ] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md
+- [ ] S.1 Все фазы 0-6 реализованы согласно спецификациям — **ядро фаз 0–6 реализовано и протестировано**; открыты интеграция мультиагентных стратегий (6.11–6.18, заблокирована отсутствием стратегий) и федерация (6.19–6.20, кандидат на отказ)
+- [x] S.2 Legacy `ContextCompactor` работает при `enabled=false` без регрессий — legacy обёрнут в `ContextCompactor(ABC)` (0.9), выбор по флагу (0.10), `test_context_compactor.py` зелёный (0.11)
+- [x] S.3 `PayloadEnvelope` — единственный формат payload в пути формирования — введён в `build_context()` (0.6), `to_messages()` — единственная точка конвертации на границе `LLMAdapter`
+- [x] S.4 Graceful degradation: горячий путь никогда не падает, каждый сбой имеет fallback — fallback `TaskProfile` (1.2), decorator не пробрасывает ошибки (2.16), fallback суммаризации/сбоя субагента (6.7/6.8)
+- [x] S.5 Наблюдаемость: 20+ метрик, spans трейсинга, структурированные логи — именованные метрики (`context_gathered_files`, `context_build_duration_ms`, `context_baseline_tokens/tail_tokens`, `context_subagent_responses_total` и др.), spans `context.build`/`context.gather`, 40+ структурированных лог-событий; slash-команда `/context` (1.26–1.43)
+- [ ] S.6 Canary rollout: 5% → 25% → 50% → 100% с метриками и критериями отката — отложено (см. X.2–X.4)
+- [ ] S.7 Все краевые случаи из EDGE_CASES.md имеют приёмочные тесты — не проверено формально
+- [ ] S.8 Вся обработка ошибок из ERROR_HANDLING.md имеет тесты — не проверено формально
+- [ ] S.9 SLO производительности выполнены: `build_context()` p95 < 200ms, cache hit rate > 0.80 — отложено (нет performance review, X.10)
+- [x] S.10 Документация обновлена: CONSOLIDATED_ARCHITECTURE.md, INTERFACES.md, DATA_MODELS.md — канон в `doc/internals/context-manager/` поддерживается синхронно с реализацией
 
 ## Отклонения от спеки (найдено при ревью, backlog)
 
