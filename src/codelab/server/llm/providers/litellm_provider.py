@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
@@ -44,6 +45,34 @@ logger = structlog.get_logger()
 
 
 _DEFAULT_MODEL = "gpt-4o"
+
+
+@dataclass
+class _StreamState:
+    """Аккумулятор состояния по ходу потребления stream-чанков.
+
+    Выделен из stream_completion для снижения цикломатической
+    сложности hot-loop (mccabe <= 10).
+    """
+
+    full_text: str = ""
+    tool_frags: dict[int, dict[str, Any]] = field(default_factory=dict)
+    finish_reason: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class _StreamChunkUpdate:
+    """Snapshot релевантных полей одного stream-чанка.
+
+    Возвращается _inspect_stream_chunk и обрабатывается в hot-loop
+    stream_completion: чистая декомпозиция inspection vs accumulation.
+    """
+
+    usage: dict[str, int]
+    finish_reason: str | None
+    delta_content: str | None
+    delta_tool_calls: tuple[Any, ...]
 
 
 class LiteLLMProvider(LLMProvider):
@@ -161,65 +190,93 @@ class LiteLLMProvider(LLMProvider):
         except Exception as e:
             raise self._map_exception(e) from e
 
-        full_text = ""
-        tool_frags: dict[int, dict[str, Any]] = {}
-        finish_reason: str | None = None
-        usage: dict[str, int] = {}
+        state = _StreamState()
 
         async for chunk in response:
-            chunk_usage = getattr(chunk, "usage", None)
-            if chunk_usage:
-                usage = extract_openai_usage(chunk_usage)
-
-            choices = getattr(chunk, "choices", None)
-            if not choices:
-                continue
-            choice = choices[0]
-            chunk_finish = getattr(choice, "finish_reason", None)
-            if chunk_finish:
-                finish_reason = chunk_finish
-            delta = getattr(choice, "delta", None)
-            if delta is None:
-                continue
-
-            content = getattr(delta, "content", None)
-            if content:
-                full_text += content
+            update = self._inspect_stream_chunk(chunk)
+            if update.usage:
+                state.usage = update.usage
+            if update.finish_reason:
+                state.finish_reason = update.finish_reason
+            if update.delta_content:
+                state.full_text += update.delta_content
                 yield CompletionResponse(
-                    text=content,
+                    text=update.delta_content,
                     stop_reason=StopReason.STREAMING,
                     model=model,
                 )
+            for tc in update.delta_tool_calls:
+                self._accumulate_tool_call_delta(state.tool_frags, tc)
 
-            delta_tool_calls = getattr(delta, "tool_calls", None)
-            if delta_tool_calls:
-                for tc in delta_tool_calls:
-                    idx = getattr(tc, "index", 0) or 0
-                    frag = tool_frags.setdefault(
-                        idx, {"id": None, "name": None, "args": ""}
-                    )
-                    tc_id = getattr(tc, "id", None)
-                    if tc_id:
-                        frag["id"] = tc_id
-                    fn = getattr(tc, "function", None)
-                    if fn is not None:
-                        fn_name = getattr(fn, "name", None)
-                        fn_args = getattr(fn, "arguments", None)
-                        if fn_name:
-                            frag["name"] = fn_name
-                        if fn_args:
-                            frag["args"] += fn_args
-
-        tool_calls = self._assemble_tool_calls(tool_frags)
+        tool_calls = self._assemble_tool_calls(state.tool_frags)
         yield CompletionResponse(
-            text=full_text,
+            text=state.full_text,
             tool_calls=tool_calls,
             stop_reason=finish_reason_to_stop_reason(
-                finish_reason, has_tool_calls=bool(tool_calls)
+                state.finish_reason, has_tool_calls=bool(tool_calls)
             ),
             model=model,
-            usage=usage,
+            usage=state.usage,
         )
+
+    def _inspect_stream_chunk(self, chunk: Any) -> _StreamChunkUpdate:
+        """Извлечь из chunk'а стрима все релевантные поля для аккумуляции.
+
+        Декомпозиция stream_completion: выделение inspection-логики из горячего
+        цикла снижает цикломатическую сложность до <=10 (mccabe).
+        """
+        usage: dict[str, int] = {}
+        chunk_usage = getattr(chunk, "usage", None)
+        if chunk_usage:
+            usage = extract_openai_usage(chunk_usage)
+
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            return _StreamChunkUpdate(
+                usage=usage,
+                finish_reason=None,
+                delta_content=None,
+                delta_tool_calls=(),
+            )
+
+        choice = choices[0]
+        finish_reason = getattr(choice, "finish_reason", None)
+        delta = getattr(choice, "delta", None)
+        if delta is None:
+            return _StreamChunkUpdate(
+                usage=usage,
+                finish_reason=finish_reason,
+                delta_content=None,
+                delta_tool_calls=(),
+            )
+
+        return _StreamChunkUpdate(
+            usage=usage,
+            finish_reason=finish_reason,
+            delta_content=getattr(delta, "content", None),
+            delta_tool_calls=getattr(delta, "tool_calls", None) or (),
+        )
+
+    @staticmethod
+    def _accumulate_tool_call_delta(
+        tool_frags: dict[int, dict[str, Any]],
+        tc: Any,
+    ) -> None:
+        """Накопить фрагмент tool_call по его index (id/name/arguments)."""
+        idx = getattr(tc, "index", 0) or 0
+        frag = tool_frags.setdefault(idx, {"id": None, "name": None, "args": ""})
+        tc_id = getattr(tc, "id", None)
+        if tc_id:
+            frag["id"] = tc_id
+        fn = getattr(tc, "function", None)
+        if fn is None:
+            return
+        fn_name = getattr(fn, "name", None)
+        fn_args = getattr(fn, "arguments", None)
+        if fn_name:
+            frag["name"] = fn_name
+        if fn_args:
+            frag["args"] += fn_args
 
     def _assemble_tool_calls(
         self,
