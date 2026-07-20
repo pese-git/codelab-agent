@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -26,22 +25,26 @@ from codelab.server.llm.base import (
     LLMConfig,
     LLMProvider,
 )
+from codelab.server.llm.errors import map_provider_exception
+from codelab.server.llm.formatting import (
+    accumulate_tool_call_fragment,
+    assemble_tool_calls,
+    content_part_to_openai,
+    content_parts_to_openai,
+    extract_openai_usage,
+    finish_reason_to_stop_reason,
+    messages_to_openai_dict,
+    parse_openai_tool_calls,
+    validate_openai_message_history,
+)
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
     LLMMessage,
-    LLMToolCall,
     StopReason,
 )
 
 logger = structlog.get_logger()
-
-
-def _extract_audio_format(mime_type: str) -> str:
-    """Извлечь формат из MIME типа (audio/wav → wav)."""
-    if "/" in mime_type:
-        return mime_type.split("/", 1)[1]
-    return mime_type
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -160,7 +163,12 @@ class OpenAICompatibleProvider(LLMProvider):
         if request.stop:
             request_params["stop"] = request.stop
 
-        response: ChatCompletion = await self._client.chat.completions.create(**request_params)
+        try:
+            response: ChatCompletion = await self._client.chat.completions.create(
+                **request_params
+            )
+        except Exception as e:
+            raise map_provider_exception(e, self.name) from e
 
         return self._parse_completion(response, model)
 
@@ -183,7 +191,10 @@ class OpenAICompatibleProvider(LLMProvider):
         model = self._resolve_model(request)
 
         request_params = self._build_stream_request_params(request, model)
-        stream = await self._client.chat.completions.create(**request_params)
+        try:
+            stream = await self._client.chat.completions.create(**request_params)
+        except Exception as e:
+            raise map_provider_exception(e, self.name) from e
 
         # Контракт стрима:
         # - промежуточные chunk'и: stop_reason=STREAMING, text = ДЕЛЬТА (инкремент);
@@ -198,8 +209,8 @@ class OpenAICompatibleProvider(LLMProvider):
         usage: dict[str, int] = {}
 
         async for chunk in stream:
-            chunk_usage = self._extract_usage(chunk)
-            if chunk_usage is not None:
+            chunk_usage = extract_openai_usage(getattr(chunk, "usage", None))
+            if chunk_usage:
                 usage = chunk_usage
             if not chunk.choices:
                 continue
@@ -216,14 +227,14 @@ class OpenAICompatibleProvider(LLMProvider):
                     stop_reason=StopReason.STREAMING,
                     model=model,
                 )
-            if delta.tool_calls:
-                self._accumulate_tool_fragments(tool_frags, delta.tool_calls)
+            for tc in delta.tool_calls or []:
+                accumulate_tool_call_fragment(tool_frags, tc)
 
-        tool_calls = self._build_tool_calls(tool_frags)
+        tool_calls = assemble_tool_calls(tool_frags)
         yield CompletionResponse(
             text=full_text,
             tool_calls=tool_calls,
-            stop_reason=self._finish_reason_to_stop_reason(
+            stop_reason=finish_reason_to_stop_reason(
                 finish_reason, has_tool_calls=bool(tool_calls)
             ),
             model=model,
@@ -253,54 +264,15 @@ class OpenAICompatibleProvider(LLMProvider):
             params["tool_choice"] = "auto"
         return params
 
-    @staticmethod
-    def _extract_usage(chunk: Any) -> dict[str, int] | None:
-        """Извлечь usage из финального chunk'а стрима (или None, если его нет)."""
-        if not getattr(chunk, "usage", None):
-            return None
-        return {
-            "prompt_tokens": chunk.usage.prompt_tokens,
-            "completion_tokens": chunk.usage.completion_tokens,
-            "total_tokens": chunk.usage.total_tokens,
-        }
-
-    @staticmethod
-    def _accumulate_tool_fragments(
-        tool_frags: dict[int, dict[str, Any]], tool_call_deltas: Any
-    ) -> None:
-        """Накопить фрагменты tool_calls по index (id/name/arguments по кускам)."""
-        for tc in tool_call_deltas:
-            frag = tool_frags.setdefault(tc.index, {"id": None, "name": None, "args": ""})
-            if tc.id:
-                frag["id"] = tc.id
-            if tc.function is not None:
-                if tc.function.name:
-                    frag["name"] = tc.function.name
-                if tc.function.arguments:
-                    frag["args"] += tc.function.arguments
-
-    @staticmethod
-    def _build_tool_calls(tool_frags: dict[int, dict[str, Any]]) -> list[LLMToolCall]:
-        """Собрать LLMToolCall из накопленных фрагментов (парсинг arguments-JSON)."""
-        tool_calls: list[LLMToolCall] = []
-        for idx in sorted(tool_frags):
-            frag = tool_frags[idx]
-            if not frag["name"]:
-                continue  # неполный фрагмент без имени — пропускаем
-            args: dict[str, Any] = {}
-            if frag["args"]:
-                try:
-                    args = json.loads(frag["args"])
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-            tool_calls.append(LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args))
-        return tool_calls
-
     def _convert_to_openai_format(
         self,
         messages: list[LLMMessage],
     ) -> list[dict[str, Any]]:
         """Преобразовать LLMMessage в формат OpenAI API.
+
+        Делегирует общей `messages_to_openai_dict`, пробрасывая vision/audio
+        capabilities провайдера для graceful degradation мультимодального
+        контента.
 
         Args:
             messages: Список LLMMessage
@@ -308,98 +280,30 @@ class OpenAICompatibleProvider(LLMProvider):
         Returns:
             Список словарей в формате OpenAI API
         """
-        openai_messages: list[dict[str, Any]] = []
-
-        for msg in messages:
-            openai_msg: dict[str, Any] = {"role": msg.role}
-
-            if msg.content is not None:
-                if isinstance(msg.content, list):
-                    openai_msg["content"] = self._convert_content_parts_to_openai(msg.content)
-                else:
-                    openai_msg["content"] = msg.content
-
-            if msg.role == "assistant" and msg.tool_calls:
-                openai_msg["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),
-                        },
-                    }
-                    for tc in msg.tool_calls
-                ]
-
-            if msg.role == "tool":
-                if msg.tool_call_id:
-                    openai_msg["tool_call_id"] = msg.tool_call_id
-                if msg.name:
-                    openai_msg["name"] = msg.name
-
-            openai_messages.append(openai_msg)
-
-        return openai_messages
+        return messages_to_openai_dict(
+            messages,
+            supports_vision=self.capabilities.supports_vision,
+            supports_audio=self.capabilities.supports_audio,
+        )
 
     def _convert_content_parts_to_openai(
         self,
         parts: list[Any],
     ) -> list[dict[str, Any]]:
         """Конвертировать ContentPart-ы в формат OpenAI content."""
-        result: list[dict[str, Any]] = []
-        for part in parts:
-            converted = self._content_part_to_openai(part)
-            if converted is not None:
-                result.append(converted)
-        return result
+        return content_parts_to_openai(
+            parts,
+            supports_vision=self.capabilities.supports_vision,
+            supports_audio=self.capabilities.supports_audio,
+        )
 
     def _content_part_to_openai(self, part: Any) -> dict[str, Any] | None:
         """Конвертировать один ContentPart в формат OpenAI."""
-        if part.type == "text":
-            return {"type": "text", "text": part.text or ""}
-        if part.type == "image":
-            if not self.capabilities.supports_vision:
-                logger.warning("provider does not support vision, skipping image")
-                return None
-            data = part.data or ""
-            mime_type = part.mime_type or "image/png"
-            return {
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime_type};base64,{data}"},
-            }
-        if part.type == "audio":
-            if not self.capabilities.supports_audio:
-                logger.warning("provider does not support audio, skipping audio")
-                return None
-            mime_type = part.mime_type or "audio/wav"
-            fmt = _extract_audio_format(mime_type)
-            return {
-                "type": "input_audio",
-                "input_audio": {
-                    "data": part.data or "",
-                    "format": fmt,
-                },
-            }
-        return None
-
-    @staticmethod
-    def _finish_reason_to_stop_reason(
-        finish_reason: str | None, *, has_tool_calls: bool
-    ) -> StopReason:
-        """Маппинг OpenAI finish_reason → StopReason.
-
-        В стриме finish_reason может отсутствовать (None), но при собранных
-        tool_calls всё равно нужен TOOL_USE — поэтому has_tool_calls имеет
-        приоритет.
-        """
-        if finish_reason == "tool_calls" or has_tool_calls:
-            return StopReason.TOOL_USE
-        if finish_reason == "length":
-            return StopReason.MAX_TOKENS
-        if finish_reason == "stop":
-            return StopReason.STOP_SEQUENCE
-        return StopReason.END_TURN
+        return content_part_to_openai(
+            part,
+            supports_vision=self.capabilities.supports_vision,
+            supports_audio=self.capabilities.supports_audio,
+        )
 
     def _parse_completion(
         self,
@@ -419,51 +323,20 @@ class OpenAICompatibleProvider(LLMProvider):
         message = choice.message
 
         text = message.content or ""
-
-        tool_calls: list[LLMToolCall] = []
-        if message.tool_calls:
-            for tool_call in message.tool_calls:
-                if tool_call.type == "function":
-                    func = tool_call.function
-                    args: dict[str, Any] = {}
-                    if isinstance(func.arguments, str):
-                        try:
-                            args = json.loads(func.arguments)
-                        except (json.JSONDecodeError, TypeError):
-                            args = {}
-                    elif isinstance(func.arguments, dict):
-                        args = func.arguments
-
-                    tool_calls.append(
-                        LLMToolCall(
-                            id=tool_call.id,
-                            name=func.name,
-                            arguments=args,
-                        )
-                    )
-
-        stop_reason = self._finish_reason_to_stop_reason(
-            choice.finish_reason, has_tool_calls=bool(tool_calls)
-        )
-
-        usage = {}
-        if response.usage:
-            usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            }
+        tool_calls = parse_openai_tool_calls(message.tool_calls or [])
 
         return CompletionResponse(
             text=text,
             tool_calls=tool_calls,
-            stop_reason=stop_reason,
+            stop_reason=finish_reason_to_stop_reason(
+                choice.finish_reason, has_tool_calls=bool(tool_calls)
+            ),
             model=model,
-            usage=usage,
+            usage=extract_openai_usage(response.usage),
         )
 
     def _validate_message_history(self, messages: list[dict[str, Any]]) -> None:
-        """Валидация истории сообщений.
+        """Валидация истории сообщений (делегирует общей formatting-функции).
 
         Args:
             messages: Список сообщений в формате OpenAI
@@ -471,34 +344,7 @@ class OpenAICompatibleProvider(LLMProvider):
         Raises:
             ValueError: Если история некорректна
         """
-        last_assistant_tool_call_ids: set[str] = set()
-
-        for i, msg in enumerate(messages):
-            role = msg.get("role")
-
-            if role == "assistant":
-                tool_calls = msg.get("tool_calls", [])
-                if tool_calls:
-                    last_assistant_tool_call_ids = {tc["id"] for tc in tool_calls}
-                else:
-                    last_assistant_tool_call_ids = set()
-
-            elif role == "tool":
-                tool_call_id = msg.get("tool_call_id")
-
-                if not tool_call_id:
-                    logger.error("tool message without tool_call_id", message_index=i)
-                    raise ValueError(f"Tool message at index {i} missing tool_call_id")
-
-                if not last_assistant_tool_call_ids:
-                    logger.error(
-                        "tool message without preceding assistant tool_calls",
-                        message_index=i,
-                    )
-                    raise ValueError(
-                        f"Tool message at index {i} must follow an assistant "
-                        f"message with tool_calls"
-                    )
+        validate_openai_message_history(messages)
 
     def _normalize_model_id(self, model: str) -> str:
         """Нормализовать model ID для отправки в API.

@@ -16,11 +16,20 @@ from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall, StopReason
 
 
-def messages_to_openai_dict(messages: list[LLMMessage]) -> list[dict[str, Any]]:
+def messages_to_openai_dict(
+    messages: list[LLMMessage],
+    *,
+    supports_vision: bool = True,
+    supports_audio: bool = True,
+) -> list[dict[str, Any]]:
     """Преобразовать LLMMessage в формат OpenAI Chat API.
 
     Args:
         messages: Список доменных сообщений.
+        supports_vision: Поддерживает ли провайдер изображения; при False
+            image-части отбрасываются (graceful degradation).
+        supports_audio: Поддерживает ли провайдер аудио; при False
+            audio-части отбрасываются.
 
     Returns:
         Список словарей в формате OpenAI messages API.
@@ -34,8 +43,8 @@ def messages_to_openai_dict(messages: list[LLMMessage]) -> list[dict[str, Any]]:
             if isinstance(msg.content, list):
                 openai_msg["content"] = content_parts_to_openai(
                     msg.content,
-                    supports_vision=True,
-                    supports_audio=True,
+                    supports_vision=supports_vision,
+                    supports_audio=supports_audio,
                 )
             else:
                 openai_msg["content"] = msg.content
@@ -82,7 +91,7 @@ def content_parts_to_openai(
     """
     result: list[dict[str, Any]] = []
     for part in parts:
-        converted = _content_part_to_openai(
+        converted = content_part_to_openai(
             part, supports_vision=supports_vision, supports_audio=supports_audio
         )
         if converted is not None:
@@ -90,12 +99,22 @@ def content_parts_to_openai(
     return result
 
 
-def _content_part_to_openai(
+def content_part_to_openai(
     part: ContentPart,
     *,
     supports_vision: bool,
     supports_audio: bool,
 ) -> dict[str, Any] | None:
+    """Конвертировать один ContentPart в OpenAI content-элемент.
+
+    Args:
+        part: Доменная часть контента.
+        supports_vision: При False image-часть возвращает None.
+        supports_audio: При False audio-часть возвращает None.
+
+    Returns:
+        Словарь OpenAI content-элемента или None, если часть отброшена.
+    """
     if part.type == "text":
         return {"type": "text", "text": part.text or ""}
     if part.type == "image":
@@ -257,3 +276,62 @@ def extract_openai_usage(usage: Any | None) -> dict[str, int]:
         "completion_tokens": completion_i,
         "total_tokens": total_i,
     }
+
+
+def accumulate_tool_call_fragment(
+    tool_frags: dict[int, dict[str, Any]],
+    tc: Any,
+) -> None:
+    """Накопить фрагмент tool_call стрима по его index.
+
+    В стриме id/name приходят в первом фрагменте, arguments — по кускам
+    строки в последующих. Аккумулирует их в tool_frags in-place.
+
+    getattr-based доступ обеспечивает совместимость с разными SDK
+    (openai, litellm). index может отсутствовать или быть None — тогда 0.
+
+    Args:
+        tool_frags: Аккумулятор фрагментов по index (мутируется).
+        tc: Один tool_call-delta объект стрима.
+    """
+    idx = getattr(tc, "index", 0) or 0
+    frag = tool_frags.setdefault(idx, {"id": None, "name": None, "args": ""})
+    tc_id = getattr(tc, "id", None)
+    if tc_id:
+        frag["id"] = tc_id
+    fn = getattr(tc, "function", None)
+    if fn is None:
+        return
+    fn_name = getattr(fn, "name", None)
+    fn_args = getattr(fn, "arguments", None)
+    if fn_name:
+        frag["name"] = fn_name
+    if fn_args:
+        frag["args"] += fn_args
+
+
+def assemble_tool_calls(tool_frags: dict[int, dict[str, Any]]) -> list[LLMToolCall]:
+    """Собрать LLMToolCall из накопленных стрим-фрагментов.
+
+    Args:
+        tool_frags: Аккумулятор фрагментов по index.
+
+    Returns:
+        Список доменных LLMToolCall в порядке index. Фрагменты без имени
+        (неполные) пропускаются; невалидный arguments-JSON → пустой dict.
+    """
+    result: list[LLMToolCall] = []
+    for idx in sorted(tool_frags):
+        frag = tool_frags[idx]
+        if not frag["name"]:
+            continue
+        args: dict[str, Any] = {}
+        if frag["args"]:
+            try:
+                args = json.loads(frag["args"])
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+        result.append(
+            LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args)
+        )
+    return result

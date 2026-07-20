@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.llm.base import LLMConfig
+from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.models import (
     CompletionRequest,
     LLMMessage,
@@ -570,10 +571,17 @@ class TestAnthropicProviderStreamCompletion:
         """Базовый streaming."""
         await provider.initialize(config)
 
+        final_message = MockAnthropicResponse(
+            content=[MockContentBlock(type="text", text="Hello world")],
+            stop_reason="end_turn",
+            usage=MockUsage(input_tokens=10, output_tokens=5),
+        )
+
         mock_stream = AsyncMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
         mock_stream.__aexit__ = AsyncMock(return_value=None)
         mock_stream.text_stream = _async_iter(["Hello", " ", "world"])
+        mock_stream.get_final_message = AsyncMock(return_value=final_message)
 
         provider._client = MagicMock()
         provider._client.messages = MagicMock()
@@ -587,11 +595,118 @@ class TestAnthropicProviderStreamCompletion:
         async for chunk in provider.stream_completion(request):
             chunks.append(chunk)
 
-        assert len(chunks) == 3
-        assert chunks[0].text == "Hello"
-        assert chunks[1].text == "Hello "
-        assert chunks[2].text == "Hello world"
-        assert all(c.stop_reason == StopReason.STREAMING for c in chunks)
+        # Три текстовые ДЕЛЬТЫ (STREAMING) + финальный chunk.
+        assert len(chunks) == 4
+        assert [c.text for c in chunks[:3]] == ["Hello", " ", "world"]
+        assert all(c.stop_reason == StopReason.STREAMING for c in chunks[:3])
+
+        final = chunks[3]
+        assert final.text == "Hello world"
+        assert final.stop_reason == StopReason.END_TURN
+        assert final.usage == {"input_tokens": 10, "output_tokens": 5}
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_collects_tool_calls(
+        self,
+        provider: AnthropicProvider,
+        config: LLMConfig,
+    ) -> None:
+        """Финальный chunk стрима собирает tool_calls и stop_reason=tool_use."""
+        await provider.initialize(config)
+
+        final_message = MockAnthropicResponse(
+            content=[
+                MockContentBlock(type="text", text="calling"),
+                MockContentBlock(
+                    type="tool_use",
+                    id="call_1",
+                    name="get_weather",
+                    input={"city": "Paris"},
+                ),
+            ],
+            stop_reason="tool_use",
+            usage=MockUsage(input_tokens=20, output_tokens=8),
+        )
+
+        mock_stream = AsyncMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.text_stream = _async_iter(["calling"])
+        mock_stream.get_final_message = AsyncMock(return_value=final_message)
+
+        provider._client = MagicMock()
+        provider._client.messages = MagicMock()
+        provider._client.messages.stream = MagicMock(return_value=mock_stream)
+
+        request = CompletionRequest(
+            model="claude-sonnet-4",
+            messages=[LLMMessage(role="user", content="weather?")],
+        )
+        chunks = [chunk async for chunk in provider.stream_completion(request)]
+
+        final = chunks[-1]
+        assert final.stop_reason == StopReason.TOOL_USE
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].name == "get_weather"
+        assert final.tool_calls[0].arguments == {"city": "Paris"}
+
+
+class _StatusExc(Exception):
+    """SDK-исключение с HTTP status_code."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class TestAnthropicErrorPropagation:
+    """create_completion/stream_completion оборачивают SDK-ошибки в ProviderError."""
+
+    @pytest.mark.asyncio
+    async def test_create_completion_maps_exception(
+        self,
+        provider: AnthropicProvider,
+        config: LLMConfig,
+    ) -> None:
+        await provider.initialize(config)
+        sdk_exc = _StatusExc(429)
+        provider._client = MagicMock()
+        provider._client.messages = MagicMock()
+        provider._client.messages.create = AsyncMock(side_effect=sdk_exc)
+
+        request = CompletionRequest(
+            model="claude-sonnet-4",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            await provider.create_completion(request)
+
+        assert exc_info.value.error_type == ProviderErrorType.RATE_LIMIT
+        assert exc_info.value.provider_id == "anthropic"
+        assert exc_info.value.__cause__ is sdk_exc
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_maps_exception(
+        self,
+        provider: AnthropicProvider,
+        config: LLMConfig,
+    ) -> None:
+        await provider.initialize(config)
+        sdk_exc = _StatusExc(401)
+        provider._client = MagicMock()
+        provider._client.messages = MagicMock()
+        provider._client.messages.stream = MagicMock(side_effect=sdk_exc)
+
+        request = CompletionRequest(
+            model="claude-sonnet-4",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in provider.stream_completion(request):
+                pass
+
+        assert exc_info.value.error_type == ProviderErrorType.AUTH_ERROR
+        assert exc_info.value.__cause__ is sdk_exc
 
 
 async def _async_iter(items):

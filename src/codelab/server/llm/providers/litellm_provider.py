@@ -13,7 +13,6 @@ together, groq, mistral, cohere, и т.д.) через единый litellm-ин
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
@@ -26,8 +25,10 @@ from codelab.server.llm.base import (
     LLMConfig,
     LLMProvider,
 )
-from codelab.server.llm.errors import ProviderError, ProviderErrorType
+from codelab.server.llm.errors import ProviderError, map_provider_exception
 from codelab.server.llm.formatting import (
+    accumulate_tool_call_fragment,
+    assemble_tool_calls,
     extract_openai_usage,
     finish_reason_to_stop_reason,
     messages_to_openai_dict,
@@ -37,7 +38,6 @@ from codelab.server.llm.formatting import (
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
-    LLMToolCall,
     StopReason,
 )
 
@@ -109,10 +109,24 @@ class LiteLLMProvider(LLMProvider):
 
     def _resolve_model(self, request_model: str) -> str:
         if request_model:
-            return request_model
+            return self._normalize_model_id(request_model)
         if self._config is not None and self._config.model:
-            return self._config.model
+            return self._normalize_model_id(self._config.model)
         return _DEFAULT_MODEL
+
+    def _normalize_model_id(self, model: str) -> str:
+        """Срезать внутренний префикс провайдера ("litellm/") из model ID.
+
+        Основной путь (di/llm.py) кладёт в config.model полную ссылку
+        "litellm/<litellm-model>" без ModelRef.parse. litellm.acompletion
+        ожидает model в своём формате (напр. "openai/MiniMax-M3",
+        "anthropic/claude-..."), поэтому селектор "litellm/" нужно срезать.
+        Остаток (в т.ч. с бэкенд-префиксом litellm) передаётся как есть.
+        """
+        prefix = f"{self.name}/"
+        if model.startswith(prefix):
+            return model[len(prefix) :]
+        return model
 
     def _build_call_kwargs(
         self,
@@ -206,9 +220,9 @@ class LiteLLMProvider(LLMProvider):
                     model=model,
                 )
             for tc in update.delta_tool_calls:
-                self._accumulate_tool_call_delta(state.tool_frags, tc)
+                accumulate_tool_call_fragment(state.tool_frags, tc)
 
-        tool_calls = self._assemble_tool_calls(state.tool_frags)
+        tool_calls = assemble_tool_calls(state.tool_frags)
         yield CompletionResponse(
             text=state.full_text,
             tool_calls=tool_calls,
@@ -257,47 +271,6 @@ class LiteLLMProvider(LLMProvider):
             delta_tool_calls=getattr(delta, "tool_calls", None) or (),
         )
 
-    @staticmethod
-    def _accumulate_tool_call_delta(
-        tool_frags: dict[int, dict[str, Any]],
-        tc: Any,
-    ) -> None:
-        """Накопить фрагмент tool_call по его index (id/name/arguments)."""
-        idx = getattr(tc, "index", 0) or 0
-        frag = tool_frags.setdefault(idx, {"id": None, "name": None, "args": ""})
-        tc_id = getattr(tc, "id", None)
-        if tc_id:
-            frag["id"] = tc_id
-        fn = getattr(tc, "function", None)
-        if fn is None:
-            return
-        fn_name = getattr(fn, "name", None)
-        fn_args = getattr(fn, "arguments", None)
-        if fn_name:
-            frag["name"] = fn_name
-        if fn_args:
-            frag["args"] += fn_args
-
-    def _assemble_tool_calls(
-        self,
-        frags: dict[int, dict[str, Any]],
-    ) -> list[LLMToolCall]:
-        result: list[LLMToolCall] = []
-        for idx in sorted(frags):
-            frag = frags[idx]
-            if not frag["name"]:
-                continue
-            args: dict[str, Any] = {}
-            if frag["args"]:
-                try:
-                    args = json.loads(frag["args"])
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-            result.append(
-                LLMToolCall(id=frag["id"] or "", name=frag["name"], arguments=args)
-            )
-        return result
-
     def _parse_response(
         self,
         response: Any,
@@ -324,64 +297,8 @@ class LiteLLMProvider(LLMProvider):
     def _map_exception(self, exc: BaseException) -> ProviderError:
         """Маппинг litellm-исключений в ProviderError.
 
-        Импорт модуля litellm.exceptions лениво — избегаем жёсткой
-        зависимости от точных классов исключений litellm.
+        Делегирует общему SDK-агностичному map_provider_exception:
+        litellm-исключения экспонируют status_code / имеют распознаваемые
+        имена классов (AuthenticationError, RateLimitError, Timeout, ...).
         """
-        try:
-            from litellm.exceptions import (
-                AuthenticationError,
-                BadRequestError,
-                RateLimitError,
-                ServiceUnavailableError,
-            )
-            from litellm.exceptions import (
-                Timeout as LiteLLMTimeout,
-            )
-        except ImportError:
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.UNKNOWN,
-                provider_id=self.name,
-            )
-
-        if isinstance(exc, AuthenticationError):
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.AUTH_ERROR,
-                provider_id=self.name,
-                retryable=False,
-            )
-        if isinstance(exc, RateLimitError):
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.RATE_LIMIT,
-                provider_id=self.name,
-                retryable=True,
-            )
-        if isinstance(exc, LiteLLMTimeout):
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.TIMEOUT,
-                provider_id=self.name,
-                retryable=True,
-            )
-        if isinstance(exc, ServiceUnavailableError):
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.SERVICE_UNAVAILABLE,
-                provider_id=self.name,
-                retryable=True,
-            )
-        if isinstance(exc, BadRequestError):
-            return ProviderError(
-                message=str(exc),
-                error_type=ProviderErrorType.INVALID_REQUEST,
-                provider_id=self.name,
-                retryable=False,
-            )
-
-        return ProviderError(
-            message=str(exc),
-            error_type=ProviderErrorType.UNKNOWN,
-            provider_id=self.name,
-        )
+        return map_provider_exception(exc, self.name)

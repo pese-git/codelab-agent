@@ -160,6 +160,24 @@ class TestResolveModel:
         provider._config = LLMConfig(model="")
         assert provider._resolve_model("") == "gpt-4o"
 
+    def test_strips_own_provider_prefix_from_request(
+        self, provider: LiteLLMProvider
+    ) -> None:
+        # "litellm/" — внутренний селектор провайдера, litellm его не понимает.
+        assert provider._resolve_model("litellm/openai/MiniMax-M3") == "openai/MiniMax-M3"
+
+    def test_strips_own_provider_prefix_from_config(
+        self, provider: LiteLLMProvider
+    ) -> None:
+        provider._config = _config(model="litellm/anthropic/claude-3-5-sonnet")
+        assert provider._resolve_model("") == "anthropic/claude-3-5-sonnet"
+
+    def test_keeps_backend_prefix_without_litellm_selector(
+        self, provider: LiteLLMProvider
+    ) -> None:
+        # Уже в формате litellm — не трогаем.
+        assert provider._resolve_model("openai/gpt-4o") == "openai/gpt-4o"
+
 
 class TestBuildCallKwargs:
     """_build_call_kwargs: формирование параметров вызова."""

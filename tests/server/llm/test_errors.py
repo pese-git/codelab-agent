@@ -8,7 +8,75 @@ from codelab.server.llm.errors import (
     ProviderError,
     ProviderErrorType,
     ProviderNotFoundError,
+    map_provider_exception,
 )
+
+
+class _StatusExc(Exception):
+    """Исключение с HTTP status_code (эмуляция SDK APIStatusError)."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class AuthenticationError(Exception):
+    """Эмуляция SDK-класса по имени (без status_code)."""
+
+
+class APITimeoutError(Exception):
+    """Эмуляция таймаут-класса SDK."""
+
+
+class APIConnectionError(Exception):
+    """Эмуляция connection-класса SDK."""
+
+
+class TestMapProviderException:
+    """map_provider_exception: SDK-агностичный маппинг в ProviderError."""
+
+    def test_idempotent_on_provider_error(self) -> None:
+        original = ProviderError("boom", ProviderErrorType.RATE_LIMIT, "x")
+        assert map_provider_exception(original, "y") is original
+
+    def test_status_401_auth(self) -> None:
+        err = map_provider_exception(_StatusExc(401), "openai")
+        assert err.error_type == ProviderErrorType.AUTH_ERROR
+        assert err.retryable is False
+        assert err.provider_id == "openai"
+
+    def test_status_429_rate_limit(self) -> None:
+        err = map_provider_exception(_StatusExc(429), "openai")
+        assert err.error_type == ProviderErrorType.RATE_LIMIT
+        assert err.retryable is True
+
+    def test_status_503_service_unavailable(self) -> None:
+        err = map_provider_exception(_StatusExc(503), "openai")
+        assert err.error_type == ProviderErrorType.SERVICE_UNAVAILABLE
+        assert err.retryable is True
+
+    def test_status_400_invalid_request(self) -> None:
+        err = map_provider_exception(_StatusExc(400), "openai")
+        assert err.error_type == ProviderErrorType.INVALID_REQUEST
+        assert err.retryable is False
+
+    def test_name_based_auth(self) -> None:
+        err = map_provider_exception(AuthenticationError("bad key"), "anthropic")
+        assert err.error_type == ProviderErrorType.AUTH_ERROR
+
+    def test_name_based_timeout(self) -> None:
+        err = map_provider_exception(APITimeoutError("slow"), "anthropic")
+        assert err.error_type == ProviderErrorType.TIMEOUT
+        assert err.retryable is True
+
+    def test_name_based_connection(self) -> None:
+        err = map_provider_exception(APIConnectionError("no route"), "anthropic")
+        assert err.error_type == ProviderErrorType.SERVICE_UNAVAILABLE
+
+    def test_unknown_defaults(self) -> None:
+        err = map_provider_exception(ValueError("oops"), "anthropic")
+        assert err.error_type == ProviderErrorType.UNKNOWN
+        assert err.provider_id == "anthropic"
 
 
 class TestProviderErrorType:

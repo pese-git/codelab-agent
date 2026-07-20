@@ -77,6 +77,60 @@ class ProviderError(Exception):
         return f"{self.__class__.__name__}{provider}: {self.message} (type={self.error_type.value})"
 
 
+def map_provider_exception(
+    exc: BaseException,
+    provider_id: str,
+) -> ProviderError:
+    """Отобразить SDK-исключение провайдера в доменный ProviderError.
+
+    SDK-агностичный маппинг: классификация по HTTP status_code (openai,
+    anthropic и litellm-исключения — httpx-based / подклассы openai и
+    экспонируют status_code) с fallback на имя класса исключения
+    (для connection/timeout-ошибок без status_code, напр. APITimeoutError,
+    litellm Timeout).
+
+    Уже сформированный ProviderError пробрасывается как есть (идемпотентность).
+    retryable выводится из error_type штатным механизмом ProviderError.
+
+    Args:
+        exc: Исходное исключение SDK.
+        provider_id: Имя провайдера для атрибуции ошибки.
+
+    Returns:
+        ProviderError с классифицированным error_type.
+    """
+    if isinstance(exc, ProviderError):
+        return exc
+
+    status = getattr(exc, "status_code", None)
+    name = type(exc).__name__.lower()
+
+    error_type = _classify_provider_error(status, name)
+
+    return ProviderError(
+        message=str(exc),
+        error_type=error_type,
+        provider_id=provider_id,
+    )
+
+
+def _classify_provider_error(status: int | None, name: str) -> ProviderErrorType:
+    """Классифицировать ошибку по HTTP status_code и имени класса."""
+    if "timeout" in name:
+        return ProviderErrorType.TIMEOUT
+    if "connection" in name:
+        return ProviderErrorType.SERVICE_UNAVAILABLE
+    if status in {401, 403} or "authentication" in name or "permission" in name:
+        return ProviderErrorType.AUTH_ERROR
+    if status == 429 or "ratelimit" in name:
+        return ProviderErrorType.RATE_LIMIT
+    if status in {500, 502, 503, 504} or "serviceunavailable" in name or "internalserver" in name:
+        return ProviderErrorType.SERVICE_UNAVAILABLE
+    if status in {400, 404, 422} or "badrequest" in name or "notfound" in name:
+        return ProviderErrorType.INVALID_REQUEST
+    return ProviderErrorType.UNKNOWN
+
+
 class ProviderNotFoundError(ProviderError):
     """Провайдер не найден в registry.
 
