@@ -180,7 +180,7 @@ class RegexDependencyGraph(DependencyGraph):
         """
         # Dart package import: "package:name/path.dart" → "lib/path.dart"
         if import_name.startswith("package:"):
-            parts = import_name[len("package:"):].split("/", 1)
+            parts = import_name[len("package:") :].split("/", 1)
             if len(parts) == 2:
                 candidate = "lib/" + parts[1]
                 if (self._project_root / candidate).exists():

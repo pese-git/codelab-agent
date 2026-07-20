@@ -359,9 +359,7 @@ class AgentLoop:
                 iteration=iteration,
             )
             return (
-                AgentLoopResult(
-                    notifications=sink.notifications, stop_reason=StopReason.CANCELLED
-                ),
+                AgentLoopResult(notifications=sink.notifications, stop_reason=StopReason.CANCELLED),
                 final_text,
             )
 
@@ -393,9 +391,7 @@ class AgentLoop:
             )
 
         try:
-            call_result = await self._llm_caller.call(
-                session, prompt, mcp_manager, iteration, sink
-            )
+            call_result = await self._llm_caller.call(session, prompt, mcp_manager, iteration, sink)
         except Exception as e:
             logger.error(
                 "LLM call failed",
@@ -455,9 +451,7 @@ class AgentLoop:
             return
         session.latest_plan = list(validated_plan)
         plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
-        await sink.emit_and_save_plan(
-            plan_notification, session=session, entries=validated_plan
-        )
+        await sink.emit_and_save_plan(plan_notification, session=session, entries=validated_plan)
 
     async def resume_after_permission(
         self,

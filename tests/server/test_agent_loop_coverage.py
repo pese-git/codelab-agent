@@ -225,8 +225,7 @@ class TestAgentLoopToolProcessing:
         mock_dependencies["permission_manager"].build_permission_request.assert_not_called()
         mock_dependencies["tool_registry"].execute_tool.assert_not_called()
         assert any(
-            "tool not found in registry" in str(call)
-            for call in mock_logger.error.call_args_list
+            "tool not found in registry" in str(call) for call in mock_logger.error.call_args_list
         )
 
     @pytest.mark.asyncio

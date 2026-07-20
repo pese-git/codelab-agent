@@ -528,7 +528,6 @@ class ACPTransportService(TransportService):
         await self._ensure_connected()
         return await self._coordinator.execute(method, params, on_update)
 
-
     def cleanup(self) -> None:
         """Очищает ресурсы синхронно (вызывается DI контейнером).
 

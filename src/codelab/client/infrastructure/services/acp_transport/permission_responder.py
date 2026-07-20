@@ -22,9 +22,7 @@ if TYPE_CHECKING:
     from codelab.client.application.permission_handler import PermissionHandler
 
 SendFn = Callable[[dict[str, Any]], Awaitable[None]]
-PermissionUiCallback = Callable[
-    [str | int, Any, list[Any], Callable[[str | int, str], None]], None
-]
+PermissionUiCallback = Callable[[str | int, Any, list[Any], Callable[[str | int, str], None]], None]
 
 
 class PermissionResponder:

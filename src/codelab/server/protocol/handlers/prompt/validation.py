@@ -1,4 +1,5 @@
 """Валидация ContentBlock-массива для session/prompt."""
+
 from __future__ import annotations
 
 from typing import Any

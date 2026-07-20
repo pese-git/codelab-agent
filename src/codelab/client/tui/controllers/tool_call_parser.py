@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Инструменты, для которых показывается предпросмотр изменения файла.
-FILE_CHANGE_TOOLS = frozenset(
-    {"write_file", "file_edit", "create_file", "edit_file", "patch_file"}
-)
+FILE_CHANGE_TOOLS = frozenset({"write_file", "file_edit", "create_file", "edit_file", "patch_file"})
 
 
 @dataclass(frozen=True)
@@ -57,9 +55,7 @@ def parse_tool_call_file_change(
     else:
         params = getattr(data, "parameters", {}) or {}
 
-    file_path = (
-        params.get("path") or params.get("file_path") or params.get("filePath") or "unknown"
-    )
+    file_path = params.get("path") or params.get("file_path") or params.get("filePath") or "unknown"
     old_content = params.get("old_content") or params.get("oldContent") or ""
     new_content = (
         params.get("content") or params.get("new_content") or params.get("newContent") or ""

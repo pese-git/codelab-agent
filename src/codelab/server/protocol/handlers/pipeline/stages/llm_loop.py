@@ -187,9 +187,7 @@ class LLMLoopStage(PromptStage):
             session_id=context.session_id,
             has_callback=notification_callback is not None,
         )
-        self._agent_loop = self._build_agent_loop(
-            self._strategy_dispatcher, notification_callback
-        )
+        self._agent_loop = self._build_agent_loop(self._strategy_dispatcher, notification_callback)
         return self._agent_loop
 
     def _build_agent_loop(

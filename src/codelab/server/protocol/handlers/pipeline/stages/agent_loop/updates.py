@@ -191,4 +191,3 @@ class SessionUpdateSink:
             status=status,
             content=content,
         )
-

@@ -136,9 +136,7 @@ class TestFallbackConfigHonestContract:
         with patch("codelab.server.di.llm.logger", MagicMock()) as mock_logger:
             provider.get_llm_registry(config)
 
-        warning_events = [
-            call.args[0] for call in mock_logger.warning.call_args_list if call.args
-        ]
+        warning_events = [call.args[0] for call in mock_logger.warning.call_args_list if call.args]
         assert "llm fallback configured but not active" in warning_events
 
     def test_no_warning_when_fallback_disabled(self) -> None:
@@ -150,7 +148,5 @@ class TestFallbackConfigHonestContract:
         with patch("codelab.server.di.llm.logger", MagicMock()) as mock_logger:
             provider.get_llm_registry(config)
 
-        warning_events = [
-            call.args[0] for call in mock_logger.warning.call_args_list if call.args
-        ]
+        warning_events = [call.args[0] for call in mock_logger.warning.call_args_list if call.args]
         assert "llm fallback configured but not active" not in warning_events

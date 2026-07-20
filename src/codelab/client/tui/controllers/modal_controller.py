@@ -121,9 +121,7 @@ class ModalController:
             from ..components import Command
 
             if isinstance(result, Command) and result.action:
-                self._logger.debug(
-                    "command_selected", command_id=result.id, action=result.action
-                )
+                self._logger.debug("command_selected", command_id=result.id, action=result.action)
                 try:
                     self._app.action(result.action)
                 except Exception as e:

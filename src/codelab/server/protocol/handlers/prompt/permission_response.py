@@ -1,4 +1,5 @@
 """Применение решения по permission-request к активному prompt-turn."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

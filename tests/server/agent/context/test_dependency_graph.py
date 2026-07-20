@@ -143,6 +143,7 @@ export 'src/widgets.dart';
 def test_dependency_graph_resolve_dart_package_import():
     """Тест разрешения Dart package импортов."""
     import tempfile
+
     graph = RegexDependencyGraph()
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -158,6 +159,7 @@ def test_dependency_graph_resolve_dart_package_import():
 def test_dependency_graph_resolve_dart_relative_import():
     """Тест разрешения Dart относительных импортов."""
     import tempfile
+
     graph = RegexDependencyGraph()
 
     with tempfile.TemporaryDirectory() as tmpdir:

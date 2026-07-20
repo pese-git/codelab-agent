@@ -332,9 +332,7 @@ class PermissionRequest(Static):
         try:
             self.query_one("#perm-allow", ActionButton).focus()
         except Exception:
-            self._logger.debug(
-                "permission_request_focus_skipped", request_id=self._request_id
-            )
+            self._logger.debug("permission_request_focus_skipped", request_id=self._request_id)
 
     def _tick_auto_deny(self) -> None:
         """Обработчик тика таймера автоотклонения."""

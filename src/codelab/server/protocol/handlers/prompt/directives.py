@@ -1,4 +1,5 @@
 """Извлечение и разрешение prompt-directives (slash-команды + _meta overrides)."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -171,8 +171,7 @@ class FileSystemToolDefinitions:
                 return ToolExecutionResult(
                     success=False,
                     error=(
-                        "Параметр 'path' обязателен и не может быть пустым: "
-                        "укажите путь к файлу."
+                        "Параметр 'path' обязателен и не может быть пустым: укажите путь к файлу."
                     ),
                 )
 

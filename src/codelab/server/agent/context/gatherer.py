@@ -447,9 +447,7 @@ class ACPContextGatherer(ContextGatherer):
 
             # Forward recursive: транзитивные зависимости при включённом флаге
             if self._config.recursive_dependencies:
-                transitive = self._dependency_graph.get_dependencies(
-                    item.id, recursive=True
-                )
+                transitive = self._dependency_graph.get_dependencies(item.id, recursive=True)
                 dependents.update(transitive)
 
         return sorted(dependents)
@@ -485,9 +483,7 @@ class ACPContextGatherer(ContextGatherer):
                 raw_files = json.loads(structure_json)
                 if isinstance(raw_files, list):
                     # Нормализуем все пути относительно корня проекта
-                    normalized_files = [
-                        normalize_path(str(f), project_root) for f in raw_files
-                    ]
+                    normalized_files = [normalize_path(str(f), project_root) for f in raw_files]
                     filtered = filter_paths(normalized_files)
                     self._dependency_graph.set_project_files(filtered)
                     logger.info(

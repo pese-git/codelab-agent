@@ -1,5 +1,6 @@
 """Жизненный цикл tool-call и prompt-turn: создание/обновление/отмена, финализация
 turn, lifecycle-updates и plan entries."""
+
 from __future__ import annotations
 
 from typing import Any

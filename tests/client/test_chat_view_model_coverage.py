@@ -156,8 +156,8 @@ class TestSendPrompt:
                 _cb_name,
                 getattr(TerminalCallbackExecutor, _cb_name).__get__(mock_terminal_cb),
             )
-        mock_terminal_cb.build_prompt_callbacks = (
-            lambda: TerminalCallbackExecutor.build_prompt_callbacks(mock_terminal_cb)
+        mock_terminal_cb.build_prompt_callbacks = lambda: (
+            TerminalCallbackExecutor.build_prompt_callbacks(mock_terminal_cb)
         )
 
         # Устанавливаем terminal_callback_executor

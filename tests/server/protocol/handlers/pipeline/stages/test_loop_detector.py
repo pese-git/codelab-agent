@@ -20,9 +20,7 @@ class TestSignature:
     def test_independent_of_arg_order(self) -> None:
         assert ToolLoopDetector.signature(
             "terminal/create", {"command": "fvm", "args": ["analyze"]}
-        ) == ToolLoopDetector.signature(
-            "terminal/create", {"args": ["analyze"], "command": "fvm"}
-        )
+        ) == ToolLoopDetector.signature("terminal/create", {"args": ["analyze"], "command": "fvm"})
 
     def test_differs_by_args(self) -> None:
         assert ToolLoopDetector.signature("terminal/create", {"command": "fvm"}) != (

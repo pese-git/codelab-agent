@@ -231,9 +231,9 @@ class TestRecursiveDependenciesIntegration:
 
         for i in range(150):
             path = f"src/module_{i:03d}.py"
-            files[path] = f"import src.module_{i+1:03d}"
+            files[path] = f"import src.module_{i + 1:03d}"
             if i < 149:
-                dep_graph.add_file(path, [f"src/module_{i+1:03d}.py"])
+                dep_graph.add_file(path, [f"src/module_{i + 1:03d}.py"])
             else:
                 dep_graph.add_file(path, [])
 

@@ -702,9 +702,7 @@ class ToolCallProcessor:
                     session, tool_call_id, "completed", content=notification_content
                 )
                 # Добавляем tool result в историю для LLM
-                self._add_tool_result_to_history(
-                    session, effective_id, True, result.output, None
-                )
+                self._add_tool_result_to_history(session, effective_id, True, result.output, None)
                 return ToolResult(
                     tool_call_id=effective_id,
                     tool_name=tool_name,
