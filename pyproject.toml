@@ -202,9 +202,15 @@ name = "Server domain must not depend on client"
 type = "forbidden"
 source_modules = ["codelab.server.domain"]
 forbidden_modules = ["codelab.client"]
-# ДОЛГ: server-домен тянет client-домен. Вынести ClientCapabilities в codelab.shared.
+
+[[tool.importlinter.contracts]]
+name = "shared must stay a leaf"
+type = "forbidden"
+source_modules = ["codelab.shared"]
+forbidden_modules = ["codelab.client", "codelab.server"]
+# ДОЛГ: shared/web_ui лениво тянет server.web_app — вынести в вызывающий слой.
 ignore_imports = [
-    "codelab.server.domain.session -> codelab.client.domain.entities",
+    "codelab.shared.web_ui -> codelab.server.web_app",
 ]
 
 [tool.commitizen]

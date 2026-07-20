@@ -4,7 +4,6 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
-from codelab.client.domain.entities import ClientCapabilities
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -25,6 +24,7 @@ from codelab.server.domain.value_objects import (
     ToolCallStatus,
 )
 from codelab.server.protocol.state import SessionState, ToolCallState
+from codelab.shared.capabilities import ClientCapabilities
 
 
 class SessionMapper:

@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from codelab.client.domain.entities import ClientCapabilities
+from codelab.shared.capabilities import ClientCapabilities
 
 from .conversation import ConversationMessage
 from .plan import PlanEntry

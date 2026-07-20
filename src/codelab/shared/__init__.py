@@ -13,6 +13,8 @@
 
 # Re-exports из модуля сообщений
 # Re-exports из модуля content
+# Re-export общего протокольного VO возможностей клиента (ACP initialize)
+from codelab.shared.capabilities import ClientCapabilities
 from codelab.shared.content import (
     ALLOWED_AUDIO_MIME_TYPES,
     # Константы
@@ -69,4 +71,6 @@ __all__ = [
     # Constants
     "ALLOWED_IMAGE_MIME_TYPES",
     "ALLOWED_AUDIO_MIME_TYPES",
+    # Capabilities
+    "ClientCapabilities",
 ]
