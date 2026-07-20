@@ -178,11 +178,13 @@ layers = [
     "codelab.server.agent",
     "codelab.server.domain",
 ]
-# ДОЛГ: agent завязан на protocol.state (SessionState живёт в protocol, но им
-# типизируется весь agent-слой) и на protocol.content/session_factory. См. также
-# storage.base/decorators.base -> protocol.state (замыкают цепочки из agent).
-# Фикс: вынести SessionState (или узкий интерфейс) в domain/shared; history_builder
-# и child_session инвертировать через DI.
+# ДОЛГ (ADR-003): agent типизируется против protocol.state.SessionState —
+# симптом незавершённой доменной миграции (сериализационная модель протекает в
+# ядро вместо доменного агрегата domain.Session). Целевое решение — вариант B из
+# ADR-003 (agent оперирует domain.Session, маппинг на границе через SessionMapper),
+# выполняется отдельным эпиком. До него строки ниже — единственный трекер долга;
+# удалять по мере выполнения B, обходные абстракции не вводить.
+# См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
 ignore_imports = [
     "codelab.server.agent.base -> codelab.server.protocol.state",
     "codelab.server.agent.execution_engine -> codelab.server.protocol.state",
