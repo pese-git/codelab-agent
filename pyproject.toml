@@ -3,6 +3,8 @@ name = "codelab"
 version = "0.2.0"
 description = "Unified ACP implementation - agent server and client in one package"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
   "pydantic>=2.13.3",
