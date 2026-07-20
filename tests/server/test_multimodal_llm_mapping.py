@@ -1,9 +1,9 @@
 """E2E тесты для мультимодального промпта."""
 
+from codelab.server.agent.acp_content_mapper import ACPContentMapper
 from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.providers.anthropic import AnthropicProvider
 from codelab.server.llm.providers.openai import OpenAIProvider
-from codelab.server.protocol.content.acp_mapper import ACPContentMapper
 from codelab.server.protocol.handlers.auth import initialize
 
 

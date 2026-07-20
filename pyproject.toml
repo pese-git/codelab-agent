@@ -191,7 +191,6 @@ ignore_imports = [
     "codelab.server.agent.system_prompt_builder -> codelab.server.protocol.state",
     "codelab.server.agent.tool_filter -> codelab.server.protocol.state",
     "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
-    "codelab.server.agent.history_builder -> codelab.server.protocol.content.acp_mapper",
     "codelab.server.agent.context.child_session -> codelab.server.protocol.session_factory",
     "codelab.server.storage.base -> codelab.server.protocol.state",
     "codelab.server.tools.executors.decorators.base -> codelab.server.protocol.state",

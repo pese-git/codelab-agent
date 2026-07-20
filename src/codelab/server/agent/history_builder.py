@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from codelab.server.agent.acp_content_mapper import ACPContentMapper
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall
-from codelab.server.protocol.content.acp_mapper import ACPContentMapper
 
 if TYPE_CHECKING:
     pass
