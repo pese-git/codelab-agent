@@ -186,8 +186,7 @@ class SessionState(BaseModel):
         # чтобы replay на session/load отдавал ACP-валидные entries со статусами.
         if version < 6:
             data["latest_plan"] = [
-                _migrate_plan_entry_to_acp(entry)
-                for entry in data.get("latest_plan", [])
+                _migrate_plan_entry_to_acp(entry) for entry in data.get("latest_plan", [])
             ]
             data["schema_version"] = 6
             version = 6

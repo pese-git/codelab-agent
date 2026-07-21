@@ -467,6 +467,7 @@ class TestRequestHelpers:
         with pytest.raises(RuntimeError, match="Failed to reconnect to server"):
             await service._ensure_connected()
 
+
 class TestRequestWithCallbacks:
     """Тесты полного цикла request_with_callbacks."""
 
@@ -525,6 +526,7 @@ class TestRequestWithCallbacks:
         ):
             with pytest.raises(RuntimeError, match="Generated request without valid id"):
                 await service.request_with_callbacks("session/prompt")
+
 
 class TestSyncCleanup:
     """Тесты синхронных методов очистки."""

@@ -141,9 +141,7 @@ class TestChatView:
             widget = chat_view._streaming_widget
             assert widget is not None
 
-            with patch.object(
-                chat_view, "_update_display", wraps=chat_view._update_display
-            ) as spy:
+            with patch.object(chat_view, "_update_display", wraps=chat_view._update_display) as spy:
                 chat_vm.streaming_text.value = "ab"
                 chat_vm.streaming_text.value = "abc"
                 # Полный ребилд на последующих чанках не вызывается.

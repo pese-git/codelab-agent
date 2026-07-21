@@ -1,4 +1,5 @@
 """Подготовка исходящих fs/* и terminal/* client-RPC + проверки runtime-возможностей."""
+
 from __future__ import annotations
 
 from pathlib import Path

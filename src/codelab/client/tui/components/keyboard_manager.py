@@ -123,6 +123,7 @@ def get_default_textual_bindings() -> list[tuple[str, str, str]]:
     """
     return [(b.key, b.action, b.description) for b in DEFAULT_BINDINGS]
 
+
 # Названия категорий на русском
 CATEGORY_NAMES: dict[HotkeyCategory, str] = {
     HotkeyCategory.SYSTEM: "Системные",

@@ -740,13 +740,13 @@ class DefaultContextManager(ContextManager):
                         response, target_tokens=target_tokens
                     )
                     # Извлекаем текст из LLMMessage
-                    if hasattr(summary_message, 'content'):
+                    if hasattr(summary_message, "content"):
                         content = summary_message.content
                         if isinstance(content, str):
                             summary_text = content
                         elif isinstance(content, list):
                             summary_text = " ".join(
-                                part.text if hasattr(part, 'text') else str(part)
+                                part.text if hasattr(part, "text") else str(part)
                                 for part in content
                             )
                         else:

@@ -141,15 +141,14 @@ class DefaultChildSessionManager(ChildSessionManager):
         summary_message = await self._summarizer.summarize(messages, target_tokens=target_tokens)
 
         # Извлекаем текст из LLMMessage
-        if hasattr(summary_message, 'content'):
+        if hasattr(summary_message, "content"):
             content = summary_message.content
             if isinstance(content, str):
                 summary_text = content
             elif isinstance(content, list):
                 # ContentPart list — конкатенируем текстовые части
                 summary_text = " ".join(
-                    part.text if hasattr(part, 'text') else str(part)
-                    for part in content
+                    part.text if hasattr(part, "text") else str(part) for part in content
                 )
             else:
                 summary_text = str(content)

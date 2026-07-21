@@ -3,6 +3,7 @@
 Логика session/prompt, session/cancel и related. Разнесена по осям изменения
 (P1-4) на подмодули; публичный API сохранён через re-export.
 """
+
 from __future__ import annotations
 
 # Re-export ACPMessage: прежний модуль prompt.py импортировал его на верхнем уровне,

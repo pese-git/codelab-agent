@@ -3,6 +3,7 @@
 Leaf-слой без зависимостей от других prompt-модулей: разрывает цикл между
 directives и tool-call логикой (обе используют эти нормализаторы).
 """
+
 from __future__ import annotations
 
 from typing import Any
