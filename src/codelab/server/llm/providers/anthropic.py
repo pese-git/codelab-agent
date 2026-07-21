@@ -16,6 +16,7 @@ from codelab.server.llm.base import (
     LLMConfig,
     LLMProvider,
 )
+from codelab.server.llm.errors import map_provider_exception
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
@@ -90,6 +91,27 @@ class AnthropicProvider(LLMProvider):
             msg = "Provider not initialized"
             raise RuntimeError(msg)
 
+        request_params, model = self._build_request_params(request)
+
+        try:
+            response = await self._client.messages.create(**request_params)
+        except Exception as e:
+            raise map_provider_exception(e, self.name) from e
+
+        return self._parse_response(response, model)
+
+    def _build_request_params(
+        self,
+        request: CompletionRequest,
+    ) -> tuple[dict[str, Any], str]:
+        """Собрать параметры запроса к Anthropic Messages API.
+
+        Общая сборка для create_completion и stream_completion.
+
+        Returns:
+            Кортеж (params, model): params для messages.create/stream и
+            эффективное имя модели.
+        """
         system_message = self._extract_system_message(request.messages)
         messages = self._convert_to_anthropic_format(request.messages)
 
@@ -108,9 +130,7 @@ class AnthropicProvider(LLMProvider):
         if request.tools:
             request_params["tools"] = self._convert_tools_for_anthropic(request.tools)
 
-        response = await self._client.messages.create(**request_params)
-
-        return self._parse_response(response, model)
+        return request_params, model
 
     async def stream_completion(
         self,
@@ -128,33 +148,27 @@ class AnthropicProvider(LLMProvider):
             msg = "Provider not initialized"
             raise RuntimeError(msg)
 
-        system_message = self._extract_system_message(request.messages)
-        messages = self._convert_to_anthropic_format(request.messages)
+        request_params, model = self._build_request_params(request)
 
-        model = request.model or (self._config.model if self._config else "claude-sonnet-4")
+        # Контракт стрима (общий для всех провайдеров, см. OpenAICompatible):
+        # промежуточные chunk'и — STREAMING + text = ДЕЛЬТА; финальный chunk —
+        # полный текст + tool_calls + реальный stop_reason + usage. Финальное
+        # сообщение Anthropic собирает сам SDK через get_final_message().
+        # CancelledError/GeneratorExit наследуют BaseException и не
+        # перехватываются здесь — корректная кооперативная отмена сохраняется.
+        try:
+            async with self._client.messages.stream(**request_params) as stream:
+                async for text in stream.text_stream:
+                    yield CompletionResponse(
+                        text=text,
+                        stop_reason=StopReason.STREAMING,
+                        model=model,
+                    )
+                final_message = await stream.get_final_message()
+        except Exception as e:
+            raise map_provider_exception(e, self.name) from e
 
-        request_params: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-        }
-
-        if system_message:
-            request_params["system"] = system_message
-
-        if request.tools:
-            request_params["tools"] = self._convert_tools_for_anthropic(request.tools)
-
-        buffer = ""
-        async with self._client.messages.stream(**request_params) as stream:
-            async for text in stream.text_stream:
-                buffer += text
-                yield CompletionResponse(
-                    text=buffer,
-                    stop_reason=StopReason.STREAMING,
-                    model=model,
-                )
+        yield self._parse_response(final_message, model)
 
     def _extract_system_message(self, messages: list[LLMMessage]) -> str | None:
         """Извлечь system message из списка.

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.llm.base import LLMConfig, LLMTimeoutConfig
+from codelab.server.llm.errors import ProviderError, ProviderErrorType
 from codelab.server.llm.models import (
     CompletionRequest,
     CompletionResponse,
@@ -885,6 +886,66 @@ class TestOpenAICompatibleProviderStreamCompletion:
             "total_tokens": 3,
         }
         assert result[-1].text == "hi"
+
+
+class _StatusExc(Exception):
+    """SDK-исключение с HTTP status_code."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class TestOpenAICompatibleErrorPropagation:
+    """create_completion/stream_completion оборачивают SDK-ошибки в ProviderError."""
+
+    @pytest.mark.asyncio
+    async def test_create_completion_maps_exception(
+        self,
+        provider: ConcreteOpenAIProvider,
+        config: LLMConfig,
+    ) -> None:
+        await provider.initialize(config)
+        sdk_exc = _StatusExc(429)
+        provider._client = MagicMock()
+        provider._client.chat = MagicMock()
+        provider._client.chat.completions = MagicMock()
+        provider._client.chat.completions.create = AsyncMock(side_effect=sdk_exc)
+
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            await provider.create_completion(request)
+
+        assert exc_info.value.error_type == ProviderErrorType.RATE_LIMIT
+        assert exc_info.value.provider_id == "test-openai"
+        assert exc_info.value.__cause__ is sdk_exc
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_maps_exception(
+        self,
+        provider: ConcreteOpenAIProvider,
+        config: LLMConfig,
+    ) -> None:
+        await provider.initialize(config)
+        sdk_exc = _StatusExc(401)
+        provider._client = MagicMock()
+        provider._client.chat = MagicMock()
+        provider._client.chat.completions = MagicMock()
+        provider._client.chat.completions.create = AsyncMock(side_effect=sdk_exc)
+
+        request = CompletionRequest(
+            model="gpt-4o",
+            messages=[LLMMessage(role="user", content="Hi")],
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in provider.stream_completion(request):
+                pass
+
+        assert exc_info.value.error_type == ProviderErrorType.AUTH_ERROR
+        assert exc_info.value.__cause__ is sdk_exc
 
 
 async def _async_iter(items):
