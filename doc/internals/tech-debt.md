@@ -1,6 +1,7 @@
 # Технический долг CodeLab Agent
 
 > Первичный аудит: 2026-06-16 (ветка `feature/agent`, коммит `f03df77`)
+> Актуализация: 2026-07-21 (P2-27: terminal alias race condition, обнаружено в логах `sess_bdd7f44c5734`)
 > Актуализация: 2026-07-10 (ветка `develop`, коммит `3c5e7de`)
 > Пересчёт метрик: 2026-07-10 (ветка `tech-debt`, коммит `5da4988`)
 > Обновление зависимостей: 2026-07-10 (ветка `tech-debt`, коммит `2a8594d`)
@@ -1304,6 +1305,82 @@ wire-форма).
 **Критерий приемки:** `replay_latest_plan` отдаёт ACP-валидные `{content,priority,status}`,
 идентичные live-форме; статусы плана сохраняются при `session/load`; миграция старого
 формата покрыта тестом.
+
+---
+
+### 27. Terminal alias race condition — потерянные aliases при интенсивном создании терминалов — ⬜ ОТКРЫТО (обнаружено 2026-07-21)
+
+> Обнаружено при анализе логов реальной stdio-сессии (`~/.codelab/logs/codelab-71689.log`,
+> 21 июля 2026, сессия `sess_bdd7f44c5734`, модель `openrouter/qwen3.6-plus`). При
+> интенсивном создании терминалов (Flutter-проект, множественные `flutter analyze`/`flutter test`)
+> возникают ошибки `terminal_alias_not_found` для aliases `term_36` и `term_37`, хотя
+> `TerminalAliasRegistry` содержит aliases только до `term_35`.
+>
+> **Проявление в логах:**
+> ```
+> 16:23:51 [error] terminal_alias_not_found
+>   alias=term_36
+>   known_aliases=['term_1', 'term_10', ..., 'term_35']
+>   session_id=sess_bdd7f44c5734
+>
+> 16:27:19 [error] terminal_alias_not_found
+>   alias=term_37
+>   known_aliases=['term_1', 'term_10', ..., 'term_35']
+>   session_id=sess_bdd7f44c5734
+> ```
+>
+> Оба случая: агент создаёт терминал (`terminal/create` → `term_36`/`term_37`), но при
+> последующем `terminal/wait_for_exit` alias уже отсутствует в реестре. Это приводит к
+> `success=False` и потере вывода терминала.
+
+**Файл:** `src/codelab/server/tools/executors/terminal_alias_registry.py`,
+`src/codelab/server/tools/executors/terminal_executor.py`
+
+**Гипотезы о корневой причине:**
+
+1. **Race condition при регистрации/удалении:** `terminal/create` регистрирует alias, но
+   `terminal/release` (или cleanup при ошибке) удаляет alias до того, как
+   `terminal/wait_for_exit` успевает его использовать. Асинхронная природа tool execution
+   может создавать окно, где alias ещё не зарегистрирован или уже удалён.
+
+2. **Гонка между create и wait:** Агент вызывает `terminal/create` и немедленно
+   `terminal/wait_for_exit` (не дожидаясь завершения create). Если wait выполняется до
+   завершения регистрации alias — `terminal_alias_not_found`.
+
+3. **Очистка при ошибке:** Если `terminal/create` завершается с ошибкой (или timeout),
+   cleanup-логика удаляет alias, но агент всё равно пытается использовать его в
+   последующих вызовах.
+
+4. **Многопоточность/asyncio:** `TerminalAliasRegistry` не является thread-safe/async-safe.
+   Если несколько tool calls выполняются параллельно (через `asyncio.create_task`),
+   мутации `terminals` dict могут приводить к race condition.
+
+**Severity:** Средний. Не краш (агент получает `failed` и может создать новый терминал),
+но приводит к потере времени (recreate-loop) и засоряет логи error'ами. В сессии
+`sess_bdd7f44c5734` — 2 ошибки за ~30 минут, но при высокой нагрузке может проявляться
+чаще.
+
+**Задачи:**
+- [ ] **Investigation:** Воспроизвести проблему в контролируемых условиях (стресс-тест:
+      50+ `terminal/create` за короткое время, проверить, все ли aliases сохраняются).
+- [ ] **Аудит кода:** Проверить `TerminalAliasRegistry` на thread-safety/async-safety
+      (используются ли locks/mutexes при мутации `terminals` dict?).
+- [ ] **Аудит lifecycle:** Проверить, когда вызывается `unregister` (только при
+      `terminal/release` или при ошибках/timeout?). Добавить логирование всех мутаций
+      (register/unregister) для диагностики.
+- [ ] **Тест:** Интеграционный тест с параллельным созданием/использованием терминалов
+      (asyncio tasks, 10+ терминалов одновременно).
+- [ ] **Фикс (если race confirmed):** Добавить `asyncio.Lock` в `TerminalAliasRegistry`
+      для критических секций (register/unregister/lookup). Или использовать thread-safe
+      структуру данных.
+- [ ] **Фикс (если lifecycle issue):** Убедиться, что `unregister` вызывается только
+      после полного завершения использования терминала (все pending `wait_for_exit`
+      завершены).
+
+**Оценка:** 1 день (investigation + аудит + тесты + фикс).
+**Критерий приемки:** stress-тест (50+ терминалов) проходит без `terminal_alias_not_found`;
+все aliases сохраняются до явного `terminal/release`; логи не содержат ошибок при
+интенсивном использовании.
 
 ---
 
