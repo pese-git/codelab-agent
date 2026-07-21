@@ -1,10 +1,9 @@
 """ContextManager — единая точка входа для управления контекстом.
 
-Оркестрирует компоненты слоя A:
-- TaskAnalyzer — классификация задачи
-- ContextGatherer — сбор релевантных файлов
-- DependencyGraph — граф зависимостей
-- TokenBudgetManager — управление бюджетом токенов
+Оркестрирует компоненты слоя A через коллабораторов:
+- BaselineBuilder — анализ задачи (TaskAnalyzer) и наполнение baseline-реестра
+- EnvelopeAssembler — сборка baseline/tail (гидрация и инкрементальный режим)
+- manager_helpers — чистые функции (fingerprint, токены, split, извлечение текста)
 
 Реализует поведение гидрации (Phase 1): baseline пересобирается каждый ход.
 
@@ -13,48 +12,47 @@
 
 from __future__ import annotations
 
-import hashlib
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.agent.context.baseline_builder import BaselineBuilder
 from codelab.server.agent.context.budget import DefaultTokenBudgetManager
 from codelab.server.agent.context.compactor import ThreePhaseCompactor
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
+from codelab.server.agent.context.envelope_assembler import EnvelopeAssembler
 from codelab.server.agent.context.epoch import EpochManager
 from codelab.server.agent.context.file_cache import InvalidationSignalBus
-from codelab.server.agent.context.gatherer import ACPContextGatherer
 from codelab.server.agent.context.interfaces import (
     CodeSkeletonizer,
     ContextManager,
     ConversationSummarizer,
     TokenCounter,
 )
+from codelab.server.agent.context.manager_helpers import (
+    compute_fingerprint,
+    estimate_total_tokens,
+    extract_prompt_text,
+    split_baseline_tail,
+)
 from codelab.server.agent.context.models import (
     BuildOptions,
     ContextConfig,
-    ContextItem,
-    ContextType,
     PayloadEnvelope,
     SubagentResult,
-    TaskProfile,
 )
 from codelab.server.agent.context.reconciler import DefaultContextReconciler
 from codelab.server.agent.context.registry import (
     ContextRegistryImpl,
     FileContextSource,
-    SkillCatalogSource,
 )
 from codelab.server.agent.context.skeletonizer.composite import CompositeSkeletonizer
 from codelab.server.agent.context.summarizer import LLMConversationSummarizer
-from codelab.server.agent.context.task_analyzer import LLMBasedTaskAnalyzer
 from codelab.server.agent.context.token_counter import create_token_counter
 from codelab.server.agent.history_builder import HistoryBuilder
 from codelab.server.agent.message_sanitizer import MessageSanitizer
-from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:
     from codelab.server.llm.base import LLMProvider
@@ -63,17 +61,6 @@ if TYPE_CHECKING:
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclass
-class _GatherStats:
-    """Статистика этапа сбора файлов для baseline (метрики/трейсинг)."""
-
-    files_count: int = 0
-    file_paths: list[str] = field(default_factory=list)
-    file_tokens: list[int] = field(default_factory=list)
-    candidate_count: int = 0
-    gather_ms: float = 0.0
 
 
 class _SessionContext:
@@ -141,12 +128,16 @@ class DefaultContextManager(ContextManager):
         self._sessions: dict[str, _SessionContext] = {}
         self._signal_bus = signal_bus or InvalidationSignalBus()
         self._signal_bus.subscribe(self._dispatch_file_invalidated)
-        # Тайминги стадий tail/fingerprint последней сборки (для /context last).
-        # Заполняются в _build_tail и _timed_fingerprint, сбрасываются в
-        # начале build_context. Стадии живут внутри хелперов режима, поэтому
-        # экспортируются через поля, а не как локальные переменные.
-        self._last_tail_ms = 0.0
-        self._last_fingerprint_ms = 0.0
+        # Коллаборы сборки контекста.
+        self._baseline_builder = BaselineBuilder(
+            tool_registry=self._tool_registry,
+            config=self._config,
+            llm=self._llm,
+            model=self._model,
+            tracer=self._tracer,
+            metrics_tracker=self._metrics_tracker,
+        )
+        self._envelope_assembler = EnvelopeAssembler(self._history_builder)
 
     def _session_ctx(self, session_id: Any) -> _SessionContext:
         """Вернуть (создав при необходимости) изолированное состояние сессии."""
@@ -277,7 +268,7 @@ class DefaultContextManager(ContextManager):
 
         # Этап 1: Извлечение текста из prompt
         extract_start = time.time()
-        prompt_text = self._extract_prompt_text(prompt)
+        prompt_text = extract_prompt_text(prompt)
         extract_ms = (time.time() - extract_start) * 1000
 
         logger.debug(
@@ -289,15 +280,14 @@ class DefaultContextManager(ContextManager):
         )
 
         # Этап 2: Анализ задачи (TaskAnalyzer)
-        profile, analyze_ms = await self._analyze_task(prompt_text, session, session_id)
+        profile, analyze_ms = await self._baseline_builder.analyze_task(
+            prompt_text, session, session_id
+        )
 
         # Этап 3: Формирование baseline через ContextRegistry
-        # Сброс таймингов tail/fingerprint — заполнятся внутри хелперов режима.
-        self._last_tail_ms = 0.0
-        self._last_fingerprint_ms = 0.0
         baseline_start = time.time()
 
-        registry = self._resolve_baseline_registry(ctx, incremental, session_id)
+        registry = self._baseline_builder.resolve_baseline_registry(ctx, incremental, session_id)
 
         is_reusing_registry = (
             incremental
@@ -305,7 +295,7 @@ class DefaultContextManager(ContextManager):
             and len(ctx.session_registry.list_sources()) > 0
         )
 
-        gather_stats = await self._populate_baseline_registry(
+        gather_stats = await self._baseline_builder.populate_baseline_registry(
             registry,
             ctx,
             profile,
@@ -322,13 +312,18 @@ class DefaultContextManager(ContextManager):
             # источников, чтобы fingerprint отразил изменение и эпоха корректно
             # перестроилась со свежим содержимым (4.D2).
             await self._refresh_dirty_sources(ctx, session, session_id)
-            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_incremental(
+            assembled = await self._envelope_assembler.build_incremental(
                 session, ctx, registry, prompt, session_id
             )
         else:
-            baseline, baseline_fingerprint, tail, reconcile_info = await self._build_hydration(
+            assembled = await self._envelope_assembler.build_hydration(
                 session, registry, prompt, session_id
             )
+
+        baseline = assembled.baseline
+        baseline_fingerprint = assembled.baseline_fingerprint
+        tail = assembled.tail
+        reconcile_info = assembled.reconcile_info
 
         baseline_ms = (time.time() - baseline_start) * 1000
         logger.debug(
@@ -340,11 +335,11 @@ class DefaultContextManager(ContextManager):
         )
 
         # Оценка токенов
-        token_count = self._estimate_total_tokens(baseline, tail)
+        token_count = estimate_total_tokens(baseline, tail)
 
         elapsed_ms = (time.time() - start_time) * 1000
-        baseline_tokens = self._estimate_total_tokens(baseline, [])
-        tail_tokens = self._estimate_total_tokens([], tail)
+        baseline_tokens = estimate_total_tokens(baseline, [])
+        tail_tokens = estimate_total_tokens([], tail)
 
         logger.info(
             "context.build.complete",
@@ -379,8 +374,8 @@ class DefaultContextManager(ContextManager):
                 "analyze_ms": analyze_ms,
                 "gather_ms": gather_stats.gather_ms,
                 "baseline_ms": baseline_ms,
-                "tail_ms": self._last_tail_ms,
-                "fingerprint_ms": self._last_fingerprint_ms,
+                "tail_ms": assembled.tail_ms,
+                "fingerprint_ms": assembled.fingerprint_ms,
             }
             self._metrics_tracker.record_context_build(
                 build_duration_ms=elapsed_ms,
@@ -410,154 +405,6 @@ class DefaultContextManager(ContextManager):
             baseline_fingerprint=baseline_fingerprint,
             token_count=token_count,
         )
-
-    def _resolve_baseline_registry(
-        self, ctx: _SessionContext, incremental: bool, session_id: Any
-    ) -> ContextRegistryImpl:
-        """Вернуть session-registry для переиспользования или создать новый."""
-        if incremental and ctx.session_registry is not None:
-            registry = ctx.session_registry
-            logger.debug(
-                "context.build.reusing_session_registry",
-                session_id=session_id,
-                sources_count=len(registry.list_sources()),
-            )
-            return registry
-
-        registry = ContextRegistryImpl()
-        if incremental:
-            ctx.session_registry = registry
-        return registry
-
-    async def _analyze_task(
-        self, prompt_text: str, session: Any, session_id: Any
-    ) -> tuple[TaskProfile, float]:
-        """Этап 2: анализ задачи (TaskAnalyzer) + сохранение TaskProfile для /context.
-
-        Returns:
-            (profile, analyze_ms) — профиль задачи и время анализа в мс.
-        """
-        analyze_start = time.time()
-        logger.debug(
-            "context.build.task_analysis.start",
-            session_id=session_id,
-            llm_available=self._llm is not None,
-            model=self._model,
-        )
-
-        analyzer = LLMBasedTaskAnalyzer(llm=self._llm, model=self._model)
-        profile = await analyzer.analyze(prompt_text, session)
-        analyze_ms = (time.time() - analyze_start) * 1000
-
-        logger.info(
-            "context.build.task_analysis.complete",
-            session_id=session_id,
-            task_type=profile.task_type,
-            search_terms=profile.search_terms,
-            target_modules=profile.target_modules,
-            investigation_depth=profile.investigation_depth,
-            needs_tests=profile.needs_tests,
-            elapsed_ms=analyze_ms,
-        )
-
-        # Сохранить TaskProfile для /context profile
-        if self._metrics_tracker is not None:
-            session_metrics = self._metrics_tracker.get_or_create_metrics(str(session_id))
-            session_metrics.last_task_profile = {
-                "task_type": str(profile.task_type),
-                "search_terms": list(profile.search_terms),
-                "target_modules": list(profile.target_modules),
-                "investigation_depth": profile.investigation_depth,
-                "needs_tests": profile.needs_tests,
-            }
-
-        return profile, analyze_ms
-
-    async def _populate_baseline_registry(
-        self,
-        registry: ContextRegistryImpl,
-        ctx: _SessionContext,
-        profile: TaskProfile,
-        session: Any,
-        session_id: Any,
-        *,
-        system_prompt: str | None,
-        options: BuildOptions | None,
-        is_reusing_registry: bool,
-    ) -> _GatherStats:
-        """Этапы 3-4: наполнить baseline-реестр (system_prompt, gather, skill catalog).
-
-        При переиспользовании session-registry (incremental) регистрация
-        пропускается. Возвращает статистику этапа сбора файлов.
-        """
-        stats = _GatherStats()
-
-        if is_reusing_registry:
-            logger.debug(
-                "context.build.skipping_registration.reusing_registry",
-                session_id=session_id,
-                sources_count=len(registry.list_sources()),
-            )
-            return stats
-
-        if system_prompt:
-            registry.register(FileContextSource("system_prompt", system_prompt))
-            logger.debug(
-                "context.build.baseline.system_prompt_added",
-                session_id=session_id,
-                system_prompt_length=len(system_prompt),
-            )
-
-        # Этап 4: Сбор файлов (если включено)
-        if self._config.gather_enabled:
-            gather_start = time.time()
-            logger.info(
-                "context.build.gather.start",
-                session_id=session_id,
-                max_files=options.max_files if options else None,
-            )
-
-            gatherer = ACPContextGatherer(
-                tool_registry=self._tool_registry,
-                dependency_graph=ctx.dependency_graph,
-                session_id=session_id,
-                tracer=self._tracer,
-                config=self._config,
-            )
-            items = await gatherer.gather(profile, session, options=options)
-            stats.files_count = len(items)
-            stats.file_paths = [item.id for item in items]
-            stats.file_tokens = [item.token_count for item in items]
-            stats.candidate_count = gatherer.last_candidate_count
-            stats.gather_ms = (time.time() - gather_start) * 1000
-
-            logger.info(
-                "context.build.gather.complete",
-                session_id=session_id,
-                files_gathered=stats.files_count,
-                file_paths=[item.id for item in items[:10]],
-                total_tokens=sum(item.token_count for item in items),
-                elapsed_ms=stats.gather_ms,
-            )
-
-            for item in items:
-                registry.register(FileContextSource(item.id, item.content))
-
-            logger.debug(
-                "context.build.baseline.files_registered",
-                session_id=session_id,
-                files_count=stats.files_count,
-            )
-        else:
-            logger.debug(
-                "context.build.gather.skipped",
-                session_id=session_id,
-                reason="gather_enabled=false",
-            )
-
-        # Регистрация каталога скиллов (пока пустой — SkillRegistry отсутствует)
-        registry.register(SkillCatalogSource([]))
-        return stats
 
     async def ensure_context_fits(
         self,
@@ -628,8 +475,8 @@ class DefaultContextManager(ContextManager):
             )
             new_token_count = self._token_counter.count_messages(compacted)
 
-        baseline, tail = self._split_baseline_tail(compacted)
-        baseline_fingerprint = self._compute_fingerprint(baseline)
+        baseline, tail = split_baseline_tail(compacted)
+        baseline_fingerprint = compute_fingerprint(baseline)
 
         logger.info(
             "context.ensure_fits.compacted",
@@ -645,20 +492,6 @@ class DefaultContextManager(ContextManager):
             baseline_fingerprint=baseline_fingerprint,
             token_count=new_token_count,
         )
-
-    @staticmethod
-    def _split_baseline_tail(
-        messages: list[LLMMessage],
-    ) -> tuple[list[LLMMessage], list[LLMMessage]]:
-        """Разделить плоский список на baseline (ведущие system) и tail."""
-        baseline: list[LLMMessage] = []
-        tail: list[LLMMessage] = []
-        for msg in messages:
-            if msg.role == "system" and not tail:
-                baseline.append(msg)
-            else:
-                tail.append(msg)
-        return baseline, tail
 
     def _get_or_create_compactor(self) -> ThreePhaseCompactor:
         """Получить или создать ThreePhaseCompactor."""
@@ -817,229 +650,3 @@ class DefaultContextManager(ContextManager):
         if options is not None and options.incremental is not None:
             return options.incremental
         return self._config.incremental
-
-    def _build_tail(self, session: Any, prompt: list[dict]) -> list[LLMMessage]:
-        """Собрать tail из истории сессии (источник истины) — 4.D1.
-
-        session.history уже содержит текущий промпт (добавлен обработчиком до
-        пайплайна). System-сообщения принадлежат baseline и исключаются.
-        Fallback на prompt — только если history не list (не настоящая сессия).
-        """
-        tail_start = time.time()
-        history = getattr(session, "history", None)
-        if not isinstance(history, list):
-            result = self._tail_from_prompt(prompt)
-        else:
-            messages = self._history_builder.build(history)
-            result = [m for m in messages if m.role != "system"]
-        self._last_tail_ms = (time.time() - tail_start) * 1000
-        return result
-
-    def _timed_fingerprint(self, messages: list[LLMMessage]) -> str:
-        """Вычислить fingerprint baseline с замером длительности (/context last)."""
-        fp_start = time.time()
-        fingerprint = EpochManager.compute_baseline_fingerprint(messages)
-        self._last_fingerprint_ms = (time.time() - fp_start) * 1000
-        return fingerprint
-
-    @staticmethod
-    def _tail_from_prompt(prompt: list[dict]) -> list[LLMMessage]:
-        """Fallback: собрать tail из prompt-блоков (нет истории сессии)."""
-        tail: list[LLMMessage] = []
-        for block in prompt:
-            if block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    tail.append(LLMMessage(role="user", content=text))
-        return tail
-
-    async def _build_hydration(
-        self,
-        session: Any,
-        registry: ContextRegistryImpl,
-        prompt: list[dict],
-        session_id: Any,
-    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
-        """Режим гидрации: baseline пересобирается каждый ход.
-
-        Returns:
-            (baseline, baseline_fingerprint, tail, reconcile_info)
-        """
-        baseline_text = await registry.render_baseline()
-        baseline: list[LLMMessage] = []
-        if baseline_text:
-            baseline.append(LLMMessage(role="system", content=baseline_text))
-
-        baseline_fingerprint = self._timed_fingerprint(baseline)
-
-        tail = self._build_tail(session, prompt)
-
-        reconcile_info: dict[str, Any] = {"state": "hydration", "epoch_broken": False}
-
-        logger.debug(
-            "context.build.hydration",
-            session_id=session_id,
-            baseline_messages=len(baseline),
-            tail_messages=len(tail),
-        )
-
-        return baseline, baseline_fingerprint, tail, reconcile_info
-
-    async def _build_incremental(
-        self,
-        session: Any,
-        ctx: _SessionContext,
-        registry: ContextRegistryImpl,
-        prompt: list[dict],
-        session_id: Any,
-    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
-        """Инкрементальный режим: baseline из эпохи, только дельты в tail.
-
-        Returns:
-            (baseline, baseline_fingerprint, tail, reconcile_info)
-        """
-        ctx.epoch_manager.reset_turn_counter()
-
-        tail = self._build_tail(session, prompt)
-
-        if not ctx.epoch_manager.is_active:
-            return await self._start_new_epoch(ctx, registry, tail, session_id)
-
-        epoch = ctx.epoch_manager.current_epoch
-        assert epoch is not None
-
-        reconcile_result = await ctx.reconciler.reconcile(
-            epoch,
-            registry,
-        )
-
-        reconcile_info: dict[str, Any] = {
-            "state": reconcile_result.state.value,
-            "epoch_broken": reconcile_result.epoch_broken,
-            "changed_sources": reconcile_result.updated_sources,
-        }
-
-        if reconcile_result.epoch_broken:
-            new_baseline_text = await registry.render_baseline()
-            new_baseline: list[LLMMessage] = []
-            if new_baseline_text:
-                new_baseline.append(LLMMessage(role="system", content=new_baseline_text))
-
-            new_fingerprint = self._timed_fingerprint(new_baseline)
-            ctx.epoch_manager.break_epoch(new_baseline, new_fingerprint)
-
-            logger.info(
-                "context.build.incremental.epoch_broken",
-                session_id=session_id,
-                changed_sources=reconcile_result.updated_sources,
-            )
-
-            return new_baseline, new_fingerprint, tail, reconcile_info
-
-        if reconcile_result.state.value == "updated" and reconcile_result.new_tail_messages:
-            tail = [*reconcile_result.new_tail_messages, *tail]
-
-        epoch = ctx.epoch_manager.current_epoch
-        assert epoch is not None
-        baseline = list(epoch.baseline)
-        baseline_fingerprint = epoch.baseline_fingerprint
-
-        logger.debug(
-            "context.build.incremental.stable",
-            session_id=session_id,
-            epoch_id=epoch.epoch_id,
-            baseline_fingerprint=baseline_fingerprint,
-            reconcile_state=reconcile_result.state.value,
-        )
-
-        return baseline, baseline_fingerprint, tail, reconcile_info
-
-    async def _start_new_epoch(
-        self,
-        ctx: _SessionContext,
-        registry: ContextRegistryImpl,
-        tail: list[LLMMessage],
-        session_id: Any,
-    ) -> tuple[list[LLMMessage], str, list[LLMMessage], dict[str, Any]]:
-        """Создать новую эпоху с текущим baseline.
-
-        Returns:
-            (baseline, baseline_fingerprint, tail, reconcile_info)
-        """
-        baseline_text = await registry.render_baseline()
-        baseline: list[LLMMessage] = []
-        if baseline_text:
-            baseline.append(LLMMessage(role="system", content=baseline_text))
-
-        baseline_fingerprint = self._timed_fingerprint(baseline)
-        ctx.epoch_manager.start_epoch(baseline, baseline_fingerprint)
-        await ctx.reconciler.snapshot(registry)
-
-        reconcile_info: dict[str, Any] = {
-            "state": "new_epoch",
-            "epoch_broken": False,
-            "changed_sources": [],
-        }
-
-        logger.info(
-            "context.build.incremental.new_epoch",
-            session_id=session_id,
-            epoch_id=(
-                ctx.epoch_manager.current_epoch.epoch_id
-                if ctx.epoch_manager.current_epoch
-                else None
-            ),
-            baseline_fingerprint=baseline_fingerprint,
-        )
-
-        return baseline, baseline_fingerprint, tail, reconcile_info
-
-    @staticmethod
-    def _extract_prompt_text(prompt: list[dict]) -> str:
-        """Извлечь текст из prompt блоков."""
-        parts: list[str] = []
-        for block in prompt:
-            if block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    parts.append(text)
-        return " ".join(parts)
-
-    @staticmethod
-    def _format_context_items(items: list[ContextItem]) -> str:
-        """Форматировать ContextItem в текст для system prompt."""
-        if not items:
-            return ""
-
-        sections: list[str] = ["<context>"]
-        for item in items:
-            if item.type == ContextType.FILE_CONTENT:
-                sections.append(f'<file path="{item.id}">')
-                sections.append(item.content)
-                sections.append("</file>")
-
-        sections.append("</context>")
-        return "\n".join(sections)
-
-    @staticmethod
-    def _compute_fingerprint(messages: list[LLMMessage]) -> str:
-        """Вычислить fingerprint для baseline."""
-        content_parts: list[str] = []
-        for msg in messages:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            content_parts.append(f"{msg.role}:{content}")
-
-        combined = "|".join(content_parts)
-        return hashlib.sha256(combined.encode()).hexdigest()[:16]
-
-    def _estimate_total_tokens(
-        self,
-        baseline: list[LLMMessage],
-        tail: list[LLMMessage],
-    ) -> int:
-        """Оценить общее количество токенов."""
-        total = 0
-        for msg in baseline + tail:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            total += DefaultTokenBudgetManager.estimate_tokens(content)
-        return total
