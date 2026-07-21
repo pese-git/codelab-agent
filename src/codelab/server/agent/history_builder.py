@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from codelab.server.agent.acp_content_mapper import ACPContentMapper
+from codelab.server.domain.conversation import ConversationMessage
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall
 
@@ -27,7 +28,7 @@ class HistoryBuilder:
 
     def build(
         self,
-        history: list[dict[str, Any]] | list,
+        history: list[dict[str, Any]] | list | Any,
         system_prompt: str | None = None,
     ) -> list[LLMMessage]:
         """Собрать LLMMessage из истории.
@@ -82,8 +83,30 @@ class HistoryBuilder:
                 llm_tool_calls.append(tc)
         return llm_tool_calls
 
+    @staticmethod
+    def _convert_domain_message(msg: ConversationMessage) -> LLMMessage | None:
+        """Конвертировать ConversationMessage (domain) в LLMMessage."""
+        role = msg.role.value
+        content = msg.content.text if msg.content else ""
+        if not content and not msg.tool_calls:
+            return None
+        tool_calls = None
+        if msg.tool_calls:
+            tool_calls = [
+                LLMToolCall(id=tc.id, name=tc.tool_name, arguments=tc.arguments)
+                for tc in msg.tool_calls
+            ]
+        return LLMMessage(
+            role=role,
+            content=content,
+            tool_calls=tool_calls if tool_calls else None,
+            tool_call_id=msg.tool_call_id,
+        )
+
     def _convert_history_entry(self, entry: Any, mapper: ACPContentMapper) -> LLMMessage | None:
         """Конвертирует одну запись истории в LLMMessage (или None, если пропустить)."""
+        if isinstance(entry, ConversationMessage):
+            return self._convert_domain_message(entry)
         if isinstance(entry, dict):
             entry_dict = entry
         elif hasattr(entry, "model_dump"):

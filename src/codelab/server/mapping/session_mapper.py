@@ -177,8 +177,20 @@ class SessionMapper:
                 content_text = msg_data.content if isinstance(msg_data.content, str) else ""
             elif isinstance(msg_data, dict):
                 role_str = msg_data.get("role", "user")
-                content_text = msg_data.get("content", "")
-                if not isinstance(content_text, str):
+                content = msg_data.get("content", "") or msg_data.get("text", "")
+                
+                # Handle multimodal content (list of content blocks)
+                if isinstance(content, list):
+                    text_parts = []
+                    for block in content:
+                        if isinstance(block, dict):
+                            text_parts.append(block.get("text", ""))
+                        elif isinstance(block, str):
+                            text_parts.append(block)
+                    content_text = " ".join(text_parts)
+                elif isinstance(content, str):
+                    content_text = content
+                else:
                     content_text = ""
             else:
                 continue

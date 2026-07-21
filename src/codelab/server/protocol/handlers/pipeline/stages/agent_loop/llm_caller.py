@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from codelab.server.agent.base import AgentResponse
     from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
         SessionUpdateSink,
@@ -85,8 +86,19 @@ class LlmCaller:
         Returns:
             LlmCallResult с ответом и признаком стриминга.
         """
+        from codelab.server.domain.session import Session
+        from codelab.server.mapping.session_mapper import SessionMapper
+        from codelab.server.protocol.state import SessionState
+
+        if isinstance(session, Session):
+            domain_session: Session = session
+        elif isinstance(session, SessionState):
+            domain_session = SessionMapper.to_domain(session)
+        else:
+            domain_session = session
+
         # Формируем system prompt (agent + config + MCP info)
-        system_prompt = self._system_prompt_builder.build(session, mcp_manager)
+        system_prompt = self._system_prompt_builder.build(domain_session, mcp_manager)
 
         # Стриминг: on_delta эмитит текстовые дельты как agent_message_chunk
         # вживую. Полный текст ответа НЕ эмитится повторно (см. AgentLoop).
@@ -102,7 +114,7 @@ class LlmCaller:
 
         if iteration == 1 and prompt:
             response = await self._strategy.execute(
-                session,
+                domain_session,
                 prompt,
                 mcp_manager,
                 system_prompt=system_prompt,
@@ -110,7 +122,7 @@ class LlmCaller:
             )
         else:
             response = await self._strategy.continue_execution(
-                session,
+                domain_session,
                 mcp_manager,
                 on_delta=on_delta,
             )
@@ -128,7 +140,18 @@ class LlmCaller:
         if strategy_name_attr is None:
             select_fn = getattr(self._strategy, "select_strategy", None)
             if callable(select_fn):
-                select_fn(session, context_meta=None)
+                from codelab.server.domain.session import Session
+                from codelab.server.mapping.session_mapper import SessionMapper
+                from codelab.server.protocol.state import SessionState
+
+                if isinstance(session, Session):
+                    domain_session: Session = session
+                elif isinstance(session, SessionState):
+                    domain_session = SessionMapper.to_domain(session)
+                else:
+                    domain_session = session
+
+                select_fn(domain_session, context_meta=None)
                 logger.debug(
                     "resume_after_permission: strategy re-initialized",
                     strategy=getattr(self._strategy, "_current_strategy_name", "unknown"),

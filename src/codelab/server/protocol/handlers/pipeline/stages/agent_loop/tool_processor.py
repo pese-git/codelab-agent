@@ -379,8 +379,11 @@ class ToolCallProcessor:
             status="failed",
             content=rejection_content,
         )
+        # Добавляем результат отклонения в историю для LLM
+        effective_id = tool_call_id_from_llm or tool_call_id
+        self._add_tool_result_to_history(session, effective_id, False, None, rejection_msg)
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=effective_id,
             tool_name=acp_tool_name,
             success=False,
             error=rejection_msg,
@@ -428,8 +431,11 @@ class ToolCallProcessor:
             status="failed",
             content=error_content,
         )
+        # Добавляем результат отклонения в историю для LLM
+        effective_id = tool_call_id_from_llm or tool_call_id
+        self._add_tool_result_to_history(session, effective_id, False, None, error_msg)
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=effective_id,
             tool_name=acp_tool_name,
             success=False,
             error=error_msg,
@@ -483,8 +489,11 @@ class ToolCallProcessor:
             status="failed",
             content=error_content,
         )
+        # Добавляем результат отклонения в историю для LLM
+        effective_id = tool_call_id_from_llm or tool_call_id
+        self._add_tool_result_to_history(session, effective_id, False, None, error_msg)
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=effective_id,
             tool_name=acp_tool_name,
             success=False,
             error=error_msg,

@@ -55,7 +55,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {"_active_strategy": "hierarchical"}
 
         context_meta = {"active_strategy": "single"}
 
@@ -70,7 +72,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {"_active_strategy": "hierarchical"}
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -83,7 +87,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {}
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -96,7 +102,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {"_active_strategy": "hierarchical"}
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -125,7 +133,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {}
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -151,7 +161,9 @@ class TestStrategyDispatcherSelectStrategy:
 
         session = MagicMock()
         session.session_id = "test-session"
-        session.config_values = {}
+        session.id = "test-session"
+        session.config = MagicMock()
+        session.config.config_values = {}
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 

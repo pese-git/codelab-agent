@@ -239,12 +239,15 @@ class DefaultContextManager(ContextManager):
             PayloadEnvelope с baseline и tail
         """
         start_time = time.time()
-        session_id = getattr(session, "session_id", "unknown")
+        session_id = getattr(session, "session_id", None) or str(getattr(session, "id", "unknown"))
         ctx = self._session_ctx(session_id)
 
         # Укоренить граф зависимостей в директории проекта сессии, а не в cwd
         # процесса сервера (иначе разрешение импортов идёт не в той директории).
-        session_cwd = getattr(session, "cwd", None)
+        session_cwd = (
+            getattr(session, "cwd", None)
+            or getattr(getattr(session, "config", None), "cwd", None)
+        )
         if session_cwd:
             ctx.dependency_graph.set_project_root(Path(session_cwd))
 

@@ -159,8 +159,11 @@ class LLMLoopStage(PromptStage):
         # Выбрать и зафиксировать стратегию ДО создания AgentLoop.
         # Это гарантирует что _current_strategy_name установлен для continue_execution.
         if not self._strategy_selected:
+            from codelab.server.mapping.session_mapper import SessionMapper
+
+            domain_session = SessionMapper.to_domain(context.session)
             strategy_name, fallback_from = self._strategy_dispatcher.select_strategy(
-                session=context.session,
+                session=domain_session,
                 context_meta=context.meta,
             )
 
@@ -306,8 +309,11 @@ class LLMLoopStage(PromptStage):
             strategy: LLMCallStrategy
             if self._strategy_dispatcher is not None:
                 # Выбрать стратегию через dispatcher (без context_meta для pending tool)
+                from codelab.server.mapping.session_mapper import SessionMapper
+
+                domain_session = SessionMapper.to_domain(session)
                 strategy_name, _ = self._strategy_dispatcher.select_strategy(
-                    session=session,
+                    session=domain_session,
                     context_meta=None,
                 )
                 self._strategy_dispatcher.set_current_strategy(strategy_name)

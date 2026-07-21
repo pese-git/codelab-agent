@@ -39,6 +39,7 @@ def tool_registry():
 def session():
     session = MagicMock(spec=SessionState)
     session.session_id = "test_session"
+    session.cwd = "/test/cwd"
     session.history = [
         {"role": "user", "text": "Hello"},
         {"role": "assistant", "text": "Hi there"},
@@ -49,6 +50,16 @@ def session():
         terminal=False,
     )
     session.config_values = {"model": "openai/gpt-4o"}
+    session.active_strategy = "single"
+    session.permission_policy = {}
+    session.cancelled_permission_requests = set()
+    session.tool_calls = {}
+    session.tool_call_counter = 0
+    session.latest_plan = []
+    session.active_agents = []
+    session.parent_session_id = None
+    session.child_session_ids = []
+    session.is_child_session = False
     return session
 
 

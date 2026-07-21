@@ -50,6 +50,12 @@ class ConversationHistory:
         """Получить все сообщения."""
         return list(self.messages)
 
+    def __iter__(self):  # type: ignore[override]
+        return iter(self.messages)
+
+    def __len__(self) -> int:
+        return len(self.messages)
+
 
 @dataclass
 class ToolCallRegistry:

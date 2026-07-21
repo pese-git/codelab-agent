@@ -29,6 +29,7 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
@@ -70,7 +71,7 @@ class ExecutionEngine:
 
     async def build_context(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         prompt: str,
         system_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
@@ -88,7 +89,7 @@ class ExecutionEngine:
         Phase 1: при enabled=true использует ContextManager для сбора контекста.
 
         Args:
-            session: Состояние сессии.
+            session: Состояние сессии (domain Session или protocol SessionState).
             prompt: Текст промпта пользователя.
             system_prompt: Системный промпт.
             mcp_manager: MCP manager для получения MCP инструментов.
@@ -97,13 +98,18 @@ class ExecutionEngine:
         Returns:
             AgentContext для вызова LLM.
         """
+        from codelab.server.protocol.state import SessionState
+
+        if isinstance(session, SessionState):
+            from codelab.server.mapping.session_mapper import SessionMapper
+            session = SessionMapper.to_domain(session)
         mcp_tools = None
         if mcp_manager is not None:
             mcp_tools = mcp_manager.get_all_tools()
 
         available_tools = self.tool_filter.filter(
-            self.tool_registry.get_available_tools(session.session_id),
-            session.runtime_capabilities,
+            self.tool_registry.get_available_tools(str(session.id)),
+            session.config.runtime_capabilities,
             mcp_tools,
         )
 
@@ -142,13 +148,13 @@ class ExecutionEngine:
             prompt_blocks = [{"type": "text", "text": prompt}]
 
         return AgentContext(
-            session_id=session.session_id,
+            session_id=str(session.id),
             session=session,
             prompt=prompt_blocks,
             conversation_history=history,
             available_tools=available_tools,
-            config=session.config_values,
-            model=session.config_values.get("model", ""),
+            config=session.config.config_values,
+            model=session.config.config_values.get("model", ""),
         )
 
     @staticmethod
@@ -166,7 +172,7 @@ class ExecutionEngine:
 
     async def build_continuation_context(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         mcp_manager: MCPManager | None = None,
     ) -> ContinuationContext:
         """Собрать ContinuationContext для продолжения после tool_results.
@@ -176,19 +182,24 @@ class ExecutionEngine:
         Phase 0: внутренне использует PayloadEnvelope (baseline/tail).
 
         Args:
-            session: Состояние сессии (история уже содержит tool_results).
+            session: Состояние сессии (domain Session или protocol SessionState).
             mcp_manager: MCP manager.
 
         Returns:
             ContinuationContext для вызова LLM.
         """
+        from codelab.server.protocol.state import SessionState
+
+        if isinstance(session, SessionState):
+            from codelab.server.mapping.session_mapper import SessionMapper
+            session = SessionMapper.to_domain(session)
         mcp_tools = None
         if mcp_manager is not None:
             mcp_tools = mcp_manager.get_all_tools()
 
         available_tools = self.tool_filter.filter(
-            self.tool_registry.get_available_tools(session.session_id),
-            session.runtime_capabilities,
+            self.tool_registry.get_available_tools(str(session.id)),
+            session.config.runtime_capabilities,
             mcp_tools,
         )
 
@@ -200,12 +211,12 @@ class ExecutionEngine:
         history = envelope.to_messages()
 
         return ContinuationContext(
-            session_id=session.session_id,
+            session_id=str(session.id),
             session=session,
             history=history,
             available_tools=available_tools,
-            config=session.config_values,
-            model=session.config_values.get("model", ""),
+            config=session.config.config_values,
+            model=session.config.config_values.get("model", ""),
         )
 
     async def ensure_context_fits(

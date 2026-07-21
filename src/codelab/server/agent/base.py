@@ -9,14 +9,12 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from codelab.server.domain.session import Session
 from codelab.server.llm.base import LLMProvider
 from codelab.server.llm.models import LLMMessage, LLMToolCall
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
 
 
 @dataclass
@@ -28,7 +26,7 @@ class AgentContext:
     """
 
     session_id: str
-    session: "SessionState"
+    session: Session
     # Prompt пользователя в виде блоков контента
     prompt: list[dict[str, Any]]
     # История сообщений до текущего промпта (user message ещё не добавлен)
@@ -51,7 +49,7 @@ class ContinuationContext:
     """
 
     session_id: str
-    session: "SessionState"
+    session: Session
     # Полная история включая только что добавленные tool_results
     history: list[LLMMessage]
     # Инструменты, уже отфильтрованные по capabilities клиента
@@ -94,7 +92,7 @@ class LLMAgent(ABC):
 
     НЕ является ответственностью агента:
       - Управление циклом tool-calling (это LLMLoopStage).
-      - Хранение истории сессии (это SessionState).
+      - Хранение истории сессии (это domain Session).
       - Выполнение инструментов (это LLMLoopStage + ToolRegistry).
     """
 

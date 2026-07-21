@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from codelab.server.agent.registry import AgentRegistry
+    from codelab.server.domain.session import Session
     from codelab.server.protocol.state import SessionState
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class SystemPromptBuilder:
 
     def build(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         mcp_manager: Any | None = None,
     ) -> str | None:
         """Собрать system prompt.
@@ -71,18 +72,23 @@ class SystemPromptBuilder:
         3. Информации о MCP серверах (если mcp_manager подключён и имеет серверы)
 
         Args:
-            session: Состояние сессии (для получения _agent из config_values).
+            session: Состояние сессии (domain Session или protocol SessionState).
             mcp_manager: MCP manager с подключёнными серверами (опционально).
 
         Returns:
             Текст system prompt или None если ничего не задано.
         """
+        from codelab.server.protocol.state import SessionState
+
+        if isinstance(session, SessionState):
+            from codelab.server.mapping.session_mapper import SessionMapper
+            session = SessionMapper.to_domain(session)
         parts: list[str] = []
 
         # 0. Рабочая директория проекта (контекст для агента)
-        if session.cwd:
+        if session.config.cwd:
             parts.append(
-                f"Working directory: {session.cwd}\n\n"
+                f"Working directory: {session.config.cwd}\n\n"
                 "CRITICAL FILE SYSTEM CONSTRAINTS:\n"
                 "1. You MUST ONLY work within the working directory shown above\n"
                 "2. NEVER use absolute paths outside this directory\n"
@@ -117,11 +123,11 @@ class SystemPromptBuilder:
 
         result = "\n\n".join(parts)
 
-        agent_name = session.config_values.get("_agent", "")
+        agent_name = session.config.config_values.get("_agent", "")
         logger.debug(
             "system_prompt built",
             agent_name=agent_name or "default",
-            cwd=session.cwd,
+            cwd=session.config.cwd,
             has_agent_prompt=bool(agent_prompt),
             has_global_prompt=bool(self._global_prompt),
             has_mcp_info=mcp_manager is not None,
@@ -130,19 +136,24 @@ class SystemPromptBuilder:
 
         return result
 
-    def _resolve_agent_prompt(self, session: SessionState) -> str:
+    def _resolve_agent_prompt(self, session: Session | SessionState) -> str:
         """Резолвить agent prompt из AgentRegistry.
 
         Args:
-            session: Состояние сессии (для получения _agent из config_values).
+            session: Состояние сессии (domain Session или protocol SessionState).
 
         Returns:
             Текст agent prompt или пустая строка.
         """
+        from codelab.server.protocol.state import SessionState
+
+        if isinstance(session, SessionState):
+            from codelab.server.mapping.session_mapper import SessionMapper
+            session = SessionMapper.to_domain(session)
         if self._agent_registry is None:
             return ""
 
-        agent_name = session.config_values.get("_agent", "")
+        agent_name = session.config.config_values.get("_agent", "")
         if not agent_name:
             return ""
 

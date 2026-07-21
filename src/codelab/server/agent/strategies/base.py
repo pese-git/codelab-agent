@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from codelab.server.agent.base import AgentResponse
+    from codelab.server.domain.session import Session
     from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
@@ -33,7 +34,7 @@ class LLMCallStrategy(Protocol):
     - StrategyDispatcher — EventBus путь (SingleStrategy → LLMAdapter)
 
     Пример использования:
-        async def run(strategy: LLMCallStrategy, session: SessionState):
+        async def run(strategy: LLMCallStrategy, session: Session):
             response = await strategy.execute(session, "Hello")
             if response.tool_calls:
                 # ... обработать tool_calls ...
@@ -42,7 +43,7 @@ class LLMCallStrategy(Protocol):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -54,7 +55,7 @@ class LLMCallStrategy(Protocol):
         из истории сессии и текста промпта, вызывает LLM.
 
         Args:
-            session: Состояние сессии (история, config, tools).
+            session: Состояние сессии (domain Session или protocol SessionState).
             prompt: Текст промпта пользователя (None для продолжения).
             mcp_manager: MCP manager для tool execution (опционально).
 
@@ -65,7 +66,7 @@ class LLMCallStrategy(Protocol):
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         mcp_manager: Any | None = None,
         *,
         on_delta: OnDelta | None = None,
@@ -76,7 +77,7 @@ class LLMCallStrategy(Protocol):
         в session.history — стратегия передаёт их LLM для продолжения диалога.
 
         Args:
-            session: Состояние сессии (с tool_results в history).
+            session: Состояние сессии (domain Session или protocol SessionState).
             mcp_manager: MCP manager для tool execution (опционально).
 
         Returns:

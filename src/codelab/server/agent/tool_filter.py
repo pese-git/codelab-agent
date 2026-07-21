@@ -7,13 +7,8 @@ MCP инструменты всегда включаются (выполняют
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from codelab.server.tools.base import ToolDefinition
-
-if TYPE_CHECKING:
-    from codelab.server.protocol.state import ClientRuntimeCapabilities
-
+from codelab.shared.capabilities import ClientCapabilities
 
 # Инструменты с этими kind — серверные, не требуют client capabilities.
 _SERVER_SIDE_TOOL_KINDS: frozenset[str] = frozenset({"think", "plan"})
@@ -52,7 +47,7 @@ class ToolFilter:
     def filter(
         self,
         tools: list[ToolDefinition],
-        capabilities: ClientRuntimeCapabilities | None = None,
+        capabilities: ClientCapabilities | None = None,
         mcp_tools: list[ToolDefinition] | None = None,
     ) -> list[ToolDefinition]:
         """Отфильтровать инструменты.
@@ -90,7 +85,7 @@ class ToolFilter:
     def _is_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilities,
     ) -> bool:
         """Проверить поддерживается ли инструмент клиентом.
 
@@ -118,7 +113,7 @@ class ToolFilter:
     def _fs_tool_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilities,
     ) -> bool:
         """Проверить поддерживается ли fs/* инструмент.
 

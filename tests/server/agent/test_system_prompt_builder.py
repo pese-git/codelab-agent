@@ -221,8 +221,13 @@ class TestSystemPromptBuilderFormatMCPInfo:
 def _mock_session(config_values: dict | None = None, cwd: str = "") -> MagicMock:
     """Создать mock SessionState."""
     session = MagicMock()
+    # Support both old (SessionState) and new (domain.Session) access patterns
     session.config_values = config_values or {}
     session.cwd = cwd
+    # New domain.Session structure
+    session.config = MagicMock()
+    session.config.config_values = config_values or {}
+    session.config.cwd = cwd
     return session
 
 

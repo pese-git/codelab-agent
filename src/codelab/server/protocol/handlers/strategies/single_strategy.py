@@ -25,12 +25,18 @@ if TYPE_CHECKING:
 
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.agent.execution_engine import ExecutionEngine
+    from codelab.server.domain.session import Session
     from codelab.server.observability.tracer import SpanContext, Tracer
     from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
+
+
+def _get_session_id(session) -> str:
+    """Get session ID from either SessionState or domain.Session."""
+    return getattr(session, "session_id", None) or str(getattr(session, "id", "unknown"))
 
 
 def _convert_tool_calls(
@@ -125,7 +131,7 @@ class SingleStrategy:
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -160,7 +166,7 @@ class SingleStrategy:
             span = self.tracer.start_span(
                 "single_strategy",
                 parent=parent_span,
-                session_id=session.session_id,
+                session_id=_get_session_id(session),
             )
 
         # Собираем контекст (async — включает ContextCompactor)
@@ -172,12 +178,13 @@ class SingleStrategy:
         )
 
         # Формируем запрос
+        session_id = getattr(session, "session_id", None) or str(getattr(session, "id", "unknown"))
         request = AgentRequest(
             target_agent=target_agent,
             messages=context.conversation_history,
             tools=context.available_tools,
-            correlation_id=f"single_{session.session_id}_{int(start_time)}",
-            session_id=session.session_id,
+            correlation_id=f"single_{session_id}_{int(start_time)}",
+            session_id=session_id,
         )
 
         # Вызываем агента через EventBus (стрим или обычный — по on_delta)
@@ -209,7 +216,7 @@ class SingleStrategy:
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: Session | SessionState,
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,
@@ -237,7 +244,7 @@ class SingleStrategy:
             span = self.tracer.start_span(
                 "single_strategy_continue",
                 parent=parent_span,
-                session_id=session.session_id,
+                session_id=_get_session_id(session),
             )
 
         context = await self.execution_engine.build_continuation_context(
@@ -249,8 +256,8 @@ class SingleStrategy:
             target_agent=target_agent,
             messages=context.history,
             tools=context.available_tools,
-            correlation_id=f"single_cont_{session.session_id}",
-            session_id=session.session_id,
+            correlation_id=f"single_cont_{_get_session_id(session)}",
+            session_id=_get_session_id(session),
         )
 
         response = await self._dispatch(request, span, on_delta)

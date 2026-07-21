@@ -52,15 +52,21 @@ class DefaultChildSessionManager(ChildSessionManager):
         """Создать изолированную дочернюю сессию.
 
         Args:
-            parent: Родительская сессия (SessionState)
+            parent: Родительская сессия (domain Session)
             subagent_scope: Идентификатор скоупа субагента
 
         Returns:
             Новая child-сессия (SessionState) с parent_session_id
         """
-        parent_state = parent
-        parent_session_id = getattr(parent_state, "session_id", None)
-        parent_cwd = getattr(parent_state, "cwd", "/tmp")
+        parent_session_id = (
+            getattr(parent, "session_id", None)
+            or str(getattr(parent, "id", None) or "unknown")
+        )
+        parent_config = getattr(parent, "config", None)
+        parent_cwd = (
+            getattr(parent, "cwd", None)
+            or getattr(parent_config, "cwd", "/tmp")
+        )
 
         # Генерируем уникальный session_id для child
         child_session_id = f"{parent_session_id}_child_{subagent_scope}"
@@ -117,9 +123,21 @@ class DefaultChildSessionManager(ChildSessionManager):
             subagent_scope=subagent_scope,
         )
 
-        # Получаем историю child-сессии
         history = getattr(child_state, "history", [])
-        if not history:
+        if hasattr(history, "get_messages"):
+            from codelab.server.domain.session import ConversationHistory
+
+            conv_history = history if isinstance(history, ConversationHistory) else None
+            if conv_history is not None:
+                history_dicts: list = [
+                    {"role": m.role.value, "text": m.content.text if m.content else ""}
+                    for m in conv_history.get_messages()
+                ]
+            else:
+                history_dicts = history
+        else:
+            history_dicts = history
+        if not history_dicts:
             logger.warning(
                 "context.multiagent.collect_summary.empty_history",
                 child_session_id=child_session_id,
@@ -134,7 +152,7 @@ class DefaultChildSessionManager(ChildSessionManager):
         from codelab.server.agent.history_builder import HistoryBuilder
 
         history_builder = HistoryBuilder()
-        messages = history_builder.build(history)
+        messages = history_builder.build(history_dicts)
 
         # Суммаризируем через ConversationSummarizer
         target_tokens = min(len(messages) * 100, 2000)  # Ограничение по токенам
