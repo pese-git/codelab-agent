@@ -1,7 +1,8 @@
 """Маппер ACP ContentBlock → ContentPart.
 
-Конвертирует ACP-формат содержимого (dict-и) в доменные объекты ContentPart
-на границе protocol → domain.
+Конвертирует ACP-формат содержимого (dict-и) в объекты ContentPart для LLM.
+Зависит только от слоя llm, поэтому живёт в agent: им пользуются как agent
+(HistoryBuilder), так и protocol (prompt_orchestrator) в разрешённом направлении.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from codelab.server.llm.content_parts import ContentPart
 
 
 class ACPContentMapper:
-    """Конвертирует ACP ContentBlock dict в доменные ContentPart."""
+    """Конвертирует ACP ContentBlock dict в ContentPart для LLM."""
 
     def map_blocks(self, blocks: list[dict[str, Any]]) -> list[ContentPart]:
         """Маппить список ACP ContentBlock в список ContentPart.

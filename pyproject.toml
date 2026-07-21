@@ -62,6 +62,7 @@ dev = [
     "ty>=0.0.32",
     "commitizen>=4.0.0",
     "pre-commit>=4.0.0",
+    "import-linter>=2.13",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -114,6 +115,104 @@ filterwarnings = [
     # поэтому '.*' вместо 'in: <coroutine object'.
     "ignore:Exception ignored in.*DirectoryTree\\.watch_path:pytest.PytestUnraisableExceptionWarning",
     "ignore:Exception ignored in.*SearchInput:pytest.PytestUnraisableExceptionWarning",
+]
+
+[tool.importlinter]
+# Гейт направления зависимостей между слоями. Контракты включены в режиме ratchet:
+# все текущие протечки перечислены в ignore_imports, чтобы зафиксировать «не хуже».
+# Правило: строку из ignore_imports УДАЛЯТЬ по мере исправления протечки. Новые
+# нарушения, не входящие в список, ломают сборку. Пустой ignore_imports = слой чист.
+root_packages = ["codelab"]
+
+[[tool.importlinter.contracts]]
+name = "Client Clean Architecture layers"
+type = "layers"
+layers = [
+    "codelab.client.tui",
+    "codelab.client.presentation",
+    "codelab.client.infrastructure",
+    "codelab.client.application",
+    "codelab.client.domain",
+]
+# ДОЛГ: infrastructure тянет presentation. Основной источник — DI-композиция
+# (view_model_provider/providers как composition root) и ACP-хендлеры, дергающие
+# presentation-executors напрямую. Инвертировать через абстракции/протоколы.
+ignore_imports = [
+    "codelab.client.infrastructure.providers -> codelab.client.presentation.chat.executors.fs_callback_executor",
+    "codelab.client.infrastructure.providers -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.providers -> codelab.client.presentation.chat.executors.terminal_executor_adapter",
+    "codelab.client.infrastructure.services.acp_transport.handlers.fs_read_handler -> codelab.client.presentation.chat.executors.fs_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.fs_write_handler -> codelab.client.presentation.chat.executors.fs_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.terminal_create_handler -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.terminal_kill_handler -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.terminal_output_handler -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.terminal_release_handler -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.services.acp_transport.handlers.terminal_wait_handler -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.dispatcher.session_update_dispatcher",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.executors.fs_callback_executor",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.executors.terminal_callback_executor",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.executors.terminal_executor_adapter",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.handlers.config_option_handler",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.handlers.message_chunk_handler",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.handlers.plan_update_handler",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.handlers.tool_call_handler",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat.persistence.file_chat_persistence",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.chat_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.config_option_selector_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.file_viewer_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.filesystem_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.model_selector_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.permission_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.plan_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.session_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.terminal_log_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.terminal_view_model",
+    "codelab.client.infrastructure.view_model_provider -> codelab.client.presentation.ui_view_model",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server layers"
+type = "layers"
+layers = [
+    "codelab.server.transport",
+    "codelab.server.protocol",
+    "codelab.server.agent",
+    "codelab.server.domain",
+]
+# ДОЛГ (ADR-003): agent типизируется против protocol.state.SessionState —
+# симптом незавершённой доменной миграции (сериализационная модель протекает в
+# ядро вместо доменного агрегата domain.Session). Целевое решение — вариант B из
+# ADR-003 (agent оперирует domain.Session, маппинг на границе через SessionMapper),
+# выполняется отдельным эпиком. До него строки ниже — единственный трекер долга;
+# удалять по мере выполнения B, обходные абстракции не вводить.
+# См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
+ignore_imports = [
+    "codelab.server.agent.base -> codelab.server.protocol.state",
+    "codelab.server.agent.execution_engine -> codelab.server.protocol.state",
+    "codelab.server.agent.strategies.base -> codelab.server.protocol.state",
+    "codelab.server.agent.strategies.dispatcher -> codelab.server.protocol.state",
+    "codelab.server.agent.system_prompt_builder -> codelab.server.protocol.state",
+    "codelab.server.agent.tool_filter -> codelab.server.protocol.state",
+    "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
+    "codelab.server.agent.context.child_session -> codelab.server.protocol.session_factory",
+    "codelab.server.storage.base -> codelab.server.protocol.state",
+    "codelab.server.tools.executors.decorators.base -> codelab.server.protocol.state",
+]
+
+[[tool.importlinter.contracts]]
+name = "Server domain must not depend on client"
+type = "forbidden"
+source_modules = ["codelab.server.domain"]
+forbidden_modules = ["codelab.client"]
+
+[[tool.importlinter.contracts]]
+name = "shared must stay a leaf"
+type = "forbidden"
+source_modules = ["codelab.shared"]
+forbidden_modules = ["codelab.client", "codelab.server"]
+# ДОЛГ: shared/web_ui лениво тянет server.web_app — вынести в вызывающий слой.
+ignore_imports = [
+    "codelab.shared.web_ui -> codelab.server.web_app",
 ]
 
 [tool.commitizen]

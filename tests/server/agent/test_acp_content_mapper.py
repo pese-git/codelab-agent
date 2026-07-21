@@ -1,6 +1,6 @@
 """Тесты для ACPContentMapper."""
 
-from codelab.server.protocol.content.acp_mapper import ACPContentMapper
+from codelab.server.agent.acp_content_mapper import ACPContentMapper
 
 
 class TestACPContentMapper:

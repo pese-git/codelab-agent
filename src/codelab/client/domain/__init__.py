@@ -11,6 +11,8 @@
 Domain слой не зависит от других слоев архитектуры.
 """
 
+from codelab.shared.capabilities import ClientCapabilities
+
 from .content_blocks import (
     AudioContent,
     ContentBlock,
@@ -22,7 +24,7 @@ from .content_blocks import (
     content_blocks_to_dicts,
 )
 from .content_builder import ContentBuilder
-from .entities import ClientCapabilities, Permission, Session
+from .entities import Permission, Session
 from .prompt_capabilities import PromptCapabilities, UnsupportedContentError
 from .repositories import SessionRepository
 from .services import TransportService

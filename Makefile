@@ -1,4 +1,4 @@
-.PHONY: sync check check-client check-server check-tui lint typecheck test \
+.PHONY: sync check check-client check-server check-tui lint typecheck importlint test \
 	serve connect
 
 HOST ?= 127.0.0.1
@@ -9,13 +9,16 @@ PORT ?= 8765
 sync:
 	uv sync --extra dev
 
-check: lint typecheck test
+check: lint typecheck importlint test
 
 lint:
 	uv run ruff check .
 
 typecheck:
 	uv run ty check
+
+importlint:
+	uv run lint-imports
 
 test:
 	uv run python -m pytest

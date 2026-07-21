@@ -34,6 +34,9 @@ jobs:
       - name: Run Type Check
         run: uv run ty check
 
+      - name: Check import contracts (layer boundaries)
+        run: uv run lint-imports
+
       - name: Check for new large files (guardrail)
         run: uv run python scripts/check_large_files.py
 
