@@ -11,7 +11,7 @@
 > P1-4 (`context/gatherer.py` 1048→617 — path-matching хелперы вынесены в `context/file_matching.py`): 2026-07-14 (ветка `tech-debt`)
 > P1-4 (`pipeline/stages/agent_loop.py` 1352→пакет `agent_loop/` — loop/llm_caller/tool_processor/updates, все <750): 2026-07-14 (ветка `tech-debt`). Файлов >1000 строк: **1** (только оправданно крупный `messages.py`).
 > P0-14 (гейт `ty` восстановлен: 4 ошибки типов устранены в treesitter/registry/di.agent/notification_bus, `make check` зелёный): 2026-07-15 (ветка `tech-debt`).
-> Аудит async-lifecycle / dead-code (2026-07-22, ветка `develop`): добавлены P0-28 (fire-and-forget задачи без контроля жизненного цикла), P1-29 (гашение `CancelledError`), P1-30 (`except Exception: pass` в конфиге), P2-31 (мёртвый код / незаинтегрированные MVP-заделы), P2-32 (тройное представление capabilities, связано с ADR-003).
+> Аудит async-lifecycle / dead-code (2026-07-22, ветка `develop`): добавлены P0-28 (fire-and-forget задачи без контроля жизненного цикла), P1-29 (гашение `CancelledError`), P1-30 (`except Exception: pass` в конфиге), P2-31 (мёртвый код / незаинтегрированные MVP-заделы), P2-32 (тройное представление capabilities, связано с ADR-003), P1-33 (две параллельные конфиг-системы → консолидация на `settings_customise_sources`).
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -1518,6 +1518,59 @@ wire-форма).
 **Оценка:** входит в эпик B (ADR-003, унификация session/capabilities представлений).
 **Критерий приемки:** одно представление client-capabilities в ядре; round-trip без потери полей.
 **Связано:** `doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md` (вариант B).
+
+---
+
+### 33. Две параллельные конфиг-системы — ручной merge вместо `settings_customise_sources` — ⬜ ОТКРЫТО (обнаружено 2026-07-22)
+
+> Обнаружено при вопросе «где ещё уместен Pydantic». Конфиг LLM собирается **двумя
+> параллельными системами**, моделирующими одни и те же сущности:
+> - `server/config.py` — `AppConfig(BaseSettings)` с **ручной лестницей** merge:
+>   `_default_llm_data` → `_apply_toml_llm_overrides` → `_apply_env_llm_overrides` /
+>   `_apply_env_timeout_overrides` → `_resolve_provider_credentials`. Плюс таблица
+>   `_ENV_LLM_FIELDS` и разбросанные `os.getenv(...)`.
+> - `server/toml_config/pydantic_config.py` — те же сущности уже **декларативно** как
+>   Pydantic-модели с валидаторами: `TimeoutConfig`, `ModelConfig`, `ProviderConfig`,
+>   `FallbackConfig`, `${}`-раскрытие (`_expand_env_vars`, `expand_env_in_api_key`).
+>
+> `config.py` фактически переизобретает то, что `pydantic_config.py` уже моделирует.
+> Наследует связанный долг: **P0-2** (`_merge_llm_config` имел цикломатику 32) и
+> **P1-30** (`except Exception: pass` на `tomllib.load`, config.py:363).
+
+**Важный нюанс — env участвует в ДВУХ направлениях (нельзя свести к `env_nested_delimiter`):**
+1. **env перекрывает TOML** — `CODELAB_LLM_*` бьёт `[llm]` (это направление BaseSettings даёт нативно).
+2. **env подставляется ВНУТРЬ TOML** — значения TOML содержат `${VAR}` и раскрываются из
+   окружения (`_resolve_provider_credentials` раскрывает `[llm.providers.<p>].api_key =
+   "${OPENAI_API_KEY}"`). Здесь env — источник для TOML, а не перекрытие поверх него.
+
+Плюс мульти-файловый `_deep_merge` с приоритетом (`auth.toml < codelab.toml <
+codelab.local.toml < custom`) и provider-fallback (`api_key/base_url` из
+`[llm.providers.<active>]`, если не заданы напрямую).
+
+**Целевое решение — консолидация на одну систему:**
+- Схема/валидация — на моделях `pydantic_config.py` (уже существуют).
+- Порядок источников выразить через pydantic-settings **`settings_customise_sources`**:
+  `init` (CLI) → env → TOML-с-раскрытием (мульти-файл), в нужном приоритете. Precedence —
+  машинерией Pydantic, не ручными `_apply_*`.
+- **`${VAR}`-раскрытие сохранить явно** — как кастомный settings-source либо
+  `model_validator(mode="before")` (отрабатывает ДО валидации, внутри TOML-значений);
+  это то, что нельзя заменить `env_nested_delimiter`.
+- Provider-fallback (`api_key` из `[llm.providers.<active>]`) — как `model_validator` на
+  собранной модели.
+
+**Задачи:**
+- [ ] Спроектировать источники `settings_customise_sources` (init/env/toml-with-expansion) с сохранением текущего приоритета
+- [ ] Кастомный TOML-source: мульти-файл `_deep_merge` + `${}`-раскрытие до валидации
+- [ ] Provider-fallback как `model_validator`
+- [ ] Убрать ручную лестницу `config.py` (`_default_llm_data`/`_apply_*`/`_ENV_LLM_FIELDS`); закрыть P1-30 (`except Exception: pass`) явной валидацией
+- [ ] Регресс-тесты на все ветки precedence: env поверх TOML; `${VAR}` внутри TOML; мульти-файл-merge; provider-fallback; отсутствующий `${VAR}` → None
+- [ ] Проверить обратную совместимость форматов конфига (изменение формата = миграция/совместимость, см. CLAUDE.md)
+
+**Оценка:** 1.5–2 дня (проектирование источников + миграция + тесты precedence).
+**Критерий приемки:** одна система сборки конфига; поведение precedence и `${}`-раскрытия
+байт-в-байт сохранено (покрыто тестами); ручной merge и `except Exception: pass` удалены;
+`make check` зелёный.
+**Связано:** P0-2 (сложность `_merge_llm_config`), P1-30 (`except Exception: pass` в конфиге).
 
 ---
 
