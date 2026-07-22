@@ -5,6 +5,7 @@
 **Контекст:** Связь ядра агента (`server/agent/`) с ACP-обвязкой (`server/protocol/`)
 **Авторы:** —
 **Связанные документы:**
+- `openspec/changes/acp-independent-agent-core/` — спецификация OpenSpec (proposal/design/tasks + spec-дельты)
 - ADR-003 — миграция `SessionState` в domain (вариант B, read-фаза = порт `SessionView`)
 - ADR-001 — `LLMAdapter` single-call (уже существующая граница LLM)
 - `src/codelab/server/agent/` — ядро: `ExecutionEngine`, `strategies`, `system_prompt_builder`, `history_builder`, `context/`
