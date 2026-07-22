@@ -1,18 +1,25 @@
 """HistoryBuilder — конвертация session history в LLMMessage.
 
 Поддерживает различные форматы записей истории и добавление system prompt.
+
+ADR-005 Фаза 2: ``HistoryBuilder`` принимает ``ContentCodec`` через DI
+(вместо хардкода ``ACPContentMapper``). ACP-реализация
+``ACPContentCodec`` живёт в ``protocol/content/acp_codec.py``.
+Default codec — ``ACPContentCodec`` (через ``from_dict``-совместимый
+``map_blocks``). Для unit-тестов можно инжектить
+``FakeContentCodec`` (см. tests/server/agent/fakes/content_codec.py).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.agent.acp_content_mapper import ACPContentMapper
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall
+from codelab.server.protocol.content.acp_codec import ACPContentCodec
 
 if TYPE_CHECKING:
-    pass
+    from codelab.server.agent.contracts.ports import ContentCodec
 
 
 class HistoryBuilder:
@@ -24,6 +31,17 @@ class HistoryBuilder:
     - {"role": "assistant", "text": str, "tool_calls"?: [...]}
     - {"role": "tool", "tool_call_id": str, "content": str}
     """
+
+    def __init__(self, codec: ContentCodec | None = None) -> None:
+        """Инициализация HistoryBuilder.
+
+        Args:
+            codec: Реализация ``ContentCodec`` для декодирования
+                content-блоков. По умолчанию — ``ACPContentCodec``
+                (ACP-форма). Инжектируется для unit-тестов и для
+                альтернативных драйверов (A2A, тест-харнесс).
+        """
+        self._codec: ContentCodec = codec or ACPContentCodec()
 
     def build(
         self,
@@ -56,10 +74,9 @@ class HistoryBuilder:
     ) -> list[LLMMessage]:
         """Конвертировать записи истории в LLMMessage."""
         messages: list[LLMMessage] = []
-        mapper = ACPContentMapper()
 
         for entry in history:
-            message = self._convert_history_entry(entry, mapper)
+            message = self._convert_history_entry(entry)
             if message is not None:
                 messages.append(message)
 
@@ -82,7 +99,7 @@ class HistoryBuilder:
                 llm_tool_calls.append(tc)
         return llm_tool_calls
 
-    def _convert_history_entry(self, entry: Any, mapper: ACPContentMapper) -> LLMMessage | None:
+    def _convert_history_entry(self, entry: Any) -> LLMMessage | None:
         """Конвертирует одну запись истории в LLMMessage (или None, если пропустить)."""
         if isinstance(entry, dict):
             entry_dict = entry
@@ -118,7 +135,7 @@ class HistoryBuilder:
         content = entry_dict.get("text", "") or entry_dict.get("content", "")
         # content может быть list[dict] (prompt blocks) — конвертируем
         if isinstance(content, list):
-            content = self._convert_content_blocks(content, mapper)
+            content = self._convert_content_blocks(content)
         if content:
             return LLMMessage(role=role, content=content)  # type: ignore[arg-type]
         return None
@@ -126,14 +143,13 @@ class HistoryBuilder:
     def _convert_content_blocks(
         self,
         blocks: list[dict[str, Any]],
-        mapper: ACPContentMapper,
     ) -> str | list[ContentPart]:
-        """Конвертировать блоки содержимого.
+        """Конвертировать блоки содержимого через инжектированный ``ContentCodec``.
 
         Если есть мультимодальные блоки — вернуть list[ContentPart].
         Если только текст — схлопнуть в строку (обратная совместимость).
         """
-        parts = mapper.map_blocks(blocks)
+        parts = self._codec.decode(blocks)
         if not parts:
             return ""
 

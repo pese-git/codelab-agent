@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from ...agent.acp_content_mapper import ACPContentMapper
 from ...client_rpc.service import ClientRPCService
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
 from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
+from ..content.acp_codec import ACPContentMapper  # noqa: F401  (retained shim)
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
 from .client_rpc_handler import ClientRPCHandler
 from .permission_manager import PermissionManager
