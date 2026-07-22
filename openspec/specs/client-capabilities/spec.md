@@ -45,13 +45,22 @@ TBD - created by archiving change refactor-domain-models. Update Purpose after a
 - **THEN** возвращается `true` если `image_prompts` или `embedded_context` равны `true`
 
 ### Requirement: Типизированная Session.capabilities
+Ядро агента MUST оперировать client capabilities через доменный VO
+`shared.capabilities.ClientCapabilities`, а НЕ через протокольную
+`protocol.state.ClientRuntimeCapabilities`. Протокольная модель остаётся только
+на границе сериализации (адаптер).
 
-Система SHALL обновить `Session` entity:
-- `capabilities: ClientCapabilities` — типизированная модель вместо `dict[str, Any]`
+#### Scenario: tool_filter использует доменный VO
+- **WHEN** `tool_filter` фильтрует инструменты по возможностям клиента
+- **THEN** он получает `ClientCapabilities` через `SessionView.config.runtime_capabilities`, не `ClientRuntimeCapabilities`
 
-#### Scenario: Session использует типизированные capabilities
-- **WHEN** создается Session entity
-- **THEN** поле `capabilities` имеет тип `ClientCapabilities` вместо `dict[str, Any]`
+#### Scenario: Round-trip без потери полей
+- **WHEN** capabilities конвертируются protocol ↔ shared VO через `SessionMapper`
+- **THEN** поля `image_prompts` и `embedded_context` сохраняются (не теряются при маппинге)
+
+#### Scenario: Снятие дублирования концепции
+- **WHEN** добавляется новая client capability
+- **THEN** доменный VO `ClientCapabilities` — единственный источник для ядра; протокольная модель мапится на границе (устраняет расхождение, tech-debt P2-32)
 
 ### Requirement: Миграция ClientCapabilities
 

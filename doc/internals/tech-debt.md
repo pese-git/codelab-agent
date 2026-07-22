@@ -12,6 +12,11 @@
 > P1-4 (`pipeline/stages/agent_loop.py` 1352→пакет `agent_loop/` — loop/llm_caller/tool_processor/updates, все <750): 2026-07-14 (ветка `tech-debt`). Файлов >1000 строк: **1** (только оправданно крупный `messages.py`).
 > P0-14 (гейт `ty` восстановлен: 4 ошибки типов устранены в treesitter/registry/di.agent/notification_bus, `make check` зелёный): 2026-07-15 (ветка `tech-debt`).
 > Аудит async-lifecycle / dead-code (2026-07-22, ветка `develop`): добавлены P0-28 (fire-and-forget задачи без контроля жизненного цикла), P1-29 (гашение `CancelledError`), P1-30 (`except Exception: pass` в конфиге), P2-31 (мёртвый код / незаинтегрированные MVP-заделы), P2-32 (тройное представление capabilities, связано с ADR-003), P1-33 (две параллельные конфиг-системы → консолидация на `settings_customise_sources`).
+> 2026-07-22: change `acp-independent-agent-core` (ADR-005, Фазы 1-4) ЗАКРЫЛ
+> ADR-003 read-фазу (SessionView Protocol) и P2-32 (доменный
+> `ClientCapabilities` в ядре; ACP-форма транслируется в
+> `SessionStateView`). Подробности — в ADR-003, раздел
+> «Актуализация 2026-07-22».
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).

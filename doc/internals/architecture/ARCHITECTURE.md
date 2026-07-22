@@ -1738,3 +1738,85 @@ class MyLLMProvider(BaseLLMProvider):
 - ✅ **Тестируемости** — все слои имеют интерфейсы для mock-объектов
 - ✅ **Производительности** — асинхронность, потоковые обновления, оптимальные структуры данных
 - ✅ **Безопасности** — валидация, аутентификация, логирование всех операций
+
+
+## Архитектура ядра агента: hexagon (ADR-005, change acp-independent-agent-core)
+
+Ядро агента (codelab.server.agent.core.*) реализует порты гексагона
+в доменном словаре. ACP — один driving/driven-адаптер. Любой другой
+драйвер (A2A, тест-харнесс) может подключиться без copy-paste.
+
+```mermaid
+graph LR
+    subgraph drivers["Driving-адаптеры (протоколы)"]
+        ACP["ACP turn-loop<br/>(agent_loop/loop.py)"]
+        A2A["A2A (будущее)"]
+        TEST["тест-харнесс"]
+    end
+
+    subgraph ports_in["Driving-порт"]
+        RUN["AgentRunner"]
+    end
+
+    subgraph agent["server/agent (ядро)"]
+        CORE["core/<br/>ExecutionEngine · strategies · prompt · context"]
+    end
+
+    subgraph ports_out["Driven-порты (доменный словарь)"]
+        SV["SessionView"]
+        CC["ContentCodec"]
+        TG["ToolGateway"]
+        US["UpdateSink"]
+        LP["LLMPort"]
+        CF["ChildSessionFactory"]
+    end
+
+    ACP --> RUN
+    A2A --> RUN
+    TEST --> RUN
+
+    RUN --> CORE
+
+    CORE --> SV
+    CORE --> CC
+    CORE --> TG
+    CORE --> US
+    CORE --> LP
+    CORE --> CF
+```
+
+**Реализация портов (ADR-005, Фазы 1-4):**
+
+- SessionView — read-only сессия (Фаза 1). ACP-адаптер:
+  protocol/session_view.py::SessionStateView (читает сквозь
+  SessionState через SessionMapper.to_domain).
+- ContentCodec — декодирование входного контента (Фаза 2).
+  ACP-адаптер: protocol/content/acp_codec.py::ACPContentCodec.
+- ToolGateway — реестр инструментов (Фаза 3). Фактически
+  tools.base.ToolRegistry уже структурно совместим.
+- UpdateSink — эмиссия прогресса turn'а (Фаза 3). ACP-адаптер
+  через protocol/handlers/pipeline/stages/agent_loop/updates.py::
+  SessionUpdateSink (прямое использование из driving-адаптера).
+- LLMPort — порт вызова LLM (ADR-001). Реализован через
+  agent.llm_adapter.LLMAdapter.
+- ChildSessionFactory — фабрика child-сессий (Фаза 4).
+  ACP-адаптер: protocol/child_session/acp_factory.py.
+- AgentRunner — driving-порт входа в turn (Фаза 4).
+  Формальная точка входа для будущих драйверов (A2A, тест-харнесс).
+
+**Долги (post-Фаза 4):**
+
+- agent.context.file_cache_decorator → protocol.state —
+  FileCacheDecorator.execute принимает SessionState
+  (замыкающая цепочка через ToolRegistry.execute_tool).
+  Чистка в Фазе 5.
+- storage.base → protocol.state — save_session/load_session
+  принимают SessionState. Фаза 5: SessionStorage driven-порт.
+- tools.executors.decorators.base → protocol.state — execute
+  принимает SessionState. Фаза 5: перевод на SessionView.
+- Write-фаза эпика B (создание domain.Session из ядра) — отдельный
+  эпик после стабилизации.
+
+См. ADR-005 (doc/internals/architecture/adr/ADR-005-acp-independent-agent-core.md)
+и OpenSpec change openspec/changes/acp-independent-agent-core/
+для деталей.

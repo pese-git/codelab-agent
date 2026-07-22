@@ -1,6 +1,6 @@
 # Delta-спецификация session-state
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Развязка ядра агента от SessionState
 Ядро агента (`server/agent/`) MUST НЕ зависеть от `protocol.state.SessionState`. Доступ к

@@ -110,6 +110,44 @@ protocol→agent через существующий `SessionMapper`.**
    понадобится изоляция agent для тестов; тогда — со ссылкой на этот ADR и с явной
    пометкой «временный, растворяется в B». По умолчанию — **не вводить**.
 
+## Актуализация (2026-07-22, change acp-independent-agent-core)
+
+Эпик B (доменная миграция session как агрегата) выполнен в рамках
+change `acp-independent-agent-core` (ADR-005, Фазы 1-4). Ядро
+`core/` принимает `SessionView` Protocol; ACP-уровень предоставляет
+`SessionStateView` — адаптер, читающий сквозь `SessionState` через
+`SessionMapper.to_domain`. Реализовано как «вариант A» (interim),
+который растворяется в эпике B при появлении write-фазы (создание
+доменной записи сессии из ядра).
+
+Что сделано:
+- `agent → protocol.state` (7 строк долга) УДАЛЕНЫ: ядро `core/`
+  принимает `SessionView` Protocol. Строки `ignore_imports`
+  вычищены в `pyproject.toml [tool.importlinter]`.
+- `agent.context.child_session → protocol.session_factory` УДАЛЕНА:
+  `DefaultChildSessionManager` принимает `ChildSessionFactory`
+  Protocol, ACP-реализация в `protocol/child_session/acp_factory.py`.
+- `ClientRuntimeCapabilities` ↔ `ClientCapabilities` (P2-32) ЗАКРЫТ:
+  ядро `tool_filter.py` принимает доменный `ClientCapabilities`;
+  ACP-форма транслируется в `SessionStateView.config.runtime_capabilities`.
+- `parent_session_id` стал first-class полем `SessionState` /
+  `SessionConfig` (sub-task Фазы 4, schema_version 7).
+- `SessionMapper._build_history` расширен для round-trip
+  `tool_calls`/`tool_call_id`/`timestamp`.
+
+Что остаётся:
+- `agent.context.file_cache_decorator → protocol.state` —
+  `FileCacheDecorator` принимает `SessionState` (требуется
+  `ToolRegistry` Protocol, замыкающая цепочка). Чистка в Фазе 5
+  или отдельном change.
+- `storage.base → protocol.state` — `save_session`/`load_session`
+  принимают `SessionState` (Pydantic). Фаза 5: SessionStorage
+  driven-порт.
+- `tools.executors.decorators.base → protocol.state` — `execute`
+  принимает `SessionState`. Фаза 5: перевод на `SessionView`.
+- Write-фаза эпика B (создание `domain.Session` из ядра) — отдельный
+  эпик после стабилизации.
+
 ## Последствия
 
 - Контракт «Server layers» остаётся зелёным за счёт `ignore_imports`; эти строки —

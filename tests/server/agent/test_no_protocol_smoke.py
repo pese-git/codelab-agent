@@ -32,15 +32,14 @@ from codelab.server.agent.contracts.ports import (
     UpdateSink,
 )
 from codelab.server.agent.core.execution_engine import ExecutionEngine
-from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.agent.core.strategies.registry import StrategyRegistry
+from codelab.server.llm.scripted_mock import ScriptedMockLLMProvider
+from codelab.shared.capabilities import ClientCapabilities
 from tests.server.agent.fakes import (
     FakeContentCodec,
     FakeSessionView,
     FakeUpdateSink,
 )
-from codelab.server.llm.scripted_mock import ScriptedMockLLMProvider
-from codelab.shared.capabilities import ClientCapabilities
 
 
 class _FakeStrategyRegistry(StrategyRegistry):
@@ -70,13 +69,13 @@ async def test_core_engine_runs_without_protocol_imports() -> None:
     # ToolRegistry: подсовываем Mock с минимальным интерфейсом.
     from unittest.mock import MagicMock
 
-    from codelab.server.tools.base import ToolDefinition, ToolRegistry
+    from codelab.server.tools.base import ToolRegistry
 
     tool_registry = MagicMock(spec=ToolRegistry)
     tool_registry.get_available_tools.return_value = []
 
     # Ядро
-    scripted_provider = ScriptedMockLLMProvider.from_dict(
+    _scripted_provider = ScriptedMockLLMProvider.from_dict(
         {
             "turns": [{"when_user": ["hello"], "replies": [{"text": "Hi from mock!"}]}],
             "default": {"text": "default reply"},

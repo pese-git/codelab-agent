@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Единое доменное представление client capabilities в ядре
+### Requirement: Типизированная Session.capabilities
 Ядро агента MUST оперировать client capabilities через доменный VO
 `shared.capabilities.ClientCapabilities`, а НЕ через протокольную
 `protocol.state.ClientRuntimeCapabilities`. Протокольная модель остаётся только
