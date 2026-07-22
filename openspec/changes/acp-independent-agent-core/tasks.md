@@ -40,7 +40,7 @@
 - [ ] 3.1 Объявить `ToolGateway(Protocol)` (сужение `ToolRegistry` до `execute_tool`/`get_available_tools`/`to_llm_tools`)
 - [ ] 3.2 Объявить `UpdateSink(Protocol)` в доменных терминах (`emit_agent_message`/`emit_plan`/`emit_tool_call`/`emit_tool_update`)
 - [ ] 3.3 Обернуть `SessionUpdateSink` как ACP-адаптер `UpdateSink` (маппинг домен → ACP wire внутри адаптера)
-- [ ] 3.4 Унифицировать success/exception буферизацию update (P1-4)
+- [ ] 3.4 Зафиксировать в `specs/agent-ports/spec.md` контрактные требования к семантике ошибок `UpdateSink` (доставка / буфер / replay). Реализацию унификации буферизации вынести в отдельный change.
 - [ ] 3.5 Golden-тест: `session/update` wire-формат байт-в-байт прежний
 - [ ] 3.6 Ядро/loop не конструируют `ACPMessage`; `make check` зелёный
 
