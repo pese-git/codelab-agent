@@ -85,15 +85,19 @@ class LlmCaller:
         Returns:
             LlmCallResult с ответом и признаком стриминга.
         """
+        from codelab.server.protocol.session_view import SessionStateView
+
+        view: SessionStateView = SessionStateView(session)
+        session_id = session.session_id
+
         # Формируем system prompt (agent + config + MCP info)
-        system_prompt = self._system_prompt_builder.build(session, mcp_manager)
+        system_prompt = self._system_prompt_builder.build(view, mcp_manager)
 
         # Стриминг: on_delta эмитит текстовые дельты как agent_message_chunk
         # вживую. Полный текст ответа НЕ эмитится повторно (см. AgentLoop).
         streamed = False
         on_delta = None
         if self._streaming_enabled:
-            session_id = session.session_id
 
             async def on_delta(delta: str) -> None:
                 nonlocal streamed
@@ -102,7 +106,7 @@ class LlmCaller:
 
         if iteration == 1 and prompt:
             response = await self._strategy.execute(
-                session,
+                view,
                 prompt,
                 mcp_manager,
                 system_prompt=system_prompt,
@@ -110,7 +114,7 @@ class LlmCaller:
             )
         else:
             response = await self._strategy.continue_execution(
-                session,
+                view,
                 mcp_manager,
                 on_delta=on_delta,
             )
@@ -128,7 +132,9 @@ class LlmCaller:
         if strategy_name_attr is None:
             select_fn = getattr(self._strategy, "select_strategy", None)
             if callable(select_fn):
-                select_fn(session, context_meta=None)
+                from codelab.server.protocol.session_view import SessionStateView
+
+                select_fn(SessionStateView(session), context_meta=None)
                 logger.debug(
                     "resume_after_permission: strategy re-initialized",
                     strategy=getattr(self._strategy, "_current_strategy_name", "unknown"),

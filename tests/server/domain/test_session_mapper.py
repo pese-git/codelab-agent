@@ -1,6 +1,5 @@
 """Unit тесты для SessionMapper."""
 
-from codelab.client.domain.entities import ClientCapabilities
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -20,6 +19,7 @@ from codelab.server.protocol.state import (
     SessionState,
     ToolCallState,
 )
+from codelab.shared.capabilities import ClientCapabilities
 
 
 class TestSessionMapperToProtocol:

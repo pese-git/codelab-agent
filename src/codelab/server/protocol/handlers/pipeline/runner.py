@@ -30,11 +30,12 @@ class PromptPipeline:
             try:
                 context = await stage.process(context)
             except Exception as e:
-                logger.error("pipeline_stage_error", stage=stage.name, error=str(e))
+                logger.error("pipeline_stage_error", stage=stage.name, error=str(e), exc_info=True)
                 context.error_response = ACPMessage.error_response(
                     context.request_id,
                     code=-32603,
                     message=f"Internal error in {stage.name}",
+                    data=str(e),
                 )
                 context.should_stop = True
 

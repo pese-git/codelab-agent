@@ -4,6 +4,11 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -169,27 +174,120 @@ class SessionMapper:
 
     @staticmethod
     def _build_history(state: SessionState) -> ConversationHistory:
-        """Собирает ConversationHistory из protocol-history (HistoryMessage или dict)."""
+        """Собирает ConversationHistory из protocol-history (HistoryMessage или dict).
+
+        Round-trip для tool calls: для сообщений с role=tool прокидывается
+        tool_call_id; для сообщений с role=assistant и tool_calls —
+        список domain ToolCall; для всех сообщений — timestamp из строки ISO 8601.
+        """
         history = ConversationHistory()
         for msg_data in state.history:
-            if hasattr(msg_data, "role"):
-                role_str = msg_data.role
-                content_text = msg_data.content if isinstance(msg_data.content, str) else ""
-            elif isinstance(msg_data, dict):
-                role_str = msg_data.get("role", "user")
-                content_text = msg_data.get("content", "")
-                if not isinstance(content_text, str):
-                    content_text = ""
-            else:
+            raw = SessionMapper._extract_history_record(msg_data)
+            if raw is None:
                 continue
+
+            role_str, content_text, tool_call_id_str, tool_calls_raw, timestamp_str = raw
 
             try:
                 role = MessageRole(role_str)
             except ValueError:
                 role = MessageRole.USER
 
-            history.add(ConversationMessage(role=role, content=MessageContent(text=content_text)))
+            timestamp = SessionMapper._parse_timestamp(timestamp_str)
+
+            tool_calls: list[ToolCall] = []
+            for tc in tool_calls_raw:
+                if isinstance(tc, dict):
+                    tool_calls.append(
+                        ToolCall(
+                            id=tc.get("id", ""),
+                            tool_name=tc.get("name", ""),
+                            arguments=tc.get("arguments", {}),
+                        )
+                    )
+                elif hasattr(tc, "id") and hasattr(tc, "tool_name"):
+                    tool_calls.append(tc)
+                elif hasattr(tc, "id") and hasattr(tc, "name"):
+                    tool_calls.append(
+                        ToolCall(
+                            id=tc.id,
+                            tool_name=tc.name,
+                            arguments=getattr(tc, "arguments", {}),
+                        )
+                    )
+
+            history.add(
+                ConversationMessage(
+                    role=role,
+                    content=MessageContent(text=content_text),
+                    timestamp=timestamp,
+                    tool_calls=tool_calls,
+                    tool_call_id=tool_call_id_str,
+                )
+            )
         return history
+
+    @staticmethod
+    def _extract_history_record(
+        msg_data: Any,
+    ) -> tuple[str, str, str | None, list[Any], str | None] | None:
+        """Извлечь поля из HistoryMessage или dict в нормализованный кортеж.
+
+        Returns:
+            (role, text, tool_call_id, tool_calls, timestamp) или None,
+            если запись не распознана.
+        """
+        if hasattr(msg_data, "role"):
+            role_str = msg_data.role
+            content_text = msg_data.content if isinstance(msg_data.content, str) else ""
+            tool_call_id_str = getattr(msg_data, "tool_call_id", None)
+            tool_calls_raw = getattr(msg_data, "tool_calls", None) or []
+            timestamp_str = getattr(msg_data, "timestamp", None)
+        elif isinstance(msg_data, dict):
+            role_str = msg_data.get("role", "user")
+            content = msg_data.get("content", "")
+            content_text = SessionMapper._extract_text_from_content(content)
+            tool_call_id_str = msg_data.get("tool_call_id")
+            tool_calls_raw = msg_data.get("tool_calls") or []
+            timestamp_str = msg_data.get("timestamp")
+        else:
+            return None
+        return role_str, content_text, tool_call_id_str, tool_calls_raw, timestamp_str
+
+    @staticmethod
+    def _extract_text_from_content(content: Any) -> str:
+        """Извлечь текст из ACP content (str | list[dict] | dict).
+
+        User prompt хранится как ``list[{"type": "text", "text": "..."}]``.
+        Если есть хоть один text-блок, возвращаем их конкатенацию.
+        Иначе — ``""`` (обратная совместимость: раньше не-list
+        превращался в ``""``).
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return " ".join(parts) if parts else ""
+        if isinstance(content, dict):
+            text = content.get("text")
+            if isinstance(text, str):
+                return text
+        return ""
+
+    @staticmethod
+    def _parse_timestamp(value: str | None) -> datetime:
+        """Распарсить timestamp из ISO 8601 строки. При неудаче — epoch."""
+        if not value:
+            return datetime.fromtimestamp(0)
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.fromtimestamp(0)
 
     @staticmethod
     def _build_tool_calls(state: SessionState) -> ToolCallRegistry:

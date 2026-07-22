@@ -25,13 +25,13 @@ from codelab.server.messages import ACPMessage
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.core.agent_base import AgentResponse
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
     from codelab.server.agent.core.strategies.registry import StrategyRegistry
     from codelab.server.agent.registry import AgentRegistry
     from codelab.server.observability.tracer import SpanContext
-    from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
@@ -105,18 +105,18 @@ class StrategyDispatcher:
 
     def select_strategy(
         self,
-        session: SessionState,
+        session: SessionView,
         context_meta: dict[str, Any] | None = None,
     ) -> tuple[str, str | None]:
         """Выбрать стратегию по приоритету.
 
         Priority chain:
         1. context_meta["active_strategy"] — slash command override
-        2. session.config_values["_active_strategy"] — persistent config
+        2. session.config.config_values["_active_strategy"] — persistent config
         3. self._default_strategy — server config default
 
         Args:
-            session: Состояние сессии
+            session: Read-only представление сессии (SessionView).
             context_meta: Метаданные контекста (для slash command override)
 
         Returns:
@@ -130,15 +130,15 @@ class StrategyDispatcher:
             logger.debug(
                 "strategy from slash command",
                 strategy=requested,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
         # 2. Persistent config (session-level)
-        elif session.config_values.get("_active_strategy"):
-            requested = session.config_values["_active_strategy"]
+        elif session.config.config_values.get("_active_strategy"):
+            requested = session.config.config_values["_active_strategy"]
             logger.debug(
                 "strategy from config_values",
                 strategy=requested,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
         # 3. Server default
         else:
@@ -146,7 +146,7 @@ class StrategyDispatcher:
             logger.debug(
                 "strategy from default",
                 strategy=requested,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
         # Валидация через Registry
@@ -162,7 +162,7 @@ class StrategyDispatcher:
             "strategy not available, falling back",
             requested=requested,
             available=available_names,
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
 
         fallback = self._fallback_strategy
@@ -173,7 +173,7 @@ class StrategyDispatcher:
                 logger.warning(
                     "fallback strategy also not available, using first available",
                     fallback=fallback,
-                    session_id=session.session_id,
+                    session_id=str(session.id),
                 )
             else:
                 # Последний resort — "single" (должна быть всегда)
@@ -181,7 +181,7 @@ class StrategyDispatcher:
                 logger.error(
                     "no strategies available, using hardcoded fallback",
                     fallback=fallback,
-                    session_id=session.session_id,
+                    session_id=str(session.id),
                 )
 
         self._current_strategy_name = fallback
@@ -263,7 +263,7 @@ class StrategyDispatcher:
 
     async def execute(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -277,7 +277,7 @@ class StrategyDispatcher:
         с AgentLoop. Выбирает стратегию через select_strategy() и делегирует выполнение.
 
         Args:
-            session: Состояние сессии
+            session: Read-only представление сессии (SessionView).
             prompt: Текст промпта пользователя (None для продолжения)
             mcp_manager: MCP manager
             system_prompt: Системный промпт (keyword-only, опционально)
@@ -319,7 +319,7 @@ class StrategyDispatcher:
             "dispatching to strategy",
             strategy=strategy_name,
             agent_name=agent_name,
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
 
         # Делегируем выполнение
@@ -334,7 +334,7 @@ class StrategyDispatcher:
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,
@@ -343,7 +343,7 @@ class StrategyDispatcher:
         """Продолжить выполнение после tool_results (LLMCallStrategy Protocol).
 
         Args:
-            session: Состояние сессии
+            session: Read-only представление сессии (SessionView).
             mcp_manager: MCP manager
             parent_span: Родительский span (keyword-only, опционально)
 
@@ -357,7 +357,7 @@ class StrategyDispatcher:
             logger.warning(
                 "continue_execution: strategy was not set, selected default",
                 strategy=self._current_strategy_name,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
         strategy = self.get_current_strategy()
@@ -365,7 +365,7 @@ class StrategyDispatcher:
             logger.error(
                 "continue_execution: failed to create strategy instance",
                 strategy_name=self._current_strategy_name,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
             raise ValueError(f"No strategy instance for: {self._current_strategy_name}")
 
@@ -397,20 +397,20 @@ class StrategyDispatcher:
             on_delta=on_delta,
         )
 
-    def _resolve_agent_name(self, session: SessionState) -> str:
+    def _resolve_agent_name(self, session: SessionView) -> str:
         """Определить имя агента для выполнения.
 
         Порядок приоритета:
-        1. session.config_values.get("_agent")
+        1. session.config.config_values.get("_agent")
         2. Default agent из Registry (по priority)
 
         Args:
-            session: Состояние сессии
+            session: Read-only представление сессии (SessionView).
 
         Returns:
             Имя агента для вызова
         """
-        config_values = getattr(session, "config_values", {}) or {}
+        config_values = session.config.config_values
         agent_name = config_values.get("_agent")
 
         if agent_name:

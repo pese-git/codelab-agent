@@ -18,6 +18,7 @@ from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.agent.event_bus.bus import AgentEventBus
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
 from codelab.server.protocol.mode import MODE_BYPASS, MODE_PLAN, MODE_STANDARD
+from codelab.server.protocol.session_view import SessionStateView
 from codelab.server.protocol.state import SessionState
 
 
@@ -164,7 +165,7 @@ class TestStrategyDispatcherModeIntegration:
         )
 
         session = _make_session(mode=MODE_PLAN)
-        strategy_name, fallback = dispatcher.select_strategy(session)
+        strategy_name, fallback = dispatcher.select_strategy(SessionStateView(session))
 
         assert strategy_name == "single"
         assert fallback is None
@@ -187,7 +188,7 @@ class TestStrategyDispatcherModeIntegration:
         )
 
         session = _make_session(mode=MODE_BYPASS)
-        strategy_name, fallback = dispatcher.select_strategy(session)
+        strategy_name, fallback = dispatcher.select_strategy(SessionStateView(session))
 
         assert strategy_name == "single"
         assert fallback is None
@@ -209,11 +210,11 @@ class TestStrategyDispatcherModeIntegration:
         )
 
         session = _make_session(mode=MODE_STANDARD)
-        strategy_name_1, _ = dispatcher.select_strategy(session)
+        strategy_name_1, _ = dispatcher.select_strategy(SessionStateView(session))
 
         # Меняем mode
         session.config_values["mode"] = MODE_PLAN
-        strategy_name_2, _ = dispatcher.select_strategy(session)
+        strategy_name_2, _ = dispatcher.select_strategy(SessionStateView(session))
 
         # Стратегия должна остаться той же
         assert strategy_name_1 == strategy_name_2 == "single"
@@ -234,7 +235,7 @@ class TestStrategyDispatcherModeIntegration:
         )
 
         session = _make_session(mode=MODE_BYPASS)
-        dispatcher.select_strategy(session)
+        dispatcher.select_strategy(SessionStateView(session))
 
         # Mode должен остаться тем же
         assert session.config_values["mode"] == MODE_BYPASS

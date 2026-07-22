@@ -1,6 +1,6 @@
 """Тесты для AgentLoop."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -26,16 +26,18 @@ def mock_strategy():
 
 @pytest.fixture
 def mock_session():
-    """Mock SessionState."""
-    session = MagicMock()
-    session.session_id = "test_session"
-    session.config_values = {}
-    session.history = []
-    session.tool_calls = {}
-    session.active_turn = None
-    session.permission_policy = {}
-    session.latest_plan = None
-    return session
+    """Mock SessionState (Pydantic-форма для SessionStateView)."""
+    from codelab.server.protocol.state import SessionState
+    return SessionState(
+        session_id="test_session",
+        cwd="/tmp",
+        history=[],
+        tool_calls={},
+        active_turn=None,
+        permission_policy={},
+        latest_plan=[],
+        config_values={},
+    )
 
 
 @pytest.fixture
@@ -396,7 +398,7 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Initial prompt")
 
         mock_strategy.execute.assert_called_once_with(
-            mock_session,
+            ANY,
             "Initial prompt",
             None,
             system_prompt="You are a helpful assistant.",
@@ -451,7 +453,7 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
-        mock_strategy.continue_execution.assert_called_once_with(mock_session, None, on_delta=None)
+        mock_strategy.continue_execution.assert_called_once_with(ANY, None, on_delta=None)
 
     def test_add_tool_result_to_history_success(
         self, mock_strategy, mock_session, mock_dependencies

@@ -19,7 +19,6 @@ from codelab.server.observability.tracer import Tracer
 from codelab.server.protocol.handlers.strategies.single_strategy import (
     SingleStrategy,
 )
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolRegistry
 
 
@@ -82,10 +81,13 @@ def mock_tracer():
 
 @pytest.fixture
 def mock_session():
-    session = MagicMock(spec=SessionState)
-    session.session_id = "s1"
-    session.config_values = {"model": "openai/gpt-4o"}
-    return session
+    from tests.server.agent.fakes import FakeSessionView
+
+    return FakeSessionView(
+        session_id="s1",
+        cwd="/tmp",
+        config_values={"model": "openai/gpt-4o"},
+    )
 
 
 class TestSingleStrategyExecute:
@@ -352,9 +354,12 @@ class TestFullIntegration:
             agent_name="primary",
         )
 
-        session = MagicMock(spec=SessionState)
-        session.session_id = "s1"
-        session.config_values = {}
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(
+            session_id="s1",
+            cwd="/tmp",
+            config_values={},
+        )
 
         result = await strategy.execute(session=session, prompt="Hi")
 

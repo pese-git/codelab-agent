@@ -39,7 +39,8 @@ class TestFileCacheDecorator:
             success=True,
             output="file content",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -55,7 +56,8 @@ class TestFileCacheDecorator:
             success=True,
             output="written",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "write", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -72,7 +74,8 @@ class TestFileCacheDecorator:
             success=True,
             output="written",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "write", "path": "/test.py"}
 
         await decorator.execute(session, arguments)
@@ -86,7 +89,8 @@ class TestFileCacheDecorator:
             success=False,
             error="read error",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -101,7 +105,8 @@ class TestFileCacheDecorator:
             success=True,
             output="terminal output",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"command": "ls"}
 
         result = await decorator.execute(session, arguments)
@@ -116,7 +121,8 @@ class TestFileCacheDecorator:
             success=True,
             output="content",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read"}
 
         result = await decorator.execute(session, arguments)
@@ -131,7 +137,8 @@ class TestFileCacheDecorator:
             success=True,
             output="content",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:
@@ -149,7 +156,8 @@ class TestFileCacheDecorator:
             success=True,
             output="written",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "write", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:
@@ -165,7 +173,8 @@ class TestFileCacheDecorator:
             success=True,
             output=None,
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -180,7 +189,8 @@ class TestFileCacheDecorator:
         """fs/read возвращает содержимое из кэша без вызова wrapped.execute()."""
         # Предварительно заполняем кэш
         cache.set("/test.py", "cached content")
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -199,7 +209,8 @@ class TestFileCacheDecorator:
             success=True,
             output="fresh content",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         result = await decorator.execute(session, arguments)
@@ -220,7 +231,8 @@ class TestFileCacheDecorator:
             success=True,
             output="rpc content",
         )
-        session = MagicMock()
+        from tests.server.agent.fakes import FakeSessionView
+        session = FakeSessionView(config_values={}, cwd="/tmp")
         arguments = {"operation": "read", "path": "/test.py"}
 
         with pytest.MonkeyPatch().context() as m:

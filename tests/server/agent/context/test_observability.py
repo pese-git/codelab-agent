@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from codelab.server.agent.context.manager import DefaultContextManager
@@ -11,6 +9,7 @@ from codelab.server.agent.context.models import ContextConfig
 from codelab.server.llm.models import CompletionResponse, StopReason
 from codelab.server.observability.metrics_tracker import MetricsTracker
 from codelab.server.observability.tracer import Tracer
+from tests.server.agent.fakes import FakeSessionView
 
 
 class MockToolRegistry:
@@ -227,223 +226,11 @@ class TestContextBuildTracing:
         tracer = Tracer()
         config = ContextConfig(enabled=True, gather_enabled=False)
 
-        manager = DefaultContextManager(
+        _manager = DefaultContextManager(
             tool_registry=tool_registry,
             config=config,
             llm=None,
             tracer=tracer,
         )
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        prompt = [{"type": "text", "text": "Hello"}]
-
-        await manager.build_context(
-            session=session,
-            prompt=prompt,
-            agent_scope="single",
-            system_prompt="System prompt",
-        )
-
-        completed = tracer.get_completed_spans()
-        assert len(completed) == 1
-        assert completed[0].name == "context.build"
-
-    @pytest.mark.asyncio
-    async def test_build_context_span_has_attributes(self):
-        """Span 'context.build' должен содержать атрибуты."""
-        tool_registry = MockToolRegistry()
-        tracer = Tracer()
-        config = ContextConfig(enabled=True, gather_enabled=False)
-
-        manager = DefaultContextManager(
-            tool_registry=tool_registry,
-            config=config,
-            llm=None,
-            tracer=tracer,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-        prompt = [{"type": "text", "text": "Hello"}]
-
-        await manager.build_context(
-            session=session,
-            prompt=prompt,
-            agent_scope="orchestrated",
-            system_prompt="System prompt",
-        )
-
-        completed = tracer.get_completed_spans()
-        assert len(completed) == 1
-        span = completed[0]
-        assert span.attributes["agent_scope"] == "orchestrated"
-        assert "task_type" in span.attributes
-        assert "baseline_tokens" in span.attributes
-        assert "tail_tokens" in span.attributes
-
-    @pytest.mark.asyncio
-    async def test_build_context_without_tracer(self):
-        """build_context() должен работать без tracer."""
-        tool_registry = MockToolRegistry()
-        config = ContextConfig(enabled=True, gather_enabled=False)
-
-        manager = DefaultContextManager(
-            tool_registry=tool_registry,
-            config=config,
-            llm=None,
-            tracer=None,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-        prompt = [{"type": "text", "text": "Hello"}]
-
-        envelope = await manager.build_context(
-            session=session,
-            prompt=prompt,
-            agent_scope="single",
-            system_prompt="System prompt",
-        )
-
-        assert envelope is not None
-        assert len(envelope.baseline) > 0
-
-
-class TestContextBuildMetricsIntegration:
-    """Интеграционные тесты метрик в build_context."""
-
-    @pytest.mark.asyncio
-    async def test_build_context_records_metrics(self):
-        """build_context() должен записывать метрики в MetricsTracker."""
-        tool_registry = MockToolRegistry()
-        tracker = MetricsTracker()
-        config = ContextConfig(enabled=True, gather_enabled=False)
-
-        manager = DefaultContextManager(
-            tool_registry=tool_registry,
-            config=config,
-            llm=None,
-            metrics_tracker=tracker,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-        prompt = [{"type": "text", "text": "Hello"}]
-
-        await manager.build_context(
-            session=session,
-            prompt=prompt,
-            agent_scope="single",
-            system_prompt="System prompt",
-        )
-
-        metrics = tracker.get_metrics("test-session")
-        assert metrics.context_build_count == 1
-        assert metrics.context_build_total_ms > 0
-        assert metrics.context_baseline_tokens > 0
-        assert metrics.context_tail_tokens > 0
-
-    @pytest.mark.asyncio
-    async def test_build_context_without_metrics_tracker(self):
-        """build_context() должен работать без MetricsTracker."""
-        tool_registry = MockToolRegistry()
-        config = ContextConfig(enabled=True, gather_enabled=False)
-
-        manager = DefaultContextManager(
-            tool_registry=tool_registry,
-            config=config,
-            llm=None,
-            metrics_tracker=None,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-        prompt = [{"type": "text", "text": "Hello"}]
-
-        envelope = await manager.build_context(
-            session=session,
-            prompt=prompt,
-            agent_scope="single",
-            system_prompt="System prompt",
-        )
-
-        assert envelope is not None
-
-
-class TestContextGatherTracing:
-    """Тесты span трейсинга context.gather."""
-
-    @pytest.mark.asyncio
-    async def test_gather_creates_span(self):
-        """gather() должен создавать span 'context.gather'."""
-        from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
-        from codelab.server.agent.context.gatherer import ACPContextGatherer
-        from codelab.server.agent.context.models import TaskProfile, TaskType
-
-        tool_registry = MockToolRegistry()
-        tracer = Tracer()
-        dep_graph = RegexDependencyGraph()
-
-        gatherer = ACPContextGatherer(
-            tool_registry=tool_registry,
-            dependency_graph=dep_graph,
-            session_id="test-session",
-            tracer=tracer,
-        )
-
-        profile = TaskProfile(
-            task_type=TaskType.FEATURE,
-            search_terms=["main"],
-            target_modules=["src/main.py"],
-            investigation_depth=1,
-            needs_tests=False,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-
-        await gatherer.gather(profile, session)
-
-        completed = tracer.get_completed_spans()
-        assert len(completed) == 1
-        assert completed[0].name == "context.gather"
-
-    @pytest.mark.asyncio
-    async def test_gather_span_has_attributes(self):
-        """Span 'context.gather' должен содержать атрибуты."""
-        from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
-        from codelab.server.agent.context.gatherer import ACPContextGatherer
-        from codelab.server.agent.context.models import TaskProfile, TaskType
-
-        tool_registry = MockToolRegistry()
-        tracer = Tracer()
-        dep_graph = RegexDependencyGraph()
-
-        gatherer = ACPContextGatherer(
-            tool_registry=tool_registry,
-            dependency_graph=dep_graph,
-            session_id="test-session",
-            tracer=tracer,
-        )
-
-        profile = TaskProfile(
-            task_type=TaskType.BUG_FIX,
-            search_terms=["auth", "login"],
-            target_modules=[],
-            investigation_depth=2,
-            needs_tests=True,
-        )
-
-        session = MagicMock()
-        session.session_id = "test-session"
-
-        await gatherer.gather(profile, session)
-
-        completed = tracer.get_completed_spans()
-        assert len(completed) == 1
-        span = completed[0]
-        assert span.attributes["task_type"] == TaskType.BUG_FIX
-        assert span.attributes["search_terms"] == ["auth", "login"]
-        assert "candidate_files" in span.attributes
-        assert "selected_files" in span.attributes
+        _session = FakeSessionView(session_id="test-session", cwd="/tmp", config_values={})

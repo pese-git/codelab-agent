@@ -1,6 +1,9 @@
 """Контракты сообщений для мультиагентной шины событий.
 
-Этот пакет определяет все типы данных, которые проходят через AgentEventBus:
+Этот пакет определяет все типы данных, которые проходят через AgentEventBus,
+плюс порты гексагона (ADR-005):
+
+Event-bus контракты:
 - DomainEvent — базовый класс всех событий
 - Контракты запросов/ответов: AgentRequest, AgentResponse, AgentResult
 - Контракты broadcast: ContextBroadcast, ChoreographyAnswer
@@ -8,8 +11,14 @@
 - Lifecycle events: AgentRegistered, AgentUnregistered, AgentListChanged
 - Исключения: AgentBusError и производные
 
-Важно: AgentResponse из contracts — это DomainEvent для EventBus,
-НЕ AgentResponse из server/agent/base.py (результт вызова LLMAgent).
+Hexagon ports (ADR-005):
+- SessionView — read-only сессия (Фаза 1)
+- ContentCodec — декодирование входного контента (Фаза 2)
+- ToolGateway — реестр инструментов (Фаза 3)
+- UpdateSink — эмиссия прогресса (Фаза 3)
+- AgentRunner — driving-порт входа в turn (Фаза 4)
+- ChildSessionFactory — фабрика child-сессий (Фаза 4)
+- LLMPort — порт вызова LLM (ADR-001)
 """
 
 from codelab.server.agent.contracts.base import (
@@ -29,8 +38,18 @@ from codelab.server.agent.contracts.base import (
     TokenUsage,
     ToolCall,
 )
+from codelab.server.agent.contracts.ports import (
+    AgentRunner,
+    ChildSessionFactory,
+    ContentCodec,
+    LLMPort,
+    SessionView,
+    ToolGateway,
+    UpdateSink,
+)
 
 __all__ = [
+    # Event-bus контракты
     "DomainEvent",
     "TokenUsage",
     "ToolCall",
@@ -46,4 +65,12 @@ __all__ = [
     "AgentNotFoundError",
     "AgentDispatchError",
     "BroadcastPartialFailure",
+    # Hexagon ports (ADR-005)
+    "SessionView",
+    "ContentCodec",
+    "ToolGateway",
+    "UpdateSink",
+    "AgentRunner",
+    "ChildSessionFactory",
+    "LLMPort",
 ]

@@ -1,4 +1,4 @@
-"""Тесты для ExecutionEngine.
+"""Тесты для ExecutionEngine (ADR-005 Фаза 1 — на FakeSessionView).
 
 Проверяют композицию компонентов и автоматический вызов ContextCompactor
 в build_context() и build_continuation_context().
@@ -11,8 +11,9 @@ import pytest
 from codelab.server.agent.context_compactor import ContextCompactor
 from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.llm.models import LLMMessage
-from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
 from codelab.server.tools.base import ToolDefinition
+from codelab.shared.capabilities import ClientCapabilities
+from tests.server.agent.fakes import FakeSessionView
 
 
 @pytest.fixture
@@ -37,19 +38,25 @@ def tool_registry():
 
 @pytest.fixture
 def session():
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
-    session.history = [
-        {"role": "user", "text": "Hello"},
-        {"role": "assistant", "text": "Hi there"},
-    ]
-    session.runtime_capabilities = ClientRuntimeCapabilities(
-        fs_read=True,
-        fs_write=False,
-        terminal=False,
+    from codelab.server.domain.conversation import ConversationMessage, MessageContent
+    from codelab.server.domain.value_objects import MessageRole
+
+    return FakeSessionView(
+        session_id="test_session",
+        cwd="/tmp",
+        config_values={"model": "openai/gpt-4o"},
+        runtime_capabilities=ClientCapabilities(
+            fs_read=True,
+            fs_write=False,
+            terminal=False,
+        ),
+        messages_=[
+            ConversationMessage(role=MessageRole.USER, content=MessageContent(text="Hello")),
+            ConversationMessage(
+                role=MessageRole.ASSISTANT, content=MessageContent(text="Hi there")
+            ),
+        ],
     )
-    session.config_values = {"model": "openai/gpt-4o"}
-    return session
 
 
 @pytest.fixture

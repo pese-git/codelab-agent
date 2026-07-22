@@ -3,6 +3,10 @@
 MCP инструменты всегда включаются (выполняются на сервере).
 Серверные инструменты (think, plan) всегда доступны.
 Клиентские инструменты фильтруются по префиксу имени + kind.
+
+ADR-005 Фаза 1: ``capabilities`` принимает доменный ``ClientCapabilities``
+из ``shared.capabilities`` (P2-32), а не протокольный
+``ClientRuntimeCapabilities``. ACP-маппинг — в ``SessionStateView``.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ from typing import TYPE_CHECKING
 from codelab.server.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import ClientRuntimeCapabilities
+    from codelab.shared.capabilities import ClientCapabilities
 
 
 # Инструменты с этими kind — серверные, не требуют client capabilities.
@@ -52,7 +56,7 @@ class ToolFilter:
     def filter(
         self,
         tools: list[ToolDefinition],
-        capabilities: ClientRuntimeCapabilities | None = None,
+        capabilities: ClientCapabilities | None = None,
         mcp_tools: list[ToolDefinition] | None = None,
     ) -> list[ToolDefinition]:
         """Отфильтровать инструменты.
@@ -90,7 +94,7 @@ class ToolFilter:
     def _is_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilities,
     ) -> bool:
         """Проверить поддерживается ли инструмент клиентом.
 
@@ -118,7 +122,7 @@ class ToolFilter:
     def _fs_tool_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilities,
     ) -> bool:
         """Проверить поддерживается ли fs/* инструмент.
 

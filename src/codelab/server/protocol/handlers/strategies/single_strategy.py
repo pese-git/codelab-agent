@@ -23,10 +23,10 @@ from codelab.server.llm.models import LLMToolCall
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.core.execution_engine import ExecutionEngine
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.observability.tracer import SpanContext, Tracer
-    from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
@@ -125,7 +125,7 @@ class SingleStrategy:
 
     async def execute(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -137,12 +137,12 @@ class SingleStrategy:
         """Выполнить стратегию — вызвать агента через EventBus.
 
         Args:
-            session: Состояние сессии.
+            session: Read-only представление сессии (SessionView).
             prompt: Текст промпта пользователя (None для продолжения).
             mcp_manager: MCP manager.
             system_prompt: Системный промпт (keyword-only, опционально).
             parent_span: Родительский span для tracing (keyword-only, опционально).
-            agent_name: Имя агента для вызова (из session.config_values["_agent"]).
+            agent_name: Имя агента для вызова (из session.config.config_values["_agent"]).
                 Если None, используется default_agent_name.
             on_delta: Опциональный async-callback для текстовых дельт. Если
                 задан — используется стриминговый путь (send_request_streaming),
@@ -153,6 +153,7 @@ class SingleStrategy:
         """
         target_agent = agent_name or self.default_agent_name
         start_time = time.time()
+        session_id_str = str(session.id)
 
         # Tracing: создаём span
         span = None
@@ -160,7 +161,7 @@ class SingleStrategy:
             span = self.tracer.start_span(
                 "single_strategy",
                 parent=parent_span,
-                session_id=session.session_id,
+                session_id=session_id_str,
             )
 
         # Собираем контекст (async — включает ContextCompactor)
@@ -176,8 +177,8 @@ class SingleStrategy:
             target_agent=target_agent,
             messages=context.conversation_history,
             tools=context.available_tools,
-            correlation_id=f"single_{session.session_id}_{int(start_time)}",
-            session_id=session.session_id,
+            correlation_id=f"single_{session_id_str}_{int(start_time)}",
+            session_id=session_id_str,
         )
 
         # Вызываем агента через EventBus (стрим или обычный — по on_delta)
@@ -209,7 +210,7 @@ class SingleStrategy:
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,
@@ -231,13 +232,14 @@ class SingleStrategy:
         """
         target_agent = agent_name or self.default_agent_name
         start_time = time.time()
+        session_id_str = str(session.id)
 
         span = None
         if self.tracer:
             span = self.tracer.start_span(
                 "single_strategy_continue",
                 parent=parent_span,
-                session_id=session.session_id,
+                session_id=session_id_str,
             )
 
         context = await self.execution_engine.build_continuation_context(
@@ -249,8 +251,8 @@ class SingleStrategy:
             target_agent=target_agent,
             messages=context.history,
             tools=context.available_tools,
-            correlation_id=f"single_cont_{session.session_id}",
-            session_id=session.session_id,
+            correlation_id=f"single_cont_{session_id_str}",
+            session_id=session_id_str,
         )
 
         response = await self._dispatch(request, span, on_delta)

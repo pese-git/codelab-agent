@@ -1,7 +1,7 @@
 """ExecutionEngine — композиционный движок выполнения.
 
 Композиция переиспользуемых компонентов:
-- HistoryBuilder — session.history → LLMMessage
+- HistoryBuilder — session.messages() → LLMMessage
 - ToolFilter — filter by capabilities + MCP
 - MessageSanitizer — fix orphaned tool calls
 - PlanExtractor — extract plan from response (существующий)
@@ -29,8 +29,8 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.mcp.manager import MCPManager
-    from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class ExecutionEngine:
 
     async def build_context(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str,
         system_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
@@ -88,7 +88,7 @@ class ExecutionEngine:
         Phase 1: при enabled=true использует ContextManager для сбора контекста.
 
         Args:
-            session: Состояние сессии.
+            session: Read-only представление сессии (SessionView).
             prompt: Текст промпта пользователя.
             system_prompt: Системный промпт.
             mcp_manager: MCP manager для получения MCP инструментов.
@@ -102,8 +102,8 @@ class ExecutionEngine:
             mcp_tools = mcp_manager.get_all_tools()
 
         available_tools = self.tool_filter.filter(
-            self.tool_registry.get_available_tools(session.session_id),
-            session.runtime_capabilities,
+            self.tool_registry.get_available_tools(str(session.id)),
+            session.config.runtime_capabilities,
             mcp_tools,
         )
 
@@ -112,8 +112,15 @@ class ExecutionEngine:
             if content_parts:
                 prompt_blocks = [self._content_part_to_dict(part) for part in content_parts]
 
+            # ContextManager.build_context пока принимает SessionState; для Фазы 1
+            # оставляем fallback на raw history через SessionView (тех-долг: refactor
+            # в отдельном change для ContextManager).
+            history = self.history_builder.build(
+                self._view_messages_as_raw(session),
+                system_prompt=system_prompt,
+            )
             envelope = await self.context_manager.build_context(
-                session=session,
+                session=session,  # type: ignore[arg-type]
                 prompt=prompt_blocks,
                 agent_scope="single",
                 system_prompt=system_prompt,
@@ -126,7 +133,7 @@ class ExecutionEngine:
             history = envelope.to_messages()
         else:
             history = self.history_builder.build(
-                session.history,
+                self._view_messages_as_raw(session),
                 system_prompt=system_prompt,
             )
 
@@ -142,14 +149,40 @@ class ExecutionEngine:
             prompt_blocks = [{"type": "text", "text": prompt}]
 
         return AgentContext(
-            session_id=session.session_id,
+            session_id=str(session.id),
             session=session,
             prompt=prompt_blocks,
             conversation_history=history,
             available_tools=available_tools,
-            config=session.config_values,
-            model=session.config_values.get("model", ""),
+            config=dict(session.config.config_values),
+            model=session.config.config_values.get("model", ""),
         )
+
+    @staticmethod
+    def _view_messages_as_raw(session: SessionView) -> list:
+        """Преобразовать доменные ConversationMessage в raw-форму для HistoryBuilder.
+
+        HistoryBuilder.build ожидает ``list[dict] | list``. До Фазы 2
+        (где HistoryBuilder переедет на доменные VO) конвертируем
+        обратно в минимальный dict-формат, совместимый с текущим
+        build().
+        """
+        raw: list[dict[str, Any]] = []
+        for msg in session.messages():
+            entry: dict[str, Any] = {
+                "role": msg.role.value,
+                "text": msg.content.text,
+                "timestamp": msg.timestamp.isoformat(),
+            }
+            if msg.tool_call_id is not None:
+                entry["tool_call_id"] = msg.tool_call_id
+            if msg.tool_calls:
+                entry["tool_calls"] = [
+                    {"id": tc.id, "name": tc.tool_name, "arguments": tc.arguments}
+                    for tc in msg.tool_calls
+                ]
+            raw.append(entry)
+        return raw
 
     @staticmethod
     def _content_part_to_dict(part: Any) -> dict[str, Any]:
@@ -166,7 +199,7 @@ class ExecutionEngine:
 
     async def build_continuation_context(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: MCPManager | None = None,
     ) -> ContinuationContext:
         """Собрать ContinuationContext для продолжения после tool_results.
@@ -176,7 +209,7 @@ class ExecutionEngine:
         Phase 0: внутренне использует PayloadEnvelope (baseline/tail).
 
         Args:
-            session: Состояние сессии (история уже содержит tool_results).
+            session: Read-only представление сессии (SessionView).
             mcp_manager: MCP manager.
 
         Returns:
@@ -187,12 +220,12 @@ class ExecutionEngine:
             mcp_tools = mcp_manager.get_all_tools()
 
         available_tools = self.tool_filter.filter(
-            self.tool_registry.get_available_tools(session.session_id),
-            session.runtime_capabilities,
+            self.tool_registry.get_available_tools(str(session.id)),
+            session.config.runtime_capabilities,
             mcp_tools,
         )
 
-        history = self.history_builder.build(session.history)
+        history = self.history_builder.build(self._view_messages_as_raw(session))
         history = self.sanitizer.sanitize(history)
 
         envelope = self._build_envelope(history)
@@ -200,12 +233,12 @@ class ExecutionEngine:
         history = envelope.to_messages()
 
         return ContinuationContext(
-            session_id=session.session_id,
+            session_id=str(session.id),
             session=session,
             history=history,
             available_tools=available_tools,
-            config=session.config_values,
-            model=session.config_values.get("model", ""),
+            config=dict(session.config.config_values),
+            model=session.config.config_values.get("model", ""),
         )
 
     async def ensure_context_fits(

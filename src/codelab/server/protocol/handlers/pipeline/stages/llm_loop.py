@@ -28,6 +28,7 @@ from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
+from codelab.server.protocol.session_view import SessionStateView
 from codelab.server.protocol.stop_reasons import StopReason
 
 from ..base import PromptStage
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
     from codelab.server.protocol.handlers.plan_builder import PlanBuilder
     from codelab.server.protocol.handlers.state_manager import StateManager
     from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+    from codelab.server.protocol.session_view import SessionStateView
     from codelab.server.protocol.state import LLMLoopResult, SessionState
     from codelab.server.tools.base import ToolRegistry
 
@@ -160,7 +162,7 @@ class LLMLoopStage(PromptStage):
         # Это гарантирует что _current_strategy_name установлен для continue_execution.
         if not self._strategy_selected:
             strategy_name, fallback_from = self._strategy_dispatcher.select_strategy(
-                session=context.session,
+                session=SessionStateView(context.session),
                 context_meta=context.meta,
             )
 
@@ -307,7 +309,7 @@ class LLMLoopStage(PromptStage):
             if self._strategy_dispatcher is not None:
                 # Выбрать стратегию через dispatcher (без context_meta для pending tool)
                 strategy_name, _ = self._strategy_dispatcher.select_strategy(
-                    session=session,
+                    session=SessionStateView(session),
                     context_meta=None,
                 )
                 self._strategy_dispatcher.set_current_strategy(strategy_name)

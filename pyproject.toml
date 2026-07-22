@@ -189,12 +189,6 @@ layers = [
 # удалять по мере выполнения B, обходные абстракции не вводить.
 # См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
 ignore_imports = [
-    "codelab.server.agent.base -> codelab.server.protocol.state",
-    "codelab.server.agent.execution_engine -> codelab.server.protocol.state",
-    "codelab.server.agent.strategies.base -> codelab.server.protocol.state",
-    "codelab.server.agent.strategies.dispatcher -> codelab.server.protocol.state",
-    "codelab.server.agent.system_prompt_builder -> codelab.server.protocol.state",
-    "codelab.server.agent.tool_filter -> codelab.server.protocol.state",
     "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
     "codelab.server.agent.context.child_session -> codelab.server.protocol.session_factory",
     "codelab.server.storage.base -> codelab.server.protocol.state",

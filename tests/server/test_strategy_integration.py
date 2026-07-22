@@ -23,6 +23,7 @@ from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
+from codelab.server.protocol.session_view import SessionStateView
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage.memory import InMemoryStorage
 
@@ -78,7 +79,9 @@ class TestStrategySelectionViaConfigOptions:
                 active_turn=None,
             )
 
-            strategy_name, fallback_from = dispatcher.select_strategy(session)
+            strategy_name, fallback_from = dispatcher.select_strategy(
+                SessionStateView(session)
+            )
 
             assert strategy_name == "single"
             assert fallback_from is None
@@ -102,7 +105,7 @@ class TestStrategySelectionViaConfigOptions:
                 active_turn=None,
             )
 
-            dispatcher.select_strategy(session)
+            dispatcher.select_strategy(SessionStateView(session))
             strategy = dispatcher.get_current_strategy()
 
             assert strategy is not None
@@ -135,7 +138,9 @@ class TestStrategySelectionViaSlashCommand:
 
             # Slash command override через context_meta
             context_meta = {"active_strategy": "single"}
-            strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta)
+            strategy_name, fallback_from = dispatcher.select_strategy(
+                SessionStateView(session), context_meta
+            )
 
             assert strategy_name == "single"
             assert fallback_from is None
@@ -161,7 +166,7 @@ class TestStrategySelectionViaSlashCommand:
 
             # Slash command выбирает ту же стратегию
             context_meta = {"active_strategy": "single"}
-            strategy_name, _ = dispatcher.select_strategy(session, context_meta)
+            strategy_name, _ = dispatcher.select_strategy(SessionStateView(session), context_meta)
 
             # Должна быть выбрана стратегия из slash command
             assert strategy_name == "single"
@@ -245,7 +250,7 @@ class TestFallbackNotification:
             active_turn=None,
         )
 
-        strategy_name, fallback_from = dispatcher.select_strategy(session)
+        strategy_name, fallback_from = dispatcher.select_strategy(SessionStateView(session))
 
         # Должен быть fallback на single
         assert strategy_name == "single"
@@ -284,7 +289,7 @@ class TestPriorityChain:
                 latest_plan=[],
                 active_turn=None,
             )
-            strategy1, _ = dispatcher.select_strategy(session1)
+            strategy1, _ = dispatcher.select_strategy(SessionStateView(session1))
             assert strategy1 == "single"  # default из config
 
             # Тест 2: Config values
@@ -299,7 +304,7 @@ class TestPriorityChain:
                 latest_plan=[],
                 active_turn=None,
             )
-            strategy2, _ = dispatcher.select_strategy(session2)
+            strategy2, _ = dispatcher.select_strategy(SessionStateView(session2))
             assert strategy2 == "single"
 
             # Тест 3: Slash command override
@@ -315,7 +320,7 @@ class TestPriorityChain:
                 active_turn=None,
             )
             context_meta = {"active_strategy": "single"}
-            strategy3, _ = dispatcher.select_strategy(session3, context_meta)
+            strategy3, _ = dispatcher.select_strategy(SessionStateView(session3), context_meta)
             assert strategy3 == "single"
 
     @pytest.mark.asyncio
@@ -355,7 +360,7 @@ class TestPriorityChain:
             active_turn=None,
         )
 
-        strategy_name, fallback_from = dispatcher.select_strategy(session)
+        strategy_name, fallback_from = dispatcher.select_strategy(SessionStateView(session))
 
         assert strategy_name == "single"
         assert fallback_from == "unknown_strategy"
@@ -402,7 +407,7 @@ class TestDynamicStrategyListUpdates:
                 latest_plan=[],
                 active_turn=None,
             )
-            strategy_name, _ = dispatcher.select_strategy(session)
+            strategy_name, _ = dispatcher.select_strategy(SessionStateView(session))
             assert strategy_name == "test_strategy"
 
     @pytest.mark.asyncio

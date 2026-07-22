@@ -1,4 +1,4 @@
-"""Интеграционный тест: PayloadEnvelope проходит через ExecutionEngine."""
+"""Интеграционный тест: PayloadEnvelope проходит через ExecutionEngine (ADR-005 Фаза 1)."""
 
 from unittest.mock import MagicMock
 
@@ -6,20 +6,29 @@ import pytest
 
 from codelab.server.agent.context.models import ContextConfig, PayloadEnvelope
 from codelab.server.agent.core.execution_engine import ExecutionEngine
+from codelab.server.domain.conversation import ConversationMessage, MessageContent
+from codelab.server.domain.value_objects import MessageRole
 from codelab.server.llm.models import LLMMessage
+from codelab.shared.capabilities import ClientCapabilities
+from tests.server.agent.fakes import FakeSessionView
 
 
 def _make_session(session_id="test-session"):
-    session = MagicMock()
-    session.session_id = session_id
-    session.history = [
-        {"role": "system", "text": "You are a helpful assistant."},
-        {"role": "user", "text": "Hello"},
-        {"role": "assistant", "text": "Hi there!"},
-    ]
-    session.runtime_capabilities = MagicMock()
-    session.config_values = {"model": "test-model"}
-    return session
+    return FakeSessionView(
+        session_id=session_id,
+        cwd="/tmp",
+        config_values={"model": "test-model"},
+        runtime_capabilities=ClientCapabilities(),
+        messages_=[
+            ConversationMessage(
+                role=MessageRole.SYSTEM, content=MessageContent(text="You are a helpful assistant.")
+            ),
+            ConversationMessage(role=MessageRole.USER, content=MessageContent(text="Hello")),
+            ConversationMessage(
+                role=MessageRole.ASSISTANT, content=MessageContent(text="Hi there!")
+            ),
+        ],
+    )
 
 
 def _make_tool_registry():

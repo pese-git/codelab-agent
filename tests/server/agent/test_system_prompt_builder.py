@@ -1,8 +1,9 @@
-"""Тесты для SystemPromptBuilder."""
+"""Тесты для SystemPromptBuilder (ADR-005 Фаза 1 — на FakeSessionView)."""
 
 from unittest.mock import MagicMock
 
 from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
+from tests.server.agent.fakes import FakeSessionView
 
 
 class TestSystemPromptBuilderBase:
@@ -218,12 +219,9 @@ class TestSystemPromptBuilderFormatMCPInfo:
         assert "mcp:" not in result.split(":")[-1]
 
 
-def _mock_session(config_values: dict | None = None, cwd: str = "") -> MagicMock:
-    """Создать mock SessionState."""
-    session = MagicMock()
-    session.config_values = config_values or {}
-    session.cwd = cwd
-    return session
+def _mock_session(config_values: dict | None = None, cwd: str = "") -> FakeSessionView:
+    """Создать FakeSessionView для тестов (ADR-005 Фаза 1)."""
+    return FakeSessionView(config_values=config_values or {}, cwd=cwd)
 
 
 def _mock_agent_registry(agent_name: str, agent_prompt: str) -> MagicMock:

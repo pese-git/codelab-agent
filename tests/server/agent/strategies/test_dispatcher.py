@@ -1,4 +1,4 @@
-"""Тесты для StrategyDispatcher с StrategyRegistry."""
+"""Тесты для StrategyDispatcher с StrategyRegistry (ADR-005 Фаза 1)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from codelab.server.agent.core.strategies.descriptor import (
 )
 from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.agent.core.strategies.registry import StrategyRegistry
+from tests.server.agent.fakes import FakeSessionView
 
 
 class TestStrategyDispatcherSelectStrategy:
@@ -53,9 +54,7 @@ class TestStrategyDispatcherSelectStrategy:
         """Slash command имеет высший приоритет."""
         dispatcher = self._create_dispatcher(["single", "hierarchical"])
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session = FakeSessionView(config_values={"_active_strategy": "hierarchical"}, cwd="/tmp")
 
         context_meta = {"active_strategy": "single"}
 
@@ -68,9 +67,7 @@ class TestStrategyDispatcherSelectStrategy:
         """config_values имеет второй приоритет."""
         dispatcher = self._create_dispatcher(["single", "hierarchical"])
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session = FakeSessionView(config_values={"_active_strategy": "hierarchical"}, cwd="/tmp")
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -81,9 +78,7 @@ class TestStrategyDispatcherSelectStrategy:
         """Default strategy используется когда нет override."""
         dispatcher = self._create_dispatcher(["single"])
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -94,9 +89,7 @@ class TestStrategyDispatcherSelectStrategy:
         """Fallback когда запрошенная стратегия недоступна."""
         dispatcher = self._create_dispatcher(["single"])
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {"_active_strategy": "hierarchical"}
+        session = FakeSessionView(config_values={"_active_strategy": "hierarchical"}, cwd="/tmp")
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -123,9 +116,7 @@ class TestStrategyDispatcherSelectStrategy:
             fallback_strategy="multi_orchestrated",  # тоже недоступна
         )
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -149,9 +140,7 @@ class TestStrategyDispatcherSelectStrategy:
             fallback_strategy="single",
         )
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         strategy_name, fallback_from = dispatcher.select_strategy(session, context_meta=None)
 
@@ -351,9 +340,7 @@ class TestStrategyDispatcherLLMCallStrategy:
             fallback_strategy="single",
         )
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         result = await dispatcher.execute(session, "test prompt")
 
@@ -394,9 +381,7 @@ class TestStrategyDispatcherLLMCallStrategy:
             fallback_strategy="single",
         )
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         result = await dispatcher.continue_execution(session)
 
@@ -445,9 +430,7 @@ class TestStrategyDispatcherLLMCallStrategy:
         # Сбрасываем _current_strategy_name в None
         dispatcher._current_strategy_name = None
 
-        session = MagicMock()
-        session.session_id = "test-session"
-        session.config_values = {}
+        session = FakeSessionView(config_values={}, cwd="/tmp")
 
         result = await dispatcher.continue_execution(session)
 

@@ -7,6 +7,8 @@
   - Управление историей (session.history) — ответственность ExecutionEngine.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -16,7 +18,7 @@ from codelab.server.llm.models import LLMMessage, LLMToolCall
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.agent.contracts.ports import SessionView
 
 
 @dataclass
@@ -28,7 +30,7 @@ class AgentContext:
     """
 
     session_id: str
-    session: "SessionState"
+    session: SessionView
     # Prompt пользователя в виде блоков контента
     prompt: list[dict[str, Any]]
     # История сообщений до текущего промпта (user message ещё не добавлен)
@@ -51,7 +53,7 @@ class ContinuationContext:
     """
 
     session_id: str
-    session: "SessionState"
+    session: SessionView
     # Полная история включая только что добавленные tool_results
     history: list[LLMMessage]
     # Инструменты, уже отфильтрованные по capabilities клиента

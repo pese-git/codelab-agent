@@ -7,8 +7,8 @@
 import pytest
 
 from codelab.server.agent.core.tool_filter import ToolFilter
-from codelab.server.protocol.state import ClientRuntimeCapabilities
 from codelab.server.tools.base import ToolDefinition
+from codelab.shared.capabilities import ClientCapabilities
 
 
 def _tool(name: str, kind: str) -> ToolDefinition:
@@ -38,7 +38,7 @@ class TestToolFilterCapabilities:
     """Фильтрация с различными capabilities."""
 
     def test_with_full_capabilities(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=True, terminal=True)
+        caps = ClientCapabilities(fs_read=True, fs_write=True, terminal=True)
         filtered = tool_filter.filter(standard_tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "fs/read_text_file" in names
@@ -50,7 +50,7 @@ class TestToolFilterCapabilities:
         assert "think" in names
 
     def test_fs_read_only(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
         filtered = tool_filter.filter(standard_tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "fs/read_text_file" in names
@@ -61,7 +61,7 @@ class TestToolFilterCapabilities:
         assert "update_plan" in names
 
     def test_fs_write_only(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=True, terminal=False)
+        caps = ClientCapabilities(fs_read=False, fs_write=True, terminal=False)
         filtered = tool_filter.filter(standard_tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "fs/read_text_file" not in names
@@ -69,7 +69,7 @@ class TestToolFilterCapabilities:
         assert "update_plan" in names
 
     def test_terminal_only(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=False, terminal=True)
+        caps = ClientCapabilities(fs_read=False, fs_write=False, terminal=True)
         filtered = tool_filter.filter(standard_tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "fs/read_text_file" not in names
@@ -80,7 +80,7 @@ class TestToolFilterCapabilities:
         assert "update_plan" in names
 
     def test_no_capabilities(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=False, fs_write=False, terminal=False)
         filtered = tool_filter.filter(standard_tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "update_plan" in names
@@ -96,8 +96,8 @@ class TestScalableFsTools:
     def test_fs_grep_treated_as_read(self, tool_filter):
         """fs/grep с kind='search' → требует fs_read."""
         tools = [_tool("fs/grep", "search")]
-        caps_read = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
-        caps_write = ClientRuntimeCapabilities(fs_read=False, fs_write=True, terminal=False)
+        caps_read = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps_write = ClientCapabilities(fs_read=False, fs_write=True, terminal=False)
 
         assert "fs/grep" in {t.name for t in tool_filter.filter(tools, capabilities=caps_read)}
         assert "fs/grep" not in {t.name for t in tool_filter.filter(tools, capabilities=caps_write)}
@@ -105,8 +105,8 @@ class TestScalableFsTools:
     def test_fs_patch_treated_as_read(self, tool_filter):
         """fs/patch с kind='edit' → требует fs_write."""
         tools = [_tool("fs/patch", "edit")]
-        caps_read = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
-        caps_write = ClientRuntimeCapabilities(fs_read=False, fs_write=True, terminal=False)
+        caps_read = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps_write = ClientCapabilities(fs_read=False, fs_write=True, terminal=False)
 
         assert "fs/patch" not in {t.name for t in tool_filter.filter(tools, capabilities=caps_read)}
         assert "fs/patch" in {t.name for t in tool_filter.filter(tools, capabilities=caps_write)}
@@ -114,25 +114,25 @@ class TestScalableFsTools:
     def test_fs_search_treated_as_read(self, tool_filter):
         """fs/search с kind='search' → требует fs_read (default)."""
         tools = [_tool("fs/search", "search")]
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
         assert "fs/search" in {t.name for t in tool_filter.filter(tools, capabilities=caps)}
 
     def test_fs_delete_treated_as_read(self, tool_filter):
         """fs/delete с kind='delete' → требует fs_read (default)."""
         tools = [_tool("fs/delete_file", "delete")]
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
         assert "fs/delete_file" in {t.name for t in tool_filter.filter(tools, capabilities=caps)}
 
     def test_fs_move_treated_as_read(self, tool_filter):
         """fs/move с kind='move' → требует fs_read (default)."""
         tools = [_tool("fs/move_file", "move")]
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
         assert "fs/move_file" in {t.name for t in tool_filter.filter(tools, capabilities=caps)}
 
     def test_fs_list_treated_as_read(self, tool_filter):
         """fs/list_directory с kind='read' → требует fs_read."""
         tools = [_tool("fs/list_directory", "read")]
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=True, fs_write=False, terminal=False)
         assert "fs/list_directory" in {t.name for t in tool_filter.filter(tools, capabilities=caps)}
 
 
@@ -146,7 +146,7 @@ class TestScalableTerminalTools:
             _tool("terminal/kill", "delete"),
             _tool("terminal/info", "read"),
         ]
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=False, terminal=True)
+        caps = ClientCapabilities(fs_read=False, fs_write=False, terminal=True)
         filtered = tool_filter.filter(tools, capabilities=caps)
         names = {t.name for t in filtered}
         assert "terminal/exec" in names
@@ -156,7 +156,7 @@ class TestScalableTerminalTools:
     def test_terminal_without_capability(self, tool_filter):
         """terminal/* без capabilities.terminal → исключены."""
         tools = [_tool("terminal/create", "execute")]
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=False, fs_write=False, terminal=False)
         filtered = tool_filter.filter(tools, capabilities=caps)
         assert len(filtered) == 0
 
@@ -165,13 +165,13 @@ class TestMCPTools:
     """MCP tools включаются всегда."""
 
     def test_mcp_tools_always_included(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=False, fs_write=False, terminal=False)
+        caps = ClientCapabilities(fs_read=False, fs_write=False, terminal=False)
         mcp_tools = [_tool("mcp:fs:read_file", "mcp")]
         filtered = tool_filter.filter(standard_tools, capabilities=caps, mcp_tools=mcp_tools)
         assert "mcp:fs:read_file" in {t.name for t in filtered}
 
     def test_mcp_tools_with_full_capabilities(self, tool_filter, standard_tools):
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=True, terminal=True)
+        caps = ClientCapabilities(fs_read=True, fs_write=True, terminal=True)
         mcp_tools = [_tool("mcp:github:search", "mcp")]
         filtered = tool_filter.filter(standard_tools, capabilities=caps, mcp_tools=mcp_tools)
         assert "mcp:github:search" in {t.name for t in filtered}
@@ -208,12 +208,12 @@ class TestUnknownPrefix:
 
     def test_unknown_prefix_excluded(self, tool_filter):
         tools = [_tool("custom/tool", "execute")]
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=True, terminal=True)
+        caps = ClientCapabilities(fs_read=True, fs_write=True, terminal=True)
         filtered = tool_filter.filter(tools, capabilities=caps)
         assert len(filtered) == 0
 
     def test_empty_tools_list(self, tool_filter):
-        caps = ClientRuntimeCapabilities(fs_read=True, fs_write=True, terminal=True)
+        caps = ClientCapabilities(fs_read=True, fs_write=True, terminal=True)
         filtered = tool_filter.filter([], capabilities=caps)
         assert filtered == []
 
