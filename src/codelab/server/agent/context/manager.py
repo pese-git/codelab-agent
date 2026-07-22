@@ -51,8 +51,8 @@ from codelab.server.agent.context.registry import (
 from codelab.server.agent.context.skeletonizer.composite import CompositeSkeletonizer
 from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.token_counter import create_token_counter
-from codelab.server.agent.history_builder import HistoryBuilder
-from codelab.server.agent.message_sanitizer import MessageSanitizer
+from codelab.server.agent.core.history_builder import HistoryBuilder
+from codelab.server.agent.core.message_sanitizer import MessageSanitizer
 
 if TYPE_CHECKING:
     from codelab.server.llm.base import LLMProvider

@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from codelab.server.agent.base import AgentResponse
-    from codelab.server.agent.strategies.base import LLMCallStrategy
-    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.agent.core.agent_base import AgentResponse
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
+    from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
         SessionUpdateSink,

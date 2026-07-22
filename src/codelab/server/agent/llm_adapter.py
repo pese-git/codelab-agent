@@ -30,7 +30,7 @@ from codelab.server.agent.contracts.base import (
     TokenUsage,
     ToolCall,
 )
-from codelab.server.agent.plan_extractor import PlanExtractor
+from codelab.server.agent.core.plan_extractor import PlanExtractor
 from codelab.server.llm.base import LLMProvider
 from codelab.server.llm.models import (
     CompletionRequest,

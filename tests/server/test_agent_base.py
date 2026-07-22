@@ -2,7 +2,7 @@
 
 import pytest
 
-from codelab.server.agent.base import AgentContext, AgentResponse, LLMAgent
+from codelab.server.agent.core.agent_base import AgentContext, AgentResponse, LLMAgent
 from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse, LLMToolCall
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition, ToolRegistry

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from codelab.server.agent.context_compactor import ContextCompactor
-from codelab.server.agent.execution_engine import ExecutionEngine
+from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.llm.models import LLMMessage
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
 from codelab.server.tools.base import ToolDefinition

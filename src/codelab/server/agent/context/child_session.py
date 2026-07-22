@@ -131,7 +131,7 @@ class DefaultChildSessionManager(ChildSessionManager):
             )
 
         # Конвертируем историю в LLMMessage для суммаризации
-        from codelab.server.agent.history_builder import HistoryBuilder
+        from codelab.server.agent.core.history_builder import HistoryBuilder
 
         history_builder = HistoryBuilder()
         messages = history_builder.build(history)

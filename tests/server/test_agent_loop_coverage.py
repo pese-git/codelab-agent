@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from codelab.server.agent.base import AgentResponse
+from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoop,
     StopReason,

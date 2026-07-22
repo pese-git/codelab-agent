@@ -43,8 +43,8 @@ from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolRegistry
 
 if TYPE_CHECKING:
-    from codelab.server.agent.strategies.base import LLMCallStrategy
-    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
+    from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 

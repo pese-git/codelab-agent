@@ -1,6 +1,6 @@
 """Тесты HistoryBuilder с мультимодальным содержимым."""
 
-from codelab.server.agent.history_builder import HistoryBuilder
+from codelab.server.agent.core.history_builder import HistoryBuilder
 
 
 class TestHistoryBuilderMultimodal:

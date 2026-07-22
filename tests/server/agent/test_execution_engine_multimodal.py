@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.agent.execution_engine import ExecutionEngine
+from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolRegistry

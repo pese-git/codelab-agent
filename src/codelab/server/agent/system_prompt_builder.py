@@ -1,187 +1,19 @@
-"""SystemPromptBuilder — формирование system prompt для LLM.
+"""Backward-compatibility re-export. Will be removed in Phase 1.
 
-Формирует system prompt из трёх частей (в порядке приоритета для LLM):
-1. Agent prompt (роль агента из ~/.codelab/agents/*.md)
-2. Global prompt (общие инструкции из config.agent.system_prompt)
-3. MCP info (информация о подключённых MCP серверах)
+Сохранён как тонкий re-export, чтобы строка долга в ``import-linter``
+``ignore_imports`` продолжала матчиться. Канонический путь —
+``codelab.server.agent.core.system_prompt_builder``.
 
-Архитектурное решение:
-- SystemPromptBuilder — единый ответственный за формирование system prompt
-- Резолвит agent prompt через AgentRegistry (session.config_values["_agent"])
-- Не зависит от MCP manager напрямую — принимает Any для loose coupling
-- Согласован с паттерном HistoryBuilder / ToolFilter / MessageSanitizer
-
-Порядок объединения:
-    {agent_prompt}    ← "Ты — агент-программист..."
-    \n\n
-    {global_prompt}   ← "Используй update_plan, инструменты..."
-    \n\n
-    {mcp_info}        ← "You have access to MCP servers..."
-
-Пример использования:
-    builder = SystemPromptBuilder("You are a helpful assistant.", agent_registry)
-    system_prompt = builder.build(session, mcp_manager=mcp_manager)
+Удаляется в Фазе 1 вместе со строкой ``ignore_imports``.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
 
 if TYPE_CHECKING:
-    from codelab.server.agent.registry import AgentRegistry
-    from codelab.server.protocol.state import SessionState
+    pass
 
-logger = logging.getLogger(__name__)
-
-
-class SystemPromptBuilder:
-    """Формирует system prompt из agent prompt, конфигурации и MCP информации.
-
-    Attributes:
-        _global_prompt: Глобальный системный промпт из конфигурации.
-        _agent_registry: Реестр агентов для резолва agent prompt.
-    """
-
-    def __init__(
-        self,
-        global_prompt: str = "",
-        agent_registry: AgentRegistry | None = None,
-    ) -> None:
-        """Инициализация билдера.
-
-        Args:
-            global_prompt: Глобальный системный промпт (из config.agent.system_prompt).
-            agent_registry: Реестр агентов для получения agent-specific prompt.
-        """
-        self._global_prompt = global_prompt
-        self._agent_registry = agent_registry
-
-    def build(
-        self,
-        session: SessionState,
-        mcp_manager: Any | None = None,
-    ) -> str | None:
-        """Собрать system prompt.
-
-        Формирует system prompt из:
-        0. Рабочая директория проекта (cwd) — контекст для агента
-        1. Agent prompt (роль агента из ~/.codelab/agents/*.md)
-        2. Глобального системного промпта (если задан)
-        3. Информации о MCP серверах (если mcp_manager подключён и имеет серверы)
-
-        Args:
-            session: Состояние сессии (для получения _agent из config_values).
-            mcp_manager: MCP manager с подключёнными серверами (опционально).
-
-        Returns:
-            Текст system prompt или None если ничего не задано.
-        """
-        parts: list[str] = []
-
-        # 0. Рабочая директория проекта (контекст для агента)
-        if session.cwd:
-            parts.append(
-                f"Working directory: {session.cwd}\n\n"
-                "CRITICAL FILE SYSTEM CONSTRAINTS:\n"
-                "1. You MUST ONLY work within the working directory shown above\n"
-                "2. NEVER use absolute paths outside this directory\n"
-                "3. NEVER invent or guess file paths — use terminal commands "
-                "(ls, find) to discover files first\n"
-                "4. All file operations (fs/read_text_file, fs/write_text_file) "
-                "MUST be relative to the working directory\n"
-                "5. If unsure about a path, use 'ls -la' or 'find . -name <pattern>' first\n"
-                "6. Do NOT use fs/read_text_file on directories — it will fail with EISDIR error\n"
-                "7. Attempts to access files outside the working directory will be REJECTED\n"
-                "8. terminal/create automatically runs in the working directory — "
-                "you do NOT need to 'cd' first"
-            )
-
-        # 1. Agent prompt (роль агента)
-        agent_prompt = self._resolve_agent_prompt(session)
-        if agent_prompt:
-            parts.append(agent_prompt)
-
-        # 2. Глобальный системный промпт из конфигурации
-        if self._global_prompt:
-            parts.append(self._global_prompt)
-
-        # 3. Информация о подключённых MCP серверах
-        if mcp_manager is not None:
-            mcp_info = self._format_mcp_info(mcp_manager)
-            if mcp_info:
-                parts.append(mcp_info)
-
-        if not parts:
-            return None
-
-        result = "\n\n".join(parts)
-
-        agent_name = session.config_values.get("_agent", "")
-        logger.debug(
-            "system_prompt built",
-            agent_name=agent_name or "default",
-            cwd=session.cwd,
-            has_agent_prompt=bool(agent_prompt),
-            has_global_prompt=bool(self._global_prompt),
-            has_mcp_info=mcp_manager is not None,
-            total_length=len(result),
-        )
-
-        return result
-
-    def _resolve_agent_prompt(self, session: SessionState) -> str:
-        """Резолвить agent prompt из AgentRegistry.
-
-        Args:
-            session: Состояние сессии (для получения _agent из config_values).
-
-        Returns:
-            Текст agent prompt или пустая строка.
-        """
-        if self._agent_registry is None:
-            return ""
-
-        agent_name = session.config_values.get("_agent", "")
-        if not agent_name:
-            return ""
-
-        agent = self._agent_registry.get(agent_name)
-        if agent is None:
-            logger.debug("agent not found in registry", agent_name=agent_name)
-            return ""
-
-        return agent.prompt or ""
-
-    def _format_mcp_info(self, mcp_manager: Any) -> str:
-        """Сформировать текст о MCP серверах для LLM.
-
-        Args:
-            mcp_manager: MCPManager с подключёнными серверами.
-
-        Returns:
-            Форматированный текст или пустая строка.
-        """
-        server_count = getattr(mcp_manager, "server_count", 0)
-        if server_count == 0:
-            return ""
-
-        server_ids = getattr(mcp_manager, "server_ids", [])
-        if not server_ids:
-            return ""
-
-        lines = [
-            "You have access to the following MCP (Model Context Protocol) servers:",
-        ]
-
-        for server_id in server_ids:
-            tools = mcp_manager.get_tools_for_server(server_id)
-            tool_names = [t.name.split(":")[-1] for t in tools]
-            names_str = ", ".join(tool_names)
-            lines.append(f"- **{server_id}** ({len(tools)} tools): {names_str}")
-
-        lines.append(
-            "\nWhen the user asks about MCP capabilities, reference these servers and their tools."
-        )
-
-        return "\n".join(lines)
+__all__ = ["SystemPromptBuilder"]

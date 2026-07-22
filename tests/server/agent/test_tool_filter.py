@@ -6,7 +6,7 @@
 
 import pytest
 
-from codelab.server.agent.tool_filter import ToolFilter
+from codelab.server.agent.core.tool_filter import ToolFilter
 from codelab.server.protocol.state import ClientRuntimeCapabilities
 from codelab.server.tools.base import ToolDefinition
 

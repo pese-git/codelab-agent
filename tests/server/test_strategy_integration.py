@@ -14,12 +14,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.agent.strategies.descriptor import (
+from codelab.server.agent.core.strategies.descriptor import (
     StrategyDependencies,
     StrategyDescriptor,
 )
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-from codelab.server.agent.strategies.registry import StrategyRegistry
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
+from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
@@ -450,6 +450,6 @@ class TestDynamicStrategyListUpdates:
             assert stage._strategy_dispatcher is dispatcher
 
             # Проверяем что dispatcher реализует LLMCallStrategy Protocol
-            from codelab.server.agent.strategies.base import LLMCallStrategy
+            from codelab.server.agent.core.strategies.base import LLMCallStrategy
 
             assert isinstance(dispatcher, LLMCallStrategy)

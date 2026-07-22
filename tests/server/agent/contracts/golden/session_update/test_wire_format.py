@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
     SessionUpdateSink,
 )

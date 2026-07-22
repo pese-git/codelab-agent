@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
 
 
 class TestSystemPromptBuilderBase:

@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from codelab.server.agent.core.execution_engine import ExecutionEngine
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.event_bus.bus import AgentEventBus
-    from codelab.server.agent.execution_engine import ExecutionEngine
     from codelab.server.agent.registry import AgentRegistry
-    from codelab.server.agent.strategies.base import LLMCallStrategy
     from codelab.server.observability.tracer import Tracer
 
 

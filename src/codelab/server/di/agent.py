@@ -14,13 +14,13 @@ from dishka import Provider, Scope, from_context, provide
 from ..agent.context.file_cache import InvalidationSignalBus, SessionFileCacheRegistry
 from ..agent.context.manager import DefaultContextManager
 from ..agent.context_compactor import ContextCompactor
+from ..agent.core.execution_engine import ExecutionEngine
+from ..agent.core.strategies.descriptor import StrategyDependencies
+from ..agent.core.strategies.dispatcher import StrategyDispatcher
+from ..agent.core.strategies.registry import StrategyRegistry
 from ..agent.event_bus.bus import AgentEventBus, RetryConfig
-from ..agent.execution_engine import ExecutionEngine
 from ..agent.factory import AgentFactory
 from ..agent.registry import AgentRegistry
-from ..agent.strategies.descriptor import StrategyDependencies
-from ..agent.strategies.dispatcher import StrategyDispatcher
-from ..agent.strategies.registry import StrategyRegistry
 from ..config import AppConfig
 from ..llm import LLMProvider
 from ..llm.registry import LLMProviderRegistry

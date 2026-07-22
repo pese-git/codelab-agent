@@ -89,8 +89,8 @@ def llm_loop_stage(
     plan_builder: PlanBuilder,
 ) -> LLMLoopStage:
     """Создаёт LLMLoopStage."""
-    from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
 
     mock_dispatcher = MagicMock(spec=StrategyDispatcher)
     mock_dispatcher.select_strategy.return_value = ("single", None)

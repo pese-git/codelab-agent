@@ -2,7 +2,7 @@
 
 import pytest
 
-from codelab.server.agent.message_sanitizer import MessageSanitizer
+from codelab.server.agent.core.message_sanitizer import MessageSanitizer
 from codelab.server.llm.models import LLMMessage, LLMToolCall
 
 

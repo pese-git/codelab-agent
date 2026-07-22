@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.agent.core.execution_engine import ExecutionEngine
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.agent.event_bus.bus import AgentEventBus
-from codelab.server.agent.execution_engine import ExecutionEngine
 from codelab.server.agent.factory import AgentFactory
 from codelab.server.agent.registry import AgentRegistry
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
 from codelab.server.config import AgentsConfig, AppConfig
 from codelab.server.di import make_container
 from codelab.server.storage.memory import InMemoryStorage

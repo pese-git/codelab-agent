@@ -2,7 +2,7 @@
 
 import pytest
 
-from codelab.server.agent.plan_extractor import (
+from codelab.server.agent.core.plan_extractor import (
     ALLOWED_PRIORITIES,
     ALLOWED_STATUSES,
     PlanEntry,

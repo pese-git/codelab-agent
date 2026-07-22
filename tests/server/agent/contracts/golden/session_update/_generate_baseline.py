@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
     SessionUpdateSink,
 )

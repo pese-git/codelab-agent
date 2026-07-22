@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dishka import Provider, Scope, provide
 
-from ..agent.strategies.dispatcher import StrategyDispatcher
+from ..agent.core.strategies.dispatcher import StrategyDispatcher
 from ..config import AppConfig
 from ..observability import MetricsTracker, Tracer
 from ..protocol.handlers.client_rpc_handler import ClientRPCHandler

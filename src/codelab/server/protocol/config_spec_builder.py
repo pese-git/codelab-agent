@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from ..agent.core.strategies.registry import StrategyRegistry
     from ..agent.registry import AgentRegistry
-    from ..agent.strategies.registry import StrategyRegistry
     from .handlers.config_option_builder import ConfigOptionBuilder
 
 logger = structlog.get_logger()
