@@ -4,6 +4,12 @@
 Фазы добавляют только реализации.
 
 См. doc/internals/context-manager/INTERFACES.md
+
+ADR-005 Фаза 4: ChildSessionManager.create_child/collect_summary принимают
+``SessionView`` (вместо object). ABC из context/interfaces.py были
+переведены на SessionView для устранения утечки типа ``object`` через
+границу интерфейса. Это расширение (не поломка) существующих
+конкретных реализаций, которые теперь строже типизированы.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from codelab.server.agent.context.models import (
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.models import ContextEpoch
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.llm.models import LLMMessage
 
 
@@ -252,11 +259,11 @@ class ChildSessionManager(ABC):
     @abstractmethod
     async def create_child(
         self,
-        parent: object,
+        parent: SessionView,
         subagent_scope: str,
-    ) -> object:
-        """Создать изолированную дочернюю сессию."""
+    ) -> SessionView:
+        """Создать изолированную дочернюю сессию (ADR-005 Фаза 4: SessionView)."""
 
     @abstractmethod
-    async def collect_summary(self, child: object) -> SubagentResult:
-        """Собрать результат дочерней сессии."""
+    async def collect_summary(self, child: SessionView) -> SubagentResult:
+        """Собрать результат дочерней сессии (ADR-005 Фаза 4: SessionView)."""

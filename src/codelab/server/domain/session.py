@@ -24,12 +24,17 @@ from .value_objects import SessionId
 
 @dataclass(frozen=True)
 class SessionConfig:
-    """Конфигурация сессии."""
+    """Конфигурация сессии.
+
+    ADR-005 Фаза 4: parent_session_id — first-class поле (вынесено из
+    config_values, schema_version 7).
+    """
 
     cwd: str
     config_values: dict[str, str] = field(default_factory=dict)
     active_strategy: str = "single"
     runtime_capabilities: ClientCapabilities | None = None
+    parent_session_id: str | None = None
 
 
 @dataclass

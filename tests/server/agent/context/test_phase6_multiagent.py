@@ -107,8 +107,25 @@ class TestDefaultChildSessionManager:
         mock_summarizer: MockSummarizer,
         token_counter: ApproximateTokenCounter,
     ) -> DefaultChildSessionManager:
+        from codelab.server.protocol.child_session.acp_factory import (
+            ACPChildSessionFactory,
+        )
+
+        acp_factory = ACPChildSessionFactory(session_factory=mock_session_factory)
+        # Wrap ACP factory in a SessionView-producing shim
+        from codelab.server.agent.contracts.ports import SessionView
+
+        class _FactoryShim:
+            def __init__(self, inner: ACPChildSessionFactory) -> None:
+                self._inner = inner
+
+            async def create_child(
+                self, parent: SessionView, subagent_scope: str
+            ) -> SessionView:
+                return await self._inner.create_child(parent, subagent_scope)
+
         return DefaultChildSessionManager(
-            session_factory=mock_session_factory,
+            child_session_factory=_FactoryShim(acp_factory),
             session_storage=mock_session_storage,
             summarizer=mock_summarizer,
             token_counter=token_counter,
@@ -118,27 +135,33 @@ class TestDefaultChildSessionManager:
     async def test_create_child_session(
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
-        """Тест создания child-сессии."""
-        parent = SessionState(
-            session_id="parent_session",
-            cwd="/test/project",
-            mcp_servers=[],
+        """Тест создания child-сессии (ADR-005 Фаза 4)."""
+        from codelab.server.protocol.session_view import SessionStateView
+
+        parent = SessionStateView(
+            SessionState(
+                session_id="parent_session",
+                cwd="/test/project",
+                mcp_servers=[],
+            )
         )
 
         child = await child_session_manager.create_child(parent, "coder")
 
         assert child is not None
-        assert child.session_id == "parent_session_child_coder"
-        assert child.cwd == "/test/project"
-        assert child.config_values["parent_session_id"] == "parent_session"
-        assert child.config_values["subagent_scope"] == "coder"
+        assert str(child.id) == "parent_session_child_coder"
+        assert child.config.cwd == "/test/project"
+        # ADR-005 Фаза 4: parent_session_id — first-class поле
+        assert child.config.parent_session_id == "parent_session"
 
     @pytest.mark.asyncio
     async def test_collect_summary_with_history(
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
-        """Тест сбора summary из child-сессии с историей."""
-        child = SessionState(
+        """Тест сбора summary из child-сессии с историей (ADR-005 Фаза 4)."""
+        from codelab.server.protocol.session_view import SessionStateView
+
+        child_state = SessionState(
             session_id="child_session",
             cwd="/test/project",
             mcp_servers=[],
@@ -147,7 +170,8 @@ class TestDefaultChildSessionManager:
                 {"role": "assistant", "content": "Hi there"},
             ],
         )
-        child.config_values["subagent_scope"] = "coder"
+        child_state.config_values["subagent_scope"] = "coder"
+        child = SessionStateView(child_state)
 
         result = await child_session_manager.collect_summary(child)
 
@@ -160,14 +184,17 @@ class TestDefaultChildSessionManager:
     async def test_collect_summary_empty_history(
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
-        """Тест сбора summary из child-сессии без истории."""
-        child = SessionState(
+        """Тест сбора summary из child-сессии без истории (ADR-005 Фаза 4)."""
+        from codelab.server.protocol.session_view import SessionStateView
+
+        child_state = SessionState(
             session_id="child_session",
             cwd="/test/project",
             mcp_servers=[],
             history=[],
         )
-        child.config_values["subagent_scope"] = "coder"
+        child_state.config_values["subagent_scope"] = "coder"
+        child = SessionStateView(child_state)
 
         result = await child_session_manager.collect_summary(child)
 

@@ -57,7 +57,7 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=6)
+    schema_version: int = Field(default=7)
 
     session_id: str
     cwd: str
@@ -146,50 +146,12 @@ class SessionState(BaseModel):
             return data
         version = data.get("schema_version", 0)
 
-        # v0 → v1: events_history, config_values
-        if version < 1:
-            data.setdefault("events_history", [])
-            data.setdefault("config_values", {})
-            data["schema_version"] = 1
-            version = 1
-
-        # v1 → v3: multi-agent fields
-        if version < 3:
-            data.setdefault("active_strategy", "single")
-            data.setdefault("active_agents", [])
-            data.setdefault("session_metrics", None)
-            data.setdefault("correlation_id", None)
-            data.setdefault("parent_session_id", None)
-            data.setdefault("child_session_ids", [])
-            data.setdefault("is_child_session", False)
-            data.setdefault("task_result", None)
-            data.setdefault("sliced_summary", None)
-            data["schema_version"] = 3
-            version = 3
-
-        # v3 → v4: domain model separation (no structural changes, just version bump)
-        # This version introduces domain layer separation but maintains backward compatibility
-        # with existing SessionState structure. Migration is handled by SessionMapper.
-        if version < 4:
-            data["schema_version"] = 4
-            version = 4
-
-        # v4 → v5: terminal alias registry (tech-debt #18)
-        if version < 5:
-            data.setdefault("terminals", {})
-            data.setdefault("terminal_counter", 0)
-            data["schema_version"] = 5
-            version = 5
-
-        # v5 → v6: latest_plan в ACP-форме {content,priority,status} (tech-debt P2-26).
-        # Ранее часть путей хранила невалидный по ACP {title,description} — конвертируем,
-        # чтобы replay на session/load отдавал ACP-валидные entries со статусами.
-        if version < 6:
-            data["latest_plan"] = [
-                _migrate_plan_entry_to_acp(entry) for entry in data.get("latest_plan", [])
-            ]
-            data["schema_version"] = 6
-            version = 6
+        version = cls._migrate_v0_to_v1(data, version)
+        version = cls._migrate_v1_to_v3(data, version)
+        version = cls._migrate_v3_to_v4(data, version)
+        version = cls._migrate_v4_to_v5(data, version)
+        version = cls._migrate_v5_to_v6(data, version)
+        version = cls._migrate_v6_to_v7(data, version)
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})
@@ -202,6 +164,77 @@ class SessionState(BaseModel):
                 config_values["mode"] = new_mode
 
         return data
+
+    @staticmethod
+    def _migrate_v0_to_v1(data: dict[str, Any], version: int) -> int:
+        if version < 1:
+            data.setdefault("events_history", [])
+            data.setdefault("config_values", {})
+            data["schema_version"] = 1
+            return 1
+        return version
+
+    @staticmethod
+    def _migrate_v1_to_v3(data: dict[str, Any], version: int) -> int:
+        if version < 3:
+            data.setdefault("active_strategy", "single")
+            data.setdefault("active_agents", [])
+            data.setdefault("session_metrics", None)
+            data.setdefault("correlation_id", None)
+            data.setdefault("parent_session_id", None)
+            data.setdefault("child_session_ids", [])
+            data.setdefault("is_child_session", False)
+            data.setdefault("task_result", None)
+            data.setdefault("sliced_summary", None)
+            data["schema_version"] = 3
+            return 3
+        return version
+
+    @staticmethod
+    def _migrate_v3_to_v4(data: dict[str, Any], version: int) -> int:
+        # v3 → v4: domain model separation (no structural changes, just version bump)
+        # Migration is handled by SessionMapper.
+        if version < 4:
+            data["schema_version"] = 4
+            return 4
+        return version
+
+    @staticmethod
+    def _migrate_v4_to_v5(data: dict[str, Any], version: int) -> int:
+        # v4 → v5: terminal alias registry (tech-debt #18)
+        if version < 5:
+            data.setdefault("terminals", {})
+            data.setdefault("terminal_counter", 0)
+            data["schema_version"] = 5
+            return 5
+        return version
+
+    @staticmethod
+    def _migrate_v5_to_v6(data: dict[str, Any], version: int) -> int:
+        # v5 → v6: latest_plan в ACP-форме {content,priority,status} (tech-debt P2-26)
+        if version < 6:
+            data["latest_plan"] = [
+                _migrate_plan_entry_to_acp(entry) for entry in data.get("latest_plan", [])
+            ]
+            data["schema_version"] = 6
+            return 6
+        return version
+
+    @staticmethod
+    def _migrate_v6_to_v7(data: dict[str, Any], version: int) -> int:
+        # v6 → v7: parent_session_id стал first-class полем SessionState
+        # (change acp-independent-agent-core, ADR-005 Фаза 4). До этого
+        # хранился в config_values["parent_session_id"]. При загрузке
+        # старой сессии поднимаем значение в first-class поле (без потери
+        # данных) и удаляем из config_values.
+        if version < 7:
+            config_values_v6 = data.get("config_values", {}) or {}
+            legacy_parent = config_values_v6.pop("parent_session_id", None)
+            if legacy_parent and not data.get("parent_session_id"):
+                data["parent_session_id"] = legacy_parent
+            data["schema_version"] = 7
+            return 7
+        return version
 
 
 class ToolCallState(BaseModel):

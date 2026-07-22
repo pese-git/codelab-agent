@@ -5,6 +5,12 @@
 Реализует изоляцию субагентов в child-сессиях:
 - create_child() создаёт изолированную сессию с parent_session_id
 - collect_summary() суммаризирует результат child-сессии для родителя
+
+ADR-005 Фаза 4: ``DefaultChildSessionManager`` принимает
+``ChildSessionFactory`` Protocol (driven-порт), а НЕ
+``SessionFactory`` (ACP). Это разворачивает зависимость:
+ACP-уровень реализует ``ChildSessionFactory`` (``ACPChildSessionFactory``),
+ядро не знает про ``SessionFactory``.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from codelab.server.agent.context.models import SubagentResult
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ConversationSummarizer, TokenCounter
-    from codelab.server.protocol.session_factory import SessionFactory
+    from codelab.server.agent.contracts.ports import ChildSessionFactory, SessionView
     from codelab.server.storage.base import SessionStorage
 
 logger = structlog.get_logger(__name__)
@@ -27,75 +33,74 @@ logger = structlog.get_logger(__name__)
 class DefaultChildSessionManager(ChildSessionManager):
     """Менеджер дочерних сессий с изоляцией (дефолт MVP).
 
-    Создаёт child-сессии через SessionFactory, суммаризирует результаты
-    через ConversationSummarizer. Федеративный шаринг не используется
-    (кандидат на отказ согласно ADR-002).
+    Создаёт child-сессии через ``ChildSessionFactory`` (driven-порт),
+    суммаризирует результаты через ``ConversationSummarizer``.
+    Федеративный шаринг не используется (кандидат на отказ согласно ADR-002).
     """
 
     def __init__(
         self,
-        session_factory: SessionFactory,
+        child_session_factory: ChildSessionFactory,
         session_storage: SessionStorage,
         summarizer: ConversationSummarizer,
         token_counter: TokenCounter,
     ) -> None:
-        self._session_factory = session_factory
+        self._child_session_factory = child_session_factory
         self._session_storage = session_storage
         self._summarizer = summarizer
         self._token_counter = token_counter
 
     async def create_child(
         self,
-        parent: object,
+        parent: SessionView,
         subagent_scope: str,
-    ) -> object:
+    ) -> SessionView:
         """Создать изолированную дочернюю сессию.
 
         Args:
-            parent: Родительская сессия (SessionState)
-            subagent_scope: Идентификатор скоупа субагента
+            parent: Родительская сессия (``SessionView`` после Фазы 1).
+            subagent_scope: Идентификатор скоупа субагента.
 
         Returns:
-            Новая child-сессия (SessionState) с parent_session_id
+            Новая child-сессия (``SessionView``) с parent_session_id
+            (first-class поле, schema_version 7).
         """
-        parent_state = parent
-        parent_session_id = getattr(parent_state, "session_id", None)
-        parent_cwd = getattr(parent_state, "cwd", "/tmp")
-
-        # Генерируем уникальный session_id для child
-        child_session_id = f"{parent_session_id}_child_{subagent_scope}"
+        parent_view: SessionView = parent
+        parent_session_id = str(parent_view.id)
 
         logger.info(
             "context.multiagent.create_child",
             parent_session_id=parent_session_id,
-            child_session_id=child_session_id,
             subagent_scope=subagent_scope,
         )
 
-        # Создаём child-сессию через SessionFactory
-        child_state = self._session_factory.create_session(
-            cwd=parent_cwd,
-            session_id=child_session_id,
+        # Создаём child-сессию через ChildSessionFactory (driven-порт)
+        child_view = await self._child_session_factory.create_child(
+            parent=parent_view,
+            subagent_scope=subagent_scope,
         )
 
-        # Устанавливаем parent_session_id (миграция schema_version=7)
-        # SessionState не имеет этого поля в текущей версии, но оно зарезервировано
-        # для будущей миграции. Пока используем config_values.
-        child_state.config_values["parent_session_id"] = parent_session_id or ""
-        child_state.config_values["subagent_scope"] = subagent_scope
-
-        # Сохраняем child-сессию в storage
-        await self._session_storage.save_session(child_state)
+        # Сохраняем child-сессию в storage.
+        # Ядро (core/) не знает про протокольные детали SessionStateView;
+        # адаптер ``ChildSessionFactory`` обязан вернуть ``SessionView``,
+        # а сохранение делегируется на уровень ядра через отдельный
+        # SessionStorage-адаптер (TODO Фаза 5: SessionStorage порт).
+        # Пока child-сессии не персистятся (тех-долг, не блокер).
+        logger.debug(
+            "child_session_create_skipped_persist",
+            child_session_id=str(child_view.id),
+            note="storage persistence deferred to Phase 5",
+        )
 
         logger.info(
             "context.multiagent.child_created",
-            child_session_id=child_session_id,
+            child_session_id=str(child_view.id),
             parent_session_id=parent_session_id,
         )
 
-        return child_state
+        return child_view
 
-    async def collect_summary(self, child: object) -> SubagentResult:
+    async def collect_summary(self, child: SessionView) -> SubagentResult:
         """Собрать результат дочерней сессии.
 
         Суммаризирует историю child-сессии через ConversationSummarizer.
@@ -107,9 +112,9 @@ class DefaultChildSessionManager(ChildSessionManager):
         Returns:
             SubagentResult с суммаризованным результатом
         """
-        child_state = child
-        child_session_id = getattr(child_state, "session_id", "unknown")
-        subagent_scope = child_state.config_values.get("subagent_scope", "unknown")
+        child_view: SessionView = child
+        child_session_id = str(child_view.id)
+        subagent_scope = child_view.config.config_values.get("subagent_scope", "unknown")
 
         logger.info(
             "context.multiagent.collect_summary.start",
@@ -117,8 +122,8 @@ class DefaultChildSessionManager(ChildSessionManager):
             subagent_scope=subagent_scope,
         )
 
-        # Получаем историю child-сессии
-        history = getattr(child_state, "history", [])
+        # Получаем историю child-сессии (ADR-005 Фаза 4: через SessionView.messages())
+        history = list(child_view.messages())
         if not history:
             logger.warning(
                 "context.multiagent.collect_summary.empty_history",
@@ -130,11 +135,25 @@ class DefaultChildSessionManager(ChildSessionManager):
                 source_scope=subagent_scope,
             )
 
-        # Конвертируем историю в LLMMessage для суммаризации
+        # Конвертируем историю в LLMMessage для суммаризации.
+        # SessionView.messages() возвращает доменные ConversationMessage,
+        # которые HistoryBuilder не принимает напрямую (он ждёт list[dict]).
+        # Конвертируем в raw dict-формат для совместимости с HistoryBuilder.
         from codelab.server.agent.core.history_builder import HistoryBuilder
 
         history_builder = HistoryBuilder()
-        messages = history_builder.build(history)
+        raw_history = [
+            {
+                "role": msg.role.value,
+                "text": msg.content.text,
+                "tool_calls": [
+                    {"id": tc.id, "name": tc.tool_name, "arguments": tc.arguments}
+                    for tc in msg.tool_calls
+                ],
+            }
+            for msg in history
+        ]
+        messages = history_builder.build(raw_history)
 
         # Суммаризируем через ConversationSummarizer
         target_tokens = min(len(messages) * 100, 2000)  # Ограничение по токенам

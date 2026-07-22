@@ -55,6 +55,9 @@ class SessionStateView:
         доменный ``ClientCapabilities`` из ``shared.capabilities`` —
         единственное представление capabilities, которое видит ядро
         (P2-32 / ADR-005 Фаза 1.6).
+
+        ``parent_session_id`` (ADR-005 Фаза 4) — first-class поле
+        SessionState, schema_version 7.
         """
         state = self._state
         runtime_caps: ClientCapabilities | None = None
@@ -71,6 +74,7 @@ class SessionStateView:
             config_values=dict(state.config_values),
             active_strategy=state.active_strategy,
             runtime_capabilities=runtime_caps,
+            parent_session_id=state.parent_session_id,
         )
 
     def messages(self) -> Sequence[ConversationMessage]:
