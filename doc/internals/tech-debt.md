@@ -1517,7 +1517,8 @@ wire-форма).
 
 **Оценка:** входит в эпик B (ADR-003, унификация session/capabilities представлений).
 **Критерий приемки:** одно представление client-capabilities в ядре; round-trip без потери полей.
-**Связано:** `doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md` (вариант B).
+**Связано:** `doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md` (вариант B);
+`ADR-005-acp-independent-agent-core.md` (тот же класс дублирования — content ↔ capabilities).
 
 ---
 

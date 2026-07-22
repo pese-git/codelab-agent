@@ -10,6 +10,7 @@
 - `src/codelab/server/domain/session.py` — доменный агрегат `Session`
 - `src/codelab/server/mapping/session_mapper.py` — `SessionMapper` (domain ↔ protocol)
 - ADR-002 — консолидация Context Manager (потребитель `SessionState` в agent)
+- ADR-005 — ACP-независимое ядро агента (read-фаза варианта B = порт `SessionView`)
 
 ---
 
