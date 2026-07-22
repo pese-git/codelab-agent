@@ -42,8 +42,12 @@ ACP стал одним из driving-адаптеров (открывает пу
 
 - Ядро: `server/agent/{execution_engine,strategies/*,system_prompt_builder,history_builder,tool_filter}`,
   `server/agent/context/{child_session,file_cache_decorator}`.
-- Порты: новые `server/agent/ports/` + `server/domain/ports.py`.
-- Адаптеры (ACP): `server/protocol/` (`SessionStateView`, `ACPContentCodec`, обёртка `SessionUpdateSink`).
+- Реорганизация внутри `server/agent/` (Фаза 0, hexagon layout): порты — в существующий
+  `agent/contracts/` (`ports.py`), чистое ядро — в `agent/core/`. Новый пакет `ports/` не заводим.
+- Адаптеры (ACP) в `server/protocol/`: `SessionStateView` (рядом с `state.py`),
+  `ACPContentCodec` (в существующий `protocol/content/`), обёртка `SessionUpdateSink`.
+- Периферия не трогается: `llm/` (+ `providers/discovery/fallback/telemetry`), `mcp/`,
+  `tools/`, `storage/`, `transport/`, `observability/`, `client_rpc/`, `domain/`, `toml_config/`.
 - `pyproject.toml` — снятие строк `ignore_imports` контракта «Server layers» по мере фаз.
 
 ### Совместимость

@@ -12,6 +12,42 @@ ADR-003 (read-фаза), ADR-001 (`LLMAdapter`). Сигнатуры выведе
    реализацией, поведение байт-в-байт. ABC из `context/interfaces.py` заморожены (не трогаем).
 4. Graceful degradation горячего пути; обратная совместимость wire/форматов.
 
+## Целевая структура каталогов (Фаза 0 — hexagon layout)
+
+Реорганизация **внутри `server/agent/`**; периферийные пакеты не трогаются. Каталоги
+внутри пакета отражают роли гексагона — «где порт / где ядро / где адаптер» видно глазами.
+
+```
+server/
+├── agent/                      # ⚙️  ядро + порты (реорганизуется ВНУТРИ)
+│   ├── contracts/              #     ПОРТЫ: ports.py (SessionView, ContentCodec, ToolGateway,
+│   │                           #     UpdateSink, AgentRunner, LLMPort, ChildSessionFactory)
+│   │                           #     + events.py (DomainEvent, AgentRequest, AgentResult, AgentResponse)
+│   ├── core/                   #     ЧИСТОЕ ЯДРО: execution_engine, strategies/, system_prompt_builder,
+│   │                           #     history_builder, message_sanitizer, plan_extractor, tool_filter
+│   ├── context/                #     контекст-подсистема (как есть)
+│   ├── event_bus/
+│   ├── factory.py · registry.py#     composition внутри agent
+│   └── llm_adapter.py          #     driven-адаптер к llm/ (граница ADR-001, на месте)
+│
+├── protocol/                   # 🔌 ACP driving-адаптер (+ добавления)
+│   ├── content/                #     + acp_codec.py (реализует ContentCodec)
+│   ├── session_view.py         #     + SessionStateView (реализует SessionView над живой SessionState)
+│   └── handlers/…/agent_loop/  #     turn-loop = реализует AgentRunner
+│
+├── domain/ · mapping/          # без структурных изменений (mapping: выделить config/history хелперы)
+├── llm/{providers,discovery,fallback,telemetry} · mcp/ · tools/ · storage/
+├── transport/ · observability/ · client_rpc/ · di/ · toml_config/    # НЕ трогаются
+```
+
+**Навигация:** «контракт ядра» → `agent/contracts/ports.py`; «бизнес-логика» → `agent/core/`
+(без единого импорта `protocol`/ACP); «ACP-склейка» → `protocol/`. Появление `import ...protocol`
+в `core/` заметно ещё до `import-linter`.
+
+**Правила реорганизации:** только `git mv` + импорты, ноль изменений поведения; границы
+`import-linter` (`codelab.server.{agent,protocol,domain}`) не двигаются; глубина ≤2 уровней
+(не дробить `core/` ради метрики); re-export для сохранения публичных путей.
+
 ## Как сейчас (as-is)
 
 ```mermaid
