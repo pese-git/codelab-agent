@@ -1,0 +1,22 @@
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": {
+    "sessionId": "sess_001",
+    "update": {
+      "entries": [
+        {
+          "content": "Read README.md",
+          "priority": "high",
+          "status": "in_progress"
+        },
+        {
+          "content": "Summarize architecture",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ],
+      "sessionUpdate": "plan"
+    }
+  }
+}

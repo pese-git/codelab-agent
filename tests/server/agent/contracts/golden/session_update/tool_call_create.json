@@ -1,0 +1,22 @@
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": {
+    "sessionId": "sess_001",
+    "update": {
+      "kind": "read",
+      "locations": [
+        {
+          "path": "/tmp/README.md"
+        }
+      ],
+      "rawInput": {
+        "path": "/tmp/README.md"
+      },
+      "sessionUpdate": "tool_call",
+      "status": "pending",
+      "title": "Read file",
+      "toolCallId": "call_001"
+    }
+  }
+}
