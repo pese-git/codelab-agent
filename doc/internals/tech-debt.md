@@ -11,6 +11,7 @@
 > P1-4 (`context/gatherer.py` 1048→617 — path-matching хелперы вынесены в `context/file_matching.py`): 2026-07-14 (ветка `tech-debt`)
 > P1-4 (`pipeline/stages/agent_loop.py` 1352→пакет `agent_loop/` — loop/llm_caller/tool_processor/updates, все <750): 2026-07-14 (ветка `tech-debt`). Файлов >1000 строк: **1** (только оправданно крупный `messages.py`).
 > P0-14 (гейт `ty` восстановлен: 4 ошибки типов устранены в treesitter/registry/di.agent/notification_bus, `make check` зелёный): 2026-07-15 (ветка `tech-debt`).
+> Аудит async-lifecycle / dead-code (2026-07-22, ветка `develop`): добавлены P0-28 (fire-and-forget задачи без контроля жизненного цикла), P1-29 (гашение `CancelledError`), P1-30 (`except Exception: pass` в конфиге), P2-31 (мёртвый код / незаинтегрированные MVP-заделы), P2-32 (тройное представление capabilities, связано с ADR-003).
 
 > **Примечание о пересчёте (2026-07-10):** метрики измерены на ветке `tech-debt`.
 > Сложность — `radon cc` (порог 10). Ruff — `ruff check .` (текущая конфигурация проекта).
@@ -1381,6 +1382,142 @@ wire-форма).
 **Критерий приемки:** stress-тест (50+ терминалов) проходит без `terminal_alias_not_found`;
 все aliases сохраняются до явного `terminal/release`; логи не содержат ошибок при
 интенсивном использовании.
+
+---
+
+### 28. Fire-and-forget задачи без контроля жизненного цикла — ⬜ ОТКРЫТО (обнаружено 2026-07-22)
+
+> Обнаружено при аудите async-корректности (2026-07-22). CLAUDE.md прямо запрещает
+> «создавать фоновые задачи без контроля жизненного цикла». Python GC вправе собрать
+> задачу, на которую нет сильной ссылки, до её завершения (документированное поведение
+> `asyncio.create_task`/`ensure_future`) — задача обрывается молча, исключения внутри
+> не всплывают. Часть находок — на **горячем пути** (исполнение tool-calls, чтение stdout
+> терминала). В тех же модулях соседний код задачи хранит корректно (в атрибуты/словари/set,
+> часто с `add_done_callback`) — эти выпадают из паттерна.
+
+**Находки:**
+
+| # | Файл:строка | Что запускается | Серьёзность |
+|---|-------------|-----------------|-------------|
+| 1 | `server/protocol/core.py:212` | `execute_tool_in_background(...)` — горячий путь tool-execution | высокая |
+| 2 | `client/infrastructure/services/terminal_executor.py:188` | `_read_output(session)` — долгоживущее чтение stdout терминала | высокая |
+| 3 | `server/protocol/notification_bus.py:98` | `ensure_future(callback(message))` — доставка буферизованных уведомлений | средняя |
+| 4 | `client/.../acp_transport/request_callback_coordinator.py:353` | `ensure_future(permission_responder.handle(...))` — permission flow | средняя |
+| 5 | `client/presentation/chat/handlers/tool_call_handler.py:161` | `on_tool_call_updated(update)` | средняя |
+| 6 | `client/presentation/base_view_model.py:142` | `loop.create_task(publish_result)` | средняя |
+| 7 | `client/presentation/chat/handlers/config_option_handler.py:81` | `event_bus.publish(event)` | средняя |
+
+**Задачи:**
+- [ ] Ввести единый механизм владения фоновыми задачами (см. архитектурное решение ниже)
+- [ ] Перевести находки 1–7 на хранение ссылки + `add_done_callback` (снятие ссылки + логирование исключения)
+- [ ] Guardrail: тест/линт против «голого» `create_task`/`ensure_future` без регистрации
+- [ ] Приоритет: сначала горячий путь (1, 2), затем permission flow (4)
+
+**Оценка:** 1 день (механизм) + 0.5 дня (перевод точек + guardrail).
+**Критерий приемки:** нет `create_task`/`ensure_future` без владельца; фоновые ошибки логируются, не теряются молча; `make check` зелёный.
+
+---
+
+### 29. Гашение `asyncio.CancelledError` без проброса — ⬜ ОТКРЫТО (обнаружено 2026-07-22)
+
+> CLAUDE.md требует «корректно обрабатывать `asyncio.CancelledError`». Перехват отмены без
+> `raise` превращает отменённую операцию в «нормально завершённую» — структурная отмена
+> вверх по стеку ломается.
+
+**Находки:**
+
+- **`server/agent/llm_adapter.py:131`** (высокая) — `CancelledError` перехватывается и
+  конвертируется в обычный `AgentResult(stop_reason="cancelled")` **без `raise`**.
+  Вызывающий agent-loop не увидит отмену и продолжит как после штатного результата.
+  Может быть намеренным (наблюдать отмену как доменный результат) — **требует явного
+  решения по семантике** (проброс vs доменный «cancelled» с задокументированным инвариантом).
+- **`server/transport/stdio.py:262`** (средняя) — `except CancelledError` только логирует,
+  без `raise`; receive-loop завершается как «нормально завершённый». Образец правильного
+  поведения — `mcp/manager.py:933` (делает `raise`).
+
+**Задачи:**
+- [ ] Принять решение по семантике отмены в `llm_adapter` (проброс или доменный результат + инвариант в docstring)
+- [ ] `stdio.py:262` — `raise` после cleanup (по образцу `mcp/manager.py:933`)
+- [ ] Тесты на пропагацию отмены сверху вниз
+
+**Оценка:** 0.5 дня (после решения по семантике).
+**Критерий приемки:** отмена корректно распространяется; поведение отмены покрыто тестами.
+
+---
+
+### 30. `except Exception: pass` в конфиге — молчаливая потеря настроек — ⬜ ОТКРЫТО (обнаружено 2026-07-22)
+
+> CLAUDE.md прямо запрещает `except Exception: pass`. Аудит нашёл 7 таких мест; 5 —
+> оправданный best-effort TUI-cleanup (иконка темы, тик таймера, бейдж статуса, монтирование
+> карточки). Реальный долг — один; мягкий — один.
+
+**Находки:**
+- **`server/config.py:363`** (реальный долг) — глушит любую ошибку `tomllib.load` (битый TOML,
+  синтаксис, права доступа) без логирования: пользовательские настройки молча теряются,
+  вместо явного сигнала о некорректном конфиге. Минимум — `logger.warning` с путём и причиной;
+  корректнее — ловить конкретные `tomllib.TOMLDecodeError`/`OSError`.
+- **`client/tui/components/keyboard_manager.py:334`** (мягкий) — глушит ошибку
+  `self._app.action(action)` и возвращает `False` без логирования, в отличие от соседней
+  ветки custom_handlers (строка ~325, логирует через `logger.error`). Диагностика теряется.
+
+**Задачи:**
+- [ ] `config.py:363` — сузить перехват + `logger.warning` с путём/причиной
+- [ ] `keyboard_manager.py:334` — логировать по аналогии с веткой custom_handlers
+
+**Оценка:** 0.5 дня.
+**Критерий приемки:** ошибки парсинга конфига видны в логах; голого `except Exception: pass` в не-cleanup путях нет.
+
+---
+
+### 31. Мёртвый код и незаинтегрированные MVP-заделы — ⬜ ОТКРЫТО (обнаружено 2026-07-22)
+
+> Компоненты, помеченные как «заглушка/extension point для MVP», которые определены и
+> реэкспортируются, но не инстанцируются в прод-графе DI. Аналог трекнутого P2-24
+> (`[llm.fallback]`).
+
+**Находки:**
+- **`server/agent/context/legacy_bridge.py`** (`LegacyContextCompactorAdapter`) —
+  не инстанцируется: DI (`di/agent.py`) передаёт `ContextCompactor` в `ExecutionEngine`
+  напрямую. Docstring обещает использование при `agents.context.enabled=false`, но адаптер
+  в графе отсутствует. Кандидат на удаление (проверить флаг перед удалением).
+- **`server/llm/telemetry/noop.py`** (`NoOpTelemetry`) — не подключён нигде, кроме реэкспорта.
+- **`server/llm/discovery/static.py`** (`StaticModelDiscovery`) — вне модуля discovery не вызывается.
+- **`server/llm/fallback/`** (весь пакет) — совпадает с **P2-24**; `factory.create()` реализует
+  только `sequential`, стратегии `cost/latency/smart` из docstring `base.py:36` — несуществующие
+  классы (`factory.py:40` кидает `ValueError`); circuit_breaker не закрывается автоматически.
+
+**Задачи:**
+- [ ] Подтвердить флагом, что `legacy_bridge` мёртв при всех значениях `agents.context.enabled`; удалить либо задокументировать точку подключения
+- [ ] `telemetry/noop`, `discovery/static` — удалить или явно пометить «задел, потребителя нет» с тикетом на подключение
+- [ ] Синхронизировать с P2-24 по судьбе `llm/fallback/`; убрать из docstring несуществующие стратегии
+- [ ] Проверить, что удаление не ломает публичные реэкспорты (`__all__`)
+
+**Оценка:** 0.5–1 день.
+**Критерий приемки:** нет определённых-но-неинстанцируемых компонентов без явной пометки-задела; docstring не обещают несуществующих реализаций.
+
+---
+
+### 32. Тройное представление «capabilities» — риск рассинхрона и потеря полей — ⬜ ОТКРЫТО (обнаружено 2026-07-22, связано с ADR-003)
+
+> Одна ACP-концепция «client capabilities» живёт в трёх типах; `SessionMapper` вручную
+> перекладывает поля между двумя из них, **теряя `image_prompts`/`embedded_context`** при
+> round-trip. Смежный след доменной миграции — уже отмечен в ADR-003.
+
+**Находки:**
+- `server/protocol/state.py:332` — `ClientRuntimeCapabilities(BaseModel)`: `fs_read/fs_write/terminal`.
+- `shared/capabilities.py:16` — `ClientCapabilities` (frozen dataclass): те же 3 поля +
+  `image_prompts/embedded_context`.
+- `server/mcp/models.py:870` — `MCPClientCapabilities`: третье представление (MCP-хендшейк).
+- `mapping/session_mapper.py:103-131` — ручной маппинг protocol↔shared с потерей 2 полей.
+
+**Задачи:**
+- [ ] Свести client-capabilities к единому доменному VO (`shared.ClientCapabilities`); protocol-модель — только сериализация на границе
+- [ ] Убедиться, что `image_prompts`/`embedded_context` не теряются в round-trip (регресс-тест)
+- [ ] Оценить, отделима ли `MCPClientCapabilities` (MCP-протокол) или сводима к тому же VO
+
+**Оценка:** входит в эпик B (ADR-003, унификация session/capabilities представлений).
+**Критерий приемки:** одно представление client-capabilities в ядре; round-trip без потери полей.
+**Связано:** `doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md` (вариант B).
 
 ---
 

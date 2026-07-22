@@ -29,13 +29,24 @@
 | `agent/strategies/dispatcher` | `session_id`, `config_values` |
 | `agent/context/file_cache_decorator` | `session_id` |
 | `agent/context/child_session` | `SessionFactory` (тип фабрики) |
+| `agent/tool_filter` | `ClientRuntimeCapabilities` (см. актуализацию ниже) |
 
 Плюс замыкающие цепочки `storage/base → protocol.state` и
 `tools/executors/decorators/base → protocol.state`.
 
-Все зависимости — **аннотации типов под `TYPE_CHECKING`**; ни один модуль agent не
+> **Актуализация (22 июля 2026).** Ребро `runtime_capabilities` (`ClientRuntimeCapabilities`)
+> с тех пор живёт в `agent/tool_filter`, а не в `execution_engine`; в `ignore_imports`
+> добавлена строка `agent.tool_filter -> protocol.state` (по правилу «расширять строки
+> долга»). Таблица выше отражает исходный срез на дату принятия ADR.
+
+Зависимости `agent` — **аннотации типов под `TYPE_CHECKING`**; ни один модуль agent не
 **мутирует** сессию и не создаёт `SessionState`. Читаемая поверхность мала и read-only:
 `session_id`, `cwd`, `config_values`, `history`, `runtime_capabilities`.
+
+> **Актуализация (22 июля 2026).** Замыкающая цепочка `storage/base` — **не** type-only:
+> `storage/base.py` импортирует `SessionState` на уровне модуля (рантайм), ABC-сигнатуры
+> `save_session`/`load_session` принимают `SessionState`. Формулировка «все рёбра type-only,
+> работе не мешают» к ней неприменима — при эпике B это ребро требует настоящей развязки.
 
 ### Корневая причина
 
@@ -49,6 +60,12 @@
 - То есть сериализационная модель **протекает до самого ядра**, минуя агрегат, который
   для этого и создан. Инфраструктура для «правильного» варианта существует, но путь
   `protocol-handlers → execution_engine/strategies` так и не был переведён на агрегат.
+
+> **Актуализация (22 июля 2026).** «Инфраструктура существует» — с оговоркой: `SessionMapper`
+> определён, но **не провязан** ни в одном живом пути (единственная ссылка на него — внутри
+> собственного модуля и в комментариях `protocol/state.py`). Для эпика B это не готовый
+> адаптер к переиспользованию, а незаинтегрированный задел: его нужно сперва довести
+> (в т.ч. асимметрию схлопывания роли `tool`) и провязать на границе.
 
 Смежный след той же миграции — дублирование `ClientRuntimeCapabilities` (protocol, Pydantic)
 и `ClientCapabilities` (shared VO, вынесен в ADR-эпоху import-linter): одна и та же
