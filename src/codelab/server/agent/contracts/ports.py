@@ -17,7 +17,10 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from codelab.server.agent.contracts.events import AgentResult
     from codelab.server.llm.content_parts import ContentPart
+    from codelab.server.llm.models import LLMMessage
+    from codelab.server.observability.tracer import SpanContext
     from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 
@@ -108,3 +111,49 @@ class UpdateSink(Protocol):
 
     async def emit_agent_message(self, session_id: str, text: str) -> None: ...
     async def emit_streaming_delta(self, session_id: str, text: str) -> None: ...
+
+
+class ChildSessionFactory(Protocol):
+    """Порт создания дочерних (субагентских) сессий (ADR-005, Фаза 4).
+
+    Доменная замена `protocol.session_factory.SessionFactory`: ядро
+    (`DefaultChildSessionManager`) создаёт child-сессии через порт, не завися от
+    протокольной фабрики. ACP-реализация (`SessionFactory`) удовлетворяет порт
+    структурно. Результат трактуется duck-typed (`session_id`, `config_values`, …).
+    """
+
+    def create_session(self, cwd: str, *, session_id: str | None = None) -> object: ...
+
+
+class LLMPort(Protocol):
+    """Driven-порт вызова LLM (фиксация `LLMAdapter`, граница ADR-001).
+
+    Один вызов провайдера: история + инструменты → `AgentResult`. Tool-calling
+    циклом управляет вызывающая сторона (`AgentRunner`/loop), не порт.
+    """
+
+    async def call(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        config: dict[str, Any] | None = None,
+        parent_span: SpanContext | None = None,
+        session_id: str = "",
+    ) -> AgentResult: ...
+
+
+class AgentRunner(Protocol):
+    """Driving-порт входа turn-а (ADR-005, Фаза 4).
+
+    Точка входа ядра, не зависящая от драйвера: ACP-адаптер (turn-loop) и
+    fake/A2A-драйверы вызывают её одинаково. `run_turn` — начало turn-а (есть
+    prompt), `continue_turn` — продолжение после tool_results (prompt уже в истории).
+    Возвращает доменный `AgentResult` (обёртку в wire делает driving-адаптер).
+    """
+
+    async def run_turn(
+        self, session: SessionView, prompt: str, *, system_prompt: str | None = None
+    ) -> AgentResult: ...
+    async def continue_turn(
+        self, session: SessionView, *, system_prompt: str | None = None
+    ) -> AgentResult: ...

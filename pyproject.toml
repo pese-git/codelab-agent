@@ -192,7 +192,6 @@ layers = [
 # См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
 ignore_imports = [
     "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
-    "codelab.server.agent.context.child_session -> codelab.server.protocol.session_factory",
     "codelab.server.storage.base -> codelab.server.protocol.state",
     "codelab.server.tools.executors.decorators.base -> codelab.server.protocol.state",
 ]

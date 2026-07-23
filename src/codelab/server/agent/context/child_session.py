@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -18,8 +18,7 @@ from codelab.server.agent.context.models import SubagentResult
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ConversationSummarizer, TokenCounter
-    from codelab.server.agent.contracts.ports import ContentCodec
-    from codelab.server.protocol.session_factory import SessionFactory
+    from codelab.server.agent.contracts.ports import ChildSessionFactory, ContentCodec
     from codelab.server.storage.base import SessionStorage
 
 logger = structlog.get_logger(__name__)
@@ -35,7 +34,7 @@ class DefaultChildSessionManager(ChildSessionManager):
 
     def __init__(
         self,
-        session_factory: SessionFactory,
+        session_factory: ChildSessionFactory,
         session_storage: SessionStorage,
         summarizer: ConversationSummarizer,
         token_counter: TokenCounter,
@@ -75,10 +74,13 @@ class DefaultChildSessionManager(ChildSessionManager):
             subagent_scope=subagent_scope,
         )
 
-        # Создаём child-сессию через SessionFactory
-        child_state = self._session_factory.create_session(
-            cwd=parent_cwd,
-            session_id=child_session_id,
+        # Создаём child-сессию через порт ChildSessionFactory.
+        # Тип — Any: сессия для ядра непрозрачна (мутация config_values и передача
+        # в SessionStorage — duck-typed). Строгий домен-тип появится в write-фазе
+        # ADR-003 (domain.Session + доменный storage-порт).
+        child_state: Any = cast(
+            "Any",
+            self._session_factory.create_session(cwd=parent_cwd, session_id=child_session_id),
         )
 
         # Устанавливаем parent_session_id (миграция schema_version=7)

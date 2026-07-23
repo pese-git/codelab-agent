@@ -52,15 +52,24 @@
 - [x] 3.5 Golden-тест wire: `SessionUpdateSink.build_agent_message_chunk` даёт прежний `agent_message_chunk` (в `test_strategy_integration`); полный wire-golden — с 3.3 в Фазе 4
 - [x] 3.6 Ядро не конструирует `ACPMessage`: `build_fallback_notification`→`build_fallback_text` (домен-текст), ACP-wire строит `llm_loop` через `SessionUpdateSink`. **Бонус:** fallback теперь доставляется НЕМЕДЛЕННО через callback (не в буфер) — принцип immediate-delivery. `make check` зелёный (7336 passed)
 
-## Фаза 4: `AgentRunner` + `ChildSessionFactory` — средний риск
+## Фаза 4: `AgentRunner` + `ChildSessionFactory`
 
-- [ ] 4.1 Объявить driving-порт `AgentRunner(Protocol)` (`run_turn`/`continue_turn`)
-- [ ] 4.2 Реализация `AgentRunner` — связка `ExecutionEngine` + `StrategyDispatcher`
-- [ ] 4.3 Turn-loop (`agent_loop/`) оформить как ACP driving-адаптер, вызывающий `AgentRunner`
-- [ ] 4.4 `context/child_session` → доменный `ChildSessionFactory`; ACP-реализация в `protocol/`
-- [ ] 4.5 Удалить оставшиеся строки `ignore_imports` `agent → protocol` (в т.ч. `child_session → session_factory`)
-- [ ] 4.6 Контракт «Server layers» зелёный **без исключений для agent**; долг ADR-003 снят целиком
-- [ ] 4.7 Smoke: подать в `AgentRunner` не-ACP драйвер (тест-харнесс) — turn проходит без `protocol/`
+> **Полный объём одобрен** (гейты: fake driver, смена формата сессий с миграцией,
+> golden wire-тесты — все закрыты). Идёт по потокам A→D→B→C→E (см. ADR-005 / эпик
+> write-фазы). **Workstream A выполнен** (безопасный капстоун); B–E — планируемый эпик.
+
+**Workstream A (выполнено):**
+- [x] 4.1 `AgentRunner(Protocol)` в `ports.py` (`run_turn`/`continue_turn`) + `LLMPort(Protocol)` (фиксация `LLMAdapter`, ADR-001)
+- [x] 4.2 `CoreAgentRunner` (`agent/core/agent_runner.py`) — связка `ExecutionEngine` + `LLMPort`. **Отличие от эскиза:** без `StrategyDispatcher`/EventBus — тонкий runner на портах (build_context → llm.call). Полная привязка `StrategyDispatcher` + прод-loop — 4.3, Workstream C
+- [x] 4.4 `ChildSessionFactory(Protocol)` в `ports.py`; `DefaultChildSessionManager.session_factory: ChildSessionFactory`; ACP-`SessionFactory` удовлетворяет структурно (адаптер не нужен). Результат — `cast(Any)` seam до write-фазы (storage ещё `SessionState`)
+- [x] 4.5 Снята строка `ignore_imports` `child_session → session_factory`
+- [x] 4.7 Smoke `test_agent_runner_smoke.py`: не-ACP fake-драйвер (`FakeSessionView`/`FakeContentCodec`/`FakeToolGateway`/`FakeLLM`) прогоняет `run_turn`/`continue_turn` без `protocol/`. **Приёмочный пруф driver-независимости ядра**
+
+**Workstream C (отложено — с прод-loop):**
+- [~] 4.3 Turn-loop через `AgentRunner` — согласовать с pause/resume автоматом `ActiveTurn`; вместе с B (эмиссия). Высокий риск, требует golden wire
+
+**Workstream D (write-фаза ADR-003 — отдельный эпик):**
+- [~] 4.6 «Server layers без исключений для agent» **недостижимо в этом change**: остаток (`file_cache_decorator`, `storage.base`, `tools.executors.decorators.base` → `protocol.state`) требует развязки storage/tools от `SessionState` = write-фаза (`domain.Session` + маппинг + миграция формата). Вынесено в эпик write-фазы. Ядро (`agent.core.*`) — уже **ноль** рёбер к `protocol`
 
 ## Документация
 
