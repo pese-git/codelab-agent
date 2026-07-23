@@ -6,10 +6,14 @@
 сохранение. Пока они документируют, что именно теряется.
 """
 
-from codelab.server.domain.conversation import ConversationMessage, MessageContent
+import pytest
+
+from codelab.server.domain.conversation import ConversationMessage, Image, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
     ConversationHistory,
+    MultiAgentState,
+    PermissionState,
     Session,
     SessionConfig,
     ToolCallRegistry,
@@ -90,19 +94,66 @@ class TestRoundtripPreserved:
         assert msgs[1].content.text == "hello"
 
 
-class TestRoundtripBaselineLosses:
-    """ПОТЕРИ текущего SessionMapper — цель фазы D1 (флипнуть на сохранение)."""
+class TestRoundtripLossless:
+    """D1: round-trip без потерь — роль TOOL и tool_call_id сохраняются."""
 
-    def test_tool_role_collapses_to_assistant(self) -> None:
-        """BASELINE LOSS: роль TOOL схлопывается в ASSISTANT (to_protocol)."""
+    def test_tool_role_preserved(self) -> None:
+        """Роль TOOL переживает round-trip (не схлопывается в ASSISTANT)."""
         rt = _roundtrip(_rich_session())
         tool_msg = rt.history.get_messages()[2]
-        # Текст сохраняется, но роль потеряна (стала assistant).
         assert tool_msg.content.text == "tool result"
-        assert tool_msg.role == MessageRole.ASSISTANT  # D1: должно стать MessageRole.TOOL
+        assert tool_msg.role == MessageRole.TOOL
 
-    def test_tool_call_id_lost_on_history(self) -> None:
-        """BASELINE LOSS: tool_call_id сообщения истории не переживает round-trip."""
+    def test_tool_call_id_preserved(self) -> None:
+        """tool_call_id сообщения истории переживает round-trip."""
         rt = _roundtrip(_rich_session())
         tool_msg = rt.history.get_messages()[2]
-        assert tool_msg.tool_call_id is None  # D1: должно стать "call_001"
+        assert tool_msg.tool_call_id == "call_001"
+
+    def test_permissions_preserved(self) -> None:
+        session = _rich_session()
+        session.permissions = PermissionState(
+            policy={"fs/read": "allow"}, cancelled_requests={"r1"}
+        )
+        rt = _roundtrip(session)
+        assert rt.permissions.policy == {"fs/read": "allow"}
+        assert rt.permissions.cancelled_requests == {"r1"}
+
+    def test_multi_agent_preserved(self) -> None:
+        session = _rich_session()
+        session.multi_agent = MultiAgentState(
+            active_strategy="single",
+            active_agents=["a"],
+            parent_session_id="p",
+            child_session_ids=["c"],
+            is_child_session=True,
+        )
+        rt = _roundtrip(session)
+        assert rt.multi_agent.active_agents == ["a"]
+        assert rt.multi_agent.parent_session_id == "p"
+        assert rt.multi_agent.child_session_ids == ["c"]
+        assert rt.multi_agent.is_child_session is True
+
+
+class TestRoundtripKnownGaps:
+    """Оставшиеся потери — фиксированы как xfail, чинятся в D2 (формат хранения)."""
+
+    @pytest.mark.xfail(
+        reason="Мультимодальный контент истории (images/resources) теряется: to_protocol "
+        "маппит только .text. Фикс меняет форму сериализации content (строка→блоки) — "
+        "относится к D2 (versioned schema + миграция).",
+        strict=True,
+    )
+    def test_multimodal_history_preserved(self) -> None:
+        history = ConversationHistory()
+        history.add(
+            ConversationMessage(
+                role=MessageRole.USER,
+                content=MessageContent(
+                    text="see", images=[Image(data="B64", mime_type="image/png")]
+                ),
+            )
+        )
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+        rt = _roundtrip(session)
+        assert len(rt.history.get_messages()[0].content.images) == 1

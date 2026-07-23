@@ -11,16 +11,17 @@
 
 ## Фаза D1: `SessionMapper` без потерь
 
-- [ ] D1.1 Устранить асимметрию роли `tool` (`to_protocol`: `TOOL → assistant`) — сохранять роль/tool_call_id
-- [ ] D1.2 Round-trip без потерь: tool_calls, plan, multimodal content, permissions, multi-agent state
-- [ ] D1.3 Golden/property-тесты D0.1/D0.2 зелёные
+- [x] D1.1 Устранена асимметрия роли `tool`: `HistoryMessage.role` += `"tool"`; `SessionMapper.to_protocol`/`_build_history` сохраняют роль и `tool_call_id` (флип `BASELINE LOSS` D0.2 → passed)
+- [x] D1.2 Round-trip без потерь: plan, tool_calls (registry), permissions, multi-agent — проверено. **Multimodal (images/resources) истории — xfail-гэп, вынесен в D2** (фикс меняет форму сериализации content: строка→блоки — это формат/миграция)
+- [x] D1.3 D0.1 golden + D0.2 round-trip зелёные (8 passed, 1 xfail multimodal→D2)
 
 ## Фаза D2: Хранение на `domain.Session` + миграция формата
 
 - [ ] D2.1 `SessionStorage` (ABC + реализации) работает с `domain.Session`
 - [ ] D2.2 Versioned schema хранения; upgrade старого `SessionState`-JSON на чтении через `SessionMapper`
 - [ ] D2.3 Миграция существующих сессий читается без потерь (тест D0.3); запись — новый формат
-- [ ] D2.4 Снять `ignore_imports` `storage.base -> protocol.state`
+- [ ] D2.4 Мультимодальный контент истории (images/resources) round-trip без потерь — форма сериализации content (блоки); снять xfail `test_multimodal_history_preserved` (перенос из D1)
+- [ ] D2.5 Снять `ignore_imports` `storage.base -> protocol.state`
 
 ## Фаза D3: `ToolContext` для executor'ов
 

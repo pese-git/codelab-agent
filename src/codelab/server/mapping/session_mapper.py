@@ -42,18 +42,16 @@ class SessionMapper:
         """
         from codelab.server.models import HistoryMessage
 
-        # Конвертируем историю сообщений
+        # Конвертируем историю сообщений (round-trip без потерь: роль и tool_call_id
+        # сохраняются; HistoryMessage теперь поддерживает role="tool" — write-фаза D1).
         history = []
         for msg in session.history.get_messages():
-            # MessageRole.TOOL не поддерживается в HistoryMessage, используем assistant
-            role_value = msg.role.value
-            if role_value == "tool":
-                role_value = "assistant"
             history.append(
                 HistoryMessage(
-                    role=role_value,  # type: ignore[arg-type]
+                    role=msg.role.value,  # type: ignore[arg-type]
                     content=msg.content.text,
                     timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
+                    tool_call_id=msg.tool_call_id,
                 )
             )
 
@@ -172,14 +170,17 @@ class SessionMapper:
         """Собирает ConversationHistory из protocol-history (HistoryMessage или dict)."""
         history = ConversationHistory()
         for msg_data in state.history:
+            tool_call_id: str | None = None
             if hasattr(msg_data, "role"):
                 role_str = msg_data.role
                 content_text = msg_data.content if isinstance(msg_data.content, str) else ""
+                tool_call_id = getattr(msg_data, "tool_call_id", None)
             elif isinstance(msg_data, dict):
                 role_str = msg_data.get("role", "user")
                 content_text = msg_data.get("content", "")
                 if not isinstance(content_text, str):
                     content_text = ""
+                tool_call_id = msg_data.get("tool_call_id")
             else:
                 continue
 
@@ -188,7 +189,13 @@ class SessionMapper:
             except ValueError:
                 role = MessageRole.USER
 
-            history.add(ConversationMessage(role=role, content=MessageContent(text=content_text)))
+            history.add(
+                ConversationMessage(
+                    role=role,
+                    content=MessageContent(text=content_text),
+                    tool_call_id=tool_call_id,
+                )
+            )
         return history
 
     @staticmethod

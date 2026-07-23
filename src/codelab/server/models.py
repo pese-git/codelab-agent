@@ -30,7 +30,7 @@ class HistoryMessage(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    role: Literal["user", "assistant", "system"] = "user"
+    role: Literal["user", "assistant", "system", "tool"] = "user"
     content: list[MessageContent] | str | list[dict[str, Any]] | None = None
     text: str | None = None
     timestamp: str | None = None
