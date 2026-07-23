@@ -85,3 +85,15 @@ ADR-005 (read-фаза) развязал **ядро** (`agent.core.*`) от `pro
 Эпик — **Workstream D** плана ADR-005; после него разблокируются **B** (доменная эмиссия
 `UpdateSink`, ADR-005 3.3/3.4), **C** (прод turn-loop через `AgentRunner`, 4.3), **E** (fake driver).
 Детализация — в openspec change `session-domain-write-phase`.
+
+### Переупорядочивание внутри эпика (2026-07-23)
+
+**Finding:** 81 сайт (`protocol/` handlers/commands) держит `SessionState` как **рабочую
+модель** (load→mutate→save); все реализации `SessionStorage` сериализуют через
+`SessionState.model_dump/model_validate`. Ребро `storage.base → protocol.state` — **симптом
+рабочей модели**, а не независимая вещь: тип `storage`/`tools` следует за рабочей моделью.
+
+**Решение:** внутри эпика D2 (storage-on-domain) и D3 (tools) идут **после** D4 (рабочая
+модель → `domain.Session`), иначе D2 создаёт throwaway-конверсии `SessionState↔domain` на
+81 сайте. Порядок: **D0 → D1 → D4 → D2 → D3 → D5**. D4 ведётся strangler-стадиями по
+под-стейтам (по возрастанию связности), каждая — за golden-wire + round-trip + `make check`.
