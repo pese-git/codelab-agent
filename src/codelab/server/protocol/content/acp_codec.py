@@ -1,8 +1,8 @@
-"""Маппер ACP ContentBlock → ContentPart.
+"""ACP-адаптер порта `ContentCodec`: ACP `ContentBlock` → `llm.ContentPart`.
 
-Конвертирует ACP-формат содержимого (dict-и) в объекты ContentPart для LLM.
-Зависит только от слоя llm, поэтому живёт в agent: им пользуются как agent
-(HistoryBuilder), так и protocol (prompt_orchestrator) в разрешённом направлении.
+Driving-адаптер ACP (ADR-005, шов №2). Декодирует ACP-форму содержимого (dict-и)
+в канонический `ContentPart` для ядра. Ранее жил в ядре как `agent.acp_content_mapper`
+(ACP-специфика внутри `agent/`); перенесён в `protocol/` без изменения логики.
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ from typing import Any
 from codelab.server.llm.content_parts import ContentPart
 
 
-class ACPContentMapper:
-    """Конвертирует ACP ContentBlock dict в ContentPart для LLM."""
+class ACPContentCodec:
+    """Реализация `ContentCodec` для ACP: декодирует ACP `ContentBlock` в `ContentPart`."""
 
-    def map_blocks(self, blocks: list[dict[str, Any]]) -> list[ContentPart]:
-        """Маппить список ACP ContentBlock в список ContentPart.
+    def decode(self, blocks: list[dict[str, Any]]) -> list[ContentPart]:
+        """Декодировать список ACP `ContentBlock` в список `ContentPart`.
 
         Args:
             blocks: Список ACP content blocks.

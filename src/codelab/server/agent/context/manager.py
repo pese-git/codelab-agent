@@ -55,6 +55,7 @@ from codelab.server.agent.core.history_builder import HistoryBuilder
 from codelab.server.agent.core.message_sanitizer import MessageSanitizer
 
 if TYPE_CHECKING:
+    from codelab.server.agent.contracts.ports import ContentCodec
     from codelab.server.llm.base import LLMProvider
     from codelab.server.observability.metrics_tracker import MetricsTracker
     from codelab.server.observability.tracer import Tracer
@@ -110,13 +111,14 @@ class DefaultContextManager(ContextManager):
         skeletonizer: CodeSkeletonizer | None = None,
         summarizer: ConversationSummarizer | None = None,
         signal_bus: InvalidationSignalBus | None = None,
+        content_codec: ContentCodec | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._config = config or ContextConfig()
         self._llm = llm
         self._model = model
         self._budget_manager = DefaultTokenBudgetManager(self._config)
-        self._history_builder = HistoryBuilder()
+        self._history_builder = HistoryBuilder(content_codec)
         self._metrics_tracker = metrics_tracker
         self._tracer = tracer
         self._token_counter = token_counter or create_token_counter()

@@ -15,7 +15,7 @@ from codelab.server.agent.core.history_builder import HistoryBuilder
 from codelab.server.agent.core.tool_filter import ToolFilter
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.tools.base import ToolDefinition
-from tests.server.agent.fakes import FakeCapabilities, FakeSessionView
+from tests.server.agent.fakes import FakeCapabilities, FakeContentCodec, FakeSessionView
 
 
 @pytest.fixture
@@ -110,7 +110,10 @@ class TestHistoryFidelity:
         assert tool_msg.tool_call_id == "c1"
 
     def test_multimodal_image_prompt_preserved(self):
-        """Блок image в истории не схлопывается в текст, а даёт ContentPart."""
+        """Блок image в истории не схлопывается в текст, а даёт ContentPart.
+
+        Кодек инъектируется (FakeContentCodec) — ядро не знает про ACP.
+        """
         history = [
             {
                 "role": "user",
@@ -121,7 +124,7 @@ class TestHistoryFidelity:
             }
         ]
 
-        messages = HistoryBuilder().build(history)
+        messages = HistoryBuilder(FakeContentCodec()).build(history)
 
         content = messages[0].content
         assert isinstance(content, list)

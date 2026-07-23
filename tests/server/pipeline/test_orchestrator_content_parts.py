@@ -1,6 +1,6 @@
 """Интеграционный тест: промпт с image → content_parts заполнены."""
 
-from codelab.server.agent.acp_content_mapper import ACPContentMapper
+from codelab.server.protocol.content.acp_codec import ACPContentCodec
 
 
 class TestOrchestratorContentPartsMapping:
@@ -11,7 +11,7 @@ class TestOrchestratorContentPartsMapping:
             {"type": "text", "text": "Look at this:"},
             {"type": "image", "data": "abc", "mimeType": "image/png"},
         ]
-        parts = ACPContentMapper().map_blocks(prompt)
+        parts = ACPContentCodec().decode(prompt)
         assert len(parts) == 2
         assert parts[0].type == "text"
         assert parts[0].text == "Look at this:"
@@ -21,7 +21,7 @@ class TestOrchestratorContentPartsMapping:
 
     def test_text_only_blocks_mapped(self) -> None:
         prompt = [{"type": "text", "text": "Hello"}]
-        parts = ACPContentMapper().map_blocks(prompt)
+        parts = ACPContentCodec().decode(prompt)
         assert len(parts) == 1
         assert parts[0].type == "text"
         assert parts[0].text == "Hello"
@@ -30,7 +30,7 @@ class TestOrchestratorContentPartsMapping:
         prompt = [
             {"type": "resource", "resource": {"uri": "file:///test", "text": "content"}},
         ]
-        parts = ACPContentMapper().map_blocks(prompt)
+        parts = ACPContentCodec().decode(prompt)
         assert len(parts) == 1
         assert parts[0].type == "text"
         assert "file:///test" in parts[0].text

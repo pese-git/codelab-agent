@@ -3,6 +3,7 @@
 import pytest
 
 from codelab.server.agent.core.history_builder import HistoryBuilder
+from tests.server.agent.fakes import FakeContentCodec
 
 
 class TestHistoryBuilderConversion:
@@ -10,7 +11,7 @@ class TestHistoryBuilderConversion:
 
     @pytest.fixture
     def builder(self):
-        return HistoryBuilder()
+        return HistoryBuilder(FakeContentCodec())
 
     def test_user_message_with_text(self, builder):
         history = [{"role": "user", "text": "Hello"}]
@@ -102,7 +103,7 @@ class TestSystemPrompt:
 
     @pytest.fixture
     def builder(self):
-        return HistoryBuilder()
+        return HistoryBuilder(FakeContentCodec())
 
     def test_system_prompt_first(self, builder):
         history = [{"role": "user", "text": "Hello"}]

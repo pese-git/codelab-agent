@@ -1,13 +1,14 @@
 """Тесты HistoryBuilder с мультимодальным содержимым."""
 
 from codelab.server.agent.core.history_builder import HistoryBuilder
+from codelab.server.protocol.content.acp_codec import ACPContentCodec
 
 
 class TestHistoryBuilderMultimodal:
     """Тесты конвертации мультимодальной истории."""
 
     def setup_method(self) -> None:
-        self.builder = HistoryBuilder()
+        self.builder = HistoryBuilder(ACPContentCodec())
 
     def test_history_with_image_returns_content_parts(self) -> None:
         history = [

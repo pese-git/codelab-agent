@@ -1,9 +1,9 @@
 """E2E тесты для мультимодального промпта."""
 
-from codelab.server.agent.acp_content_mapper import ACPContentMapper
 from codelab.server.llm.models import LLMMessage
 from codelab.server.llm.providers.anthropic import AnthropicProvider
 from codelab.server.llm.providers.openai import OpenAIProvider
+from codelab.server.protocol.content.acp_codec import ACPContentCodec
 from codelab.server.protocol.handlers.auth import initialize
 
 
@@ -15,7 +15,7 @@ class TestE2EPromptWithImage:
             {"type": "text", "text": "What is in this image?"},
             {"type": "image", "data": "base64data", "mimeType": "image/png"},
         ]
-        parts = ACPContentMapper().map_blocks(blocks)
+        parts = ACPContentCodec().decode(blocks)
         msg = LLMMessage(role="user", content=parts)
 
         provider = OpenAIProvider()
@@ -31,7 +31,7 @@ class TestE2EPromptWithImage:
             {"type": "text", "text": "What is in this image?"},
             {"type": "image", "data": "base64data", "mimeType": "image/png"},
         ]
-        parts = ACPContentMapper().map_blocks(blocks)
+        parts = ACPContentCodec().decode(blocks)
         msg = LLMMessage(role="user", content=parts)
 
         provider = AnthropicProvider()
@@ -50,7 +50,7 @@ class TestE2EPromptWithResource:
         blocks = [
             {"type": "resource", "resource": {"uri": "file:///test.py", "text": "print('hi')"}},
         ]
-        parts = ACPContentMapper().map_blocks(blocks)
+        parts = ACPContentCodec().decode(blocks)
 
         assert len(parts) == 1
         assert parts[0].type == "text"
@@ -67,7 +67,7 @@ class TestE2EMixedContent:
             {"type": "image", "data": "abc", "mimeType": "image/jpeg"},
             {"type": "resource_link", "uri": "file:///doc.md", "name": "doc.md"},
         ]
-        parts = ACPContentMapper().map_blocks(blocks)
+        parts = ACPContentCodec().decode(blocks)
         msg = LLMMessage(role="user", content=parts)
 
         provider = OpenAIProvider()

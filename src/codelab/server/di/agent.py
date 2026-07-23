@@ -14,6 +14,7 @@ from dishka import Provider, Scope, from_context, provide
 from ..agent.context.file_cache import InvalidationSignalBus, SessionFileCacheRegistry
 from ..agent.context.manager import DefaultContextManager
 from ..agent.context_compactor import ContextCompactor
+from ..agent.contracts.ports import ContentCodec
 from ..agent.core.execution_engine import ExecutionEngine
 from ..agent.core.strategies.descriptor import StrategyDependencies
 from ..agent.core.strategies.dispatcher import StrategyDispatcher
@@ -25,6 +26,7 @@ from ..config import AppConfig
 from ..llm import LLMProvider
 from ..llm.registry import LLMProviderRegistry
 from ..observability import EventTimeline, MetricsTracker, Tracer
+from ..protocol.content.acp_codec import ACPContentCodec
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
 
 logger = structlog.get_logger()
@@ -109,6 +111,11 @@ class MultiAgentProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_content_codec(self) -> ContentCodec:
+        """ACP-реализация порта `ContentCodec` (driving-адаптер, ADR-005 шов №2)."""
+        return ACPContentCodec()
+
+    @provide(scope=Scope.APP)
     def get_context_manager(
         self,
         tool_registry: ToolRegistryProtocol,
@@ -117,6 +124,7 @@ class MultiAgentProvider(Provider):
         tracer: Tracer,
         llm_provider: LLMProvider,
         signal_bus: InvalidationSignalBus,
+        content_codec: ContentCodec,
     ) -> DefaultContextManager:
         """Создаёт DefaultContextManager с метриками и трейсингом.
 
@@ -132,6 +140,7 @@ class MultiAgentProvider(Provider):
             metrics_tracker=metrics_tracker,
             tracer=tracer,
             signal_bus=signal_bus,
+            content_codec=content_codec,
         )
 
     @provide(scope=Scope.APP)
@@ -141,6 +150,7 @@ class MultiAgentProvider(Provider):
         compactor: ContextCompactor,
         config: AppConfig,
         context_manager: DefaultContextManager,
+        content_codec: ContentCodec,
     ) -> ExecutionEngine:
         """Создаёт ExecutionEngine с ContextCompactor и ContextManager.
 
@@ -155,6 +165,7 @@ class MultiAgentProvider(Provider):
             compactor=compactor,
             context_config=config.agents.context,
             context_manager=context_manager,
+            content_codec=content_codec,
         )
 
     @provide(scope=Scope.APP)

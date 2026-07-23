@@ -4,9 +4,10 @@
 `protocol.state.SessionState` — driving-адаптер ACP заменяется фейком порта.
 """
 
+from tests.server.agent.fakes.content_codec import FakeContentCodec
 from tests.server.agent.fakes.session_view import (
     FakeCapabilities,
     FakeSessionView,
 )
 
-__all__ = ["FakeCapabilities", "FakeSessionView"]
+__all__ = ["FakeCapabilities", "FakeContentCodec", "FakeSessionView"]

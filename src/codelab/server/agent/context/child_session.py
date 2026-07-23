@@ -18,6 +18,7 @@ from codelab.server.agent.context.models import SubagentResult
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ConversationSummarizer, TokenCounter
+    from codelab.server.agent.contracts.ports import ContentCodec
     from codelab.server.protocol.session_factory import SessionFactory
     from codelab.server.storage.base import SessionStorage
 
@@ -38,11 +39,13 @@ class DefaultChildSessionManager(ChildSessionManager):
         session_storage: SessionStorage,
         summarizer: ConversationSummarizer,
         token_counter: TokenCounter,
+        content_codec: ContentCodec | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._session_storage = session_storage
         self._summarizer = summarizer
         self._token_counter = token_counter
+        self._content_codec = content_codec
 
     async def create_child(
         self,
@@ -133,7 +136,7 @@ class DefaultChildSessionManager(ChildSessionManager):
         # Конвертируем историю в LLMMessage для суммаризации
         from codelab.server.agent.core.history_builder import HistoryBuilder
 
-        history_builder = HistoryBuilder()
+        history_builder = HistoryBuilder(self._content_codec)
         messages = history_builder.build(history)
 
         # Суммаризируем через ConversationSummarizer

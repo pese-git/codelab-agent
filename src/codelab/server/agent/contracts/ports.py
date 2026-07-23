@@ -14,7 +14,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from codelab.server.llm.content_parts import ContentPart
 
 
 class ClientCapabilitiesView(Protocol):
@@ -56,3 +59,16 @@ class SessionView(Protocol):
     def runtime_capabilities(self) -> ClientCapabilitiesView | None: ...
     @property
     def history(self) -> Sequence[Any]: ...
+
+
+class ContentCodec(Protocol):
+    """Декодер контент-блоков драйвера в канонический `llm.ContentPart`.
+
+    Снимает шов №2 (ADR-005): ACP-специфика маппинга `ContentBlock` уезжает из
+    ядра в driving-адаптер (`protocol.content.acp_codec.ACPContentCodec`). Ядро
+    (`HistoryBuilder`) держит порт; второй драйвер (A2A) подставит свой кодек без
+    правки ядра. Канон контента — `llm.ContentPart` (доменный content-VO не
+    вводим до второго драйвера, см. design.md).
+    """
+
+    def decode(self, blocks: list[dict[str, Any]]) -> list[ContentPart]: ...

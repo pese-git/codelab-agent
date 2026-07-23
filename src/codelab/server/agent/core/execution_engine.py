@@ -29,7 +29,7 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
-    from codelab.server.agent.contracts.ports import SessionView
+    from codelab.server.agent.contracts.ports import ContentCodec, SessionView
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.tools.base import ToolRegistry
 
@@ -58,10 +58,11 @@ class ExecutionEngine:
         plan_extractor: PlanExtractor | None = None,
         context_config: ContextConfig | None = None,
         context_manager: ContextManager | None = None,
+        content_codec: ContentCodec | None = None,
     ) -> None:
         self.tool_registry = tool_registry
         self.compactor = compactor
-        self.history_builder = history_builder or HistoryBuilder()
+        self.history_builder = history_builder or HistoryBuilder(content_codec)
         self.tool_filter = tool_filter or ToolFilter()
         self.sanitizer = sanitizer or MessageSanitizer()
         self.plan_extractor = plan_extractor or PlanExtractor()

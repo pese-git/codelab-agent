@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from ...agent.acp_content_mapper import ACPContentMapper
 from ...client_rpc.service import ClientRPCService
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
 from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
+from ..content.acp_codec import ACPContentCodec
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
 from .client_rpc_handler import ClientRPCHandler
 from .permission_manager import PermissionManager
@@ -209,7 +209,7 @@ class PromptOrchestrator:
             request_id=request_id,
             params=params,
             raw_text=prompt_text,
-            content_parts=ACPContentMapper().map_blocks(prompt) if isinstance(prompt, list) else [],
+            content_parts=ACPContentCodec().decode(prompt) if isinstance(prompt, list) else [],
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}

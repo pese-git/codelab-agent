@@ -28,12 +28,12 @@
 
 ## Фаза 2: `ContentCodec` — средний риск (главная работа)
 
-- [ ] 2.1 Добавить порт `ContentCodec(Protocol)` в `server/agent/contracts/ports.py` (`decode(blocks) -> list[ContentPart]`)
-- [ ] 2.2 Перенести `ACPContentMapper` → `server/protocol/content/acp_codec.py` как `ACPContentCodec` (тело 1:1)
-- [ ] 2.3 `HistoryBuilder` зависит от `ContentCodec` (инъекция), не от ACP-специфики
-- [ ] 2.4 Fake `FakeContentCodec`; тесты `history_builder` без ACP
-- [ ] 2.5 Удалить `agent/acp_content_mapper.py` из ядра; проверить отсутствие импортов ACP в `agent/`
-- [ ] 2.6 `make check` зелёный; детерминизм prompt-payload сохранён (321 context-тест)
+- [x] 2.1 Порт `ContentCodec(Protocol)` в `ports.py` (`decode(blocks) -> list[ContentPart]`); канон — `llm.ContentPart`, доменный content-VO не вводился (см. решение в design.md — окупается лишь при 2-м драйвере)
+- [x] 2.2 `ACPContentMapper` → `protocol/content/acp_codec.py` как `ACPContentCodec` (тело 1:1, `map_blocks`→`decode`); `prompt_orchestrator` и тесты-импортёры обновлены
+- [x] 2.3 `HistoryBuilder(content_codec)` — инъекция порта; без кодека мультимодальные блоки схлопываются в текст (ACP-специфики в ядре нет). Codec протянут через `ExecutionEngine`, `DefaultContextManager`, `DefaultChildSessionManager`; DI (`di/agent.py`) создаёт `ACPContentCodec` и инъектит в roots
+- [x] 2.4 `FakeContentCodec` в `tests/server/agent/fakes/`; `test_history_builder*` работают через инъекцию (Fake/ACP), не через хардкод ACP
+- [x] 2.5 `agent/acp_content_mapper.py` удалён; в `agent/` нет ACP-импортов (только упоминание в docstring порта)
+- [x] 2.6 `make check` зелёный (7336 passed); детерминизм prompt-payload сохранён (context-тесты зелёные); `import-linter` — 4 контракта kept. Прим.: рёбер `import-linter` Фаза 2 не снимает (маппер зависел только от `llm`) — ценность в развязке под 2-й драйвер, не в графе зависимостей
 
 ## Фаза 3: `ToolGateway` + `UpdateSink` — средний риск
 
