@@ -7,6 +7,7 @@
 **Связанные документы:**
 - `openspec/changes/acp-independent-agent-core/` — спецификация OpenSpec (proposal/design/tasks + spec-дельты)
 - ADR-003 — миграция `SessionState` в domain (вариант B, read-фаза = порт `SessionView`)
+- ADR-006 — write-фаза варианта B (разблокирует Workstream C/B: прод turn-loop через `AgentRunner`, доменная эмиссия `UpdateSink`)
 - ADR-001 — `LLMAdapter` single-call (уже существующая граница LLM)
 - `src/codelab/server/agent/` — ядро: `ExecutionEngine`, `strategies`, `system_prompt_builder`, `history_builder`, `context/`
 - `src/codelab/server/agent/acp_content_mapper.py` — `ACPContentMapper` (ACP-форма контента внутри ядра)
