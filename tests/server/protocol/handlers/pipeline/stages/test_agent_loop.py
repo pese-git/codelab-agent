@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.base import AgentResponse
+from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoop,
@@ -99,7 +99,7 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_run_no_tool_calls(self, mock_strategy, mock_session, mock_dependencies):
         """run() завершается без tool_calls."""
-        from codelab.server.agent.base import AgentResponse
+        from codelab.server.agent.core.agent_base import AgentResponse
 
         mock_response = MagicMock(spec=AgentResponse)
         mock_response.text = "Hello!"
@@ -116,7 +116,7 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_run_max_turn_requests(self, mock_strategy, mock_session, mock_dependencies):
         """run() достигает max_turn_requests."""
-        from codelab.server.agent.base import AgentResponse
+        from codelab.server.agent.core.agent_base import AgentResponse
 
         # Создаём response с tool_calls
         mock_tool_call = MagicMock()

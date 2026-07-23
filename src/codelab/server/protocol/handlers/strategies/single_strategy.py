@@ -13,18 +13,18 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.agent.base import AgentResponse as BaseAgentResponse
 from codelab.server.agent.contracts.base import (
     AgentRequest,
     AgentResponse,
 )
+from codelab.server.agent.core.agent_base import AgentResponse as BaseAgentResponse
 from codelab.server.llm.models import LLMToolCall
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.core.execution_engine import ExecutionEngine
     from codelab.server.agent.event_bus.bus import AgentEventBus
-    from codelab.server.agent.execution_engine import ExecutionEngine
     from codelab.server.observability.tracer import SpanContext, Tracer
     from codelab.server.protocol.state import SessionState
 
@@ -295,7 +295,7 @@ def _validate_single_strategy(registry) -> bool:
 
 
 # Импортируем здесь чтобы избежать циклических зависимостей
-from codelab.server.agent.strategies.descriptor import (  # noqa: E402
+from codelab.server.agent.core.strategies.descriptor import (  # noqa: E402
     StrategyDescriptor,
 )
 

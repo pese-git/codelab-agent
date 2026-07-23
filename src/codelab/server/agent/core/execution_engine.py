@@ -18,12 +18,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from codelab.server.agent.base import AgentContext, ContinuationContext
 from codelab.server.agent.context.models import ContextConfig, PayloadEnvelope
-from codelab.server.agent.history_builder import HistoryBuilder
-from codelab.server.agent.message_sanitizer import MessageSanitizer
-from codelab.server.agent.plan_extractor import PlanExtractor
-from codelab.server.agent.tool_filter import ToolFilter
+from codelab.server.agent.core.agent_base import AgentContext, ContinuationContext
+from codelab.server.agent.core.history_builder import HistoryBuilder
+from codelab.server.agent.core.message_sanitizer import MessageSanitizer
+from codelab.server.agent.core.plan_extractor import PlanExtractor
+from codelab.server.agent.core.tool_filter import ToolFilter
 from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:

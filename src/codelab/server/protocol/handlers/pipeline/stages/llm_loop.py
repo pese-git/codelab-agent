@@ -34,9 +34,9 @@ from ..base import PromptStage
 from ..context import PromptContext
 
 if TYPE_CHECKING:
-    from codelab.server.agent.strategies.base import LLMCallStrategy
-    from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-    from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
+    from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
     from codelab.server.observability.tracer import Tracer
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
     from codelab.server.protocol.handlers.permission_manager import PermissionManager

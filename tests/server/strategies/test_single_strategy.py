@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.base import AgentResponse as BaseAgentResponse
 from codelab.server.agent.contracts.base import (
     AgentResponse,
     TokenUsage,
     ToolCall,
 )
+from codelab.server.agent.core.agent_base import AgentResponse as BaseAgentResponse
+from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.agent.event_bus.bus import AgentEventBus, RetryConfig
-from codelab.server.agent.execution_engine import ExecutionEngine
 from codelab.server.agent.llm_adapter import LLMAdapter
 from codelab.server.llm.base import LLMProvider
 from codelab.server.llm.models import CompletionResponse, LLMMessage

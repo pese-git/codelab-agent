@@ -12,7 +12,7 @@ from codelab.server.models import AvailableCommand, AvailableCommandInput
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
-    from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+    from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
     from codelab.server.protocol.state import SessionState
 
 

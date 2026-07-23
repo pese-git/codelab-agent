@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
 from codelab.server.messages import JsonRpcId
 from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.permission_manager import PermissionManager

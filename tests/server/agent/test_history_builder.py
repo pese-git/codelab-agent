@@ -2,7 +2,7 @@
 
 import pytest
 
-from codelab.server.agent.history_builder import HistoryBuilder
+from codelab.server.agent.core.history_builder import HistoryBuilder
 
 
 class TestHistoryBuilderConversion:

@@ -5,13 +5,13 @@
 > Отдельный PR: только `git mv` + правка импортов, **ноль изменений поведения**.
 > Границы `import-linter` (`codelab.server.{agent,protocol,domain}`) не двигаются.
 
-- [ ] 0.1 Создать `server/agent/contracts/ports.py` (пока пустой каркас портов) и `contracts/events.py` — перенести доменные события из `contracts/base.py` (`DomainEvent`, `AgentRequest`, `AgentResult`, `AgentResponse`), `base.py` → тонкий re-export
-- [ ] 0.2 Создать `server/agent/core/`; `git mv` ядра: `execution_engine`, `system_prompt_builder`, `history_builder`, `message_sanitizer`, `plan_extractor`, `tool_filter`, `strategies/`
-- [ ] 0.3 Определить судьбу `agent/base.py` по содержимому: контракты → `contracts/events.py`, базовый класс агента → `core/`
-- [ ] 0.4 `llm_adapter.py` оставить на месте (driven-адаптер, граница ADR-001); `factory.py`/`registry.py` — composition, остаются в `agent/`
-- [ ] 0.5 Re-export совместимости: старые пути (`agent/execution_engine.py` и т.д.) — тонкие re-export ЛИБО разовое обновление импортёров (`grep` внешних потребителей); публичный `agent/__init__.py` сохранить
-- [ ] 0.6 `legacy_bridge.py` НЕ переносить как есть — кандидат на удаление (tech-debt P2-31), решить отдельно
-- [ ] 0.7 `make check` зелёный; `import-linter` зелёный (рёбра те же); diff — только перемещения и импорты
+- [x] 0.1 Создать `server/agent/contracts/ports.py` (пока пустой каркас портов) и `contracts/events.py` — перенести доменные события из `contracts/base.py` (`DomainEvent`, `AgentRequest`, `AgentResult`, `AgentResponse`), `base.py` → тонкий re-export
+- [x] 0.2 Создать `server/agent/core/`; `git mv` ядра: `execution_engine`, `system_prompt_builder`, `history_builder`, `message_sanitizer`, `plan_extractor`, `tool_filter`, `strategies/`
+- [x] 0.3 Определить судьбу `agent/base.py` по содержимому: `LLMAgent` + turn-контексты — цельный контракт агента, перенесён как `core/agent_base.py` (без дробления; `SessionState`-протечка адресуется в Фазе 1)
+- [x] 0.4 `llm_adapter.py` оставить на месте (driven-адаптер, граница ADR-001); `factory.py`/`registry.py` — composition, остаются в `agent/`
+- [x] 0.5 Разовое обновление импортёров (src + tests) на `core/` пути; публичный `agent/__init__.py` сохранён (без re-export старых путей ядра)
+- [x] 0.6 `legacy_bridge.py` в `agent/` отсутствует — переносить нечего (P2-31 решается отдельно)
+- [x] 0.7 `make check` зелёный (7330 passed); `import-linter` зелёный (4 контракта kept, рёбра те же); diff — только перемещения и импорты
 
 ## Фаза 1: `SessionView` (read-фаза ADR-003) — низкий риск
 

@@ -4,11 +4,6 @@
 и оркестрацию выполнения агентом.
 """
 
-from codelab.server.agent.base import (
-    AgentContext,
-    AgentResponse,
-    LLMAgent,
-)
 from codelab.server.agent.config import (
     AgentConfigLoader,
     AgentConfigResolver,
@@ -38,6 +33,11 @@ from codelab.server.agent.contracts.base import (
 )
 from codelab.server.agent.contracts.base import (
     AgentResponse as ContractAgentResponse,
+)
+from codelab.server.agent.core.agent_base import (
+    AgentContext,
+    AgentResponse,
+    LLMAgent,
 )
 from codelab.server.agent.event_bus.abstract import (
     AbstractEventBus,

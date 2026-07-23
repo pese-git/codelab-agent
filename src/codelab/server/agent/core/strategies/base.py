@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from codelab.server.agent.base import AgentResponse
+    from codelab.server.agent.core.agent_base import AgentResponse
     from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]

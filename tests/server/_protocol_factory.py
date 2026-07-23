@@ -109,7 +109,7 @@ class _Assembler:
         if self._prompt_orchestrator is not None:
             return self._prompt_orchestrator
 
-        from codelab.server.agent.system_prompt_builder import SystemPromptBuilder
+        from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
         from codelab.server.protocol.handlers.permission_manager import PermissionManager
         from codelab.server.protocol.handlers.pipeline.stages import LLMLoopStage
         from codelab.server.protocol.handlers.plan_builder import PlanBuilder

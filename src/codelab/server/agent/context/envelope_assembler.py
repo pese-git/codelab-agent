@@ -21,7 +21,7 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.manager import _SessionContext
     from codelab.server.agent.context.registry import ContextRegistryImpl
-    from codelab.server.agent.history_builder import HistoryBuilder
+    from codelab.server.agent.core.history_builder import HistoryBuilder
 
 logger = structlog.get_logger(__name__)
 

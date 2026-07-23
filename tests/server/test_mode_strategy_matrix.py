@@ -13,9 +13,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
+from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.agent.event_bus.bus import AgentEventBus
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
-from codelab.server.agent.strategies.registry import StrategyRegistry
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
 from codelab.server.protocol.mode import MODE_BYPASS, MODE_PLAN, MODE_STANDARD
 from codelab.server.protocol.state import SessionState
@@ -137,7 +137,7 @@ class TestStrategyDispatcherModeIntegration:
     @pytest.fixture
     def strategy_deps(self):
         """Создать mock StrategyDependencies."""
-        from codelab.server.agent.strategies.descriptor import StrategyDependencies
+        from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
 
         mock_event_bus = MagicMock(spec=AgentEventBus)
         mock_execution_engine = MagicMock()

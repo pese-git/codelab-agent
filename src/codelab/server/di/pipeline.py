@@ -11,10 +11,10 @@ from typing import Annotated
 from dishka import Provider, Scope, from_context, provide
 
 from ..agent.context.file_cache import SessionFileCacheRegistry
+from ..agent.core.strategies.dispatcher import StrategyDispatcher
+from ..agent.core.strategies.registry import StrategyRegistry
+from ..agent.core.system_prompt_builder import SystemPromptBuilder
 from ..agent.registry import AgentRegistry
-from ..agent.strategies.dispatcher import StrategyDispatcher
-from ..agent.strategies.registry import StrategyRegistry
-from ..agent.system_prompt_builder import SystemPromptBuilder
 from ..config import AppConfig
 from ..observability import Tracer
 from ..protocol.config_spec_builder import ConfigSpecBuilder

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.registry import AgentRegistry
-    from codelab.server.agent.strategies.base import LLMCallStrategy
 
     from .descriptor import StrategyDependencies, StrategyDescriptor
 

@@ -6,11 +6,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.agent.strategies.descriptor import (
+from codelab.server.agent.core.strategies.descriptor import (
     StrategyDependencies,
     StrategyDescriptor,
 )
-from codelab.server.agent.strategies.registry import StrategyRegistry
+from codelab.server.agent.core.strategies.registry import StrategyRegistry
 
 
 class TestStrategyDescriptor:

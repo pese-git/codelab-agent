@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.agent.base import AgentResponse
-from codelab.server.agent.strategies.base import LLMCallStrategy
-from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+from codelab.server.agent.core.agent_base import AgentResponse
+from codelab.server.agent.core.strategies.base import LLMCallStrategy
+from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
@@ -516,7 +516,7 @@ class TestLLMLoopStageStrategyReuse:
     @pytest.mark.asyncio
     async def test_execute_pending_tool_reuses_strategy_dispatcher(self, mock_session):
         """execute_pending_tool переиспользует StrategyDispatcher из process()."""
-        from codelab.server.agent.strategies.dispatcher import StrategyDispatcher
+        from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
         from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 
         # Arrange: создать LLMLoopStage с StrategyDispatcher

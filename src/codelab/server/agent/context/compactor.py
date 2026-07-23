@@ -22,7 +22,7 @@ from codelab.server.agent.context.interfaces import (
     ConversationSummarizer,
     TokenCounter,
 )
-from codelab.server.agent.message_sanitizer import MessageSanitizer
+from codelab.server.agent.core.message_sanitizer import MessageSanitizer
 from codelab.server.llm.models import LLMMessage
 
 if TYPE_CHECKING:

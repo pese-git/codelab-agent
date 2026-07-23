@@ -25,11 +25,11 @@ from codelab.server.messages import ACPMessage
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from codelab.server.agent.base import AgentResponse
+    from codelab.server.agent.core.agent_base import AgentResponse
+    from codelab.server.agent.core.strategies.base import LLMCallStrategy
+    from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
+    from codelab.server.agent.core.strategies.registry import StrategyRegistry
     from codelab.server.agent.registry import AgentRegistry
-    from codelab.server.agent.strategies.base import LLMCallStrategy
-    from codelab.server.agent.strategies.descriptor import StrategyDependencies
-    from codelab.server.agent.strategies.registry import StrategyRegistry
     from codelab.server.observability.tracer import SpanContext
     from codelab.server.protocol.state import SessionState
 
@@ -301,7 +301,7 @@ class StrategyDispatcher:
         agent_name = self._resolve_agent_name(session)
 
         # Обновляем deps с правильным agent_name
-        from codelab.server.agent.strategies.descriptor import StrategyDependencies
+        from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
 
         deps_with_agent = StrategyDependencies(
             event_bus=self._deps.event_bus,
@@ -373,7 +373,7 @@ class StrategyDispatcher:
         agent_name = self._resolve_agent_name(session)
 
         # Обновляем deps с правильным agent_name
-        from codelab.server.agent.strategies.descriptor import StrategyDependencies
+        from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
 
         deps_with_agent = StrategyDependencies(
             event_bus=self._deps.event_bus,

@@ -12,7 +12,7 @@
 НЕ AgentResponse из server/agent/base.py (результт вызова LLMAgent).
 """
 
-from codelab.server.agent.contracts.base import (
+from codelab.server.agent.contracts.events import (
     AgentBusError,
     AgentDispatchError,
     AgentListChanged,

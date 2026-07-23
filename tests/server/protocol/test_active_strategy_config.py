@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from codelab.server.agent.strategies.descriptor import StrategyDescriptor
+from codelab.server.agent.core.strategies.descriptor import StrategyDescriptor
 from codelab.server.protocol.config_spec_builder import ConfigSpecBuilder
 
 
