@@ -27,6 +27,7 @@ from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.stop_reasons import StopReason
 
@@ -122,7 +123,7 @@ class LLMLoopStage(PromptStage):
             tracer_enabled=tracer is not None,
         )
 
-    def _get_or_create_agent_loop(
+    async def _get_or_create_agent_loop(
         self,
         context: PromptContext,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
@@ -165,13 +166,20 @@ class LLMLoopStage(PromptStage):
             )
 
             if fallback_from is not None:
-                fallback_notification = self._strategy_dispatcher.build_fallback_notification(
-                    session_id=context.session_id,
+                fallback_text = self._strategy_dispatcher.build_fallback_text(
                     requested=fallback_from,
                     actual=strategy_name,
                     reason="strategy not available",
                 )
-                context.notifications.append(fallback_notification)
+                fallback_notification = SessionUpdateSink.build_agent_message_chunk(
+                    context.session_id, fallback_text
+                )
+                # Уведомление доставляется НЕМЕДЛЕННО через callback; буфер —
+                # только fallback при отсутствии callback (не батчить в конце turn'а).
+                if notification_callback is not None:
+                    await notification_callback(fallback_notification)
+                else:
+                    context.notifications.append(fallback_notification)
                 logger.warning(
                     "strategy fallback",
                     requested=fallback_from,
@@ -250,7 +258,7 @@ class LLMLoopStage(PromptStage):
                 self._state_manager.add_assistant_message(context.session, ack_text)
             return context
 
-        agent_loop = self._get_or_create_agent_loop(
+        agent_loop = await self._get_or_create_agent_loop(
             context,
             notification_callback=context.meta.get("notification_callback"),
         )

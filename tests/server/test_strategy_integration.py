@@ -177,19 +177,21 @@ class TestFallbackNotification:
         async with container() as request_container:
             await request_container.get(StrategyDispatcher)
 
-            notification = StrategyDispatcher.build_fallback_notification(
-                session_id="test_session",
+            text = StrategyDispatcher.build_fallback_text(
                 requested="multi_orchestrated",
                 actual="single",
                 reason="no orchestrator",
             )
 
-            assert notification is not None
-            # Проверяем структуру notification
-            assert hasattr(notification, "method")
-            assert notification.method == "session/update"
+            assert "multi_orchestrated" in text
+            assert "single" in text
 
-            # Проверяем содержимое
+            # ACP-wire собирает driving-адаптер (SessionUpdateSink), не ядро.
+            from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
+                SessionUpdateSink,
+            )
+
+            notification = SessionUpdateSink.build_agent_message_chunk("test_session", text)
             params = notification.params
             assert params["update"]["sessionUpdate"] == "agent_message_chunk"
             content = params["update"]["content"]
@@ -251,15 +253,13 @@ class TestFallbackNotification:
         assert strategy_name == "single"
         assert fallback_from == "multi_orchestrated"
 
-        # Проверяем что notification можно построить
-        notification = StrategyDispatcher.build_fallback_notification(
-            session_id="test_session",
+        # Ядро возвращает домен-текст fallback (ACP-wire собирает адаптер)
+        text = StrategyDispatcher.build_fallback_text(
             requested=fallback_from,
             actual=strategy_name,
             reason="validator returned False",
         )
-        assert notification is not None
-        assert "multi_orchestrated" in notification.params["update"]["content"]["text"]
+        assert "multi_orchestrated" in text
 
 
 class TestPriorityChain:

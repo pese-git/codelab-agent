@@ -20,8 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from codelab.server.messages import ACPMessage
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -435,40 +433,17 @@ class StrategyDispatcher:
         return sorted_agents[0].name
 
     # =========================================================================
-    # Fallback Notification
+    # Fallback
     # =========================================================================
 
     @staticmethod
-    def build_fallback_notification(
-        session_id: str,
-        requested: str,
-        actual: str,
-        reason: str,
-    ) -> ACPMessage:
-        """Построить notification о fallback.
+    def build_fallback_text(requested: str, actual: str, reason: str) -> str:
+        """Сформировать текст системного сообщения о fallback стратегии.
 
-        Args:
-            session_id: ID сессии
-            requested: Запрошенная стратегия
-            actual: Фактическая стратегия (fallback)
-            reason: Причина fallback
-
-        Returns:
-            ACPMessage notification
+        Ядро не строит ACP-wire (ADR-005, шов №3): возвращает доменный текст;
+        ACP `agent_message_chunk` собирает driving-адаптер (`SessionUpdateSink`).
         """
-        return ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {
-                        "type": "text",
-                        "text": (
-                            f"[system] Strategy '{requested}' unavailable ({reason}). "
-                            f"Falling back to '{actual}'."
-                        ),
-                    },
-                },
-            },
+        return (
+            f"[system] Strategy '{requested}' unavailable ({reason}). "
+            f"Falling back to '{actual}'."
         )

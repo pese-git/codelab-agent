@@ -35,14 +35,22 @@
 - [x] 2.5 `agent/acp_content_mapper.py` удалён; в `agent/` нет ACP-импортов (только упоминание в docstring порта)
 - [x] 2.6 `make check` зелёный (7336 passed); детерминизм prompt-payload сохранён (context-тесты зелёные); `import-linter` — 4 контракта kept. Прим.: рёбер `import-linter` Фаза 2 не снимает (маппер зависел только от `llm`) — ценность в развязке под 2-й драйвер, не в графе зависимостей
 
-## Фаза 3: `ToolGateway` + `UpdateSink` — средний риск
+## Фаза 3: `ToolGateway` + `UpdateSink` — scoped (см. решение ниже)
 
-- [ ] 3.1 Объявить `ToolGateway(Protocol)` (сужение `ToolRegistry` до `execute_tool`/`get_available_tools`/`to_llm_tools`)
-- [ ] 3.2 Объявить `UpdateSink(Protocol)` в доменных терминах (`emit_agent_message`/`emit_plan`/`emit_tool_call`/`emit_tool_update`)
-- [ ] 3.3 Обернуть `SessionUpdateSink` как ACP-адаптер `UpdateSink` (маппинг домен → ACP wire внутри адаптера)
-- [ ] 3.4 Унифицировать success/exception буферизацию update (P1-4)
-- [ ] 3.5 Golden-тест: `session/update` wire-формат байт-в-байт прежний
-- [ ] 3.6 Ядро/loop не конструируют `ACPMessage`; `make check` зелёный
+> **Решение (архитектурное, не по ROI):** сделан scoped-срез. Единственная граница
+> ядро↔адаптер, которую нарушал Phase 3 — конструкция `ACPMessage` в ядре; она снята
+> (3.6). Порты объявлены как контракты (3.1/3.2). Полная 3.3 (переписывание ~10 точек
+> эмиссии на доменные аргументы) перенесена в **Фазу 4**: форму доменного `UpdateSink`
+> должен диктовать его потребитель (`AgentRunner`), иначе это спекулятивная абстракция
+> + риск байт-идентичности горячего пути без бенефициара. Turn-loop = ACP-адаптер,
+> ему строить wire — норма (границу не нарушает).
+
+- [x] 3.1 `ToolGateway(Protocol)` в `ports.py` (`get_available_tools`/`to_llm_tools`/`execute_tool`); `ExecutionEngine.tool_registry: ToolGateway` (сужение существующего `ToolRegistry`)
+- [x] 3.2 `UpdateSink(Protocol)` в `ports.py` — минимально-честно (`emit_agent_message`/`emit_streaming_delta`, что уже есть у `SessionUpdateSink`). Доменные `emit_plan`/`emit_tool_call`/`emit_tool_update` НЕ вводились: их форму продиктует `AgentRunner` (Фаза 4), consumer-driven
+- [~] 3.3 → **Фаза 4**: переписывание точек эмиссии на доменные аргументы + маппинг домен→ACP внутри адаптера — вместе с `AgentRunner` (потребитель порта)
+- [~] 3.4 → **Фаза 4**: унификация success/exception буферизации (P1-4) — вместе с 3.3
+- [x] 3.5 Golden-тест wire: `SessionUpdateSink.build_agent_message_chunk` даёт прежний `agent_message_chunk` (в `test_strategy_integration`); полный wire-golden — с 3.3 в Фазе 4
+- [x] 3.6 Ядро не конструирует `ACPMessage`: `build_fallback_notification`→`build_fallback_text` (домен-текст), ACP-wire строит `llm_loop` через `SessionUpdateSink`. **Бонус:** fallback теперь доставляется НЕМЕДЛЕННО через callback (не в буфер) — принцип immediate-delivery. `make check` зелёный (7336 passed)
 
 ## Фаза 4: `AgentRunner` + `ChildSessionFactory` — средний риск
 

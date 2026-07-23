@@ -29,9 +29,8 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
-    from codelab.server.agent.contracts.ports import ContentCodec, SessionView
+    from codelab.server.agent.contracts.ports import ContentCodec, SessionView, ToolGateway
     from codelab.server.mcp.manager import MCPManager
-    from codelab.server.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ class ExecutionEngine:
 
     def __init__(
         self,
-        tool_registry: ToolRegistry,
+        tool_registry: ToolGateway,
         compactor: ContextCompactor | None = None,
         history_builder: HistoryBuilder | None = None,
         tool_filter: ToolFilter | None = None,

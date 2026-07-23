@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from codelab.server.llm.content_parts import ContentPart
+    from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 
 class ClientCapabilitiesView(Protocol):
@@ -72,3 +73,38 @@ class ContentCodec(Protocol):
     """
 
     def decode(self, blocks: list[dict[str, Any]]) -> list[ContentPart]: ...
+
+
+class ToolGateway(Protocol):
+    """Порт доступа ядра к инструментам (ADR-005, шов №3).
+
+    Сужение существующего `tools.base.ToolRegistry(ABC)` до поверхности, нужной
+    ядру: перечисление, конвертация в LLM-формат и выполнение. Живой
+    `ToolRegistry` удовлетворяет порт структурно (формализация, не переписывание).
+    """
+
+    def get_available_tools(
+        self, session_id: str, include_permission_required: bool = True
+    ) -> list[ToolDefinition]: ...
+    def to_llm_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]: ...
+    async def execute_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        session: Any = None,
+    ) -> ToolExecutionResult: ...
+
+
+class UpdateSink(Protocol):
+    """Порт эмиссии прогресса turn-а в доменных терминах (ADR-005, шов №3).
+
+    Ядро эмитит через этот порт; driving-адаптер (`protocol...updates.SessionUpdateSink`)
+    мапит в ACP `session/update` wire и доставляет НЕМЕДЛЕННО (не батчит в конце
+    turn'а). Порт умышленно минимален — доменные методы для plan/tool_call/
+    tool_update добавит их потребитель (`AgentRunner`, Фаза 4): форму порта диктует
+    вызывающая сторона, а не спекуляция (см. design.md, consumer-driven ports).
+    """
+
+    async def emit_agent_message(self, session_id: str, text: str) -> None: ...
+    async def emit_streaming_delta(self, session_id: str, text: str) -> None: ...

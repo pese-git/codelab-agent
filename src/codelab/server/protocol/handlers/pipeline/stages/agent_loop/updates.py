@@ -32,7 +32,14 @@ logger = structlog.get_logger()
 
 
 class SessionUpdateSink:
-    """Исходящий канал ``session/update``: immediate delivery → buffer → replay."""
+    """Исходящий канал ``session/update``: immediate delivery → buffer → replay.
+
+    ACP driving-адаптер порта ``agent.contracts.ports.UpdateSink`` (ADR-005, шов №3):
+    доменные ``emit_agent_message``/``emit_streaming_delta`` уже реализованы;
+    plan/tool_call/tool_update пока принимают готовый ``ACPMessage`` (доменные
+    сигнатуры добавит их потребитель ``AgentRunner`` в Фазе 4). Доставка —
+    немедленная через callback; буфер только как fallback при отсутствии callback.
+    """
 
     def __init__(
         self,

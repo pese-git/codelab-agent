@@ -285,28 +285,20 @@ class TestStrategyDispatcherAvailableStrategies:
         assert dispatcher.is_strategy_available("hierarchical") is False
 
 
-class TestStrategyDispatcherFallbackNotification:
-    """Тесты для build_fallback_notification."""
+class TestStrategyDispatcherFallbackText:
+    """Тесты для build_fallback_text (ядро возвращает домен-текст, не ACP-wire)."""
 
-    def test_build_fallback_notification_format(self) -> None:
-        """build_fallback_notification создаёт правильное сообщение."""
-        notification = StrategyDispatcher.build_fallback_notification(
-            session_id="test-session",
+    def test_build_fallback_text_format(self) -> None:
+        """build_fallback_text содержит запрошенную/фактическую стратегию и причину."""
+        text = StrategyDispatcher.build_fallback_text(
             requested="multi_orchestrated",
             actual="single",
             reason="no orchestrator",
         )
 
-        assert notification.method == "session/update"
-        assert notification.params is not None
-        assert notification.params["sessionId"] == "test-session"
-        assert notification.params["update"]["sessionUpdate"] == "agent_message_chunk"
-
-        content = notification.params["update"]["content"]
-        assert content["type"] == "text"
-        assert "multi_orchestrated" in content["text"]
-        assert "single" in content["text"]
-        assert "no orchestrator" in content["text"]
+        assert "multi_orchestrated" in text
+        assert "single" in text
+        assert "no orchestrator" in text
 
 
 class TestStrategyDispatcherLLMCallStrategy:
