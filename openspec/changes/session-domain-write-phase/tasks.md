@@ -5,11 +5,9 @@
 
 ## Фаза D0: Предпосылки (страховка до рефактора)
 
-- [ ] D0.1 Golden-харнесс `session/update` wire: снять байт-фикстуры по каждому типу
-      (`agent_message_chunk`, `plan`, `tool_call`, `tool_call_update`) — гейт байт-идентичности
-- [ ] D0.2 Property-тест round-trip `SessionMapper` (domain → protocol → domain) на репрезентативных
-      сессиях (история с tool_calls, plan, multimodal) — фиксирует текущие потери как baseline
-- [ ] D0.3 Тест-фикстуры реальных старых сессий (`~/.codelab/.../sessions` формат) для миграции
+- [x] D0.1 Golden-харнесс `session/update` wire — `tests/server/protocol/test_session_update_wire_golden.py` (agent_message_chunk, plan, tool_call, tool_call_update; полная + минимальная формы, 6 тестов)
+- [x] D0.2 Round-trip baseline `SessionMapper` — `tests/server/mapping/test_session_mapper_roundtrip_baseline.py`; зафиксированы потери (роль `tool`→`assistant`, `tool_call_id` истории) как `BASELINE LOSS` — цель флипа в D1
+- [x] D0.3 Замороженная фикстура формата v6 (`tests/server/storage/fixtures/session_v6.json`) + baseline-тест чтения/маппинга — гарантирует обратную совместимость чтения при миграции D2
 
 ## Фаза D1: `SessionMapper` без потерь
 

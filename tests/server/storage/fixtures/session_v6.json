@@ -1,0 +1,77 @@
+{
+  "schema_version": 6,
+  "session_id": "sess_fixture_v6",
+  "cwd": "/tmp/proj",
+  "mcp_servers": [],
+  "title": null,
+  "updated_at": "2026-07-23T14:21:17.941222+00:00",
+  "config_values": {
+    "model": "openai/gpt-4o",
+    "_agent": "universal"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "hi",
+      "text": null,
+      "timestamp": "2026-07-23T10:00:00",
+      "tool_call_id": null
+    },
+    {
+      "role": "assistant",
+      "content": "working on it",
+      "text": null,
+      "timestamp": "2026-07-23T10:00:01",
+      "tool_call_id": null
+    }
+  ],
+  "active_turn": null,
+  "pending_prompt_response": null,
+  "tool_call_counter": 1,
+  "tool_calls": {
+    "call_001": {
+      "tool_call_id": "call_001",
+      "title": "grep",
+      "kind": "other",
+      "status": "completed",
+      "content": [],
+      "result_content": [],
+      "tool_name": "grep",
+      "tool_arguments": {
+        "q": "x"
+      },
+      "tool_call_id_from_llm": null,
+      "locations": [],
+      "raw_input": {},
+      "raw_output": {}
+    }
+  },
+  "terminals": {},
+  "terminal_counter": 0,
+  "available_commands": [],
+  "latest_plan": [
+    {
+      "content": "step 1",
+      "priority": "high",
+      "status": "pending"
+    }
+  ],
+  "permission_policy": {},
+  "cancelled_permission_requests": [],
+  "cancelled_client_rpc_requests": [],
+  "runtime_capabilities": {
+    "fs_read": true,
+    "fs_write": false,
+    "terminal": true
+  },
+  "events_history": [],
+  "active_strategy": "single",
+  "active_agents": [],
+  "session_metrics": null,
+  "correlation_id": null,
+  "parent_session_id": null,
+  "child_session_ids": [],
+  "is_child_session": false,
+  "task_result": null,
+  "sliced_summary": null
+}
