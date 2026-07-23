@@ -15,16 +15,16 @@
 
 ## Фаза 1: `SessionView` (read-фаза ADR-003) — низкий риск
 
-- [ ] 1.1 Объявить порт `SessionView(Protocol)` в `server/agent/contracts/ports.py` (доменный словарь: `id`, `config`, `messages()`)
-- [ ] 1.2 Выделить `config_to_domain`/`history_to_domain` из `SessionMapper` (переиспользовать `_build_history`)
-- [ ] 1.3 Реализовать ACP-адаптер `SessionStateView(state: SessionState)` — чтение сквозь живую сессию (не снимок)
-- [ ] 1.4 Перевести `ExecutionEngine.build_context`/`build_continuation_context` на `SessionView`
-- [ ] 1.5 Перевести `strategies/*`, `SystemPromptBuilder`, `context/file_cache_decorator` на `SessionView`
-- [ ] 1.6 `tool_filter` — capabilities через `shared.ClientCapabilities` (снять зависимость от `ClientRuntimeCapabilities`)
-- [ ] 1.7 Fake `FakeSessionView` в `tests/server/agent/fakes/`; юнит-тесты ядра без Pydantic-фикстур
-- [ ] 1.8 Регресс-тест round-trip: `image_prompts`/`embedded_context` не теряются (P2-32)
-- [ ] 1.9 Удалить строки `ignore_imports` для `agent.{base,execution_engine,strategies.*,system_prompt_builder,tool_filter}` и `context.file_cache_decorator → protocol.state`
-- [ ] 1.10 `make check` зелёный; `import-linter` зелёный без этих строк
+- [x] 1.1 Объявить порт `SessionView(Protocol)` + `ClientCapabilitiesView(Protocol)` в `server/agent/contracts/ports.py`. **Решение:** структурный read-порт (`session_id`, `cwd`, `config_values`, `runtime_capabilities`, `history`), а не доменный `id`/`config`/`messages()`. Причина: `messages() -> ConversationMessage` лоссовый (теряет `tool_calls` — ломает multi-turn tool-flow); живая `SessionState` удовлетворяет структурный порт без адаптера и конверсии → byte-identity гарантирован. Доменный content-VO отложен до второго драйвера (см. design.md)
+- [~] 1.2 `config_to_domain`/`history_to_domain` из `SessionMapper` — **не потребовалось**: структурный порт не конвертирует в domain (иначе лоссово). Отложено до write-фазы/второго драйвера
+- [~] 1.3 ACP-адаптер `SessionStateView` — **не потребовался**: живая `SessionState` структурно удовлетворяет `SessionView` (чтение сквозь живую сессию — тривиально, это она и есть). Call-sites (`single_strategy`) не оборачивают
+- [x] 1.4 `ExecutionEngine.build_context`/`build_continuation_context` → `SessionView`; `HistoryBuilder.build` расширен до `Sequence[Any]` (только итерирует)
+- [x] 1.5 `strategies/{base,dispatcher}`, `SystemPromptBuilder` → `SessionView`; `single_strategy` (impl `LLMCallStrategy`) → `SessionView`. `context/file_cache_decorator` — **отложен** (форвардит `session` в tools-executor, типизированный против `SessionState`; развязка вместе с цепочкой tools вне области Фазы 1)
+- [x] 1.6 `tool_filter` — capabilities через `ClientCapabilitiesView` (порт удовлетворяют и `ClientRuntimeCapabilities`, и `shared.ClientCapabilities`)
+- [x] 1.7 `FakeSessionView`/`FakeCapabilities` в `tests/server/agent/fakes/`; `test_session_view.py` — ядро работает без Pydantic-фикстур
+- [x] 1.8 Регресс round-trip: `tool_calls` и мультимодальный image-блок не теряются (P2-32)
+- [x] 1.9 Удалены 6 строк `ignore_imports` (`agent.core.{agent_base,execution_engine,strategies.base,strategies.dispatcher,system_prompt_builder,tool_filter} → protocol.state`); `file_cache_decorator` оставлен (отложен, см. 1.5)
+- [x] 1.10 `make check` зелёный (7336 passed); `import-linter` зелёный (4 контракта kept) без снятых строк
 
 ## Фаза 2: `ContentCodec` — средний риск (главная работа)
 

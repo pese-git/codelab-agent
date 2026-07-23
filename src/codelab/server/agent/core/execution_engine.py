@@ -29,8 +29,8 @@ from codelab.server.llm.models import LLMMessage
 if TYPE_CHECKING:
     from codelab.server.agent.context.interfaces import ContextManager
     from codelab.server.agent.context_compactor import ContextCompactor
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.mcp.manager import MCPManager
-    from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class ExecutionEngine:
 
     async def build_context(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str,
         system_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
@@ -166,7 +166,7 @@ class ExecutionEngine:
 
     async def build_continuation_context(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: MCPManager | None = None,
     ) -> ContinuationContext:
         """Собрать ContinuationContext для продолжения после tool_results.

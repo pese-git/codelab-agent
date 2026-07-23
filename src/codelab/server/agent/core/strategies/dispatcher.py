@@ -25,13 +25,13 @@ from codelab.server.messages import ACPMessage
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.core.agent_base import AgentResponse
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.strategies.descriptor import StrategyDependencies
     from codelab.server.agent.core.strategies.registry import StrategyRegistry
     from codelab.server.agent.registry import AgentRegistry
     from codelab.server.observability.tracer import SpanContext
-    from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
@@ -105,7 +105,7 @@ class StrategyDispatcher:
 
     def select_strategy(
         self,
-        session: SessionState,
+        session: SessionView,
         context_meta: dict[str, Any] | None = None,
     ) -> tuple[str, str | None]:
         """Выбрать стратегию по приоритету.
@@ -263,7 +263,7 @@ class StrategyDispatcher:
 
     async def execute(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -334,7 +334,7 @@ class StrategyDispatcher:
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,
@@ -397,7 +397,7 @@ class StrategyDispatcher:
             on_delta=on_delta,
         )
 
-    def _resolve_agent_name(self, session: SessionState) -> str:
+    def _resolve_agent_name(self, session: SessionView) -> str:
         """Определить имя агента для выполнения.
 
         Порядок приоритета:

@@ -29,8 +29,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.registry import AgentRegistry
-    from codelab.server.protocol.state import SessionState
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class SystemPromptBuilder:
 
     def build(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
     ) -> str | None:
         """Собрать system prompt.
@@ -130,7 +130,7 @@ class SystemPromptBuilder:
 
         return result
 
-    def _resolve_agent_prompt(self, session: SessionState) -> str:
+    def _resolve_agent_prompt(self, session: SessionView) -> str:
         """Резолвить agent prompt из AgentRegistry.
 
         Args:

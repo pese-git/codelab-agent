@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from codelab.server.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import ClientRuntimeCapabilities
+    from codelab.server.agent.contracts.ports import ClientCapabilitiesView
 
 
 # Инструменты с этими kind — серверные, не требуют client capabilities.
@@ -52,7 +52,7 @@ class ToolFilter:
     def filter(
         self,
         tools: list[ToolDefinition],
-        capabilities: ClientRuntimeCapabilities | None = None,
+        capabilities: ClientCapabilitiesView | None = None,
         mcp_tools: list[ToolDefinition] | None = None,
     ) -> list[ToolDefinition]:
         """Отфильтровать инструменты.
@@ -90,7 +90,7 @@ class ToolFilter:
     def _is_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilitiesView,
     ) -> bool:
         """Проверить поддерживается ли инструмент клиентом.
 
@@ -118,7 +118,7 @@ class ToolFilter:
     def _fs_tool_supported(
         self,
         tool: ToolDefinition,
-        capabilities: ClientRuntimeCapabilities,
+        capabilities: ClientCapabilitiesView,
     ) -> bool:
         """Проверить поддерживается ли fs/* инструмент.
 

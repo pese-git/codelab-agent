@@ -5,14 +5,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import Any
 
 from codelab.server.agent.acp_content_mapper import ACPContentMapper
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.llm.models import LLMMessage, LLMToolCall
-
-if TYPE_CHECKING:
-    pass
 
 
 class HistoryBuilder:
@@ -27,7 +25,7 @@ class HistoryBuilder:
 
     def build(
         self,
-        history: list[dict[str, Any]] | list,
+        history: Sequence[Any],
         system_prompt: str | None = None,
     ) -> list[LLMMessage]:
         """Собрать LLMMessage из истории.
@@ -52,7 +50,7 @@ class HistoryBuilder:
 
     def _convert_to_llm_messages(
         self,
-        history: list[dict[str, Any]] | list,
+        history: Sequence[Any],
     ) -> list[LLMMessage]:
         """Конвертировать записи истории в LLMMessage."""
         messages: list[LLMMessage] = []

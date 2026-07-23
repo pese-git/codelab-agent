@@ -23,10 +23,10 @@ from codelab.server.llm.models import LLMToolCall
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.core.execution_engine import ExecutionEngine
     from codelab.server.agent.event_bus.bus import AgentEventBus
     from codelab.server.observability.tracer import SpanContext, Tracer
-    from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
@@ -125,7 +125,7 @@ class SingleStrategy:
 
     async def execute(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -209,7 +209,7 @@ class SingleStrategy:
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
         *,
         parent_span: SpanContext | None = None,

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.agent.contracts.ports import SessionView
     from codelab.server.agent.core.agent_base import AgentResponse
-    from codelab.server.protocol.state import SessionState
 
     OnDelta = Callable[[str], Awaitable[None]]
 
@@ -33,7 +33,7 @@ class LLMCallStrategy(Protocol):
     - StrategyDispatcher — EventBus путь (SingleStrategy → LLMAdapter)
 
     Пример использования:
-        async def run(strategy: LLMCallStrategy, session: SessionState):
+        async def run(strategy: LLMCallStrategy, session: SessionView):
             response = await strategy.execute(session, "Hello")
             if response.tool_calls:
                 # ... обработать tool_calls ...
@@ -42,7 +42,7 @@ class LLMCallStrategy(Protocol):
 
     async def execute(
         self,
-        session: SessionState,
+        session: SessionView,
         prompt: str | None,
         mcp_manager: Any | None = None,
         *,
@@ -65,7 +65,7 @@ class LLMCallStrategy(Protocol):
 
     async def continue_execution(
         self,
-        session: SessionState,
+        session: SessionView,
         mcp_manager: Any | None = None,
         *,
         on_delta: OnDelta | None = None,

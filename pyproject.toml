@@ -181,20 +181,16 @@ layers = [
     "codelab.server.agent",
     "codelab.server.domain",
 ]
-# ДОЛГ (ADR-003): agent типизируется против protocol.state.SessionState —
-# симптом незавершённой доменной миграции (сериализационная модель протекает в
-# ядро вместо доменного агрегата domain.Session). Целевое решение — вариант B из
-# ADR-003 (agent оперирует domain.Session, маппинг на границе через SessionMapper),
-# выполняется отдельным эпиком. До него строки ниже — единственный трекер долга;
-# удалять по мере выполнения B, обходные абстракции не вводить.
+# ДОЛГ (ADR-003): остаточная протечка protocol.state в agent — симптом
+# незавершённой доменной миграции. Read-фаза (SessionView, ADR-005 Фаза 1)
+# развязала ядро (agent.core.*) — эти рёбра сняты. Остаток удаляется по мере фаз:
+# - file_cache_decorator форвардит session в tools-executor (типизирован против
+#   SessionState) — развязка вместе с цепочкой tools, вне области Фазы 1;
+# - child_session -> session_factory — Фаза 4 (ChildSessionFactory);
+# - storage/tools — вне области change acp-independent-agent-core.
+# Удалять по мере выполнения; обходные абстракции не вводить.
 # См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
 ignore_imports = [
-    "codelab.server.agent.core.agent_base -> codelab.server.protocol.state",
-    "codelab.server.agent.core.execution_engine -> codelab.server.protocol.state",
-    "codelab.server.agent.core.strategies.base -> codelab.server.protocol.state",
-    "codelab.server.agent.core.strategies.dispatcher -> codelab.server.protocol.state",
-    "codelab.server.agent.core.system_prompt_builder -> codelab.server.protocol.state",
-    "codelab.server.agent.core.tool_filter -> codelab.server.protocol.state",
     "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
     "codelab.server.agent.context.child_session -> codelab.server.protocol.session_factory",
     "codelab.server.storage.base -> codelab.server.protocol.state",
