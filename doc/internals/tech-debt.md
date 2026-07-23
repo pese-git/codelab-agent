@@ -1575,6 +1575,41 @@ codelab.local.toml < custom`) и provider-fallback (`api_key/base_url` из
 
 ---
 
+### 34. `ContextGatherer` content-search: O(термы × файлы) чтений через ACP RPC — ⬜ ОТКРЫТО (обнаружено 2026-07-23, анализ логов)
+
+**Симптом (лог `~/.codelab/logs/codelab-5026.log`, сессия `sess_4003f10eed62`):** одна
+сборка контекста дала **160** `tool handler execution completed acp_tool_name=fs/read_text_file`
+в окне ~70 мс, при том что итог — `files_read=4`, `files_gathered=7`. Источник — фаза
+content-search: `context.gather.content_search.start files_to_check=30` повторяется **5 раз**
+(по числу поисковых термов).
+
+**Корень:** `ContextGatherer._search_in_files` (`server/agent/context/gatherer.py:590`)
+вызывается в цикле `for term in profile.search_terms[:5]` (строка 225) и для **каждого**
+термина перечитывает один и тот же набор кандидатов (`content_search_limit = 30`), вызывая
+`_read_file` → `tool_registry.execute_tool("fs/read_text_file")` (строка 405). Итого до
+5 × 30 = **150** RPC-чтений одних и тех же файлов за сборку. `_read_file` **не обращается к
+`FileContentCache`** (Слой C) — чтения доходят до fs-хендлера каждый раз (подтверждено 160
+completion-записями в логе).
+
+**Влияние:** локально 65 мс (незаметно), но на удалённом ACP-клиенте это **~150 сетевых
+round-trip'ов на каждый старт turn'а** — прямая деградация латентности и нагрузка на клиента.
+Сложность O(термы × файлы) вместо O(файлы).
+
+**Предлагаемое решение:** читать каждый файл-кандидат один раз (через `FileContentCache` или
+разово перед циклом термов), затем матчить все термы против содержимого в памяти
+(`term_lower in content.lower()` — дёшево). Сводит чтения к O(файлы) без изменения результата.
+
+**Файл:** `src/codelab/server/agent/context/gatherer.py` (`_search_in_files:590`, `_read_file:405`,
+цикл термов `:225`).
+**Оценка:** 0.5 дня (рефактор + тест, что число `execute_tool("fs/read_text_file")` = число
+уникальных проверенных файлов, а не термы × файлы).
+**Критерий приёмки:** для N термов над M кандидатами число fs/read RPC = M (не N × M);
+результат `context.gather.complete` (`file_paths`, `files_gathered`) байт-в-байт прежний;
+`make check` зелёный.
+**Связано:** P2-15, P2-20 (эффективность `ContextGatherer`, ранее подтверждались анализом логов).
+
+---
+
 ## Дорожная карта
 
 > **Исторический план** (составлен при первичном аудите). Фактический порядок работ
