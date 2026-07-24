@@ -304,3 +304,101 @@ LLM-`tool_calls`, блочный `content`. **D4-d флипнет запись �
 Замечание: `SessionMapper.to_protocol` в проде пока не на пути записи (флип — D4-d), поэтому смена
 формы сериализации истории регрессий на живом пути не даёт; `to_domain` (вход turn'а) стал богаче —
 assistant-текст и embedded tool_calls больше не теряются при пересборке домена.
+
+### Аудит D4-d — карта write-сайтов (диагностика 2026-07-24, только чтение)
+
+**Цель.** Перед флипом убедиться, что «один флип threaded-объекта» реализуем. Аудит покрыл три оси:
+жизненный цикл `SessionState`, write-сайты `tool_calls`, write-сайты остальных под-стейтов.
+
+**Жизненный цикл (граница persist).** `SessionState` — единственный source-of-truth и на wire, и
+in-memory, и на диске: мутируется **in-place**, весь пайплайн держит **тот же объект**. Резидентный
+экземпляр живёт в LRU-кэше `CachedSessionStorage` (`storage/cached.py:49`); каждый turn: `load`
+(тот же объект) → in-place мутации → `save`. `SessionMapper.to_protocol` в живом пути записи **не
+участвует вообще** (только тесты). `to_domain` вызывается в двух точках (`prompt_orchestrator.py:217`,
+`background_executor.py:177`) — аддитивный доменный снимок для чтения, «сгорает» в конце turn'а.
+Физическая граница сериализации — `storage/json_file.py:69` (`model_dump`) и `:103` (`model_validate`
++ `migrate_schema`).
+
+**Ключевой вывод — D4-d НЕ «один флип».** `domain_session` — эфемерный per-`PromptContext` снимок,
+построенный в ОДНОЙ точке (вход turn'а). Множество write-путей `PromptContext` не получают вовсе:
+1. **`response_router` path** (client-RPC responses `client_rpc_response.py`, permission-resume
+   `prompt/permission_response.py`) — `PromptContext`/`domain_session` не создаётся никогда.
+2. **Pre-pipeline turn-setup** — `state_manager.add_user_message`/`title`/`updated_at`
+   (`prompt_orchestrator.py:196-206`) исполняется ДО построения `domain_session` (`:217`).
+3. **Прямые писатели вне пайплайна** — slash-команды, `mcp_session_manager`, context-`gatherer`,
+   tool-executor-декораторы, storage-граница — работают с `SessionState` напрямую.
+
+**Гапы по под-стейтам (`domain_session` недоступен на сайте мутации):**
+- **tool_calls** — крупнейший. 5 низкоуровневых примитивов (`tool_call_handler.py:111-114,159`;
+  `prompt/tool_calls.py:21-23,61`; `session.py:78`) принимают только `SessionState`. `domain_session`
+  доходит до `AgentLoop.run()` и `SessionUpdateSink`/`ToolCallUpdateBuilder`, но **не** до
+  `ToolCallProcessor` (гап «на один хоп»: ctor `tool_processor.py:80`, вызовы `loop.py:337,493`).
+  Пути без `domain_session`: agent_loop/tool_processor (~11 сайтов), client-RPC handler
+  (`client_rpc_handler.py:143,215,284,363,384`), client-request builders
+  (`client_requests.py:98,142,209`), client-RPC response (`client_rpc_response.py:93..581`),
+  permission-resume, cancel-примитивы (`tool_call_handler.py:407`, `session.py:78`,
+  `prompt/tool_calls.py:236`). В scope на самом сайте create — только `directives.py:208`.
+- **history** — 6 сайтов, ни один не флипнут: `agent_loop/loop.py:328,432`,
+  `tool_processor.py:877`, `llm_loop.py:259`, `state_manager.py:75,109`.
+- **permissions** — весь под-стейт гап (policy: `permission_manager.py:324`,
+  `prompt/permission_response.py:64`; cancelled: `session.py:65`, `prompt_orchestrator.py:330`,
+  `permissions.py:241`, `commands/permission_response.py:87`).
+- **config_values** — весь гап (`config.py:101`, slash-`{strategy,mode,context}`,
+  `project_structure.py:159`, `gatherer.py:572`).
+- **available_commands** — весь гап (`mcp_session_manager.py:180,374,566`).
+- **multi_agent** — прямой write один (`child_session.py:89-90` через `config_values`); прочие поля
+  пишутся только через маппер (round-trip).
+- **title/updated_at** — turn-setup (pre-pipeline) + storage/client-RPC граница.
+
+**Флипнут только plan** (`directives.py:118+135`, `updates.py:_apply_plan:185`) — единый писатель
+`latest_plan` через `domain_session.plan` + dual-carry.
+
+**Следствие — переформулировка D4-d.** «Флип одного threaded-объекта» недостижим, пока
+`domain_session` — эфемерный снимок per-`PromptContext`. Настоящий D4-d = **релокация резидентного
+source-of-truth**: доменный `Session` становится объектом в LRU-кэше и нитью, прошитой везде, а
+`SessionState` пересобирается только на границе сериализации (`json_file.py:69`) через доменный
+storage-порт (обёртка над `SessionStorage`: `to_protocol` на `save`, `to_domain` на `load`). Это
+покрывает `response_router` и pre-pipeline пути одним махом (у них появляется доступ к резидентному
+домену), но затрагивает ВСЕ write-сайты, а не один. Альтернатива (прошить `domain_session` в каждый
+примитив) не закрывает пути, где `PromptContext` не строится, — поэтому storage-порт предпочтителен.
+
+### Решение D4-d — резидентный домен + `SessionRepository`-порт (одобрено владельцем 2026-07-24)
+
+**Стратегия.** Настоящий D4-d = релокация резидентного source-of-truth: доменный `Session`
+становится рабочим объектом в памяти, `SessionState` — чистый DTO на границе сериализации. Отвергнута
+прошивка эфемерного снимка `domain_session` в сайты (не закрывает пути без `PromptContext`, размазывает
+шов конверсии) и хаки коэкзистенции (dual-write, duck-typed общий интерфейс — плодят долг, размывают
+источник истины).
+
+**Тезис 1 — кэш держит домен (необходимость, не развилка).** In-place-мутационный контракт turn'а
+держится на идентичности резидента: `CachedSessionStorage.load_session` (`cached.py:76`) отдаёт ТОТ ЖЕ
+объект на cache-hit. Конверсия `to_domain` на каждый `load` дала бы два разных `domain.Session` за turn
+→ split-brain. Поэтому кэш ре-типизируется на `domain.Session`: `to_domain` только на cache-miss,
+`to_protocol` только на `save`. `JsonFileStorage` собственного кэша не имеет → доменный кэш поглощает
+роль `CachedSessionStorage` без double-caching.
+
+**Тезис 2 — switch резидента атомарен, готовится аддитивным facade-pre-step (branch-by-abstraction).**
+Источник истины — сингулярный инвариант; два мутабельных резидента = баг корректности, поэтому
+атомарность вынуждена, не выбрана. Из ~40 write-сайтов большинство — pass-through; реально режут поля
+~6-10 фасадов/примитивов (`tool_call_handler`, `prompt/tool_calls`, `StateManager`,
+`permission_manager`). Разрозненные прямые писатели (`config_values` из slash/декораторов/`gatherer`,
+`available_commands` из `mcp_session_manager`) — вне фасадов.
+
+**Тезис 3 — асимметрия порта (CQRS-lite).** `load`/`save` доменные (write-model), `list` — облегчённая
+wire-проекция (read-model: title/updated_at/cwd), явно, не притворяясь доменной. Домен не импортирует
+`protocol`; `SessionMapper` остаётся единственным швом на границе.
+
+**Порядок реализации:**
+1. **Pre-step (аддитивный, безопасный):** загнать разрозненных прямых писателей `SessionState` в
+   фасады (принимающие `SessionState`). Поведение не меняется; после — все мутации через ~6 фасадов.
+2. **Каркас:** `SessionRepository` (доменный порт: `load/save -> Session`, `list -> wire-проекция`),
+   владеет доменным LRU-кэшем, делегирует диск в `SessionStorage`-backend (wire), `to_domain`/
+   `to_protocol` — только тут.
+3. **Атомарный switch (один гейтнутый коммит):** entry-points → репозиторий; сигнатуры ~6 фасадов/
+   примитивов → `domain.Session`. Гейт: golden-wire + round-trip + live-smoke + `make check`.
+4. `SessionState` остаётся только внутри репозитория (DTO). `tool_call_counter`-атомарность —
+   бесплатно (домен единственный носитель).
+
+**Новая абстракция обоснована** (CLAUDE.md: исключение): `SessionRepository` — недостающий доменный
+шов, не дубль (`SessionStorage` типизирован wire-DTO, остаётся as-is под портом). Имя честное
+(repository, не «менеджер»).
