@@ -188,6 +188,44 @@ class TestRoundtripTurnAndRuntime:
         assert rt.runtime.correlation_id == "corr_1"
 
 
+class TestRoundtripToolCallFields:
+    """D4-b/b3: tool_call wire-поля (kind/title/content/...) — round-trip без потерь (ADR-006)."""
+
+    def test_tool_call_rich_fields_preserved(self) -> None:
+        from codelab.server.domain.tool_call import ToolCall, ToolResult
+        from codelab.server.domain.value_objects import FileLocation, ToolCallStatus
+
+        session = _rich_session()
+        session.tool_calls.calls["call_001"] = ToolCall(
+            id="call_001",
+            tool_name="read_file",
+            arguments={"path": "/a.py"},
+            status=ToolCallStatus.COMPLETED,
+            kind="read",
+            title="Reading /a.py",
+            tool_call_id_from_llm="chatcmpl-xyz",
+            result=ToolResult(
+                locations=[FileLocation(path="/a.py", line=10)],
+                raw_output={"bytes": 42},
+                content=[{"type": "text", "text": "file body"}],
+                result_content=[{"type": "text", "text": "extracted"}],
+            ),
+        )
+        rt = _roundtrip(session)
+        tc = rt.tool_calls.get("call_001")
+        assert tc is not None
+        assert tc.kind == "read"
+        assert tc.title == "Reading /a.py"
+        assert tc.tool_call_id_from_llm == "chatcmpl-xyz"
+        assert tc.status == ToolCallStatus.COMPLETED
+        assert tc.arguments == {"path": "/a.py"}
+        assert tc.result is not None
+        assert tc.result.content == [{"type": "text", "text": "file body"}]
+        assert tc.result.result_content == [{"type": "text", "text": "extracted"}]
+        assert tc.result.raw_output == {"bytes": 42}
+        assert [(loc.path, loc.line) for loc in tc.result.locations] == [("/a.py", 10)]
+
+
 class TestRoundtripKnownGaps:
     """Оставшиеся потери — фиксированы как xfail, чинятся в D2 (формат хранения)."""
 

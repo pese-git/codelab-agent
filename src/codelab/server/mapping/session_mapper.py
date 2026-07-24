@@ -18,19 +18,17 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
     TurnState,
 )
-from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import (
     MessageRole,
     PlanPriority,
     PlanStatus,
     SessionId,
-    ToolCallStatus,
 )
+from codelab.server.mapping.tool_call_mapper import ToolCallMapper
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PendingClientRequestState,
     SessionState,
-    ToolCallState,
 )
 from codelab.shared.capabilities import ClientCapabilities
 
@@ -63,17 +61,8 @@ class SessionMapper:
                 )
             )
 
-        # Конвертируем tool calls
-        tool_calls = {}
-        for tc in session.tool_calls.get_all():
-            tool_calls[tc.id] = ToolCallState(
-                tool_call_id=tc.id,
-                title=tc.tool_name,
-                kind="other",
-                status=tc.status.value,
-                tool_name=tc.tool_name,
-                tool_arguments=tc.arguments,
-            )
+        # Конвертируем tool calls (делегируем ToolCallMapper — round-trip без потерь, D4-b/b3)
+        tool_calls = {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
 
         # Конвертируем plan
         latest_plan = []
@@ -289,20 +278,11 @@ class SessionMapper:
 
     @staticmethod
     def _build_tool_calls(state: SessionState) -> ToolCallRegistry:
-        """Собирает ToolCallRegistry из protocol tool_calls."""
+        """Собирает ToolCallRegistry из protocol tool_calls (делегируя ToolCallMapper)."""
         tool_calls = ToolCallRegistry()
         tool_calls.counter = state.tool_call_counter
         for tc_id, tc_state in state.tool_calls.items():
-            try:
-                status = ToolCallStatus(tc_state.status)
-            except ValueError:
-                status = ToolCallStatus.PENDING
-            tool_calls.calls[tc_id] = ToolCall(
-                id=tc_state.tool_call_id,
-                tool_name=tc_state.tool_name or tc_state.title,
-                arguments=tc_state.tool_arguments,
-                status=status,
-            )
+            tool_calls.calls[tc_id] = ToolCallMapper.to_domain(tc_state)
         return tool_calls
 
     @staticmethod

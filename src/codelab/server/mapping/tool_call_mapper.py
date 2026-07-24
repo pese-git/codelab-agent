@@ -12,23 +12,29 @@ class ToolCallMapper:
 
     @staticmethod
     def to_protocol(domain: ToolCall) -> ToolCallState:
-        """Конвертировать domain ToolCall в protocol ToolCallState."""
-        locations = [{"path": loc.path, "line": loc.line} for loc in domain.locations]
+        """Конвертировать domain ToolCall в protocol ToolCallState (round-trip без потерь)."""
+        result = domain.result
+        locations_src = result.locations if result else domain.locations
+        locations = [{"path": loc.path, "line": loc.line} for loc in locations_src]
         return ToolCallState(
             tool_call_id=domain.id,
-            title=domain.tool_name,
-            kind="other",
+            # title — доменный display; для domain-origin объектов без title fallback на tool_name.
+            title=domain.title if domain.title is not None else domain.tool_name,
+            kind=domain.kind,
             status=domain.status.value,
             raw_input=domain.arguments,
-            raw_output=domain.result.raw_output if domain.result else domain.raw_output,
+            raw_output=result.raw_output if result else domain.raw_output,
             locations=locations,
             tool_name=domain.tool_name,
             tool_arguments=domain.arguments,
+            tool_call_id_from_llm=domain.tool_call_id_from_llm,
+            content=result.content if result else [],
+            result_content=result.result_content if result else [],
         )
 
     @staticmethod
     def to_domain(protocol: ToolCallState) -> ToolCall:
-        """Конвертировать protocol ToolCallState в domain ToolCall."""
+        """Конвертировать protocol ToolCallState в domain ToolCall (round-trip без потерь)."""
         locations = [
             FileLocation(path=loc["path"], line=loc.get("line"))
             for loc in protocol.locations
@@ -36,14 +42,16 @@ class ToolCallMapper:
         ]
         status = _parse_status(protocol.status)
         result = None
-        if protocol.raw_output or locations:
+        if protocol.raw_output or locations or protocol.content or protocol.result_content:
             result = ToolResult(
                 locations=locations,
                 raw_output=dict(protocol.raw_output),
+                content=[dict(c) for c in protocol.content],
+                result_content=[dict(c) for c in protocol.result_content],
             )
         return ToolCall(
             id=protocol.tool_call_id,
-            tool_name=protocol.title,
+            tool_name=protocol.tool_name or protocol.title,
             arguments=(
                 dict(protocol.raw_input) if protocol.raw_input else dict(protocol.tool_arguments)
             ),
@@ -51,6 +59,9 @@ class ToolCallMapper:
             result=result,
             locations=locations,
             raw_output=dict(protocol.raw_output),
+            kind=protocol.kind,
+            title=protocol.title,
+            tool_call_id_from_llm=protocol.tool_call_id_from_llm,
         )
 
 

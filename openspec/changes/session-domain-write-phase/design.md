@@ -139,15 +139,30 @@ resume-токен; переотправление запроса после ре
 > `SessionContext`/`SessionRuntime`-компаньон в `protocol` — **отменён**: состояние сессии живёт в
 > `domain.Session`, отдельная threaded-обёртка не нужна (см. «Природа остатка», ADR-006).
 
-### `ToolCallState` богаче доменного `ToolCall`
-Wire-модель `ToolCallState` шире `ToolCall`; на b2/D4-c решить по каждому полю, гейт — байт-идентичность
-tool_call/tool_call_update:
-- **wire-only** (нет дома; остаётся полем DTO, восстанавливается маппером): `title`, `kind`,
-  `tool_call_id_from_llm`, `raw_input`.
-- **есть доменный дом** (`ToolCall` уже несёт): `locations`, `raw_output`, `status`, `tool_name`→,
-  `tool_arguments`→`arguments`.
-- **mapping-решение** (домен `ToolCall.result` vs wire `content`/`result_content`): выбрать
-  представление результата в VO и правило маппинга в оба ACP-поля.
+### `ToolCallState` богаче доменного `ToolCall` — классификация утверждена (2026-07-24)
+
+**Проверка кода (D4-b/b3 pre-work) опровергла прежнюю рамку «wire-only, восстанавливается
+маппером».** Существующий `ToolCallMapper` теряет `title`/`kind`/`content`/`result_content`/
+`tool_call_id_from_llm` — восстанавливать их не из чего (нет доменного источника), значит
+«wire-only + restore» недостижимо. Плюс `kind` — **ключ permission-политики**
+(`permission_policy[tool_call.kind]`, `permission_manager.py:324`), т.е. семантически доменное поле.
+
+**Решение (одобрено владельцем): доменный дом** — по принципу ADR-006 (персистируемые данные без
+wire-framing → домен), единообразно с `TurnState`/`SessionRuntime`:
+
+| Поле | Дом |
+|---|---|
+| `status`, `tool_name`, `tool_arguments`→`arguments`, `locations`, `raw_output` | `ToolCall` (уже есть) |
+| `raw_input` | **производное** — проекция `arguments` (у обоих писателей `raw_input == tool_arguments`) |
+| `kind` | **→ `ToolCall.kind`** (новое; ключ permission-политики) |
+| `title` | **→ `ToolCall.title`** (новое; персистится для replay) |
+| `tool_call_id_from_llm` | **→ `ToolCall.tool_call_id_from_llm`** (новое; опаковый корреляционный id) |
+| `content` | **→ `ToolResult.content`** (новое; payload `tool_call_update`) |
+| `result_content` | **→ `ToolResult.result_content`** (новое; извлечённый контент для клиента) |
+
+`ToolCallMapper` доводится до **round-trip без потерь**; гейт — golden-wire tool_call/tool_call_update
+байт-в-байт. Открывает домен-as-source для b3 (в отличие от sync-варианта, откладывающего дом
+этих полей до D4-d, что ADR-006 отверг вместе с wire-компаньоном).
 
 ## Риски и решения
 
