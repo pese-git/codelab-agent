@@ -83,6 +83,9 @@ class ConversationMessage:
 
     role: MessageRole
     content: MessageContent
-    timestamp: datetime = field(default_factory=datetime.now)
+    # ACP не моделирует per-message timestamp; единственное время в протоколе —
+    # session-level `updatedAt` (nullable). Поэтому `None` — валидное значение и
+    # НЕ синтезируется при пересборке: null должен оставаться null (round-trip).
+    timestamp: datetime | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None

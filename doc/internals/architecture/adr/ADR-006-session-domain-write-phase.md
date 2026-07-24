@@ -185,3 +185,36 @@ D4-d (флип на границе). `terminals` — по-прежнему по�
 `protocol.session_runtime.SessionRuntime` (live-реестр per-session: notification bus,
 `mcp_prompt_handlers`) — разные концепции. Пока в разных пакетах; при флипе runtime под-стейта
 (D4-b «runtime») развести имена во избежание путаницы (ср. память «naming-semantics-over-compat»).
+
+### Prep закрыт: 8 полей punch-list lossless (2026-07-24)
+
+**Finding (D4-prep диагностика).** Round-trip `SessionState → domain → SessionState` (критичное для
+D4-d направление — `SessionState` пересобирается из домена на границе) терял 8 полей. Все фиксы
+аддитивны к домену+мапперам, риск нулевой.
+
+**Сверка с ACP (снимает развилку по `timestamp`).** Протокол **не моделирует** per-message время;
+единственное понятие времени — session-level `updatedAt: string | null`, «Set to null to clear»
+(`17-Schema.md:2824,2852`). Значит: (1) `ConversationMessage.timestamp` — наше storage-расширение, не
+ACP-контракт → смена доменного дефолта не является изменением протокола; (2) nullable — протокол-
+санкционированная семантика → `timestamp: datetime | None = None`, null **не синтезируется** при
+пересборке; (3) `updated_at` нести как есть — регенерация = ложная «last activity».
+
+**Сделано (аддитивно):**
+- `ConversationMessage.timestamp` → `datetime | None = None`; мапперы (`history_mapper`,
+  `session_mapper._build_history`) несут `None → None`.
+- `SessionConfig.mcp_servers`; `Session.{title, updated_at, schema_version, available_commands}`
+  (storage-мета, `updated_at` не регенерируется); `MultiAgentState.{task_result, sliced_summary}`
+  (opaque, для миграции).
+- `raw_input` — оставлен derive. Инвариант реальных данных `raw_input == tool_arguments` (54/54 на
+  дампе `sess_c3a315689e80`) → отдельный доменный дом не нужен; регрессия `{}→{...}` была артефактом
+  синтетической фикстуры.
+
+**Гейт:** `TestProtocolRoundtripLossless::test_protocol_roundtrip_lossless` +
+`TestRoundtripPrepFields` (`test_session_mapper_roundtrip_baseline.py`). `make check`: 7367 passed,
+1 xfail. Проверено на реальном дампе: все 8 полей lossless, 108 None-timestamp сохранены.
+
+**Осталось за скопом prep → D2.** Полный `model_dump()` реального дампа ещё не байт-идентичен —
+расходится **тело history-сообщений**: `content` (блоки vs `.text`), embedded `text`, embedded LLM
+`tool_calls`. Это не punch-list, а fidelity истории; зафиксировано как
+`xfail test_multimodal_history_preserved`. Чинится в **D2** (versioned schema + миграция формата) —
+единственный незакрытый round-trip перед D4-d.

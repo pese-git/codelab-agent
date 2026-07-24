@@ -4,6 +4,9 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
+from datetime import datetime
+from typing import Any
+
 from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
@@ -78,20 +81,30 @@ class SessionMapper:
         # Создаем SessionState
         state = SessionState(
             session_id=session.id,
+            schema_version=session.schema_version,
             cwd=session.config.cwd,
+            mcp_servers=list(session.config.mcp_servers),
+            title=session.title,
             config_values=session.config.config_values,
             history=history,
             tool_calls=tool_calls,
             tool_call_counter=session.tool_calls.counter,
             permission_policy=session.permissions.policy,
             cancelled_permission_requests=set(session.permissions.cancelled_requests),  # type: ignore[arg-type]
+            available_commands=list(session.available_commands),
             latest_plan=latest_plan,
             active_strategy=session.multi_agent.active_strategy,
             active_agents=session.multi_agent.active_agents,
             parent_session_id=session.multi_agent.parent_session_id,
             child_session_ids=session.multi_agent.child_session_ids,
             is_child_session=session.multi_agent.is_child_session,
+            task_result=session.multi_agent.task_result,
+            sliced_summary=session.multi_agent.sliced_summary,
         )
+        # `updated_at` несём как есть; регенерацию (default_factory=now) допускаем
+        # только для доменных сессий без метки (свежесозданных, не из round-trip).
+        if session.updated_at is not None:
+            state.updated_at = session.updated_at
 
         # Runtime capabilities
         if session.config.runtime_capabilities:
@@ -166,6 +179,7 @@ class SessionMapper:
             config_values=state.config_values,
             active_strategy=state.active_strategy,
             runtime_capabilities=runtime_caps,
+            mcp_servers=[dict(s) for s in state.mcp_servers],
         )
 
         history = SessionMapper._build_history(state)
@@ -186,6 +200,8 @@ class SessionMapper:
             parent_session_id=state.parent_session_id,
             child_session_ids=state.child_session_ids,
             is_child_session=state.is_child_session,
+            task_result=state.task_result,
+            sliced_summary=state.sliced_summary,
         )
 
         active_turn = SessionMapper._build_turn(state)
@@ -202,7 +218,22 @@ class SessionMapper:
             multi_agent=multi_agent,
             active_turn=active_turn,
             runtime=runtime,
+            title=state.title,
+            updated_at=state.updated_at,
+            schema_version=state.schema_version,
+            available_commands=SessionMapper._normalize_commands(state.available_commands),
         )
+
+    @staticmethod
+    def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
+        """available_commands → list[dict]: AvailableCommand (pydantic) или dict."""
+        result: list[dict[str, Any]] = []
+        for cmd in commands:
+            if isinstance(cmd, dict):
+                result.append(dict(cmd))
+            elif hasattr(cmd, "model_dump"):
+                result.append(cmd.model_dump())
+        return result
 
     @staticmethod
     def _build_turn(state: SessionState) -> TurnState | None:
@@ -249,16 +280,19 @@ class SessionMapper:
         history = ConversationHistory()
         for msg_data in state.history:
             tool_call_id: str | None = None
+            timestamp_raw: str | None = None
             if hasattr(msg_data, "role"):
                 role_str = msg_data.role
                 content_text = msg_data.content if isinstance(msg_data.content, str) else ""
                 tool_call_id = getattr(msg_data, "tool_call_id", None)
+                timestamp_raw = getattr(msg_data, "timestamp", None)
             elif isinstance(msg_data, dict):
                 role_str = msg_data.get("role", "user")
                 content_text = msg_data.get("content", "")
                 if not isinstance(content_text, str):
                     content_text = ""
                 tool_call_id = msg_data.get("tool_call_id")
+                timestamp_raw = msg_data.get("timestamp")
             else:
                 continue
 
@@ -267,10 +301,14 @@ class SessionMapper:
             except ValueError:
                 role = MessageRole.USER
 
+            # null остаётся null — время не синтезируется при пересборке (ACP updatedAt).
+            timestamp = datetime.fromisoformat(timestamp_raw) if timestamp_raw else None
+
             history.add(
                 ConversationMessage(
                     role=role,
                     content=MessageContent(text=content_text),
+                    timestamp=timestamp,
                     tool_call_id=tool_call_id,
                 )
             )

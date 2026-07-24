@@ -45,9 +45,8 @@ class HistoryMapper:
         """Конвертировать protocol HistoryMessage в domain ConversationMessage."""
         role = _parse_role(protocol.role)
         content = _parse_content(protocol.content)
-        timestamp = (
-            datetime.fromisoformat(protocol.timestamp) if protocol.timestamp else datetime.now()
-        )
+        # null остаётся null: ACP не синтезирует время (см. ConversationMessage.timestamp).
+        timestamp = datetime.fromisoformat(protocol.timestamp) if protocol.timestamp else None
         return ConversationMessage(
             role=role,
             content=content,

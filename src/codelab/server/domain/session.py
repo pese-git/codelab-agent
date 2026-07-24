@@ -32,6 +32,9 @@ class SessionConfig:
     config_values: dict[str, str] = field(default_factory=dict)
     active_strategy: str = "single"
     runtime_capabilities: ClientCapabilities | None = None
+    # MCP-серверы сессии (ACP session/new). Opaque-снимки конфигурации —
+    # хранятся как plain dict, несутся round-trip без интерпретации.
+    mcp_servers: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -159,6 +162,10 @@ class MultiAgentState:
     parent_session_id: str | None = None
     child_session_ids: list[str] = field(default_factory=list)
     is_child_session: bool = False
+    # Результат делегирования и суммаризированный ответ субагента. В горячем пути
+    # мёртвые; несутся как opaque для lossless round-trip и будущей миграции.
+    task_result: str | None = None
+    sliced_summary: str | None = None
 
 
 @dataclass
@@ -223,6 +230,13 @@ class Session:
     multi_agent: MultiAgentState = field(default_factory=MultiAgentState)
     active_turn: TurnState | None = None
     runtime: SessionRuntime = field(default_factory=SessionRuntime)
+    # Storage-мета. Несётся round-trip как есть; `updated_at` НЕ регенерируется
+    # при пересборке (регенерация = ложная «last activity», см. ACP updatedAt).
+    # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionState.
+    title: str | None = None
+    updated_at: str | None = None
+    schema_version: int = 6
+    available_commands: list[dict[str, Any]] = field(default_factory=list)
 
     def add_message(self, message: ConversationMessage) -> None:
         """Добавить сообщение в историю."""

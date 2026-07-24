@@ -226,6 +226,124 @@ class TestRoundtripToolCallFields:
         assert [(loc.path, loc.line) for loc in tc.result.locations] == [("/a.py", 10)]
 
 
+class TestRoundtripPrepFields:
+    """D4-prep: поля punch-list на домене — round-trip domain→SessionState→domain (ADR-006)."""
+
+    def test_storage_meta_preserved(self) -> None:
+        session = _rich_session()
+        object.__setattr__(session, "title", "My session")
+        object.__setattr__(session, "updated_at", "2026-07-24T09:22:50.227038+00:00")
+        object.__setattr__(session, "schema_version", 6)
+        rt = _roundtrip(session)
+        assert rt.title == "My session"
+        assert rt.updated_at == "2026-07-24T09:22:50.227038+00:00"
+        assert rt.schema_version == 6
+
+    def test_updated_at_not_regenerated(self) -> None:
+        """`updated_at` несётся как есть, не подменяется свежим временем."""
+        session = _rich_session()
+        object.__setattr__(session, "updated_at", "2020-01-01T00:00:00+00:00")
+        rt = _roundtrip(session)
+        assert rt.updated_at == "2020-01-01T00:00:00+00:00"
+
+    def test_mcp_servers_preserved(self) -> None:
+        session = _rich_session()
+        object.__setattr__(
+            session.config, "mcp_servers", [{"name": "fs", "command": "srv", "args": ["--x"]}]
+        )
+        rt = _roundtrip(session)
+        assert rt.config.mcp_servers == [{"name": "fs", "command": "srv", "args": ["--x"]}]
+
+    def test_available_commands_preserved(self) -> None:
+        session = _rich_session()
+        object.__setattr__(
+            session, "available_commands", [{"name": "plan", "description": "d", "input": None}]
+        )
+        rt = _roundtrip(session)
+        assert rt.available_commands == [{"name": "plan", "description": "d", "input": None}]
+
+    def test_multi_agent_opaque_preserved(self) -> None:
+        session = _rich_session()
+        session.multi_agent = MultiAgentState(task_result="done", sliced_summary="summary")
+        rt = _roundtrip(session)
+        assert rt.multi_agent.task_result == "done"
+        assert rt.multi_agent.sliced_summary == "summary"
+
+    def test_history_timestamp_none_preserved(self) -> None:
+        """None timestamp остаётся None (не синтезируется) — ACP updatedAt-семантика."""
+        history = ConversationHistory()
+        history.add(ConversationMessage(role=MessageRole.USER, content=MessageContent(text="a")))
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+        rt = _roundtrip(session)
+        assert rt.history.get_messages()[0].timestamp is None
+
+
+class TestProtocolRoundtripLossless:
+    """Гейт D4-prep: `SessionState → domain → SessionState` без потерь по punch-list.
+
+    Критичное для D4-d направление: SessionState пересобирается из домена на границе.
+    Инвариант реальных данных: `raw_input == tool_arguments` (проверено на дампе сессии).
+    """
+
+    @staticmethod
+    def _sample_state() -> "object":
+        from codelab.server.models import HistoryMessage
+        from codelab.server.protocol.state import SessionState, ToolCallState
+
+        return SessionState(
+            session_id="sess_rt",
+            schema_version=6,
+            cwd="/tmp/proj",
+            mcp_servers=[{"name": "fs", "command": "srv"}],
+            title="My session",
+            updated_at="2026-07-24T09:22:50.227038+00:00",
+            config_values={"model": "m"},
+            history=[
+                HistoryMessage(
+                    role="user", content="hi", timestamp="2026-07-24T09:22:50.227038+00:00"
+                ),
+                HistoryMessage(role="assistant", content="ok", timestamp=None),
+            ],
+            tool_calls={
+                "call_001": ToolCallState(
+                    tool_call_id="call_001",
+                    title="grep",
+                    kind="execute",
+                    status="completed",
+                    tool_name="grep",
+                    tool_arguments={"q": "x"},
+                    raw_input={"q": "x"},
+                )
+            },
+            tool_call_counter=1,
+            available_commands=[{"name": "plan", "description": "d", "input": None}],
+            task_result="done",
+            sliced_summary="summary",
+        )
+
+    def test_protocol_roundtrip_lossless(self) -> None:
+        state0 = self._sample_state()
+        rt = SessionMapper.to_protocol(SessionMapper.to_domain(state0))
+
+        d0 = state0.model_dump()
+        d1 = rt.model_dump()
+        for field_name in (
+            "schema_version",
+            "mcp_servers",
+            "title",
+            "updated_at",
+            "available_commands",
+            "task_result",
+            "sliced_summary",
+        ):
+            assert d0[field_name] == d1[field_name], field_name
+
+        assert [m["timestamp"] for m in d0["history"]] == [m["timestamp"] for m in d1["history"]]
+        assert d0["tool_calls"]["call_001"]["raw_input"] == (
+            d1["tool_calls"]["call_001"]["raw_input"]
+        )
+
+
 class TestRoundtripKnownGaps:
     """Оставшиеся потери — фиксированы как xfail, чинятся в D2 (формат хранения)."""
 
