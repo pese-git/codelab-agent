@@ -97,3 +97,22 @@ ADR-005 (read-фаза) развязал **ядро** (`agent.core.*`) от `pro
 модель → `domain.Session`), иначе D2 создаёт throwaway-конверсии `SessionState↔domain` на
 81 сайте. Порядок: **D0 → D1 → D4 → D2 → D3 → D5**. D4 ведётся strangler-стадиями по
 под-стейтам (по возрастанию связности), каждая — за golden-wire + round-trip + `make check`.
+
+### Дом состояния сессии: доменные VO, а не protocol-компаньон (2026-07-23)
+
+**Finding:** «протокольный runtime-остаток» `SessionState` (`active_turn`, `terminals`,
+`events_history`, `session_metrics`, `cancelled_client_rpc_requests`, …) — по проверке `state.py`
+это **плоские данные** (`str`/`int`/`bool`/`dict`) без wire-логики ACP. Это **состояние сессии**,
+чей ТИП случайно объявлен в `protocol/state.py`, а не протокол.
+
+**Решение:** различать по СЕМАНТИКЕ. Состояние сессии переезжает в `domain` как plain VO
+(`TurnState`, `SessionRuntime`); `domain.Session` становится **полной** рабочей+персистируемой
+моделью. `storage.base` типизируется на `domain.Session` → ребро `storage.base → protocol.state`
+**снимается** (D2.5 достижим). `SessionState` низводится до тонкого wire-DTO для ACP-подмножества
+(replay/init) в `protocol`. Wire-framing (кодирование ACP-запросов/нотификаций) остаётся в `protocol`.
+
+**Отклонено:** slim runtime-компаньон в `protocol` (`SessionRuntime`/`SessionContext`) — он не снял
+бы ребро (`storage.base → …компаньон… → protocol`), а лишь переместил; и относил бы состояние сессии
+к протоколу вопреки семантике. Инвариант «протокол в домен не течёт» не нарушается: переезжают
+данные, не wire-семантика (`active_turn` = доменное «ждём внешний запрос X»; id — опаковый
+resume-токен; переотправление после рестарта — протокол). Это устраняет корень (вариант B) целиком.

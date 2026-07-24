@@ -71,9 +71,15 @@ Round-trip `domain.Session → SessionState → domain.Session` без поте�
 Гейт: property-тест round-trip на репрезентативных сессиях (история с tool_calls, plan, multimodal).
 
 ### Формат хранения + миграция
-`SessionStorage` сериализует `domain.Session`. Схема версионируется (`schema_version`); на чтении
-старые версии (текущий `SessionState`-JSON) распознаются и апгрейдятся через `SessionMapper.to_domain`.
-Существующие `~/.codelab/.../sessions` читаются без потерь; запись — в новом формате.
+`domain.Session` — **полная** модель (агрегат + `TurnState`/`SessionRuntime` VO, см. «Природа
+остатка»), поэтому персистируемое состояние (`active_turn`/`events_history`/`terminals`/
+`session_metrics`) **входит в сам агрегат** и не теряется при `save(domain.Session)`.
+`storage.base` типизируется на `domain.Session` → импорт `protocol.state` уходит (**D2.5 достижим**).
+Сериализация — через `SessionMapper`/codec самого `domain.Session`; схема версионируется
+(`schema_version`), на чтении старые версии (`SessionState`-JSON v6) апгрейдятся в `domain.Session`
+через `SessionMapper.to_domain`. Существующие `~/.codelab/.../sessions` читаются без потерь (гейт D0.3);
+запись — новый формат (v7). `SessionState` низводится до тонкого wire-DTO для ACP-подмножества
+(session/load replay, init capabilities), живёт в `protocol`.
 
 ### `ToolContext`
 Executor'ам нужна поверхность шире read-`SessionView`: `cwd`, permission-policy, `active_turn`,
@@ -85,26 +91,52 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 операции `domain.Session`. Это самая рискованная часть (горячий путь) — идёт по под-состояниям,
 каждое за тестами поведения.
 
-### `domain.Session` ⊊ `SessionState`: протокольный runtime-остаток
-Агрегат `domain.Session` покрывает `id/config/history/tool_calls/permissions/plan/multi_agent`.
-Часть полей `SessionState` — чистый **протокольный/turn-runtime** без доменного дома. Втаскивать их
-в доменный агрегат **запрещено** (протокол в домен не течёт).
+### Природа «остатка»: состояние сессии, мис-хоумленное в `protocol/state.py`
+Рамка «протокольный runtime-остаток» **отвергнута** (см. ADR-006). Проверка `state.py`: поля вроде
+`active_turn` (`phase: str`, id как `str|int`, `pending_client_request` — опаковый dict), `terminals:
+dict[str,str]`, `events_history: list[dict]`, `session_metrics` (числа) — **плоские данные без wire-логики
+ACP**. Это **состояние сессии**, чей ТИП случайно объявлен в `protocol/state.py`, а не протокол.
 
-**Обязательное действие (D4-a):** классифицировать ВСЕ поля `SessionState` полным перечнем — не
-частичным списком. Предварительная классификация:
+**Различать по СЕМАНТИКЕ, не по текущему месту определения:**
+- **Состояние сессии** (что произошло, где мы в turn-е, какие терминалы открыты) → **доменный VO**,
+  даже если тип сегодня в `protocol/state.py`. Переезжает в `domain`.
+- **Wire-framing** (как ACP-запрос/нотификация кодируется в JSON-RPC) → остаётся в `protocol` как DTO.
+
+Инвариант «протокол в домен не течёт» **не нарушается**: в домен переезжают ДАННЫЕ (dict/str/int),
+не wire-семантика. `active_turn` = доменное «сессия ждёт внешний запрос X, фаза Y»; id — опаковый
+resume-токен; переотправление запроса после рестарта — протокол.
+
+**Обязательное действие (D4-a):** классифицировать ВСЕ поля `SessionState` по семантике:
 
 | Класс | Поля |
 |---|---|
 | Доменный агрегат (уже есть дом) | `session_id`→`id`; `cwd`/`config_values`/`runtime_capabilities`→`SessionConfig`; `history`; `tool_calls`/`tool_call_counter`→`ToolCallRegistry`; `latest_plan`→`AgentPlan`; `permission_policy`/`cancelled_permission_requests`→`PermissionState`; `active_strategy`/`active_agents`/`parent_session_id`/`child_session_ids`/`is_child_session`→`MultiAgentState` |
-| **Turn-runtime** (компаньон, turn-scoped) | `active_turn`, `pending_prompt_response`, `cancelled_client_rpc_requests` |
-| **Session-runtime** (компаньон, session-scoped) | `terminals`/`terminal_counter`, `events_history`, `session_metrics`, `correlation_id`, `mcp_prompt_handlers` (`exclude=True`), `available_commands`, `mcp_servers` |
-| storage-мета / решить отдельно | `schema_version`, `updated_at`, `title`, `task_result`, `sliced_summary` |
+| **Домен, новые VO** (плоские данные — переезжают из `protocol.state`) | `active_turn`→`TurnState` VO (phase, cancel_requested, resume-id как `str\|int`, `pending_external_request: Mapping`); `terminals`/`terminal_counter`, `events_history`, `session_metrics`, `correlation_id`, `cancelled_client_rpc_requests`, `pending_prompt_response` → `SessionRuntime` VO |
+| Кандидаты в домен (решить на D4-a) | `mcp_servers`→`SessionConfig`; `task_result`/`sliced_summary`→`MultiAgentState`; `available_commands` (ACP slash-command структуры — вероятно wire-DTO) |
+| Wire-DTO / transient (остаётся в `protocol`) | `mcp_prompt_handlers` (`exclude=True`, transient); ACP-структуры, несущие wire-framing |
+| storage-мета | `schema_version`, `updated_at`, `title` |
 
-**Компаньон живёт в `protocol`, НЕ в `domain`** (иначе станет свалкой и/или протечёт в `agent.core`).
-Инвариант: `agent.core` видит только `domain.Session` + порты; компаньон тредится хендлерами
-protocol-слоя; `ToolContext` (D3) проецирует из обоих. По времени жизни — разделить на **`TurnRuntime`**
-(turn-scoped, сбрасывается per turn) и **`SessionRuntime`** (session-scoped). Границы фиксируются на D4-a
-(классификация) и D4-d/D3.1 (реализация).
+**Дом состояния — `domain`, НЕ компаньон в `protocol`.** `domain.Session` становится ПОЛНОЙ рабочей+
+персистируемой моделью (агрегат + `TurnState`/`SessionRuntime` VO). Компаньон-в-`protocol` **отменён**:
+он не снял бы ребро (`storage.base → …companion… → protocol`), а лишь переместил. `agent.core` чист
+(`agent → domain`). `ToolContext` (D3) проецируется из `domain.Session`.
+
+**Персистентность — ортогональная ось.** Turn-scoped ≠ transient: `active_turn`/`pending_prompt_response`/
+`cancelled_client_rpc_requests` персистятся для восстановления pending-permission после рестарта.
+Единственный чисто transient — `mcp_prompt_handlers` (`exclude=True`). Персистируемое состояние — часть
+сериализации самого `domain.Session` (см. «Формат хранения»).
+
+### Паттерны и единица тридинга
+- **Aggregate Root (DDD)** — `domain.Session`: полная модель (состояние сессии + turn-runtime как
+  доменные VO), доменные инварианты и операции. Тредится одной ссылкой (`context.session`).
+- **Repository** — `SessionStorage` над `domain.Session`; `JsonFile`/`InMemory` + **Decorator** `CachedStorage`.
+- **Anti-Corruption / Mapper** — `SessionMapper`: `domain.Session` ↔ хранимая/wire-форма; апгрейд версий.
+- **Wire-DTO** — `SessionState` (в `protocol`): тонкий маппинг для ACP-подмножества (replay/init).
+  Golden-фикстуры версий = тесты сериализации `domain.Session`.
+- **Adapter** — `ToolContext` (D3): проекция из `domain.Session` для executor'ов.
+
+> `SessionContext`/`SessionRuntime`-компаньон в `protocol` — **отменён**: состояние сессии живёт в
+> `domain.Session`, отдельная threaded-обёртка не нужна (см. «Природа остатка», ADR-006).
 
 ### `ToolCallState` богаче доменного `ToolCall`
 Wire-модель `ToolCallState` шире `ToolCall`; на b2/D4-c решить по каждому полю, гейт — байт-идентичность
@@ -137,8 +169,9 @@ tool_call/tool_call_update:
 ### D4 — рабочая модель → `domain.Session` (ядро)
 
 **D4-a. Граница: конструирование `domain.Session` + классификация полей (аддитивно)**
-- Классификация: полный перечень полей `SessionState` → {агрегат / TurnRuntime / SessionRuntime /
-  storage-мета} (см. таблицу в «Ключевые решения»). Определяет границу компаньона до реализации.
+- Классификация: полный перечень полей `SessionState` по семантике → {агрегат / доменные VO
+  (`TurnState`/`SessionRuntime`) / wire-DTO / storage-мета} (см. таблицу в «Ключевые решения»).
+  Определяет, что переезжает в `domain`, до реализации.
 - Работа: на входе turn-а строить `domain.Session` из `SessionState` через `SessionMapper.to_domain`;
   положить в `PromptContext` как `domain_session` (новое поле). `SessionState` — пока source-of-truth,
   сохраняется как есть. Потребителей нет.
@@ -146,13 +179,13 @@ tool_call/tool_call_update:
 
 **D4-b. Миграция ЧТЕНИЙ по под-стейтам (изолированные первыми)**
 - b1 `plan` (1 read-site) → `domain_session.plan` + `PlanMapper`.
-- b2 `tool_calls` (3) → `domain_session.tool_calls`. Развилку wire-only полей `ToolCallState`
-  (`title`/`kind`/`result_content`/`tool_call_id_from_llm`/`raw_input`) решить здесь (см. «Ключевые решения»).
+- b2 `tool_calls` (3) → `domain_session.tool_calls`. Развилку полей `ToolCallState`
+  (wire-only vs домен vs mapping-решение) решить здесь (см. «`ToolCallState` богаче…»).
 - b3 `history` (5) → `domain_session.history`.
-- b4 `active_turn` (7) → проекция turn-runtime в компаньон (см. «runtime-остаток»), не в агрегат.
+- b4 `active_turn` (7) → доменный `TurnState` VO внутри `domain.Session` (см. «Природа остатка»).
 - b5 `permissions` + `multi_agent` (низкая связность, но нужны для полного флипа D4-d):
-  `permission_policy`/`cancelled_*` → `PermissionState`; multi-agent поля → `MultiAgentState`.
-  `cancelled_client_rpc_requests` отсутствует в VO — расширить VO или оставить компаньону (решить здесь).
+  `permission_policy`/`cancelled_permission_requests` → `PermissionState`; multi-agent поля → `MultiAgentState`.
+  (`cancelled_client_rpc_requests` → `SessionRuntime` VO, см. таблицу классификации.)
 - Гейт каждого b: чтения дают идентичные значения; golden-wire + round-trip + `make check`.
 
 **D4-c. Миграция ЗАПИСЕЙ (мутаций) по тем же под-стейтам**
@@ -162,17 +195,16 @@ tool_call/tool_call_update:
 - Гейт: golden-wire байт-в-байт; permission-flow (pause/resume) на live-smoke; `make check`.
 
 **D4-d. Флип source-of-truth + снятие scaffold**
-- `context.session` = `domain.Session` (+ `SessionRuntime`-компаньон для протокольного остатка);
-  `SessionState` строится только на границе wire/storage через `SessionMapper.to_protocol`;
-  dual-carry убран; сигнатуры pipeline-стадий → `domain.Session` (+ компаньон, где нужен runtime).
-- Зафиксировать границу компаньона: `terminals`/`terminal_counter`, `events_history`,
-  `pending_prompt_response`, `session_metrics`, `correlation_id`, `mcp_prompt_handlers` — в компаньоне,
-  не в агрегате.
+- `context.session` = `domain.Session` (полная модель: агрегат + `TurnState`/`SessionRuntime` VO);
+  `SessionState` (тонкий wire-DTO) строится только на границе wire через `SessionMapper.to_protocol`;
+  dual-carry убран; сигнатуры pipeline-стадий → `domain.Session`.
+- `mcp_prompt_handlers` (`exclude=True`, transient) — не персистится; остальной рантайм — в VO агрегата.
 - Гейт: golden-wire + round-trip; live-smoke полного turn-а (стриминг + permission + tool-calling);
   immediate-delivery сохранён; `make check`.
 
 ### D2 — storage на `domain.Session` + миграция (после D4)
-- D2.1 `SessionStorage` (ABC + `JsonFile`/`InMemory`/`Cached`) на `domain.Session`.
+- D2.1 `SessionStorage` (ABC + `JsonFile`/`InMemory`/`Cached`) на `domain.Session` (полная модель);
+  сериализация через `SessionMapper`/codec (Repository + Mapper, см. «Паттерны»). `storage.base` без `protocol.state`.
 - D2.2 versioned schema; чтение старого v6 `SessionState`-JSON → upgrade через `SessionMapper.to_domain`; запись — v7.
 - D2.3 фикстура v6 (D0.3) читается без потерь; добавить v7 round-trip.
 - D2.4 multimodal контент истории (блоки) — снять `xfail`.
@@ -190,7 +222,8 @@ tool_call/tool_call_update:
 
 ### Разблокируется после write-фазы (ADR-005)
 - **B** — доменная эмиссия `UpdateSink` (перенос 3.3/3.4), golden-wire гейт.
-- **C** — прод turn-loop через `AgentRunner` (4.3), поверх доменного `active_turn`.
+- **C** — прод turn-loop через `AgentRunner` (4.3); turn-состояние (`TurnState`) — в `domain.Session`,
+  `agent.core` работает с ним как с частью агрегата.
 - **E** — fake driver как полноценный не-ACP адаптер (валидирует порты end-to-end).
 
 ### Сквозные правила
