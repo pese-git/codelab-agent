@@ -169,12 +169,20 @@ class BackgroundExecutor:
         async def notification_callback(message: ACPMessage) -> None:
             await self._send_message(message, session_id)
 
+        # Write-фаза D4-b (E-resume, ADR-006): resume-путь тоже несёт доменный агрегат.
+        # background_executor грузит SessionState из storage и не имеет PromptContext,
+        # поэтому строим domain_session здесь (аддитивно; source-of-truth пока SessionState).
+        from ..mapping.session_mapper import SessionMapper
+
+        domain_session = SessionMapper.to_domain(session)
+
         llm_result = await orchestrator.execute_pending_tool(
             session=session,
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
+            domain_session=domain_session,
         )
 
         # Сохраняем сессию — критично для permission flow

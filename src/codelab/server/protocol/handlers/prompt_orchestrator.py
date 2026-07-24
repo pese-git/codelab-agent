@@ -30,6 +30,7 @@ from .turn_lifecycle_manager import TurnLifecycleManager
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.file_cache import SessionFileCacheRegistry
+    from codelab.server.domain.session import Session as DomainSession
     from codelab.server.mcp.manager import MCPManager
 
     from .global_policy_manager import GlobalPolicyManager
@@ -427,6 +428,7 @@ class PromptOrchestrator:
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+        domain_session: DomainSession | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
         return await self._llm_loop_stage.execute_pending_tool(
@@ -435,6 +437,7 @@ class PromptOrchestrator:
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
+            domain_session=domain_session,
         )
 
 

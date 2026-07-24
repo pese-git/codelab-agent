@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
     from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.domain.session import Session as DomainSession
     from codelab.server.observability.tracer import Tracer
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
     from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -288,6 +289,7 @@ class LLMLoopStage(PromptStage):
         tool_call_id: str,
         mcp_manager: Any | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
+        domain_session: DomainSession | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
@@ -351,6 +353,7 @@ class LLMLoopStage(PromptStage):
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
+            domain_session=domain_session,
         )
 
         # Конвертировать AgentLoopResult → LLMLoopResult
