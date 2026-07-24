@@ -85,6 +85,37 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 операции `domain.Session`. Это самая рискованная часть (горячий путь) — идёт по под-состояниям,
 каждое за тестами поведения.
 
+### `domain.Session` ⊊ `SessionState`: протокольный runtime-остаток
+Агрегат `domain.Session` покрывает `id/config/history/tool_calls/permissions/plan/multi_agent`.
+Часть полей `SessionState` — чистый **протокольный/turn-runtime** без доменного дома. Втаскивать их
+в доменный агрегат **запрещено** (протокол в домен не течёт).
+
+**Обязательное действие (D4-a):** классифицировать ВСЕ поля `SessionState` полным перечнем — не
+частичным списком. Предварительная классификация:
+
+| Класс | Поля |
+|---|---|
+| Доменный агрегат (уже есть дом) | `session_id`→`id`; `cwd`/`config_values`/`runtime_capabilities`→`SessionConfig`; `history`; `tool_calls`/`tool_call_counter`→`ToolCallRegistry`; `latest_plan`→`AgentPlan`; `permission_policy`/`cancelled_permission_requests`→`PermissionState`; `active_strategy`/`active_agents`/`parent_session_id`/`child_session_ids`/`is_child_session`→`MultiAgentState` |
+| **Turn-runtime** (компаньон, turn-scoped) | `active_turn`, `pending_prompt_response`, `cancelled_client_rpc_requests` |
+| **Session-runtime** (компаньон, session-scoped) | `terminals`/`terminal_counter`, `events_history`, `session_metrics`, `correlation_id`, `mcp_prompt_handlers` (`exclude=True`), `available_commands`, `mcp_servers` |
+| storage-мета / решить отдельно | `schema_version`, `updated_at`, `title`, `task_result`, `sliced_summary` |
+
+**Компаньон живёт в `protocol`, НЕ в `domain`** (иначе станет свалкой и/или протечёт в `agent.core`).
+Инвариант: `agent.core` видит только `domain.Session` + порты; компаньон тредится хендлерами
+protocol-слоя; `ToolContext` (D3) проецирует из обоих. По времени жизни — разделить на **`TurnRuntime`**
+(turn-scoped, сбрасывается per turn) и **`SessionRuntime`** (session-scoped). Границы фиксируются на D4-a
+(классификация) и D4-d/D3.1 (реализация).
+
+### `ToolCallState` богаче доменного `ToolCall`
+Wire-модель `ToolCallState` шире `ToolCall`; на b2/D4-c решить по каждому полю, гейт — байт-идентичность
+tool_call/tool_call_update:
+- **wire-only** (нет дома; остаётся полем DTO, восстанавливается маппером): `title`, `kind`,
+  `tool_call_id_from_llm`, `raw_input`.
+- **есть доменный дом** (`ToolCall` уже несёт): `locations`, `raw_output`, `status`, `tool_name`→,
+  `tool_arguments`→`arguments`.
+- **mapping-решение** (домен `ToolCall.result` vs wire `content`/`result_content`): выбрать
+  представление результата в VO и правило маппинга в оба ACP-поля.
+
 ## Риски и решения
 
 - **Горячий путь + мутации** — крупнейший риск; дробить по под-состояниям (`active_turn`, `history`,
@@ -105,7 +136,9 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 
 ### D4 — рабочая модель → `domain.Session` (ядро)
 
-**D4-a. Граница: конструирование `domain.Session` (аддитивно)**
+**D4-a. Граница: конструирование `domain.Session` + классификация полей (аддитивно)**
+- Классификация: полный перечень полей `SessionState` → {агрегат / TurnRuntime / SessionRuntime /
+  storage-мета} (см. таблицу в «Ключевые решения»). Определяет границу компаньона до реализации.
 - Работа: на входе turn-а строить `domain.Session` из `SessionState` через `SessionMapper.to_domain`;
   положить в `PromptContext` как `domain_session` (новое поле). `SessionState` — пока source-of-truth,
   сохраняется как есть. Потребителей нет.
@@ -113,9 +146,13 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 
 **D4-b. Миграция ЧТЕНИЙ по под-стейтам (изолированные первыми)**
 - b1 `plan` (1 read-site) → `domain_session.plan` + `PlanMapper`.
-- b2 `tool_calls` (3) → `domain_session.tool_calls`.
+- b2 `tool_calls` (3) → `domain_session.tool_calls`. Развилку wire-only полей `ToolCallState`
+  (`title`/`kind`/`result_content`/`tool_call_id_from_llm`/`raw_input`) решить здесь (см. «Ключевые решения»).
 - b3 `history` (5) → `domain_session.history`.
-- b4 `active_turn` (7) → доменная проекция turn-состояния.
+- b4 `active_turn` (7) → проекция turn-runtime в компаньон (см. «runtime-остаток»), не в агрегат.
+- b5 `permissions` + `multi_agent` (низкая связность, но нужны для полного флипа D4-d):
+  `permission_policy`/`cancelled_*` → `PermissionState`; multi-agent поля → `MultiAgentState`.
+  `cancelled_client_rpc_requests` отсутствует в VO — расширить VO или оставить компаньону (решить здесь).
 - Гейт каждого b: чтения дают идентичные значения; golden-wire + round-trip + `make check`.
 
 **D4-c. Миграция ЗАПИСЕЙ (мутаций) по тем же под-стейтам**
@@ -125,8 +162,12 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 - Гейт: golden-wire байт-в-байт; permission-flow (pause/resume) на live-smoke; `make check`.
 
 **D4-d. Флип source-of-truth + снятие scaffold**
-- `context.session` = `domain.Session`; `SessionState` строится только на границе wire/storage через
-  `SessionMapper.to_protocol`; dual-carry убран; сигнатуры pipeline-стадий → `domain.Session`.
+- `context.session` = `domain.Session` (+ `SessionRuntime`-компаньон для протокольного остатка);
+  `SessionState` строится только на границе wire/storage через `SessionMapper.to_protocol`;
+  dual-carry убран; сигнатуры pipeline-стадий → `domain.Session` (+ компаньон, где нужен runtime).
+- Зафиксировать границу компаньона: `terminals`/`terminal_counter`, `events_history`,
+  `pending_prompt_response`, `session_metrics`, `correlation_id`, `mcp_prompt_handlers` — в компаньоне,
+  не в агрегате.
 - Гейт: golden-wire + round-trip; live-smoke полного turn-а (стриминг + permission + tool-calling);
   immediate-delivery сохранён; `make check`.
 
