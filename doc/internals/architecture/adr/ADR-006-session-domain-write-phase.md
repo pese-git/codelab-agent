@@ -248,3 +248,37 @@ LLM-`tool_calls`, блочный `content`. **D4-d флипнет запись �
 
 **Гейт фазы:** full-dump round-trip + golden-wire (ADR-005 гейт #3) + `make check` + live-smoke.
 После D2 незакрытых round-trip не остаётся → D4-d (один флип `context.session → domain.Session`).
+
+#### Решение по D2-a (реализация 2026-07-24): дуальные слоты — концерн маппера, не домена
+
+Диагностика на реальном дампе (`sess_cc54a1f6c4d3.json`, 116 сообщений) уточнила форму wire
+`HistoryMessage`: `text` (top-level str, assistant), `content` = str (tool result) | list[block]
+(user) | null, embedded `tool_calls` = `[{id,name,arguments}]`. Выбор слота `content` **не** строго
+определяется ролью — `state_manager.add_assistant_message` пишет `text` для str-входа и `content`
+для dict-входа.
+
+**Развилка моделирования** (как домену нести дуальные слоты для byte-lossless D4-d):
+1. `text` + form-дискриминатор в домене;
+2. `text`-слот как транспортный концерн → политика слотов в маппере (роль-driven, тотальная);
+3. сырой wire-`content` рядом с семантическим `MessageContent`.
+
+**Выбрано №2.** Дуальные слоты `text`/`content` — артефакт LLM-транспорта, не доменная семантика;
+у всех ролей одно понятие «содержимое», уже смоделированное `MessageContent`. Выбор слота при
+сериализации — политика маппера (его единственная задача — мост домен↔wire). №1 протаскивает
+сериализационное состояние в доменную сущность (протечка слоя); №3 держит две репрезентации одного
+факта (дрейф). «Хрупкость» №2 снимается тотальной детерминированной политикой в маппере: реальный
+слот однозначен по роли (assistant→`text`/null, tool→str, user→blocks; 0 dict-content assistant,
+0 `data!=null`), а теоретический assistant-со-structured-content закрывается явной веткой + assert,
+не хранимым дискриминатором.
+
+**Следствие — D2-a переопределён по факту: no-op на доменной модели.** Домен уже достаточен:
+- `ConversationMessage.tool_calls: list[ToolCall]` — поле уже заведено (дормантное, мапперы его не
+  заполняют); embedded LLM `{id,name,arguments}` ложится один-в-один (`id→id`, `name→tool_name`,
+  `arguments→arguments`), прочие поля `ToolCall` остаются дефолтами и в embedded-слот не эмитятся;
+- `MessageContent{text,resources,images}` покрывает все реальные формы блоков; `data: null` на
+  text-блоке — дефолт wire-`MessageContent`, восстанавливается маппером;
+- отдельное доменное поле под `text`-слот не заводится (по №2 это тот же `content.text`).
+
+Разрыв fidelity — исключительно в lossy-мапперах, не в домене. Весь объём D2 смещается в **D2-b**
+(тотальная роль-driven политика слотов + делегирование `SessionMapper` ↔ lossless `HistoryMapper`
+в обоих направлениях; удаление text-only пути).
