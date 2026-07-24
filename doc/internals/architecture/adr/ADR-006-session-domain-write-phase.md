@@ -218,3 +218,33 @@ ACP-контракт → смена доменного дефолта не яв�
 `tool_calls`. Это не punch-list, а fidelity истории; зафиксировано как
 `xfail test_multimodal_history_preserved`. Чинится в **D2** (versioned schema + миграция формата) —
 единственный незакрытый round-trip перед D4-d.
+
+### План D2 — history-body fidelity (диагностика 2026-07-24, реализация — отдельной сессией)
+
+**Finding (карта путей истории).** Сериализация истории идёт ДВУМЯ путями, второй lossy:
+1. `HistoryMapper.to_protocol/to_domain` — богатый: разворачивает `content`-блоки, `resources`,
+   `images` (`history_mapper.py:24-41`).
+2. `SessionMapper` (`to_protocol` inline + `_build_history`) — **lossy**: строит
+   `HistoryMessage(content=msg.content.text)`, только текст, **не делегирует** в `HistoryMapper`.
+
+**Почему прод сегодня не теряет историю.** Живой путь записи пишет `SessionState` напрямую
+(`JsonFileStorage.model_dump(mode="json")`); `HistoryMessage` с `extra="allow"` несёт всё
+(`content`-блоки, отдельный `text`, embedded LLM `tool_calls`). Доменная конверсия ПОКА не на пути
+записи. **Капкан:** wire `HistoryMessage` богаче домена `ConversationMessage` (=`MessageContent`
+{text,resources,images} + `tool_call_id`) — у домена НЕТ полей под отдельный LLM-`text`, embedded
+LLM-`tool_calls`, блочный `content`. **D4-d флипнет запись через домен → без обогащения домена
+потеряет тело истории.** Это подтверждает порядок D2 → D4-d фактами (не только throwaway-конверсиями).
+
+**Декомпозиция (одобрен ПЛАН; реализация отдельной сессией — фаза меняет on-disk формат):**
+- **D2-a** — обогатить домен `ConversationMessage`: нести embedded `text` + LLM `tool_calls` +
+  блочный `content` (аддитивно, не ослабляя типы). Риск низкий.
+- **D2-b** — `SessionMapper` (`to_protocol` + `_build_history`) делегирует в lossless `HistoryMapper`
+  оба направления; убрать text-only путь. Риск средний (единый путь сериализации истории).
+- **D2-c** — гейт: full-dump round-trip `d0 == d1` на реальном дампе (флип
+  `xfail test_multimodal_history_preserved` → pass; ср. prep-гейт `test_protocol_roundtrip_lossless`).
+- **D2-d** — миграция: `HistoryMessage` уже несёт всё → структурная смена формата может НЕ
+  потребоваться (тогда no-op version bump `v6→v7` в `SessionState.migrate_schema`); если домен
+  начнёт диктовать иную форму — полноценное звено миграции + прогон на `~/.codelab/.../sessions`.
+
+**Гейт фазы:** full-dump round-trip + golden-wire (ADR-005 гейт #3) + `make check` + live-smoke.
+После D2 незакрытых round-trip не остаётся → D4-d (один флип `context.session → domain.Session`).
