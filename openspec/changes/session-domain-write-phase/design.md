@@ -95,6 +95,70 @@ client-RPC state. Вводится доменный `ToolContext` (проекц�
 - **Consumer-driven порты** — форму `AgentRunner`/`UpdateSink` доводит fake driver (Workstream E),
   не спекуляция.
 
+## План работ (staged, механизм M2)
+
+> Порядок эпика: **D0 → D1 → D4 → D2 → D3 → D5** (реордер, см. ADR-006 finding: тип
+> storage/tools следует за рабочей моделью). Механизм D4 — **M2**: рабочая модель
+> флипается по стадиям пайплайна (threaded `context.session` → `domain.Session`), а не
+> по под-стейтам гибридного DTO (M1 отклонён). На время миграции — **транзиентный
+> scaffold** (dual-carry SessionState↔domain), снимается в D4-d.
+
+### D4 — рабочая модель → `domain.Session` (ядро)
+
+**D4-a. Граница: конструирование `domain.Session` (аддитивно)**
+- Работа: на входе turn-а строить `domain.Session` из `SessionState` через `SessionMapper.to_domain`;
+  положить в `PromptContext` как `domain_session` (новое поле). `SessionState` — пока source-of-truth,
+  сохраняется как есть. Потребителей нет.
+- Гейт: аддитивно, поведение не меняется; golden-wire + round-trip + `make check`.
+
+**D4-b. Миграция ЧТЕНИЙ по под-стейтам (изолированные первыми)**
+- b1 `plan` (1 read-site) → `domain_session.plan` + `PlanMapper`.
+- b2 `tool_calls` (3) → `domain_session.tool_calls`.
+- b3 `history` (5) → `domain_session.history`.
+- b4 `active_turn` (7) → доменная проекция turn-состояния.
+- Гейт каждого b: чтения дают идентичные значения; golden-wire + round-trip + `make check`.
+
+**D4-c. Миграция ЗАПИСЕЙ (мутаций) по тем же под-стейтам**
+- Мутации → доменные операции (`plan.add_step`, `tool_calls.create/update`, `history.add`, turn-переходы);
+  `SessionState`-проекция пересобирается из домена на границе (пока dual-carry).
+- Порядок: plan → tool_calls → history → **active_turn последним** (pause/resume, permission, client-RPC).
+- Гейт: golden-wire байт-в-байт; permission-flow (pause/resume) на live-smoke; `make check`.
+
+**D4-d. Флип source-of-truth + снятие scaffold**
+- `context.session` = `domain.Session`; `SessionState` строится только на границе wire/storage через
+  `SessionMapper.to_protocol`; dual-carry убран; сигнатуры pipeline-стадий → `domain.Session`.
+- Гейт: golden-wire + round-trip; live-smoke полного turn-а (стриминг + permission + tool-calling);
+  immediate-delivery сохранён; `make check`.
+
+### D2 — storage на `domain.Session` + миграция (после D4)
+- D2.1 `SessionStorage` (ABC + `JsonFile`/`InMemory`/`Cached`) на `domain.Session`.
+- D2.2 versioned schema; чтение старого v6 `SessionState`-JSON → upgrade через `SessionMapper.to_domain`; запись — v7.
+- D2.3 фикстура v6 (D0.3) читается без потерь; добавить v7 round-trip.
+- D2.4 multimodal контент истории (блоки) — снять `xfail`.
+- D2.5 снять `ignore_imports` `storage.base -> protocol.state`.
+
+### D3 — `ToolContext` для executor'ов (после D4)
+- D3.1 доменный `ToolContext` (cwd, permission, active_turn, client-RPC).
+- D3.2 `ToolExecutorProtocol.execute(ToolContext)`; перевести `fs`/`terminal`/`plan`/`mcp`.
+- D3.3 `file_cache_decorator` на `ToolContext` → снять оба `ignore_imports` (file_cache + decorators.base).
+
+### D5 — capabilities + закрытие ADR-003
+- D5.1 унифицировать `ClientRuntimeCapabilities` ↔ `shared.ClientCapabilities` (P2-32).
+- D5.2 `ignore_imports` пуст для `agent`/`storage`/`tools`.
+- D5.3 ADR-003 закрыт; обновить ADR-003/005/006, `tech-debt.md`, `ARCHITECTURE.md`.
+
+### Разблокируется после write-фазы (ADR-005)
+- **B** — доменная эмиссия `UpdateSink` (перенос 3.3/3.4), golden-wire гейт.
+- **C** — прод turn-loop через `AgentRunner` (4.3), поверх доменного `active_turn`.
+- **E** — fake driver как полноценный не-ACP адаптер (валидирует порты end-to-end).
+
+### Сквозные правила
+1. Гейт до коммита: golden-wire (D0.1) + round-trip (D0.2) + `make check`.
+2. Атомарные коммиты по стадиям (b1, b2, …) со ссылкой на ADR-006.
+3. Байт-идентичность wire — жёстко; форматы сессий — только с миграцией.
+4. Транзиентный scaffold (dual-carry) помечать явно, снять в D4-d.
+5. После каждого этапа — анализ `~/.codelab/logs` на регрессии живого пути.
+
 ## Вне области
 
 - Прод turn-loop через `AgentRunner` (ADR-005 Workstream C) — после этого эпика.
