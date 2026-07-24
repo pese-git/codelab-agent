@@ -4,6 +4,7 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
+from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -13,7 +14,9 @@ from codelab.server.domain.session import (
     PermissionState,
     Session,
     SessionConfig,
+    SessionRuntime,
     ToolCallRegistry,
+    TurnState,
 )
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import (
@@ -23,7 +26,12 @@ from codelab.server.domain.value_objects import (
     SessionId,
     ToolCallStatus,
 )
-from codelab.server.protocol.state import SessionState, ToolCallState
+from codelab.server.protocol.state import (
+    ActiveTurnState,
+    PendingClientRequestState,
+    SessionState,
+    ToolCallState,
+)
 from codelab.shared.capabilities import ClientCapabilities
 
 
@@ -106,7 +114,44 @@ class SessionMapper:
                 terminal=session.config.runtime_capabilities.terminal,
             )
 
+        # Turn-состояние (доменный TurnState VO → wire-DTO ActiveTurnState, ADR-006)
+        if session.active_turn is not None:
+            state.active_turn = SessionMapper._turn_to_protocol(
+                session.active_turn, str(session.id)
+            )
+
+        # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionState)
+        runtime = session.runtime
+        state.terminals = dict(runtime.terminals)
+        state.terminal_counter = runtime.terminal_counter
+        state.events_history = [dict(e) for e in runtime.events_history]
+        state.cancelled_client_rpc_requests = set(runtime.cancelled_client_rpc_requests)  # type: ignore[arg-type]
+        state.pending_prompt_response = (
+            dict(runtime.pending_prompt_response)
+            if runtime.pending_prompt_response is not None
+            else None
+        )
+        state.correlation_id = runtime.correlation_id
+        if runtime.session_metrics is not None:
+            state.session_metrics = SessionMetrics.model_validate(runtime.session_metrics)
+
         return state
+
+    @staticmethod
+    def _turn_to_protocol(turn: TurnState, session_id: str) -> ActiveTurnState:
+        """TurnState VO → wire-DTO ActiveTurnState (round-trip без потерь)."""
+        pending = None
+        if turn.pending_external_request is not None:
+            pending = PendingClientRequestState.model_validate(turn.pending_external_request)
+        return ActiveTurnState(
+            prompt_request_id=turn.prompt_request_id,
+            session_id=session_id,
+            cancel_requested=turn.cancel_requested,
+            permission_request_id=turn.permission_request_id,
+            permission_tool_call_id=turn.permission_tool_call_id,
+            phase=turn.phase,
+            pending_client_request=pending,
+        )
 
     @staticmethod
     def to_domain(state: SessionState) -> Session:
@@ -154,6 +199,9 @@ class SessionMapper:
             is_child_session=state.is_child_session,
         )
 
+        active_turn = SessionMapper._build_turn(state)
+        runtime = SessionMapper._build_runtime(state)
+
         # Создаем Session
         return Session(
             id=SessionId(state.session_id),
@@ -163,6 +211,47 @@ class SessionMapper:
             permissions=permissions,
             plan=plan,
             multi_agent=multi_agent,
+            active_turn=active_turn,
+            runtime=runtime,
+        )
+
+    @staticmethod
+    def _build_turn(state: SessionState) -> TurnState | None:
+        """Собирает доменный TurnState VO из wire-DTO ActiveTurnState."""
+        at = state.active_turn
+        if at is None:
+            return None
+        pending = (
+            at.pending_client_request.model_dump()
+            if at.pending_client_request is not None
+            else None
+        )
+        return TurnState(
+            prompt_request_id=at.prompt_request_id,
+            cancel_requested=at.cancel_requested,
+            permission_request_id=at.permission_request_id,
+            permission_tool_call_id=at.permission_tool_call_id,
+            phase=at.phase,
+            pending_external_request=pending,
+        )
+
+    @staticmethod
+    def _build_runtime(state: SessionState) -> SessionRuntime:
+        """Собирает доменный SessionRuntime VO из плоских runtime-полей SessionState."""
+        return SessionRuntime(
+            terminals=dict(state.terminals),
+            terminal_counter=state.terminal_counter,
+            events_history=[dict(e) for e in state.events_history],
+            cancelled_client_rpc_requests=set(state.cancelled_client_rpc_requests),
+            pending_prompt_response=(
+                dict(state.pending_prompt_response)
+                if state.pending_prompt_response is not None
+                else None
+            ),
+            session_metrics=(
+                state.session_metrics.model_dump() if state.session_metrics is not None else None
+            ),
+            correlation_id=state.correlation_id,
         )
 
     @staticmethod

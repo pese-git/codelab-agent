@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from ...client_rpc.service import ClientRPCService
+from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
 from ...storage import SessionStorage
@@ -210,6 +211,9 @@ class PromptOrchestrator:
             params=params,
             raw_text=prompt_text,
             content_parts=ACPContentCodec().decode(prompt) if isinstance(prompt, list) else [],
+            # Write-фаза (ADR-006, D4-a): доменный снимок рабочей модели. Аддитивно,
+            # source-of-truth пока `session` (SessionState); потребителей нет.
+            domain_session=SessionMapper.to_domain(session),
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}

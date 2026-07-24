@@ -16,7 +16,9 @@ from codelab.server.domain.session import (
     PermissionState,
     Session,
     SessionConfig,
+    SessionRuntime,
     ToolCallRegistry,
+    TurnState,
 )
 from codelab.server.domain.value_objects import (
     MessageRole,
@@ -133,6 +135,57 @@ class TestRoundtripLossless:
         assert rt.multi_agent.parent_session_id == "p"
         assert rt.multi_agent.child_session_ids == ["c"]
         assert rt.multi_agent.is_child_session is True
+
+
+class TestRoundtripTurnAndRuntime:
+    """D4-a: turn/runtime состояние как доменные VO — round-trip без потерь (ADR-006)."""
+
+    def test_active_turn_preserved(self) -> None:
+        session = _rich_session()
+        session.active_turn = TurnState(
+            prompt_request_id="req_1",
+            cancel_requested=True,
+            permission_request_id=7,
+            permission_tool_call_id="call_001",
+            phase="waiting_permission",
+            pending_external_request={
+                "request_id": "rpc_1",
+                "kind": "fs_read",
+                "tool_call_id": "call_001",
+                "path": "/tmp/README.md",
+            },
+        )
+        rt = _roundtrip(session)
+        assert rt.active_turn is not None
+        assert rt.active_turn.prompt_request_id == "req_1"
+        assert rt.active_turn.cancel_requested is True
+        assert rt.active_turn.permission_request_id == 7
+        assert rt.active_turn.permission_tool_call_id == "call_001"
+        assert rt.active_turn.phase == "waiting_permission"
+        assert rt.active_turn.pending_external_request is not None
+        assert rt.active_turn.pending_external_request["path"] == "/tmp/README.md"
+
+    def test_no_active_turn_preserved(self) -> None:
+        rt = _roundtrip(_rich_session())
+        assert rt.active_turn is None
+
+    def test_runtime_preserved(self) -> None:
+        session = _rich_session()
+        session.runtime = SessionRuntime(
+            terminals={"term_1": "client_term_a"},
+            terminal_counter=3,
+            events_history=[{"type": "session_update", "n": 1}],
+            cancelled_client_rpc_requests={"rpc_1", 42},
+            pending_prompt_response={"request_id": "p1"},
+            correlation_id="corr_1",
+        )
+        rt = _roundtrip(session)
+        assert rt.runtime.terminals == {"term_1": "client_term_a"}
+        assert rt.runtime.terminal_counter == 3
+        assert rt.runtime.events_history == [{"type": "session_update", "n": 1}]
+        assert rt.runtime.cancelled_client_rpc_requests == {"rpc_1", 42}
+        assert rt.runtime.pending_prompt_response == {"request_id": "p1"}
+        assert rt.runtime.correlation_id == "corr_1"
 
 
 class TestRoundtripKnownGaps:

@@ -7,6 +7,8 @@
 - PermissionState
 - AgentPlan
 - MultiAgentState
+- TurnState (write-фаза, ADR-006)
+- SessionRuntime (write-фаза, ADR-006)
 """
 
 from __future__ import annotations
@@ -160,6 +162,51 @@ class MultiAgentState:
 
 
 @dataclass
+class TurnState:
+    """Состояние текущего prompt-turn как доменный VO (ADR-006, write-фаза).
+
+    Переезжает из `protocol.state.ActiveTurnState`: это состояние сессии («где мы
+    в turn-е»), а не wire-протокол. Идентификаторы — опаковые resume-токены
+    (`str | int`); `pending_external_request` — опаковый снимок ожидаемого
+    agent→client запроса (данные, не wire-семантика — см. ADR-006).
+
+    `phase` пока `str` (значения: running/waiting_permission/awaiting_permission/
+    waiting_client_rpc/waiting_tool_completion/cancelled). Типизированный `TurnPhase`
+    вводится на стадии b4/b8 (там же устраняется рассинхрон
+    `waiting_permission`/`awaiting_permission`).
+    """
+
+    prompt_request_id: str | int | None = None
+    cancel_requested: bool = False
+    permission_request_id: str | int | None = None
+    permission_tool_call_id: str | None = None
+    phase: str = "running"
+    pending_external_request: dict[str, Any] | None = None
+
+
+@dataclass
+class SessionRuntime:
+    """Рантайм-состояние сессии как доменный VO (ADR-006, write-фаза).
+
+    Переезжает из плоских runtime-полей `protocol.state.SessionState`
+    (`terminals`, `events_history`, ...). Персистируемо (часть агрегата), кроме
+    чисто transient `mcp_prompt_handlers` (`exclude=True`), который в домен НЕ
+    переезжает и восстанавливается в `SessionRuntime`-компаньоне протокола.
+
+    Опаковые снимки (`pending_prompt_response`, `session_metrics`) хранятся как
+    plain dict — данные, не wire-семантика.
+    """
+
+    terminals: dict[str, str] = field(default_factory=dict)
+    terminal_counter: int = 0
+    events_history: list[dict[str, Any]] = field(default_factory=list)
+    cancelled_client_rpc_requests: set[str | int] = field(default_factory=set)
+    pending_prompt_response: dict[str, Any] | None = None
+    session_metrics: dict[str, Any] | None = None
+    correlation_id: str | None = None
+
+
+@dataclass
 class Session:
     """Aggregate root для сессии.
 
@@ -174,6 +221,8 @@ class Session:
     permissions: PermissionState = field(default_factory=PermissionState)
     plan: AgentPlan = field(default_factory=AgentPlan)
     multi_agent: MultiAgentState = field(default_factory=MultiAgentState)
+    active_turn: TurnState | None = None
+    runtime: SessionRuntime = field(default_factory=SessionRuntime)
 
     def add_message(self, message: ConversationMessage) -> None:
         """Добавить сообщение в историю."""
