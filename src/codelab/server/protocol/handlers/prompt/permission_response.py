@@ -61,7 +61,7 @@ def resolve_permission_response_impl(
 
     if tool_kind is not None and selected_option_kind in {"allow_always", "reject_always"}:
         # Сохраняем policy-решение для следующих tool-call этого же kind.
-        session.permission_policy[tool_kind] = selected_option_kind
+        session.set_permission_policy(tool_kind, selected_option_kind)
 
     should_allow = bool(
         outcome_value == "selected" and selected_option_kind in {"allow_once", "allow_always"}

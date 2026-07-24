@@ -136,6 +136,15 @@ class TestPermissionState:
         assert state.is_cancelled("req_1") is True
         assert state.is_cancelled("req_2") is False
 
+    def test_uncancel_request_idempotent(self) -> None:
+        state = PermissionState()
+        state.cancel_request("req_1")
+        state.uncancel_request("req_1")
+        assert state.is_cancelled("req_1") is False
+        # Идемпотентно: снятие отсутствующего запроса не падает.
+        state.uncancel_request("req_absent")
+        assert state.is_cancelled("req_absent") is False
+
 
 class TestAgentPlan:
     def test_empty(self) -> None:
@@ -211,3 +220,12 @@ class TestSession:
         session = Session(id=SessionId("sess_1"), config=config)
         session.set_permission_policy("read", "allow")
         assert session.permissions.is_allowed("read") is True
+
+    def test_cancel_uncancel_permission_request(self) -> None:
+        """Seam-делегаторы (pre-step D4-d): cancel/uncancel permission-запроса."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        session.cancel_permission_request("req_1")
+        assert session.permissions.is_cancelled("req_1") is True
+        session.uncancel_permission_request("req_1")
+        assert session.permissions.is_cancelled("req_1") is False

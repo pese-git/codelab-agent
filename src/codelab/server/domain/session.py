@@ -117,6 +117,10 @@ class PermissionState:
         """Отменить запрос разрешения."""
         self.cancelled_requests.add(request_id)
 
+    def uncancel_request(self, request_id: str) -> None:
+        """Снять отметку об отмене запроса (идемпотентно)."""
+        self.cancelled_requests.discard(request_id)
+
     def is_cancelled(self, request_id: str) -> bool:
         """Проверить, отменён ли запрос."""
         return request_id in self.cancelled_requests
@@ -253,3 +257,11 @@ class Session:
     def set_permission_policy(self, kind: str, policy: str) -> None:
         """Установить политику разрешений."""
         self.permissions.set_policy(kind, policy)
+
+    def cancel_permission_request(self, request_id: str) -> None:
+        """Отметить permission-запрос отменённым (для игнорирования поздних ответов)."""
+        self.permissions.cancel_request(request_id)
+
+    def uncancel_permission_request(self, request_id: str) -> None:
+        """Снять отметку об отмене permission-запроса (идемпотентно)."""
+        self.permissions.uncancel_request(request_id)

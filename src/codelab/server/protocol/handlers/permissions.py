@@ -238,7 +238,7 @@ async def consume_cancelled_permission_response(
         for session in page:
             if request_id not in session.cancelled_permission_requests:
                 continue
-            session.cancelled_permission_requests.remove(request_id)
+            session.uncancel_permission_request(request_id)
             await storage.save_session(session)
             return True
         if cursor is None:

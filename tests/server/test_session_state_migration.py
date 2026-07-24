@@ -313,3 +313,28 @@ class TestSessionStateMigrationV1toV4:
             {"content": "Done step", "priority": "high", "status": "completed"},
             {"content": "Active step", "priority": "low", "status": "in_progress"},
         ]
+
+
+class TestSessionStatePermissionSeam:
+    """Seam-мутаторы permission-состояния (pre-step D4-d, ADR-006).
+
+    Одноимённы с `domain.Session` — при switch резидента сайты не меняются.
+    """
+
+    def test_set_permission_policy(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_permission_policy("read", "allow_always")
+        assert session.permission_policy == {"read": "allow_always"}
+
+    def test_cancel_and_uncancel_permission_request(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.cancel_permission_request("req_1")
+        assert "req_1" in session.cancelled_permission_requests
+        session.uncancel_permission_request("req_1")
+        assert "req_1" not in session.cancelled_permission_requests
+
+    def test_uncancel_is_idempotent(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        # discard отсутствующего id не падает
+        session.uncancel_permission_request("absent")
+        assert "absent" not in session.cancelled_permission_requests

@@ -321,7 +321,7 @@ class PermissionManager:
             tool_call = session.tool_calls.get(tool_call_id)
             if tool_call is not None:
                 policy_value = "allow_always" if decision == "allow" else "reject_always"
-                session.permission_policy[tool_call.kind] = policy_value
+                session.set_permission_policy(tool_call.kind, policy_value)
 
         # Отправляем notification об обновлении (если нужен клиенту)
         # В текущей реализации это может быть пусто, но интерфейс предусмотрен

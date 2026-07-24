@@ -138,6 +138,22 @@ class SessionState(BaseModel):
         """set не сериализуется в JSON напрямую — конвертируем в list."""
         return list(value)
 
+    # Мутаторы permission-состояния. Одноимённы с `domain.Session` (write-фаза
+    # pre-step D4-d, ADR-006): писатели зовут `session.<метод>()`, и на switch
+    # резидента `SessionState → domain.Session` сайты не меняются — метод несёт
+    # уже доменный объект. Инкапсулируют прямой доступ к полям (Tell-Don't-Ask).
+    def set_permission_policy(self, kind: str, policy: str) -> None:
+        """Установить персистентную permission-политику по kind."""
+        self.permission_policy[kind] = policy
+
+    def cancel_permission_request(self, request_id: JsonRpcId) -> None:
+        """Отметить permission-запрос отменённым (для игнорирования поздних ответов)."""
+        self.cancelled_permission_requests.add(request_id)
+
+    def uncancel_permission_request(self, request_id: JsonRpcId) -> None:
+        """Снять отметку об отмене permission-запроса (идемпотентно)."""
+        self.cancelled_permission_requests.discard(request_id)
+
     @model_validator(mode="before")
     @classmethod
     def migrate_schema(cls, data: dict[str, Any]) -> dict[str, Any]:

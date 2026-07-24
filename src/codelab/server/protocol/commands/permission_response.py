@@ -84,7 +84,7 @@ class PermissionResponseCommandHandler:
                     request_id=request_id,
                     session_id=cancelled_session.session_id,
                 )
-                cancelled_session.cancelled_permission_requests.discard(request_id)
+                cancelled_session.uncancel_permission_request(request_id)
                 await self._storage.save_session(cancelled_session)
                 return ProtocolOutcome(response=ACPMessage.response(request_id, {}))
 

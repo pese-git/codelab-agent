@@ -62,7 +62,7 @@ def _cleanup_session_state(session: SessionState) -> None:
 
         # Если был permission request, отменить его
         if session.active_turn.permission_request_id is not None:
-            session.cancelled_permission_requests.add(session.active_turn.permission_request_id)
+            session.cancel_permission_request(session.active_turn.permission_request_id)
 
         # Если был pending client request, отменить его
         if session.active_turn.pending_client_request is not None:
