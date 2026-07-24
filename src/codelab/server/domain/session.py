@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -265,3 +266,11 @@ class Session:
     def uncancel_permission_request(self, request_id: str) -> None:
         """Снять отметку об отмене permission-запроса (идемпотентно)."""
         self.permissions.uncancel_request(request_id)
+
+    def set_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
+        """Заменить набор доступных slash-команд (available_commands — opaque wire-DTO)."""
+        self.available_commands = list(commands)
+
+    def extend_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
+        """Добавить slash-команды к текущему набору."""
+        self.available_commands.extend(commands)

@@ -338,3 +338,21 @@ class TestSessionStatePermissionSeam:
         # discard отсутствующего id не падает
         session.uncancel_permission_request("absent")
         assert "absent" not in session.cancelled_permission_requests
+
+
+class TestSessionStateAvailableCommandsSeam:
+    """Seam-мутаторы available_commands (pre-step D4-d, ADR-006).
+
+    Одноимённы с `domain.Session` — при switch резидента сайты не меняются.
+    """
+
+    def test_set_available_commands(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_available_commands([{"name": "plan"}])
+        assert session.available_commands == [{"name": "plan"}]
+
+    def test_extend_available_commands(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_available_commands([{"name": "plan"}])
+        session.extend_available_commands([{"name": "mode"}])
+        assert session.available_commands == [{"name": "plan"}, {"name": "mode"}]

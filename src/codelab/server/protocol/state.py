@@ -9,6 +9,7 @@ tool calls, и других компонентов протокола.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -153,6 +154,18 @@ class SessionState(BaseModel):
     def uncancel_permission_request(self, request_id: JsonRpcId) -> None:
         """Снять отметку об отмене permission-запроса (идемпотентно)."""
         self.cancelled_permission_requests.discard(request_id)
+
+    def set_available_commands(
+        self, commands: Sequence[AvailableCommand | dict[str, Any]]
+    ) -> None:
+        """Заменить набор доступных slash-команд."""
+        self.available_commands = list(commands)
+
+    def extend_available_commands(
+        self, commands: Sequence[AvailableCommand | dict[str, Any]]
+    ) -> None:
+        """Добавить slash-команды к текущему набору."""
+        self.available_commands.extend(commands)
 
     @model_validator(mode="before")
     @classmethod

@@ -177,9 +177,9 @@ class MCPSessionManager:
 
         # Очищаем старые MCP prompts из available_commands (оставляем built-in)
         builtin_names = self._get_builtin_command_names()
-        session.available_commands = [
-            cmd for cmd in session.available_commands if _get_command_name(cmd) in builtin_names
-        ]
+        session.set_available_commands(
+            [cmd for cmd in session.available_commands if _get_command_name(cmd) in builtin_names]
+        )
         runtime.mcp_prompt_handlers.clear()
         session.mcp_prompt_handlers.clear()
 
@@ -371,11 +371,13 @@ class MCPSessionManager:
 
             # Очищаем старые MCP prompts (оставляем built-in)
             builtin_names = self._get_builtin_command_names()
-            session_state.available_commands = [
-                cmd
-                for cmd in session_state.available_commands
-                if _get_command_name(cmd) in builtin_names
-            ]
+            session_state.set_available_commands(
+                [
+                    cmd
+                    for cmd in session_state.available_commands
+                    if _get_command_name(cmd) in builtin_names
+                ]
+            )
             runtime.mcp_prompt_handlers.clear()
             session_state.mcp_prompt_handlers.clear()
 
@@ -563,7 +565,7 @@ class MCPSessionManager:
 
             # Добавляем определение команды в available_commands
             prompt_commands = mcp_prompts_to_available_commands([prompt_def])
-            session_state.available_commands.extend(prompt_commands)
+            session_state.extend_available_commands(prompt_commands)
 
             logger.debug(
                 "registered_mcp_prompt_as_slash_command",

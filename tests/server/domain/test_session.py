@@ -229,3 +229,12 @@ class TestSession:
         assert session.permissions.is_cancelled("req_1") is True
         session.uncancel_permission_request("req_1")
         assert session.permissions.is_cancelled("req_1") is False
+
+    def test_set_and_extend_available_commands(self) -> None:
+        """Seam-мутаторы available_commands (pre-step D4-d)."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        session.set_available_commands([{"name": "plan"}])
+        assert session.available_commands == [{"name": "plan"}]
+        session.extend_available_commands([{"name": "mode"}])
+        assert session.available_commands == [{"name": "plan"}, {"name": "mode"}]
