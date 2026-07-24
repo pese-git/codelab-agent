@@ -45,6 +45,7 @@ from codelab.server.tools.base import ToolRegistry
 if TYPE_CHECKING:
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.domain.session import Session as DomainSession
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 
@@ -194,6 +195,7 @@ class AgentLoop:
         session_id: str,
         initial_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
+        domain_session: DomainSession | None = None,
     ) -> AgentLoopResult:
         """Запустить цикл итераций.
 
@@ -215,7 +217,9 @@ class AgentLoop:
             AgentLoopResult с результатом выполнения.
         """
         notifications: list[ACPMessage] = []
-        sink = SessionUpdateSink(self._replay_manager, self._notification_callback, notifications)
+        sink = SessionUpdateSink(
+            self._replay_manager, self._notification_callback, notifications, domain_session
+        )
         iteration = 0
         final_text: str | None = None
 
@@ -449,7 +453,7 @@ class AgentLoop:
         validated_plan = self._plan_builder.validate_plan_entries(plan)
         if not validated_plan:
             return
-        session.latest_plan = list(validated_plan)
+        # latest_plan пишет sink.emit_and_save_plan (единый писатель, dual-carry — D4-b/b1).
         plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
         await sink.emit_and_save_plan(plan_notification, session=session, entries=validated_plan)
 
@@ -459,6 +463,7 @@ class AgentLoop:
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
+        domain_session: DomainSession | None = None,
     ) -> AgentLoopResult:
         """Продолжить цикл после permission approval.
 
@@ -477,7 +482,9 @@ class AgentLoop:
             AgentLoopResult с результатом выполнения.
         """
         notifications: list[ACPMessage] = []
-        sink = SessionUpdateSink(self._replay_manager, self._notification_callback, notifications)
+        sink = SessionUpdateSink(
+            self._replay_manager, self._notification_callback, notifications, domain_session
+        )
 
         # Убедиться что стратегия инициализирована для continue_execution.
         self._llm_caller.ensure_strategy_selected(session, session_id)
@@ -526,6 +533,7 @@ class AgentLoop:
             session_id=session_id,
             initial_prompt=None,
             mcp_manager=mcp_manager,
+            domain_session=domain_session,
         )
 
         # Объединяем notifications

@@ -269,6 +269,7 @@ class LLMLoopStage(PromptStage):
             session_id=context.session_id,
             initial_prompt=context.raw_text,
             mcp_manager=mcp_manager,
+            domain_session=context.domain_session,
         )
 
         context.notifications.extend(result.notifications)

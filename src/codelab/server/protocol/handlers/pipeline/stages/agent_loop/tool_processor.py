@@ -834,7 +834,7 @@ class ToolCallProcessor:
         plan_entries = result.metadata.get("validated_entries") if result.metadata else None
         if not plan_entries:
             return
-        session.latest_plan = list(plan_entries)
+        # latest_plan пишет sink.emit_and_save_plan (единый писатель, dual-carry — D4-b/b1).
         plan_notification = self._plan_builder.build_plan_notification(session_id, plan_entries)
         await sink.emit_and_save_plan(plan_notification, session=session, entries=plan_entries)
         logger.debug(

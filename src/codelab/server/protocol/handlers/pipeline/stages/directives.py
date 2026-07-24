@@ -123,6 +123,16 @@ class DirectivesStage(PromptStage):
             }
             for entry in plan_entries
         ]
+        # Dual-carry (write-фаза D4-b/b1): синхронизируем доменный агрегат из тех же
+        # данных. Здесь вход (build_plan_entries) не проходит validate_plan_entries,
+        # поэтому latest_plan пишется точь-в-точь (байт-в-байт с wire), а домен наполняется
+        # из тех же entries — в отличие от sink-пути, где вход валидирован и latest_plan
+        # деривируется из домена.
+        if context.domain_session is not None:
+            from codelab.server.domain.session import AgentPlan
+            from codelab.server.mapping.plan_mapper import PlanMapper
+
+            context.domain_session.plan = AgentPlan(steps=PlanMapper.from_acp(list(plan_entries)))
 
     def _apply_terminal_rpc(self, context: PromptContext, directives: PromptDirectives) -> bool:
         """Директива terminal_command: сформировать client RPC. True — turn deferred."""

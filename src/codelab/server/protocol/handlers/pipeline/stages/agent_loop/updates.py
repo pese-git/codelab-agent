@@ -16,7 +16,7 @@ Sink создаётся пер-turn: связан со свежим буферо
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -25,6 +25,8 @@ from codelab.server.messages import ACPMessage
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codelab.server.domain.session import Session as DomainSession
+    from codelab.server.models import PlanStep
     from codelab.server.protocol.handlers.replay_manager import ReplayManager
     from codelab.server.protocol.state import SessionState
 
@@ -46,6 +48,7 @@ class SessionUpdateSink:
         replay_manager: ReplayManager,
         callback: Callable[[ACPMessage], Awaitable[None]] | None,
         buffer: list[ACPMessage],
+        domain_session: DomainSession | None = None,
     ) -> None:
         """Инициализация sink.
 
@@ -54,10 +57,15 @@ class SessionUpdateSink:
             callback: Callback для немедленной отправки notifications (или None).
             buffer: Список notifications для накопления (fallback / permission).
                 Sink хранит ссылку — вызывающий читает его после turn'а.
+            domain_session: Доменный агрегат turn'а (write-фаза D4-b/b1, ADR-006).
+                Если задан — план становится доменной операцией агрегата, а
+                `SessionState.latest_plan` пересобирается из домена (dual-carry).
+                None → legacy-поведение (прямая запись `latest_plan`).
         """
         self._replay_manager = replay_manager
         self._callback = callback
         self._buffer = buffer
+        self._domain_session = domain_session
 
     @property
     def notifications(self) -> list[ACPMessage]:
@@ -157,9 +165,32 @@ class SessionUpdateSink:
         session: SessionState,
         entries: list[dict[str, str]],
     ) -> None:
-        """Отправить plan-notification и сохранить план в replay."""
+        """Отправить plan-notification, обновить план и сохранить в replay.
+
+        План — единственный писатель `SessionState.latest_plan` (write-фаза D4-b/b1):
+        при наличии доменного агрегата план становится доменной операцией
+        (`domain_session.plan`), а `latest_plan` пересобирается из домена (dual-carry,
+        байт-идентично); иначе — legacy прямая запись.
+        """
+        self._apply_plan(session, entries)
         await self.emit(notification)
         self._replay_manager.save_plan(session, entries)
+
+    def _apply_plan(self, session: SessionState, entries: list[dict[str, str]]) -> None:
+        """Единая запись плана: домен как источник + dual-carry в latest_plan."""
+        if self._domain_session is not None:
+            from codelab.server.domain.session import AgentPlan
+            from codelab.server.mapping.plan_mapper import PlanMapper
+
+            self._domain_session.plan = AgentPlan(steps=PlanMapper.from_acp(list(entries)))
+            # PlanMapper.to_acp всегда возвращает dict-шаги; поле latest_plan шире
+            # (PlanStep | dict) — сужение безопасно (cast вместо расширения контракта поля).
+            session.latest_plan = cast(
+                "list[PlanStep | dict[str, Any]]",
+                PlanMapper.to_acp(self._domain_session.plan.get_steps()),
+            )
+        else:
+            session.latest_plan = list(entries)
 
     async def emit_and_save_tool_call(
         self,
