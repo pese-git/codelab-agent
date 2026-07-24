@@ -156,7 +156,7 @@ class ProjectStructureDecorator(ToolExecutorDecorator):
         if not filtered:
             return
 
-        session.config_values["project_structure"] = json.dumps(filtered)
+        session.set_config_value("project_structure", json.dumps(filtered))
 
         logger.info(
             "project_structure.auto_saved",

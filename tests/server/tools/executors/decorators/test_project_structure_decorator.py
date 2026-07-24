@@ -26,6 +26,8 @@ class TestProjectStructureDecorator:
         session = MagicMock()
         session.session_id = "test_session"
         session.config_values = {}
+        # Seam-контракт резидента (pre-step D4-d): set_config_value пишет в config_values.
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         return session
 
     def _make_executor(self, result: ToolExecutionResult) -> AsyncMock:

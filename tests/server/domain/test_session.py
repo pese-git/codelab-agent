@@ -238,3 +238,10 @@ class TestSession:
         assert session.available_commands == [{"name": "plan"}]
         session.extend_available_commands([{"name": "mode"}])
         assert session.available_commands == [{"name": "plan"}, {"name": "mode"}]
+
+    def test_set_config_value(self) -> None:
+        """Seam-мутатор config_values (pre-step D4-d)."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        session.set_config_value("mode", "plan")
+        assert session.config.config_values["mode"] == "plan"

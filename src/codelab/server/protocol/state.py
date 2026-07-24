@@ -167,6 +167,10 @@ class SessionState(BaseModel):
         """Добавить slash-команды к текущему набору."""
         self.available_commands.extend(commands)
 
+    def set_config_value(self, key: str, value: str) -> None:
+        """Установить значение config_values (persistent session-config)."""
+        self.config_values[key] = value
+
     @model_validator(mode="before")
     @classmethod
     def migrate_schema(cls, data: dict[str, Any]) -> dict[str, Any]:

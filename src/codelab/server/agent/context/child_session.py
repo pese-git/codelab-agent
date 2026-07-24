@@ -86,8 +86,8 @@ class DefaultChildSessionManager(ChildSessionManager):
         # Устанавливаем parent_session_id (миграция schema_version=7)
         # SessionState не имеет этого поля в текущей версии, но оно зарезервировано
         # для будущей миграции. Пока используем config_values.
-        child_state.config_values["parent_session_id"] = parent_session_id or ""
-        child_state.config_values["subagent_scope"] = subagent_scope
+        child_state.set_config_value("parent_session_id", parent_session_id or "")
+        child_state.set_config_value("subagent_scope", subagent_scope)
 
         # Сохраняем child-сессию в storage
         await self._session_storage.save_session(child_state)

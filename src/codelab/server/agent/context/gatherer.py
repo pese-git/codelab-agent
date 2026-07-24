@@ -568,8 +568,10 @@ class ACPContextGatherer(ContextGatherer):
 
             if filtered:
                 self._dependency_graph.set_project_files(filtered)
-                config_values = getattr(session, "config_values", {}) or {}
-                config_values["project_structure"] = json.dumps(filtered)
+                # Пишем в резидент через seam (pre-step D4-d, ADR-006). Ранее
+                # `getattr(...) or {}` при пустом config_values писал в throwaway —
+                # запись терялась; seam всегда пишет в поле резидента.
+                session.set_config_value("project_structure", json.dumps(filtered))
 
                 logger.info(
                     "context.gather.bootstrap.complete",

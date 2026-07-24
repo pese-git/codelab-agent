@@ -20,6 +20,8 @@ class TestContextCommandHandler:
         session = MagicMock()
         session.session_id = session_id
         session.config_values = {}
+        # Seam-контракт резидента (pre-step D4-d): set_config_value пишет в config_values.
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         return session
 
     def _make_config(self, enabled: bool = False, gather_enabled: bool = True) -> ContextConfig:

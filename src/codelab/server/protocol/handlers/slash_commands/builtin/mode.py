@@ -91,7 +91,7 @@ class ModeCommandHandler(CommandHandler):
             )
 
         # Устанавливаем новый режим в config_values
-        session.config_values["mode"] = normalized
+        session.set_config_value("mode", normalized)
 
         # Формируем update для клиента
         mode_update = {

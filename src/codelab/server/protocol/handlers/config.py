@@ -98,7 +98,7 @@ async def session_set_config_option(
             )
         )
 
-    session.config_values[config_id] = value
+    session.set_config_value(config_id, value)
     session.updated_at = datetime.now(UTC).isoformat()
 
     # Инвалидировать кэш провайдера при смене модели

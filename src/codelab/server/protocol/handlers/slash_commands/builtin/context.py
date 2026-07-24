@@ -597,7 +597,7 @@ class ContextCommandHandler(CommandHandler):
                 ]
             )
 
-        session.config_values["context_enabled"] = "true" if enabled else "false"
+        session.set_config_value("context_enabled", "true" if enabled else "false")
 
         action = "включён" if enabled else "выключен"
         return CommandResult(

@@ -110,7 +110,7 @@ class StrategyCommandHandler(CommandHandler):
             )
 
         # Сохраняем в session.config_values для persistence между turn'ами
-        session.config_values["_active_strategy"] = new_strategy
+        session.set_config_value("_active_strategy", new_strategy)
 
         return CommandResult(
             content=[

@@ -356,3 +356,21 @@ class TestSessionStateAvailableCommandsSeam:
         session.set_available_commands([{"name": "plan"}])
         session.extend_available_commands([{"name": "mode"}])
         assert session.available_commands == [{"name": "plan"}, {"name": "mode"}]
+
+
+class TestSessionStateConfigValueSeam:
+    """Seam-мутатор config_values (pre-step D4-d, ADR-006).
+
+    Одноимён с `domain.Session.set_config_value` — при switch резидента сайт не меняется.
+    """
+
+    def test_set_config_value(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_config_value("mode", "plan")
+        assert session.config_values["mode"] == "plan"
+
+    def test_set_config_value_overwrites(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_config_value("mode", "plan")
+        session.set_config_value("mode", "code")
+        assert session.config_values["mode"] == "code"

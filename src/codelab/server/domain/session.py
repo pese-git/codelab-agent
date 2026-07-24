@@ -274,3 +274,7 @@ class Session:
     def extend_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
         """Добавить slash-команды к текущему набору."""
         self.available_commands.extend(commands)
+
+    def set_config_value(self, key: str, value: str) -> None:
+        """Установить значение config_values (persistent session-config)."""
+        self.config.config_values[key] = value

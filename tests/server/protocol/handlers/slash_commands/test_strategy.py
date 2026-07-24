@@ -57,6 +57,7 @@ class TestStrategyCommandHandlerExecute:
 
         session = MagicMock()
         session.config_values = {}
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         result = handler.execute(["hierarchical"], session)
 
         content = result.content[0]["text"]
@@ -70,6 +71,7 @@ class TestStrategyCommandHandlerExecute:
 
         session = MagicMock()
         session.config_values = {}
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         result = handler.execute(["single"], session)
 
         content = result.content[0]["text"]
@@ -85,6 +87,7 @@ class TestStrategyCommandHandlerExecute:
 
         session = MagicMock()
         session.config_values = {}
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         result = handler.execute(["unknown"], session)
 
         content = result.content[0]["text"]
@@ -100,6 +103,7 @@ class TestStrategyCommandHandlerExecute:
 
         session = MagicMock()
         session.config_values = {}
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         result = handler.execute(["hierarchical"], session)
 
         content = result.content[0]["text"]
@@ -112,6 +116,7 @@ class TestStrategyCommandHandlerExecute:
 
         session = MagicMock()
         session.config_values = {}
+        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
         result = handler.execute(["HIERARCHICAL"], session)
 
         content = result.content[0]["text"]
