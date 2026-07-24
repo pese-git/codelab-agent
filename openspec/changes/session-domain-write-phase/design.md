@@ -176,11 +176,13 @@ wire-framing → домен), единообразно с `TurnState`/`SessionRu
 
 ## План работ (staged, механизм M2)
 
-> Порядок эпика: **D0 → D1 → D4 → D2 → D3 → D5** (реордер, см. ADR-006 finding: тип
-> storage/tools следует за рабочей моделью). Механизм D4 — **M2**: рабочая модель
-> флипается по стадиям пайплайна (threaded `context.session` → `domain.Session`), а не
-> по под-стейтам гибридного DTO (M1 отклонён). На время миграции — **транзиентный
-> scaffold** (dual-carry SessionState↔domain), снимается в D4-d.
+> Порядок эпика (пивот 2026-07-24, см. ADR-006 «Ре-секвенирование»):
+> **D0 → D1 → D4-a → b1(plan) → b3a+E-resume(prep) → D4-prep(round-trip proof) → D2 → D4-d → D3 → D5**.
+> Per-sub-state write-flip'ы (b3b tool_calls, history, …) **сняты**: упираются в «`domain_session` не на
+> всех путях» + общий counter + multimodal; durable-ценность даёт lossless-маппер (b3a), а не поштучный
+> флип. Механизм финального шага — **M2**: ОДИН флип threaded-объекта (`context.session` →
+> `domain.Session`) в D4-d, `SessionState` пересобирается на границе через lossless `SessionMapper`
+> (после D2, где закрыт multimodal round-trip). Сделанные b1/E-resume переиспользуются в D4-d.
 
 ### D4 — рабочая модель → `domain.Session` (ядро)
 

@@ -40,11 +40,25 @@
       **синхронизируется** из тех же entries. Resume-путь (`execute_pending_tool` через `background_executor`)
       — на fallback (legacy-запись; домен туда не тредится до D4-d). Находка: `PlanBuilder.build_plan_updates`/
       `update_session_plan` — мёртвый код (нет прод-вызовов). Гейт: golden-wire байт-в-байт + round-trip + make check
-- [ ] D4.3 Стадии по возрастанию связности (напр. `plan` → `tool_calls` → `history` → `active_turn`)
-- [ ] D4.4 Threaded `context.session` = `domain.Session`; `SessionState` строится только на границе wire/storage
-- [ ] D4.5 Golden wire (D0.1) байт-в-байт на КАЖДОЙ стадии
+- [x] D4-b/b3a (prep) Доменный дом полей tool_call (`ToolCall`+kind/title/llm_id; `ToolResult`+content/
+      result_content) + lossless `ToolCallMapper`; `SessionMapper` делегирует ему (round-trip tool_calls без
+      потерь, дубль inline-билдеров снят). Валидирован на проде (E-resume, 33×).
+- [x] D4-b E-resume `domain_session` на permission-resume пути (`background_executor` строит `to_domain`,
+      пробрасывает до `resume_after_permission`). Нужен и для D4-d.
 
-## Фаза D2: Хранение на `domain.Session` + миграция формата (после D4)
+> **Ре-секвенирование (пивот, 2026-07-24, см. ADR-006):** дальнейшие per-sub-state write-flip'ы
+> **сняты** (упираются в «`domain_session` не на всех путях» + общий counter + multimodal). Остаток:
+> **prep (lossless round-trip) → D2 → D4-d (один флип threaded-объекта)**. b3b (tool_calls write-flip)
+> заменён флипом на границе в D4-d.
+
+- [ ] D4-prep Сквозной round-trip тест `domain.Session ↔ SessionState` без потерь для ВСЕХ полей
+      (turn/runtime/tool_calls/plan/permissions/multi_agent/config; history multimodal — xfail до D2).
+      Опц.: дедуп оставшихся inline-мапперов (`_build_plan` → `PlanMapper`).
+- [ ] D4.4 (D4-d) Threaded `context.session` = `domain.Session`; `SessionState` строится только на границе
+      wire/storage через lossless `SessionMapper`. ОДИН флип, риск сконцентрирован (после D2).
+- [ ] D4.5 Golden wire (D0.1) байт-в-байт на флипе D4-d + live-smoke полного turn'а
+
+## Фаза D2: Хранение на `domain.Session` + миграция формата (после D4-prep, ПЕРЕД D4-d — пивот)
 
 - [ ] D2.1 `SessionStorage` (ABC + реализации) работает с `domain.Session`
 - [ ] D2.2 Versioned schema хранения; upgrade старого `SessionState`-JSON на чтении через `SessionMapper`

@@ -158,6 +158,28 @@ round-trip без потерь turn/runtime-состояния (опаковые
 нет. `mcp_prompt_handlers` (`exclude=True`, transient) и `available_commands` (ACP wire-DTO) в
 домен не переезжают. Гейт: round-trip + golden-wire + `make check` (7359 passed, 1 xfail→D2).
 
+### Ре-секвенирование: prep → D2 → D4-d (пивот, 2026-07-24, одобрено владельцем)
+
+**Finding.** Per-sub-state write-flip (D4-c-стиль) трижды подряд упёрся в одно: `domain_session` не
+проброшен на путь X. plan (b1) потребовал E-resume; tool_calls создаётся на ~8 сайтах/4 путях
+(agent_loop, directives, **client-RPC, client-requests** — два последних `domain_session` не несут),
+а `tool_call_counter` общий → флип обязан быть атомарным; history вдобавок блокирован multimodal (D2).
+При этом чтения всё равно остаются на `SessionState` до D4-d, а durable-ценность дал **b3a**
+(доменные поля + lossless-маппер): `SessionMapper.to_domain` уже отработал на проде 33× без потерь.
+
+**Решение.** Прекратить дальнейшие per-sub-state write-flip'ы. Порядок остатка:
+1. **Prep (lossless round-trip)** — довести/подтвердить `domain.Session ↔ SessionState` без потерь для
+   ВСЕХ полей (уже: turn/runtime — D4-a, tool_calls — b3a, plan — PlanMapper, permissions/multi_agent/
+   config — тривиальны). Гейт — сквозной round-trip тест; риск нулевой (аддитивно к мапперам).
+2. **D2** — формат хранения + миграция + multimodal history (единственный незакрытый round-trip).
+3. **D4-d** — ОДИН флип threaded-объекта (`context.session` → `domain.Session`); `SessionState`
+   пересобирается на границе wire/storage через lossless `SessionMapper`. Риск сконцентрирован в одном
+   хорошо-гейтнутом шаге (golden-wire + round-trip + live-smoke), совпадает с механизмом M2 design.md.
+
+Сделанные b1 (plan) и E-resume — не выброшены: b1 доказал sink как domain-носитель, E-resume даёт
+`domain_session` на resume-пути (нужен и для D4-d). b3b (tool_calls write-flip) — **снят** в пользу
+D4-d (флип на границе). `terminals` — по-прежнему после D3.
+
 **Коллизия имён (follow-up):** новый доменный VO `domain.session.SessionRuntime` (персистируемое
 рантайм-состояние сессии: terminals/events/…) тёзка существующего
 `protocol.session_runtime.SessionRuntime` (live-реестр per-session: notification bus,
