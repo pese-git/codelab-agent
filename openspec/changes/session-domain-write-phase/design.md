@@ -106,15 +106,16 @@ ACP**. Это **состояние сессии**, чей ТИП случайн�
 не wire-семантика. `active_turn` = доменное «сессия ждёт внешний запрос X, фаза Y»; id — опаковый
 resume-токен; переотправление запроса после рестарта — протокол.
 
-**Обязательное действие (D4-a):** классифицировать ВСЕ поля `SessionState` по семантике:
+**Классификация полей `SessionState` по семантике (D4-a, финализирована по карте D4.1):**
 
-| Класс | Поля |
-|---|---|
-| Доменный агрегат (уже есть дом) | `session_id`→`id`; `cwd`/`config_values`/`runtime_capabilities`→`SessionConfig`; `history`; `tool_calls`/`tool_call_counter`→`ToolCallRegistry`; `latest_plan`→`AgentPlan`; `permission_policy`/`cancelled_permission_requests`→`PermissionState`; `active_strategy`/`active_agents`/`parent_session_id`/`child_session_ids`/`is_child_session`→`MultiAgentState` |
-| **Домен, новые VO** (плоские данные — переезжают из `protocol.state`) | `active_turn`→`TurnState` VO (phase, cancel_requested, resume-id как `str\|int`, `pending_external_request: Mapping`); `terminals`/`terminal_counter`, `events_history`, `session_metrics`, `correlation_id`, `cancelled_client_rpc_requests`, `pending_prompt_response` → `SessionRuntime` VO |
-| Кандидаты в домен (решить на D4-a) | `mcp_servers`→`SessionConfig`; `task_result`/`sliced_summary`→`MultiAgentState`; `available_commands` (ACP slash-command структуры — вероятно wire-DTO) |
-| Wire-DTO / transient (остаётся в `protocol`) | `mcp_prompt_handlers` (`exclude=True`, transient); ACP-структуры, несущие wire-framing |
-| storage-мета | `schema_version`, `updated_at`, `title` |
+| Класс | Поля | Статус |
+|---|---|---|
+| Доменный агрегат (дом есть) | `session_id`→`id`; `cwd`/`config_values`/`runtime_capabilities`/`active_strategy`→`SessionConfig`; `history`→`ConversationHistory`; `tool_calls`/`tool_call_counter`→`ToolCallRegistry`; `latest_plan`→`AgentPlan`; `permission_policy`/`cancelled_permission_requests`→`PermissionState`; `active_agents`/`parent_session_id`/`child_session_ids`/`is_child_session`→`MultiAgentState` | было в `domain.Session` |
+| **Домен, новые VO** (плоские данные — переехали из `protocol.state`) | `active_turn`→`TurnState` VO (phase: str, cancel_requested, resume-id `str\|int`, `pending_external_request: dict` опаковый); `terminals`/`terminal_counter`, `events_history`, `session_metrics` (опаковый dict), `correlation_id`, `cancelled_client_rpc_requests`, `pending_prompt_response` (опаковый dict) → `SessionRuntime` VO | **добавлены в D4-a** |
+| Wire-DTO / transient (остаётся в `protocol`) | `mcp_prompt_handlers` (`exclude=True`, transient — подтверждено: очищается после переноса в runtime-компаньон); `available_commands` (ACP slash-command структуры — подтверждено wire-DTO: наполняется для `available_commands_update`) | в `protocol` |
+| storage-мета | `schema_version`, `updated_at`, `title` | сериализация `domain.Session` (D2) |
+| Мёртвые (кандидаты на удаление) | `task_result`, `sliced_summary` (0 сайтов); `session_metrics`, `correlation_id` (0 рантайм-сайтов — проверить наполнение) | решить в D4-b/D5 |
+| Долги дублирования (закрыть при флипе) | `active_strategy` ↔ `config_values["_active_strategy"]`; tool_call-мутатор в `tool_call_handler.py` ≡ `prompt/tool_calls.py` | — |
 
 **Дом состояния — `domain`, НЕ компаньон в `protocol`.** `domain.Session` становится ПОЛНОЙ рабочей+
 персистируемой моделью (агрегат + `TurnState`/`SessionRuntime` VO). Компаньон-в-`protocol` **отменён**:

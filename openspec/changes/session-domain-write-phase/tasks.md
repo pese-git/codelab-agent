@@ -30,7 +30,8 @@
 > `SessionState` — только на границе wire/storage. Каждая стадия — за golden-wire (D0.1)
 > + round-trip (D0.2) + полный `make check`. Стадии по возрастанию связности.
 
-- [ ] D4.1 Выбрать самый изолированный под-стейт — карта мутаций/чтений
+- [x] D4.1 Карта мутаций/чтений по под-стейтам — `d4.1-mutation-map.md`; самые изолированные: `plan`/`multi_agent` (0 рантайм-сайтов), затем `terminals`. Классификация полей финализирована в design.md
+- [x] D4-a (scaffold) Доменные VO `TurnState`/`SessionRuntime` + `SessionMapper` round-trip без потерь turn/runtime; `PromptContext.domain_session` строится через `to_domain` (аддитивно, source-of-truth пока `SessionState`). Гейт зелёный
 - [ ] D4.2 Стадия 1: выбранный под-стейт → доменные операции агрегата; golden-wire/round-trip зелёные
 - [ ] D4.3 Стадии по возрастанию связности (напр. `plan` → `tool_calls` → `history` → `active_turn`)
 - [ ] D4.4 Threaded `context.session` = `domain.Session`; `SessionState` строится только на границе wire/storage
@@ -62,4 +63,5 @@
 - [ ] D.1 Обновить ADR-003 (закрыт), ADR-006 (статус), ADR-005 (разблокировано C/B)
 - [ ] D.2 `tech-debt.md`: закрыть остаток ADR-003, P2-32
 - [ ] D.3 Обновить `ARCHITECTURE.md` (домен как рабочая модель); синхронизировать Mermaid
+      (целевой референс готов — `doc/internals/architecture/server-target-state.md`)
 - [ ] D.4 Документировать формат хранения + миграцию

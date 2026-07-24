@@ -12,6 +12,7 @@
 - `src/codelab/server/mapping/session_mapper.py` — `SessionMapper` (domain ↔ protocol)
 - `src/codelab/server/storage/base.py` — `SessionStorage` (типизирован против `SessionState`)
 - openspec change `session-domain-write-phase`
+- `doc/internals/architecture/server-target-state.md` — целевая (post-refactor) схема серверной части
 
 ---
 
@@ -116,3 +117,49 @@ ADR-005 (read-фаза) развязал **ядро** (`agent.core.*`) от `pro
 к протоколу вопреки семантике. Инвариант «протокол в домен не течёт» не нарушается: переезжают
 данные, не wire-семантика (`active_turn` = доменное «ждём внешний запрос X»; id — опаковый
 resume-токен; переотправление после рестарта — протокол). Это устраняет корень (вариант B) целиком.
+
+### Карта чтений/мутаций `SessionState` (D4.1, 2026-07-24)
+
+Построена детерминированная карта обращений к `SessionState` по под-стейтам
+(`openspec/changes/session-domain-write-phase/d4.1-mutation-map.md`). Threaded-объект —
+`PromptContext.session`; границы транзакции `load→mutate→save` — в командах
+(`session_prompt`/`session_load`/`session_cancel`/…). Находки:
+
+- **`SessionMapper` в проде не вызывается** (только тесты) — расширение маппера безопасно для
+  горячего пути; гейт — round-trip baseline (D0.2).
+- **Оценки объёма в design.md устарели.** Реальная поверхность больше: `active_turn` 72R/31W через
+  ~13 файлов; config-чтения (`cwd`/`config_values`/`runtime_capabilities`/`mcp_servers`) ~73R.
+- **Рантайм-мёртвые под-стейты** (обращений на объекте сессии нет / только в маппере):
+  `latest_plan` (0 сайтов), multi-agent поля (только `SessionMapper`). Их стадии — тривиальны.
+- **Мёртвые поля:** `task_result`, `sliced_summary` (0 сайтов вне `state.py`); `session_metrics`,
+  `correlation_id` (0 рантайм-сайтов — проверить наполнение при сериализации, кандидаты на удаление).
+- **Дублирование стратегии:** `SessionState.active_strategy` дублирует `config_values["_active_strategy"]`
+  (рантайм читает config-ключ, а не поле). Решить при флипе multi-agent под-стейта.
+- **Дублирование tool_call-мутатора:** `protocol/handlers/tool_call_handler.py` и
+  `protocol/handlers/prompt/tool_calls.py` — структурно идентичны (increment counter + insert).
+- **Рассинхрон фаз turn:** `directives.py` пишет `phase="waiting_permission"`, а
+  `pipeline/.../tool_processor.py` — `"awaiting_permission"` для похожего состояния (строковые
+  литералы без enum). Устранить типизированным `TurnPhase` при вводе `TurnState` VO.
+- **Duck-typing из agent-слоя:** `getattr(session, "cwd"/"config_values", …)` в `gatherer`/
+  `child_session`/`dispatcher` — учесть нестрогие чтения при флипе типа threaded-объекта.
+
+Уточнённый порядок стадий D4-b (по возрастанию связности):
+`plan → multi_agent → terminals → tool_calls → history → permissions → runtime → config →
+active_turn (последним)`.
+
+### D4-a выполнен (2026-07-24)
+
+`domain.Session` дополнен доменными VO `TurnState` (из `ActiveTurnState`) и `SessionRuntime`
+(`terminals`/`terminal_counter`/`events_history`/`cancelled_client_rpc_requests`/
+`pending_prompt_response`/`session_metrics`/`correlation_id`). `SessionMapper` доведён до
+round-trip без потерь turn/runtime-состояния (опаковые снимки — plain dict, домен остаётся
+чистым). `PromptContext.domain_session` — аддитивный scaffold, строится через
+`SessionMapper.to_domain` на входе turn'а; `SessionState` остаётся source-of-truth, потребителей
+нет. `mcp_prompt_handlers` (`exclude=True`, transient) и `available_commands` (ACP wire-DTO) в
+домен не переезжают. Гейт: round-trip + golden-wire + `make check` (7359 passed, 1 xfail→D2).
+
+**Коллизия имён (follow-up):** новый доменный VO `domain.session.SessionRuntime` (персистируемое
+рантайм-состояние сессии: terminals/events/…) тёзка существующего
+`protocol.session_runtime.SessionRuntime` (live-реестр per-session: notification bus,
+`mcp_prompt_handlers`) — разные концепции. Пока в разных пакетах; при флипе runtime под-стейта
+(D4-b «runtime») развести имена во избежание путаницы (ср. память «naming-semantics-over-compat»).
