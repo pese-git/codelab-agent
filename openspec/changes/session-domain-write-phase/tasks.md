@@ -32,7 +32,14 @@
 
 - [x] D4.1 Карта мутаций/чтений по под-стейтам — `d4.1-mutation-map.md`; самые изолированные: `plan`/`multi_agent` (0 рантайм-сайтов), затем `terminals`. Классификация полей финализирована в design.md
 - [x] D4-a (scaffold) Доменные VO `TurnState`/`SessionRuntime` + `SessionMapper` round-trip без потерь turn/runtime; `PromptContext.domain_session` строится через `to_domain` (аддитивно, source-of-truth пока `SessionState`). Гейт зелёный
-- [ ] D4.2 Стадия 1: выбранный под-стейт → доменные операции агрегата; golden-wire/round-trip зелёные
+- [x] D4.2 Стадия b1 (`plan`): записи `latest_plan` маршрутизированы через доменный агрегат
+      (`domain_session.plan`) + dual-carry. `SessionUpdateSink` несёт `domain_session` пер-turn (проброс
+      через `AgentLoop.run`/`resume_after_permission`); `emit_and_save_plan` — единый писатель для
+      loop/tool_processor (latest_plan **деривируется из домена**, вход валидирован → байт-в-байт), убраны
+      2 инлайн-записи. `directives` (вход невалидирован): latest_plan пишется точь-в-точь, домен
+      **синхронизируется** из тех же entries. Resume-путь (`execute_pending_tool` через `background_executor`)
+      — на fallback (legacy-запись; домен туда не тредится до D4-d). Находка: `PlanBuilder.build_plan_updates`/
+      `update_session_plan` — мёртвый код (нет прод-вызовов). Гейт: golden-wire байт-в-байт + round-trip + make check
 - [ ] D4.3 Стадии по возрастанию связности (напр. `plan` → `tool_calls` → `history` → `active_turn`)
 - [ ] D4.4 Threaded `context.session` = `domain.Session`; `SessionState` строится только на границе wire/storage
 - [ ] D4.5 Golden wire (D0.1) байт-в-байт на КАЖДОЙ стадии
