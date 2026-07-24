@@ -4,11 +4,9 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
-from datetime import datetime
 from typing import Any
 
 from codelab.server.agent.config.models import SessionMetrics
-from codelab.server.domain.conversation import ConversationMessage, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
     AgentPlan,
@@ -22,12 +20,13 @@ from codelab.server.domain.session import (
     TurnState,
 )
 from codelab.server.domain.value_objects import (
-    MessageRole,
     PlanPriority,
     PlanStatus,
     SessionId,
 )
+from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PendingClientRequestState,
@@ -49,20 +48,12 @@ class SessionMapper:
         Returns:
             Protocol SessionState для сериализации
         """
-        from codelab.server.models import HistoryMessage
-
-        # Конвертируем историю сообщений (round-trip без потерь: роль и tool_call_id
-        # сохраняются; HistoryMessage теперь поддерживает role="tool" — write-фаза D1).
-        history = []
-        for msg in session.history.get_messages():
-            history.append(
-                HistoryMessage(
-                    role=msg.role.value,  # type: ignore[arg-type]
-                    content=msg.content.text,
-                    timestamp=msg.timestamp.isoformat() if msg.timestamp else None,
-                    tool_call_id=msg.tool_call_id,
-                )
-            )
+        # История сообщений: делегируем в lossless HistoryMapper (единый путь
+        # сериализации истории — write-фаза D2-b, ADR-006). Тело сообщения (блочный
+        # content, плоский text, embedded LLM tool_calls) сохраняется без потерь.
+        history: list[HistoryMessage | dict[str, Any]] = [
+            HistoryMapper.to_protocol(msg) for msg in session.history.get_messages()
+        ]
 
         # Конвертируем tool calls (делегируем ToolCallMapper — round-trip без потерь, D4-b/b3)
         tool_calls = {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
@@ -276,42 +267,14 @@ class SessionMapper:
 
     @staticmethod
     def _build_history(state: SessionState) -> ConversationHistory:
-        """Собирает ConversationHistory из protocol-history (HistoryMessage или dict)."""
+        """Собирает ConversationHistory из protocol-history, делегируя в lossless HistoryMapper.
+
+        Единый путь десериализации истории (write-фаза D2-b, ADR-006): и HistoryMessage,
+        и сырой dict нормализуются HistoryMapper.to_domain, сохраняя тело сообщения.
+        """
         history = ConversationHistory()
         for msg_data in state.history:
-            tool_call_id: str | None = None
-            timestamp_raw: str | None = None
-            if hasattr(msg_data, "role"):
-                role_str = msg_data.role
-                content_text = msg_data.content if isinstance(msg_data.content, str) else ""
-                tool_call_id = getattr(msg_data, "tool_call_id", None)
-                timestamp_raw = getattr(msg_data, "timestamp", None)
-            elif isinstance(msg_data, dict):
-                role_str = msg_data.get("role", "user")
-                content_text = msg_data.get("content", "")
-                if not isinstance(content_text, str):
-                    content_text = ""
-                tool_call_id = msg_data.get("tool_call_id")
-                timestamp_raw = msg_data.get("timestamp")
-            else:
-                continue
-
-            try:
-                role = MessageRole(role_str)
-            except ValueError:
-                role = MessageRole.USER
-
-            # null остаётся null — время не синтезируется при пересборке (ACP updatedAt).
-            timestamp = datetime.fromisoformat(timestamp_raw) if timestamp_raw else None
-
-            history.add(
-                ConversationMessage(
-                    role=role,
-                    content=MessageContent(text=content_text),
-                    timestamp=timestamp,
-                    tool_call_id=tool_call_id,
-                )
-            )
+            history.add(HistoryMapper.to_domain(msg_data))
         return history
 
     @staticmethod

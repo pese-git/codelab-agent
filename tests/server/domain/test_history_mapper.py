@@ -8,6 +8,7 @@ from codelab.server.domain.conversation import (
     MessageContent,
     Resource,
 )
+from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import MessageRole
 from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.models import HistoryMessage
@@ -47,15 +48,46 @@ class TestHistoryMapperToProtocol:
         protocol = HistoryMapper.to_protocol(domain)
         assert len(protocol.content) == 1
 
-    def test_tool_role_maps_to_assistant(self) -> None:
+    def test_tool_role_preserved(self) -> None:
+        """Роль TOOL сохраняется, контент — плоская строка (write-фаза D2-b, ADR-006)."""
         domain = ConversationMessage(
             role=MessageRole.TOOL,
             content=MessageContent(text="result"),
             tool_call_id="call_1",
         )
         protocol = HistoryMapper.to_protocol(domain)
-        assert protocol.role == "assistant"
+        assert protocol.role == "tool"
+        assert protocol.content == "result"
+        assert protocol.text is None
         assert protocol.tool_call_id == "call_1"
+
+    def test_assistant_text_slot(self) -> None:
+        """Assistant-текст едет в плоский `text`-слот, `content=null` (решение №2, ADR-006)."""
+        domain = ConversationMessage(
+            role=MessageRole.ASSISTANT,
+            content=MessageContent(text="thinking"),
+        )
+        protocol = HistoryMapper.to_protocol(domain)
+        assert protocol.role == "assistant"
+        assert protocol.content is None
+        assert protocol.text == "thinking"
+
+    def test_embedded_tool_calls_roundtrip(self) -> None:
+        """Embedded LLM tool_calls переживают round-trip через доменное поле tool_calls."""
+        original = ConversationMessage(
+            role=MessageRole.ASSISTANT,
+            content=MessageContent(text="calling"),
+            tool_calls=[ToolCall(id="c1", tool_name="grep", arguments={"q": "x"})],
+        )
+        protocol = HistoryMapper.to_protocol(original)
+        assert protocol.model_dump()["tool_calls"] == [
+            {"id": "c1", "name": "grep", "arguments": {"q": "x"}}
+        ]
+        restored = HistoryMapper.to_domain(protocol)
+        assert len(restored.tool_calls) == 1
+        assert restored.tool_calls[0].id == "c1"
+        assert restored.tool_calls[0].tool_name == "grep"
+        assert restored.tool_calls[0].arguments == {"q": "x"}
 
     def test_timestamp_serialized(self) -> None:
         ts = datetime(2024, 1, 1, 12, 0, 0)

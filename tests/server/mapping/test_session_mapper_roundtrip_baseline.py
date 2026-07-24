@@ -6,8 +6,6 @@
 сохранение. Пока они документируют, что именно теряется.
 """
 
-import pytest
-
 from codelab.server.domain.conversation import ConversationMessage, Image, MessageContent
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -343,17 +341,55 @@ class TestProtocolRoundtripLossless:
             d1["tool_calls"]["call_001"]["raw_input"]
         )
 
+    def test_history_body_roundtrip_lossless(self) -> None:
+        """Гейт D2-c: тело history-сообщений байт-идентично после round-trip.
 
-class TestRoundtripKnownGaps:
-    """Оставшиеся потери — фиксированы как xfail, чинятся в D2 (формат хранения)."""
+        Покрывает все реальные wire-формы: assistant (`text`-слот + embedded tool_calls),
+        tool (строковый `content`), user (блочный `content`, в т.ч. image).
+        """
+        from codelab.server.models import HistoryMessage
+        from codelab.server.protocol.state import SessionState
 
-    @pytest.mark.xfail(
-        reason="Мультимодальный контент истории (images/resources) теряется: to_protocol "
-        "маппит только .text. Фикс меняет форму сериализации content (строка→блоки) — "
-        "относится к D2 (versioned schema + миграция).",
-        strict=True,
-    )
+        state0 = SessionState(
+            session_id="sess_hist",
+            schema_version=6,
+            cwd="/t",
+            history=[
+                HistoryMessage(
+                    role="user",
+                    content=[{"type": "text", "text": "проанализируй"}],
+                    timestamp="2026-07-24T10:18:06.840223+00:00",
+                ),
+                HistoryMessage(
+                    role="assistant",
+                    content=None,
+                    text="Сначала план.",
+                    timestamp="2026-07-24T10:18:17.495647+00:00",
+                    tool_calls=[
+                        {"id": "chatcmpl-tool-1", "name": "update_plan", "arguments": {"e": [1]}}
+                    ],
+                ),
+                HistoryMessage(
+                    role="tool",
+                    content="tool output",
+                    tool_call_id="chatcmpl-tool-1",
+                    timestamp=None,
+                ),
+                HistoryMessage(
+                    role="user",
+                    content=[{"type": "image", "data": "B64", "mimeType": "image/png"}],
+                ),
+            ],
+        )
+        rt = SessionMapper.to_protocol(SessionMapper.to_domain(state0))
+        assert rt.model_dump()["history"] == state0.model_dump()["history"]
+
+
+class TestRoundtripHistoryBody:
+    """D2-b: тело history-сообщения round-trip без потерь (делегирование HistoryMapper, ADR-006)."""
+
     def test_multimodal_history_preserved(self) -> None:
+        """Мультимодальный контент истории (images) переживает round-trip."""
         history = ConversationHistory()
         history.add(
             ConversationMessage(
@@ -365,4 +401,28 @@ class TestRoundtripKnownGaps:
         )
         session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
         rt = _roundtrip(session)
-        assert len(rt.history.get_messages()[0].content.images) == 1
+        msg = rt.history.get_messages()[0]
+        assert msg.content.text == "see"
+        assert len(msg.content.images) == 1
+        assert msg.content.images[0].data == "B64"
+
+    def test_assistant_text_and_tool_calls_preserved(self) -> None:
+        """Плоский assistant-текст и embedded LLM tool_calls переживают round-trip."""
+        from codelab.server.domain.tool_call import ToolCall
+
+        history = ConversationHistory()
+        history.add(
+            ConversationMessage(
+                role=MessageRole.ASSISTANT,
+                content=MessageContent(text="plan"),
+                tool_calls=[ToolCall(id="c1", tool_name="update_plan", arguments={"e": 1})],
+            )
+        )
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+        rt = _roundtrip(session)
+        msg = rt.history.get_messages()[0]
+        assert msg.role == MessageRole.ASSISTANT
+        assert msg.content.text == "plan"
+        assert len(msg.tool_calls) == 1
+        assert msg.tool_calls[0].tool_name == "update_plan"
+        assert msg.tool_calls[0].arguments == {"e": 1}

@@ -51,11 +51,14 @@ class TestSessionMapperToProtocol:
         state = SessionMapper.to_protocol(session)
 
         assert len(state.history) == 1
-        # history содержит HistoryMessage объекты
+        # history содержит HistoryMessage объекты; user-контент едет блоками
+        # (единый lossless путь HistoryMapper — write-фаза D2-b, ADR-006).
         history_msg = state.history[0]
         assert hasattr(history_msg, "role")
         assert history_msg.role == "user"
-        assert history_msg.content == "hello"
+        assert history_msg.model_dump()["content"] == [
+            {"type": "text", "text": "hello", "data": None}
+        ]
 
     def test_with_tool_calls(self) -> None:
         """Тест конвертации с tool calls."""

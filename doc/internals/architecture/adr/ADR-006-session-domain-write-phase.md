@@ -282,3 +282,25 @@ LLM-`tool_calls`, блочный `content`. **D4-d флипнет запись �
 Разрыв fidelity — исключительно в lossy-мапперах, не в домене. Весь объём D2 смещается в **D2-b**
 (тотальная роль-driven политика слотов + делегирование `SessionMapper` ↔ lossless `HistoryMapper`
 в обоих направлениях; удаление text-only пути).
+
+#### Реализация D2-b/c/d (2026-07-24)
+
+- **D2-a — no-op** (домен уже достаточен, см. решение выше).
+- **D2-b — сделано.** `HistoryMapper` переписан тотальным и двунаправленным: роль-driven политика
+  слотов (`_content_to_wire`), чтение плоского `text`-слота и embedded LLM `tool_calls`
+  (`_parse_embedded_tool_calls` → доменное поле `ConversationMessage.tool_calls`), сохранение роли
+  `tool` (без схлопывания в `assistant`). `SessionMapper.to_protocol` (inline) и `_build_history`
+  делегируют в `HistoryMapper`; text-only путь удалён. Единый путь сериализации истории.
+- **D2-c — гейт зелёный.** Флип `xfail test_multimodal_history_preserved` → pass; добавлен
+  `test_history_body_roundtrip_lossless` (все реальные wire-формы: assistant `text`+tool_calls,
+  tool строковый content, user блочный content + image). Проверено на реальном дампе
+  (`sess_cc54a1f6c4d3.json`, 116 сообщений): `d0['history'] == d1['history']`, 0 расхождений.
+  Обновлены ожидаемо-изменившиеся тесты (`test_session_mapper`, `test_history_mapper`).
+- **D2-d — no-op.** Структурной смены on-disk формата не произошло: round-trip через домен
+  байт-идентичен входу на v6-дампе, живой путь записи (`JsonFileStorage`) не менялся. Version bump
+  `v6→v7` и звено миграции не требуются.
+
+**Итог:** незакрытых round-trip перед D4-d не осталось. `make check` зелёный (7372 passed).
+Замечание: `SessionMapper.to_protocol` в проде пока не на пути записи (флип — D4-d), поэтому смена
+формы сериализации истории регрессий на живом пути не даёт; `to_domain` (вход turn'а) стал богаче —
+assistant-текст и embedded tool_calls больше не теряются при пересборке домена.
