@@ -1,11 +1,10 @@
-"""Unit-тесты доменного порта `SessionRepository` (каркас D4-d, ADR-006).
+"""Unit-тесты доменного порта `SessionRepository` (каркас D4-d1, ADR-006).
 
-Фиксируют инварианты, на которых держится атомарный switch резидента:
-идентичность резидента на cache-hit, конверсия только на границе, wire-проекция
-для `list_sessions`, синхронизация storage-метки обратно в домен.
+Фиксируют контракт порта и его **behavior-neutrality**: жизненный цикл объектов
+остаётся таким же, как у сегодняшнего прод-стека (`JsonFileStorage` без кэша) —
+каждый `load_session` отдаёт свежий агрегат, резидентной идентичности нет.
+Резидентный кэш — отдельный осознанный шаг D4-d2, здесь его быть не должно.
 """
-
-import pytest
 
 from codelab.server.domain.conversation import ConversationMessage, Image, MessageContent
 from codelab.server.domain.session import Session, SessionConfig
@@ -18,78 +17,13 @@ def _state(session_id: str = "sess_1", cwd: str = "/tmp") -> SessionState:
     return SessionState(session_id=session_id, cwd=cwd, mcp_servers=[])
 
 
-async def _seed(repository: SessionRepository, backend: InMemoryStorage, **kwargs) -> None:
-    """Положить wire-состояние в backend, минуя репозиторий."""
-    await backend.save_session(_state(**kwargs))
-
-
-class TestResidentIdentity:
-    """Тезис 1 (ADR-006): кэш держит домен, cache-hit возвращает ТОТ ЖЕ объект."""
-
-    async def test_cache_hit_returns_same_object(self) -> None:
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend)
-        await _seed(repository, backend)
-
-        first = await repository.load_session("sess_1")
-        second = await repository.load_session("sess_1")
-
-        assert first is not None
-        assert first is second, "cache-hit обязан вернуть тот же резидент (иначе split-brain)"
-
-    async def test_mutation_visible_through_second_load(self) -> None:
-        """In-place-мутация одного участка turn'а видна другому."""
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend)
-        await _seed(repository, backend)
-
-        first = await repository.load_session("sess_1")
-        assert first is not None
-        first.set_title("Моя сессия")
-
-        second = await repository.load_session("sess_1")
-        assert second is not None
-        assert second.title == "Моя сессия"
-
-    async def test_save_keeps_same_resident(self) -> None:
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend)
-        session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
-
-        await repository.save_session(session)
-        loaded = await repository.load_session("sess_1")
-
-        assert loaded is session
-
-    async def test_conversion_only_on_cache_miss(self) -> None:
-        """Повторный load не ходит в backend (значит, и не конвертирует заново)."""
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend)
-        await _seed(repository, backend)
-
-        calls = 0
-        original = backend.load_session
-
-        async def counting_load(session_id: str):
-            nonlocal calls
-            calls += 1
-            return await original(session_id)
-
-        backend.load_session = counting_load  # type: ignore[method-assign]
-
-        await repository.load_session("sess_1")
-        await repository.load_session("sess_1")
-
-        assert calls == 1
-
-
 class TestDomainTyping:
     """`load_session`/`save_session` — доменные (write-model)."""
 
     async def test_load_returns_domain_aggregate(self) -> None:
         backend = InMemoryStorage()
+        await backend.save_session(_state(cwd="/work"))
         repository = SessionRepository(backend=backend)
-        await _seed(repository, backend, cwd="/work")
 
         session = await repository.load_session("sess_1")
 
@@ -101,8 +35,18 @@ class TestDomainTyping:
         repository = SessionRepository(backend=InMemoryStorage())
         assert await repository.load_session("absent") is None
 
+    async def test_save_accepts_domain_aggregate(self) -> None:
+        backend = InMemoryStorage()
+        repository = SessionRepository(backend=backend)
+        session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/work"))
+
+        await repository.save_session(session)
+
+        persisted = await backend.load_session("sess_1")
+        assert isinstance(persisted, SessionState)
+        assert persisted.cwd == "/work"
+
     async def test_roundtrip_preserves_rich_domain_state(self) -> None:
-        """Сохранение и повторная загрузка с чистым кэшем не теряют тело сессии."""
         backend = InMemoryStorage()
         repository = SessionRepository(backend=backend)
 
@@ -117,8 +61,7 @@ class TestDomainTyping:
         session.set_config_value("mode", "plan")
         await repository.save_session(session)
 
-        # Свежий репозиторий поверх того же backend — гарантированный cache-miss.
-        reloaded = await SessionRepository(backend=backend).load_session("sess_rt")
+        reloaded = await repository.load_session("sess_rt")
 
         assert reloaded is not None
         assert reloaded.config.cwd == "/work"
@@ -129,8 +72,54 @@ class TestDomainTyping:
         assert len(message.content.images) == 1
 
 
+class TestBehaviorNeutrality:
+    """Порт не вводит резидентную идентичность — жизненный цикл как сегодня."""
+
+    async def test_each_load_returns_fresh_aggregate(self) -> None:
+        backend = InMemoryStorage()
+        await backend.save_session(_state())
+        repository = SessionRepository(backend=backend)
+
+        first = await repository.load_session("sess_1")
+        second = await repository.load_session("sess_1")
+
+        assert first is not second, "резидентный кэш — шаг D4-d2, здесь его быть не должно"
+
+    async def test_unsaved_mutations_do_not_leak_to_next_load(self) -> None:
+        """Мутация без `save` испаряется — так же, как в текущем прод-стеке.
+
+        Это защищает `session/load` (правит cwd/mcp_servers без save) от
+        незаявленной смены поведения при switch.
+        """
+        backend = InMemoryStorage()
+        await backend.save_session(_state())
+        repository = SessionRepository(backend=backend)
+
+        first = await repository.load_session("sess_1")
+        assert first is not None
+        first.set_title("не сохранено")
+
+        second = await repository.load_session("sess_1")
+        assert second is not None
+        assert second.title is None
+
+    async def test_saved_mutations_are_visible(self) -> None:
+        backend = InMemoryStorage()
+        await backend.save_session(_state())
+        repository = SessionRepository(backend=backend)
+
+        first = await repository.load_session("sess_1")
+        assert first is not None
+        first.set_title("сохранено")
+        await repository.save_session(first)
+
+        second = await repository.load_session("sess_1")
+        assert second is not None
+        assert second.title == "сохранено"
+
+
 class TestUpdatedAtSync:
-    """Storage штампует метку на wire-DTO — резидент не должен разъезжаться с диском."""
+    """Backend штампует метку на wire-DTO — вызывающий обязан увидеть её сразу."""
 
     async def test_save_syncs_storage_stamp_into_domain(self) -> None:
         backend = InMemoryStorage()
@@ -142,8 +131,8 @@ class TestUpdatedAtSync:
 
         persisted = await backend.load_session("sess_1")
         assert persisted is not None
-        assert session.updated_at == persisted.updated_at
         assert session.updated_at is not None
+        assert session.updated_at == persisted.updated_at
 
 
 class TestReadModelProjection:
@@ -151,9 +140,9 @@ class TestReadModelProjection:
 
     async def test_list_returns_wire_states(self) -> None:
         backend = InMemoryStorage()
+        await backend.save_session(_state(session_id="sess_a"))
+        await backend.save_session(_state(session_id="sess_b"))
         repository = SessionRepository(backend=backend)
-        await _seed(repository, backend, session_id="sess_a")
-        await _seed(repository, backend, session_id="sess_b")
 
         sessions, cursor = await repository.list_sessions()
 
@@ -162,59 +151,19 @@ class TestReadModelProjection:
         assert {item.session_id for item in sessions} == {"sess_a", "sess_b"}
 
 
-class TestCacheLifecycle:
-    async def test_delete_invalidates_cache(self) -> None:
+class TestLifecycleDelegation:
+    async def test_delete_delegates_to_backend(self) -> None:
         backend = InMemoryStorage()
+        await backend.save_session(_state())
         repository = SessionRepository(backend=backend)
-        await _seed(repository, backend)
-        await repository.load_session("sess_1")
-        assert repository.cache_size == 1
 
-        deleted = await repository.delete_session("sess_1")
-
-        assert deleted is True
-        assert repository.cache_size == 0
+        assert await repository.delete_session("sess_1") is True
         assert await repository.load_session("sess_1") is None
 
-    async def test_exists_uses_cache_then_backend(self) -> None:
+    async def test_exists_delegates_to_backend(self) -> None:
         backend = InMemoryStorage()
+        await backend.save_session(_state())
         repository = SessionRepository(backend=backend)
-        await _seed(repository, backend)
 
         assert await repository.session_exists("sess_1") is True
         assert await repository.session_exists("absent") is False
-
-    async def test_lru_evicts_oldest(self) -> None:
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend, max_size=2)
-        for session_id in ("sess_a", "sess_b", "sess_c"):
-            await _seed(repository, backend, session_id=session_id)
-            await repository.load_session(session_id)
-
-        assert repository.cache_size == 2
-        # sess_a вытеснен, но остаётся доступен через backend (уже другой объект).
-        evicted = await repository.load_session("sess_a")
-        assert evicted is not None
-
-    async def test_evicted_session_reloads_from_backend(self) -> None:
-        """После вытеснения резидент пересобирается — несохранённые мутации теряются."""
-        backend = InMemoryStorage()
-        repository = SessionRepository(backend=backend, max_size=1)
-        await _seed(repository, backend, session_id="sess_a")
-        await _seed(repository, backend, session_id="sess_b")
-
-        first = await repository.load_session("sess_a")
-        assert first is not None
-        first.set_title("не сохранено")
-        await repository.load_session("sess_b")
-
-        reloaded = await repository.load_session("sess_a")
-        assert reloaded is not first
-        assert reloaded is not None
-        assert reloaded.title is None
-
-
-@pytest.mark.parametrize("max_size", [1, 5, 200])
-def test_cache_starts_empty(max_size: int) -> None:
-    repository = SessionRepository(backend=InMemoryStorage(), max_size=max_size)
-    assert repository.cache_size == 0

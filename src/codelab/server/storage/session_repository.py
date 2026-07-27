@@ -1,19 +1,23 @@
-"""Доменный порт хранилища сессий (каркас D4-d, ADR-006).
+"""Доменный порт хранилища сессий (каркас D4-d1, ADR-006).
 
 `SessionRepository` — единственный шов между доменным агрегатом `Session` и
-wire-DTO `SessionState`. После switch'а резидентом рабочей модели становится
-домен, а `SessionState` живёт только внутри этого порта и на диске.
+wire-DTO `SessionState`. После switch'а рабочей моделью прикладных путей
+становится домен, а `SessionState` живёт только внутри этого порта и на диске.
 
 Асимметрия порта — CQRS-lite (решение D4-d, тезис 3):
 - `load_session`/`save_session` — доменные (write-model, богатый агрегат);
 - `list_sessions` — облегчённая wire-проекция (read-model): для `session/list`
   нужны title/updated_at/cwd, реконструировать поведение агрегата незачем.
 
-Кэш держит ДОМЕННЫЙ агрегат (решение D4-d, тезис 1): in-place-мутационный
-контракт turn'а держится на идентичности резидента — `load_session` на cache-hit
-обязан вернуть ТОТ ЖЕ объект, иначе мутации разных участков turn'а разъезжаются
-(split-brain). Поэтому `to_domain` выполняется только на cache-miss,
-`to_protocol` — на `save_session`.
+БЕЗ КЭША — намеренно (ревизия тезиса 1 по итогам аудита D4-d, 2026-07-27).
+Прод-вход (`codelab serve` → `cli.py`) собирает `JsonFileStorage` без обёртки,
+поэтому сегодня каждый `load_session` отдаёт свежий объект, а `domain_session`
+пересобирается на turn и выбрасывается. Резидентной идентичности в проде нет.
+Кэш доменных агрегатов ввёл бы её — и вместе с ней незаявленное изменение
+поведения: сайты, которые мутируют сессию без `save` (например `session/load`
+в `handlers/session.py` — правит `cwd`/`mcp_servers` и не сохраняет), начали бы
+удерживать мутации в памяти. Поэтому switch типа (D4-d1) делается
+behavior-neutral, а резидентный кэш — отдельным осознанным шагом (D4-d2).
 
 НЕ наследует `SessionStorage`: имена методов совпадают намеренно (чтобы switch
 call-сайтов был механическим), но тип рабочей модели другой — доменный `Session`
@@ -22,26 +26,17 @@ call-сайтов был механическим), но тип рабочей �
 
 from __future__ import annotations
 
-from collections import OrderedDict
-
-import structlog
-
 from ..domain.session import Session
 from ..mapping.session_mapper import SessionMapper
 from ..protocol.state import SessionState
 from .base import SessionStorage
 
-logger = structlog.get_logger()
-
-DEFAULT_CACHE_SIZE = 200  # максимум резидентных сессий в памяти
-
 
 class SessionRepository:
     """Хранилище сессий, типизированное доменным агрегатом.
 
-    Оборачивает wire-типизированный `SessionStorage` backend и держит LRU-кэш
-    доменных агрегатов. Backend отвечает за диск, репозиторий — за конверсию
-    и идентичность резидента.
+    Оборачивает wire-типизированный `SessionStorage` backend: backend отвечает
+    за персистентность, репозиторий — за конверсию на границе.
 
     Пример использования:
         repository = SessionRepository(backend=JsonFileStorage(path))
@@ -50,64 +45,41 @@ class SessionRepository:
         await repository.save_session(session)
     """
 
-    def __init__(
-        self,
-        backend: SessionStorage,
-        max_size: int = DEFAULT_CACHE_SIZE,
-    ) -> None:
+    def __init__(self, backend: SessionStorage) -> None:
         """Инициализирует репозиторий.
 
         Args:
             backend: Wire-типизированное хранилище для персистентности.
-                Ожидается backend БЕЗ собственного кэша сессий: кэш резидента
-                живёт здесь, второй уровень кэширования дал бы split-brain.
-            max_size: Максимальное количество резидентных сессий в LRU-кэше.
         """
         self._backend = backend
-        self._max_size = max_size
-        # OrderedDict работает как LRU: move_to_end при каждом обращении
-        self._cache: OrderedDict[str, Session] = OrderedDict()
 
     async def load_session(self, session_id: str) -> Session | None:
-        """Возвращает резидентный доменный агрегат сессии.
-
-        На cache-hit возвращает ТОТ ЖЕ объект (идентичность резидента —
-        основа in-place-мутационного контракта turn'а).
+        """Загружает сессию как доменный агрегат.
 
         Returns:
             Доменный `Session` либо None, если сессии не существует.
         """
-        cached = self._cache.get(session_id)
-        if cached is not None:
-            self._cache.move_to_end(session_id)
-            return cached
-
         state = await self._backend.load_session(session_id)
         if state is None:
             return None
-
-        session = SessionMapper.to_domain(state)
-        self._put(session)
-        return session
+        return SessionMapper.to_domain(state)
 
     async def save_session(self, session: Session) -> None:
-        """Персистит доменный агрегат и оставляет его резидентным."""
+        """Персистит доменный агрегат."""
         state = SessionMapper.to_protocol(session)
         await self._backend.save_session(state)
-        # Backend штампует метку сохранения на wire-DTO; возвращаем её в резидент,
-        # иначе доменный `updated_at` разъедется с тем, что легло на диск.
+        # Backend штампует метку сохранения на wire-DTO. Сегодня он делает это
+        # in-place на объекте вызывающего, поэтому тот видит свежую метку сразу
+        # после save (её кладут в session_info-нотификации). Возвращаем штамп в
+        # домен, чтобы switch остался behavior-neutral.
         session.updated_at = state.updated_at
-        self._put(session)
 
     async def delete_session(self, session_id: str) -> bool:
-        """Удаляет сессию из кэша и backend."""
-        self._cache.pop(session_id, None)
+        """Удаляет сессию."""
         return await self._backend.delete_session(session_id)
 
     async def session_exists(self, session_id: str) -> bool:
-        """Проверяет существование сессии в кэше или backend."""
-        if session_id in self._cache:
-            return True
+        """Проверяет существование сессии."""
         return await self._backend.session_exists(session_id)
 
     async def list_sessions(
@@ -118,25 +90,8 @@ class SessionRepository:
     ) -> tuple[list[SessionState], str | None]:
         """Возвращает wire-проекцию списка сессий (read-model, CQRS-lite).
 
-        Делегирует в backend, минуя кэш резидентов — как и `CachedSessionStorage`:
-        значения читаются с диска, поэтому несохранённые мутации резидента здесь
-        не видны (поведение сохранено как есть).
+        Для поиска сессии по вторичному ключу с последующей мутацией эта
+        проекция НЕ подходит — такие пути должны получить доменные finder'ы
+        (см. аудит D4-d: `permissions`, `client_rpc_response`, `core.cancel_all`).
         """
         return await self._backend.list_sessions(cwd=cwd, cursor=cursor, limit=limit)
-
-    def _put(self, session: Session) -> None:
-        """Добавить в кэш, вытолкнув самую старую запись при переполнении."""
-        session_id = str(session.id)
-        if session_id in self._cache:
-            self._cache.move_to_end(session_id)
-            self._cache[session_id] = session
-            return
-        if len(self._cache) >= self._max_size:
-            evicted_id, _ = self._cache.popitem(last=False)
-            logger.debug("session_repository_cache_evicted", session_id=evicted_id)
-        self._cache[session_id] = session
-
-    @property
-    def cache_size(self) -> int:
-        """Текущее количество резидентных сессий."""
-        return len(self._cache)
