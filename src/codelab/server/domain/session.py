@@ -105,7 +105,9 @@ class PermissionState:
     """Состояние разрешений в сессии."""
 
     policy: dict[str, str] = field(default_factory=dict)
-    cancelled_requests: set[str] = field(default_factory=set)
+    # id — опаковый корреляционный токен; JSON-RPC допускает и строку, и число,
+    # поэтому тип сохраняется как есть (ср. `TurnState.permission_request_id`).
+    cancelled_requests: set[str | int] = field(default_factory=set)
 
     def is_allowed(self, kind: str) -> bool:
         """Проверить, разрешено ли действие."""
@@ -115,15 +117,15 @@ class PermissionState:
         """Установить политику для действия."""
         self.policy[kind] = policy
 
-    def cancel_request(self, request_id: str) -> None:
+    def cancel_request(self, request_id: str | int) -> None:
         """Отменить запрос разрешения."""
         self.cancelled_requests.add(request_id)
 
-    def uncancel_request(self, request_id: str) -> None:
+    def uncancel_request(self, request_id: str | int) -> None:
         """Снять отметку об отмене запроса (идемпотентно)."""
         self.cancelled_requests.discard(request_id)
 
-    def is_cancelled(self, request_id: str) -> bool:
+    def is_cancelled(self, request_id: str | int) -> bool:
         """Проверить, отменён ли запрос."""
         return request_id in self.cancelled_requests
 
@@ -260,13 +262,31 @@ class Session:
         """Установить политику разрешений."""
         self.permissions.set_policy(kind, policy)
 
-    def cancel_permission_request(self, request_id: str) -> None:
+    def cancel_permission_request(self, request_id: str | int) -> None:
         """Отметить permission-запрос отменённым (для игнорирования поздних ответов)."""
         self.permissions.cancel_request(request_id)
 
-    def uncancel_permission_request(self, request_id: str) -> None:
+    def uncancel_permission_request(self, request_id: str | int) -> None:
         """Снять отметку об отмене permission-запроса (идемпотентно)."""
         self.permissions.uncancel_request(request_id)
+
+    def is_permission_cancelled(self, request_id: str | int) -> bool:
+        """Отмечен ли permission-запрос отменённым."""
+        return self.permissions.is_cancelled(request_id)
+
+    # Отмена agent->client RPC. Логика на агрегате, а не на `SessionRuntime`:
+    # тот — набор опаковых рантайм-снимков, поведения он не несёт.
+    def cancel_client_rpc_request(self, request_id: str | int) -> None:
+        """Отметить agent->client RPC отменённым (для игнорирования поздних ответов)."""
+        self.runtime.cancelled_client_rpc_requests.add(request_id)
+
+    def uncancel_client_rpc_request(self, request_id: str | int) -> None:
+        """Снять отметку об отмене agent->client RPC (идемпотентно)."""
+        self.runtime.cancelled_client_rpc_requests.discard(request_id)
+
+    def is_client_rpc_cancelled(self, request_id: str | int) -> bool:
+        """Отмечен ли agent->client RPC отменённым."""
+        return request_id in self.runtime.cancelled_client_rpc_requests
 
     def set_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
         """Заменить набор доступных slash-команд (available_commands — opaque wire-DTO)."""

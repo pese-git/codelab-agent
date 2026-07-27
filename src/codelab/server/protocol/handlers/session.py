@@ -66,7 +66,7 @@ def _cleanup_session_state(session: SessionState) -> None:
 
         # Если был pending client request, отменить его
         if session.active_turn.pending_client_request is not None:
-            session.cancelled_client_rpc_requests.add(
+            session.cancel_client_rpc_request(
                 session.active_turn.pending_client_request.request_id
             )
 

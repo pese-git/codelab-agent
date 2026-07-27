@@ -81,7 +81,7 @@ class SessionMapper:
             tool_calls=tool_calls,
             tool_call_counter=session.tool_calls.counter,
             permission_policy=session.permissions.policy,
-            cancelled_permission_requests=set(session.permissions.cancelled_requests),  # type: ignore[arg-type]
+            cancelled_permission_requests=set(session.permissions.cancelled_requests),
             available_commands=list(session.available_commands),
             latest_plan=latest_plan,
             active_strategy=session.multi_agent.active_strategy,
@@ -179,7 +179,9 @@ class SessionMapper:
         # Создаем PermissionState
         permissions = PermissionState(
             policy=state.permission_policy,
-            cancelled_requests={str(r) for r in state.cancelled_permission_requests},
+            # Тип id сохраняется (str|int): коэрция в str ломала round-trip числовых
+            # JSON-RPC id и корреляцию tombstone'ов (write-фаза D4-d1, ADR-006).
+            cancelled_requests=set(state.cancelled_permission_requests),
         )
 
         plan = SessionMapper._build_plan(state)

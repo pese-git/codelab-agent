@@ -155,6 +155,22 @@ class SessionState(BaseModel):
         """Снять отметку об отмене permission-запроса (идемпотентно)."""
         self.cancelled_permission_requests.discard(request_id)
 
+    def is_permission_cancelled(self, request_id: JsonRpcId) -> bool:
+        """Отмечен ли permission-запрос отменённым."""
+        return request_id in self.cancelled_permission_requests
+
+    def cancel_client_rpc_request(self, request_id: JsonRpcId) -> None:
+        """Отметить agent->client RPC отменённым (для игнорирования поздних ответов)."""
+        self.cancelled_client_rpc_requests.add(request_id)
+
+    def uncancel_client_rpc_request(self, request_id: JsonRpcId) -> None:
+        """Снять отметку об отмене agent->client RPC (идемпотентно)."""
+        self.cancelled_client_rpc_requests.discard(request_id)
+
+    def is_client_rpc_cancelled(self, request_id: JsonRpcId) -> bool:
+        """Отмечен ли agent->client RPC отменённым."""
+        return request_id in self.cancelled_client_rpc_requests
+
     def set_available_commands(
         self, commands: Sequence[AvailableCommand | dict[str, Any]]
     ) -> None:

@@ -37,7 +37,16 @@ from codelab.server.protocol.state import (
     SessionState,
     ToolCallState,
 )
-from codelab.server.storage import InMemoryStorage
+from codelab.server.storage import InMemoryStorage, SessionRepository
+
+
+def _permission_response_handler() -> PermissionResponseCommandHandler:
+    """Хендлер поверх свежего backend: wire-порт + доменный порт над ним."""
+    storage = InMemoryStorage()
+    return PermissionResponseCommandHandler(
+        storage=storage,
+        repository=SessionRepository(backend=storage),
+    )
 
 
 def _make_background_executor(
@@ -73,6 +82,7 @@ def _make_response_router(
 
     return ResponseRouter(
         storage=storage,
+        repository=SessionRepository(backend=storage),
         pending_registry=PendingRequestRegistry(),
         client_rpc_service=client_rpc_service,
     )
@@ -294,7 +304,12 @@ class TestHandleClientResponse:
         )
 
         assert result == ProtocolOutcome()
-        assert "rpc_1" not in session.cancelled_client_rpc_requests
+        # Tombstone снят в ХРАНИЛИЩЕ: доменный порт пересобирает агрегат, поэтому
+        # мутация не просачивается в локальный объект через алиасинг InMemoryStorage
+        # (с JsonFileStorage её не было и раньше). Write-фаза D4-d1, ADR-006.
+        persisted = await storage.load_session(session.session_id)
+        assert persisted is not None
+        assert "rpc_1" not in persisted.cancelled_client_rpc_requests
 
     async def test_consumes_cancelled_permission_response(self) -> None:
         """Поглощается late response на отменённый permission request."""
@@ -309,7 +324,9 @@ class TestHandleClientResponse:
         )
 
         assert result == ProtocolOutcome()
-        assert "perm_1" not in session.cancelled_permission_requests
+        persisted = await storage.load_session(session.session_id)
+        assert persisted is not None
+        assert "perm_1" not in persisted.cancelled_permission_requests
 
     async def test_returns_empty_when_permission_resolution_none(self) -> None:
         """Если _resolve_permission_response вернул None — пустой outcome."""
@@ -616,7 +633,7 @@ class TestHandlePermissionResponseMethod:
 
     async def test_returns_error_when_id_is_none(self) -> None:
         """Notification без id отклоняется ошибкой."""
-        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
+        handler = _permission_response_handler()
         message = ACPMessage.notification(
             "session/request_permission_response",
             {"sessionId": "sess_1"},
@@ -630,7 +647,7 @@ class TestHandlePermissionResponseMethod:
 
     async def test_delegates_to_handle_permission_response(self) -> None:
         """Request с id делегируется _handle_permission_response."""
-        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
+        handler = _permission_response_handler()
         expected = ProtocolOutcome(response=ACPMessage.response("perm_1", {}))
 
         with patch.object(
@@ -743,7 +760,7 @@ class TestHandlePermissionResponse:
 
     async def test_returns_error_for_unknown_request(self) -> None:
         """Ошибка для неизвестного permission request."""
-        handler = PermissionResponseCommandHandler(storage=InMemoryStorage())
+        handler = _permission_response_handler()
 
         outcome = await handler._handle_permission_response(
             "perm_unknown",
@@ -760,7 +777,9 @@ class TestHandlePermissionResponse:
         session = SessionFactory.create_session(cwd="/tmp")
         session.cancelled_permission_requests.add("perm_1")
         await storage.save_session(session)
-        handler = PermissionResponseCommandHandler(storage=storage)
+        handler = PermissionResponseCommandHandler(
+            storage=storage, repository=SessionRepository(backend=storage)
+        )
 
         outcome = await handler._handle_permission_response(
             "perm_1",
@@ -769,7 +788,9 @@ class TestHandlePermissionResponse:
 
         assert outcome.response is not None
         assert outcome.response.result == {}
-        assert "perm_1" not in session.cancelled_permission_requests
+        persisted = await storage.load_session(session.session_id)
+        assert persisted is not None
+        assert "perm_1" not in persisted.cancelled_permission_requests
 
     async def test_returns_error_for_invalid_format(self) -> None:
         """Ошибка, если response не содержит outcome/optionId."""
@@ -782,7 +803,9 @@ class TestHandlePermissionResponse:
             permission_tool_call_id="call_1",
         )
         await storage.save_session(session)
-        handler = PermissionResponseCommandHandler(storage=storage)
+        handler = PermissionResponseCommandHandler(
+            storage=storage, repository=SessionRepository(backend=storage)
+        )
 
         outcome = await handler._handle_permission_response(
             "perm_1",
@@ -803,7 +826,9 @@ class TestHandlePermissionResponse:
             permission_request_id="perm_1",
         )
         await storage.save_session(session)
-        handler = PermissionResponseCommandHandler(storage=storage)
+        handler = PermissionResponseCommandHandler(
+            storage=storage, repository=SessionRepository(backend=storage)
+        )
 
         outcome = await handler._handle_permission_response(
             "perm_1",
@@ -834,7 +859,9 @@ class TestHandlePermissionResponse:
             status="pending",
         )
         await storage.save_session(session)
-        handler = PermissionResponseCommandHandler(storage=storage)
+        handler = PermissionResponseCommandHandler(
+            storage=storage, repository=SessionRepository(backend=storage)
+        )
 
         outcome = await handler._handle_permission_response(
             "perm_1",

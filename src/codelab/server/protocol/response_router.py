@@ -18,7 +18,7 @@ from .state import ProtocolOutcome
 
 if TYPE_CHECKING:
     from ..client_rpc.service import ClientRPCService
-    from ..storage import SessionStorage
+    from ..storage import SessionRepository, SessionStorage
     from .pending_registry import PendingRequestRegistry
 
 logger = structlog.get_logger()
@@ -41,17 +41,20 @@ class ResponseRouter:
     def __init__(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         pending_registry: PendingRequestRegistry,
         client_rpc_service: ClientRPCService | None = None,
     ) -> None:
         """Инициализирует ResponseRouter.
 
         Args:
-            storage: Хранилище сессий.
+            storage: Хранилище сессий (wire; пути, ещё не переехавшие на домен).
+            repository: Доменный порт хранилища (write-фаза D4-d1, ADR-006).
             pending_registry: Реестр pending permission requests.
             client_rpc_service: Сервис для agent->client RPC (опционально).
         """
         self._storage = storage
+        self._repository = repository
         self._pending_registry = pending_registry
         self._client_rpc_service = client_rpc_service
 
@@ -105,7 +108,7 @@ class ResponseRouter:
             return ProtocolOutcome()
 
         # Пробуем обработать как cancelled client RPC response
-        if await permissions.consume_cancelled_client_rpc_response(message.id, self._storage):
+        if await permissions.consume_cancelled_client_rpc_response(message.id, self._repository):
             logger.debug(
                 "handle_client_response: consumed cancelled client RPC response",
                 request_id=message.id,
@@ -113,7 +116,7 @@ class ResponseRouter:
             return ProtocolOutcome()
 
         # Пробуем обработать как cancelled permission response
-        if await permissions.consume_cancelled_permission_response(message.id, self._storage):
+        if await permissions.consume_cancelled_permission_response(message.id, self._repository):
             logger.debug(
                 "handle_client_response: consumed cancelled permission response",
                 request_id=message.id,

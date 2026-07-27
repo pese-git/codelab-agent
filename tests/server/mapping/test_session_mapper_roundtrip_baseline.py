@@ -119,6 +119,17 @@ class TestRoundtripLossless:
         assert rt.permissions.policy == {"fs/read": "allow"}
         assert rt.permissions.cancelled_requests == {"r1"}
 
+    def test_numeric_request_ids_keep_type(self) -> None:
+        """JSON-RPC id может быть числом — тип не коэрцится в str (D4-d1, ADR-006).
+
+        Коэрция ломала корреляцию tombstone'ов: поиск по int 7 не находил "7".
+        """
+        session = _rich_session()
+        session.permissions = PermissionState(policy={}, cancelled_requests={7, "r1"})
+        rt = _roundtrip(session)
+        assert rt.permissions.cancelled_requests == {7, "r1"}
+        assert rt.permissions.is_cancelled(7) is True
+
     def test_multi_agent_preserved(self) -> None:
         session = _rich_session()
         session.multi_agent = MultiAgentState(

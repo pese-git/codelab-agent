@@ -330,7 +330,7 @@ class PromptOrchestrator:
             session.cancel_permission_request(session.active_turn.permission_request_id)
 
         if session.active_turn.pending_client_request is not None:
-            session.cancelled_client_rpc_requests.add(
+            session.cancel_client_rpc_request(
                 session.active_turn.pending_client_request.request_id
             )
 

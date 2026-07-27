@@ -44,9 +44,11 @@ class _Assembler:
     _supported_protocol_versions = (1,)
 
     def __init__(self, **kw: Any) -> None:
-        from codelab.server.storage import InMemoryStorage
+        from codelab.server.storage import InMemoryStorage, SessionRepository
 
         self._storage = kw.get("storage") or InMemoryStorage()
+        # Доменный порт над тем же backend — как в DI (write-фаза D4-d1, ADR-006).
+        self._repository = SessionRepository(backend=self._storage)
         self._pending_registry = kw.get("pending_registry") or PendingRequestRegistry()
         self._runtime_registry = kw.get("runtime_registry") or SessionRuntimeRegistry()
         self._require_auth = kw.get("require_auth", False)
@@ -452,6 +454,7 @@ def build_protocol(
     method_registry = _build_method_registry(st)
     response_router = ResponseRouter(
         storage=st._storage,
+        repository=st._repository,
         pending_registry=st._pending_registry,
         client_rpc_service=st._client_rpc_service,
     )

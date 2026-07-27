@@ -10,7 +10,7 @@ from typing import Any
 import structlog
 
 from ...messages import ACPMessage, JsonRpcId
-from ...storage import SessionStorage
+from ...storage import SessionRepository, SessionStorage
 from ..handlers import permissions
 from ..handlers.permission_manager import PermissionManager
 from ..state import ProtocolOutcome
@@ -35,13 +35,16 @@ class PermissionResponseCommandHandler:
     def __init__(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
     ) -> None:
         """Инициализирует обработчик.
 
         Args:
-            storage: Хранилище сессий.
+            storage: Хранилище сессий (wire; пути, ещё не переехавшие на домен).
+            repository: Доменный порт хранилища (write-фаза D4-d1, ADR-006).
         """
         self._storage = storage
+        self._repository = repository
 
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает ответ на permission request.
@@ -76,16 +79,16 @@ class PermissionResponseCommandHandler:
         if session is None:
             # Проверить, был ли request отменен (late response handling)
             cancelled_session = await permissions.find_session_with_cancelled_permission(
-                request_id, self._storage
+                request_id, self._repository
             )
             if cancelled_session is not None:
                 logger.debug(
                     "ignoring_late_response_on_cancelled_permission_request",
                     request_id=request_id,
-                    session_id=cancelled_session.session_id,
+                    session_id=str(cancelled_session.id),
                 )
                 cancelled_session.uncancel_permission_request(request_id)
-                await self._storage.save_session(cancelled_session)
+                await self._repository.save_session(cancelled_session)
                 return ProtocolOutcome(response=ACPMessage.response(request_id, {}))
 
             logger.warning(

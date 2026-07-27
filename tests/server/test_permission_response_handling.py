@@ -288,8 +288,13 @@ class TestPermissionResponseRouting:
         assert outcome is not None
         assert isinstance(outcome, ProtocolOutcome)
 
-        # Tombstone должен быть очищен
-        assert "perm_req_1" not in test_session.cancelled_permission_requests
+        # Tombstone должен быть очищен — проверяем в ХРАНИЛИЩЕ, а не в локальном
+        # объекте: доменный порт пересобирает агрегат, поэтому мутация не «просачивается»
+        # в объект вызывающего через алиасинг InMemoryStorage (с JsonFileStorage её не было
+        # и раньше — list_sessions отдаёт свежие объекты). Write-фаза D4-d1, ADR-006.
+        persisted = await protocol._storage.load_session("test_session")
+        assert persisted is not None
+        assert "perm_req_1" not in persisted.cancelled_permission_requests
 
 
 class TestPermissionResponseIntegration:

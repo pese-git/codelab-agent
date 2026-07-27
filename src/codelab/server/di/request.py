@@ -39,7 +39,7 @@ from ..protocol.response_router import ResponseRouter
 from ..protocol.session_runtime import SessionRuntimeRegistry
 from ..protocol.state import ClientRuntimeCapabilities, SessionState
 from ..rpc_holder import ClientRPCServiceHolder
-from ..storage import SessionStorage
+from ..storage import SessionRepository, SessionStorage
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
 
 
@@ -82,12 +82,14 @@ class RequestProvider(Provider):
     def get_response_router(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         pending_registry: PendingRequestRegistry,
         holder: ClientRPCServiceHolder,
     ) -> ResponseRouter:
         """Создаёт ResponseRouter для текущего соединения."""
         return ResponseRouter(
             storage=storage,
+            repository=repository,
             pending_registry=pending_registry,
             client_rpc_service=holder.service,
         )
@@ -96,6 +98,7 @@ class RequestProvider(Provider):
     def get_method_command_registry(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         config_spec_builder: ConfigSpecBuilder,
         mcp_session_manager: MCPSessionManager,
         prompt_orchestrator: PromptOrchestrator,
@@ -210,6 +213,7 @@ class RequestProvider(Provider):
         registry.register(
             PermissionResponseCommandHandler(
                 storage=storage,
+                repository=repository,
             )
         )
         registry.register(
