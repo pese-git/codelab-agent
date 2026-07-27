@@ -6,14 +6,10 @@ permission policy, построения permission messages и обработк�
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from ...messages import ACPMessage, JsonRpcId
-from ..state import SessionState, ToolCallState
-from .tool_policy import decide_tool_policy
-
-# Тип возвращаемого значения для decision
-PermissionDecision = Literal["allow", "reject", "ask"]
+from ...messages import ACPMessage
+from ..state import SessionState
 
 
 class PermissionManager:
@@ -47,31 +43,6 @@ class PermissionManager:
             "kind": "reject_always",
         },
     ]
-
-    def decide(
-        self,
-        session: SessionState,
-        tool_kind: str,
-    ) -> PermissionDecision:
-        """Определяет действие для tool call с учётом mode.
-
-        Делегирует единой логике в ToolPolicyDecider.
-
-        Цепочка решений:
-        1. mode == "plan" → reject для write/execute инструментов
-        2. mode == "bypass" → allow все инструменты
-        3. mode == "standard" → session policy → global policy → ask
-
-        Args:
-            session: Состояние сессии
-            tool_kind: Категория инструмента
-
-        Returns:
-            "allow" — выполнить автоматически
-            "reject" — отклонить
-            "ask" — запросить разрешение у пользователя
-        """
-        return decide_tool_policy(session, tool_kind)
 
     def _resolve_policy(self, session: SessionState, tool_kind: str) -> str:
         """Разрешает политику для данного tool kind в единой точке.
@@ -327,82 +298,3 @@ class PermissionManager:
         # В текущей реализации это может быть пусто, но интерфейс предусмотрен
 
         return notifications
-
-    def find_session_by_permission_request_id(
-        self,
-        permission_request_id: JsonRpcId,
-        sessions: dict[str, SessionState],
-    ) -> SessionState | None:
-        """Ищет сессию с активным turn, ожидающим ответ на permission request.
-
-        Используется для корреляции входящего response с ожидаемым permission request.
-
-        Args:
-            permission_request_id: ID permission request для поиска
-            sessions: Словарь всех сессий
-
-        Returns:
-            SessionState если найдена, иначе None
-        """
-        for session in sessions.values():
-            active_turn = session.active_turn
-            if active_turn is None:
-                continue
-            if active_turn.permission_request_id == permission_request_id:
-                return session
-
-        return None
-
-    def request_tool_permission(
-        self,
-        session: SessionState,
-        tool_call: ToolCallState,
-        tool_kind: str,
-        session_id: str,
-    ) -> JsonRpcId:
-        """Запросить разрешение для выполнения tool call.
-
-        Создает session/request_permission request с информацией о tool call.
-        Сохраняет correlation IDs в active turn для последующей обработки response.
-
-        Логика:
-        1. Генерировать уникальный permission_request_id
-        2. Создать ACPMessage для session/request_permission с:
-           - toolCallId
-           - tool name и arguments
-           - options (allow_once, allow_always, reject_once, reject_always)
-        3. Вернуть permission_request_id для отслеживания
-
-        Args:
-            session: Состояние сессии
-            tool_call: Состояние tool call с информацией
-            tool_kind: Категория tool (execute, read, write и т.д.)
-            session_id: ID сессии для notification
-
-        Returns:
-            permission_request_id для отслеживания
-        """
-        # Генерируем уникальный ID для permission request
-        from uuid import uuid4
-
-        permission_request_id = str(uuid4())
-
-        # Извлекаем информацию из tool_call
-        tool_call_id = tool_call.tool_call_id
-        tool_title = tool_call.title
-
-        # Строим permission request message через build_permission_request
-        # (сохраняет ID в active_turn автоматически)
-        permission_msg = self.build_permission_request(
-            session,
-            session_id,
-            tool_call_id,
-            tool_title,
-            tool_kind,
-        )
-
-        # Используем ID из созданного сообщения (оно уже сгенерировано в build_permission_request)
-        if permission_msg.id is not None:
-            permission_request_id = permission_msg.id
-
-        return permission_request_id

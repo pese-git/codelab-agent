@@ -14,7 +14,6 @@ from codelab.server.protocol.handlers.prompt import (
     build_plan_entries,
     build_policy_tool_execution_updates,
     build_terminal_client_request,
-    cancel_active_tool_calls,
     complete_active_turn,
     create_tool_call,
     extract_prompt_directives,
@@ -603,31 +602,6 @@ class TestUpdateToolCallStatus:
         update_tool_call_status(session, "nonexistent", "in_progress")
 
         assert "nonexistent" not in session.tool_calls
-
-
-class TestCancelActiveToolCalls:
-    """Тесты cancel_active_tool_calls."""
-
-    def test_cancels_pending_and_in_progress(self) -> None:
-        """Отменяет pending и in_progress tool calls."""
-        session = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-        )
-        create_tool_call(session, title="One", kind="other")
-        create_tool_call(session, title="Two", kind="other")
-        create_tool_call(session, title="Three", kind="other")
-        update_tool_call_status(session, "call_002", "in_progress")
-        update_tool_call_status(session, "call_003", "in_progress")
-        update_tool_call_status(session, "call_003", "completed")
-
-        notifications = cancel_active_tool_calls(session, "sess_1")
-
-        assert len(notifications) == 2
-        assert session.tool_calls["call_001"].status == "cancelled"
-        assert session.tool_calls["call_002"].status == "cancelled"
-        assert session.tool_calls["call_003"].status == "completed"
 
 
 class TestFindSessionByPendingClientRequestId:

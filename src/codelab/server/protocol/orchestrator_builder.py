@@ -23,7 +23,7 @@ class PromptOrchestratorBuilder:
 
     Инкапсулирует сложную сборку с 12+ компонентами:
     - StateManager, PlanBuilder, TurnLifecycleManager
-    - ToolCallHandler, PermissionManager, ClientRPCHandler
+    - ToolCallHandler, PermissionManager
     - SystemPromptBuilder, LLMLoopStage
     - SlashCommandRouter, CommandRegistry
     - PromptPipeline
@@ -77,7 +77,6 @@ class PromptOrchestratorBuilder:
             Полностью сконфигурированный PromptOrchestrator.
         """
         # Локальные импорты для избежания circular imports
-        from .handlers.client_rpc_handler import ClientRPCHandler
         from .handlers.permission_manager import PermissionManager
         from .handlers.pipeline import (
             PlanBuildingStage,
@@ -99,12 +98,11 @@ class PromptOrchestratorBuilder:
         turn_lifecycle_manager = TurnLifecycleManager()
         tool_call_handler = ToolCallHandler()
         permission_manager = PermissionManager()
-        client_rpc_handler = ClientRPCHandler()
 
         # Собираем pipeline — используем готовый LLMLoopStage из DI
         pipeline = PromptPipeline(
             stages=[
-                ValidationStage(state_manager),
+                ValidationStage(),
                 SlashCommandStage(self._slash_router),
                 PlanBuildingStage(plan_builder),
                 TurnLifecycleStage(turn_lifecycle_manager, action="open"),
@@ -121,7 +119,6 @@ class PromptOrchestratorBuilder:
             turn_lifecycle_manager=turn_lifecycle_manager,
             tool_call_handler=tool_call_handler,
             permission_manager=permission_manager,
-            client_rpc_handler=client_rpc_handler,
             tool_registry=self._tool_registry,
             llm_loop_stage=self._llm_loop_stage,
             client_rpc_service=self._client_rpc_service,

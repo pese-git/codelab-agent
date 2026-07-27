@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline import (
@@ -45,7 +44,6 @@ def make_orchestrator(
     turn_lifecycle_manager = TurnLifecycleManager()
     tool_call_handler = ToolCallHandler()
     permission_manager = PermissionManager()
-    client_rpc_handler = ClientRPCHandler()
 
     llm_loop_stage = LLMLoopStage(
         tool_registry=tool_registry,
@@ -65,7 +63,7 @@ def make_orchestrator(
 
     pipeline = PromptPipeline(
         stages=[
-            ValidationStage(state_manager),
+            ValidationStage(),
             SlashCommandStage(slash_router),
             PlanBuildingStage(plan_builder),
             TurnLifecycleStage(turn_lifecycle_manager, action="open"),
@@ -81,7 +79,6 @@ def make_orchestrator(
         turn_lifecycle_manager=turn_lifecycle_manager,
         tool_call_handler=tool_call_handler,
         permission_manager=permission_manager,
-        client_rpc_handler=client_rpc_handler,
         tool_registry=tool_registry,
         llm_loop_stage=llm_loop_stage,
         client_rpc_service=client_rpc_service,

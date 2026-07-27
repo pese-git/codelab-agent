@@ -291,6 +291,29 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         assert len(plan_notifications) == 1
 
     @pytest.mark.asyncio
+    async def test_stored_plan_matches_wire_notification(
+        self, stage: DirectivesStage, session: SessionState
+    ) -> None:
+        """P2-26: latest_plan байт-идентичен entries в live-notification.
+
+        Гарантирует, что replay на session/load отдаст ту же ACP-форму, что ушла
+        клиенту вживую (никаких {title, description} в хранении).
+        """
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        context = _make_context(session, "/plan entry1, entry2")
+
+        result = await stage.process(context)
+
+        plan_notifications = [
+            n
+            for n in result.notifications
+            if n.params and n.params.get("update", {}).get("sessionUpdate") == "plan"
+        ]
+        assert len(plan_notifications) == 1
+        wire_entries = plan_notifications[0].params["update"]["entries"]
+        assert session.latest_plan == wire_entries
+
+    @pytest.mark.asyncio
     async def test_meta_overrides_slash_forced_stop_reason(
         self, stage: DirectivesStage, session: SessionState
     ) -> None:

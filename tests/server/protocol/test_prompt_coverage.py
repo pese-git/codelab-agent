@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from codelab.server.protocol.handlers.prompt import (
-    can_run_tool_runtime,
     can_use_fs_client_rpc,
     can_use_terminal_client_rpc,
     extract_prompt_directives,
@@ -328,28 +327,6 @@ class TestRuntimeCapabilityChecks:
             mcp_servers=[],
             runtime_capabilities=caps,
         )
-
-    def test_can_run_tool_runtime_no_caps(self) -> None:
-        """Отсутствие capabilities запрещает tool-runtime ветки."""
-        session = self._make_session(None)
-
-        assert can_run_tool_runtime(session) is False
-
-    def test_can_run_tool_runtime_various_combinations(self) -> None:
-        """tool-runtime доступен при любой из fs_read/fs_write/terminal."""
-        assert (
-            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(fs_read=True)))
-            is True
-        )
-        assert (
-            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(fs_write=True)))
-            is True
-        )
-        assert (
-            can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities(terminal=True)))
-            is True
-        )
-        assert can_run_tool_runtime(self._make_session(ClientRuntimeCapabilities())) is False
 
     def test_can_use_fs_client_rpc_no_caps(self) -> None:
         """Отсутствие capabilities запрещает fs client RPC."""

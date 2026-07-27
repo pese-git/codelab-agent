@@ -29,22 +29,6 @@ def normalize_session_path(cwd: str, candidate: str) -> str | None:
     return str(Path(cwd) / candidate_path)
 
 
-def can_run_tool_runtime(session: SessionState) -> bool:
-    """Проверяет, можно ли запускать tool-runtime ветки в текущем соединении.
-
-    Пример использования:
-        if can_run_tool_runtime(session):
-            ...
-    """
-
-    caps = session.runtime_capabilities
-    if caps is None:
-        # До успешного initialize runtime-возможности не согласованы,
-        # поэтому tool-runtime ветки должны оставаться выключенными.
-        return False
-    return caps.terminal or caps.fs_read or caps.fs_write
-
-
 def can_use_fs_client_rpc(session: SessionState, kind: str) -> bool:
     """Проверяет доступность fs/* client RPC для указанной операции.
 

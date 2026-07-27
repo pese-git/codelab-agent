@@ -11,7 +11,6 @@ from dishka import Provider, Scope, provide
 from ..agent.core.strategies.dispatcher import StrategyDispatcher
 from ..config import AppConfig
 from ..observability import MetricsTracker, Tracer
-from ..protocol.handlers.client_rpc_handler import ClientRPCHandler
 from ..protocol.handlers.global_policy_manager import GlobalPolicyManager
 from ..protocol.handlers.permission_manager import PermissionManager
 from ..protocol.handlers.plan_builder import PlanBuilder
@@ -56,11 +55,6 @@ class ManagersProvider(Provider):
     def get_permission_manager(self) -> PermissionManager:
         """Менеджер разрешений."""
         return PermissionManager()
-
-    @provide(scope=Scope.APP)
-    def get_client_rpc_handler(self) -> ClientRPCHandler:
-        """Обработчик agent→client RPC."""
-        return ClientRPCHandler()
 
 
 class SlashCommandsProvider(Provider):

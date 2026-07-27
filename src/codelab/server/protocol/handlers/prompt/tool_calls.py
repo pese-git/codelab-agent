@@ -221,35 +221,6 @@ def build_plan_entries(
     ]
 
 
-def cancel_active_tool_calls(session: SessionState, session_id: str) -> list[ACPMessage]:
-    """Отменяет все незавершенные tool calls и формирует update-события.
-
-    Пример использования:
-        updates = cancel_active_tool_calls(state, "sess_1")
-    """
-
-    # Финальные статусы не трогаем, отменяем только активные вызовы.
-    notifications: list[ACPMessage] = []
-    for tool_call in session.tool_calls.values():
-        if tool_call.status not in {"pending", "in_progress"}:
-            continue
-        update_tool_call_status(session, tool_call.tool_call_id, "cancelled")
-        notifications.append(
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": tool_call.tool_call_id,
-                        "status": "cancelled",
-                    },
-                },
-            )
-        )
-    return notifications
-
-
 def finalize_active_turn(session: SessionState, *, stop_reason: str) -> ACPMessage | None:
     """Финализирует текущий active turn и очищает его состояние.
 

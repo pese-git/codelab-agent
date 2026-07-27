@@ -249,8 +249,7 @@ class TestValidationStage:
 
     @pytest.mark.asyncio
     async def test_validation_passes_for_valid_context(self):
-        state_manager = MagicMock()
-        stage = ValidationStage(state_manager)
+        stage = ValidationStage()
 
         session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
         context = PromptContext(
@@ -268,8 +267,7 @@ class TestValidationStage:
 
     @pytest.mark.asyncio
     async def test_validation_stops_on_active_turn(self):
-        state_manager = MagicMock()
-        stage = ValidationStage(state_manager)
+        stage = ValidationStage()
 
         session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
         session.active_turn = ActiveTurnState(
@@ -294,8 +292,7 @@ class TestValidationStage:
 
     @pytest.mark.asyncio
     async def test_validation_stops_on_empty_prompt(self):
-        state_manager = MagicMock()
-        stage = ValidationStage(state_manager)
+        stage = ValidationStage()
 
         session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
         context = PromptContext(

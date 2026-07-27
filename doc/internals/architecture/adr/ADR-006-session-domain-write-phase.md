@@ -563,3 +563,70 @@ ACP-нотификации); ACP-рендер из `prompt/tool_calls.py`; `sess
   (возможно только после C) → **prompt-turn + resume** (атомарно, самый крупный).
 
 D невозможна без B; независимость внутри D — без C.
+
+### Фаза A выполнена — мёртвый код удалён (2026-07-27)
+
+Удалено по находке 4: `ClientRPCHandler` целиком (модуль, DI-провайдер, проводка в
+`orchestrator_builder`, параметр конструктора `PromptOrchestrator`),
+`PromptOrchestrator.handle_pending_client_rpc_response` и `handle_permission_response`,
+`PermissionManager.decide`/`find_session_by_permission_request_id`/
+`request_tool_permission`, `PlanBuilder.update_session_plan`/`build_plan_updates`,
+`ToolCallHandler.can_run_tools`/`build_executor_execution_updates`/
+`build_policy_execution_updates`, 5 сеттеров `ReplayManager`
+(`save_user_message_chunk`, `save_session_info`, `save_config_option_update`,
+`save_current_mode_update`, `save_available_commands_update`),
+`prompt/tool_calls.cancel_active_tool_calls`,
+`prompt/client_requests.can_run_tool_runtime`, `ValidationStage._state_manager`
+вместе с параметром конструктора. Итог: −2744 строки.
+
+**Уточнения к аудиту, найденные при удалении:**
+- мёртв *метод* `PermissionManager.find_session_by_permission_request_id`;
+  одноимённая модульная функция в `handlers/permissions.py` — живая
+  (`response_router:191`, `commands/permission_response.py:77`);
+- `PermissionDecision` в `permission_manager.py` — дубль алиаса из `tool_policy.py`,
+  после снятия `decide` не используется, удалён;
+- каскад в `PlanBuilder`: `build_plan_updates` был единственным вызывающим
+  `should_publish_plan` и `extract_plan_from_directives`, поэтому сняты все четыре.
+  Живая поверхность класса — `validate_plan_entries` и `build_plan_notification`.
+
+**Гарантия P2-26 перенесена на живой путь.** Тест
+`test_stored_plan_matches_wire_notification` проверял тождество `latest_plan` и
+wire-entries через удалённый `update_session_plan` — то есть через метод, которого в
+проде не было. Перенесён на `DirectivesStage`
+(`tests/server/pipeline/test_directives_stage.py`), где `latest_plan` пишется на самом
+деле (`directives.py:118`). Покрытие не ослаблено, а привязано к реальному писателю.
+
+Тесты живого `ReplayManager.replay_history` сеяли историю удалёнными сеттерами;
+переведены на локальные хелперы, пишущие `events_history` в той же форме, что
+прод-путь (`StateManager.add_event` из `PromptOrchestrator`).
+
+Внешние контракты не затронуты: ACP wire, CLI, форматы сессий без изменений.
+Изменены внутренние сигнатуры `PromptOrchestrator.__init__` (убран
+`client_rpc_handler`) и `ValidationStage.__init__` (убран `state_manager`).
+
+`make check` зелёный: ruff, ty, import-linter (4 контракта), 7316 passed.
+
+Не тронуто намеренно: `PlanBuilder.normalize_plan_entries` (вызывающих в `src` нет, но
+это не пункт находки 4 — дубль модульной функции из `prompt/normalization.py`, решать
+при расщеплении фасадов в фазе C) и мёртвый параметр `storage` в
+`PromptOrchestrator.handle_prompt` (смена живой сигнатуры, место — фаза D).
+
+**Живая валидация фазы A.** Пострефакторный сервер (pid 49779) отработал prompt-turn,
+permission-цикл (26 запросов, 24 `resume_after_permission`), `session/cancel`,
+`session/new` и `session/load` крупной сессии — 278 КБ, 102 события `events_history`,
+46 tool call'ов, `latest_plan` из 8 пунктов. Это покрывает живые аналоги удалённого:
+`ToolCallHandler.cancel_active_tools`, `PermissionManager.build_permission_acceptance_updates`,
+`ReplayManager.replay_history`/`replay_latest_plan`, `_cleanup_session_state`,
+`ValidationStage` без параметра. Ноль warning'ов и ошибок на этих путях; единственная
+ошибка в прогоне — `terminal_alias_not_found` (модель выдумала алиас терминала,
+registry отказал корректно), к затронутому коду отношения не имеет.
+
+**Пробел наблюдаемости, блокирующий фазу D.** Успешный `session/load` не логирует
+ничего: на всём пути единственный лог — `warning` про orphaned permission request
+(`commands/session_load.py:94`). Факт загрузки восстанавливается только косвенно, по
+`subscribed_to_notification_bus` из `stdio_runner._update_stdio_subscription`.
+Клиентский `session_history_loaded` в файл не попадает — TUI-процесс файловое
+логирование не настраивает. Перед переключением `session/load` на `SessionRepository`
+нужен `logger.info` в `handlers/session.session_load` (session_id, число реплеенных
+нотификаций, наличие plan-нотификации), иначе поведенческую нейтральность switch'а
+нечем подтвердить.

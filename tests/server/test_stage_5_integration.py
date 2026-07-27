@@ -273,7 +273,6 @@ class TestCreatePromptOrchestratorStage5:
         assert orchestrator.turn_lifecycle_manager is not None
         assert orchestrator.tool_call_handler is not None
         assert orchestrator.permission_manager is not None
-        assert orchestrator.client_rpc_handler is not None
 
     def test_orchestrator_instances_are_independent(self) -> None:
         """Каждый вызов make_orchestrator() создает независимый экземпляр."""

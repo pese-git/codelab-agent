@@ -73,40 +73,6 @@ class TestPlanBuilderNormalizePlanEntries:
         assert plan_builder.normalize_plan_entries([]) is None
 
 
-class TestPlanBuilderBuildPlanUpdatesEdgeCases:
-    """Тесты для граничных случаев build_plan_updates."""
-
-    def test_build_updates_no_valid_entries_logs_and_returns_empty(
-        self,
-        plan_builder: PlanBuilder,
-        session: SessionState,
-        directives: PromptDirectives,
-    ) -> None:
-        """Возвращает пустой список если entries не прошли валидацию."""
-        directives.publish_plan = True
-        directives.plan_entries = [{}]
-
-        with patch("codelab.server.protocol.handlers.plan_builder.logger") as mock_logger:
-            updates = plan_builder.build_plan_updates(session, "sess_1", directives)
-
-        assert updates == []
-        mock_logger.debug.assert_any_call("plan updates: no valid plan entries")
-
-    def test_build_updates_with_non_dict_entry_returns_empty(
-        self,
-        plan_builder: PlanBuilder,
-        session: SessionState,
-        directives: PromptDirectives,
-    ) -> None:
-        """Возвращает пустой список если ни один entry не валиден."""
-        directives.publish_plan = True
-        directives.plan_entries = ["invalid entry"]
-
-        updates = plan_builder.build_plan_updates(session, "sess_1", directives)
-
-        assert updates == []
-
-
 class TestValidateEntryStructure:
     """Тесты для _validate_entry_structure."""
 

@@ -5,15 +5,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
 from ...messages import ACPMessage
-from ..state import PromptDirectives, SessionState
-
-if TYPE_CHECKING:
-    pass
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -28,20 +24,6 @@ class PlanBuilder:
     - Построение plan-related notifications
     - Нормализация plan entries
     """
-
-    def should_publish_plan(self, directives: PromptDirectives) -> bool:
-        """Нужно ли публиковать план в текущем turn.
-
-        Returns:
-            True если directives.publish_plan=True и есть план entries
-        """
-        if not directives.publish_plan:
-            return False
-
-        if directives.plan_entries is None:
-            return False
-
-        return bool(directives.plan_entries)
 
     def validate_plan_entries(
         self,
@@ -150,76 +132,6 @@ class PlanBuilder:
             plan_entries_count=len(plan_entries),
         )
         return notification
-
-    def extract_plan_from_directives(
-        self,
-        directives: PromptDirectives,
-    ) -> list[dict[str, str]] | None:
-        """Извлекает и валидирует план из PromptDirectives.
-
-        Returns:
-            Нормализованный план или None
-        """
-        if directives.plan_entries is None:
-            return None
-
-        return self.validate_plan_entries(directives.plan_entries)
-
-    def update_session_plan(
-        self,
-        session: SessionState,
-        plan_entries: list[dict[str, str]],
-    ) -> None:
-        """Обновляет latest_plan в сессии.
-
-        Args:
-            session: Состояние сессии
-            plan_entries: Нормализованные entries
-        """
-        # Храним план в ACP-форме {content, priority, status} — идентично тому, что
-        # уходит в live `session/update: plan`, чтобы replay на `session/load` отдавал
-        # тот же ACP-валидный формат (ACP 11-Agent Plan: content/priority/status —
-        # required; title/description в схеме нет). См. P2-26.
-        session.latest_plan = [
-            {
-                "content": entry.get("content", ""),
-                "priority": entry.get("priority", "medium"),
-                "status": entry.get("status", "pending"),
-            }
-            for entry in plan_entries
-        ]
-
-        logger.debug(
-            "session plan updated",
-            session_id=session.session_id,
-            plan_entries_count=len(session.latest_plan),
-        )
-
-    def build_plan_updates(
-        self,
-        session: SessionState,
-        session_id: str,
-        directives: PromptDirectives,
-    ) -> list[ACPMessage]:
-        """Строит все plan-related notifications.
-
-        Returns:
-            Список notifications если нужно публиковать план, иначе []
-        """
-        if not self.should_publish_plan(directives):
-            return []
-
-        plan_entries = self.extract_plan_from_directives(directives)
-        if plan_entries is None:
-            logger.debug("plan updates: no valid plan entries")
-            return []
-
-        # Обновляем план в сессии
-        self.update_session_plan(session, plan_entries)
-
-        # Строим notification
-        notification = self.build_plan_notification(session_id, plan_entries)
-        return [notification]
 
 
 def _validate_entry_structure(entry: Any) -> bool:

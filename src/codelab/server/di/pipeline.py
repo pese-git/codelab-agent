@@ -102,7 +102,7 @@ class PipelineProvider(Provider):
 
         return PromptPipeline(
             stages=[
-                ValidationStage(state_manager),
+                ValidationStage(),
                 SlashCommandStage(slash_router),
                 PlanBuildingStage(plan_builder),
                 TurnLifecycleStage(turn_lifecycle_manager, action="open"),

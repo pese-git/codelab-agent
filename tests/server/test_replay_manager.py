@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from codelab.server.protocol.handlers.replay_manager import ReplayManager
@@ -28,41 +30,33 @@ def replay_manager() -> ReplayManager:
     return ReplayManager()
 
 
-class TestSaveUserMessageChunk:
-    """Тесты для save_user_message_chunk."""
 
-    def test_saves_text_content(
-        self,
-        replay_manager: ReplayManager,
-        session: SessionState,
-    ) -> None:
-        """Проверяет сохранение текстового сообщения пользователя."""
-        content = {"type": "text", "text": "Hello, agent!"}
+def _seed_user_message_chunk(session: SessionState, content: dict[str, Any]) -> None:
+    """Пишет user_message_chunk в events_history так же, как прод-путь.
 
-        replay_manager.save_user_message_chunk(session, content)
+    Прод пишет это событие через `StateManager.add_event` из PromptOrchestrator,
+    а не через ReplayManager, поэтому тесты replay сеют историю напрямую.
+    """
+    session.events_history.append(
+        {
+            "type": "session_update",
+            "update": {"sessionUpdate": "user_message_chunk", "content": content},
+        }
+    )
 
-        assert len(session.events_history) == 1
-        event = session.events_history[0]
-        assert event["type"] == "session_update"
-        assert event["update"]["sessionUpdate"] == "user_message_chunk"
-        assert event["update"]["content"] == content
-        assert "timestamp" in event
 
-    def test_saves_multiple_chunks(
-        self,
-        replay_manager: ReplayManager,
-        session: SessionState,
-    ) -> None:
-        """Проверяет сохранение нескольких content chunks."""
-        chunks = [
-            {"type": "text", "text": "First message"},
-            {"type": "image", "data": "base64data", "mimeType": "image/png"},
-        ]
-
-        for chunk in chunks:
-            replay_manager.save_user_message_chunk(session, chunk)
-
-        assert len(session.events_history) == 2
+def _seed_session_info(session: SessionState, title: str, updated_at: str) -> None:
+    """Пишет session_info в events_history так же, как прод-путь."""
+    session.events_history.append(
+        {
+            "type": "session_update",
+            "update": {
+                "sessionUpdate": "session_info",
+                "title": title,
+                "updated_at": updated_at,
+            },
+        }
+    )
 
 
 class TestSaveAgentMessageChunk:
@@ -191,27 +185,6 @@ class TestSavePlan:
         assert event["update"]["entries"] == entries
 
 
-class TestSaveSessionInfo:
-    """Тесты для save_session_info."""
-
-    def test_saves_session_info(
-        self,
-        replay_manager: ReplayManager,
-        session: SessionState,
-    ) -> None:
-        """Проверяет сохранение информации о сессии."""
-        replay_manager.save_session_info(
-            session=session,
-            title="Test session",
-            updated_at="2024-01-01T00:00:00Z",
-        )
-
-        event = session.events_history[0]
-        assert event["update"]["sessionUpdate"] == "session_info"
-        assert event["update"]["title"] == "Test session"
-        assert event["update"]["updated_at"] == "2024-01-01T00:00:00Z"
-
-
 class TestReplayHistory:
     """Тесты для replay_history."""
 
@@ -232,7 +205,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay сообщений пользователя и агента."""
         # Сохраняем историю
-        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "User question"})
+        _seed_user_message_chunk(session, {"type": "text", "text": "User question"})
         replay_manager.save_agent_message_chunk(session, {"type": "text", "text": "Agent answer"})
 
         # Воспроизводим
@@ -291,7 +264,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay полной беседы с tool calls."""
         # Симулируем полную беседу
-        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
+        _seed_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
         replay_manager.save_tool_call(
             session=session,
             tool_call_id="call_001",
@@ -307,7 +280,7 @@ class TestReplayHistory:
         replay_manager.save_agent_message_chunk(
             session, {"type": "text", "text": "Here is the file content..."}
         )
-        replay_manager.save_session_info(
+        _seed_session_info(
             session, title="Read file.txt", updated_at="2024-01-01T00:00:00Z"
         )
 
@@ -341,7 +314,7 @@ class TestReplayHistory:
             }
         )
         # И валидное событие
-        replay_manager.save_user_message_chunk(session, {"type": "text", "text": "Hello"})
+        _seed_user_message_chunk(session, {"type": "text", "text": "Hello"})
 
         notifications = replay_manager.replay_history(session)
 
@@ -421,7 +394,7 @@ class TestIntegrationWithSessionLoad:
         """Проверяет полный сценарий replay для session/load."""
         # Симулируем историю сессии
         # Turn 1: Пользователь спрашивает, агент отвечает
-        replay_manager.save_user_message_chunk(
+        _seed_user_message_chunk(
             session, {"type": "text", "text": "What is in config.json?"}
         )
         replay_manager.save_tool_call(
@@ -447,7 +420,7 @@ class TestIntegrationWithSessionLoad:
         )
 
         # Turn 2: Пользователь просит изменить
-        replay_manager.save_user_message_chunk(
+        _seed_user_message_chunk(
             session, {"type": "text", "text": "Change key to newvalue"}
         )
         replay_manager.save_tool_call(
@@ -467,7 +440,7 @@ class TestIntegrationWithSessionLoad:
         )
 
         # Session info
-        replay_manager.save_session_info(
+        _seed_session_info(
             session, title="What is in config.json?", updated_at="2024-01-01T12:00:00Z"
         )
 

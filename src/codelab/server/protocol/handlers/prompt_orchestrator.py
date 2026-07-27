@@ -15,7 +15,6 @@ from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
-from .client_rpc_handler import ClientRPCHandler
 from .permission_manager import PermissionManager
 from .pipeline import (
     LLMLoopStage,
@@ -44,8 +43,6 @@ class PromptOrchestrator:
     Собирает все стадии в PromptPipeline и предоставляет методы:
     - handle_prompt: основная обработка prompt-turn
     - handle_cancel: отмена активного turn
-    - handle_permission_response: обработка ответа на permission request
-    - handle_pending_client_rpc_response: обработка ответа на client RPC
     - execute_pending_tool: выполнение tool после permission approval
     """
 
@@ -56,7 +53,6 @@ class PromptOrchestrator:
         turn_lifecycle_manager: TurnLifecycleManager,
         tool_call_handler: ToolCallHandler,
         permission_manager: PermissionManager,
-        client_rpc_handler: ClientRPCHandler,
         tool_registry: ToolRegistry,
         llm_loop_stage: LLMLoopStage,
         command_registry: CommandRegistry,
@@ -71,7 +67,6 @@ class PromptOrchestrator:
         self.turn_lifecycle_manager = turn_lifecycle_manager
         self.tool_call_handler = tool_call_handler
         self.permission_manager = permission_manager
-        self.client_rpc_handler = client_rpc_handler
         self.tool_registry = tool_registry
         self.global_policy_manager = global_policy_manager
         self._session_file_cache_registry = session_file_cache_registry
@@ -359,66 +354,6 @@ class PromptOrchestrator:
         logger.debug(
             "cancel request handled", session_id=session_id, notifications_count=len(notifications)
         )
-        return ProtocolOutcome(response=None, notifications=notifications)
-
-    def handle_pending_client_rpc_response(
-        self,
-        session: SessionState,
-        session_id: str,
-        kind: str,
-        result: Any,
-        error: dict[str, Any] | None,
-    ) -> ProtocolOutcome:
-        """Обрабатывает response на pending client RPC request."""
-        notifications: list[ACPMessage] = []
-        updates = self.client_rpc_handler.handle_pending_response(
-            session, session_id, kind, result, error
-        )
-        notifications.extend(updates)
-        logger.debug(
-            "client RPC response handled",
-            session_id=session_id,
-            kind=kind,
-            has_error=error is not None,
-        )
-        return ProtocolOutcome(response=None, notifications=notifications)
-
-    def handle_permission_response(
-        self,
-        session: SessionState,
-        session_id: str,
-        permission_request_id: JsonRpcId,
-        result: Any,
-    ) -> ProtocolOutcome:
-        """Обрабатывает response на permission request."""
-        notifications: list[ACPMessage] = []
-
-        if permission_request_id in session.cancelled_permission_requests:
-            logger.debug(
-                "ignoring response to cancelled permission request",
-                session_id=session_id,
-                request_id=permission_request_id,
-            )
-            return ProtocolOutcome(response=None, notifications=[])
-
-        outcome = self.permission_manager.extract_permission_outcome(result)
-        option_id = self.permission_manager.extract_permission_option_id(result)
-
-        if outcome != "selected" or option_id is None:
-            logger.warning("invalid permission response", session_id=session_id, outcome=outcome)
-            return ProtocolOutcome(response=None, notifications=[])
-
-        if session.active_turn is None or session.active_turn.permission_tool_call_id is None:
-            logger.warning("no permission tool call in active turn", session_id=session_id)
-            return ProtocolOutcome(response=None, notifications=[])
-
-        tool_call_id = session.active_turn.permission_tool_call_id
-        acceptance_updates = self.permission_manager.build_permission_acceptance_updates(
-            session, session_id, tool_call_id, option_id
-        )
-        notifications.extend(acceptance_updates)
-
-        logger.debug("permission response handled", session_id=session_id, option_id=option_id)
         return ProtocolOutcome(response=None, notifications=notifications)
 
     async def execute_pending_tool(

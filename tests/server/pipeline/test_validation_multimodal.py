@@ -1,7 +1,5 @@
 """Тесты ValidationStage с мультимодальным содержимым."""
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from codelab.server.llm.content_parts import ContentPart
@@ -29,8 +27,7 @@ class TestValidationStageMultimodal:
     """Тесты ValidationStage с multimodal содержимым."""
 
     def setup_method(self) -> None:
-        self.state_manager = MagicMock()
-        self.stage = ValidationStage(self.state_manager)
+        self.stage = ValidationStage()
 
     @pytest.mark.asyncio
     async def test_image_only_passes(self) -> None:

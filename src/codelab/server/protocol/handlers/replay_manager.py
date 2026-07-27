@@ -64,25 +64,6 @@ class ReplayManager:
         }
     )
 
-    def save_user_message_chunk(
-        self,
-        session: SessionState,
-        content: dict[str, Any],
-    ) -> None:
-        """Сохраняет user_message_chunk в events_history.
-
-        Args:
-            session: Состояние сессии
-            content: Content block (например, {"type": "text", "text": "..."})
-        """
-        self._save_update(
-            session,
-            {
-                "sessionUpdate": "user_message_chunk",
-                "content": content,
-            },
-        )
-
     def save_agent_message_chunk(
         self,
         session: SessionState,
@@ -174,85 +155,6 @@ class ReplayManager:
             {
                 "sessionUpdate": "plan",
                 "entries": entries,
-            },
-        )
-
-    def save_session_info(
-        self,
-        session: SessionState,
-        title: str | None,
-        updated_at: str | None,
-    ) -> None:
-        """Сохраняет session_info update в events_history.
-
-        Args:
-            session: Состояние сессии
-            title: Заголовок сессии
-            updated_at: Время последнего обновления
-        """
-        self._save_update(
-            session,
-            {
-                "sessionUpdate": "session_info",
-                "title": title,
-                "updated_at": updated_at,
-            },
-        )
-
-    def save_config_option_update(
-        self,
-        session: SessionState,
-        config_options: list[dict[str, Any]],
-    ) -> None:
-        """Сохраняет config_option_update в events_history.
-
-        Args:
-            session: Состояние сессии
-            config_options: Список опций конфигурации
-        """
-        self._save_update(
-            session,
-            {
-                "sessionUpdate": "config_option_update",
-                "configOptions": config_options,
-            },
-        )
-
-    def save_current_mode_update(
-        self,
-        session: SessionState,
-        mode_id: str,
-    ) -> None:
-        """Сохраняет current_mode_update в events_history.
-
-        Args:
-            session: Состояние сессии
-            mode_id: ID нового режима
-        """
-        self._save_update(
-            session,
-            {
-                "sessionUpdate": "current_mode_update",
-                "modeId": mode_id,
-            },
-        )
-
-    def save_available_commands_update(
-        self,
-        session: SessionState,
-        available_commands: list[dict[str, Any]],
-    ) -> None:
-        """Сохраняет available_commands_update в events_history.
-
-        Args:
-            session: Состояние сессии
-            available_commands: Список доступных команд
-        """
-        self._save_update(
-            session,
-            {
-                "sessionUpdate": "available_commands_update",
-                "availableCommands": available_commands,
             },
         )
 

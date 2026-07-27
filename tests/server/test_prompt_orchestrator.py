@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.llm.base import LLMToolCall
-from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline import (
     PlanBuildingStage,
@@ -66,12 +65,6 @@ def tool_call_handler() -> ToolCallHandler:
 def permission_manager() -> PermissionManager:
     """Создает PermissionManager."""
     return PermissionManager()
-
-
-@pytest.fixture
-def client_rpc_handler() -> ClientRPCHandler:
-    """Создает ClientRPCHandler."""
-    return ClientRPCHandler()
 
 
 @pytest.fixture
@@ -149,7 +142,7 @@ def pipeline(
     slash_router = SlashCommandRouter(command_registry)
     return PromptPipeline(
         stages=[
-            ValidationStage(state_manager),
+            ValidationStage(),
             SlashCommandStage(slash_router),
             PlanBuildingStage(plan_builder),
             TurnLifecycleStage(turn_lifecycle_manager, action="open"),
@@ -167,7 +160,6 @@ def orchestrator(
     turn_lifecycle_manager: TurnLifecycleManager,
     tool_call_handler: ToolCallHandler,
     permission_manager: PermissionManager,
-    client_rpc_handler: ClientRPCHandler,
     tool_registry: SimpleToolRegistry,
     llm_loop_stage: LLMLoopStage,
     command_registry: CommandRegistry,
@@ -180,7 +172,6 @@ def orchestrator(
         turn_lifecycle_manager=turn_lifecycle_manager,
         tool_call_handler=tool_call_handler,
         permission_manager=permission_manager,
-        client_rpc_handler=client_rpc_handler,
         tool_registry=tool_registry,
         llm_loop_stage=llm_loop_stage,
         client_rpc_service=None,
@@ -215,7 +206,6 @@ class TestPromptOrchestratorInitialization:
         assert orchestrator.turn_lifecycle_manager is not None
         assert orchestrator.tool_call_handler is not None
         assert orchestrator.permission_manager is not None
-        assert orchestrator.client_rpc_handler is not None
 
 
 class TestPromptOrchestratorHandlePrompt:
@@ -444,173 +434,6 @@ class TestPromptOrchestratorHandleCancel:
         assert session.active_turn is None
 
 
-class TestPromptOrchestratorHandleClientRpcResponse:
-    """Тесты handle_pending_client_rpc_response."""
-
-    def test_handle_client_rpc_response_fs_read(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает response на fs/read request."""
-        outcome = orchestrator.handle_pending_client_rpc_response(
-            session,
-            "sess_1",
-            "fs_read",
-            {"content": "file content"},
-            None,
-        )
-
-        # Должны быть notifications
-        assert outcome.notifications is not None
-
-    def test_handle_client_rpc_response_fs_write(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает response на fs/write request."""
-        outcome = orchestrator.handle_pending_client_rpc_response(
-            session,
-            "sess_1",
-            "fs_write",
-            {},
-            None,
-        )
-
-        # Должны быть notifications
-        assert outcome.notifications is not None
-
-    def test_handle_client_rpc_response_with_error(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает response с ошибкой."""
-        outcome = orchestrator.handle_pending_client_rpc_response(
-            session,
-            "sess_1",
-            "fs_read",
-            None,
-            {"code": -1, "message": "File not found"},
-        )
-
-        # Должны быть notifications
-        assert outcome.notifications is not None
-
-
-class TestPromptOrchestratorHandlePermissionResponse:
-    """Тесты handle_permission_response."""
-
-    def test_handle_permission_response_allow(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает allow decision."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            permission_request_id="perm_req_1",
-            permission_tool_call_id="call_001",
-        )
-
-        result = {
-            "outcome": "selected",
-            "optionId": "allow_once",
-        }
-
-        outcome = orchestrator.handle_permission_response(
-            session,
-            "sess_1",
-            "perm_req_1",
-            result,
-        )
-
-        # Должны быть notifications
-        assert outcome.notifications is not None
-
-    def test_handle_permission_response_reject(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает reject decision."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            permission_request_id="perm_req_1",
-            permission_tool_call_id="call_001",
-        )
-
-        result = {
-            "outcome": "selected",
-            "optionId": "reject_once",
-        }
-
-        outcome = orchestrator.handle_permission_response(
-            session,
-            "sess_1",
-            "perm_req_1",
-            result,
-        )
-
-        # Должны быть notifications
-        assert outcome.notifications is not None
-
-    def test_handle_permission_response_cancelled(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Игнорирует response на отменённый request."""
-        session.cancelled_permission_requests.add("perm_req_1")
-
-        result = {
-            "outcome": "selected",
-            "optionId": "allow_once",
-        }
-
-        outcome = orchestrator.handle_permission_response(
-            session,
-            "sess_1",
-            "perm_req_1",
-            result,
-        )
-
-        # Должно вернуть пустой результат
-        assert outcome.notifications == []
-
-    def test_handle_permission_response_invalid_format(
-        self,
-        orchestrator: PromptOrchestrator,
-        session: SessionState,
-    ) -> None:
-        """Обрабатывает невалидный формат response."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            permission_request_id="perm_req_1",
-            permission_tool_call_id="call_001",
-        )
-
-        outcome = orchestrator.handle_permission_response(
-            session,
-            "sess_1",
-            "perm_req_1",
-            {},  # Invalid format
-        )
-
-        # Должно вернуть пустой результат для невалидного формата
-        assert outcome.notifications == []
-
-
 class TestPromptOrchestratorComponentIntegration:
     """Тесты интеграции всех компонентов."""
 
@@ -624,7 +447,6 @@ class TestPromptOrchestratorComponentIntegration:
         assert orchestrator.turn_lifecycle_manager is not None
         assert orchestrator.tool_call_handler is not None
         assert orchestrator.permission_manager is not None
-        assert orchestrator.client_rpc_handler is not None
 
     @pytest.mark.asyncio
     async def test_state_manager_integration(

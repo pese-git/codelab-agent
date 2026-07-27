@@ -12,8 +12,6 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
-from codelab.server.messages import JsonRpcId
-from codelab.server.protocol.handlers.client_rpc_handler import ClientRPCHandler
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline import (
     PlanBuildingStage,
@@ -35,7 +33,7 @@ from codelab.server.protocol.handlers.slash_commands.builtin import (
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
+from codelab.server.protocol.state import SessionState, ToolCallState
 from codelab.server.tools.registry import SimpleToolRegistry
 
 
@@ -56,45 +54,6 @@ class TestPermissionFlowBasics:
             mcp_servers=[],
             config_values={"mode": "ask"},
         )
-
-    def test_request_tool_permission_creates_notification(
-        self,
-        permission_manager: PermissionManager,
-        session: SessionState,
-    ) -> None:
-        """Проверяет, что request_tool_permission создает correct notification."""
-        # Создаём tool call state
-        tool_call = ToolCallState(
-            tool_call_id="call_001",
-            title="Read File",
-            kind="read",
-            status="pending",
-        )
-
-        # Добавляем в сессию
-        session.tool_calls["call_001"] = tool_call
-
-        # Инициализируем active turn
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="test_session",
-        )
-
-        # Запрашиваем разрешение
-        permission_request_id = permission_manager.request_tool_permission(
-            session,
-            tool_call,
-            "read",
-            "test_session",
-        )
-
-        # Проверяем, что ID был создан
-        assert permission_request_id is not None
-        assert isinstance(permission_request_id, str)
-
-        # Проверяем, что он сохранён в active_turn
-        assert session.active_turn.permission_request_id == permission_request_id
-        assert session.active_turn.permission_tool_call_id == "call_001"
 
     def test_should_request_permission_checks_policy(
         self,
@@ -180,37 +139,6 @@ class TestPermissionFlowBasics:
         assert permission_manager.extract_permission_option_id(None) is None
         assert permission_manager.extract_permission_option_id({}) is None
 
-    def test_find_session_by_permission_request_id(
-        self,
-        permission_manager: PermissionManager,
-        session: SessionState,
-    ) -> None:
-        """Проверяет поиск сессии по permission_request_id."""
-        # Инициализируем active turn с permission request
-        permission_id: JsonRpcId = "perm_001"
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="test_session",
-            permission_request_id=permission_id,
-        )
-
-        sessions = {"test_session": session}
-
-        # Поиск существующего permission request
-        found = permission_manager.find_session_by_permission_request_id(
-            permission_id,
-            sessions,
-        )
-        assert found is not None
-        assert found.session_id == "test_session"
-
-        # Поиск несуществующего permission request
-        found = permission_manager.find_session_by_permission_request_id(
-            "perm_999",
-            sessions,
-        )
-        assert found is None
-
 
 class TestPermissionFlowIntegration:
     """Интеграционные тесты для полного permission flow."""
@@ -223,7 +151,6 @@ class TestPermissionFlowIntegration:
         turn_lifecycle_manager = TurnLifecycleManager()
         tool_call_handler = ToolCallHandler()
         permission_manager = PermissionManager()
-        client_rpc_handler = ClientRPCHandler()
         tool_registry = SimpleToolRegistry()
 
         llm_loop_stage = LLMLoopStage(
@@ -243,7 +170,7 @@ class TestPermissionFlowIntegration:
 
         pipeline = PromptPipeline(
             stages=[
-                ValidationStage(state_manager),
+                ValidationStage(),
                 SlashCommandStage(slash_router),
                 PlanBuildingStage(plan_builder),
                 TurnLifecycleStage(turn_lifecycle_manager, action="open"),
@@ -259,7 +186,6 @@ class TestPermissionFlowIntegration:
             turn_lifecycle_manager=turn_lifecycle_manager,
             tool_call_handler=tool_call_handler,
             permission_manager=permission_manager,
-            client_rpc_handler=client_rpc_handler,
             tool_registry=tool_registry,
             llm_loop_stage=llm_loop_stage,
             client_rpc_service=None,

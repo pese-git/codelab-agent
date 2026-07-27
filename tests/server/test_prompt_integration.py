@@ -33,7 +33,6 @@ class TestPromptOrchestratorFactory:
         assert orchestrator.turn_lifecycle_manager is not None
         assert orchestrator.tool_call_handler is not None
         assert orchestrator.permission_manager is not None
-        assert orchestrator.client_rpc_handler is not None
 
     def test_create_prompt_orchestrator_idempotent(self):
         """Каждый вызов создает новый независимый экземпляр."""
@@ -133,7 +132,6 @@ class TestSessionPromptWithOrchestrator:
         assert orchestrator.turn_lifecycle_manager is not None
         assert orchestrator.tool_call_handler is not None
         assert orchestrator.permission_manager is not None
-        assert orchestrator.client_rpc_handler is not None
 
 
 class TestSessionPromptComponentIntegration:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.handlers.state_manager import StateManager
 
 from ..base import PromptStage
 from ..context import PromptContext
@@ -13,9 +12,6 @@ MAX_PROMPT_TEXT_LENGTH = 100_000
 
 class ValidationStage(PromptStage):
     """Валидация входных параметров и проверки состояния сессии."""
-
-    def __init__(self, state_manager: StateManager) -> None:
-        self._state_manager = state_manager
 
     async def process(self, context: PromptContext) -> PromptContext:
         # Проверить что сессия не занята
