@@ -487,3 +487,79 @@ iter_sessions → uncancel_permission_request → repository.save_session`.
 Регрессионное покрытие: `test_handle_cancel_writes_permission_tombstone`
 (запись tombstone при отмене) и `TestCancelThenLateResponse` (полный цикл
 отмена → поздний ответ → поглощение).
+
+### Фасадный разбор и декомпозиция остатка D4-d1 (аудит 2026-07-27, только чтение)
+
+Разбор трёх осей: карта «фасад → транзакции», выполнимость доменной типизации по
+каждому фасаду, постоянная wire-граница и каскад pipeline.
+
+**Находка 1 — prompt-turn и resume неразделимы.** `LLMLoopStage` имеет второй вход
+`execute_pending_tool` (`background_executor.py:179` → `prompt_orchestrator.py:432`),
+поэтому весь `pipeline/stages/agent_loop/**` и всё, что он дёргает (`StateManager`,
+`ToolCallHandler`, `PermissionManager`, `ReplayManager`(write), `tool_policy`,
+`PlanBuilder`), обслуживает обе транзакции. Это ОДИН шаг миграции.
+
+**Находка 2 — домен беднее wire; это блокер, а не деталь.** До переключения нужно
+закрыть:
+- `ToolCallStatus` без `in_progress`/`cancelled` (`domain/value_objects.py:27-33`) —
+  матрицы переходов не выражаются;
+- `ToolCall` — `frozen=True` (`domain/tool_call.py:23`), а фасады делают
+  `state.status = ...` in-place;
+- `ToolCallRegistry.create(tool_name, arguments)` (`domain/session.py:68`) не принимает
+  `title`/`kind`/`tool_call_id_from_llm`/`locations`/`raw_input`;
+- нет read-seam'ов `get_config_value` / `get_permission_policy` (есть только write) —
+  их отсутствие держит на wire `tool_policy.py` и `permission_manager.py`;
+- `TurnState` без `session_id` — несовместим конструктор
+  (`turn_lifecycle_manager.py:46-50`);
+- `TurnState.pending_external_request: dict` против типизированного
+  `PendingClientRequestState` — потеря статической проверки на 4 сайтах `directives.py`;
+- `state_manager` пишет в историю сырые dict (`:75`, `:109`) — нужен history-seam;
+- `PlanEntry` не pydantic, а `replay_manager.py:333` зовёт `model_dump()`.
+
+**Находка 3 — `prompt/tool_calls.py` придётся расщепить.** Он режет ЧЕТЫРЕ транзакции
+(prompt-turn, resume, permission-response, client-RPC response) и совмещает два разных
+дела: мутацию состояния сессии и рендер ACP-нотификаций из `ToolCallState`. Второе
+законно остаётся wire, первое обязано уехать в домен. Пока они в одном модуле,
+независимое переключение permission-response и client-RPC невозможно.
+Аналогично расщепляем `replay_manager`: write-методы обслуживают prompt-turn/resume,
+read-методы (`replay_history:259`, `replay_latest_plan:310`) — session/load; наборы
+не пересекаются.
+
+**Находка 4 — значительный объём мёртвого кода** (живых вызовов нет, только тесты):
+`ClientRPCHandler` целиком (`client_rpc_handler.py`, 8 методов — реальный путь идёт
+через `client_rpc_response.py`); `PromptOrchestrator.handle_pending_client_rpc_response`
+(`:364`) и `handle_permission_response` (`:386`); `PermissionManager.decide`/
+`find_session_by_permission_request_id`/`request_tool_permission`;
+`PlanBuilder.update_session_plan`/`build_plan_updates`; `ToolCallHandler.can_run_tools`/
+`build_executor_execution_updates`/`build_policy_execution_updates`; 5 методов
+`ReplayManager`; `prompt/tool_calls.cancel_active_tool_calls`;
+`prompt/client_requests.can_run_tool_runtime`; `ValidationStage._state_manager`.
+
+**Каскад pipeline атомарен.** `context.session` (`pipeline/context.py:20`) — 31 сайт в
+5 из 6 stages, плюс ~35 сигнатур транзитивно в `agent_loop/**`. По одному stage
+мигрировать нельзя: тип поля общий. При переключении `context.domain_session`
+обязателен к УДАЛЕНИЮ — иначе два поля указывают на разные снимки и возникает
+конфликт source-of-truth (сейчас `directives.py:118` и `:135` намеренно пишут в разные
+объекты).
+
+**Постоянная wire-граница** (не мигрирует никогда): `mcp_session_manager`
+(`mcp_prompt_handlers`, `exclude=True`, в домен не переезжает по
+`domain/session.py:208`); `replay_manager` (элементы `events_history` — готовые
+ACP-нотификации); ACP-рендер из `prompt/tool_calls.py`; `session_factory`;
+весь `storage/*`; `session_load_impl` (проекция сессии в нотификации).
+`_cleanup_session_state` (`handlers/session.py:43`) — напротив, может переехать.
+
+**Декомпозиция остатка (порядок вынужденный):**
+- **Фаза A — сжать поверхность.** Удалить мёртвый код (находка 4). Независимо,
+  уменьшает объём всего дальнейшего; снимает `ClientRPCHandler` из карты миграции.
+- **Фаза B — обогатить домен.** Закрыть пробелы находки 2. Аддитивно, поведение не
+  меняется. Порядок: read-seam'ы → tool-call группа → `TurnState` → history-seam →
+  Plan↔ACP.
+- **Фаза C — расщепить двуликие фасады** (находка 3): `prompt/tool_calls.py`,
+  `replay_manager`.
+- **Фаза D — переключить транзакции** по возрастанию связности: session/new+list+config
+  → session/load → cancel (2 точки сцепления: `TurnLifecycleManager` и
+  `ToolCallHandler.cancel_active_tools`) → permission-response + client-RPC response
+  (возможно только после C) → **prompt-turn + resume** (атомарно, самый крупный).
+
+D невозможна без B; независимость внутри D — без C.
