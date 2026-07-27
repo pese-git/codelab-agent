@@ -18,7 +18,7 @@ from __future__ import annotations
 from dishka import AsyncContainer, make_async_container
 
 from ..config import AppConfig
-from ..storage import SessionStorage
+from ..storage import SessionRepository, SessionStorage
 from .agent import EventBusProvider, MultiAgentProvider
 from .llm import LLMProvider_, RegistryProvider
 from .observability import (
@@ -99,6 +99,12 @@ def make_container(
         context={
             AppConfig: config,
             SessionStorage: storage,
+            # Доменный порт над ТЕМ ЖЕ backend (write-фаза D4-d1, ADR-006).
+            # Параллельная выдача обоих типов безопасна: резидентного кэша нет,
+            # транзакции не делят объект сессии в памяти — только диск. Прикладные
+            # пути переезжают на репозиторий по одному; после переезда всех
+            # `SessionStorage` уходит из context и остаётся только под портом.
+            SessionRepository: SessionRepository(backend=storage),
             bool: require_auth,
             str | None: auth_api_key,
             "trace_messages": trace_messages,
