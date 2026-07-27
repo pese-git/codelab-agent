@@ -621,12 +621,19 @@ permission-цикл (26 запросов, 24 `resume_after_permission`), `sessio
 ошибка в прогоне — `terminal_alias_not_found` (модель выдумала алиас терминала,
 registry отказал корректно), к затронутому коду отношения не имеет.
 
-**Пробел наблюдаемости, блокирующий фазу D.** Успешный `session/load` не логирует
-ничего: на всём пути единственный лог — `warning` про orphaned permission request
-(`commands/session_load.py:94`). Факт загрузки восстанавливается только косвенно, по
-`subscribed_to_notification_bus` из `stdio_runner._update_stdio_subscription`.
-Клиентский `session_history_loaded` в файл не попадает — TUI-процесс файловое
-логирование не настраивает. Перед переключением `session/load` на `SessionRepository`
-нужен `logger.info` в `handlers/session.session_load` (session_id, число реплеенных
-нотификаций, наличие plan-нотификации), иначе поведенческую нейтральность switch'а
-нечем подтвердить.
+**Пробел наблюдаемости `session/load` закрыт.** Успешный `session/load` не логировал
+ничего: на всём пути единственным логом был `warning` про orphaned permission request
+(`commands/session_load.py:94`), а факт загрузки восстанавливался лишь косвенно, по
+`subscribed_to_notification_bus` из `stdio_runner._update_stdio_subscription`
+(клиентский `session_history_loaded` в файл не попадает — TUI-процесс файловое
+логирование не настраивает). Добавлены две точки в `handlers/session.session_load`:
+
+- `session_loaded` (info) — состав реплея: `notifications_total`,
+  `history_notifications`, `plan_replayed`, `tool_call_fallback_used`,
+  `events_history`, `tool_calls`;
+- `session_load_not_found` (warning) — ранее `-32001` возвращался молча.
+
+Счётчики выбраны так, чтобы служить критерием поведенческой нейтральности при
+переключении `session/load` на `SessionRepository` в фазе D: состав реплея до и после
+switch'а должен совпадать. Покрыто тестами через `structlog.testing.capture_logs`
+(`tests/server/protocol/handlers/test_session_coverage.py`).

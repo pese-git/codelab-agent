@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import structlog
+
 from codelab.server.protocol.handlers.session import (
     _serialize_available_commands,
     session_list,
@@ -167,6 +169,80 @@ class TestSessionLoadEdgeCases:
         assert outcome.response.error is not None
         assert outcome.response.error.code == -32001
         assert "not found" in outcome.response.error.message.lower()
+
+    async def test_session_not_found_is_logged(self) -> None:
+        """Ненайденная сессия пишет warning: иначе -32001 остаётся невидимым в логах."""
+        storage = AsyncMock()
+        storage.load_session = AsyncMock(return_value=None)
+
+        with structlog.testing.capture_logs() as logs:
+            await session_load(
+                request_id="req_1",
+                params={"sessionId": "missing", "cwd": "/tmp", "mcpServers": []},
+                require_auth=False,
+                authenticated=True,
+                config_specs={},
+                auth_methods=[],
+                storage=storage,
+            )
+
+        entry = next(log for log in logs if log["event"] == "session_load_not_found")
+        assert entry["log_level"] == "warning"
+        assert entry["session_id"] == "missing"
+
+    async def test_successful_load_is_logged_with_replay_composition(self) -> None:
+        """Успешная загрузка пишет состав реплея.
+
+        Единственная точка наблюдаемости session/load — по этим счётчикам
+        подтверждается поведенческая нейтральность при смене источника сессии
+        (ADR-006, фаза D).
+        """
+        session = SessionState(
+            session_id="sess_1",
+            cwd="/tmp",
+            mcp_servers=[],
+            latest_plan=[{"content": "Step", "priority": "high", "status": "pending"}],
+        )
+        session.tool_calls["call_1"] = ToolCallState(
+            tool_call_id="call_1",
+            title="Test",
+            kind="other",
+            status="completed",
+        )
+        session.events_history.append(
+            {
+                "type": "session_update",
+                "update": {
+                    "sessionUpdate": "user_message_chunk",
+                    "content": {"type": "text", "text": "hi"},
+                },
+            }
+        )
+
+        storage = AsyncMock()
+        storage.load_session = AsyncMock(return_value=session)
+
+        with structlog.testing.capture_logs() as logs:
+            outcome = await session_load(
+                request_id="req_1",
+                params={"sessionId": "sess_1", "cwd": "/tmp", "mcpServers": []},
+                require_auth=False,
+                authenticated=True,
+                config_specs={},
+                auth_methods=[],
+                storage=storage,
+            )
+
+        entry = next(log for log in logs if log["event"] == "session_loaded")
+        assert entry["log_level"] == "info"
+        assert entry["session_id"] == "sess_1"
+        assert entry["notifications_total"] == len(outcome.notifications)
+        assert entry["history_notifications"] == 1
+        assert entry["plan_replayed"] is True
+        # В events_history нет события tool_call, поэтому включается fallback-реплей.
+        assert entry["tool_call_fallback_used"] is True
+        assert entry["events_history"] == 1
+        assert entry["tool_calls"] == 1
 
     async def test_replays_tool_call_with_content(self) -> None:
         """При загрузке завершенного tool call с content отправляется tool_call_update."""

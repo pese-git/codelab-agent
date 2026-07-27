@@ -226,6 +226,7 @@ async def session_load(
 
     session = await storage.load_session(session_id)
     if session is None:
+        logger.warning("session_load_not_found", session_id=session_id)
         return ProtocolOutcome(
             response=ACPMessage.error_response(
                 request_id,
@@ -330,6 +331,19 @@ async def session_load(
             title=session.title,
             updated_at=session.updated_at,
         )
+    )
+
+    # Единственная точка наблюдаемости session/load: состав реплея нужен, чтобы
+    # подтверждать поведенческую нейтральность при смене источника сессии (ADR-006).
+    logger.info(
+        "session_loaded",
+        session_id=session_id,
+        notifications_total=len(notifications),
+        history_notifications=len(history_notifications),
+        plan_replayed=plan_notification is not None,
+        tool_call_fallback_used=not has_tool_call_events and bool(session.tool_calls),
+        events_history=len(session.events_history),
+        tool_calls=len(session.tool_calls),
     )
 
     return ProtocolOutcome(
