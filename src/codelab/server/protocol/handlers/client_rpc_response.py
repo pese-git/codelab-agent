@@ -14,7 +14,6 @@ response по виду ожидаемого client-request (``PendingClientReque
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from ...messages import ACPMessage, JsonRpcId
@@ -494,7 +493,7 @@ def _complete_resolved_client_rpc(
 
     assert session.active_turn is not None
     session.active_turn.pending_client_request = None
-    session.updated_at = datetime.now(UTC).isoformat()
+    session.mark_updated()
     notifications.append(
         session_info_notification(
             session_id=session_id,
@@ -599,7 +598,7 @@ def finalize_failed_client_rpc_request(
             },
         },
     )
-    session.updated_at = datetime.now(UTC).isoformat()
+    session.mark_updated()
     session_info = session_info_notification(
         session_id=session_id,
         title=None,

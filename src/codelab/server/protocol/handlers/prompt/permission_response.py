@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -75,7 +74,7 @@ def resolve_permission_response_impl(
                 allowed=False,
             )
         )
-        session.updated_at = datetime.now(UTC).isoformat()
+        session.mark_updated()
         notifications.append(
             session_info_notification(
                 session_id=session_id,
@@ -100,7 +99,7 @@ def resolve_permission_response_impl(
         )
     )
 
-    session.updated_at = datetime.now(UTC).isoformat()
+    session.mark_updated()
     notifications.append(
         session_info_notification(
             session_id=session_id,

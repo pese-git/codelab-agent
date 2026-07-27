@@ -374,3 +374,31 @@ class TestSessionStateConfigValueSeam:
         session.set_config_value("mode", "plan")
         session.set_config_value("mode", "code")
         assert session.config_values["mode"] == "code"
+
+
+class TestSessionStateStorageMetaSeam:
+    """Seam-мутаторы title/updated_at (pre-step D4-d, ADR-006).
+
+    Одноимённы с `domain.Session` — при switch резидента сайты не меняются.
+    """
+
+    def test_set_title(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_title("My session")
+        assert session.title == "My session"
+
+    def test_mark_updated_is_utc_iso(self) -> None:
+        from datetime import UTC, datetime
+
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.mark_updated()
+        parsed = datetime.fromisoformat(session.updated_at)
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == UTC.utcoffset(None)
+
+    def test_mark_updated_advances(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.mark_updated()
+        first = session.updated_at
+        session.mark_updated()
+        assert session.updated_at >= first

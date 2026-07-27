@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ...messages import ACPMessage, JsonRpcId
@@ -99,7 +98,7 @@ async def session_set_config_option(
         )
 
     session.set_config_value(config_id, value)
-    session.updated_at = datetime.now(UTC).isoformat()
+    session.mark_updated()
 
     # Инвалидировать кэш провайдера при смене модели
     if config_id == "model" and model_resolver is not None:

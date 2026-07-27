@@ -245,3 +245,24 @@ class TestSession:
         session = Session(id=SessionId("sess_1"), config=config)
         session.set_config_value("mode", "plan")
         assert session.config.config_values["mode"] == "plan"
+
+    def test_set_title(self) -> None:
+        """Seam-мутатор title (pre-step D4-d)."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        assert session.title is None
+        session.set_title("My session")
+        assert session.title == "My session"
+
+    def test_mark_updated(self) -> None:
+        """Seam-мутатор updated_at: UTC ISO 8601, явная мутация (pre-step D4-d)."""
+        from datetime import UTC, datetime
+
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        assert session.updated_at is None
+        session.mark_updated()
+        assert session.updated_at is not None
+        parsed = datetime.fromisoformat(session.updated_at)
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == UTC.utcoffset(None)

@@ -171,6 +171,14 @@ class SessionState(BaseModel):
         """Установить значение config_values (persistent session-config)."""
         self.config_values[key] = value
 
+    def set_title(self, title: str) -> None:
+        """Установить заголовок сессии."""
+        self.title = title
+
+    def mark_updated(self) -> None:
+        """Отметить сессию изменённой сейчас (ACP `updatedAt`, UTC ISO 8601)."""
+        self.updated_at = datetime.now(UTC).isoformat()
+
     @model_validator(mode="before")
     @classmethod
     def migrate_schema(cls, data: dict[str, Any]) -> dict[str, Any]:

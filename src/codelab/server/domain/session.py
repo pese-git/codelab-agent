@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from codelab.shared.capabilities import ClientCapabilities
@@ -278,3 +279,15 @@ class Session:
     def set_config_value(self, key: str, value: str) -> None:
         """Установить значение config_values (persistent session-config)."""
         self.config.config_values[key] = value
+
+    def set_title(self, title: str) -> None:
+        """Установить заголовок сессии."""
+        self.title = title
+
+    def mark_updated(self) -> None:
+        """Отметить сессию изменённой сейчас (ACP `updatedAt`, UTC ISO 8601).
+
+        Явная мутация; НЕ путать с round-trip-переносом `updated_at` как есть
+        (см. комментарий к полю — при пересборке метка не регенерируется).
+        """
+        self.updated_at = datetime.now(UTC).isoformat()

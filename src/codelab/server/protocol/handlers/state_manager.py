@@ -46,7 +46,7 @@ class StateManager:
         if session.title is None and text_preview:
             stripped = text_preview.strip()
             if stripped:
-                session.title = stripped[:80]
+                session.set_title(stripped[:80])
                 logger.debug(
                     "session title set",
                     session_id=session.session_id,
@@ -119,7 +119,7 @@ class StateManager:
         Args:
             session: Состояние сессии
         """
-        session.updated_at = datetime.now(UTC).isoformat()
+        session.mark_updated()
         logger.debug(
             "session timestamp updated",
             session_id=session.session_id,
