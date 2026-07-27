@@ -297,6 +297,73 @@ class TestPermissionResponseRouting:
         assert "perm_req_1" not in persisted.cancelled_permission_requests
 
 
+class TestCancelThenLateResponse:
+    """Полный цикл tombstone: отмена во время ожидания → поздний ответ → поглощение.
+
+    Подтверждено на живой сессии (2026-07-27, sess_15f471dd19d9): клиент при отмене
+    turn'а сам присылает `session/request_permission_response` с cancelled-outcome
+    (`PermissionHandler.resolve_with_cancellation`), и он должен поглощаться тихо,
+    а не возвращать -32603. Потребление идёт через доменный порт
+    (`SessionRepository.iter_sessions`, write-фаза D4-d1, ADR-006).
+    """
+
+    @pytest_asyncio.fixture
+    async def protocol(self) -> ACPProtocol:
+        return build_protocol(storage=InMemoryStorage())
+
+    @staticmethod
+    def _session_awaiting_permission() -> SessionState:
+        session = SessionState(
+            session_id="sess_cancel",
+            cwd="/tmp",
+            mcp_servers=[],
+            config_values={"mode": "ask"},
+        )
+        session.active_turn = ActiveTurnState(
+            prompt_request_id="req_1",
+            session_id="sess_cancel",
+            permission_request_id="perm_1",
+            permission_tool_call_id="call_1",
+        )
+        session.tool_calls["call_1"] = ToolCallState(
+            tool_call_id="call_1",
+            title="Read File",
+            kind="read",
+            status="pending",
+        )
+        return session
+
+    @pytest.mark.asyncio
+    async def test_cancel_writes_tombstone_then_late_response_consumes_it(
+        self,
+        protocol: ACPProtocol,
+    ) -> None:
+        session = self._session_awaiting_permission()
+        await protocol._storage.save_session(session)
+
+        # 1. Отмена во время ожидания permission — tombstone записан.
+        await protocol.handle(
+            ACPMessage.notification("session/cancel", {"sessionId": "sess_cancel"})
+        )
+        after_cancel = await protocol._storage.load_session("sess_cancel")
+        assert after_cancel is not None
+        assert after_cancel.is_permission_cancelled("perm_1"), (
+            "отмена во время ожидания обязана пометить permission-request отменённым"
+        )
+
+        # 2. Поздний ответ клиента — поглощается тихо, без ошибки.
+        outcome = await protocol.handle(
+            ACPMessage.response("perm_1", {"outcome": {"outcome": "cancelled"}})
+        )
+        assert outcome is not None
+        assert outcome.response is None or outcome.response.error is None
+
+        # 3. Tombstone снят — потребление прошло через доменный порт.
+        after_response = await protocol._storage.load_session("sess_cancel")
+        assert after_response is not None
+        assert not after_response.is_permission_cancelled("perm_1")
+
+
 class TestPermissionResponseIntegration:
     """Integration тесты для permission response flow."""
 

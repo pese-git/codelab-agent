@@ -371,6 +371,35 @@ class TestPromptOrchestratorHandleCancel:
         # Turn должен быть очищен
         assert session.active_turn is None
 
+    def test_handle_cancel_writes_permission_tombstone(
+        self,
+        orchestrator: PromptOrchestrator,
+        session: SessionState,
+        sessions: dict[str, SessionState],
+    ) -> None:
+        """Отмена во время ожидания permission помечает request отменённым (P2-35).
+
+        Tombstone нужен, чтобы поздний ответ на диалог поглощался тихо, а не
+        возвращал -32603.
+        """
+        from codelab.server.protocol.state import ActiveTurnState
+
+        session.active_turn = ActiveTurnState(
+            prompt_request_id="req_1",
+            session_id="sess_1",
+            permission_request_id="perm_1",
+            permission_tool_call_id="call_1",
+        )
+
+        orchestrator.handle_cancel(
+            "cancel_req",
+            {"sessionId": "sess_1"},
+            session,
+            sessions,
+        )
+
+        assert session.is_permission_cancelled("perm_1")
+
     def test_handle_cancel_without_active_turn(
         self,
         orchestrator: PromptOrchestrator,

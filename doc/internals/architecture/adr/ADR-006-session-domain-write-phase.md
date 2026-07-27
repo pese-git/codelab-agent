@@ -452,3 +452,38 @@ wire↔domain. Switch расщеплён:
   параметр, удалить, а не переносить;
 - `describe_storage`/`parse_storage_arg` (`server/cli.py:32/69/76`) работают на уровне backend —
   должны остаться на backend, не на репозитории.
+
+### Шаг 1 D4-d1 подтверждён живьём (2026-07-27)
+
+Три tombstone-транзакции переведены на `SessionRepository.iter_sessions`
+(`consume_cancelled_permission_response`, `consume_cancelled_client_rpc_response`,
+`find_session_with_cancelled_permission`). Живая проверка на сессии
+`sess_15f471dd19d9`, снята наблюдателем за файлом сессии (опрос 10 мс):
+
+```
+12:09:37.771  turn=awaiting_permission, permission_request_id=5cfaaa4c, tombstones=[]
+12:09:39.911  session_cancel_handled
+      .911892 tombstones_perm: ["5cfaaa4c"]   ← отмена записала (seam cancel_permission_request)
+      .919604 tombstones_perm: []             ← поглощено через доменный порт
+```
+
+Разрыв 8 мс — round-trip ответа клиента: при отмене turn'а клиент сам шлёт
+`session/request_permission_response` с cancelled-outcome
+(`client/application/permission_handler.py:119-131`,`resolve_with_cancellation`).
+Ответ прошёл цепочку `response_router → consume_cancelled_permission_response →
+iter_sessions → uncancel_permission_request → repository.save_session`.
+
+**Доказательство штатности:** непоглощённый ответ дал бы warning
+`permission_response_for_unknown_request` и ошибку `-32603`; в логе прогона
+**0 warning и 0 ошибок**. Удалить tombstone способен только
+`uncancel_permission_request`, а его вызывают ровно два переключённых пути.
+
+**Методическая заметка.** Ранее пустые `cancelled_permission_requests` в дампах
+принимались за «tombstone не пишется» — на деле это выборка файла уже ПОСЛЕ
+поглощения. Окно жизни tombstone'а — единицы миллисекунд, поэтому наблюдение по
+конечному состоянию файла вводит в заблуждение; нужен покадровый снимок. Заведённая
+по ошибочному анализу запись tech-debt P2-35 отозвана, дефекта нет.
+
+Регрессионное покрытие: `test_handle_cancel_writes_permission_tombstone`
+(запись tombstone при отмене) и `TestCancelThenLateResponse` (полный цикл
+отмена → поздний ответ → поглощение).
