@@ -9,6 +9,7 @@ from .cached import CachedSessionStorage
 from .global_policy_storage import GlobalPolicyStorage
 from .json_file import JsonFileStorage
 from .memory import InMemoryStorage
+from .session_repository import SessionRepository
 
 __all__ = [
     "SessionStorage",
@@ -16,5 +17,6 @@ __all__ = [
     "InMemoryStorage",
     "JsonFileStorage",
     "CachedSessionStorage",
+    "SessionRepository",
     "GlobalPolicyStorage",
 ]
