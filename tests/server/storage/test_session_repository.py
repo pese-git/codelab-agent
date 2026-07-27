@@ -167,3 +167,60 @@ class TestLifecycleDelegation:
 
         assert await repository.session_exists("sess_1") is True
         assert await repository.session_exists("absent") is False
+
+
+class TestIterSessions:
+    """Доменный обход (write-model) — примитив для поиска по вторичному ключу."""
+
+    async def test_yields_domain_aggregates(self) -> None:
+        backend = InMemoryStorage()
+        await backend.save_session(_state(session_id="sess_a"))
+        await backend.save_session(_state(session_id="sess_b"))
+        repository = SessionRepository(backend=backend)
+
+        seen = [session async for session in repository.iter_sessions()]
+
+        assert all(isinstance(item, Session) for item in seen)
+        assert {str(item.id) for item in seen} == {"sess_a", "sess_b"}
+
+    async def test_empty_storage_yields_nothing(self) -> None:
+        repository = SessionRepository(backend=InMemoryStorage())
+        assert [s async for s in repository.iter_sessions()] == []
+
+    async def test_paginates_beyond_page_size(self) -> None:
+        """Обход не обрывается на границе страницы (пагинация внутри)."""
+        backend = InMemoryStorage()
+        for index in range(7):
+            await backend.save_session(_state(session_id=f"sess_{index}"))
+        repository = SessionRepository(backend=backend)
+
+        seen = [str(session.id) async for session in repository.iter_sessions(page_size=2)]
+
+        assert len(seen) == 7
+        assert set(seen) == {f"sess_{i}" for i in range(7)}
+
+    async def test_filters_by_cwd(self) -> None:
+        backend = InMemoryStorage()
+        await backend.save_session(_state(session_id="sess_a", cwd="/work"))
+        await backend.save_session(_state(session_id="sess_b", cwd="/other"))
+        repository = SessionRepository(backend=backend)
+
+        seen = [str(s.id) async for s in repository.iter_sessions(cwd="/work")]
+
+        assert seen == ["sess_a"]
+
+    async def test_found_session_is_mutable_and_persistable(self) -> None:
+        """Ключевое отличие от read-model: найденный агрегат можно сохранить."""
+        backend = InMemoryStorage()
+        await backend.save_session(_state())
+        repository = SessionRepository(backend=backend)
+
+        async for session in repository.iter_sessions():
+            if str(session.id) == "sess_1":
+                session.cancel_permission_request("perm_1")
+                await repository.save_session(session)
+                break
+
+        reloaded = await repository.load_session("sess_1")
+        assert reloaded is not None
+        assert reloaded.permissions.is_cancelled("perm_1") is True

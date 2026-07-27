@@ -26,6 +26,8 @@ call-сайтов был механическим), но тип рабочей �
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from ..domain.session import Session
 from ..mapping.session_mapper import SessionMapper
 from ..protocol.state import SessionState
@@ -91,7 +93,37 @@ class SessionRepository:
         """Возвращает wire-проекцию списка сессий (read-model, CQRS-lite).
 
         Для поиска сессии по вторичному ключу с последующей мутацией эта
-        проекция НЕ подходит — такие пути должны получить доменные finder'ы
-        (см. аудит D4-d: `permissions`, `client_rpc_response`, `core.cancel_all`).
+        проекция НЕ подходит — используйте `iter_sessions`.
         """
         return await self._backend.list_sessions(cwd=cwd, cursor=cursor, limit=limit)
+
+    async def iter_sessions(
+        self,
+        cwd: str | None = None,
+        page_size: int = 100,
+    ) -> AsyncIterator[Session]:
+        """Доменный обход всех сессий с внутренней пагинацией (write-model).
+
+        Примитив для поиска сессии по вторичному ключу (`active_turn`,
+        cancelled-tombstones и т.п.): выдаёт агрегаты, которые ЗАКОННО мутировать
+        и сохранять — в отличие от read-model `list_sessions`. Именующие обёртки
+        (`find_session_by_permission_request_id` и соседи) остаются на своих
+        местах и строятся поверх этого обхода.
+
+        ВНИМАНИЕ: найдя нужную сессию, прекратите обход (`break`/`return`).
+        Продолжать итерацию ПОСЛЕ `save_session` нельзя: курсор постраничного
+        обхода опирается на порядок по `updated_at`, а сохранение меняет метку и
+        переставляет сессию — оставшиеся страницы могут задвоиться или пропустить
+        записи.
+
+        Полный скан: индекса вторичных ключей у хранилища нет (как и сегодня).
+        """
+        cursor: str | None = None
+        while True:
+            page, cursor = await self._backend.list_sessions(
+                cwd=cwd, cursor=cursor, limit=page_size
+            )
+            for state in page:
+                yield SessionMapper.to_domain(state)
+            if cursor is None:
+                return
