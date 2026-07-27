@@ -1608,6 +1608,54 @@ round-trip'ов на каждый старт turn'а** — прямая дегр
 `make check` зелёный.
 **Связано:** P2-15, P2-20 (эффективность `ContextGatherer`, ранее подтверждались анализом логов).
 
+### 35. Late-response на отменённый permission не поглощается в agent-loop-потоке — ⬜ ОТКРЫТО (обнаружено 2026-07-27, live-эксперимент)
+
+**Симптом.** Пользователь отменяет turn (`session/cancel`), пока агент ждёт разрешения,
+а затем отвечает на диалог. Ответ не находится ни по активному turn'у, ни по
+tombstone-множеству → возвращается `-32603 Unknown permission request` вместо тихого
+поглощения, для которого механизм tombstone'ов и заведён.
+
+**Корень.** Путь паузы на permission в agent-loop
+(`server/protocol/handlers/pipeline/stages/agent_loop/tool_processor.py:335-337`)
+выставляет только `active_turn.phase = "awaiting_permission"` и
+`active_turn.permission_tool_call_id`, но **НЕ** `active_turn.permission_request_id`
+(его пишут лишь `permission_manager.py:186` и `directives.py:283` — другие потоки).
+
+Дальше цепочка предопределена:
+
+```
+cancel во время agent-loop-ожидания
+  → handle_cancel: if active_turn.permission_request_id is not None   ← None
+  → session.cancel_permission_request(...) не вызывается
+  → cancelled_permission_requests остаётся пустым
+  → поздний ответ: find_session_by_permission_request_id (сверка с тем же None) → не найден
+  → find_session_with_cancelled_permission → пусто
+  → ошибка -32603
+```
+
+**Следствие.** `consume_cancelled_permission_response` на этом потоке фактически
+недостижим — защитный код мёртв. Это же не даёт live-валидировать доменные
+tombstone-транзакции (write-фаза D4-d1, ADR-006): потреблять нечего.
+
+**Подтверждено на живой сессии** (`sess_a740d8482649`, 2026-07-27 11:22Z): отмена
+пришла через 19 с после `permission_request_sent_pausing_agent_loop`,
+`session_cancel_handled` отработал (26 нотификаций, `active_turn` существовал —
+ранний возврат не сработал), но в файле сессии `cancelled_permission_requests: []`.
+
+**Не связано с миграцией порта.** Запись tombstone (`session.cancel_permission_request`)
+семантически идентична прежнему `cancelled_permission_requests.add(...)` — дефект
+пред-существующий.
+
+**Решение (черновик):** выставлять `active_turn.permission_request_id` в
+agent-loop-пути одновременно с `permission_tool_call_id`. Это правка ПОВЕДЕНИЯ
+(сейчас ошибка → станет тихое поглощение), поэтому нужен отдельный коммит с тестами
+на оба сценария: (а) отмена во время ожидания → tombstone записан; (б) поздний ответ
+→ tombstone снят, клиенту пустой успешный response.
+
+**Критерий приёмки:** сценарий (а)+(б) покрыт тестами; на живой сессии
+`cancelled_permission_requests` появляется после отмены и пустеет после позднего
+ответа; `make check` зелёный.
+
 ---
 
 ## Дорожная карта
