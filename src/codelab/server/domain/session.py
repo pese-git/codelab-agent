@@ -117,6 +117,10 @@ class PermissionState:
         """Установить политику для действия."""
         self.policy[kind] = policy
 
+    def get_policy(self, kind: str) -> str | None:
+        """Персистентная политика по kind (None — решение не запомнено)."""
+        return self.policy.get(kind)
+
     def cancel_request(self, request_id: str | int) -> None:
         """Отменить запрос разрешения."""
         self.cancelled_requests.add(request_id)
@@ -262,6 +266,10 @@ class Session:
         """Установить политику разрешений."""
         self.permissions.set_policy(kind, policy)
 
+    def get_permission_policy(self, kind: str) -> str | None:
+        """Персистентная permission-политика по kind (None — не запомнена)."""
+        return self.permissions.get_policy(kind)
+
     def cancel_permission_request(self, request_id: str | int) -> None:
         """Отметить permission-запрос отменённым (для игнорирования поздних ответов)."""
         self.permissions.cancel_request(request_id)
@@ -299,6 +307,10 @@ class Session:
     def set_config_value(self, key: str, value: str) -> None:
         """Установить значение config_values (persistent session-config)."""
         self.config.config_values[key] = value
+
+    def get_config_value(self, key: str, default: str | None = None) -> str | None:
+        """Значение config_values по ключу (persistent session-config)."""
+        return self.config.config_values.get(key, default)
 
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""

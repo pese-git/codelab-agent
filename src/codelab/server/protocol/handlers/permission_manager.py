@@ -56,7 +56,7 @@ class PermissionManager:
             'reject' если policy == 'reject_always'
             'ask' если policy не установлена или неизвестна
         """
-        match session.permission_policy.get(tool_kind):
+        match session.get_permission_policy(tool_kind):
             case "allow_always":
                 return "allow"
             case "reject_always":

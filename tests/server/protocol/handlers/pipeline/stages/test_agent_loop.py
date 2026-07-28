@@ -35,6 +35,13 @@ def mock_session():
     session.active_turn = None
     session.permission_policy = {}
     session.latest_plan = None
+    # Read-seam'ы (фаза B, ADR-006) читают те же словари, что тесты подменяют
+    # напрямую. side_effect берёт атрибут в момент вызова, поэтому переприсваивание
+    # session.config_values/permission_policy внутри теста продолжает работать.
+    session.get_config_value.side_effect = lambda key, default=None: session.config_values.get(
+        key, default
+    )
+    session.get_permission_policy.side_effect = lambda kind: session.permission_policy.get(kind)
     return session
 
 

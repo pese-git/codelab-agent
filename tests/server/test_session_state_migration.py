@@ -316,7 +316,7 @@ class TestSessionStateMigrationV1toV4:
 
 
 class TestSessionStatePermissionSeam:
-    """Seam-мутаторы permission-состояния (pre-step D4-d, ADR-006).
+    """Seam-методы permission-состояния (pre-step D4-d + read-seam фазы B, ADR-006).
 
     Одноимённы с `domain.Session` — при switch резидента сайты не меняются.
     """
@@ -325,6 +325,13 @@ class TestSessionStatePermissionSeam:
         session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_permission_policy("read", "allow_always")
         assert session.permission_policy == {"read": "allow_always"}
+
+    def test_get_permission_policy(self) -> None:
+        """Read-seam (фаза B): одноимён с `domain.Session.get_permission_policy`."""
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        assert session.get_permission_policy("read") is None
+        session.set_permission_policy("read", "allow_always")
+        assert session.get_permission_policy("read") == "allow_always"
 
     def test_cancel_and_uncancel_permission_request(self) -> None:
         session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
@@ -359,15 +366,23 @@ class TestSessionStateAvailableCommandsSeam:
 
 
 class TestSessionStateConfigValueSeam:
-    """Seam-мутатор config_values (pre-step D4-d, ADR-006).
+    """Seam-методы config_values (pre-step D4-d + read-seam фазы B, ADR-006).
 
-    Одноимён с `domain.Session.set_config_value` — при switch резидента сайт не меняется.
+    Одноимённы с `domain.Session` — при switch резидента сайты не меняются.
     """
 
     def test_set_config_value(self) -> None:
         session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_config_value("mode", "plan")
         assert session.config_values["mode"] == "plan"
+
+    def test_get_config_value(self) -> None:
+        """Read-seam (фаза B): одноимён с `domain.Session.get_config_value`."""
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        assert session.get_config_value("mode") is None
+        assert session.get_config_value("mode", "standard") == "standard"
+        session.set_config_value("mode", "plan")
+        assert session.get_config_value("mode", "standard") == "plan"
 
     def test_set_config_value_overwrites(self) -> None:
         session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])

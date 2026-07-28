@@ -147,6 +147,10 @@ class SessionState(BaseModel):
         """Установить персистентную permission-политику по kind."""
         self.permission_policy[kind] = policy
 
+    def get_permission_policy(self, kind: str) -> str | None:
+        """Персистентная permission-политика по kind (None — не запомнена)."""
+        return self.permission_policy.get(kind)
+
     def cancel_permission_request(self, request_id: JsonRpcId) -> None:
         """Отметить permission-запрос отменённым (для игнорирования поздних ответов)."""
         self.cancelled_permission_requests.add(request_id)
@@ -186,6 +190,10 @@ class SessionState(BaseModel):
     def set_config_value(self, key: str, value: str) -> None:
         """Установить значение config_values (persistent session-config)."""
         self.config_values[key] = value
+
+    def get_config_value(self, key: str, default: str | None = None) -> str | None:
+        """Значение config_values по ключу (persistent session-config)."""
+        return self.config_values.get(key, default)
 
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""

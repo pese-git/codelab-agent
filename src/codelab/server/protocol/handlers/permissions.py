@@ -169,7 +169,7 @@ async def resolve_remembered_permission_decision(
     """
 
     # 1. Check session policy
-    session_decision = session.permission_policy.get(tool_kind)
+    session_decision = session.get_permission_policy(tool_kind)
     if session_decision is not None:
         if session_decision == "allow_always":
             return "allow"

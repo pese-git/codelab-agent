@@ -48,7 +48,7 @@ def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecis
         "reject" — отклонить.
         "ask" — запросить разрешение у пользователя.
     """
-    mode = session.config_values.get("mode", "standard")
+    mode = session.get_config_value("mode", "standard")
 
     if mode == MODE_PLAN:
         if is_tool_blocked_in_plan_mode(tool_kind):
@@ -79,7 +79,7 @@ def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecis
         )
         return "allow"
 
-    session_policy = session.permission_policy.get(tool_kind)
+    session_policy = session.get_permission_policy(tool_kind)
     if session_policy == "allow_always":
         logger.debug(
             "tool_policy_decision",
@@ -127,7 +127,7 @@ async def decide_tool_policy_async(
         "ask" — запросить разрешение у пользователя.
     """
     # Fast path: plan/bypass не требуют global policy
-    mode = session.config_values.get("mode", "standard")
+    mode = session.get_config_value("mode", "standard")
     if mode == MODE_PLAN:
         if is_tool_blocked_in_plan_mode(tool_kind):
             logger.debug(
@@ -158,7 +158,7 @@ async def decide_tool_policy_async(
         return "allow"
 
     # Standard mode: session policy
-    session_policy = session.permission_policy.get(tool_kind)
+    session_policy = session.get_permission_policy(tool_kind)
     if session_policy == "allow_always":
         logger.debug(
             "tool_policy_decision",
@@ -192,7 +192,7 @@ def _decide_core(
     global_policy: str | None,
 ) -> PermissionDecision:
     """Завершение цепочки решений после session policy (global policy → ask)."""
-    mode = session.config_values.get("mode", "standard")
+    mode = session.get_config_value("mode", "standard")
 
     if global_policy == "allow_always":
         logger.debug(

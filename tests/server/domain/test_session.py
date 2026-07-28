@@ -130,6 +130,12 @@ class TestPermissionState:
         assert state.is_allowed("read") is True
         assert state.is_allowed("write") is False
 
+    def test_get_policy(self) -> None:
+        state = PermissionState()
+        assert state.get_policy("read") is None
+        state.set_policy("read", "allow_always")
+        assert state.get_policy("read") == "allow_always"
+
     def test_cancel_request(self) -> None:
         state = PermissionState()
         state.cancel_request("req_1")
@@ -221,6 +227,14 @@ class TestSession:
         session.set_permission_policy("read", "allow")
         assert session.permissions.is_allowed("read") is True
 
+    def test_get_permission_policy(self) -> None:
+        """Read-seam (фаза B): чтение permission-политики через агрегат."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        assert session.get_permission_policy("read") is None
+        session.set_permission_policy("read", "allow_always")
+        assert session.get_permission_policy("read") == "allow_always"
+
     def test_cancel_uncancel_permission_request(self) -> None:
         """Seam-делегаторы (pre-step D4-d): cancel/uncancel permission-запроса."""
         config = SessionConfig(cwd="/tmp")
@@ -245,6 +259,15 @@ class TestSession:
         session = Session(id=SessionId("sess_1"), config=config)
         session.set_config_value("mode", "plan")
         assert session.config.config_values["mode"] == "plan"
+
+    def test_get_config_value(self) -> None:
+        """Read-seam (фаза B): чтение config_values через агрегат, с default."""
+        config = SessionConfig(cwd="/tmp")
+        session = Session(id=SessionId("sess_1"), config=config)
+        assert session.get_config_value("mode") is None
+        assert session.get_config_value("mode", "standard") == "standard"
+        session.set_config_value("mode", "plan")
+        assert session.get_config_value("mode", "standard") == "plan"
 
     def test_set_title(self) -> None:
         """Seam-мутатор title (pre-step D4-d)."""
