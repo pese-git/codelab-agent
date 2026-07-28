@@ -5,10 +5,9 @@
 """
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 from codelab.server.agent.config.models import SessionMetrics
-from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
     AgentPlan,
     ConversationHistory,
@@ -21,14 +20,11 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
     TurnState,
 )
-from codelab.server.domain.value_objects import (
-    PlanPriority,
-    PlanStatus,
-    SessionId,
-)
+from codelab.server.domain.value_objects import SessionId
 from codelab.server.mapping.history_mapper import HistoryMapper
+from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
-from codelab.server.models import HistoryMessage
+from codelab.server.models import HistoryMessage, PlanStep
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PendingClientRequestState,
@@ -60,16 +56,12 @@ class SessionMapper:
         # Конвертируем tool calls (делегируем ToolCallMapper — round-trip без потерь, D4-b/b3)
         tool_calls = {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
 
-        # Конвертируем plan
-        latest_plan = []
-        for step in session.plan.get_steps():
-            latest_plan.append(
-                {
-                    "content": step.content,
-                    "priority": step.priority.value,
-                    "status": step.status.value,
-                }
-            )
+        # Конвертируем plan (делегируем PlanMapper — единственный шов Plan↔ACP).
+        # `to_acp` всегда отдаёт dict-записи; поле `latest_plan` шире (PlanStep | dict) —
+        # сужение через cast, без расширения контракта поля (ср. `updates._apply_plan`).
+        latest_plan = cast(
+            "list[PlanStep | dict[str, Any]]", PlanMapper.to_acp(session.plan.get_steps())
+        )
 
         # Создаем SessionState
         state = SessionState(
@@ -293,20 +285,9 @@ class SessionMapper:
 
     @staticmethod
     def _build_plan(state: SessionState) -> AgentPlan:
-        """Собирает AgentPlan из protocol latest_plan (только dict-записи)."""
-        plan = AgentPlan()
-        for step_data in state.latest_plan:
-            if not isinstance(step_data, dict):
-                continue
-            try:
-                priority = PlanPriority(step_data.get("priority", "medium"))
-            except ValueError:
-                priority = PlanPriority.MEDIUM
-            try:
-                status = PlanStatus(step_data.get("status", "pending"))
-            except ValueError:
-                status = PlanStatus.PENDING
-            plan.add_step(
-                PlanEntry(content=step_data.get("content", ""), priority=priority, status=status)
-            )
-        return plan
+        """Собирает AgentPlan из protocol latest_plan (делегируя PlanMapper).
+
+        `entries_to_acp` покрывает и pre-P2-26 записи (`PlanStep`), которые
+        прежний inline-разбор молча отбрасывал как не-dict.
+        """
+        return AgentPlan(steps=PlanMapper.from_acp(PlanMapper.entries_to_acp(state.latest_plan)))

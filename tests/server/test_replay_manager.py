@@ -364,6 +364,8 @@ class TestReplayLatestPlan:
 
         Ранее session/load сессии с планом крашил WS-соединение с
         `TypeError: Object of type PlanStep is not JSON serializable`.
+        Пре-P2-26 форма (`description`) приводится к ACP-записи: ACP
+        11-Agent Plan требует content/priority/status у каждой записи.
         """
         from codelab.server.models import PlanStep
 
@@ -379,8 +381,35 @@ class TestReplayLatestPlan:
         payload = notification.to_json()
         assert "Step 1" in payload
         entries = notification.params["update"]["entries"]
-        assert all(isinstance(entry, dict) for entry in entries)
-        assert entries[0]["description"] == "Step 1"
+        assert entries == [
+            {"content": "Step 1", "priority": "medium", "status": "completed"},
+            {"content": "Step 2", "priority": "medium", "status": "pending"},
+        ]
+
+    def test_replays_domain_plan_entries(
+        self,
+        replay_manager: ReplayManager,
+        session: SessionState,
+    ) -> None:
+        """Доменные PlanEntry проходят путь реплея (блокер фазы D снят).
+
+        До шага Plan↔ACP путь звал `model_dump()`, поэтому доменная запись —
+        не-pydantic dataclass — уходила в wire как есть и роняла `to_json`.
+        """
+        from codelab.server.domain.plan import PlanEntry
+        from codelab.server.domain.value_objects import PlanPriority, PlanStatus
+
+        session.latest_plan = [  # type: ignore[list-item]
+            PlanEntry(content="Step 1", priority=PlanPriority.HIGH, status=PlanStatus.IN_PROGRESS)
+        ]
+
+        notification = replay_manager.replay_latest_plan(session)
+
+        assert notification is not None
+        notification.to_json()
+        assert notification.params["update"]["entries"] == [
+            {"content": "Step 1", "priority": "high", "status": "in_progress"}
+        ]
 
 
 class TestIntegrationWithSessionLoad:

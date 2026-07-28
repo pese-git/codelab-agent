@@ -17,6 +17,7 @@ from codelab.server.domain.session import (
 from codelab.server.domain.value_objects import (
     FileLocation,
     MessageRole,
+    PlanPriority,
     PlanStatus,
     SessionId,
     ToolCallStatus,
@@ -231,12 +232,24 @@ class TestAgentPlan:
         plan = AgentPlan()
         step = PlanEntry(content="Do something", status=PlanStatus.PENDING)
         plan.add_step(step)
-        plan.update_step(0, "in_progress")
+        plan.update_step(0, PlanStatus.IN_PROGRESS)
         assert plan.get_steps()[0].status is PlanStatus.IN_PROGRESS
 
-    def test_update_step_invalid_index(self) -> None:
+    def test_update_step_preserves_other_fields(self) -> None:
         plan = AgentPlan()
-        plan.update_step(99, "completed")  # Should not raise
+        plan.add_step(
+            PlanEntry(content="Do something", priority=PlanPriority.HIGH, status=PlanStatus.PENDING)
+        )
+        plan.update_step(0, PlanStatus.COMPLETED)
+        step = plan.get_steps()[0]
+        assert step.content == "Do something"
+        assert step.priority is PlanPriority.HIGH
+
+    def test_update_step_invalid_index_raises(self) -> None:
+        """Выход за границы — ошибка вызывающего, а не молчаливый no-op."""
+        plan = AgentPlan()
+        with pytest.raises(IndexError):
+            plan.update_step(99, PlanStatus.COMPLETED)
 
 
 class TestMultiAgentState:

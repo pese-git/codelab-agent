@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
 from codelab.server.messages import ACPMessage
+from codelab.server.models import PlanStep
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
     build_fs_client_request,
@@ -115,14 +116,10 @@ class DirectivesStage(PromptStage):
         # Сохраняем план в сессии для replay в ACP-форме {content, priority, status} —
         # идентично тому, что ушло в wire выше (P2-26). Раньше урезалось до
         # {title, description}, что невалидно по ACP и теряло статусы при replay.
-        context.session.latest_plan = [
-            {
-                "content": entry.get("content", ""),
-                "priority": entry.get("priority", "medium"),
-                "status": entry.get("status", "pending"),
-            }
-            for entry in plan_entries
-        ]
+        from codelab.server.mapping.plan_mapper import PlanMapper
+
+        acp_entries = PlanMapper.entries_to_acp(list(plan_entries))
+        context.session.latest_plan = cast("list[PlanStep | dict[str, Any]]", acp_entries)
         # Dual-carry (write-фаза D4-b/b1): синхронизируем доменный агрегат из тех же
         # данных. Здесь вход (build_plan_entries) не проходит validate_plan_entries,
         # поэтому latest_plan пишется точь-в-точь (байт-в-байт с wire), а домен наполняется
@@ -130,9 +127,8 @@ class DirectivesStage(PromptStage):
         # деривируется из домена.
         if context.domain_session is not None:
             from codelab.server.domain.session import AgentPlan
-            from codelab.server.mapping.plan_mapper import PlanMapper
 
-            context.domain_session.plan = AgentPlan(steps=PlanMapper.from_acp(list(plan_entries)))
+            context.domain_session.plan = AgentPlan(steps=PlanMapper.from_acp(acp_entries))
 
     def _apply_terminal_rpc(self, context: PromptContext, directives: PromptDirectives) -> bool:
         """Директива terminal_command: сформировать client RPC. True — turn deferred."""

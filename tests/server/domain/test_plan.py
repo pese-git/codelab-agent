@@ -78,6 +78,18 @@ class TestPlanMapper:
         result = PlanMapper.from_acp(blocks)
         assert result[0].status is PlanStatus.PENDING
 
+    def test_from_acp_logs_coerced_values(self) -> None:
+        """Замена невалидного значения дефолтом не должна быть молчаливой."""
+        import structlog
+
+        blocks = [{"content": "Step 1", "priority": "urgent", "status": "skipped"}]
+        with structlog.testing.capture_logs() as logs:
+            PlanMapper.from_acp(blocks)
+
+        events = {log["event"] for log in logs}
+        assert "plan_entry_priority_coerced" in events
+        assert "plan_entry_status_coerced" in events
+
     def test_round_trip(self) -> None:
         original = [
             PlanEntry(content="Step 1", priority=PlanPriority.HIGH, status=PlanStatus.PENDING),
@@ -89,3 +101,46 @@ class TestPlanMapper:
         assert restored[0].content == original[0].content
         assert restored[0].priority == original[0].priority
         assert restored[1].status == original[1].status
+
+
+class TestEntriesToAcp:
+    """Смешанный план (домен / wire-DTO / dict) → ACP-записи."""
+
+    def test_domain_entry(self) -> None:
+        result = PlanMapper.entries_to_acp(
+            [PlanEntry(content="Step", priority=PlanPriority.LOW, status=PlanStatus.COMPLETED)]
+        )
+        assert result == [{"content": "Step", "priority": "low", "status": "completed"}]
+
+    def test_acp_dict_passes_through(self) -> None:
+        entry = {"content": "Step", "priority": "high", "status": "in_progress"}
+        assert PlanMapper.entries_to_acp([entry]) == [entry]
+
+    def test_pydantic_model_normalized_to_acp(self) -> None:
+        from codelab.server.models import PlanStep
+
+        result = PlanMapper.entries_to_acp([PlanStep(description="Step", status="completed")])
+        assert result == [{"content": "Step", "priority": "medium", "status": "completed"}]
+
+    def test_dict_missing_fields_gets_acp_defaults(self) -> None:
+        result = PlanMapper.entries_to_acp([{"title": "Step"}])
+        assert result == [{"content": "Step", "priority": "medium", "status": "pending"}]
+
+    def test_invalid_values_replaced_by_defaults(self) -> None:
+        result = PlanMapper.entries_to_acp([{"content": "S", "priority": "x", "status": "y"}])
+        assert result == [{"content": "S", "priority": "medium", "status": "pending"}]
+
+    def test_unknown_type_dropped_with_warning(self) -> None:
+        import structlog
+
+        with structlog.testing.capture_logs() as logs:
+            result = PlanMapper.entries_to_acp(["not an entry"])
+
+        assert result == []
+        assert any(log["event"] == "plan_entry_dropped_unknown_type" for log in logs)
+
+    def test_mixed_preserves_order(self) -> None:
+        result = PlanMapper.entries_to_acp(
+            [{"content": "first", "priority": "high", "status": "pending"}, PlanEntry("second")]
+        )
+        assert [entry["content"] for entry in result] == ["first", "second"]

@@ -23,7 +23,7 @@ from codelab.shared.capabilities import ClientCapabilities
 from .conversation import ConversationMessage, MessageContent
 from .plan import PlanEntry
 from .tool_call import ToolCall
-from .value_objects import FileLocation, MessageRole, SessionId
+from .value_objects import FileLocation, MessageRole, PlanStatus, SessionId
 
 
 @dataclass(frozen=True)
@@ -166,21 +166,22 @@ class AgentPlan:
         """Добавить шаг в план."""
         self.steps.append(step)
 
-    def update_step(self, index: int, status: str) -> None:
-        """Обновить статус шага."""
-        if 0 <= index < len(self.steps):
-            old = self.steps[index]
-            from .value_objects import PlanStatus
+    def update_step(self, index: int, status: PlanStatus) -> None:
+        """Обновить статус шага.
 
-            try:
-                new_status = PlanStatus(status)
-            except ValueError:
-                new_status = old.status
-            self.steps[index] = PlanEntry(
-                content=old.content,
-                priority=old.priority,
-                status=new_status,
-            )
+        Статус типизирован: прежняя строковая сигнатура молча откатывала
+        нераспознанное значение к предыдущему, то есть write-операция могла
+        ничего не сделать без единого признака (фаза B ADR-006). Выход за
+        границы плана — ошибка вызывающего, а не допустимый no-op.
+        """
+        if not 0 <= index < len(self.steps):
+            raise IndexError(f"plan step index out of range: {index} (steps={len(self.steps)})")
+        old = self.steps[index]
+        self.steps[index] = PlanEntry(
+            content=old.content,
+            priority=old.priority,
+            status=status,
+        )
 
     def get_steps(self) -> list[PlanEntry]:
         """Получить все шаги."""
