@@ -23,7 +23,7 @@ from codelab.shared.capabilities import ClientCapabilities
 from .conversation import ConversationMessage
 from .plan import PlanEntry
 from .tool_call import ToolCall
-from .value_objects import SessionId
+from .value_objects import FileLocation, SessionId
 
 
 @dataclass(frozen=True)
@@ -65,14 +65,35 @@ class ToolCallRegistry:
     calls: dict[str, ToolCall] = field(default_factory=dict)
     counter: int = 0
 
-    def create(self, tool_name: str, arguments: dict[str, Any]) -> ToolCall:
-        """Создать новый tool call."""
+    def create(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        title: str | None = None,
+        kind: str = "other",
+        tool_call_id_from_llm: str | None = None,
+        locations: list[FileLocation] | None = None,
+    ) -> ToolCall:
+        """Создать новый tool call.
+
+        Поверхность повторяет `ToolCallHandler.create_tool_call` (wire): `kind` —
+        ключ permission-политики, `title` — display для replay,
+        `tool_call_id_from_llm` — корреляция с историей LLM, `locations` — файлы
+        для ACP. Без них доменный create не выражал создание из turn-пути
+        (фаза B ADR-006). `arguments` служит и как ACP `rawInput` — маппер отдаёт
+        его в `raw_input`, отдельного поля нет.
+        """
         self.counter += 1
         tool_call_id = f"call_{self.counter:03d}"
         tool_call = ToolCall(
             id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
+            title=title,
+            kind=kind,
+            tool_call_id_from_llm=tool_call_id_from_llm,
+            locations=list(locations) if locations else [],
         )
         self.calls[tool_call_id] = tool_call
         return tool_call
@@ -82,18 +103,19 @@ class ToolCallRegistry:
         return self.calls.get(tool_call_id)
 
     def update(self, tool_call_id: str, **kwargs: Any) -> None:
-        """Обновить tool call."""
-        if tool_call_id in self.calls:
-            old = self.calls[tool_call_id]
-            self.calls[tool_call_id] = ToolCall(
-                id=old.id,
-                tool_name=old.tool_name,
-                arguments=old.arguments,
-                status=kwargs.get("status", old.status),
-                result=kwargs.get("result", old.result),
-                locations=kwargs.get("locations", old.locations),
-                raw_output=kwargs.get("raw_output", old.raw_output),
-            )
+        """Обновить поля tool call на месте.
+
+        Мутация вместо пересборки: пересборка перечисляла поля вручную и молча
+        теряла всё не перечисленное (`kind`, `title`, `tool_call_id_from_llm`).
+        Неизвестное имя поля — ошибка, а не тихий пропуск.
+        """
+        tool_call = self.calls.get(tool_call_id)
+        if tool_call is None:
+            return
+        for name, value in kwargs.items():
+            if not hasattr(tool_call, name):
+                raise AttributeError(f"ToolCall has no field {name!r}")
+            setattr(tool_call, name, value)
 
     def get_all(self) -> list[ToolCall]:
         """Получить все tool calls."""

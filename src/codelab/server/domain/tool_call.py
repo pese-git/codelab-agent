@@ -20,12 +20,17 @@ class ToolResult:
     result_content: list[dict[str, Any]] = field(default_factory=list)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolCall:
     """Domain entity — внутреннее представление tool call.
 
     НЕ является ACP Protocol Model. Для wire format использовать ToolCallState.
     Конвертация через ToolCallMapper.
+
+    Мутабельна намеренно: это entity с идентичностью (`id`) и жизненным циклом
+    статуса, а не value object. `frozen=True` заставлял пересобирать объект на
+    каждую смену статуса, из-за чего `ToolCallRegistry.update` терял поля, не
+    перечисленные в пересборке (write-фаза, фаза B ADR-006).
     """
 
     id: str
@@ -44,4 +49,13 @@ class ToolCall:
 
     @property
     def is_terminal(self) -> bool:
-        return self.status in (ToolCallStatus.COMPLETED, ToolCallStatus.FAILED)
+        """Статус финальный — дальнейших переходов нет.
+
+        Набор совпадает с терминальными состояниями матрицы переходов
+        `ToolCallHandler._ALLOWED_TRANSITIONS`, включая `CANCELLED`.
+        """
+        return self.status in (
+            ToolCallStatus.COMPLETED,
+            ToolCallStatus.CANCELLED,
+            ToolCallStatus.FAILED,
+        )

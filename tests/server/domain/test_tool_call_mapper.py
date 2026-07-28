@@ -1,5 +1,7 @@
 """Unit тесты для ToolCallMapper."""
 
+import pytest
+
 from codelab.server.domain.tool_call import ToolCall, ToolResult
 from codelab.server.domain.value_objects import FileLocation, ToolCallStatus
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
@@ -43,9 +45,9 @@ class TestToolCallMapperToProtocol:
         assert protocol.raw_output == {"content": "hello"}
 
     def test_status_mapping(self) -> None:
-        domain = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.RUNNING)
+        domain = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.IN_PROGRESS)
         protocol = ToolCallMapper.to_protocol(domain)
-        assert protocol.status == "running"
+        assert protocol.status == "in_progress"
 
 
 class TestToolCallMapperToDomain:
@@ -133,3 +135,25 @@ class TestToolCallMapperRoundTrip:
         assert len(restored.locations) == 1
         assert restored.locations[0].path == "/tmp/test.py"
         assert restored.locations[0].line == 10
+
+    @pytest.mark.parametrize(
+        "wire_status",
+        ["pending", "in_progress", "completed", "cancelled", "failed"],
+    )
+    def test_wire_status_round_trip_is_lossless(self, wire_status: str) -> None:
+        """Каждый ACP-статус выживает wire → domain → wire.
+
+        Регрессия (фаза B ADR-006): доменный enum не имел in_progress и
+        cancelled, поэтому _parse_status понижал их до pending — обе стороны
+        расходились молча, а покрытия на это не было.
+        """
+        protocol = ToolCallState(
+            tool_call_id="call_1",
+            title="read_file",
+            kind="read",
+            status=wire_status,
+        )
+
+        restored = ToolCallMapper.to_protocol(ToolCallMapper.to_domain(protocol))
+
+        assert restored.status == wire_status

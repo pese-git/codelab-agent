@@ -42,9 +42,14 @@ class TestToolCall:
         tc = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.PENDING)
         assert tc.is_terminal is False
 
-    def test_is_terminal_running(self) -> None:
-        tc = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.RUNNING)
+    def test_is_terminal_in_progress(self) -> None:
+        tc = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.IN_PROGRESS)
         assert tc.is_terminal is False
+
+    def test_is_terminal_cancelled(self) -> None:
+        """CANCELLED терминален — как и в матрице переходов ToolCallHandler."""
+        tc = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.CANCELLED)
+        assert tc.is_terminal is True
 
     def test_is_terminal_completed(self) -> None:
         tc = ToolCall(id="call_1", tool_name="read_file", status=ToolCallStatus.COMPLETED)
@@ -70,10 +75,16 @@ class TestToolCall:
         tc = ToolCall(id="call_1", tool_name="read_file", locations=[loc])
         assert tc.locations == [loc]
 
-    def test_frozen(self) -> None:
-        tc = ToolCall(id="call_1", tool_name="read_file")
-        with pytest.raises(AttributeError):
-            tc.id = "other"  # type: ignore[misc]
+    def test_mutable_status(self) -> None:
+        """ToolCall — entity с жизненным циклом, статус меняется на месте.
+
+        Мутабельность намеренна (фаза B ADR-006): пересборка на каждую смену
+        статуса теряла поля, не перечисленные в конструкторе копии.
+        """
+        tc = ToolCall(id="call_1", tool_name="read_file", kind="read", title="Read")
+        tc.status = ToolCallStatus.IN_PROGRESS
+        assert tc.status is ToolCallStatus.IN_PROGRESS
+        assert (tc.kind, tc.title) == ("read", "Read")
 
     def test_equality(self) -> None:
         a = ToolCall(id="call_1", tool_name="read_file")

@@ -56,9 +56,20 @@ class TestFileLocation:
 class TestToolCallStatus:
     def test_values(self) -> None:
         assert ToolCallStatus.PENDING == "pending"
-        assert ToolCallStatus.RUNNING == "running"
+        assert ToolCallStatus.IN_PROGRESS == "in_progress"
         assert ToolCallStatus.COMPLETED == "completed"
+        assert ToolCallStatus.CANCELLED == "cancelled"
         assert ToolCallStatus.FAILED == "failed"
+
+    def test_values_match_acp_wire(self) -> None:
+        """Набор совпадает с ACP ToolCallStatus: маппер отдаёт .value напрямую."""
+        assert {s.value for s in ToolCallStatus} == {
+            "pending",
+            "in_progress",
+            "completed",
+            "cancelled",
+            "failed",
+        }
 
     def test_from_string(self) -> None:
         assert ToolCallStatus("pending") is ToolCallStatus.PENDING

@@ -15,6 +15,7 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
 )
 from codelab.server.domain.value_objects import (
+    FileLocation,
     MessageRole,
     PlanStatus,
     SessionId,
@@ -109,6 +110,31 @@ class TestToolCallRegistry:
         retrieved = registry.get(tc.id)
         assert retrieved is tc
 
+    def test_create_with_turn_fields(self) -> None:
+        """create принимает поверхность turn-пути (фаза B ADR-006)."""
+        registry = ToolCallRegistry()
+        loc = FileLocation(path="/tmp/a.py", line=3)
+
+        tc = registry.create(
+            "fs_read_text_file",
+            {"path": "/tmp/a.py"},
+            title="Read text file",
+            kind="read",
+            tool_call_id_from_llm="chatcmpl-tool-1",
+            locations=[loc],
+        )
+
+        assert (tc.title, tc.kind) == ("Read text file", "read")
+        assert tc.tool_call_id_from_llm == "chatcmpl-tool-1"
+        assert tc.locations == [loc]
+
+    def test_create_defaults_kind_to_other(self) -> None:
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+        assert tc.kind == "other"
+        assert tc.title is None
+        assert tc.locations == []
+
     def test_update(self) -> None:
         registry = ToolCallRegistry()
         tc = registry.create("read_file", {})
@@ -116,6 +142,43 @@ class TestToolCallRegistry:
         updated = registry.get(tc.id)
         assert updated is not None
         assert updated.status is ToolCallStatus.COMPLETED
+
+    def test_update_preserves_unlisted_fields(self) -> None:
+        """Смена статуса не теряет kind/title/tool_call_id_from_llm.
+
+        Прежняя реализация пересобирала ToolCall и молча роняла все поля, не
+        перечисленные в конструкторе копии.
+        """
+        registry = ToolCallRegistry()
+        tc = registry.create(
+            "fs_read_text_file",
+            {"path": "/tmp/a.py"},
+            title="Read text file",
+            kind="read",
+            tool_call_id_from_llm="chatcmpl-tool-1",
+        )
+
+        registry.update(tc.id, status=ToolCallStatus.IN_PROGRESS)
+        registry.update(tc.id, status=ToolCallStatus.COMPLETED)
+
+        updated = registry.get(tc.id)
+        assert updated is not None
+        assert updated.status is ToolCallStatus.COMPLETED
+        assert (updated.title, updated.kind) == ("Read text file", "read")
+        assert updated.tool_call_id_from_llm == "chatcmpl-tool-1"
+
+    def test_update_unknown_field_raises(self) -> None:
+        """Опечатка в имени поля — ошибка, а не тихий пропуск."""
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+
+        with pytest.raises(AttributeError, match="no field 'statuss'"):
+            registry.update(tc.id, statuss=ToolCallStatus.COMPLETED)
+
+    def test_update_absent_tool_call_is_noop(self) -> None:
+        registry = ToolCallRegistry()
+        registry.update("call_404", status=ToolCallStatus.COMPLETED)
+        assert registry.get_all() == []
 
 
 class TestPermissionState:

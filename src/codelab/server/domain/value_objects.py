@@ -25,11 +25,19 @@ class FileLocation:
 
 
 class ToolCallStatus(enum.StrEnum):
-    """Domain enum для статуса tool call."""
+    """Domain enum для статуса tool call.
+
+    Значения совпадают с ACP `ToolCallStatus` (wire), потому что маппер отдаёт
+    `.value` напрямую. Прежний доменный `RUNNING = "running"` был артефактом: в
+    ACP это `in_progress`, и любое его попадание в wire дало бы невалидный
+    статус. `CANCELLED` и `IN_PROGRESS` обязательны — без них
+    `ToolCallMapper.to_domain` понижал их до `PENDING` (потеря round-trip).
+    """
 
     PENDING = "pending"
-    RUNNING = "running"
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
     FAILED = "failed"
 
 
