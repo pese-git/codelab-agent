@@ -45,9 +45,14 @@ def _cleanup_session_state(session: SessionState) -> None:
 
     Выполняет следующие действия для безопасного переключения:
     1. Отменяет active turn, если он активен
-    2. Отмечает все pending tool calls как cancelled
+    2. Отмечает все pending tool calls как cancelled и пишет это в events_history
     3. Добавляет permission request IDs в cancelled_permission_requests
     4. Добавляет RPC request IDs в cancelled_client_rpc_requests
+
+    Отмена вызовов записывается в историю, потому что вызывается ДО
+    `replay_history`: реплей подхватывает событие сам и клиент получает
+    cancelled вместо pending. Без записи расходились три стороны — реплей
+    (pending), состояние в памяти (cancelled) и диск (pending).
 
     Аргументы:
         session: SessionState для очистки.
@@ -73,9 +78,15 @@ def _cleanup_session_state(session: SessionState) -> None:
         session.active_turn = None
 
     # Отметить все pending tool calls как cancelled
-    for _tool_call_id, tool_call in session.tool_calls.items():
+    replay_manager = ReplayManager()
+    for tool_call_id, tool_call in session.tool_calls.items():
         if tool_call.status == "pending":
             tool_call.status = "cancelled"
+            replay_manager.save_tool_call_update(
+                session,
+                tool_call_id=tool_call_id,
+                status="cancelled",
+            )
 
 
 def session_new(
