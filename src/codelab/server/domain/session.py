@@ -20,10 +20,10 @@ from typing import Any
 
 from codelab.shared.capabilities import ClientCapabilities
 
-from .conversation import ConversationMessage
+from .conversation import ConversationMessage, MessageContent
 from .plan import PlanEntry
 from .tool_call import ToolCall
-from .value_objects import FileLocation, SessionId
+from .value_objects import FileLocation, MessageRole, SessionId
 
 
 @dataclass(frozen=True)
@@ -306,6 +306,48 @@ class Session:
     def add_message(self, message: ConversationMessage) -> None:
         """Добавить сообщение в историю."""
         self.history.add(message)
+
+    # History-seam'ы (фаза B ADR-006). Одноимённы с `SessionState`: писатель зовёт
+    # `session.<метод>()` и при switch резидента не меняется. Форма записи истории
+    # перестаёт быть известна вызывающему — раньше `StateManager` собирал сырой dict.
+    def add_user_message(self, prompt: Sequence[Any]) -> None:
+        """Добавить сообщение пользователя из ACP content blocks.
+
+        Строка вместо списка блоков — нестандартный, но допустимый вход
+        (`HistoryMessage.content` его принимает): она трактуется как текст,
+        иначе разбор блоков распустил бы её на символы.
+        """
+        content = (
+            MessageContent(text=prompt)
+            if isinstance(prompt, str)
+            else MessageContent.from_acp_blocks(prompt)
+        )
+        self.history.add(
+            ConversationMessage(
+                role=MessageRole.USER,
+                content=content,
+                timestamp=datetime.now(UTC),
+            )
+        )
+
+    def add_assistant_message(self, content: str | dict[str, Any]) -> None:
+        """Добавить ответ ассистента.
+
+        Прод передаёт только строку; dict принимается как одиночный ACP-блок —
+        поверхность сохранена одноимённой с wire-сеймом.
+        """
+        message_content = (
+            MessageContent(text=content)
+            if isinstance(content, str)
+            else MessageContent.from_acp_blocks([content])
+        )
+        self.history.add(
+            ConversationMessage(
+                role=MessageRole.ASSISTANT,
+                content=message_content,
+                timestamp=datetime.now(UTC),
+            )
+        )
 
     def create_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> ToolCall:
         """Создать новый tool call."""

@@ -195,6 +195,37 @@ class SessionState(BaseModel):
         """Значение config_values по ключу (persistent session-config)."""
         return self.config_values.get(key, default)
 
+    # History-seam'ы (фаза B ADR-006). Одноимённы с `domain.Session`: форма записи
+    # истории принадлежит носителю состояния, а не вызывающему — раньше
+    # `StateManager` собирал сырой dict и знал раскладку слотов.
+    def add_user_message(self, prompt: Sequence[Any]) -> None:
+        """Добавить сообщение пользователя из ACP content blocks.
+
+        `prompt` кладётся дословно: `HistoryMessage.content` допускает и строку,
+        и список блоков, а копирование в список ломало нестандартный вход
+        (строка распадалась на символы).
+        """
+        self.history.append(
+            {
+                "role": "user",
+                "content": prompt,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+
+    def add_assistant_message(self, content: str | dict[str, Any]) -> None:
+        """Добавить ответ ассистента.
+
+        Строка идёт в плоский слот `text`, структурный контент — в `content`
+        (та же роль-driven раскладка, что у `HistoryMapper`).
+        """
+        entry: dict[str, Any] = {"role": "assistant", "timestamp": datetime.now(UTC).isoformat()}
+        if isinstance(content, str):
+            entry["text"] = content
+        else:
+            entry["content"] = content
+        self.history.append(entry)
+
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""
         self.title = title

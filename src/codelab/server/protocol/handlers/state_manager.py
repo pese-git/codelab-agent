@@ -64,20 +64,13 @@ class StateManager:
             session: Состояние сессии
             prompt: Массив content blocks из request
         """
-        # Добавляем полный prompt как запись истории
-        history_entry = {
-            "role": "user",
-            "content": prompt,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-        sanitized = _sanitize_history_entry(history_entry)
-        if sanitized is not None:
-            session.history.append(sanitized)
-            logger.debug(
-                "user message added to history",
-                session_id=session.session_id,
-                message_length=len(prompt),
-            )
+        # Форма записи истории принадлежит носителю состояния (history-seam, фаза B).
+        session.add_user_message(prompt)
+        logger.debug(
+            "user message added to history",
+            session_id=session.session_id,
+            message_length=len(prompt),
+        )
 
     def add_assistant_message(
         self,
@@ -90,28 +83,12 @@ class StateManager:
             session: Состояние сессии
             content: Текст или структурированный контент ответа
         """
-        # Нормализуем content - может быть строка или dict
-        if isinstance(content, str):
-            history_entry = {
-                "role": "assistant",
-                "text": content,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-        else:
-            history_entry = {
-                "role": "assistant",
-                "content": content,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-
-        sanitized = _sanitize_history_entry(history_entry)
-        if sanitized is not None:
-            session.history.append(sanitized)
-            logger.debug(
-                "assistant message added to history",
-                session_id=session.session_id,
-                content_type=type(content).__name__,
-            )
+        session.add_assistant_message(content)
+        logger.debug(
+            "assistant message added to history",
+            session_id=session.session_id,
+            content_type=type(content).__name__,
+        )
 
     def update_session_timestamp(self, session: SessionState) -> None:
         """Обновляет updated_at на текущее время в UTC ISO 8601.
@@ -164,37 +141,6 @@ class StateManager:
             "history_length": len(session.history),
             "cwd": session.cwd,
         }
-
-
-def _sanitize_history_entry(
-    entry: Any,
-) -> Any | None:
-    """Валидирует запись истории перед добавлением.
-
-    Проверяет, что запись имеет базовую структуру (роль и контент).
-
-    Args:
-        entry: Запись из истории
-
-    Returns:
-        Нормализованная запись или None если невалидна
-    """
-    if not isinstance(entry, dict):
-        logger.warning("history entry is not dict", entry_type=type(entry).__name__)
-        return None
-
-    # Требуем role
-    if "role" not in entry:
-        logger.warning("history entry missing role field")
-        return None
-
-    # Требуем хотя бы один из content/text/content/message
-    has_content = any(key in entry for key in ["content", "text", "message"])
-    if not has_content:
-        logger.warning("history entry missing content fields")
-        return None
-
-    return entry
 
 
 def _extract_text_from_content_blocks(blocks: list[dict[str, Any]]) -> str:

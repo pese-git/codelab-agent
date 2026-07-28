@@ -1,21 +1,17 @@
 """Дополнительные тесты покрытия для StateManager.
 
 Покрывает ранее непокрытые ветки:
-- _sanitize_history_entry (невалидные записи)
 - _extract_text_from_content_blocks
 - add_event с различными входными данными.
 """
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from codelab.server.protocol.handlers.state_manager import (
     StateManager,
     _extract_text_from_content_blocks,
-    _sanitize_history_entry,
 )
 from codelab.server.protocol.state import SessionState
 
@@ -34,29 +30,6 @@ def session() -> SessionState:
         cwd="/tmp",
         mcp_servers=[],
     )
-
-
-class TestSanitizeHistoryEntry:
-    """Тесты валидации записей истории."""
-
-    def test_sanitize_rejects_non_dict_entry(self) -> None:
-        """Не-dict запись отклоняется с логированием предупреждения."""
-        assert _sanitize_history_entry("not a dict") is None
-
-    def test_sanitize_rejects_missing_role(self) -> None:
-        """Запись без поля role отклоняется."""
-        entry = {"content": "some content"}
-        assert _sanitize_history_entry(entry) is None
-
-    def test_sanitize_rejects_missing_content_fields(self) -> None:
-        """Запись без content/text/message отклоняется."""
-        entry = {"role": "user"}
-        assert _sanitize_history_entry(entry) is None
-
-    def test_sanitize_accepts_text_entry(self) -> None:
-        """Запись с полем text принимается."""
-        entry = {"role": "assistant", "text": "hello"}
-        assert _sanitize_history_entry(entry) == entry
 
 
 class TestExtractTextFromContentBlocks:
@@ -115,15 +88,17 @@ class TestAddEvent:
         assert len(session.events_history) == 1
         assert "timestamp" in session.events_history[0]
 
-    def test_add_event_with_sanitized_history(
+    def test_add_user_message_delegates_to_seam(
         self,
         state_manager: StateManager,
         session: SessionState,
     ) -> None:
-        """Сообщение не добавляется в историю, если санитайзер вернул None."""
-        with patch(
-            "codelab.server.protocol.handlers.state_manager._sanitize_history_entry",
-            return_value=None,
-        ):
-            state_manager.add_user_message(session, [{"type": "text", "text": "test"}])
-            assert len(session.history) == 0
+        """Запись истории идёт через history-seam носителя состояния (фаза B)."""
+        state_manager.add_user_message(session, [{"type": "text", "text": "test"}])
+
+        assert len(session.history) == 1
+        entry = session.history[0]
+        assert isinstance(entry, dict)
+        assert entry["role"] == "user"
+        assert entry["content"] == [{"type": "text", "text": "test"}]
+        assert "timestamp" in entry

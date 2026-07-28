@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -71,6 +72,38 @@ class MessageContent:
     text: str = ""
     resources: list[Resource] = field(default_factory=list)
     images: list[Image] = field(default_factory=list)
+
+    @classmethod
+    def from_acp_blocks(cls, blocks: Sequence[Any]) -> MessageContent:
+        """Собрать содержимое из ACP content blocks.
+
+        Единственная реализация разбора блоков: её используют и history-seam
+        (`Session.add_user_message`), и `HistoryMapper` при чтении хранилища
+        (фаза B ADR-006). Рядом с `Resource.from_acp` / `Image.from_acp`, то есть
+        разбор ACP-блоков в домене — уже принятая здесь конвенция.
+
+        Неизвестные типы блоков игнорируются: содержимое сообщения не должно
+        падать из-за расширения протокола.
+        """
+        text_parts: list[str] = []
+        resources: list[Resource] = []
+        images: list[Image] = []
+
+        for block in blocks:
+            if isinstance(block, str):
+                text_parts.append(block)
+                continue
+            if not isinstance(block, dict):
+                continue
+            match block.get("type", ""):
+                case "text":
+                    text_parts.append(block.get("text", ""))
+                case "resource":
+                    resources.append(Resource.from_acp(block))
+                case "image":
+                    images.append(Image.from_acp(block))
+
+        return cls(text="\n".join(text_parts), resources=resources, images=images)
 
 
 @dataclass(frozen=True)

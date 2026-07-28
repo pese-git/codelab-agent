@@ -18,9 +18,7 @@ from typing import Any
 
 from codelab.server.domain.conversation import (
     ConversationMessage,
-    Image,
     MessageContent,
-    Resource,
 )
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import MessageRole
@@ -136,26 +134,21 @@ def _parse_content(content: list[Any] | str | None) -> MessageContent:
     if isinstance(content, str):
         return MessageContent(text=content)
 
-    text_parts: list[str] = []
-    resources: list[Resource] = []
-    images: list[Image] = []
+    # Единый разбор блоков живёт в домене (`MessageContent.from_acp_blocks`);
+    # здесь остаётся только нормализация того, что приходит из хранилища.
+    return MessageContent.from_acp_blocks([_normalize_block(block) for block in content])
 
-    for block in content:
-        if isinstance(block, str):
-            text_parts.append(block)
-            continue
-        if isinstance(block, dict):
-            block_type = block.get("type", "")
-            if block_type == "text":
-                text_parts.append(block.get("text", ""))
-            elif block_type == "resource":
-                resources.append(Resource.from_acp(block))
-            elif block_type == "image":
-                images.append(Image.from_acp(block))
-            continue
-        # Pydantic-коэрция могла превратить блоки в объекты (напр. wire MessageContent).
-        block_type = getattr(block, "type", "")
-        if block_type == "text" or (block_type == "" and getattr(block, "text", None)):
-            text_parts.append(getattr(block, "text", "") or "")
 
-    return MessageContent(text="\n".join(text_parts), resources=resources, images=images)
+def _normalize_block(block: Any) -> Any:
+    """Привести блок из хранилища к ACP-dict.
+
+    Pydantic-коэрция могла превратить блоки в объекты (напр. wire MessageContent),
+    у которых есть только `type`/`text`. Всё остальное отдаём как есть — домен
+    игнорирует неизвестное.
+    """
+    if isinstance(block, str | dict):
+        return block
+    block_type = getattr(block, "type", "")
+    if block_type == "text" or (block_type == "" and getattr(block, "text", None)):
+        return {"type": "text", "text": getattr(block, "text", "") or ""}
+    return None
