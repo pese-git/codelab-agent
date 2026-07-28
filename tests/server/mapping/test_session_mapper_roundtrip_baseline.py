@@ -11,6 +11,7 @@ from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
     ConversationHistory,
     MultiAgentState,
+    PendingExternalRequest,
     PermissionState,
     Session,
     SessionConfig,
@@ -152,27 +153,55 @@ class TestRoundtripTurnAndRuntime:
     def test_active_turn_preserved(self) -> None:
         session = _rich_session()
         session.active_turn = TurnState(
+            session_id="sess_rt",
             prompt_request_id="req_1",
             cancel_requested=True,
             permission_request_id=7,
             permission_tool_call_id="call_001",
             phase="waiting_permission",
-            pending_external_request={
-                "request_id": "rpc_1",
-                "kind": "fs_read",
-                "tool_call_id": "call_001",
-                "path": "/tmp/README.md",
-            },
+            pending_external_request=PendingExternalRequest(
+                request_id="rpc_1",
+                kind="fs_read",
+                tool_call_id="call_001",
+                path="/tmp/README.md",
+            ),
         )
         rt = _roundtrip(session)
         assert rt.active_turn is not None
+        assert rt.active_turn.session_id == "sess_rt"
         assert rt.active_turn.prompt_request_id == "req_1"
         assert rt.active_turn.cancel_requested is True
         assert rt.active_turn.permission_request_id == 7
         assert rt.active_turn.permission_tool_call_id == "call_001"
         assert rt.active_turn.phase == "waiting_permission"
         assert rt.active_turn.pending_external_request is not None
-        assert rt.active_turn.pending_external_request["path"] == "/tmp/README.md"
+        assert rt.active_turn.pending_external_request.path == "/tmp/README.md"
+
+    def test_pending_external_request_fully_preserved(self) -> None:
+        """Все поля снимка ожидаемого запроса выживают round-trip.
+
+        Фаза B: dict заменён типизированным PendingExternalRequest, поэтому
+        сверяем объект целиком — иначе новое поле снова можно потерять молча.
+        """
+        session = _rich_session()
+        pending = PendingExternalRequest(
+            request_id=42,
+            kind="terminal_create",
+            tool_call_id="call_007",
+            path="ls -la",
+            expected_new_text="text",
+            terminal_id="term_1",
+            terminal_output="total 0",
+            terminal_exit_code=0,
+            terminal_signal="SIGTERM",
+            terminal_truncated=False,
+        )
+        session.active_turn = TurnState(session_id="sess_rt", pending_external_request=pending)
+
+        rt = _roundtrip(session)
+
+        assert rt.active_turn is not None
+        assert rt.active_turn.pending_external_request == pending
 
     def test_no_active_turn_preserved(self) -> None:
         rt = _roundtrip(_rich_session())

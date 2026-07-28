@@ -4,6 +4,7 @@
 и protocol моделью SessionState (Pydantic BaseModel для сериализации).
 """
 
+from dataclasses import asdict
 from typing import Any
 
 from codelab.server.agent.config.models import SessionMetrics
@@ -12,6 +13,7 @@ from codelab.server.domain.session import (
     AgentPlan,
     ConversationHistory,
     MultiAgentState,
+    PendingExternalRequest,
     PermissionState,
     Session,
     SessionConfig,
@@ -109,9 +111,7 @@ class SessionMapper:
 
         # Turn-состояние (доменный TurnState VO → wire-DTO ActiveTurnState, ADR-006)
         if session.active_turn is not None:
-            state.active_turn = SessionMapper._turn_to_protocol(
-                session.active_turn, str(session.id)
-            )
+            state.active_turn = SessionMapper._turn_to_protocol(session.active_turn)
 
         # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionState)
         runtime = session.runtime
@@ -131,14 +131,16 @@ class SessionMapper:
         return state
 
     @staticmethod
-    def _turn_to_protocol(turn: TurnState, session_id: str) -> ActiveTurnState:
+    def _turn_to_protocol(turn: TurnState) -> ActiveTurnState:
         """TurnState VO → wire-DTO ActiveTurnState (round-trip без потерь)."""
         pending = None
         if turn.pending_external_request is not None:
-            pending = PendingClientRequestState.model_validate(turn.pending_external_request)
+            pending = PendingClientRequestState.model_validate(
+                asdict(turn.pending_external_request)
+            )
         return ActiveTurnState(
             prompt_request_id=turn.prompt_request_id,
-            session_id=session_id,
+            session_id=turn.session_id,
             cancel_requested=turn.cancel_requested,
             permission_request_id=turn.permission_request_id,
             permission_tool_call_id=turn.permission_tool_call_id,
@@ -235,11 +237,12 @@ class SessionMapper:
         if at is None:
             return None
         pending = (
-            at.pending_client_request.model_dump()
+            PendingExternalRequest(**at.pending_client_request.model_dump())
             if at.pending_client_request is not None
             else None
         )
         return TurnState(
+            session_id=at.session_id,
             prompt_request_id=at.prompt_request_id,
             cancel_requested=at.cancel_requested,
             permission_request_id=at.permission_request_id,

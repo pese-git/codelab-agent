@@ -203,13 +203,43 @@ class MultiAgentState:
 
 
 @dataclass
+class PendingExternalRequest:
+    """Ожидаемый agent→client запрос внутри turn-а как доменный VO (фаза B ADR-006).
+
+    Доменный аналог `protocol.state.PendingClientRequestState`: нужен для
+    корреляции входящего ответа клиента с действием, которого turn ждёт
+    (`fs_read`/`fs_write`/`terminal_create`). Раньше `TurnState` нёс это
+    нетипизированным dict, из-за чего терялась статическая проверка на сайтах,
+    читающих поля снимка.
+
+    `request_id` — опаковый корреляционный токен: JSON-RPC допускает строку и
+    число, поэтому тип сохраняется как есть (ср. `TurnState.permission_request_id`).
+    Поля `terminal_*` наполняются из ответа клиента и несутся round-trip.
+    """
+
+    request_id: str | int
+    kind: str
+    tool_call_id: str
+    path: str
+    expected_new_text: str | None = None
+    terminal_id: str | None = None
+    terminal_output: str | None = None
+    terminal_exit_code: int | None = None
+    terminal_signal: str | None = None
+    terminal_truncated: bool | None = None
+
+
+@dataclass
 class TurnState:
     """Состояние текущего prompt-turn как доменный VO (ADR-006, write-фаза).
 
     Переезжает из `protocol.state.ActiveTurnState`: это состояние сессии («где мы
     в turn-е»), а не wire-протокол. Идентификаторы — опаковые resume-токены
-    (`str | int`); `pending_external_request` — опаковый снимок ожидаемого
-    agent→client запроса (данные, не wire-семантика — см. ADR-006).
+    (`str | int`).
+
+    `session_id` обязателен, как и в wire-DTO: turn всегда принадлежит сессии.
+    Значение должно совпадать с `Session.id` владельца — маппер отдаёт его в wire
+    как есть, поэтому рассинхрон был бы виден снаружи.
 
     `phase` пока `str` (значения: running/waiting_permission/awaiting_permission/
     waiting_client_rpc/waiting_tool_completion/cancelled). Типизированный `TurnPhase`
@@ -217,12 +247,13 @@ class TurnState:
     `waiting_permission`/`awaiting_permission`).
     """
 
+    session_id: str
     prompt_request_id: str | int | None = None
     cancel_requested: bool = False
     permission_request_id: str | int | None = None
     permission_tool_call_id: str | None = None
     phase: str = "running"
-    pending_external_request: dict[str, Any] | None = None
+    pending_external_request: PendingExternalRequest | None = None
 
 
 @dataclass
