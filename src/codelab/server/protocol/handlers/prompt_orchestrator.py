@@ -22,6 +22,7 @@ from .pipeline import (
     PromptPipeline,
 )
 from .plan_builder import PlanBuilder
+from .replay_manager import ReplayManager
 from .slash_commands import CommandRegistry
 from .state_manager import StateManager
 from .tool_call_handler import ToolCallHandler
@@ -320,6 +321,11 @@ class PromptOrchestrator:
 
         cancel_messages = self.tool_call_handler.cancel_active_tools(session, session_id)
         notifications.extend(cancel_messages)
+        # Отмена обязана попасть и в events_history: иначе реплей на session/load
+        # отдаст вызов как pending, хотя клиент уже получил cancelled. Источник
+        # записи — сами отправленные нотификации, чтобы «какие вызовы отменены»
+        # не дублировалось предикатом активности.
+        _save_tool_updates_to_history(session, cancel_messages)
 
         if session.active_turn.permission_request_id is not None:
             session.cancel_permission_request(session.active_turn.permission_request_id)
@@ -377,6 +383,29 @@ class PromptOrchestrator:
 
 
 # ── module-level helpers ──────────────────────────────────────────────────────
+
+
+def _save_tool_updates_to_history(session: SessionState, messages: list[ACPMessage]) -> None:
+    """Сохранить отправленные tool_call_update в историю реплея.
+
+    Единый писатель формата события — `ReplayManager`; создаётся здесь, так как
+    он stateless (тот же приём в `handlers.session.session_load`).
+    """
+    replay_manager = ReplayManager()
+    for message in messages:
+        update = (message.params or {}).get("update", {})
+        if not isinstance(update, dict) or update.get("sessionUpdate") != "tool_call_update":
+            continue
+        tool_call_id = update.get("toolCallId")
+        status = update.get("status")
+        if not isinstance(tool_call_id, str) or not isinstance(status, str):
+            continue
+        replay_manager.save_tool_call_update(
+            session,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=update.get("content"),
+        )
 
 
 def _extract_text_preview(prompt: list[dict[str, Any]]) -> str:

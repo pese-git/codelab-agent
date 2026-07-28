@@ -405,3 +405,32 @@ async def test_permission_approved_tool_status_persisted(tmp_cwd: Path) -> None:
             f"{tool_call_id}: в истории {wire_status}, в состоянии {state['status']}"
         )
         assert state["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_tool_status_reaches_replay_history(tmp_cwd: Path) -> None:
+    """Отмена вызова попадает в events_history, а не только в wire.
+
+    session/cancel отправляет клиенту tool_call_update: cancelled и пишет
+    cancelled в состояние. Если это событие не сохранить, реплей на session/load
+    отдаст вызов как pending: клиент, уже знавший об отмене, после реконнекта
+    увидит висящий вызов, а история разойдётся с состоянием.
+    """
+    async with _server(tmp_cwd, h.terminal_single_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        final = await h.cancel_on_permission(t, session_id, "запусти sleep", 10)
+        assert final["result"]["stopReason"] == "cancelled"
+
+    stored = _stored_session(tmp_cwd, session_id)
+    cancelled = [
+        tool_call_id
+        for tool_call_id, state in stored["tool_calls"].items()
+        if state["status"] == "cancelled"
+    ]
+    assert cancelled, "отмена не отражена в состоянии сессии"
+
+    for tool_call_id in cancelled:
+        assert _last_wire_status(stored, tool_call_id) == "cancelled", (
+            f"{tool_call_id}: в состоянии cancelled, в истории "
+            f"{_last_wire_status(stored, tool_call_id)}"
+        )
