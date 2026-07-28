@@ -417,3 +417,59 @@ class TestSessionStateStorageMetaSeam:
         first = session.updated_at
         session.mark_updated()
         assert session.updated_at >= first
+
+
+class TestHistoryContentBlocksPreserved:
+    """ACP content blocks в истории выживают round-trip через хранилище.
+
+    Регрессия: `HistoryMessage.content` начинался с `list[MessageContent]`
+    (type/text/data), и pydantic коэрцил блоки в эту модель, отбрасывая payload.
+    `resource` (uri, текст файла, mime) исчезал при перезагрузке сессии, а
+    `image` выживал случайно — его строковый `data` не проходил валидацию
+    dict-поля, и union откатывался на сырые dict'ы.
+    """
+
+    _BLOCKS = [
+        {"type": "text", "text": "посмотри файл"},
+        {
+            "type": "resource",
+            "resource": {
+                "uri": "file:///a.py",
+                "text": "print(1)",
+                "mimeType": "text/x-python",
+            },
+        },
+        {"type": "image", "data": "abc", "mimeType": "image/png"},
+    ]
+
+    def test_blocks_survive_storage_roundtrip(self) -> None:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.history.append({"role": "user", "content": self._BLOCKS})
+
+        restored = SessionState.model_validate(session.model_dump(mode="json"))
+
+        assert restored.model_dump(mode="json")["history"][0]["content"] == self._BLOCKS
+
+    def test_legacy_coerced_entry_still_loads(self) -> None:
+        """Уже сохранённые (обеднённые) записи читаются без ошибок."""
+        legacy = {
+            "schema_version": 6,
+            "session_id": "s",
+            "cwd": "/tmp",
+            "mcp_servers": [],
+            "history": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hi", "data": None},
+                        {"type": "resource", "text": None, "data": None},
+                    ],
+                }
+            ],
+        }
+
+        restored = SessionState.model_validate(legacy)
+
+        entry = restored.history[0]
+        assert not isinstance(entry, dict)
+        assert entry.content == legacy["history"][0]["content"]

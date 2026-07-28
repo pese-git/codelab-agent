@@ -56,9 +56,9 @@ class TestSessionMapperToProtocol:
         history_msg = state.history[0]
         assert hasattr(history_msg, "role")
         assert history_msg.role == "user"
-        assert history_msg.model_dump()["content"] == [
-            {"type": "text", "text": "hello", "data": None}
-        ]
+        # Блок едет дословно: `data: None` в ожидании был артефактом коэрции в
+        # снятую wire-модель MessageContent (она же теряла payload resource).
+        assert history_msg.model_dump()["content"] == [{"type": "text", "text": "hello"}]
 
     def test_with_tool_calls(self) -> None:
         """Тест конвертации с tool calls."""

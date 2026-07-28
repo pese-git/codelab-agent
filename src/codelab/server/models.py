@@ -10,15 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Модели для истории сообщений (history)
-class MessageContent(BaseModel):
-    """Содержимое сообщения в истории."""
-
-    type: str
-    text: str | None = None
-    # Дополнительные поля для разных типов контента
-    data: dict[str, Any] | None = None
-
-
 class HistoryMessage(BaseModel):
     """ACP Protocol Model — контракт сообщения истории согласно ACP 05-Prompt Turn.
 
@@ -31,7 +22,12 @@ class HistoryMessage(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     role: Literal["user", "assistant", "system", "tool"] = "user"
-    content: list[MessageContent] | str | list[dict[str, Any]] | None = None
+    # ACP content blocks хранятся дословно. Раньше в union'е первым стоял
+    # `list[MessageContent]` — модель с полями type/text/data, — и pydantic
+    # коэрцил блоки в неё, молча теряя payload: `resource` (uri, текст файла,
+    # mime) исчезал при перезагрузке сессии. `image` выживал случайно, потому что
+    # его строковый `data` не проходил валидацию dict-поля.
+    content: str | list[dict[str, Any]] | None = None
     text: str | None = None
     timestamp: str | None = None
     tool_call_id: str | None = None
