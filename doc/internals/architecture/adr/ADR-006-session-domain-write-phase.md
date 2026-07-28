@@ -637,3 +637,69 @@ registry отказал корректно), к затронутому коду 
 переключении `session/load` на `SessionRepository` в фазе D: состав реплея до и после
 switch'а должен совпадать. Покрыто тестами через `structlog.testing.capture_logs`
 (`tests/server/protocol/handlers/test_session_coverage.py`).
+
+### Фаза B — статус (2026-07-28)
+
+Порядок из декомпозиции соблюдён; закрыты четыре шага из пяти.
+
+| шаг | коммит | содержание |
+|---|---|---|
+| read-seam'ы | `2216bede` | `get_config_value` / `get_permission_policy` — парные на wire и в домене; переведены `tool_policy`, `PermissionManager._resolve_policy`, `permissions.resolve_remembered_permission_decision` |
+| tool-call группа | `4ef604e2` | `ToolCallStatus` приведён к ACP (`in_progress`/`cancelled`, снят артефакт `RUNNING`); `ToolCall` размутабелен как entity; `ToolCallRegistry.create` принимает поверхность turn-пути, `update` мутирует на месте |
+| `TurnState` | `6d6ee4de` | обязательный `session_id`; `pending_external_request` → типизированный `PendingExternalRequest` |
+| history-seam | `d4405121` | парные `add_user_message` / `add_assistant_message`; разбор блоков сведён в `MessageContent.from_acp_blocks`; снят no-op `_sanitize_history_entry` |
+
+**Остался шаг 5 — Plan↔ACP.** `PlanEntry` — обычный dataclass, а `replay_manager.py:333`
+зовёт на нём `model_dump()`, то есть доменный план в этот путь не проходит. Рядом:
+`AgentPlan.update_step` принимает статус строкой и молча откатывает неизвестное
+значение к прежнему — та же семья молчаливых отказов, что дала дефекты ниже.
+
+#### Блокер фазы D, найденный по ходу: домен не хранит блоки
+
+`domain.MessageContent` держит текст **одной строкой**, а ресурсы и картинки —
+отдельными списками. Следствия: несколько `text`-блоков склеиваются через перевод
+строки, а исходный порядок блоков не восстанавливается — `HistoryMapper._build_blocks`
+собирает их фиксированно (текст → ресурсы → картинки).
+
+На живом промпте с приложенным файлом (`[resource, text]`) домен даёт `[text, resource]`:
+инструкция оказывается **до** контекста, который она комментирует. Сегодня безвредно —
+доменная копия dual-carry выбрасывается; в момент switch'а резидента изменится и
+хранимый формат, и то, что видит модель.
+
+Зафиксировано `xfail(strict=True)` в `tests/server/mapping/test_history_seam_parity.py`,
+поэтому тест выстрелит сам, когда домен обогатят. **Закрыть до начала фазы D.**
+
+#### Семья расхождений «wire ↔ история ↔ состояние»
+
+Четыре дефекта, найденные сверкой инварианта «последний статус tool call в
+`events_history` = статус в `tool_calls`» на файлах живых сессий. Ни один не ловился
+тестами; в одном случае тест закреплял артефакт дефекта как ожидаемый результат.
+
+| коммит | дефект |
+|---|---|
+| `6b841b46` | состояние отставало от wire: `pending → completed` молча отбрасывался матрицей переходов, так как resume-путь не проставлял `in_progress` |
+| `b8054b3e` | история отставала от состояния: `session/cancel` не писал отмену в `events_history` |
+| `e8cee205` | `_cleanup_session_state` помечал вызовы `cancelled` только в памяти — ни клиенту, ни в историю |
+| `a7998786` | payload ACP-блока `resource` уничтожался при перезагрузке сессии (коэрция в снятую wire-модель `MessageContent`); `image` выживал случайно |
+
+Диагностический приём: сверять расхождения по файлу сессии и проверять арифметику
+реплея по счётчикам `session_loaded` (реплеируемых событий на диске + записанные на
+загрузке = `history_notifications`). Отказ в переходе статуса теперь логируется
+(`tool_call_status_transition_rejected`) — молчаливый пропуск и позволил первому дефекту
+дожить незамеченным.
+
+#### Прочие наблюдения (вне фазы B)
+
+- **`session/load` грузит сессию дважды.** `SessionLoadCommandHandler` берёт свою копию
+  (правит `runtime_capabilities`, сбрасывает orphaned `active_turn`, сохраняет), а
+  `handlers.session.session_load` — другую, свежую с диска. Поэтому orphan-ветка
+  сохраняет `active_turn: None`, но статус вызова на диске остаётся `pending`. Шов
+  схлопнется сам при переходе на `SessionRepository`.
+- **`_REPLAYABLE_UPDATE_TYPES` содержит мёртвый `session_info`.** Единственным писателем
+  был удалённый в фазе A `ReplayManager.save_session_info`; прод пишет
+  `session_info_update`, который в набор не входит. Отсюда 2–3 нереплеируемых события в
+  каждом `session_loaded`. Решать при расщеплении `replay_manager` (фаза C): либо
+  реплеить `session_info_update`, либо убрать значение.
+- **Клиент молча создаёт новую сессию** после `session_load_not_found`, ничего не сообщая
+  пользователю (`session_controller._load_history` пишет только `warning` в свой логгер,
+  а TUI-процесс файловое логирование не настраивает).
