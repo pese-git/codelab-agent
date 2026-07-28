@@ -10,6 +10,7 @@ bypass (no ask), plan (read allow / execute reject), ошибка инструм
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import agent_flow_harness as h
@@ -349,3 +350,58 @@ async def test_slash_context_via_stdio(tmp_cwd: Path) -> None:
         text = h.agent_text(notes)
         assert "Context Manager" in text
         assert "enabled=" in text
+
+
+# --------------------------------------------------------------------------- #
+# Инвариант: wire-история и сохранённое состояние согласованы
+# --------------------------------------------------------------------------- #
+
+
+def _stored_session(tmp_cwd: Path, session_id: str) -> dict:
+    """Читает сессию из persistent-хранилища сервера."""
+    path = tmp_cwd / ".codelab" / "data" / "sessions" / f"{session_id}.json"
+    assert path.exists(), f"сессия не сохранена: {path}"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _last_wire_status(stored: dict, tool_call_id: str) -> str | None:
+    """Последний статус tool call, который ушёл клиенту и лёг в events_history."""
+    status = None
+    for event in stored["events_history"]:
+        update = event.get("update", {})
+        if update.get("toolCallId") != tool_call_id:
+            continue
+        if update.get("sessionUpdate") in ("tool_call", "tool_call_update"):
+            status = update.get("status", status)
+    return status
+
+
+@pytest.mark.asyncio
+async def test_permission_approved_tool_status_persisted(tmp_cwd: Path) -> None:
+    """Статус tool call, выполненного после одобрения, попадает в storage.
+
+    Инструмент, требующий разрешения, выполняется в resume-пути
+    (BackgroundExecutor → execute_pending). Клиент получает tool_call_update
+    completed, и то же значение обязано оказаться в session.tool_calls: иначе
+    реплей на session/load отдаст completed, а состояние сервера останется
+    pending, и _cleanup_session_state пометит вызов cancelled — три стороны
+    разойдутся в оценке одного вызова.
+    """
+    async with _server(tmp_cwd, h.fs_read_scenario()) as t:
+        session_id = await h.handshake(t, tmp_cwd)
+        resp, _notes, rpc = await h.run_prompt(t, session_id, "прочти README.md", 10)
+
+        assert resp["result"]["stopReason"] == "end_turn"
+        assert "session/request_permission" in rpc, "инструмент должен запросить разрешение"
+        assert "fs/read_text_file" in rpc
+
+    stored = _stored_session(tmp_cwd, session_id)
+    tool_calls = stored["tool_calls"]
+    assert tool_calls, "tool call не сохранён в состоянии сессии"
+
+    for tool_call_id, state in tool_calls.items():
+        wire_status = _last_wire_status(stored, tool_call_id)
+        assert state["status"] == wire_status, (
+            f"{tool_call_id}: в истории {wire_status}, в состоянии {state['status']}"
+        )
+        assert state["status"] == "completed"

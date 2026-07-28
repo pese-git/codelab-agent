@@ -680,6 +680,10 @@ class ToolCallProcessor:
         )
 
         effective_id = tool_call_id_from_llm or tool_call_id
+        # Матрица переходов допускает completed только из in_progress, поэтому
+        # resume-путь обязан отметить запуск так же, как обычный (_execute_allowed_tool).
+        # Без этого completed молча отбрасывается и состояние застревает в pending.
+        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
         try:
             result = await self._run_tool(
                 session,

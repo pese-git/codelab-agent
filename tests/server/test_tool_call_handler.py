@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import pytest
+import structlog
 
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
@@ -146,6 +147,35 @@ class TestToolCallHandlerStatusUpdates:
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
 
         assert session.tool_calls[tool_call_id].status == "cancelled"
+
+    def test_pending_to_completed_is_rejected(
+        self, handler: ToolCallHandler, session: SessionState
+    ) -> None:
+        """pending → completed запрещён: завершение возможно только из in_progress."""
+        tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
+
+        handler.update_tool_call_status(session, tool_call_id, "completed")
+
+        assert session.tool_calls[tool_call_id].status == "pending"
+
+    def test_rejected_transition_is_logged(
+        self, handler: ToolCallHandler, session: SessionState
+    ) -> None:
+        """Отклонённый переход пишет warning.
+
+        Молчаливый отказ однажды рассинхронизировал состояние с wire-историей:
+        resume-путь слал клиенту completed, а состояние оставалось pending.
+        """
+        tool_call_id = handler.create_tool_call(session, title="Test", kind="execute")
+
+        with structlog.testing.capture_logs() as logs:
+            handler.update_tool_call_status(session, tool_call_id, "completed")
+
+        entry = next(log for log in logs if log["event"] == "tool_call_status_transition_rejected")
+        assert entry["log_level"] == "warning"
+        assert entry["tool_call_id"] == tool_call_id
+        assert entry["current_status"] == "pending"
+        assert entry["requested_status"] == "completed"
 
     def test_update_with_content(self, handler: ToolCallHandler, session: SessionState) -> None:
         """Проверяет обновление статуса с контентом."""

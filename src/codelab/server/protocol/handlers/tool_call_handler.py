@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+import structlog
 
 from ...domain.value_objects import FileLocation
 from ...messages import ACPMessage
 from ..state import SessionState, ToolCallState
 
-if TYPE_CHECKING:
-    pass
+logger = structlog.get_logger()
 
 
 class ToolCallHandler:
@@ -136,6 +137,14 @@ class ToolCallHandler:
         # Явная матрица переходов защищает от нелегальных смен статуса
         next_states = self._ALLOWED_TRANSITIONS.get(state.status, set())
         if status not in next_states and status != state.status:
+            # Отказ логируется: молчаливый пропуск однажды уже рассинхронизировал
+            # состояние с wire-историей (pending → completed в resume-пути).
+            logger.warning(
+                "tool_call_status_transition_rejected",
+                tool_call_id=tool_call_id,
+                current_status=state.status,
+                requested_status=status,
+            )
             return
 
         state.status = status
