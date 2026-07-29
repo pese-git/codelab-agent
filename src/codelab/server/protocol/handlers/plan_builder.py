@@ -10,6 +10,7 @@ from typing import Any
 import structlog
 
 from ...messages import ACPMessage
+from ..state import PromptDirectives
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -132,6 +133,48 @@ class PlanBuilder:
             plan_entries_count=len(plan_entries),
         )
         return notification
+
+
+def build_plan_entries(
+    *,
+    directives: PromptDirectives,
+    text_preview: str,
+) -> list[dict[str, str]]:
+    """Строит plan entries для `session/update: plan`.
+
+    Живёт рядом с `PlanBuilder`, а не среди tool call'ов: это построение
+    СОДЕРЖИМОГО плана — взять entries из директив либо синтезировать заготовку
+    из текста промпта (расщепление двуликих фасадов, фаза C ADR-006).
+
+    Пример использования:
+        entries = build_plan_entries(
+            directives=directives,
+            text_preview="ship release",
+        )
+    """
+
+    if directives.plan_entries:
+        return directives.plan_entries
+
+    normalized_preview = text_preview.strip() or "выполнение запроса"
+    short_preview = normalized_preview[:80]
+    return [
+        {
+            "content": f"Уточнить задачу: {short_preview}",
+            "priority": "high",
+            "status": "completed",
+        },
+        {
+            "content": f"Выполнить основной шаг для: {short_preview}",
+            "priority": "high",
+            "status": "in_progress",
+        },
+        {
+            "content": "Проверить результат и завершить ответ",
+            "priority": "medium",
+            "status": "pending",
+        },
+    ]
 
 
 def _validate_entry_structure(entry: Any) -> bool:

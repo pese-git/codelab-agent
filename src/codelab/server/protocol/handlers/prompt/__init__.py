@@ -19,6 +19,7 @@ from ..client_rpc_response import (
 from ..client_rpc_response import (
     resolve_pending_client_rpc_response_impl as resolve_pending_client_rpc_response_impl,
 )
+from ..plan_builder import build_plan_entries
 from .client_requests import (
     build_fs_client_request,
     build_terminal_client_request,
@@ -38,10 +39,11 @@ from .normalization import (
     resolve_tool_title,
 )
 from .permission_response import resolve_permission_response_impl
-from .tool_calls import (
+from .tool_call_updates import (
     build_executor_tool_execution_updates,
-    build_plan_entries,
     build_policy_tool_execution_updates,
+)
+from .tool_calls import (
     complete_active_turn,
     create_tool_call,
     finalize_active_turn,

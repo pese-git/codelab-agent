@@ -10,7 +10,8 @@ from ....messages import ACPMessage, JsonRpcId
 from ...state import PendingToolExecution, ProtocolOutcome, SessionState
 from ..permissions import build_permission_options
 from ..session import session_info_notification
-from .tool_calls import build_policy_tool_execution_updates, finalize_active_turn
+from .tool_call_updates import build_policy_tool_execution_updates
+from .tool_calls import finalize_active_turn
 
 logger = structlog.get_logger()
 
