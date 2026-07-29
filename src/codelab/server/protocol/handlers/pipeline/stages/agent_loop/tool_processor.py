@@ -132,9 +132,18 @@ class ToolCallProcessor:
         """
         tool_results: list[ToolResult] = []
 
-        for tool_call in tool_calls:
+        for index, tool_call in enumerate(tool_calls):
             if self._is_cancel_requested(session):
                 logger.debug("tool processing cancelled", session_id=session_id)
+                # Прерывание батча оставляло остаток вызовов без ответа: их id уже
+                # лежат в assistant-сообщении истории (`loop.py`), и модель получала
+                # неконсистентную историю (tech-debt P2-38).
+                self._answer_unprocessed_tool_calls(
+                    session,
+                    session_id,
+                    tool_calls[index:],
+                    reason="turn отменён пользователем",
+                )
                 return ToolProcessingResult(
                     tool_results=tool_results,
                     pending_permission=False,
@@ -144,6 +153,14 @@ class ToolCallProcessor:
                 session, session_id, tool_call, sink, mcp_manager
             )
             if step.pause_tool_call_id is not None:
+                # Приостановленный вызов получит ответ после разрешения
+                # (`execute_pending`), а остаток батча не выполнится никогда.
+                self._answer_unprocessed_tool_calls(
+                    session,
+                    session_id,
+                    tool_calls[index + 1 :],
+                    reason="turn приостановлен на запросе разрешения для предыдущего вызова",
+                )
                 return ToolProcessingResult(
                     tool_results=tool_results,
                     pending_permission=True,
@@ -153,6 +170,50 @@ class ToolCallProcessor:
                 tool_results.append(step.tool_result)
 
         return ToolProcessingResult(tool_results=tool_results)
+
+    def _answer_unprocessed_tool_calls(
+        self,
+        session: SessionState,
+        session_id: str,
+        tool_calls: list,
+        *,
+        reason: str,
+    ) -> None:
+        """Ответить модели на вызовы батча, которые выполнены не будут.
+
+        `loop.py` кладёт в историю assistant-сообщение со ВСЕМИ вызовами батча до
+        их обработки, а обработка прерывается на паузе permission и на отмене.
+        Без этих ответов история нарушала контракт LLM-API (`role: tool` на каждый
+        `tool_call_id`), и модель повторяла вызовы — тот же дефект, что P2-36, но по
+        другому каналу.
+
+        Ответ правдивый: вызов НЕ выполнялся, и если он всё ещё нужен, модель должна
+        запросить его снова. Переписывать assistant-сообщение задним числом нельзя —
+        модель действительно эти вызовы запрашивала.
+        """
+        if not tool_calls:
+            return
+
+        answered = 0
+        for tool_call in tool_calls:
+            tool_call_id_from_llm = getattr(tool_call, "id", None)
+            if not tool_call_id_from_llm:
+                continue
+            self._add_tool_result_to_history(
+                session,
+                tool_call_id_from_llm,
+                False,
+                None,
+                f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
+            )
+            answered += 1
+
+        logger.info(
+            "tool_calls_left_unprocessed",
+            session_id=session_id,
+            count=answered,
+            reason=reason,
+        )
 
     async def _process_single_tool_call(
         self,
@@ -173,6 +234,15 @@ class ToolCallProcessor:
 
         if not tool_name:
             logger.warning("tool_call has no name", session_id=session_id)
+            # Ответ обязателен и здесь: иначе вызов остаётся без `role: tool` (P2-38).
+            if tool_call_id_from_llm:
+                self._add_tool_result_to_history(
+                    session,
+                    tool_call_id_from_llm,
+                    False,
+                    None,
+                    "Вызов не выполнялся: в запросе не указано имя инструмента.",
+                )
             return _ToolCallStep()
 
         # Конвертируем LLM имя обратно в ACP формат

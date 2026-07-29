@@ -8,6 +8,12 @@ reject-пути писали статус и нотификацию клиент
 Инвариант двусторонний: он же контракт LLM-API (за assistant-сообщением с
 `tool_calls` обязан следовать `role: tool` на каждый `tool_call_id`) и шаг 6
 ACP `05-Prompt Turn` («Agent sends the tool results back to the language model»).
+
+Второй канал того же дефекта (P2-38) — прерванный батч: `process_batch` бросал
+остаток вызовов на паузе permission и на отмене, хотя `loop.py` уже положил в
+историю assistant-сообщение со всеми id батча. Первая версия этого файла
+проверяла только одиночные reject-пути и дефект не поймала — поэтому здесь
+покрыты батчи.
 """
 
 from __future__ import annotations
@@ -119,3 +125,84 @@ class TestRejectPathsAnswerTheModel:
         )
 
         assert _tool_answers(session)[0]["tool_call_id"] == "call_042"
+
+
+class _Call:
+    """Минимальный tool call в форме, которую отдаёт LLM-адаптер."""
+
+    def __init__(self, id_: str, name: str = "fs/read_text_file") -> None:
+        self.id = id_
+        self.name = name
+        self.arguments: dict[str, Any] = {"path": "/tmp/a.txt"}
+
+
+class TestInterruptedBatchIsFullyAnswered:
+    """Прерванный батч: каждый вызов получает ответ (tech-debt P2-38)."""
+
+    @pytest.mark.asyncio
+    async def test_permission_pause_answers_rest_of_batch(self) -> None:
+        """Пауза на первом вызове не оставляет остальные без ответа.
+
+        Воспроизводит живой случай `sess_ba92d6fb021f`: батч из 11 вызовов, пауза
+        на первом — и 10 вызовов без `role: tool` до конца сессии.
+        """
+        processor = _make_processor()
+        session = _session(mode="standard")
+        batch = [_Call(f"llm_{i}") for i in range(11)]
+
+        # Первый вызов уходит в permission, остальные обработаны не будут
+        async def _pause_first(*args: Any, **kwargs: Any):
+            from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
+                _ToolCallStep,
+            )
+
+            return _ToolCallStep(pause_tool_call_id="call_001")
+
+        processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
+
+        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+
+        assert result.pending_permission is True
+        # Приостановленный вызов ответит execute_pending; остальные 10 — здесь
+        answered = {m["tool_call_id"] for m in _tool_answers(session)}
+        assert answered == {f"llm_{i}" for i in range(1, 11)}
+        assert all("не выполнялся" in m["content"] for m in _tool_answers(session))
+
+    @pytest.mark.asyncio
+    async def test_cancel_answers_remaining_batch(self) -> None:
+        """Отмена turn'а тоже не оставляет вызовы без ответа."""
+        processor = _make_processor()
+        session = _session(mode="standard")
+        batch = [_Call(f"llm_{i}") for i in range(4)]
+        processor._is_cancel_requested = lambda _session: True  # type: ignore[method-assign]
+
+        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+
+        assert result.pending_permission is False
+        answered = {m["tool_call_id"] for m in _tool_answers(session)}
+        assert answered == {f"llm_{i}" for i in range(4)}
+        assert all("отменён" in m["content"] for m in _tool_answers(session))
+
+    @pytest.mark.asyncio
+    async def test_call_without_name_is_answered(self) -> None:
+        """Вызов без имени инструмента тоже требует ответа."""
+        processor = _make_processor()
+        session = _session(mode="standard")
+        nameless = _Call("llm_x", name="")
+
+        await processor.process_batch(session, "s", [nameless], AsyncMock(), None)
+
+        answers = _tool_answers(session)
+        assert len(answers) == 1
+        assert answers[0]["tool_call_id"] == "llm_x"
+        assert "имя инструмента" in answers[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_empty_remainder_writes_nothing(self) -> None:
+        """Пауза на последнем вызове батча не добавляет лишних ответов."""
+        processor = _make_processor()
+        session = _session(mode="standard")
+
+        processor._answer_unprocessed_tool_calls(session, "s", [], reason="неважно")
+
+        assert _tool_answers(session) == []
