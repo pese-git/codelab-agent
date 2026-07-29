@@ -56,7 +56,7 @@ def mock_dependencies() -> dict[str, MagicMock]:
         "content_extractor": AsyncMock(),
         "content_validator": MagicMock(),
         "content_formatter": MagicMock(),
-        "replay_manager": MagicMock(),
+        "history_writer": MagicMock(),
         "plan_builder": MagicMock(),
         "system_prompt_builder": MagicMock(),
         "global_policy_manager": MagicMock(),

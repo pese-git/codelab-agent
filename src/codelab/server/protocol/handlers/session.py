@@ -16,7 +16,8 @@ from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionStorage
 from ..session_factory import SessionFactory
 from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
-from .replay_manager import ReplayManager
+from .event_history_writer import EventHistoryWriter
+from .session_replayer import SessionReplayer
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -78,11 +79,11 @@ def _cleanup_session_state(session: SessionState) -> None:
         session.active_turn = None
 
     # Отметить все pending tool calls как cancelled
-    replay_manager = ReplayManager()
+    history_writer = EventHistoryWriter()
     for tool_call_id, tool_call in session.tool_calls.items():
         if tool_call.status == "pending":
             tool_call.status = "cancelled"
-            replay_manager.save_tool_call_update(
+            history_writer.save_tool_call_update(
                 session,
                 tool_call_id=tool_call_id,
                 status="cancelled",
@@ -256,16 +257,16 @@ async def session_load(
 
     notifications: list[ACPMessage] = []
 
-    # Используем ReplayManager для воспроизведения истории session/update уведомлений
+    # Используем SessionReplayer для воспроизведения истории session/update уведомлений
     # согласно спецификации ACP (protocol/03-Session Setup.md, раздел 132):
     # "The Agent MUST replay the entire conversation to the Client
     # in the form of session/update notifications"
-    replay_manager = ReplayManager()
-    history_notifications = replay_manager.replay_history(session)
+    replayer = SessionReplayer()
+    history_notifications = replayer.replay_history(session)
     notifications.extend(history_notifications)
 
     # Реплеим latest_plan если он есть и не был в events_history
-    plan_notification = replay_manager.replay_latest_plan(session)
+    plan_notification = replayer.replay_latest_plan(session)
     if plan_notification:
         notifications.append(plan_notification)
 

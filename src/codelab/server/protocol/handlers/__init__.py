@@ -4,7 +4,8 @@
 протокола, разделённые по функциональности.
 """
 
+from .event_history_writer import EventHistoryWriter
 from .global_policy_manager import GlobalPolicyManager
-from .replay_manager import ReplayManager
+from .session_replayer import SessionReplayer
 
-__all__ = ["GlobalPolicyManager", "ReplayManager"]
+__all__ = ["EventHistoryWriter", "GlobalPolicyManager", "SessionReplayer"]

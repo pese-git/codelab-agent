@@ -58,7 +58,7 @@ def mock_dependencies():
         "content_extractor": AsyncMock(),
         "content_validator": MagicMock(),
         "content_formatter": MagicMock(),
-        "replay_manager": MagicMock(),
+        "history_writer": MagicMock(),
         "plan_builder": MagicMock(),
         "system_prompt_builder": mock_spb,
     }
@@ -387,7 +387,7 @@ class TestAgentLoop:
 
         assert result.stop_reason == StopReason.END_TURN
         mock_dependencies["plan_builder"].validate_plan_entries.assert_called_once_with(mock_plan)
-        mock_dependencies["replay_manager"].save_plan.assert_called_once()
+        mock_dependencies["history_writer"].save_plan.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_first_iteration_uses_execute(
@@ -730,7 +730,7 @@ class TestAgentLoop:
         mock_dependencies["plan_builder"].build_plan_notification.assert_called_once_with(
             "test_session", validated_entries
         )
-        mock_dependencies["replay_manager"].save_plan.assert_called_once()
+        mock_dependencies["history_writer"].save_plan.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_plan_tool_invalid_entries_no_notification(

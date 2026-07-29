@@ -24,6 +24,7 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.llm_caller import (
     LlmCaller,
@@ -35,7 +36,6 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor 
 )
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
-from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import SessionState, ToolResult
@@ -117,7 +117,7 @@ class AgentLoop:
         content_extractor: ContentExtractor,
         content_validator: ContentValidator,
         content_formatter: ContentFormatter,
-        replay_manager: ReplayManager,
+        history_writer: EventHistoryWriter,
         plan_builder: PlanBuilder,
         system_prompt_builder: SystemPromptBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
@@ -137,7 +137,7 @@ class AgentLoop:
             content_extractor: Извлекатель контента из результатов tools.
             content_validator: Валидатор контента.
             content_formatter: Форматировщик контента для LLM.
-            replay_manager: Менеджер replay для сохранения событий.
+            history_writer: Писатель events_history.
             plan_builder: Построитель планов выполнения.
             system_prompt_builder: Билдер system prompt (config + MCP info).
             global_policy_manager: Менеджер глобальных политик (опционально).
@@ -148,7 +148,7 @@ class AgentLoop:
         """
         self._tool_call_handler = tool_call_handler
         self._state_manager = state_manager
-        self._replay_manager = replay_manager
+        self._history_writer = history_writer
         self._plan_builder = plan_builder
         self._max_turn_requests = max_turn_requests
         self._notification_callback = notification_callback
@@ -218,7 +218,7 @@ class AgentLoop:
         """
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._replay_manager, self._notification_callback, notifications, domain_session
+            self._history_writer, self._notification_callback, notifications, domain_session
         )
         iteration = 0
         final_text: str | None = None
@@ -483,7 +483,7 @@ class AgentLoop:
         """
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._replay_manager, self._notification_callback, notifications, domain_session
+            self._history_writer, self._notification_callback, notifications, domain_session
         )
 
         # Убедиться что стратегия инициализирована для continue_execution.

@@ -54,7 +54,7 @@ def mock_dependencies():
         "content_extractor": AsyncMock(),
         "content_validator": mock_content_validator,
         "content_formatter": MagicMock(),
-        "replay_manager": MagicMock(),
+        "history_writer": MagicMock(),
         "plan_builder": MagicMock(),
         "system_prompt_builder": mock_spb,
     }

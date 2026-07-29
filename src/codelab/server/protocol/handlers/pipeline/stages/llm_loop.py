@@ -26,9 +26,9 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
-from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.stop_reasons import StopReason
 
 from ..base import PromptStage
@@ -111,7 +111,7 @@ class LLMLoopStage(PromptStage):
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()
         self._content_formatter = ContentFormatter()
-        self._replay_manager = ReplayManager()
+        self._history_writer = EventHistoryWriter()
 
         # Лениво создаваемый AgentLoop
         self._agent_loop: AgentLoop | None = None
@@ -218,7 +218,7 @@ class LLMLoopStage(PromptStage):
             content_extractor=self._content_extractor,
             content_validator=self._content_validator,
             content_formatter=self._content_formatter,
-            replay_manager=self._replay_manager,
+            history_writer=self._history_writer,
             plan_builder=self._plan_builder,
             system_prompt_builder=self._system_prompt_builder,
             global_policy_manager=self._global_policy_manager,
@@ -255,7 +255,7 @@ class LLMLoopStage(PromptStage):
                         },
                     )
                 )
-                self._replay_manager.save_agent_message_chunk(context.session, ack_content)
+                self._history_writer.save_agent_message_chunk(context.session, ack_content)
                 self._state_manager.add_assistant_message(context.session, ack_text)
             return context
 

@@ -15,6 +15,7 @@ from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
+from .event_history_writer import EventHistoryWriter
 from .permission_manager import PermissionManager
 from .pipeline import (
     LLMLoopStage,
@@ -22,7 +23,6 @@ from .pipeline import (
     PromptPipeline,
 )
 from .plan_builder import PlanBuilder
-from .replay_manager import ReplayManager
 from .slash_commands import CommandRegistry
 from .state_manager import StateManager
 from .tool_call_handler import ToolCallHandler
@@ -388,10 +388,10 @@ class PromptOrchestrator:
 def _save_tool_updates_to_history(session: SessionState, messages: list[ACPMessage]) -> None:
     """Сохранить отправленные tool_call_update в историю реплея.
 
-    Единый писатель формата события — `ReplayManager`; создаётся здесь, так как
+    Форму события истории владеет `EventHistoryWriter`; создаётся здесь, так как
     он stateless (тот же приём в `handlers.session.session_load`).
     """
-    replay_manager = ReplayManager()
+    history_writer = EventHistoryWriter()
     for message in messages:
         update = (message.params or {}).get("update", {})
         if not isinstance(update, dict) or update.get("sessionUpdate") != "tool_call_update":
@@ -400,7 +400,7 @@ def _save_tool_updates_to_history(session: SessionState, messages: list[ACPMessa
         status = update.get("status")
         if not isinstance(tool_call_id, str) or not isinstance(status, str):
             continue
-        replay_manager.save_tool_call_update(
+        history_writer.save_tool_call_update(
             session,
             tool_call_id=tool_call_id,
             status=status,

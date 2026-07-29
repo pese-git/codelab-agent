@@ -147,7 +147,7 @@ class TestAgentLoopEventBusPath:
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -253,7 +253,7 @@ class TestAgentLoopPermissionFlow:
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -324,7 +324,7 @@ class TestAgentLoopCancellation:
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -400,7 +400,7 @@ class TestAgentLoopMaxTurnRequests:
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
             max_turn_requests=3,  # Ограничиваем до 3
@@ -434,7 +434,7 @@ class TestAgentLoopErrorHandling:
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -492,7 +492,7 @@ class TestAgentLoopErrorHandling:
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=MagicMock(),
+            history_writer=MagicMock(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )

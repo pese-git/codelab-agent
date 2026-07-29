@@ -788,11 +788,63 @@ wire-вывода на пути `session/load` для сессий с legacy-п�
   критерий чистоты прогона. Заодно модель получает результат инструмента с признаком
   ошибки там, где был штатный cancel. Отмену нужно отделить от сбоя (уровень info/debug
   и отдельный признак в результате).
-- **`_REPLAYABLE_UPDATE_TYPES` содержит мёртвый `session_info`.** Единственным писателем
-  был удалённый в фазе A `ReplayManager.save_session_info`; прод пишет
-  `session_info_update`, который в набор не входит. Отсюда 2–3 нереплеируемых события в
-  каждом `session_loaded`. Решать при расщеплении `replay_manager` (фаза C): либо
-  реплеить `session_info_update`, либо убрать значение.
+- ~~**`_REPLAYABLE_UPDATE_TYPES` содержит мёртвый `session_info`.**~~ Закрыто при
+  расщеплении `replay_manager` (см. ниже): мёртвое значение снято, `session_info_update`
+  реплеить не стали.
 - **Клиент молча создаёт новую сессию** после `session_load_not_found`, ничего не сообщая
   пользователю (`session_controller._load_history` пишет только `warning` в свой логгер,
   а TUI-процесс файловое логирование не настраивает).
+
+### Фаза C, шаг 1 — `replay_manager` расщеплён (2026-07-29)
+
+`ReplayManager` совмещал два набора методов, у которых не пересекались вызывающие:
+писатели обслуживали prompt-turn и resume, читатели — только `session/load`. Разделён
+по этому шву:
+
+- **`EventHistoryWriter`** (`event_history_writer.py`) — владеет ФОРМОЙ события истории
+  (`{"type": "session_update", "update": …, "timestamp": …}`): `save_agent_message_chunk`,
+  `save_tool_call`, `save_tool_call_update`, `save_plan`.
+- **`SessionReplayer`** (`session_replayer.py`) — `replay_history`, `replay_latest_plan`
+  и набор `_REPLAYABLE_UPDATE_TYPES`.
+
+Обе половины остаются на постоянной wire-границе: элементы `events_history` — готовые
+ACP-нотификации. Имена честные (писатель и реплеер), а не «менеджер» над двумя делами.
+Поведение не менялось; `make check` — 7365 passed.
+
+**Решение по `session_info` — из спецификации, а не по вкусу.** Мёртвое значение
+`session_info` из набора снято (писателя нет со времён фазы A). `session_info_update`
+реплеить не стали, и основание такое:
+
+- `03-Session Setup.md:132` обязывает реплеить **conversation** («MUST replay the entire
+  conversation… in the form of `session/update` notifications»), и примеры там —
+  `user_message_chunk` / `agent_message_chunk`. Обязательство привязано к беседе, а не ко
+  всем когда-либо отправленным `session/update`.
+- `04-Session List.md:166,186` описывает `session_info_update` как канал метаданных сессии
+  с инкрементальной семантикой: «Only include fields that have changed — omitted fields
+  are left unchanged». Это поток патчей текущего состояния, а не элемент беседы, поэтому
+  реплей истории патчей прогонял бы клиента по промежуточным состояниям, которых уже нет.
+- Актуальность метаданных обеспечена: `session/load` в конце реплея сам эмитит свежий
+  `session_info_update`, то есть канал используется по назначению.
+
+Следствие для наблюдаемости: постоянная разница `events_history` − `history_notifications`
+в логе `session_loaded` (по 3 события на прогонах 2026-07-28 и 2026-07-29) — ожидаемое
+поведение. Счётчик по-прежнему годен как критерий нейтральности фазы D, но сверять надо
+разницу, а не равенство.
+
+**Ещё один тест, закреплявший артефакт.** Хелпер `_seed_session_info` в тестах реплея сеял
+`sessionUpdate: "session_info"` с комментарием «так же, как прод-путь», хотя такого
+писателя нет со времён фазы A. Заменён на `_seed_session_info_update` (прод-форма), и
+теперь тесты проверяют, что она НЕ реплеится.
+
+**Следующий шаг того же расщепления: у `events_history` два писателя.** Кроме
+`EventHistoryWriter` в историю пишет `StateManager.add_event` — сырыми dict из
+`prompt_orchestrator` (`user_message_chunk` на каждый блок промпта и
+`session_info_update`). Пока это так, «единый писатель формата события» не выполняется, а
+тесты реплея вынуждены сеять `user_message_chunk` руками. Свести к писателю
+(`save_user_message_chunk` / `save_session_info_update`, после чего `add_event` мёртв) —
+отдельный шаг: он задевает ~10 тестовых файлов, сеющих историю через `add_event`.
+
+**Наблюдение, поднятое спецификацией.** Раз `session_info_update` не реплеится и больше
+никем не читается, его хранение в `events_history` (3 записи на сессию) — мёртвый вес.
+Спецификация про наше хранилище ничего не требует, но при сведении писателей стоит решить,
+писать ли его на диск вообще; это смена содержимого файла сессии, поэтому отдельно.

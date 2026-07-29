@@ -55,7 +55,7 @@ def mock_dependencies():
         "content_extractor": AsyncMock(),
         "content_validator": mock_content_validator,
         "content_formatter": MagicMock(),
-        "replay_manager": MagicMock(),
+        "history_writer": MagicMock(),
         "plan_builder": MagicMock(),
         "system_prompt_builder": mock_spb,
     }
@@ -234,8 +234,8 @@ class TestAgentLoopPermissionFlowTerminalContent:
         await loop.resume_after_permission(mock_session, "test_session", tool_call_id, None)
 
         # Assert
-        mock_dependencies["replay_manager"].save_tool_call_update.assert_called()
-        call_kwargs = mock_dependencies["replay_manager"].save_tool_call_update.call_args.kwargs
+        mock_dependencies["history_writer"].save_tool_call_update.assert_called()
+        call_kwargs = mock_dependencies["history_writer"].save_tool_call_update.call_args.kwargs
         assert call_kwargs["tool_call_id"] == tool_call_id
         assert call_kwargs["status"] == "completed"
         assert call_kwargs["content"] == terminal_content

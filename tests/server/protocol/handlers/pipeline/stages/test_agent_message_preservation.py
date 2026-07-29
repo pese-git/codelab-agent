@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.agent.core.agent_base import AgentResponse
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.state import SessionState
 
 
@@ -34,7 +34,7 @@ class TestAgentMessageChunkPreservation:
         mock_strategy.execute.return_value = mock_response
         mock_strategy.continue_execution.return_value = mock_response
 
-        replay_manager = ReplayManager()
+        history_writer = EventHistoryWriter()
 
         loop = AgentLoop(
             strategy=mock_strategy,
@@ -45,7 +45,7 @@ class TestAgentMessageChunkPreservation:
             content_extractor=MagicMock(),
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=replay_manager,
+            history_writer=history_writer,
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -110,7 +110,7 @@ class TestAgentMessageChunkPreservation:
             kind="other",
         )
 
-        replay_manager = ReplayManager()
+        history_writer = EventHistoryWriter()
 
         loop = AgentLoop(
             strategy=mock_strategy,
@@ -121,7 +121,7 @@ class TestAgentMessageChunkPreservation:
             content_extractor=MagicMock(),
             content_validator=MagicMock(),
             content_formatter=MagicMock(),
-            replay_manager=replay_manager,
+            history_writer=history_writer,
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )

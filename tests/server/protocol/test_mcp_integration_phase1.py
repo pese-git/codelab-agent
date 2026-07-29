@@ -16,11 +16,11 @@ import pytest
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
-from codelab.server.protocol.handlers.replay_manager import ReplayManager
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import SessionState
@@ -88,7 +88,7 @@ def agent_loop(
         content_extractor=ContentExtractor(),
         content_validator=ContentValidator(),
         content_formatter=ContentFormatter(),
-        replay_manager=ReplayManager(),
+        history_writer=EventHistoryWriter(),
         plan_builder=plan_builder,
         system_prompt_builder=SystemPromptBuilder(global_prompt=""),
     )

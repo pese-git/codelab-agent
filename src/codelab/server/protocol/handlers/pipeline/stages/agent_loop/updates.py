@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from codelab.server.domain.session import Session as DomainSession
     from codelab.server.models import PlanStep
-    from codelab.server.protocol.handlers.replay_manager import ReplayManager
+    from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
     from codelab.server.protocol.state import SessionState
 
 logger = structlog.get_logger()
@@ -45,7 +45,7 @@ class SessionUpdateSink:
 
     def __init__(
         self,
-        replay_manager: ReplayManager,
+        history_writer: EventHistoryWriter,
         callback: Callable[[ACPMessage], Awaitable[None]] | None,
         buffer: list[ACPMessage],
         domain_session: DomainSession | None = None,
@@ -53,7 +53,7 @@ class SessionUpdateSink:
         """Инициализация sink.
 
         Args:
-            replay_manager: Менеджер replay для сохранения events_history.
+            history_writer: Писатель events_history.
             callback: Callback для немедленной отправки notifications (или None).
             buffer: Список notifications для накопления (fallback / permission).
                 Sink хранит ссылку — вызывающий читает его после turn'а.
@@ -62,7 +62,7 @@ class SessionUpdateSink:
                 `SessionState.latest_plan` пересобирается из домена (dual-carry).
                 None → legacy-поведение (прямая запись `latest_plan`).
         """
-        self._replay_manager = replay_manager
+        self._history_writer = history_writer
         self._callback = callback
         self._buffer = buffer
         self._domain_session = domain_session
@@ -154,7 +154,7 @@ class SessionUpdateSink:
 
     def save_agent_message_chunk(self, session: SessionState, content: dict[str, Any]) -> None:
         """Сохранить agent_message_chunk в events_history для replay."""
-        self._replay_manager.save_agent_message_chunk(session, content)
+        self._history_writer.save_agent_message_chunk(session, content)
 
     # ── Комбинированные emit + replay ──────────────────────────────────────
 
@@ -174,7 +174,7 @@ class SessionUpdateSink:
         """
         self._apply_plan(session, entries)
         await self.emit(notification)
-        self._replay_manager.save_plan(session, entries)
+        self._history_writer.save_plan(session, entries)
 
     def _apply_plan(self, session: SessionState, entries: list[dict[str, str]]) -> None:
         """Единая запись плана: домен как источник + dual-carry в latest_plan."""
@@ -204,7 +204,7 @@ class SessionUpdateSink:
     ) -> None:
         """Отправить tool_call-notification и сохранить создание tool call в replay."""
         await self.emit(notification)
-        self._replay_manager.save_tool_call(
+        self._history_writer.save_tool_call(
             session=session,
             tool_call_id=tool_call_id,
             title=title,
@@ -223,7 +223,7 @@ class SessionUpdateSink:
     ) -> None:
         """Отправить tool_call_update-notification и сохранить статус в replay."""
         await self.emit(notification)
-        self._replay_manager.save_tool_call_update(
+        self._history_writer.save_tool_call_update(
             session=session,
             tool_call_id=tool_call_id,
             status=status,
