@@ -25,6 +25,19 @@ def mock_strategy():
 
 
 @pytest.fixture
+def real_session():
+    """Настоящий SessionState.
+
+    Форму записи истории теперь владеет носитель состояния (history-seam,
+    фаза B ADR-006), поэтому состав tool-ответа проверяется на реальном
+    `SessionState`, а не на моке: мок раскладку слотов не воспроизводит.
+    """
+    from codelab.server.protocol.state import SessionState
+
+    return SessionState(session_id="test_session", cwd="/tmp", mcp_servers=[])
+
+
+@pytest.fixture
 def mock_session():
     """Mock SessionState."""
     session = MagicMock()
@@ -461,53 +474,53 @@ class TestAgentLoop:
         mock_strategy.continue_execution.assert_called_once_with(mock_session, None, on_delta=None)
 
     def test_add_tool_result_to_history_success(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, real_session, mock_dependencies
     ):
         """_add_tool_result_to_history() добавляет успешный результат."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            mock_session, "tc_1", success=True, output="Result text", error=None
+            real_session, "tc_1", success=True, output="Result text", error=None
         )
 
-        assert len(mock_session.history) == 1
-        assert mock_session.history[0] == {
+        assert len(real_session.history) == 1
+        assert real_session.history[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Result text",
         }
 
     def test_add_tool_result_to_history_failure(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, real_session, mock_dependencies
     ):
         """_add_tool_result_to_history() добавляет ошибку."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            mock_session, "tc_1", success=False, output=None, error="Something failed"
+            real_session, "tc_1", success=False, output=None, error="Something failed"
         )
 
-        assert len(mock_session.history) == 1
-        assert mock_session.history[0] == {
+        assert len(real_session.history) == 1
+        assert real_session.history[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Something failed",
         }
 
     def test_add_tool_result_to_history_failure_no_error(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, real_session, mock_dependencies
     ):
         """_add_tool_result_to_history() использует дефолтное сообщение при отсутствии error."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            mock_session, "tc_1", success=False, output=None, error=None
+            real_session, "tc_1", success=False, output=None, error=None
         )
 
-        assert mock_session.history[0]["content"] == "Tool execution failed"
+        assert real_session.history[0]["content"] == "Tool execution failed"
 
     def test_add_tool_result_to_history_failure_preserves_output(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, real_session, mock_dependencies
     ):
         """Неуспех (ненулевой exit code) НЕ теряет output — LLM видит результат команды.
 
@@ -518,22 +531,22 @@ class TestAgentLoop:
         analyze_output = "9 issues found. error • Missing concrete implementation ..."
 
         loop._tool_processor._add_tool_result_to_history(
-            mock_session, "tc_1", success=False, output=analyze_output, error=None
+            real_session, "tc_1", success=False, output=analyze_output, error=None
         )
 
-        assert mock_session.history[0]["content"] == analyze_output
+        assert real_session.history[0]["content"] == analyze_output
 
     def test_add_tool_result_to_history_failure_combines_output_and_error(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, real_session, mock_dependencies
     ):
         """При наличии и output, и error в историю попадают оба."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            mock_session, "tc_1", success=False, output="partial output", error="boom"
+            real_session, "tc_1", success=False, output="partial output", error="boom"
         )
 
-        content = mock_session.history[0]["content"]
+        content = real_session.history[0]["content"]
         assert "partial output" in content
         assert "boom" in content
 

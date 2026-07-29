@@ -1,0 +1,156 @@
+"""Пути отмены отвечают модели на отменённые вызовы (P2-38, источник 2).
+
+Найдено на живых прогонах `sess_ba92d6fb021f` и `sess_daac2d9d9ee8`: вызов,
+приостановленный на запросе разрешения, после `session/cancel` помечался
+`cancelled`, но `role: tool` для него не появлялся никогда. Фикс прерванного
+батча (источник 1) здесь не работает по построению — отмена происходит вне
+`process_batch`, остатка батча нет.
+
+Инвариант тот же: контракт LLM-API требует `role: tool` на каждый `tool_call_id`
+из assistant-сообщения, а шаг 6 ACP `05-Prompt Turn` — отправлять результаты
+обратно в модель.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from codelab.server.protocol.handlers.session import _cleanup_session_state
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
+
+
+def _session_with_pending_call(status: str = "pending") -> SessionState:
+    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+    session.tool_calls["call_001"] = ToolCallState(
+        tool_call_id="call_001",
+        title="terminal/create",
+        kind="execute",
+        status=status,
+        tool_call_id_from_llm="chatcmpl-tool-abc",
+    )
+    session.history.append(
+        {
+            "role": "assistant",
+            "text": "",
+            "tool_calls": [{"id": "chatcmpl-tool-abc", "name": "terminal_create", "arguments": {}}],
+        }
+    )
+    return session
+
+
+def _answers(session: SessionState) -> list[dict[str, Any]]:
+    return [m for m in session.history if isinstance(m, dict) and m.get("role") == "tool"]
+
+
+class TestTurnCancelAnswersToolCalls:
+    def test_cancel_active_tools_answers_with_llm_id(self) -> None:
+        """Ответ адресуется id, который прислал LLM, иначе он не сматчится."""
+        session = _session_with_pending_call()
+
+        notifications = ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert len(notifications) == 1
+        answers = _answers(session)
+        assert len(answers) == 1
+        assert answers[0]["tool_call_id"] == "chatcmpl-tool-abc"
+        assert "отменён" in answers[0]["content"]
+
+    def test_cancel_active_tools_answers_in_progress_call(self) -> None:
+        session = _session_with_pending_call(status="in_progress")
+
+        ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert len(_answers(session)) == 1
+
+    def test_terminal_call_is_not_answered_twice(self) -> None:
+        """Уже завершённый вызов не отменяется и второго ответа не получает."""
+        session = _session_with_pending_call(status="completed")
+
+        notifications = ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert notifications == []
+        assert _answers(session) == []
+
+    def test_answer_falls_back_to_acp_id(self) -> None:
+        session = _session_with_pending_call()
+        session.tool_calls["call_001"].tool_call_id_from_llm = None
+
+        ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert _answers(session)[0]["tool_call_id"] == "call_001"
+
+
+class TestSessionSwitchAnswersToolCalls:
+    def test_cleanup_answers_pending_call(self) -> None:
+        """Переключение сессии тоже не оставляет вызов без ответа."""
+        session = _session_with_pending_call()
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+
+        _cleanup_session_state(session)
+
+        answers = _answers(session)
+        assert len(answers) == 1
+        assert answers[0]["tool_call_id"] == "chatcmpl-tool-abc"
+        assert "переключена" in answers[0]["content"]
+        assert session.tool_calls["call_001"].status == "cancelled"
+
+    def test_cleanup_keeps_history_consistent_with_events(self) -> None:
+        """Отмена уходит и в реплей клиенту, и в историю модели — в одной копии."""
+        session = _session_with_pending_call()
+
+        _cleanup_session_state(session)
+
+        replayed = [
+            e
+            for e in session.events_history
+            if (e.get("update") or {}).get("sessionUpdate") == "tool_call_update"
+        ]
+        assert len(replayed) == 1
+        assert replayed[0]["update"]["status"] == "cancelled"
+        assert len(_answers(session)) == 1
+
+
+class TestHistorySeamParityForToolResult:
+    """Сейм `add_tool_result` парен на wire и в домене (фаза B ADR-006)."""
+
+    def test_wire_and_domain_records_are_equivalent(self) -> None:
+        from codelab.server.domain.session import Session, SessionConfig
+        from codelab.server.domain.value_objects import SessionId
+        from codelab.server.mapping.history_mapper import HistoryMapper
+
+        wire = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        wire.add_tool_result("llm_1", "результат")
+
+        domain = Session(id=SessionId("s"), config=SessionConfig(cwd="/tmp"))
+        domain.add_tool_result("llm_1", "результат")
+
+        mapped = HistoryMapper.to_protocol(domain.history.get_messages()[0])
+
+        assert wire.history[0] == {
+            "role": "tool",
+            "tool_call_id": "llm_1",
+            "content": "результат",
+        }
+        assert (mapped.role, mapped.tool_call_id, mapped.content) == (
+            "tool",
+            "llm_1",
+            "результат",
+        )
+
+    @pytest.mark.parametrize("content", ["", "многострочный\nтекст"])
+    def test_domain_roundtrip_preserves_content(self, content: str) -> None:
+        from codelab.server.domain.session import Session, SessionConfig
+        from codelab.server.domain.value_objects import SessionId
+        from codelab.server.mapping.history_mapper import HistoryMapper
+
+        domain = Session(id=SessionId("s"), config=SessionConfig(cwd="/tmp"))
+        domain.add_tool_result("llm_1", content)
+        message = domain.history.get_messages()[0]
+
+        restored = HistoryMapper.to_domain(HistoryMapper.to_protocol(message))
+
+        assert restored.content.text == content
+        assert restored.tool_call_id == "llm_1"

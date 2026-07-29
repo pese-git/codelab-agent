@@ -279,5 +279,19 @@ class ToolCallHandler:
                     status="cancelled",
                 )
             )
+            # Отменённый вызов тоже обязан получить ответ модели: его id лежит в
+            # assistant-сообщении истории, а контракт LLM-API требует `role: tool`
+            # на каждый `tool_call_id`. Без этого вызов оставался без ответа
+            # навсегда — и модель повторяла его (tech-debt P2-38, источник 2).
+            session.add_tool_result(
+                tool_call.tool_call_id_from_llm or tool_call.tool_call_id,
+                "Вызов не выполнялся: turn отменён пользователем. "
+                "Запроси его снова, если он всё ещё нужен.",
+            )
 
+        logger.debug(
+            "active tool calls cancelled",
+            session_id=session_id,
+            cancelled_count=len(notifications),
+        )
         return notifications

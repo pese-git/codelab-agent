@@ -986,13 +986,9 @@ class ToolCallProcessor:
             content = "\n".join(parts) if parts else "Tool execution failed"
 
         final_content = content or ""
-        session.history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": final_content,
-            }
-        )
+        # Форма записи принадлежит носителю состояния (history-seam, фаза B ADR-006):
+        # тот же сейм зовут пути отмены, поэтому она одна для всех писателей.
+        session.add_tool_result(tool_call_id, final_content)
 
         preview = final_content[:200].replace("\n", " ⏎ ")
         logger.info(

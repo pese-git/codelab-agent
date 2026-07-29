@@ -408,6 +408,21 @@ class Session:
         """Значение config_values по ключу (persistent session-config)."""
         return self.config.config_values.get(key, default)
 
+    def add_tool_result(self, tool_call_id: str, content: str) -> None:
+        """Добавить результат инструмента как ответ модели.
+
+        Парный сейм к `SessionState.add_tool_result`: контракт LLM-API требует
+        `role: tool` на каждый `tool_call_id` из assistant-сообщения. `timestamp`
+        не синтезируется — у tool-ответа его нет и в wire-форме.
+        """
+        self.history.add(
+            ConversationMessage(
+                role=MessageRole.TOOL,
+                content=MessageContent.from_text(content),
+                tool_call_id=tool_call_id,
+            )
+        )
+
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""
         self.title = title

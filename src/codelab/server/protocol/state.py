@@ -226,6 +226,23 @@ class SessionState(BaseModel):
             entry["content"] = content
         self.history.append(entry)
 
+    def add_tool_result(self, tool_call_id: str, content: str) -> None:
+        """Добавить результат инструмента как ответ модели.
+
+        Контракт LLM-API: за assistant-сообщением с `tool_calls` обязан следовать
+        `role: tool` на каждый `tool_call_id`. Раньше форму этой записи знал только
+        `ToolCallProcessor`, поэтому пути отмены её не писали и вызовы оставались
+        без ответа (tech-debt P2-36/P2-38). `timestamp` не ставится: слот истории
+        для tool-ответа его не несёт (ср. `HistoryMapper`).
+        """
+        self.history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": content,
+            }
+        )
+
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""
         self.title = title

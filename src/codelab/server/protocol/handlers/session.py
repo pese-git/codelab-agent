@@ -88,6 +88,14 @@ def _cleanup_session_state(session: SessionState) -> None:
                 tool_call_id=tool_call_id,
                 status="cancelled",
             )
+            # Ответ модели на отменённый вызов: без него он остаётся без `role: tool`
+            # и при следующем запросе история нарушает контракт LLM-API
+            # (tech-debt P2-38, источник 2).
+            session.add_tool_result(
+                tool_call.tool_call_id_from_llm or tool_call_id,
+                "Вызов не выполнялся: сессия была переключена. "
+                "Запроси его снова, если он всё ещё нужен.",
+            )
 
 
 def session_new(
