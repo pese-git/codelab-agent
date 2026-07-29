@@ -39,16 +39,15 @@ from .normalization import (
     resolve_tool_title,
 )
 from .permission_response import resolve_permission_response_impl
+from .tool_call_state import create_tool_call, update_tool_call_status
 from .tool_call_updates import (
     build_executor_tool_execution_updates,
     build_policy_tool_execution_updates,
 )
-from .tool_calls import (
+from .turn_state import (
     complete_active_turn,
-    create_tool_call,
     finalize_active_turn,
     should_auto_complete_active_turn,
-    update_tool_call_status,
 )
 from .validation import (
     MAX_AUDIO_DATA_SIZE,

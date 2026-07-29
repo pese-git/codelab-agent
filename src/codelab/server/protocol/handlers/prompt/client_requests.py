@@ -11,7 +11,7 @@ from ...state import (
     PromptDirectives,
     SessionState,
 )
-from .tool_calls import create_tool_call
+from .tool_call_state import create_tool_call
 
 
 def normalize_session_path(cwd: str, candidate: str) -> str | None:

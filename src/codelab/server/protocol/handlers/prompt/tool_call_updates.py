@@ -7,7 +7,7 @@ executor-lifecycle и решение policy. Вынесено из `tool_calls.p
 
 Полностью развязать их не получится и не нужно: обе функции по построению
 атомарны — «сменить статус и сообщить об этом клиенту», поэтому они зовут
-`update_tool_call_status` (мутация состояния). Разделение делает эту связь явной:
+`update_tool_call_status` из `tool_call_state`. Разделение делает эту связь явной:
 видно, какая половина каждой функции переедет в домен в фазе D.
 """
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from ....messages import ACPMessage
 from ...state import SessionState
-from .tool_calls import update_tool_call_status
+from .tool_call_state import update_tool_call_status
 
 
 def build_executor_tool_execution_updates(
