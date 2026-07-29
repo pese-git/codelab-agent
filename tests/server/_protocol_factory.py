@@ -287,7 +287,7 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
             params = message.params or {}
-            response = await session.session_list(message.id, params, st._storage, 50)
+            response = await session.session_list(message.id, params, st._repository, 50)
             return ProtocolOutcome(response=response)
 
     class _SessionPromptWrapper:

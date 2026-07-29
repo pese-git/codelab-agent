@@ -191,7 +191,7 @@ class RequestProvider(Provider):
         registry.register(session_load_handler)
         registry.register(
             SessionListCommandHandler(
-                storage=storage,
+                repository=repository,
                 page_size=50,
             )
         )

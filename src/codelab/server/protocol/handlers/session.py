@@ -13,7 +13,7 @@ from typing import Any, cast
 import structlog
 
 from ...messages import ACPMessage, JsonRpcId
-from ...storage import SessionStorage
+from ...storage import SessionRepository, SessionStorage
 from ..session_factory import SessionFactory
 from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
 from .event_history_writer import EventHistoryWriter
@@ -381,13 +381,13 @@ async def session_load(
 async def session_list(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
-    storage: SessionStorage,
+    repository: SessionRepository,
     session_list_page_size: int = 50,
 ) -> ACPMessage:
     """Возвращает список сессий с опциональной фильтрацией по `cwd`.
 
     Пример использования:
-        response = await session_list("req_1", {"cwd": "/tmp"}, storage)
+        response = await session_list("req_1", {"cwd": "/tmp"}, repository)
     """
 
     # Поддерживаем фильтрацию сессий по cwd для клиентских списков.
@@ -423,7 +423,10 @@ async def session_list(
     sessions_list: list[dict[str, Any]] = []
     storage_cursor = None
     while True:
-        page, next_cursor = await storage.list_sessions(
+        # Порт отдаёт облегчённую wire-проекцию, а не агрегат (CQRS-lite, ADR-006):
+        # `session/list` нужны только title/updated_at/cwd, восстанавливать поведение
+        # агрегата для списка незачем.
+        page, next_cursor = await repository.list_sessions(
             cwd=cwd_filter if isinstance(cwd_filter, str) else None,
             cursor=storage_cursor,
             limit=100,

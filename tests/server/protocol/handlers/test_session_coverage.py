@@ -363,7 +363,7 @@ class TestSessionListEdgeCases:
         response = await session_list(
             request_id="req_1",
             params={"cwd": "relative"},
-            storage=AsyncMock(),
+            repository=AsyncMock(),
         )
 
         assert response.error is not None
@@ -375,7 +375,7 @@ class TestSessionListEdgeCases:
         response = await session_list(
             request_id="req_1",
             params={"cursor": 123},
-            storage=AsyncMock(),
+            repository=AsyncMock(),
         )
 
         assert response.error is not None
@@ -397,8 +397,10 @@ class TestSessionListEdgeCases:
             updated_at="2026-01-01T00:00:00Z",
         )
 
-        storage = AsyncMock()
-        storage.list_sessions = AsyncMock(
+        # Порт отдаёт ту же wire-проекцию, что backend (CQRS-lite, ADR-006),
+        # поэтому пагинация проверяется на нём же
+        repository = AsyncMock()
+        repository.list_sessions = AsyncMock(
             side_effect=[
                 ([first], "cursor_2"),
                 ([second], None),
@@ -408,11 +410,11 @@ class TestSessionListEdgeCases:
         response = await session_list(
             request_id="req_1",
             params={},
-            storage=storage,
+            repository=repository,
             session_list_page_size=10,
         )
 
         assert response.error is None
         assert response.result is not None
         assert len(response.result["sessions"]) == 2
-        assert storage.list_sessions.call_count == 2
+        assert repository.list_sessions.call_count == 2
