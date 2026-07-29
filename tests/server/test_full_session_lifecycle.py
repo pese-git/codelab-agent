@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
 
@@ -55,27 +56,14 @@ class TestFullSessionLifecycle:
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
         for block in user_prompt:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Добавляем agent message и сохраняем в events_history
         agent_response = "I'm doing great, thank you!"
         orchestrator.state_manager.add_assistant_message(session, agent_response)
 
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_response},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_response}
         )
 
         # Assert - Проверяем что события сохранены
@@ -166,27 +154,14 @@ class TestFullSessionLifecycle:
         orchestrator.state_manager.add_user_message(session, user_prompt_1)
 
         for block in user_prompt_1:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Act - Первый turn (агент)
         agent_response_1 = "Python is a programming language"
         orchestrator.state_manager.add_assistant_message(session, agent_response_1)
 
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_response_1},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_response_1}
         )
 
         # Act - Второй turn (пользователь)
@@ -194,27 +169,14 @@ class TestFullSessionLifecycle:
         orchestrator.state_manager.add_user_message(session, user_prompt_2)
 
         for block in user_prompt_2:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Act - Второй turn (агент)
         agent_response_2 = "Python has many great features like simplicity and readability"
         orchestrator.state_manager.add_assistant_message(session, agent_response_2)
 
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_response_2},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_response_2}
         )
 
         # Assert - Проверяем что все события сохранены
@@ -293,25 +255,12 @@ class TestFullSessionLifecycle:
                 orchestrator.state_manager.add_user_message(session, prompt)
 
                 for block in prompt:
-                    orchestrator.state_manager.add_event(
-                        session,
-                        {
-                            "type": "session_update",
-                            "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                        },
-                    )
+                    EventHistoryWriter().save_user_message_chunk(session, block)
             else:
                 orchestrator.state_manager.add_assistant_message(session, text)
 
-                orchestrator.state_manager.add_event(
-                    session,
-                    {
-                        "type": "session_update",
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {"type": "text", "text": text},
-                        },
-                    },
+                EventHistoryWriter().save_agent_message_chunk(
+                    session, {"type": "text", "text": text}
                 )
 
         # Сохраняем сессию в storage

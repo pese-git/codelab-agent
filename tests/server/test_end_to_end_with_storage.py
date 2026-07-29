@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
 
@@ -50,13 +51,7 @@ class TestEndToEndWithStorage:
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
         for block in user_prompt:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Assert - Проверяем формат события в memory
         assert len(session.events_history) == 1
@@ -84,19 +79,10 @@ class TestEndToEndWithStorage:
             runtime_capabilities=None,
         )
 
-        orchestrator = make_orchestrator()
-
         # Act
         agent_text = "I can help you!"
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_text},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_text}
         )
 
         # Assert - Проверяем структуру
@@ -132,13 +118,7 @@ class TestEndToEndWithStorage:
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
         for block in user_prompt:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Сериализуем как JSON (как делает JsonFileStorage)
         json_str = json.dumps({"events_history": session.events_history})
@@ -179,13 +159,7 @@ class TestEndToEndWithStorage:
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
         for block in user_prompt:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Сохраняем обновлённую сессию
         await storage.save_session(session)

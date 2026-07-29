@@ -73,11 +73,34 @@ class TurnLifecycleManager:
     async def close_turn(self, session: SessionState, stop_reason: str) -> list[Notification]:
         """Закрыть turn, отправить session/update."""
         ...
-    
-    async def add_event(self, session: SessionState, event: dict) -> None:
-        """Добавить событие в events_history."""
-        ...
 ```
+
+### EventHistoryWriter и SessionReplayer
+
+Запись `session/update` в `events_history` и воспроизведение истории на
+`session/load` — две разные роли, разделённые по вызывающим:
+
+```python
+class EventHistoryWriter:
+    """Единственный писатель формата события истории (turn-путь)."""
+
+    def save_user_message_chunk(self, session: SessionState, content: dict) -> None: ...
+    def save_agent_message_chunk(self, session: SessionState, content: dict) -> None: ...
+    def save_tool_call(self, session: SessionState, tool_call_id: str, ...) -> None: ...
+    def save_tool_call_update(self, session: SessionState, tool_call_id: str, ...) -> None: ...
+    def save_plan(self, session: SessionState, entries: list[dict]) -> None: ...
+    def save_session_info_update(self, session: SessionState, *, title, updated_at) -> None: ...
+
+
+class SessionReplayer:
+    """Воспроизведение накопленной истории (путь session/load)."""
+
+    def replay_history(self, session: SessionState) -> list[ACPMessage]: ...
+    def replay_latest_plan(self, session: SessionState) -> ACPMessage | None: ...
+```
+
+`session_info_update` пишется в историю, но НЕ реплеится: по ACP это патч-канал
+метаданных, а не conversation, и `session/load` эмитит свежий в конце реплея.
 
 ### ToolCallHandler
 

@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
@@ -38,38 +36,6 @@ def replayer() -> SessionReplayer:
     return SessionReplayer()
 
 
-def _seed_user_message_chunk(session: SessionState, content: dict[str, Any]) -> None:
-    """Пишет user_message_chunk в events_history так же, как прод-путь.
-
-    Прод пишет это событие через `StateManager.add_event` из PromptOrchestrator,
-    а не через писателя истории, поэтому тесты replay сеют его напрямую.
-    """
-    session.events_history.append(
-        {
-            "type": "session_update",
-            "update": {"sessionUpdate": "user_message_chunk", "content": content},
-        }
-    )
-
-
-def _seed_session_info_update(session: SessionState, title: str, updated_at: str) -> None:
-    """Пишет `session_info_update` — форму, которую действительно пишет прод.
-
-    Прежний helper сеял `session_info` (такого писателя нет со времён фазы A) и
-    тем закреплял мёртвое значение набора реплея как контракт.
-    """
-    session.events_history.append(
-        {
-            "type": "session_update",
-            "update": {
-                "sessionUpdate": "session_info_update",
-                "title": title,
-                "updatedAt": updated_at,
-            },
-        }
-    )
-
-
 class TestReplayHistory:
     """Тесты для replay_history."""
 
@@ -92,7 +58,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay сообщений пользователя и агента."""
         # Сохраняем историю
-        _seed_user_message_chunk(session, {"type": "text", "text": "User question"})
+        history_writer.save_user_message_chunk(session, {"type": "text", "text": "User question"})
         history_writer.save_agent_message_chunk(session, {"type": "text", "text": "Agent answer"})
 
         # Воспроизводим
@@ -153,7 +119,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay полной беседы с tool calls."""
         # Симулируем полную беседу
-        _seed_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
+        history_writer.save_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
         history_writer.save_tool_call(
             session=session,
             tool_call_id="call_001",
@@ -169,7 +135,7 @@ class TestReplayHistory:
         history_writer.save_agent_message_chunk(
             session, {"type": "text", "text": "Here is the file content..."}
         )
-        _seed_session_info_update(
+        history_writer.save_session_info_update(
             session, title="Read file.txt", updated_at="2024-01-01T00:00:00Z"
         )
 
@@ -205,7 +171,7 @@ class TestReplayHistory:
             }
         )
         # И валидное событие
-        _seed_user_message_chunk(session, {"type": "text", "text": "Hello"})
+        history_writer.save_user_message_chunk(session, {"type": "text", "text": "Hello"})
 
         notifications = replayer.replay_history(session)
 
@@ -319,7 +285,7 @@ class TestIntegrationWithSessionLoad:
         """Проверяет полный сценарий replay для session/load."""
         # Симулируем историю сессии
         # Turn 1: Пользователь спрашивает, агент отвечает
-        _seed_user_message_chunk(
+        history_writer.save_user_message_chunk(
             session, {"type": "text", "text": "What is in config.json?"}
         )
         history_writer.save_tool_call(
@@ -345,7 +311,7 @@ class TestIntegrationWithSessionLoad:
         )
 
         # Turn 2: Пользователь просит изменить
-        _seed_user_message_chunk(
+        history_writer.save_user_message_chunk(
             session, {"type": "text", "text": "Change key to newvalue"}
         )
         history_writer.save_tool_call(
@@ -365,7 +331,7 @@ class TestIntegrationWithSessionLoad:
         )
 
         # Session info
-        _seed_session_info_update(
+        history_writer.save_session_info_update(
             session, title="What is in config.json?", updated_at="2024-01-01T12:00:00Z"
         )
 

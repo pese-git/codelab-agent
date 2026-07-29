@@ -64,6 +64,8 @@ class PromptOrchestrator:
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
     ):
         self.state_manager = state_manager
+        # Единственный писатель формата события истории (фаза C ADR-006); stateless.
+        self._history_writer = EventHistoryWriter()
         self.plan_builder = plan_builder
         self.turn_lifecycle_manager = turn_lifecycle_manager
         self.tool_call_handler = tool_call_handler
@@ -192,13 +194,7 @@ class PromptOrchestrator:
         self.state_manager.update_session_title(session, text_preview)
         self.state_manager.add_user_message(session, prompt)
         for block in prompt:
-            self.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            self._history_writer.save_user_message_chunk(session, block)
         self.state_manager.update_session_timestamp(session)
 
         context = PromptContext(
@@ -247,16 +243,10 @@ class PromptOrchestrator:
                 },
             )
         )
-        self.state_manager.add_event(
+        self._history_writer.save_session_info_update(
             session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "session_info_update",
-                    "title": summary.get("title"),
-                    "updatedAt": summary.get("updated_at"),
-                },
-            },
+            title=summary.get("title"),
+            updated_at=summary.get("updated_at"),
         )
 
         # Turn отложен — ожидает разрешения пользователя

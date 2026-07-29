@@ -31,6 +31,28 @@ class EventHistoryWriter:
         >>> writer.save_tool_call(session, "call_001", "Read file", "read", "pending")
     """
 
+    def save_user_message_chunk(
+        self,
+        session: SessionState,
+        content: dict[str, Any],
+    ) -> None:
+        """Сохраняет user_message_chunk в events_history.
+
+        Пишется по одному событию на блок промпта: реплей отдаёт клиенту блоки
+        в исходном порядке, поэтому склейка недопустима.
+
+        Args:
+            session: Состояние сессии
+            content: Content block промпта (text/resource/image)
+        """
+        self._append(
+            session,
+            {
+                "sessionUpdate": "user_message_chunk",
+                "content": content,
+            },
+        )
+
     def save_agent_message_chunk(
         self,
         session: SessionState,
@@ -122,6 +144,33 @@ class EventHistoryWriter:
             {
                 "sessionUpdate": "plan",
                 "entries": entries,
+            },
+        )
+
+    def save_session_info_update(
+        self,
+        session: SessionState,
+        *,
+        title: str | None,
+        updated_at: str | None,
+    ) -> None:
+        """Сохраняет session_info_update в events_history.
+
+        Единственное событие истории, которое НЕ реплеится (`SessionReplayer.
+        _REPLAYABLE_UPDATE_TYPES`): по ACP это патч-канал метаданных, а не
+        conversation. Хранится для полноты журнала turn'а.
+
+        Args:
+            session: Состояние сессии
+            title: Заголовок сессии (None — очистка по ACP)
+            updated_at: ISO 8601 метка последней активности
+        """
+        self._append(
+            session,
+            {
+                "sessionUpdate": "session_info_update",
+                "title": title,
+                "updatedAt": updated_at,
             },
         )
 

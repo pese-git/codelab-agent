@@ -152,3 +152,67 @@ class TestSavePlan:
         event = session.events_history[0]
         assert event["update"]["sessionUpdate"] == "plan"
         assert event["update"]["entries"] == entries
+
+
+class TestSaveUserMessageChunk:
+    """Тесты сохранения user_message_chunk."""
+
+    def test_saves_one_event_per_block(
+        self,
+        history_writer: EventHistoryWriter,
+        session: SessionState,
+    ) -> None:
+        """Каждый блок промпта — отдельное событие в исходном порядке.
+
+        Склейка недопустима: реплей отдаёт блоки клиенту в том же порядке
+        (ср. упорядоченные блоки `MessageContent`, фаза B ADR-006).
+        """
+        prompt = [
+            {"type": "resource", "resource": {"uri": "file:///a.md", "text": "doc"}},
+            {"type": "text", "text": "инструкция"},
+        ]
+
+        for block in prompt:
+            history_writer.save_user_message_chunk(session, block)
+
+        assert [e["update"]["content"]["type"] for e in session.events_history] == [
+            "resource",
+            "text",
+        ]
+        assert all(
+            e["update"]["sessionUpdate"] == "user_message_chunk" for e in session.events_history
+        )
+        assert all("timestamp" in e for e in session.events_history)
+
+
+class TestSaveSessionInfoUpdate:
+    """Тесты сохранения session_info_update."""
+
+    def test_saves_acp_shape(
+        self,
+        history_writer: EventHistoryWriter,
+        session: SessionState,
+    ) -> None:
+        """Форма ACP: title + updatedAt (camelCase, `04-Session List.md`)."""
+        history_writer.save_session_info_update(
+            session, title="Сессия", updated_at="2026-07-29T00:00:00Z"
+        )
+
+        update = session.events_history[0]["update"]
+        assert update == {
+            "sessionUpdate": "session_info_update",
+            "title": "Сессия",
+            "updatedAt": "2026-07-29T00:00:00Z",
+        }
+
+    def test_accepts_null_fields(
+        self,
+        history_writer: EventHistoryWriter,
+        session: SessionState,
+    ) -> None:
+        """`null` — валидное значение по ACP (очистка поля)."""
+        history_writer.save_session_info_update(session, title=None, updated_at=None)
+
+        update = session.events_history[0]["update"]
+        assert update["title"] is None
+        assert update["updatedAt"] is None

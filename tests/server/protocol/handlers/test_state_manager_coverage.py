@@ -2,7 +2,6 @@
 
 Покрывает ранее непокрытые ветки:
 - _extract_text_from_content_blocks
-- add_event с различными входными данными.
 """
 
 from __future__ import annotations
@@ -61,32 +60,8 @@ class TestExtractTextFromContentBlocks:
         assert _extract_text_from_content_blocks(blocks) == "valid"
 
 
-class TestAddEvent:
-    """Тесты добавления событий в events_history."""
-
-    def test_add_event_with_timestamp(
-        self,
-        state_manager: StateManager,
-        session: SessionState,
-    ) -> None:
-        """Событие с timestamp добавляется без изменений."""
-        event = {"type": "test", "timestamp": "2026-01-01T00:00:00Z"}
-        state_manager.add_event(session, event)
-
-        assert len(session.events_history) == 1
-        assert session.events_history[0]["timestamp"] == "2026-01-01T00:00:00Z"
-
-    def test_add_event_without_timestamp(
-        self,
-        state_manager: StateManager,
-        session: SessionState,
-    ) -> None:
-        """К событию без timestamp добавляется текущее время."""
-        event = {"type": "test"}
-        state_manager.add_event(session, event)
-
-        assert len(session.events_history) == 1
-        assert "timestamp" in session.events_history[0]
+class TestHistorySeams:
+    """Тесты делегирования истории в носитель состояния."""
 
     def test_add_user_message_delegates_to_seam(
         self,

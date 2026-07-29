@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.state import SessionState
 
@@ -55,13 +56,7 @@ class TestUserMessageChunkPersistence:
 
         # Добавляем events как делает handle_prompt
         for block in prompt:
-            orchestrator.state_manager.add_event(
-                session,
-                {
-                    "type": "session_update",
-                    "update": {"sessionUpdate": "user_message_chunk", "content": block},
-                },
-            )
+            EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Assert
         assert len(session.events_history) >= 2
@@ -114,15 +109,8 @@ class TestAgentMessageChunkFormat:
 
         # Act - добавляем agent message и event как делает handle_prompt
         orchestrator.state_manager.add_assistant_message(session, agent_response)
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_response},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_response}
         )
 
         # Assert
@@ -151,15 +139,8 @@ class TestAgentMessageChunkFormat:
 
         # Act
         orchestrator.state_manager.add_assistant_message(session, agent_response)
-        orchestrator.state_manager.add_event(
-            session,
-            {
-                "type": "session_update",
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": agent_response},
-                },
-            },
+        EventHistoryWriter().save_agent_message_chunk(
+            session, {"type": "text", "text": agent_response}
         )
 
         # Assert
