@@ -539,9 +539,14 @@ def session_info_notification(
     *,
     session_id: str,
     title: str | None,
-    updated_at: str,
+    updated_at: str | None,
 ) -> ACPMessage:
     """Создает notification `session_info_update` для `session/update`.
+
+    `updated_at` допускает `None`: по ACP (`04-Session List.md`) поля
+    `session_info_update` опциональны, а `null` — валидное значение (очистка).
+    Доменный `Session.updated_at` тоже nullable — метка не синтезируется при
+    round-trip (ADR-006).
 
     Пример использования:
         note = session_info_notification(

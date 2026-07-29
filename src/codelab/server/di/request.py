@@ -218,14 +218,14 @@ class RequestProvider(Provider):
         )
         registry.register(
             SetConfigOptionCommandHandler(
-                storage=storage,
+                repository=repository,
                 config_specs=config_specs,
                 model_resolver=model_resolver,
             )
         )
         registry.register(
             SetModeCommandHandler(
-                storage=storage,
+                repository=repository,
                 config_specs=config_specs,
             )
         )

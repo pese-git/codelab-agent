@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from codelab.server.protocol.handlers.config import session_set_mode
@@ -24,6 +22,7 @@ from codelab.server.protocol.state import (
     ClientRuntimeCapabilities,
     SessionState,
 )
+from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.tools.registry import SimpleToolRegistry
 
 
@@ -45,15 +44,17 @@ def stage(
     return DirectivesStage(tool_registry, permission_manager)
 
 
-def _make_storage(session: SessionState | None = None):
-    """Создать mock storage с опциональной сессией."""
-    storage = AsyncMock()
-    if session is not None:
-        storage.load_session = AsyncMock(return_value=session)
-        storage.save_session = AsyncMock()
-    else:
-        storage.load_session = AsyncMock(return_value=None)
-    return storage
+async def _seed(session: SessionState) -> tuple[SessionRepository, InMemoryStorage]:
+    """Backend с засеянной сессией и доменный репозиторий над ним.
+
+    Транзакция config доменная (фаза D ADR-006): мутируется не переданный
+    wire-объект, а копия из репозитория. Backend отдаётся тестам отдельно,
+    потому что `decide_tool_policy` читает wire-состояние — ровно как турн-путь,
+    который загружает сессию заново после смены режима.
+    """
+    backend = InMemoryStorage()
+    await backend.save_session(session)
+    return SessionRepository(backend=backend), backend
 
 
 def _make_config_specs():
@@ -276,7 +277,7 @@ class TestModeTransitionIntegration:
     async def test_session_set_mode_updates_tool_policy(self) -> None:
         """session/set_mode должен обновлять tool policy."""
         session = _make_session(mode="standard")
-        storage = _make_storage(session)
+        repository, backend = await _seed(session)
 
         # Изначально standard mode → ask
         assert decide_tool_policy(session, "execute") == "ask"
@@ -285,38 +286,41 @@ class TestModeTransitionIntegration:
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "bypass"},
-            storage,
+            repository,
             _make_config_specs(),
         )
 
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "bypass"
-
-        # Теперь bypass mode → allow
-        assert decide_tool_policy(session, "execute") == "allow"
+        # Политика читает состояние, загруженное заново — как турн-путь после смены режима
+        reloaded = await backend.load_session("sess_1")
+        assert reloaded is not None
+        assert reloaded.config_values.get("mode") == "bypass"
+        assert decide_tool_policy(reloaded, "execute") == "allow"
 
     @pytest.mark.asyncio
     async def test_session_set_mode_with_old_mode_normalization(self) -> None:
         """session/set_mode с старым mode должен нормализовать."""
         session = _make_session(mode="standard")
-        storage = _make_storage(session)
+        repository, backend = await _seed(session)
 
         # Выполняем session/set_mode с старым mode "code"
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "code"},
-            storage,
+            repository,
             _make_config_specs(),
         )
 
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "bypass"
+        reloaded = await backend.load_session("sess_1")
+        assert reloaded is not None
+        assert reloaded.config_values.get("mode") == "bypass"
 
         # Tool policy должна соответствовать bypass
-        assert decide_tool_policy(session, "execute") == "allow"
-        assert decide_tool_policy(session, "edit") == "allow"
+        assert decide_tool_policy(reloaded, "execute") == "allow"
+        assert decide_tool_policy(reloaded, "edit") == "allow"
 
 
 class TestToolPolicyDecisionIntegration:

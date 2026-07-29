@@ -383,7 +383,7 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             return await config.session_set_config_option(
                 message.id,
                 params,
-                st._storage,
+                st._repository,
                 st._config_specs,
                 model_resolver=st._model_resolver,
             )
@@ -393,7 +393,9 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
             params = message.params or {}
-            return await config.session_set_mode(message.id, params, st._storage, st._config_specs)
+            return await config.session_set_mode(
+                message.id, params, st._repository, st._config_specs
+            )
 
     for wrapper in (
         _InitializeWrapper(),

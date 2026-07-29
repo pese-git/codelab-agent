@@ -8,23 +8,39 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from codelab.server.protocol.handlers.config import session_set_mode
 from codelab.server.protocol.state import SessionState
+from codelab.server.storage import InMemoryStorage, SessionRepository
 
 
-def _make_storage(session: SessionState | None = None):
-    """Создать mock storage с опциональной сессией."""
-    storage = AsyncMock()
+async def _make_repository(session: SessionState | None = None) -> SessionRepository:
+    """Репозиторий над реальным backend'ом с опционально засеянной сессией.
+
+    Транзакция config работает доменным агрегатом (фаза D ADR-006), поэтому
+    мутирует не переданный wire-объект, а свою копию: проверять нужно
+    сохранённое состояние, а не объект-аргумент. Реальный backend вместо мока
+    заодно прогоняет конверсию wire↔domain на настоящем мапперe.
+    """
+    backend = InMemoryStorage()
     if session is not None:
-        storage.load_session = AsyncMock(return_value=session)
-        storage.save_session = AsyncMock()
-    else:
-        storage.load_session = AsyncMock(return_value=None)
-    return storage
+        await backend.save_session(session)
+    return SessionRepository(backend=backend)
+
+
+async def _reloaded(repository: SessionRepository, session_id: str = "sess_1"):
+    """Сессия, перечитанная из репозитория."""
+    saved = await repository.load_session(session_id)
+    assert saved is not None
+    return saved
+
+
+async def _saved_mode(repository: SessionRepository, session_id: str = "sess_1") -> str | None:
+    """Значение `mode` в сохранённой сессии."""
+    saved = await repository.load_session(session_id)
+    assert saved is not None
+    return saved.get_config_value("mode")
 
 
 def _make_config_specs():
@@ -51,16 +67,16 @@ class TestSessionSetModeValidModes:
     @pytest.mark.asyncio
     async def test_set_mode_plan(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "plan"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "plan"
+        assert await _saved_mode(repository) == "plan"
         # Проверяем current_mode_update через session/update
         mode_update = next(
             (
@@ -78,30 +94,30 @@ class TestSessionSetModeValidModes:
     @pytest.mark.asyncio
     async def test_set_mode_standard(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "standard"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "standard"
+        assert await _saved_mode(repository) == "standard"
 
     @pytest.mark.asyncio
     async def test_set_mode_bypass(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "bypass"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "bypass"
+        assert await _saved_mode(repository) == "bypass"
 
 
 class TestSessionSetModeOldModeNormalization:
@@ -110,16 +126,16 @@ class TestSessionSetModeOldModeNormalization:
     @pytest.mark.asyncio
     async def test_old_mode_ask_normalizes_to_standard(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "ask"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "standard"
+        assert await _saved_mode(repository) == "standard"
         # Проверяем current_mode_update через session/update
         mode_update = next(
             (
@@ -137,44 +153,44 @@ class TestSessionSetModeOldModeNormalization:
     @pytest.mark.asyncio
     async def test_old_mode_code_normalizes_to_bypass(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "code"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "bypass"
+        assert await _saved_mode(repository) == "bypass"
 
     @pytest.mark.asyncio
     async def test_old_mode_architect_normalizes_to_plan(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "architect"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "plan"
+        assert await _saved_mode(repository) == "plan"
 
     @pytest.mark.asyncio
     async def test_old_mode_debug_normalizes_to_standard(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "debug"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is None
-        assert session.config_values.get("mode") == "standard"
+        assert await _saved_mode(repository) == "standard"
 
 
 class TestSessionSetModeInvalid:
@@ -183,11 +199,11 @@ class TestSessionSetModeInvalid:
     @pytest.mark.asyncio
     async def test_invalid_mode_id(self) -> None:
         session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        storage = _make_storage(session)
+        repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "unknown_mode"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
@@ -197,11 +213,11 @@ class TestSessionSetModeInvalid:
 
     @pytest.mark.asyncio
     async def test_missing_session_id(self) -> None:
-        storage = _make_storage()
+        repository = await _make_repository()
         outcome = await session_set_mode(
             "req_1",
             {"modeId": "plan"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
@@ -210,11 +226,11 @@ class TestSessionSetModeInvalid:
 
     @pytest.mark.asyncio
     async def test_missing_mode_id(self) -> None:
-        storage = _make_storage()
+        repository = await _make_repository()
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
@@ -223,14 +239,72 @@ class TestSessionSetModeInvalid:
 
     @pytest.mark.asyncio
     async def test_session_not_found(self) -> None:
-        storage = _make_storage()
+        repository = await _make_repository()
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "nonexistent", "modeId": "plan"},
-            storage,
+            repository,
             _make_config_specs(),
         )
         assert outcome.response is not None
         assert outcome.response.error is not None
         assert outcome.response.error.code == -32001
         assert "Session not found" in outcome.response.error.message
+
+
+class TestConfigObservability:
+    """Наблюдаемость config-транзакции (фаза D ADR-006).
+
+    До этого успешная смена опции не логировала ничего, и переключение
+    транзакции на доменный агрегат нельзя было подтвердить живым прогоном —
+    только сверкой файла сессии.
+    """
+
+    @pytest.mark.asyncio
+    async def test_successful_change_is_logged(self) -> None:
+        import structlog
+
+        session = SessionState(
+            session_id="sess_1",
+            cwd="/tmp",
+            mcp_servers=[],
+            config_values={"mode": "standard", "model": "openai/gpt"},
+        )
+        repository = await _make_repository(session)
+
+        with structlog.testing.capture_logs() as logs:
+            outcome = await session_set_mode(
+                "req_1",
+                {"sessionId": "sess_1", "modeId": "plan"},
+                repository,
+                _make_config_specs(),
+            )
+
+        assert outcome.response is not None
+        entry = next(log for log in logs if log["event"] == "session_config_option_changed")
+        assert entry["config_id"] == "mode"
+        assert entry["value"] == "plan"
+        # Метка после save — та же, что ушла на диск и в session_info-нотификацию
+        assert entry["updated_at"] == (await _reloaded(repository)).updated_at
+        # Сторонние ключи config_values не теряются доменным round-trip'ом
+        assert entry["config_values"] == 2
+
+    @pytest.mark.asyncio
+    async def test_missing_session_is_logged(self) -> None:
+        import structlog
+
+        repository = await _make_repository()
+
+        with structlog.testing.capture_logs() as logs:
+            outcome = await session_set_mode(
+                "req_1",
+                {"sessionId": "sess_absent", "modeId": "plan"},
+                repository,
+                _make_config_specs(),
+            )
+
+        assert outcome.response is not None
+        assert outcome.response.error is not None
+        assert any(
+            log["event"] == "session_config_option_session_not_found" for log in logs
+        )

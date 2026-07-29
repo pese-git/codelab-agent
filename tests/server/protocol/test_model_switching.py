@@ -7,20 +7,21 @@ import pytest
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.session import build_config_options
 from codelab.server.protocol.state import SessionState
+from codelab.server.storage import SessionRepository
 from codelab.server.storage.memory import InMemoryStorage
 
 
 @pytest.fixture
-async def storage() -> InMemoryStorage:
-    """Создать хранилище с тестовой сессией."""
-    storage = InMemoryStorage()
+async def repository() -> SessionRepository:
+    """Репозиторий с тестовой сессией (транзакция config доменная, фаза D ADR-006)."""
+    backend = InMemoryStorage()
     session = SessionState(
         session_id="test-session",
         cwd="/tmp/test",
         config_values={"mode": "ask", "model": "openai/gpt-4o"},
     )
-    await storage.save_session(session)
-    return storage
+    await backend.save_session(session)
+    return SessionRepository(backend=backend)
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ def config_specs() -> dict[str, dict[str, dict]]:
 
 @pytest.mark.asyncio
 async def test_set_model_config_option(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить установку model config option."""
@@ -62,7 +63,7 @@ async def test_set_model_config_option(
             "configId": "model",
             "value": "anthropic/claude-sonnet-4",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
     )
 
@@ -85,7 +86,7 @@ async def test_set_model_config_option(
 
 @pytest.mark.asyncio
 async def test_set_invalid_model_value(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить ошибку при установке недопустимого значения модели."""
@@ -96,7 +97,7 @@ async def test_set_invalid_model_value(
             "configId": "model",
             "value": "unknown/invalid-model",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
     )
 
@@ -107,7 +108,7 @@ async def test_set_invalid_model_value(
 
 @pytest.mark.asyncio
 async def test_set_unknown_config_option(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить ошибку при установке неизвестной config option."""
@@ -118,7 +119,7 @@ async def test_set_unknown_config_option(
             "configId": "unknown_option",
             "value": "some_value",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
     )
 
@@ -129,7 +130,7 @@ async def test_set_unknown_config_option(
 
 @pytest.mark.asyncio
 async def test_session_not_found(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить ошибку при отсутствии сессии."""
@@ -140,7 +141,7 @@ async def test_session_not_found(
             "configId": "model",
             "value": "openai/gpt-4o",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
     )
 
@@ -151,7 +152,7 @@ async def test_session_not_found(
 
 @pytest.mark.asyncio
 async def test_config_option_notification(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить что отправляется notification при изменении config."""
@@ -162,7 +163,7 @@ async def test_config_option_notification(
             "configId": "model",
             "value": "anthropic/claude-sonnet-4",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
     )
 
@@ -202,7 +203,7 @@ async def test_build_config_options_with_model(
 
 @pytest.mark.asyncio
 async def test_model_change_invalidates_resolver_cache(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить что смена модели вызывает invalidate_session на resolver."""
@@ -216,7 +217,7 @@ async def test_model_change_invalidates_resolver_cache(
             "configId": "model",
             "value": "anthropic/claude-sonnet-4",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
         model_resolver=mock_resolver,
     )
@@ -230,7 +231,7 @@ async def test_model_change_invalidates_resolver_cache(
 
 @pytest.mark.asyncio
 async def test_non_model_change_does_not_invalidate_resolver_cache(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить что смена не-model config не вызывает invalidate."""
@@ -243,7 +244,7 @@ async def test_non_model_change_does_not_invalidate_resolver_cache(
             "configId": "mode",
             "value": "code",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
         model_resolver=mock_resolver,
     )
@@ -256,7 +257,7 @@ async def test_non_model_change_does_not_invalidate_resolver_cache(
 
 @pytest.mark.asyncio
 async def test_model_change_without_resolver(
-    storage: InMemoryStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict],
 ) -> None:
     """Проверить что смена модели без resolver работает корректно."""
@@ -268,7 +269,7 @@ async def test_model_change_without_resolver(
             "configId": "model",
             "value": "openrouter/mistral-large",
         },
-        storage=storage,
+        repository=repository,
         config_specs=config_specs,
         model_resolver=None,
     )

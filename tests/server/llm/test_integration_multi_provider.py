@@ -32,6 +32,7 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder
 from codelab.server.protocol.state import SessionState
+from codelab.server.storage import SessionRepository
 from codelab.server.storage.memory import InMemoryStorage
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -358,7 +359,7 @@ async def test_e2e_full_flow_with_model_config() -> None:
             "configId": "model",
             "value": "mock/model-v2",
         },
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         config_specs=config_specs,
     )
 
@@ -502,7 +503,7 @@ async def test_model_switching_mid_session() -> None:
             "configId": "model",
             "value": "mock/model-v2",
         },
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         config_specs=config_specs,
     )
 
@@ -521,7 +522,7 @@ async def test_model_switching_mid_session() -> None:
             "configId": "model",
             "value": "mock/model-v1",
         },
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         config_specs=config_specs,
     )
 
@@ -576,7 +577,7 @@ async def test_model_switching_invalid_model() -> None:
             "configId": "model",
             "value": "mock/nonexistent-model",
         },
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         config_specs=config_specs,
     )
 

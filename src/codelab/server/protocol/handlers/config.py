@@ -7,9 +7,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
+from ...domain.session import Session
 from ...messages import ACPMessage, JsonRpcId
-from ...storage import SessionStorage
-from ..state import ProtocolOutcome, SessionState
+from ...storage import SessionRepository
+from ..state import ProtocolOutcome
 from .session import (
     build_config_options,
     build_modes_state,
@@ -19,15 +22,21 @@ from .session import (
 if TYPE_CHECKING:
     from codelab.server.llm.resolver import ModelResolver
 
+logger = structlog.get_logger()
+
 
 async def session_set_config_option(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
-    storage: SessionStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict[str, Any]],
     model_resolver: ModelResolver | None = None,
 ) -> ProtocolOutcome:
     """Изменяет значение конфигурационной опции сессии.
+
+    Транзакция работает доменным агрегатом (первый шаг фазы D ADR-006):
+    рабочая модель — `domain.Session`, wire-DTO живёт только внутри
+    `SessionRepository`.
 
     В случае успеха возвращает новый snapshot `configOptions` и отправляет
     `config_option_update` + `session_info_update`.
@@ -36,7 +45,7 @@ async def session_set_config_option(
         outcome = await session_set_config_option(
             "req_1",
             {"sessionId": "sess_1", "configId": "mode", "value": "code"},
-            storage,
+            repository,
             config_specs,
         )
     """
@@ -63,8 +72,13 @@ async def session_set_config_option(
             )
         )
 
-    session = await storage.load_session(session_id)
+    session = await repository.load_session(session_id)
     if session is None:
+        logger.warning(
+            "session_config_option_session_not_found",
+            session_id=session_id,
+            config_id=config_id,
+        )
         return ProtocolOutcome(
             response=ACPMessage.error_response(
                 request_id,
@@ -104,7 +118,7 @@ async def session_set_config_option(
     if config_id == "model" and model_resolver is not None:
         model_resolver.invalidate_session(session_id)
 
-    config_options = build_config_options(session.config_values, config_specs)
+    config_options = build_config_options(session.config.config_values, config_specs)
     # Отправляем полный snapshot configOptions, чтобы клиент не делал merge вручную.
     config_notification = ACPMessage.notification(
         "session/update",
@@ -118,14 +132,28 @@ async def session_set_config_option(
     )
 
     # Сохраняем изменённое состояние сессии
-    await storage.save_session(session)
+    await repository.save_session(session)
+
+    # Единственная точка наблюдаемости config-транзакции: до этого успешная смена
+    # опции не оставляла в логе ничего, и переключение на доменный агрегат
+    # (фаза D ADR-006) нельзя было подтвердить на живом прогоне — только сверкой
+    # файла сессии. `updated_at` берём после save: это метка, которая ушла на диск
+    # и в session_info-нотификацию (sync-back штампа порта).
+    logger.info(
+        "session_config_option_changed",
+        session_id=session_id,
+        config_id=config_id,
+        value=value,
+        config_values=len(session.config.config_values),
+        updated_at=session.updated_at,
+    )
 
     return ProtocolOutcome(
         response=ACPMessage.response(
             request_id,
             {
                 "configOptions": config_options,
-                "modes": build_modes_state(session.config_values, config_specs),
+                "modes": build_modes_state(session.config.config_values, config_specs),
             },
         ),
         notifications=build_config_update_notifications(
@@ -141,7 +169,7 @@ async def session_set_config_option(
 async def session_set_mode(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
-    storage: SessionStorage,
+    repository: SessionRepository,
     config_specs: dict[str, dict[str, Any]],
 ) -> ProtocolOutcome:
     """ACP метод смены режима через `session/set_mode`.
@@ -153,7 +181,7 @@ async def session_set_mode(
         outcome = await session_set_mode(
             "req_1",
             {"sessionId": "sess_1", "modeId": "bypass"},
-            storage,
+            repository,
             config_specs,
         )
     """
@@ -191,7 +219,7 @@ async def session_set_mode(
             "configId": "mode",
             "value": normalized_mode,
         },
-        storage,
+        repository,
         config_specs,
     )
     if mapped.response is None or mapped.response.error is not None:
@@ -209,7 +237,7 @@ def build_config_update_notifications(
     *,
     session_id: str,
     config_id: str,
-    session: SessionState,
+    session: Session,
     config_notification: ACPMessage,
     config_specs: dict[str, dict[str, Any]],
 ) -> list[ACPMessage]:
@@ -234,7 +262,7 @@ def build_config_update_notifications(
                     "sessionId": session_id,
                     "update": {
                         "sessionUpdate": "current_mode_update",
-                        "currentModeId": session.config_values.get("mode", "ask"),
+                        "currentModeId": session.get_config_value("mode", "ask"),
                     },
                 },
             )
