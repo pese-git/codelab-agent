@@ -60,7 +60,10 @@ class TerminalToolExecutor(ToolExecutor):
             return client_terminal_id, None
 
         known = sorted(session.terminals)
-        logger.error(
+        # warning, а не error: промах по alias — галлюцинация модели, сервер отработал
+        # верно и вернул модели список доступных терминалов. Уровень error здесь ломал
+        # критерий «0 ошибок за прогон» (tech-debt P2-37).
+        logger.warning(
             "terminal_alias_not_found",
             session_id=session.session_id,
             alias=alias,

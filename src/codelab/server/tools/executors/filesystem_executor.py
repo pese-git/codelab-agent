@@ -6,7 +6,10 @@ from typing import Any
 
 import structlog
 
-from codelab.server.client_rpc.exceptions import ClientRPCResponseError
+from codelab.server.client_rpc.exceptions import (
+    ClientRPCCancelledError,
+    ClientRPCResponseError,
+)
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
@@ -146,6 +149,20 @@ class FileSystemToolExecutor(ToolExecutor):
                 error=f"Ошибка при чтении файла: {e.message}",
             )
 
+        except ClientRPCCancelledError as e:
+            # Отмена turn'а пользователем — не сбой: уровень info и правдивый
+            # текст модели вместо «Ошибка» (tech-debt P2-37).
+            logger.info(
+                "client_rpc_cancelled",
+                operation="чтения",
+                path=path,
+                reason=str(e),
+            )
+            return ToolExecutionResult(
+                success=False,
+                error=f"Операция чтения файла отменена: {e}",
+            )
+
         except Exception as e:
             logger.error(
                 "Ошибка при чтении файла",
@@ -234,6 +251,20 @@ class FileSystemToolExecutor(ToolExecutor):
             return ToolExecutionResult(
                 success=False,
                 error=f"Ошибка при записи файла: {e.message}",
+            )
+
+        except ClientRPCCancelledError as e:
+            # Отмена turn'а пользователем — не сбой: уровень info и правдивый
+            # текст модели вместо «Ошибка» (tech-debt P2-37).
+            logger.info(
+                "client_rpc_cancelled",
+                operation="записи",
+                path=path,
+                reason=str(e),
+            )
+            return ToolExecutionResult(
+                success=False,
+                error=f"Операция записи файла отменена: {e}",
             )
 
         except Exception as e:

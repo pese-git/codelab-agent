@@ -420,7 +420,9 @@ class ToolCallProcessor:
         скорректировать вызов, — без холостого permission-запроса на несуществующий tool.
         """
         available = sorted(tool.name for tool in self._tool_registry.list_tools())
-        logger.error(
+        # warning: несуществующий инструмент — галлюцинация модели, а не сбой сервера;
+        # список доступных уходит модели в ответе (tech-debt P2-37).
+        logger.warning(
             "tool not found in registry",
             session_id=session_id,
             tool_call_id=tool_call_id,

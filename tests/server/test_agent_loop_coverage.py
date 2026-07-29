@@ -224,7 +224,12 @@ class TestAgentLoopToolProcessing:
         # Не дошёл до permission и до реального исполнения.
         mock_dependencies["permission_manager"].build_permission_request.assert_not_called()
         mock_dependencies["tool_registry"].execute_tool.assert_not_called()
+        # warning, а не error: несуществующий инструмент — галлюцинация модели,
+        # сервер отработал верно (tech-debt P2-37)
         assert any(
+            "tool not found in registry" in str(call) for call in mock_logger.warning.call_args_list
+        )
+        assert not any(
             "tool not found in registry" in str(call) for call in mock_logger.error.call_args_list
         )
 

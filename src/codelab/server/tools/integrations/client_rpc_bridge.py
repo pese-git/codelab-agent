@@ -8,6 +8,7 @@ import structlog
 
 from codelab.server.client_rpc.exceptions import (
     ClientCapabilityMissingError,
+    ClientRPCCancelledError,
     ClientRPCError,
     ClientRPCResponseError,
     ClientRPCTimeoutError,
@@ -26,6 +27,12 @@ class ClientRPCBridge:
     - Проверять capabilities перед вызовами
     - Преобразовывать RPC исключения в ToolExecutionResult
     - Логирование всех операций
+
+    Отмена RPC (`ClientRPCCancelledError`) логируется как штатное событие, а не
+    ошибка: её вызывает `session/cancel` пользователя. Раньше она попадала в общую
+    ветку с таймаутами и сбоями, и один `session/cancel` давал единственный error
+    за прогон — из-за чего «0 ошибок» перестало работать как критерий чистоты
+    (tech-debt P2-37).
     """
 
     def __init__(self, client_rpc_service: ClientRPCService) -> None:
@@ -99,6 +106,14 @@ class ClientRPCBridge:
             )
             return None
 
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при чтении файла",
+                reason=str(e),
+            )
+            raise
+
         except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при чтении файла",
@@ -160,6 +175,14 @@ class ClientRPCBridge:
                 extra={"session_id": session.session_id, "path": path, "error": str(e)},
             )
             return False
+
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при записи файла",
+                reason=str(e),
+            )
+            raise
 
         except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
@@ -228,6 +251,14 @@ class ClientRPCBridge:
             )
             return None
 
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при создании терминала",
+                reason=str(e),
+            )
+            return None
+
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при создании терминала",
@@ -288,6 +319,14 @@ class ClientRPCBridge:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
                 extra={"session_id": session.session_id, "error": str(e)},
+            )
+            return None
+
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при ожидании завершения терминала",
+                reason=str(e),
             )
             return None
 
@@ -361,6 +400,14 @@ class ClientRPCBridge:
             )
             return None
 
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при получении output терминала",
+                reason=str(e),
+            )
+            return None
+
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при получении output терминала",
@@ -416,6 +463,14 @@ class ClientRPCBridge:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
                 extra={"session_id": session.session_id, "error": str(e)},
+            )
+            return False
+
+        except ClientRPCCancelledError as e:
+            logger.info(
+                "client_rpc_cancelled",
+                method="Ошибка при освобождении терминала",
+                reason=str(e),
             )
             return False
 
