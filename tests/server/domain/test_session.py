@@ -53,7 +53,7 @@ class TestConversationHistory:
         history = ConversationHistory()
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         history.add(msg)
         assert len(history.get_messages()) == 1
@@ -64,7 +64,7 @@ class TestConversationHistory:
         for i in range(5):
             msg = ConversationMessage(
                 role=MessageRole.USER,
-                content=MessageContent(text=f"msg{i}"),
+                content=MessageContent.from_text(f"msg{i}"),
             )
             history.add(msg)
         recent = history.get_recent(2)
@@ -76,7 +76,7 @@ class TestConversationHistory:
         history = ConversationHistory()
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         history.add(msg)
         recent = history.get_recent(10)
@@ -276,7 +276,7 @@ class TestSession:
         session = Session(id=SessionId("sess_1"), config=config)
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         session.add_message(msg)
         assert len(session.history.get_messages()) == 1

@@ -7,6 +7,7 @@ from codelab.server.domain.conversation import (
     Image,
     MessageContent,
     Resource,
+    TextBlock,
 )
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import MessageRole
@@ -83,20 +84,70 @@ class TestMessageContent:
 
     def test_with_data(self) -> None:
         mc = MessageContent(
-            text="hello",
-            resources=[Resource(uri="file:///tmp")],
-            images=[Image(data="data")],
+            blocks=(
+                TextBlock(text="hello"),
+                Resource(uri="file:///tmp"),
+                Image(data="data"),
+            )
         )
         assert mc.text == "hello"
         assert len(mc.resources) == 1
         assert len(mc.images) == 1
+
+    def test_from_text_empty_is_blockless(self) -> None:
+        assert MessageContent.from_text("") == MessageContent()
+
+    def test_blocks_keep_source_order(self) -> None:
+        """Порядок блоков сохраняется: [resource, text] не превращается в [text, resource]."""
+        mc = MessageContent.from_acp_blocks(
+            [
+                {"type": "resource", "resource": {"uri": "file:///a.md", "text": "doc"}},
+                {"type": "text", "text": "инструкция"},
+            ]
+        )
+
+        assert [block.to_acp()["type"] for block in mc.blocks] == ["resource", "text"]
+        assert mc.to_acp_blocks()[0]["type"] == "resource"
+
+    def test_repeated_text_blocks_stay_separate(self) -> None:
+        mc = MessageContent.from_acp_blocks(
+            [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
+        )
+
+        assert len(mc.blocks) == 2
+        assert mc.text == "a\nb"
+
+    def test_empty_text_blocks_dropped(self) -> None:
+        """Пустой text-блок не хранится — так же, как его отбрасывала сборка wire."""
+        mc = MessageContent.from_acp_blocks([{"type": "text", "text": ""}, {"type": "text"}, ""])
+
+        assert mc.blocks == ()
+
+    def test_unknown_block_type_ignored(self) -> None:
+        mc = MessageContent.from_acp_blocks([{"type": "audio", "data": "zz"}, 42])
+
+        assert mc.blocks == ()
+
+    def test_projections_filter_by_kind(self) -> None:
+        mc = MessageContent(
+            blocks=(
+                Resource(uri="file:///a"),
+                TextBlock(text="t"),
+                Image(data="d"),
+                Resource(uri="file:///b"),
+            )
+        )
+
+        assert [r.uri for r in mc.resources] == ["file:///a", "file:///b"]
+        assert [i.data for i in mc.images] == ["d"]
+        assert mc.text == "t"
 
 
 class TestConversationMessage:
     def test_create(self) -> None:
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         assert msg.role == MessageRole.USER
         assert msg.content.text == "hello"
@@ -115,7 +166,7 @@ class TestConversationMessage:
     def test_tool_message(self) -> None:
         msg = ConversationMessage(
             role=MessageRole.TOOL,
-            content=MessageContent(text="result"),
+            content=MessageContent.from_text("result"),
             tool_call_id="call_1",
         )
         assert msg.role == MessageRole.TOOL

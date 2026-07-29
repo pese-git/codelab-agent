@@ -319,7 +319,7 @@ class Session:
         иначе разбор блоков распустил бы её на символы.
         """
         content = (
-            MessageContent(text=prompt)
+            MessageContent.from_text(prompt)
             if isinstance(prompt, str)
             else MessageContent.from_acp_blocks(prompt)
         )
@@ -338,7 +338,7 @@ class Session:
         поверхность сохранена одноимённой с wire-сеймом.
         """
         message_content = (
-            MessageContent(text=content)
+            MessageContent.from_text(content)
             if isinstance(content, str)
             else MessageContent.from_acp_blocks([content])
         )

@@ -66,16 +66,47 @@ class Image:
 
 
 @dataclass(frozen=True)
-class MessageContent:
-    """Domain model для содержимого сообщения."""
+class TextBlock:
+    """Domain model для текстового блока."""
 
-    text: str = ""
-    resources: list[Resource] = field(default_factory=list)
-    images: list[Image] = field(default_factory=list)
+    text: str
+
+    @classmethod
+    def from_acp(cls, block: dict[str, Any]) -> TextBlock:
+        return cls(text=block.get("text", ""))
+
+    def to_acp(self) -> dict[str, Any]:
+        return {"type": "text", "text": self.text}
+
+
+type ContentBlock = TextBlock | Resource | Image
+
+
+@dataclass(frozen=True)
+class MessageContent:
+    """Domain model для содержимого сообщения — упорядоченные блоки.
+
+    Порядок блоков — часть содержимого, а не деталь представления: для модели
+    `[resource, text]` (файл, затем комментирующая его инструкция) и
+    `[text, resource]` — разные сообщения. Поэтому источник истины один —
+    `blocks`; `text`/`resources`/`images` остались как проекции для читателей,
+    которым нужен только один вид блоков.
+
+    Раньше содержимое хранилось этими тремя полями, и порядок был невосстановим:
+    несколько `text`-блоков склеивались в одну строку, а обратная сборка шла
+    фиксированно текст → ресурсы → картинки (блокер фазы D, ADR-006).
+    """
+
+    blocks: tuple[ContentBlock, ...] = ()
+
+    @classmethod
+    def from_text(cls, text: str) -> MessageContent:
+        """Содержимое из одной строки (пустая строка — пустое содержимое)."""
+        return cls(blocks=(TextBlock(text=text),) if text else ())
 
     @classmethod
     def from_acp_blocks(cls, blocks: Sequence[Any]) -> MessageContent:
-        """Собрать содержимое из ACP content blocks.
+        """Собрать содержимое из ACP content blocks, сохраняя порядок.
 
         Единственная реализация разбора блоков: её используют и history-seam
         (`Session.add_user_message`), и `HistoryMapper` при чтении хранилища
@@ -83,27 +114,48 @@ class MessageContent:
         разбор ACP-блоков в домене — уже принятая здесь конвенция.
 
         Неизвестные типы блоков игнорируются: содержимое сообщения не должно
-        падать из-за расширения протокола.
+        падать из-за расширения протокола. Пустые `text`-блоки отбрасываются —
+        так же, как их отбрасывала прежняя сборка wire-блоков.
         """
-        text_parts: list[str] = []
-        resources: list[Resource] = []
-        images: list[Image] = []
+        parsed: list[ContentBlock] = []
 
         for block in blocks:
             if isinstance(block, str):
-                text_parts.append(block)
+                if block:
+                    parsed.append(TextBlock(text=block))
                 continue
             if not isinstance(block, dict):
                 continue
             match block.get("type", ""):
                 case "text":
-                    text_parts.append(block.get("text", ""))
+                    text_block = TextBlock.from_acp(block)
+                    if text_block.text:
+                        parsed.append(text_block)
                 case "resource":
-                    resources.append(Resource.from_acp(block))
+                    parsed.append(Resource.from_acp(block))
                 case "image":
-                    images.append(Image.from_acp(block))
+                    parsed.append(Image.from_acp(block))
 
-        return cls(text="\n".join(text_parts), resources=resources, images=images)
+        return cls(blocks=tuple(parsed))
+
+    def to_acp_blocks(self) -> list[dict[str, Any]]:
+        """Содержимое → ACP content blocks в исходном порядке."""
+        return [block.to_acp() for block in self.blocks]
+
+    @property
+    def text(self) -> str:
+        """Текст сообщения: все `text`-блоки через перевод строки."""
+        return "\n".join(block.text for block in self.blocks if isinstance(block, TextBlock))
+
+    @property
+    def resources(self) -> list[Resource]:
+        """Только ресурсы, в исходном порядке."""
+        return [block for block in self.blocks if isinstance(block, Resource)]
+
+    @property
+    def images(self) -> list[Image]:
+        """Только картинки, в исходном порядке."""
+        return [block for block in self.blocks if isinstance(block, Image)]
 
 
 @dataclass(frozen=True)

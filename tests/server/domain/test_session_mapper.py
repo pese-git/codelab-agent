@@ -44,7 +44,7 @@ class TestSessionMapperToProtocol:
 
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         session.add_message(msg)
 
@@ -289,7 +289,7 @@ class TestSessionMapperRoundTrip:
         # Добавляем данные
         msg = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         session.add_message(msg)
 

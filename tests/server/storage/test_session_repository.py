@@ -6,7 +6,12 @@
 Резидентный кэш — отдельный осознанный шаг D4-d2, здесь его быть не должно.
 """
 
-from codelab.server.domain.conversation import ConversationMessage, Image, MessageContent
+from codelab.server.domain.conversation import (
+    ConversationMessage,
+    Image,
+    MessageContent,
+    TextBlock,
+)
 from codelab.server.domain.session import Session, SessionConfig
 from codelab.server.domain.value_objects import MessageRole, SessionId
 from codelab.server.protocol.state import SessionState
@@ -54,7 +59,7 @@ class TestDomainTyping:
         session.add_message(
             ConversationMessage(
                 role=MessageRole.USER,
-                content=MessageContent(text="see", images=[Image(data="B64")]),
+                content=MessageContent(blocks=(TextBlock(text="see"), Image(data="B64"))),
             )
         )
         session.set_permission_policy("read", "allow_always")

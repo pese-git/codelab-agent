@@ -19,6 +19,7 @@ from typing import Any
 from codelab.server.domain.conversation import (
     ConversationMessage,
     MessageContent,
+    TextBlock,
 )
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import MessageRole
@@ -63,8 +64,8 @@ class HistoryMapper:
 
         # Плоский `text`-слот: если структурного содержимого нет — это и есть текст сообщения.
         top_text = getattr(protocol, "text", None)
-        if top_text and not (content.text or content.resources or content.images):
-            content = MessageContent(text=top_text)
+        if top_text and not content.blocks:
+            content = MessageContent.from_text(top_text)
 
         # null остаётся null: ACP не синтезирует время (см. ConversationMessage.timestamp).
         timestamp = datetime.fromisoformat(protocol.timestamp) if protocol.timestamp else None
@@ -82,25 +83,14 @@ def _content_to_wire(role_str: str, content: MessageContent) -> tuple[Any, str |
 
     Возвращает `(content_value, text_value)` для wire `HistoryMessage`.
     """
-    has_structured = bool(content.resources or content.images)
+    has_structured = any(not isinstance(block, TextBlock) for block in content.blocks)
     if not has_structured:
         if role_str == MessageRole.ASSISTANT.value:
             return None, content.text
         if role_str == MessageRole.TOOL.value:
             return content.text, None
-    # user / system / любое блочное содержимое → список блоков
-    return _build_blocks(content), None
-
-
-def _build_blocks(content: MessageContent) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    if content.text:
-        blocks.append({"type": "text", "text": content.text})
-    for resource in content.resources:
-        blocks.append(resource.to_acp())
-    for image in content.images:
-        blocks.append(image.to_acp())
-    return blocks
+    # user / system / любое блочное содержимое → список блоков в исходном порядке
+    return content.to_acp_blocks(), None
 
 
 def _parse_role(role: str) -> MessageRole:
@@ -132,7 +122,7 @@ def _parse_content(content: list[Any] | str | None) -> MessageContent:
     if content is None:
         return MessageContent()
     if isinstance(content, str):
-        return MessageContent(text=content)
+        return MessageContent.from_text(content)
 
     # Единый разбор блоков живёт в домене (`MessageContent.from_acp_blocks`);
     # здесь остаётся только нормализация того, что приходит из хранилища.

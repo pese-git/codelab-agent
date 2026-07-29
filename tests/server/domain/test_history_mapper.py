@@ -7,6 +7,7 @@ from codelab.server.domain.conversation import (
     Image,
     MessageContent,
     Resource,
+    TextBlock,
 )
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import MessageRole
@@ -18,7 +19,7 @@ class TestHistoryMapperToProtocol:
     def test_text_message(self) -> None:
         domain = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
         )
         protocol = HistoryMapper.to_protocol(domain)
         assert protocol.role == "user"
@@ -29,8 +30,10 @@ class TestHistoryMapperToProtocol:
         domain = ConversationMessage(
             role=MessageRole.USER,
             content=MessageContent(
-                text="check this",
-                resources=[Resource(uri="file:///tmp/test.py", name="test.py")],
+                blocks=(
+                    TextBlock(text="check this"),
+                    Resource(uri="file:///tmp/test.py", name="test.py"),
+                )
             ),
         )
         protocol = HistoryMapper.to_protocol(domain)
@@ -41,9 +44,7 @@ class TestHistoryMapperToProtocol:
     def test_with_image(self) -> None:
         domain = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(
-                images=[Image(data="base64data", mime_type="image/png")],
-            ),
+            content=MessageContent(blocks=(Image(data="base64data", mime_type="image/png"),)),
         )
         protocol = HistoryMapper.to_protocol(domain)
         assert len(protocol.content) == 1
@@ -52,7 +53,7 @@ class TestHistoryMapperToProtocol:
         """Роль TOOL сохраняется, контент — плоская строка (write-фаза D2-b, ADR-006)."""
         domain = ConversationMessage(
             role=MessageRole.TOOL,
-            content=MessageContent(text="result"),
+            content=MessageContent.from_text("result"),
             tool_call_id="call_1",
         )
         protocol = HistoryMapper.to_protocol(domain)
@@ -65,7 +66,7 @@ class TestHistoryMapperToProtocol:
         """Assistant-текст едет в плоский `text`-слот, `content=null` (решение №2, ADR-006)."""
         domain = ConversationMessage(
             role=MessageRole.ASSISTANT,
-            content=MessageContent(text="thinking"),
+            content=MessageContent.from_text("thinking"),
         )
         protocol = HistoryMapper.to_protocol(domain)
         assert protocol.role == "assistant"
@@ -76,7 +77,7 @@ class TestHistoryMapperToProtocol:
         """Embedded LLM tool_calls переживают round-trip через доменное поле tool_calls."""
         original = ConversationMessage(
             role=MessageRole.ASSISTANT,
-            content=MessageContent(text="calling"),
+            content=MessageContent.from_text("calling"),
             tool_calls=[ToolCall(id="c1", tool_name="grep", arguments={"q": "x"})],
         )
         protocol = HistoryMapper.to_protocol(original)
@@ -93,7 +94,7 @@ class TestHistoryMapperToProtocol:
         ts = datetime(2024, 1, 1, 12, 0, 0)
         domain = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello"),
+            content=MessageContent.from_text("hello"),
             timestamp=ts,
         )
         protocol = HistoryMapper.to_protocol(domain)
@@ -160,7 +161,7 @@ class TestHistoryMapperRoundTrip:
     def test_round_trip_text(self) -> None:
         original = ConversationMessage(
             role=MessageRole.USER,
-            content=MessageContent(text="hello world"),
+            content=MessageContent.from_text("hello world"),
             timestamp=datetime(2024, 1, 1, 12, 0, 0),
         )
         protocol = HistoryMapper.to_protocol(original)

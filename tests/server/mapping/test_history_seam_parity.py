@@ -52,17 +52,20 @@ def _slots(entry: object) -> dict[str, object]:
         pytest.param(
             [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
             id="two-text",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "domain MessageContent хранит текст одной строкой, а ресурсы и "
-                    "картинки отдельными списками: несколько text-блоков склеиваются "
-                    "через перевод строки, а исходный порядок блоков не "
-                    "восстанавливается (маппер собирает текст → ресурсы → картинки). "
-                    "На живом промпте [resource, text] это даёт [text, resource], "
-                    "то есть инструкция оказывается до приложенного файла"
-                ),
-            ),
+        ),
+        pytest.param(
+            [
+                {"type": "resource", "resource": {"uri": "file:///README.md", "text": "# doc"}},
+                {"type": "text", "text": "перепиши по этому файлу"},
+            ],
+            id="resource-before-text",
+        ),
+        pytest.param(
+            [
+                {"type": "image", "data": "abc", "mimeType": "image/png"},
+                {"type": "text", "text": "что на картинке"},
+            ],
+            id="image-before-text",
         ),
     ],
 )
@@ -106,3 +109,35 @@ def test_user_message_survives_domain_roundtrip() -> None:
 
     assert restored.content == message.content
     assert restored.role == message.role
+
+
+def test_block_order_survives_domain_roundtrip() -> None:
+    """Порядок блоков — часть содержимого: [resource, text] не переворачивается.
+
+    Раньше домен держал текст одной строкой, а ресурсы и картинки — отдельными
+    списками, поэтому обратная сборка шла фиксированно текст → ресурсы →
+    картинки: на живом промпте инструкция оказывалась перед файлом, который она
+    комментирует (блокер фазы D, ADR-006).
+    """
+    prompt = [
+        {"type": "resource", "resource": {"uri": "file:///README.md", "text": "# doc"}},
+        {"type": "text", "text": "перепиши по этому файлу"},
+    ]
+    domain = _domain_session()
+    domain.add_user_message(prompt)
+
+    wire = HistoryMapper.to_protocol(domain.history.get_messages()[0])
+
+    assert wire.content is not None
+    assert [block["type"] for block in wire.content] == ["resource", "text"]
+
+
+def test_repeated_text_blocks_are_not_merged() -> None:
+    """Несколько text-блоков остаются отдельными записями, а не склеенной строкой."""
+    domain = _domain_session()
+    domain.add_user_message([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}])
+
+    message = domain.history.get_messages()[0]
+
+    assert [block.text for block in message.content.blocks] == ["a", "b"]  # type: ignore[union-attr]
+    assert message.content.text == "a\nb"

@@ -6,7 +6,12 @@
 сохранение. Пока они документируют, что именно теряется.
 """
 
-from codelab.server.domain.conversation import ConversationMessage, Image, MessageContent
+from codelab.server.domain.conversation import (
+    ConversationMessage,
+    Image,
+    MessageContent,
+    TextBlock,
+)
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
     ConversationHistory,
@@ -30,14 +35,14 @@ from codelab.server.mapping.session_mapper import SessionMapper
 
 def _rich_session() -> Session:
     history = ConversationHistory()
-    history.add(ConversationMessage(role=MessageRole.USER, content=MessageContent(text="hi")))
+    history.add(ConversationMessage(role=MessageRole.USER, content=MessageContent.from_text("hi")))
     history.add(
-        ConversationMessage(role=MessageRole.ASSISTANT, content=MessageContent(text="hello"))
+        ConversationMessage(role=MessageRole.ASSISTANT, content=MessageContent.from_text("hello"))
     )
     history.add(
         ConversationMessage(
             role=MessageRole.TOOL,
-            content=MessageContent(text="tool result"),
+            content=MessageContent.from_text("tool result"),
             tool_call_id="call_001",
         )
     )
@@ -310,7 +315,9 @@ class TestRoundtripPrepFields:
     def test_history_timestamp_none_preserved(self) -> None:
         """None timestamp остаётся None (не синтезируется) — ACP updatedAt-семантика."""
         history = ConversationHistory()
-        history.add(ConversationMessage(role=MessageRole.USER, content=MessageContent(text="a")))
+        history.add(
+            ConversationMessage(role=MessageRole.USER, content=MessageContent.from_text("a"))
+        )
         session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
         rt = _roundtrip(session)
         assert rt.history.get_messages()[0].timestamp is None
@@ -435,7 +442,7 @@ class TestRoundtripHistoryBody:
             ConversationMessage(
                 role=MessageRole.USER,
                 content=MessageContent(
-                    text="see", images=[Image(data="B64", mime_type="image/png")]
+                    blocks=(TextBlock(text="see"), Image(data="B64", mime_type="image/png"))
                 ),
             )
         )
@@ -454,7 +461,7 @@ class TestRoundtripHistoryBody:
         history.add(
             ConversationMessage(
                 role=MessageRole.ASSISTANT,
-                content=MessageContent(text="plan"),
+                content=MessageContent.from_text("plan"),
                 tool_calls=[ToolCall(id="c1", tool_name="update_plan", arguments={"e": 1})],
             )
         )
