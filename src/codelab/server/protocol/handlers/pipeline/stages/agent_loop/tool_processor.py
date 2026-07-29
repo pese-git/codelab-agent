@@ -21,7 +21,10 @@ import structlog
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
     ToolLoopDetector,
 )
-from codelab.server.protocol.handlers.tool_policy import decide_tool_policy_async
+from codelab.server.protocol.handlers.tool_policy import (
+    decide_tool_policy_async,
+    describe_rejection,
+)
 from codelab.server.protocol.state import ToolResult
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
@@ -354,15 +357,18 @@ class ToolCallProcessor:
         sink: SessionUpdateSink,
     ) -> ToolResult:
         """Отклонить tool call по policy: пометить failed и вернуть ToolResult."""
+        rejection_reason = describe_rejection(session, tool_kind)
         logger.info(
             "tool_call_rejected",
             session_id=session_id,
             tool_call_id=tool_call_id,
             tool_name=acp_tool_name,
             tool_kind=tool_kind,
+            mode=session.get_config_value("mode", "standard"),
+            reason=rejection_reason,
         )
         self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-        rejection_msg = f"Tool execution rejected by policy for {tool_kind}"
+        rejection_msg = f"Инструмент '{acp_tool_name}' не выполнен. {rejection_reason}"
         rejection_content = [
             {"type": "content", "content": {"type": "text", "text": rejection_msg}}
         ]
@@ -378,6 +384,18 @@ class ToolCallProcessor:
             tool_call_id=tool_call_id,
             status="failed",
             content=rejection_content,
+        )
+        # Отказ — такой же результат вызова, как ошибка исполнения, и обязан уйти
+        # модели: ACP `05-Prompt Turn` шаг 6 требует отправлять tool results обратно
+        # в LLM, а контракт LLM-API — ответ `role: tool` на каждый `tool_call_id`.
+        # Без записи модель видела вызов без ответа и повторяла его до упора в
+        # `max_turn_requests` (tech-debt P2-36).
+        self._add_tool_result_to_history(
+            session,
+            tool_call_id_from_llm or tool_call_id,
+            False,
+            None,
+            rejection_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -427,6 +445,15 @@ class ToolCallProcessor:
             tool_call_id=tool_call_id,
             status="failed",
             content=error_content,
+        )
+        # Список доступных инструментов нужен модели, а не только клиенту:
+        # ответ `role: tool` обязателен на каждый вызов (см. `_reject_tool_call`).
+        self._add_tool_result_to_history(
+            session,
+            tool_call_id_from_llm or tool_call_id,
+            False,
+            None,
+            error_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -482,6 +509,15 @@ class ToolCallProcessor:
             tool_call_id=tool_call_id,
             status="failed",
             content=error_content,
+        )
+        # Подсказка про повтор бесполезна, если не доходит до модели (см.
+        # `_reject_tool_call`): ответ `role: tool` обязателен на каждый вызов.
+        self._add_tool_result_to_history(
+            session,
+            tool_call_id_from_llm or tool_call_id,
+            False,
+            None,
+            error_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,

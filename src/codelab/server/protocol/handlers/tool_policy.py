@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
-from ..mode import MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
+from ..mode import DEFAULT_MODE, MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
 
 if TYPE_CHECKING:
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
@@ -100,6 +100,45 @@ def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecis
         return "reject"
 
     return _decide_core(session, tool_kind, global_policy=None)
+
+
+
+def describe_rejection(session: SessionState, tool_kind: str) -> str:
+    """Причина отказа для модели — тем же знанием, каким принято решение.
+
+    Текст уходит модели в теле tool result (и клиенту в `tool_call_update`),
+    поэтому обязан называть причину и её длительность. Прежнее сообщение
+    (`Tool execution rejected by policy for <kind>`) не говорило ни того, ни
+    другого: в plan-режиме модель трактовала отказ как разовый сбой, повторяла
+    вызов и работала с несуществующими терминалами, выжигая turn до лимита
+    запросов (tech-debt P2-36, найдено разбором живых прогонов).
+
+    Args:
+        session: Состояние сессии (источник режима и политик).
+        tool_kind: Категория инструмента.
+
+    Returns:
+        Причина отказа с указанием, что повтор даст тот же результат.
+    """
+    mode = session.get_config_value("mode", DEFAULT_MODE)
+
+    if mode == MODE_PLAN and is_tool_blocked_in_plan_mode(tool_kind):
+        return (
+            f"Сессия в режиме '{MODE_PLAN}' (read-only): инструменты вида '{tool_kind}' "
+            "недоступны, пока пользователь не сменит режим. Повторный вызов даст тот же "
+            "отказ — используй инструменты чтения или заверши ответ."
+        )
+
+    if session.get_permission_policy(tool_kind) == "reject_always":
+        return (
+            f"Пользователь запретил инструменты вида '{tool_kind}' на всю сессию. "
+            "Повторный вызов даст тот же отказ — измени подход или заверши ответ."
+        )
+
+    return (
+        f"Вызов инструмента вида '{tool_kind}' отклонён политикой. Повторный вызов, "
+        "скорее всего, даст тот же отказ — измени подход или заверши ответ."
+    )
 
 
 async def decide_tool_policy_async(

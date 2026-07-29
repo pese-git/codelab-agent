@@ -435,4 +435,8 @@ class TestMcpToolPermission:
         # Tool result должен быть failed
         assert len(result.tool_results) == 1
         assert result.tool_results[0].success is False
-        assert "rejected" in result.tool_results[0].error.lower()
+        # Модель получает причину отказа, а не только его факт (tech-debt P2-36)
+        error = result.tool_results[0].error
+        assert "mcp:test:tool" in error
+        assert "запретил" in error
+        assert "Повторный вызов даст тот же отказ" in error

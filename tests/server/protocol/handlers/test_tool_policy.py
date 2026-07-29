@@ -13,6 +13,7 @@ import pytest
 from codelab.server.protocol.handlers.tool_policy import (
     decide_tool_policy,
     decide_tool_policy_async,
+    describe_rejection,
 )
 from codelab.server.protocol.state import SessionState
 
@@ -165,3 +166,44 @@ class TestDecideToolPolicyAsync:
         result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "allow"
         global_policy_manager.get_global_policy.assert_not_called()
+
+
+class TestDescribeRejection:
+    """Причина отказа, которую получает модель (tech-debt P2-36).
+
+    Прежний текст (`Tool execution rejected by policy for <kind>`) не называл ни
+    причину, ни её длительность, из-за чего в plan-режиме модель повторяла вызов
+    и работала с несуществующими терминалами до упора в лимит запросов.
+    """
+
+    def test_plan_mode_names_mode_and_persistence(self, session: SessionState) -> None:
+        session.config_values["mode"] = "plan"
+
+        reason = describe_rejection(session, "execute")
+
+        assert "plan" in reason
+        assert "read-only" in reason
+        # Модель должна понять, что повтор бесполезен
+        assert "Повторный вызов даст тот же отказ" in reason
+
+    def test_session_reject_always_names_user_decision(self, session: SessionState) -> None:
+        session.config_values["mode"] = "standard"
+        session.set_permission_policy("execute", "reject_always")
+
+        reason = describe_rejection(session, "execute")
+
+        assert "запретил" in reason
+        assert "сессию" in reason
+
+    def test_plan_mode_allowed_kind_falls_back_to_generic(self, session: SessionState) -> None:
+        """Для не-блокируемого вида plan-режим не при чём — не врать про причину."""
+        session.config_values["mode"] = "plan"
+
+        reason = describe_rejection(session, "read")
+
+        assert "read-only" not in reason
+        assert "отклонён политикой" in reason
+
+    def test_reason_mentions_tool_kind(self, session: SessionState) -> None:
+        session.config_values["mode"] = "plan"
+        assert "'execute'" in describe_rejection(session, "execute")
