@@ -140,7 +140,7 @@ class RequestProvider(Provider):
         # через callback-и — иначе session/new получает runtime_capabilities=None
         # и tool-runtime считается недоступным.
         session_new_handler = SessionNewCommandHandler(
-            storage=storage,
+            repository=repository,
             config_specs=config_specs,
             auth_methods=auth_methods,
             require_auth=require_auth,

@@ -10,8 +10,9 @@ from typing import Any
 
 import structlog
 
+from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
-from ...storage import SessionStorage
+from ...storage import SessionRepository
 from ..handlers import session
 from ..session_factory import SessionFactory
 from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
@@ -36,7 +37,7 @@ class SessionNewCommandHandler:
 
     def __init__(
         self,
-        storage: SessionStorage,
+        repository: SessionRepository,
         config_specs: dict[str, dict[str, Any]],
         auth_methods: list[dict[str, Any]],
         require_auth: bool,
@@ -48,7 +49,7 @@ class SessionNewCommandHandler:
         """Инициализирует обработчик.
 
         Args:
-            storage: Хранилище сессий.
+            repository: Доменный порт хранилища сессий.
             config_specs: Спецификации конфигурационных опций.
             auth_methods: Список методов аутентификации.
             require_auth: Требуется ли аутентификация.
@@ -58,7 +59,7 @@ class SessionNewCommandHandler:
             on_session_created: Callback, вызываемый после создания сессии
                 для выполнения side effects (MCP setup и т.д.).
         """
-        self._storage = storage
+        self._repository = repository
         self._config_specs = config_specs
         self._auth_methods = auth_methods
         self._require_auth = require_auth
@@ -114,7 +115,11 @@ class SessionNewCommandHandler:
                 if self._on_session_created:
                     await self._on_session_created(session_state, params)
 
-                await self._storage.save_session(session_state)
+                # Сессию собирает `SessionFactory` в wire-форме, и он остаётся на
+                # постоянной wire-границе (ADR-006), поэтому конверсия в домен стоит
+                # здесь — единственное место в прикладном пути, где она вне порта.
+                # Дальше транзакция работает доменным агрегатом (фаза D ADR-006).
+                await self._repository.save_session(SessionMapper.to_domain(session_state))
 
                 logger.info(
                     "session_created",

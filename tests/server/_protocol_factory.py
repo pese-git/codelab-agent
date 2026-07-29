@@ -260,7 +260,10 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
                         runtime_capabilities=st._runtime_capabilities,
                         session_id=session_id,
                     )
-                    await st._storage.save_session(session_state)
+                    # Как в проде: сохранение через доменный порт (фаза D ADR-006)
+                    from codelab.server.mapping.session_mapper import SessionMapper
+
+                    await st._repository.save_session(SessionMapper.to_domain(session_state))
                     await st.get_mcp_session_manager().setup_if_needed(session_state, params)
             return ProtocolOutcome(response=response_msg)
 
