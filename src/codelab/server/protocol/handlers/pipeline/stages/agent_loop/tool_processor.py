@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
 
@@ -163,14 +163,29 @@ class ToolCallProcessor:
                 session, session_id, tool_call, sink, mcp_manager
             )
             if step.pause_tool_call_id is not None:
-                # Приостановленный вызов получит ответ после разрешения
-                # (`execute_pending`), а остаток батча не выполнится никогда.
-                self._answer_unprocessed_tool_calls(
-                    session,
-                    session_id,
-                    tool_calls[index + 1 :],
-                    reason="turn приостановлен на запросе разрешения для предыдущего вызова",
-                )
+                # Остаток батча возобновляется после разрешения, а не выбрасывается:
+                # раньше модель получала «вызов не выполнялся» и перезапрашивала те
+                # же файлы по кругу (P2-40). Если сохранить хвост некуда (turn'а нет),
+                # честно отвечаем модели — иначе вызовы остались бы без `role: tool`.
+                remaining = list(tool_calls[index + 1 :])
+                if remaining and session.active_turn is not None:
+                    session.active_turn.pending_batch = [
+                        self._tool_call_to_dict(call) for call in remaining
+                    ]
+                    logger.info(
+                        "tool_calls_deferred_to_resume",
+                        session_id=session_id,
+                        count=len(remaining),
+                        paused_tool_call_id=step.pause_tool_call_id,
+                    )
+                else:
+                    self._answer_unprocessed_tool_calls(
+                        session,
+                        session_id,
+                        remaining,
+                        reason="turn приостановлен на запросе разрешения, "
+                        "а состояние turn'а недоступно",
+                    )
                 return ToolProcessingResult(
                     tool_results=tool_results,
                     pending_permission=True,
@@ -180,6 +195,19 @@ class ToolCallProcessor:
                 tool_results.append(step.tool_result)
 
         return ToolProcessingResult(tool_results=tool_results)
+
+    @staticmethod
+    def _tool_call_to_dict(tool_call: Any) -> dict[str, Any]:
+        """Свести tool call к сериализуемой форме для `pending_batch`.
+
+        `pending_batch` уезжает на диск вместе с сессией, поэтому объект
+        LLM-адаптера туда положить нельзя.
+        """
+        return {
+            "id": getattr(tool_call, "id", None),
+            "name": getattr(tool_call, "name", None),
+            "arguments": getattr(tool_call, "arguments", None) or {},
+        }
 
     def _answer_unprocessed_tool_calls(
         self,

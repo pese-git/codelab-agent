@@ -377,6 +377,12 @@ class ActiveTurnState(BaseModel):
     phase: str = "running"
     # Исходящий запрос к клиенту (fs/*), если turn ожидает его completion.
     pending_client_request: PendingClientRequestState | None = None
+    # Остаток батча tool_calls, не обработанный из-за паузы на permission.
+    # Раньше хвост выбрасывался: модель получала «вызов не выполнялся» и
+    # перезапрашивала те же файлы (P2-40 — 80 брошенных вызовов за один turn).
+    # Хранится в состоянии turn'а, потому что разрешение приходит следующим
+    # запросом, а тот получает свою копию сессии с диска.
+    pending_batch: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PromptDirectives(BaseModel):

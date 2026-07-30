@@ -55,6 +55,22 @@ logger = structlog.get_logger()
 __all__ = ["AgentLoop", "AgentLoopResult", "StopReason", "ToolProcessingResult", "ToolResult"]
 
 
+class _DeferredToolCall:
+    """Восстановленный из `pending_batch` tool call.
+
+    `process_batch` читает вызовы как объекты с `.id/.name/.arguments`, а в
+    состоянии turn'а хвост лежит словарями (он уезжает на диск), поэтому нужен
+    тонкий адаптер, а не второй путь обработки (P2-40).
+    """
+
+    __slots__ = ("id", "name", "arguments")
+
+    def __init__(self, call: dict[str, Any]) -> None:
+        self.id = call.get("id")
+        self.name = call.get("name")
+        self.arguments = call.get("arguments") or {}
+
+
 @dataclass
 class AgentLoopResult:
     """Результат выполнения AgentLoop.
@@ -560,6 +576,20 @@ class AgentLoop:
                 stop_reason=StopReason.CANCELLED,
             )
 
+        # Доработать остаток батча, отложенный паузой на permission (P2-40).
+        # Только после него имеет смысл идти к модели: иначе она увидит ответы не на
+        # все свои вызовы и запросит их снова.
+        batch_result = await self._process_deferred_batch(
+            session, session_id, sink, mcp_manager, started_epoch
+        )
+        if batch_result is not None:
+            return AgentLoopResult(
+                notifications=notifications,
+                pending_permission=batch_result.pending_permission,
+                pending_tool_calls=batch_result.pending_tool_calls,
+                tool_results=batch_result.tool_results,
+            )
+
         # Продолжить цикл (tool_results уже в session.history)
         loop_result = await self.run(
             session=session,
@@ -579,6 +609,39 @@ class AgentLoop:
             pending_tool_calls=loop_result.pending_tool_calls,
             tool_results=loop_result.tool_results,
         )
+
+    async def _process_deferred_batch(
+        self,
+        session: SessionState,
+        session_id: str,
+        sink: SessionUpdateSink,
+        mcp_manager: MCPManager | None,
+        started_epoch: int,
+    ) -> ToolProcessingResult | None:
+        """Обработать остаток батча, отложенный предыдущей паузой на permission.
+
+        Возвращает результат, если обработка снова встала на разрешении (тогда цикл
+        останавливается до следующего resume), и `None`, если хвост исчерпан и можно
+        идти к модели.
+        """
+        if session.active_turn is None or not session.active_turn.pending_batch:
+            return None
+
+        deferred = [_DeferredToolCall(call) for call in session.active_turn.pending_batch]
+        # Снимаем хвост до обработки: очередная пауза положит сюда свой остаток.
+        session.active_turn.pending_batch = []
+        logger.info(
+            "resuming_deferred_tool_calls",
+            session_id=session_id,
+            count=len(deferred),
+        )
+
+        result = await self._tool_processor.process_batch(
+            session, session_id, deferred, sink, mcp_manager, started_epoch
+        )
+        if result.pending_permission:
+            return result
+        return None
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""

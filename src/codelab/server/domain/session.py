@@ -255,6 +255,8 @@ class TurnState:
     permission_tool_call_id: str | None = None
     phase: str = "running"
     pending_external_request: PendingExternalRequest | None = None
+    # Остаток батча tool_calls, ожидающий возобновления после permission (P2-40).
+    pending_batch: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

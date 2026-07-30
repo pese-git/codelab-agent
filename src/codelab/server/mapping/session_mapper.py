@@ -138,6 +138,7 @@ class SessionMapper:
             permission_tool_call_id=turn.permission_tool_call_id,
             phase=turn.phase,
             pending_client_request=pending,
+            pending_batch=[dict(call) for call in turn.pending_batch],
         )
 
     @staticmethod
@@ -241,6 +242,7 @@ class SessionMapper:
             permission_tool_call_id=at.permission_tool_call_id,
             phase=at.phase,
             pending_external_request=pending,
+            pending_batch=[dict(call) for call in at.pending_batch],
         )
 
     @staticmethod

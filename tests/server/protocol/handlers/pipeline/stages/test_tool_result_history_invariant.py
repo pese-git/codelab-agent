@@ -26,7 +26,10 @@ import pytest
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from codelab.server.protocol.state import SessionState
+from codelab.server.protocol.state import (
+    ActiveTurnState,  # noqa: F401
+    SessionState,
+)
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
 
@@ -144,11 +147,69 @@ class TestInterruptedBatchIsFullyAnswered:
     """Прерванный батч: каждый вызов получает ответ (tech-debt P2-38)."""
 
     @pytest.mark.asyncio
-    async def test_permission_pause_answers_rest_of_batch(self) -> None:
-        """Пауза на первом вызове не оставляет остальные без ответа.
+    async def test_permission_pause_defers_rest_of_batch(self) -> None:
+        """Остаток батча уходит в `pending_batch`, а не выбрасывается (P2-40).
 
-        Воспроизводит живой случай `sess_ba92d6fb021f`: батч из 11 вызовов, пауза
-        на первом — и 10 вызовов без `role: tool` до конца сессии.
+        До P2-40 хвост получал «вызов не выполнялся» и терялся: модель
+        перезапрашивала те же файлы, на живом прогоне — 80 брошенных вызовов за
+        turn. Инвариант `role: tool` при этом не нарушается: отложенные вызовы
+        будут выполнены и отвечены после разрешения.
+        """
+        processor = _make_processor()
+        session = _session(mode="standard")
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        batch = [_Call(f"llm_{i}") for i in range(11)]
+
+        async def _pause_first(*args: Any, **kwargs: Any):
+            from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
+                _ToolCallStep,
+            )
+
+            return _ToolCallStep(pause_tool_call_id="call_001")
+
+        processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
+
+        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+
+        assert result.pending_permission is True
+        deferred = session.active_turn.pending_batch
+        assert [c["id"] for c in deferred] == [f"llm_{i}" for i in range(1, 11)]
+        # Служебных ответов «не выполнялся» больше нет — вызовы не потеряны
+        assert _tool_answers(session) == []
+
+    @pytest.mark.asyncio
+    async def test_pause_without_active_turn_still_answers(self) -> None:
+        """Если хвост сохранить некуда, модель обязана получить ответ.
+
+        Иначе вызовы остались бы без `role: tool` — тот же дефект, что P2-38.
+        """
+        processor = _make_processor()
+        session = _session(mode="standard")
+        session.active_turn = None
+        batch = [_Call(f"llm_{i}") for i in range(3)]
+
+        async def _pause_first(*args: Any, **kwargs: Any):
+            from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
+                _ToolCallStep,
+            )
+
+            return _ToolCallStep(pause_tool_call_id="call_001")
+
+        processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
+
+        await processor.process_batch(session, "s", batch, AsyncMock(), None)
+
+        answered = {m["tool_call_id"] for m in _tool_answers(session)}
+        assert answered == {"llm_1", "llm_2"}
+
+    @pytest.mark.asyncio
+    async def test_permission_pause_answers_rest_when_turn_is_absent(self) -> None:
+        """Пауза без `active_turn`: остаток обязан получить ответ.
+
+        Воспроизводит живой случай `sess_ba92d6fb021f` (батч из 11 вызовов, пауза на
+        первом, 10 вызовов без `role: tool`). После P2-40 штатный путь хвост
+        откладывает, а этот тест держит запасной: если складывать некуда, модель
+        всё равно не остаётся без ответа.
         """
         processor = _make_processor()
         session = _session(mode="standard")
@@ -167,7 +228,8 @@ class TestInterruptedBatchIsFullyAnswered:
         result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
 
         assert result.pending_permission is True
-        # Приостановленный вызов ответит execute_pending; остальные 10 — здесь
+        # Без `active_turn` (например, turn уже закрыт) хвост сохранить некуда,
+        # поэтому вызовы отвечаются — инвариант `role: tool` держится (P2-38).
         answered = {m["tool_call_id"] for m in _tool_answers(session)}
         assert answered == {f"llm_{i}" for i in range(1, 11)}
         assert all("не выполнялся" in m["content"] for m in _tool_answers(session))
