@@ -332,7 +332,7 @@ class TestAgentLoopCancellation:
         # Устанавливаем cancel_requested после обработки tool_calls
         call_count = 0
 
-        def cancel_after_tool_processing(session):
+        def cancel_after_tool_processing(session, started_epoch, session_id=None):
             nonlocal call_count
             call_count += 1
             return call_count > 2
@@ -539,6 +539,12 @@ class TestLLMLoopStageStrategyReuse:
         )
 
         # Act: вызвать execute_pending_tool
+        # Живой turn обязателен: после P0-39 `execute_pending_tool` отказывается
+        # возобновлять вызов, если turn'а больше нет (его отсутствие = отмена).
+        # Предмет теста — переиспользование стратегии, не жизненный цикл turn'а.
+        mock_session.active_turn = ActiveTurnState(
+            prompt_request_id="req_1", session_id="test_session"
+        )
         mock_session.tool_calls = {}
         await stage.execute_pending_tool(
             session=mock_session,

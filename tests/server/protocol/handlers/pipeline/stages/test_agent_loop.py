@@ -556,7 +556,20 @@ class TestAgentLoop:
         mock_session.active_turn.cancel_requested = True
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session) is True
+        assert loop._is_cancel_requested(mock_session, 0, "test_session") is True
+
+    def test_is_cancel_requested_true_on_registry_generation_change(
+        self, mock_strategy, mock_session, mock_dependencies
+    ):
+        """Отмена в процессном реестре видна, даже если active_turn очищен (P0-39)."""
+        from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
+
+        registry = TurnCancellationRegistry()
+        mock_session.active_turn = None
+        registry.cancel("test_session")
+
+        loop = AgentLoop(strategy=mock_strategy, turn_cancellation=registry, **mock_dependencies)
+        assert loop._is_cancel_requested(mock_session, 0, "test_session") is True
 
     def test_is_cancel_requested_false_no_active_turn(
         self, mock_strategy, mock_session, mock_dependencies
@@ -565,7 +578,7 @@ class TestAgentLoop:
         mock_session.active_turn = None
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session) is False
+        assert loop._is_cancel_requested(mock_session, 0, "test_session") is False
 
     def test_is_cancel_requested_false_not_cancelled(
         self, mock_strategy, mock_session, mock_dependencies
@@ -575,7 +588,7 @@ class TestAgentLoop:
         mock_session.active_turn.cancel_requested = False
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session) is False
+        assert loop._is_cancel_requested(mock_session, 0, "test_session") is False
 
     @pytest.mark.asyncio
     async def test_run_cancellation_during_tool_processing(
@@ -606,7 +619,7 @@ class TestAgentLoop:
         # Патчим _is_cancel_requested: первые 2 вызова — False, затем True
         call_count = 0
 
-        def cancel_side_effect(session):
+        def cancel_side_effect(session, started_epoch, session_id=None):
             nonlocal call_count
             call_count += 1
             return call_count > 2

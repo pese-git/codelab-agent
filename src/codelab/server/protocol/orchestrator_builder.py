@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .handlers.pipeline.stages import LLMLoopStage
     from .handlers.prompt_orchestrator import PromptOrchestrator
     from .handlers.slash_commands import CommandRegistry, SlashCommandRouter
+    from .turn_cancellation import TurnCancellationRegistry
 
 
 class PromptOrchestratorBuilder:
@@ -48,6 +49,7 @@ class PromptOrchestratorBuilder:
         global_policy_manager: GlobalPolicyManager | None = None,
         client_rpc_service: ClientRPCService | None = None,
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
+        turn_cancellation: TurnCancellationRegistry | None = None,
     ) -> None:
         """Инициализирует PromptOrchestratorBuilder.
 
@@ -59,6 +61,7 @@ class PromptOrchestratorBuilder:
             slash_router: Маршрутизатор slash-команд.
             global_policy_manager: Менеджер глобальных политик (опционально).
             client_rpc_service: Сервис для agent->client RPC (опционально).
+            turn_cancellation: Процессный реестр отмены turn'ов (P0-39).
             session_file_cache_registry: Реестр кэша файлов по сессиям (опционально).
         """
         self._tool_registry = tool_registry
@@ -69,6 +72,7 @@ class PromptOrchestratorBuilder:
         self._global_policy_manager = global_policy_manager
         self._client_rpc_service = client_rpc_service
         self._session_file_cache_registry = session_file_cache_registry
+        self._turn_cancellation = turn_cancellation
 
     def build(self) -> PromptOrchestrator:
         """Собирает PromptOrchestrator со всеми зависимостями.
@@ -126,4 +130,5 @@ class PromptOrchestratorBuilder:
             command_registry=self._command_registry,
             pipeline=pipeline,
             session_file_cache_registry=self._session_file_cache_registry,
+            turn_cancellation=self._turn_cancellation,
         )

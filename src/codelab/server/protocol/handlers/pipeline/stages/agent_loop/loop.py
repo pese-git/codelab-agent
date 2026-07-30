@@ -40,6 +40,7 @@ from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import SessionState, ToolResult
 from codelab.server.protocol.stop_reasons import StopReason
+from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolRegistry
 
 if TYPE_CHECKING:
@@ -125,6 +126,7 @@ class AgentLoop:
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
         streaming_enabled: bool = False,
         loop_guard_limit: int = 3,
+        turn_cancellation: TurnCancellationRegistry | None = None,
     ) -> None:
         """Инициализация AgentLoop.
 
@@ -153,6 +155,7 @@ class AgentLoop:
         self._max_turn_requests = max_turn_requests
         self._notification_callback = notification_callback
         self._llm_caller = LlmCaller(strategy, system_prompt_builder, streaming_enabled)
+        self._turn_cancellation = turn_cancellation
         self._tool_processor = ToolCallProcessor(
             tool_registry=tool_registry,
             tool_call_handler=tool_call_handler,
@@ -163,6 +166,7 @@ class AgentLoop:
             plan_builder=plan_builder,
             global_policy_manager=global_policy_manager,
             loop_guard_limit=loop_guard_limit,
+            turn_cancellation=turn_cancellation,
         )
 
     # ── Immediate Notification Delivery ─────────────────────────────────────────
@@ -196,6 +200,7 @@ class AgentLoop:
         initial_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
         domain_session: DomainSession | None = None,
+        started_epoch: int | None = None,
     ) -> AgentLoopResult:
         """Запустить цикл итераций.
 
@@ -212,6 +217,9 @@ class AgentLoop:
             session_id: ID сессии для логирования.
             initial_prompt: Текст начального промпта (None для продолжения).
             mcp_manager: MCP manager для tool execution.
+            started_epoch: Поколение отмены для сверки. `None` — новый turn, берём
+                текущее. Resume-путь передаёт своё: иначе он взял бы за базу уже
+                изменённое отменой поколение и не заметил бы её (P0-39).
 
         Returns:
             AgentLoopResult с результатом выполнения.
@@ -222,6 +230,10 @@ class AgentLoop:
         )
         iteration = 0
         final_text: str | None = None
+        # Поколение отмены на входе в turn: сигнал живёт в процессном реестре, а не
+        # в копии сессии, поэтому виден идущему turn'у (P0-39).
+        if started_epoch is None:
+            started_epoch = self._cancellation_generation(session_id)
 
         while iteration < self._max_turn_requests:
             iteration += 1
@@ -233,6 +245,7 @@ class AgentLoop:
                 iteration,
                 sink,
                 final_text,
+                started_epoch,
             )
             if result is not None:
                 return result
@@ -260,6 +273,7 @@ class AgentLoop:
         iteration: int,
         sink: SessionUpdateSink,
         final_text: str | None,
+        started_epoch: int,
     ) -> tuple[AgentLoopResult | None, str | None]:
         """Одна итерация цикла: LLM-вызов + обработка ответа/tool_calls.
 
@@ -268,7 +282,7 @@ class AgentLoop:
             «продолжать цикл»; final_text прокидывается между итерациями.
         """
         call_result, terminal = await self._obtain_llm_response(
-            session, session_id, prompt, mcp_manager, iteration, sink
+            session, session_id, prompt, mcp_manager, iteration, sink, started_epoch
         )
         # terminal и call_result взаимоисключающи: успех даёт call_result,
         # отмена/ошибка — terminal.
@@ -335,7 +349,7 @@ class AgentLoop:
 
         # Обрабатываем tool_calls
         tool_result = await self._tool_processor.process_batch(
-            session, session_id, response.tool_calls, sink, mcp_manager
+            session, session_id, response.tool_calls, sink, mcp_manager, started_epoch
         )
 
         # Permission pause
@@ -356,7 +370,7 @@ class AgentLoop:
             )
 
         # Проверка отмены во время tool processing
-        if self._is_cancel_requested(session):
+        if self._is_cancel_requested(session, started_epoch, session_id):
             logger.debug(
                 "agent_loop cancelled during tool processing",
                 session_id=session_id,
@@ -377,6 +391,7 @@ class AgentLoop:
         mcp_manager: MCPManager | None,
         iteration: int,
         sink: SessionUpdateSink,
+        started_epoch: int,
     ) -> tuple[LlmCallResult | None, AgentLoopResult | None]:
         """Вызвать LLM с проверками отмены и обработкой ошибки.
 
@@ -384,7 +399,7 @@ class AgentLoop:
             (call_result, None) при успехе; (None, terminal_result) если turn
             отменён или LLM-вызов упал.
         """
-        if self._is_cancel_requested(session):
+        if self._is_cancel_requested(session, started_epoch, session_id):
             logger.debug(
                 "agent_loop cancelled before LLM call",
                 session_id=session_id,
@@ -408,7 +423,7 @@ class AgentLoop:
                 notifications=sink.notifications, stop_reason=StopReason.END_TURN
             )
 
-        if self._is_cancel_requested(session):
+        if self._is_cancel_requested(session, started_epoch, session_id):
             logger.debug(
                 "agent_loop cancelled after LLM call",
                 session_id=session_id,
@@ -486,6 +501,12 @@ class AgentLoop:
             self._history_writer, self._notification_callback, notifications, domain_session
         )
 
+        # Поколение на входе в resume: отмена может прийти, пока pending tool
+        # исполняется (например, во время клиентского RPC). Без своей базы отсчёта
+        # `run()` ниже взял бы уже изменённое поколение и продолжил отменённый
+        # turn — именно так дефект и выживал (P0-39).
+        started_epoch = self._cancellation_generation(session_id)
+
         # Убедиться что стратегия инициализирована для continue_execution.
         self._llm_caller.ensure_strategy_selected(session, session_id)
 
@@ -527,6 +548,18 @@ class AgentLoop:
             ),
         )
 
+        # Отмена во время выполнения pending tool: продолжать turn нельзя.
+        if self._is_cancel_requested(session, started_epoch, session_id):
+            logger.info(
+                "resume_after_permission cancelled: turn was cancelled during tool execution",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+            )
+            return AgentLoopResult(
+                notifications=notifications,
+                stop_reason=StopReason.CANCELLED,
+            )
+
         # Продолжить цикл (tool_results уже в session.history)
         loop_result = await self.run(
             session=session,
@@ -534,6 +567,7 @@ class AgentLoop:
             initial_prompt=None,
             mcp_manager=mcp_manager,
             domain_session=domain_session,
+            started_epoch=started_epoch,
         )
 
         # Объединяем notifications
@@ -546,6 +580,21 @@ class AgentLoop:
             tool_results=loop_result.tool_results,
         )
 
-    def _is_cancel_requested(self, session: SessionState) -> bool:
-        """Проверить флаг отмены."""
+    def _cancellation_generation(self, session_id: str) -> int:
+        """Текущее поколение отмены сессии (0, если реестр не подключён)."""
+        if self._turn_cancellation is None:
+            return 0
+        return self._turn_cancellation.generation(session_id)
+
+    def _is_cancel_requested(
+        self, session: SessionState, started_epoch: int, session_id: str | None = None
+    ) -> bool:
+        """Проверить отмену: поколение в процессном реестре либо флаг в `active_turn`.
+
+        Реестр — основной источник: у каждого запроса своя копия сессии, поэтому
+        запись отмены в состояние идущий turn не видит (P0-39). Флаг оставлен
+        вторым источником — он часть ACP-состояния turn'а.
+        """
+        if session_id is not None and self._cancellation_generation(session_id) != started_epoch:
+            return True
         return session.active_turn is not None and session.active_turn.cancel_requested

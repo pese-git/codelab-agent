@@ -26,6 +26,7 @@ from codelab.server.protocol.handlers.tool_policy import (
     describe_rejection,
 )
 from codelab.server.protocol.state import ToolResult
+from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
 
@@ -91,6 +92,7 @@ class ToolCallProcessor:
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         loop_guard_limit: int = 3,
+        turn_cancellation: TurnCancellationRegistry | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._tool_call_handler = tool_call_handler
@@ -105,6 +107,7 @@ class ToolCallProcessor:
         # один prompt-turn, поэтому детектор создаётся здесь и его состояние
         # автоматически сбрасывается сменой turn. `loop_guard_limit=0` отключает.
         self._loop_detector = ToolLoopDetector(loop_guard_limit)
+        self._turn_cancellation = turn_cancellation
 
     async def process_batch(
         self,
@@ -113,6 +116,7 @@ class ToolCallProcessor:
         tool_calls: list,
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
+        started_epoch: int | None = None,
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
 
@@ -126,14 +130,20 @@ class ToolCallProcessor:
             tool_calls: Список tool calls из ответа LLM.
             sink: Канал доставки notifications (+ replay).
             mcp_manager: MCP manager.
+            started_epoch: Поколение отмены, с которым стартовал цикл (P0-39). `None`
+                — взять текущее на входе: одиночный вызов вне цикла отменяется только
+                тем, что произошло во время самого батча.
 
         Returns:
             ToolProcessingResult с результатами обработки.
         """
+        epoch = (
+            self._cancellation_generation(session_id) if started_epoch is None else started_epoch
+        )
         tool_results: list[ToolResult] = []
 
         for index, tool_call in enumerate(tool_calls):
-            if self._is_cancel_requested(session):
+            if self._is_cancel_requested(session, epoch, session_id):
                 logger.debug("tool processing cancelled", session_id=session_id)
                 # Прерывание батча оставляло остаток вызовов без ответа: их id уже
                 # лежат в assistant-сообщении истории (`loop.py`), и модель получала
@@ -1014,7 +1024,16 @@ class ToolCallProcessor:
         """
         return await decide_tool_policy_async(session, tool_kind, self._global_policy_manager)
 
-    @staticmethod
-    def _is_cancel_requested(session: SessionState) -> bool:
-        """Проверить флаг отмены."""
+    def _cancellation_generation(self, session_id: str) -> int:
+        """Текущее поколение отмены сессии (0, если реестр не подключён)."""
+        if self._turn_cancellation is None:
+            return 0
+        return self._turn_cancellation.generation(session_id)
+
+    def _is_cancel_requested(
+        self, session: SessionState, started_epoch: int, session_id: str | None = None
+    ) -> bool:
+        """Проверить отмену: поколение в реестре либо флаг в живом `active_turn`."""
+        if session_id is not None and self._cancellation_generation(session_id) != started_epoch:
+            return True
         return session.active_turn is not None and session.active_turn.cancel_requested

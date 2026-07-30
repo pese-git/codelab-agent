@@ -15,6 +15,7 @@ from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
+from ..turn_cancellation import TurnCancellationRegistry
 from .event_history_writer import EventHistoryWriter
 from .permission_manager import PermissionManager
 from .pipeline import (
@@ -62,8 +63,10 @@ class PromptOrchestrator:
         client_rpc_service: ClientRPCService | None = None,  # backward compatibility
         global_policy_manager: GlobalPolicyManager | None = None,
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
+        turn_cancellation: TurnCancellationRegistry | None = None,
     ):
         self.state_manager = state_manager
+        self.turn_cancellation = turn_cancellation
         # Единственный писатель формата события истории (фаза C ADR-006); stateless.
         self._history_writer = EventHistoryWriter()
         self.plan_builder = plan_builder
@@ -307,6 +310,11 @@ class PromptOrchestrator:
             logger.debug("cancel request with no active turn", session_id=session_id)
             return ProtocolOutcome(response=None, notifications=[])
 
+        # Сигнал отмены — в процессном реестре, а не в состоянии сессии: у каждого
+        # запроса своя копия `SessionState` с диска, поэтому запись в неё идущий
+        # turn не увидит (P0-39).
+        if self.turn_cancellation is not None:
+            self.turn_cancellation.cancel(session_id)
         self.turn_lifecycle_manager.mark_cancel_requested(session)
 
         cancel_messages = self.tool_call_handler.cancel_active_tools(session, session_id)

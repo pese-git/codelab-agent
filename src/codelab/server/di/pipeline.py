@@ -30,6 +30,7 @@ from ..protocol.handlers.state_manager import StateManager
 from ..protocol.handlers.tool_call_handler import ToolCallHandler
 from ..protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from ..protocol.orchestrator_builder import PromptOrchestratorBuilder
+from ..protocol.turn_cancellation import TurnCancellationRegistry
 from ..rpc_holder import ClientRPCServiceHolder
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
 
@@ -61,6 +62,7 @@ class PipelineProvider(Provider):
         tracer: Tracer,
         strategy_dispatcher: StrategyDispatcher,
         system_prompt_builder: SystemPromptBuilder,
+        turn_cancellation: TurnCancellationRegistry,
         config: Annotated[AppConfig, from_context(provides=AppConfig)],
     ) -> LLMLoopStage:
         """Стадия LLM loop."""
@@ -78,7 +80,17 @@ class PipelineProvider(Provider):
             strategy_dispatcher=strategy_dispatcher,
             streaming_enabled=config.llm.streaming,
             loop_guard_limit=config.agent.tool_loop_guard_limit,
+            turn_cancellation=turn_cancellation,
         )
+
+    @provide(scope=Scope.APP)
+    def get_turn_cancellation(self) -> TurnCancellationRegistry:
+        """Процессный реестр отмены turn'ов (P0-39).
+
+        APP-scope обязателен: сигнал должен переживать границу запроса, иначе
+        отмена и идущий turn окажутся в разных экземплярах.
+        """
+        return TurnCancellationRegistry()
 
     @provide(scope=Scope.APP)
     def get_prompt_pipeline(
@@ -131,6 +143,7 @@ class PromptOrchestratorProvider(Provider):
         slash_router: SlashCommandRouter,
         global_policy_manager: GlobalPolicyManager,
         session_file_cache_registry: SessionFileCacheRegistry,
+        turn_cancellation: TurnCancellationRegistry,
     ) -> PromptOrchestratorBuilder:
         """Создаёт PromptOrchestratorBuilder."""
         return PromptOrchestratorBuilder(
@@ -141,6 +154,7 @@ class PromptOrchestratorProvider(Provider):
             slash_router=slash_router,
             global_policy_manager=global_policy_manager,
             session_file_cache_registry=session_file_cache_registry,
+            turn_cancellation=turn_cancellation,
         )
 
     @provide(scope=Scope.APP)

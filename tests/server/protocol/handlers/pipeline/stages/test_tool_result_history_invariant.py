@@ -27,10 +27,13 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor 
     ToolCallProcessor,
 )
 from codelab.server.protocol.state import SessionState
+from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
 
 
-def _make_processor() -> ToolCallProcessor:
+def _make_processor(
+    turn_cancellation: TurnCancellationRegistry | None = None,
+) -> ToolCallProcessor:
     return ToolCallProcessor(
         tool_registry=MagicMock(),
         tool_call_handler=MagicMock(),
@@ -40,6 +43,7 @@ def _make_processor() -> ToolCallProcessor:
         content_formatter=MagicMock(),
         plan_builder=MagicMock(),
         global_policy_manager=MagicMock(),
+        turn_cancellation=turn_cancellation,
     )
 
 
@@ -170,13 +174,22 @@ class TestInterruptedBatchIsFullyAnswered:
 
     @pytest.mark.asyncio
     async def test_cancel_answers_remaining_batch(self) -> None:
-        """Отмена turn'а тоже не оставляет вызовы без ответа."""
-        processor = _make_processor()
+        """Отмена turn'а тоже не оставляет вызовы без ответа.
+
+        Отмена подаётся реальным сигналом — поколением в процессном реестре, как
+        это делает `handle_cancel`. Раньше тест подменял `_is_cancel_requested` и
+        потому проходил, хотя в проде ветка была недостижима (P0-39).
+        """
+        registry = TurnCancellationRegistry()
+        processor = _make_processor(registry)
         session = _session(mode="standard")
         batch = [_Call(f"llm_{i}") for i in range(4)]
-        processor._is_cancel_requested = lambda _session: True  # type: ignore[method-assign]
+        started_epoch = registry.generation("s")
+        registry.cancel("s")
 
-        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+        result = await processor.process_batch(
+            session, "s", batch, AsyncMock(), None, started_epoch
+        )
 
         assert result.pending_permission is False
         answered = {m["tool_call_id"] for m in _tool_answers(session)}

@@ -30,6 +30,7 @@ from codelab.server.protocol.handlers.event_history_writer import EventHistoryWr
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
 from codelab.server.protocol.stop_reasons import StopReason
+from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 
 from ..base import PromptStage
 from ..context import PromptContext
@@ -81,6 +82,7 @@ class LLMLoopStage(PromptStage):
         tracer: Tracer | None = None,
         streaming_enabled: bool = False,
         loop_guard_limit: int = 3,
+        turn_cancellation: TurnCancellationRegistry | None = None,
     ) -> None:
         """Инициализация LLMLoopStage.
 
@@ -106,6 +108,7 @@ class LLMLoopStage(PromptStage):
         self._tracer = tracer
         self._streaming_enabled = streaming_enabled
         self._loop_guard_limit = loop_guard_limit
+        self._turn_cancellation = turn_cancellation
 
         # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
@@ -225,6 +228,7 @@ class LLMLoopStage(PromptStage):
             notification_callback=notification_callback,
             streaming_enabled=self._streaming_enabled,
             loop_guard_limit=self._loop_guard_limit,
+            turn_cancellation=self._turn_cancellation,
         )
 
     async def process(self, context: PromptContext) -> PromptContext:
@@ -306,6 +310,21 @@ class LLMLoopStage(PromptStage):
         Returns:
             LLMLoopResult с результатами выполнения.
         """
+        # Отменённый turn возобновлять нельзя. Отмена очищает `active_turn`, поэтому
+        # его отсутствие здесь и означает «turn, к которому относился этот вызов,
+        # больше не существует». Раньше проверки не было вовсе, и каждое разрешение
+        # толкало отменённый turn дальше — на живом прогоне 8 запросов разрешения
+        # уже после отмены (P0-39).
+        if session.active_turn is None:
+            from codelab.server.protocol.state import LLMLoopResult
+
+            logger.info(
+                "pending tool not executed: turn is gone",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+            )
+            return LLMLoopResult(notifications=[], stop_reason=StopReason.CANCELLED)
+
         # Переиспользовать существующий AgentLoop или создать новый с правильной стратегией
         if self._agent_loop is None:
             logger.info(
