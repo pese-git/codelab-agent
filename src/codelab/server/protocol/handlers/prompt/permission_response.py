@@ -11,7 +11,7 @@ from ...state import PendingToolExecution, ProtocolOutcome, SessionState
 from ..permissions import build_permission_options
 from ..session import session_info_notification
 from .tool_call_updates import build_policy_tool_execution_updates
-from .turn_state import finalize_active_turn
+from .turn_state import answer_deferred_batch, finalize_active_turn
 
 logger = structlog.get_logger()
 
@@ -83,6 +83,10 @@ def resolve_permission_response_impl(
                 updated_at=session.updated_at,
             )
         )
+        # Отказ обрывает turn: отложенный хвост батча (P2-40) не выполнится, и без
+        # ответа его вызовы остались бы без `role: tool`.
+        answer_deferred_batch(session, session_id, reason="в разрешении отказано")
+
         cancelled = finalize_active_turn(session=session, stop_reason="cancelled")
         return ProtocolOutcome(
             notifications=notifications,

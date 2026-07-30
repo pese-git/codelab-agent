@@ -24,6 +24,7 @@ from .pipeline import (
     PromptPipeline,
 )
 from .plan_builder import PlanBuilder
+from .prompt.turn_state import answer_deferred_batch
 from .slash_commands import CommandRegistry
 from .state_manager import StateManager
 from .tool_call_handler import ToolCallHandler
@@ -343,6 +344,10 @@ class PromptOrchestrator:
                     session_id=session_id,
                     cancelled_count=cancelled_rpc_count,
                 )
+
+        # Отложенный хвост батча (P2-40) не выполнится — отвечаем модели, иначе
+        # вызовы останутся без `role: tool` (найдено на `sess_a98dab30f7c3`).
+        answer_deferred_batch(session, session_id, reason="turn отменён пользователем")
 
         self.turn_lifecycle_manager.finalize_turn(session, "cancelled")
 

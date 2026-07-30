@@ -154,3 +154,136 @@ class TestHistorySeamParityForToolResult:
 
         assert restored.content.text == content
         assert restored.tool_call_id == "llm_1"
+
+
+class TestDeferredBatchIsAnsweredWhenTurnEnds:
+    """Отложенный хвост батча не теряется при обрыве turn'а (P2-40 → P2-38).
+
+    Найдено на живом прогоне `sess_a98dab30f7c3`: 9 вызовов, 8 ответов. Отмена
+    пришла, когда в `pending_batch` лежал вызов `analysis_options.yaml`; turn был
+    очищен вместе с хвостом, и вызов остался без `role: tool` навсегда. Шов внесён
+    правкой P2-40: до неё хвост отвечался сразу, теперь он живёт в состоянии и
+    требует явного ответа на каждом пути обрыва.
+    """
+
+    def _session_with_deferred_batch(self) -> SessionState:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        session.active_turn.pending_batch = [
+            {"id": "llm_2", "name": "fs_read_text_file", "arguments": {"path": "B.md"}},
+            {"id": "llm_3", "name": "fs_read_text_file", "arguments": {"path": "C.md"}},
+        ]
+        return session
+
+    def test_cancel_answers_deferred_batch(self) -> None:
+        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
+
+        session = self._session_with_deferred_batch()
+
+        answered = answer_deferred_batch(session, "s", reason="turn отменён пользователем")
+
+        assert answered == 2
+        ids = {m["tool_call_id"] for m in _answers(session)}
+        assert ids == {"llm_2", "llm_3"}
+        assert all("отменён" in m["content"] for m in _answers(session))
+        # Хвост снят: иначе он всплыл бы при следующем resume
+        assert session.active_turn.pending_batch == []
+
+    def test_permission_reject_answers_deferred_batch(self) -> None:
+        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
+
+        session = self._session_with_deferred_batch()
+
+        answer_deferred_batch(session, "s", reason="в разрешении отказано")
+
+        assert len(_answers(session)) == 2
+        assert all("отказано" in m["content"] for m in _answers(session))
+
+    def test_session_switch_answers_deferred_batch(self) -> None:
+        session = self._session_with_deferred_batch()
+
+        _cleanup_session_state(session)
+
+        ids = {m["tool_call_id"] for m in _answers(session)}
+        assert ids == {"llm_2", "llm_3"}
+        assert session.active_turn is None
+
+    def test_empty_batch_writes_nothing(self) -> None:
+        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
+
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+
+        assert answer_deferred_batch(session, "s", reason="неважно") == 0
+        assert _answers(session) == []
+
+    def test_call_without_id_is_skipped_not_crashed(self) -> None:
+        """Битая запись в хвосте не должна ронять путь отмены."""
+        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
+
+        session = self._session_with_deferred_batch()
+        session.active_turn.pending_batch.append({"name": "fs_read_text_file"})
+
+        assert answer_deferred_batch(session, "s", reason="turn отменён пользователем") == 2
+
+
+class TestRealPathsAnswerDeferredBatch:
+    """Проверка, что настоящие пути обрыва зовут ответ на хвост, а не только хелпер."""
+
+    def _session_with_deferred_batch(self, tool_call_id: str = "call_001") -> SessionState:
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.set_config_value("mode", "standard")
+        session.active_turn = ActiveTurnState(
+            prompt_request_id="req_1",
+            session_id="s",
+            permission_request_id="perm_1",
+            permission_tool_call_id=tool_call_id,
+        )
+        session.active_turn.pending_batch = [
+            {"id": "llm_2", "name": "fs_read_text_file", "arguments": {"path": "B.md"}}
+        ]
+        session.tool_calls[tool_call_id] = ToolCallState(
+            tool_call_id=tool_call_id,
+            title="fs/read_text_file",
+            kind="read",
+            status="pending",
+            tool_call_id_from_llm="llm_1",
+        )
+        return session
+
+    def test_permission_reject_path_answers_tail(self) -> None:
+        """Отказ в разрешении обрывает turn — хвост обязан быть отвечен."""
+        from codelab.server.protocol.handlers.prompt.permission_response import (
+            resolve_permission_response_impl,
+        )
+
+        session = self._session_with_deferred_batch()
+
+        outcome = resolve_permission_response_impl(
+            session=session,
+            permission_request_id="perm_1",
+            result={"outcome": {"outcome": "selected", "optionId": "reject_once"}},
+        )
+
+        assert outcome is not None
+        tail = [m for m in _answers(session) if m["tool_call_id"] == "llm_2"]
+        assert len(tail) == 1
+        assert "отказано" in tail[0]["content"]
+
+    def test_permission_allow_path_keeps_tail_for_resume(self) -> None:
+        """Разрешение НЕ должно отвечать на хвост: он будет выполнен."""
+        from codelab.server.protocol.handlers.prompt.permission_response import (
+            resolve_permission_response_impl,
+        )
+
+        session = self._session_with_deferred_batch()
+
+        resolve_permission_response_impl(
+            session=session,
+            permission_request_id="perm_1",
+            result={"outcome": {"outcome": "selected", "optionId": "allow_once"}},
+        )
+
+        assert [m["tool_call_id"] for m in _answers(session)] == []
+        assert session.active_turn is not None
+        assert [c["id"] for c in session.active_turn.pending_batch] == ["llm_2"]

@@ -17,6 +17,7 @@ from ...storage import SessionRepository, SessionStorage
 from ..session_factory import SessionFactory
 from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
 from .event_history_writer import EventHistoryWriter
+from .prompt.turn_state import answer_deferred_batch
 from .session_replayer import SessionReplayer
 
 # Используем structlog для структурированного логирования
@@ -75,6 +76,10 @@ def _cleanup_session_state(session: SessionState) -> None:
             session.cancel_client_rpc_request(
                 session.active_turn.pending_client_request.request_id
             )
+
+        # Отложенный хвост батча (P2-40) не выполнится после переключения сессии.
+        # Обязательно до очистки: `pending_batch` живёт в `active_turn`.
+        answer_deferred_batch(session, session.session_id, reason="сессия была переключена")
 
         session.active_turn = None
 
