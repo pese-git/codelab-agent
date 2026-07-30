@@ -217,6 +217,7 @@ class AgentLoop:
         mcp_manager: MCPManager | None = None,
         domain_session: DomainSession | None = None,
         started_epoch: int | None = None,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
         """Запустить цикл итераций.
 
@@ -262,6 +263,7 @@ class AgentLoop:
                 sink,
                 final_text,
                 started_epoch,
+                persist,
             )
             if result is not None:
                 return result
@@ -290,6 +292,7 @@ class AgentLoop:
         sink: SessionUpdateSink,
         final_text: str | None,
         started_epoch: int,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[AgentLoopResult | None, str | None]:
         """Одна итерация цикла: LLM-вызов + обработка ответа/tool_calls.
 
@@ -365,7 +368,7 @@ class AgentLoop:
 
         # Обрабатываем tool_calls
         tool_result = await self._tool_processor.process_batch(
-            session, session_id, response.tool_calls, sink, mcp_manager, started_epoch
+            session, session_id, response.tool_calls, sink, mcp_manager, started_epoch, persist
         )
 
         # Permission pause
@@ -495,6 +498,7 @@ class AgentLoop:
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
         domain_session: DomainSession | None = None,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
         """Продолжить цикл после permission approval.
 
@@ -576,11 +580,15 @@ class AgentLoop:
                 stop_reason=StopReason.CANCELLED,
             )
 
+        # Результат приостановленного вызова — на диск сразу: до этого он жил только
+        # в копии turn'а (ADR-007).
+        await self._persist_step(persist, session_id, "pending_tool_executed")
+
         # Доработать остаток батча, отложенный паузой на permission (P2-40).
         # Только после него имеет смысл идти к модели: иначе она увидит ответы не на
         # все свои вызовы и запросит их снова.
         batch_result = await self._process_deferred_batch(
-            session, session_id, sink, mcp_manager, started_epoch
+            session, session_id, sink, mcp_manager, started_epoch, persist
         )
         if batch_result is not None:
             return AgentLoopResult(
@@ -598,6 +606,7 @@ class AgentLoop:
             mcp_manager=mcp_manager,
             domain_session=domain_session,
             started_epoch=started_epoch,
+            persist=persist,
         )
 
         # Объединяем notifications
@@ -617,6 +626,7 @@ class AgentLoop:
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
         started_epoch: int,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> ToolProcessingResult | None:
         """Обработать остаток батча, отложенный предыдущей паузой на permission.
 
@@ -637,11 +647,20 @@ class AgentLoop:
         )
 
         result = await self._tool_processor.process_batch(
-            session, session_id, deferred, sink, mcp_manager, started_epoch
+            session, session_id, deferred, sink, mcp_manager, started_epoch, persist
         )
         if result.pending_permission:
             return result
         return None
+
+    async def _persist_step(
+        self,
+        persist: Callable[[], Awaitable[None]] | None,
+        session_id: str,
+        step: str,
+    ) -> None:
+        """Сохранить состояние шага (делегирует процессору — правило одно)."""
+        await self._tool_processor._persist_step(persist, session_id, step)
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""

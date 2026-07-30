@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +34,12 @@ class PromptContext:
     content_parts: list[ContentPart] = field(default_factory=list)
 
     # Результаты, накапливаемые по ходу pipeline
+    # Сохранение состояния на шаге turn'а (ADR-007). Turn держит свою копию весь
+    # turn, поэтому без промежуточных записей его окно расхождения измерялось
+    # десятками секунд — на живом прогоне 39 с. Callback, а не storage: цикл не
+    # должен знать про хранилище.
+    persist: Callable[[], Awaitable[None]] | None = None
+
     notifications: list[ACPMessage] = field(default_factory=list)
     stop_reason: str = "end_turn"
     should_stop: bool = False  # True — прервать pipeline досрочно

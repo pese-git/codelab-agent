@@ -184,6 +184,8 @@ class BackgroundExecutor:
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
             domain_session=domain_session,
+            # Промежуточные записи: копия живёт всё исполнение вызова (ADR-007)
+            persist=lambda: save_session_merging(self._storage, session),
         )
 
         # Сохраняем сессию — критично для permission flow

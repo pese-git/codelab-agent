@@ -275,6 +275,7 @@ class LLMLoopStage(PromptStage):
             initial_prompt=context.raw_text,
             mcp_manager=mcp_manager,
             domain_session=context.domain_session,
+            persist=context.persist,
         )
 
         context.notifications.extend(result.notifications)
@@ -294,6 +295,7 @@ class LLMLoopStage(PromptStage):
         mcp_manager: Any | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
         domain_session: DomainSession | None = None,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
@@ -373,6 +375,7 @@ class LLMLoopStage(PromptStage):
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             domain_session=domain_session,
+            persist=persist,
         )
 
         # Конвертировать AgentLoopResult → LLMLoopResult

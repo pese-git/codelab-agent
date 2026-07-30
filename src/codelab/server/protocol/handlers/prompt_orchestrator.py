@@ -14,6 +14,7 @@ from ...rpc_holder import ClientRPCServiceHolder
 from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
+from ..session_merge import save_session_merging
 from ..state import LLMLoopResult, ProtocolOutcome, SessionState
 from ..turn_cancellation import TurnCancellationRegistry
 from .event_history_writer import EventHistoryWriter
@@ -211,6 +212,10 @@ class PromptOrchestrator:
             # Write-фаза (ADR-006, D4-a): доменный снимок рабочей модели. Аддитивно,
             # source-of-truth пока `session` (SessionState); потребителей нет.
             domain_session=SessionMapper.to_domain(session),
+            # Промежуточные записи turn'а (ADR-007): без них копия turn'а
+            # расходилась с диском на десятки секунд. Слияние внутри — развязка на
+            # случай, если отмена или ответ на разрешение успели записать своё.
+            persist=lambda: save_session_merging(storage, session),
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
@@ -373,6 +378,7 @@ class PromptOrchestrator:
         mcp_manager: MCPManager | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
         domain_session: DomainSession | None = None,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
         return await self._llm_loop_stage.execute_pending_tool(
@@ -382,6 +388,7 @@ class PromptOrchestrator:
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
             domain_session=domain_session,
+            persist=persist,
         )
 
 

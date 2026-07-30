@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -117,6 +118,7 @@ class ToolCallProcessor:
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
         started_epoch: int | None = None,
+        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
 
@@ -133,6 +135,8 @@ class ToolCallProcessor:
             started_epoch: Поколение отмены, с которым стартовал цикл (P0-39). `None`
                 — взять текущее на входе: одиночный вызов вне цикла отменяется только
                 тем, что произошло во время самого батча.
+            persist: Сохранить состояние после каждого вызова (ADR-007). `None` — не
+                сохранять.
 
         Returns:
             ToolProcessingResult с результатами обработки.
@@ -178,6 +182,9 @@ class ToolCallProcessor:
                         count=len(remaining),
                         paused_tool_call_id=step.pause_tool_call_id,
                     )
+                    # Отложенный хвост обязан попасть на диск до паузы: ответ на
+                    # разрешение придёт отдельным запросом и загрузит сессию заново.
+                    await self._persist_step(persist, session_id, "batch_deferred")
                 else:
                     self._answer_unprocessed_tool_calls(
                         session,
@@ -193,6 +200,10 @@ class ToolCallProcessor:
                 )
             if step.tool_result is not None:
                 tool_results.append(step.tool_result)
+
+            # Результат вызова — на диск сразу. Иначе он жил бы только в копии turn'а
+            # до конца turn'а: на живом прогоне это 39 секунд расхождения (ADR-007).
+            await self._persist_step(persist, session_id, "tool_call_processed")
 
         return ToolProcessingResult(tool_results=tool_results)
 
@@ -1051,6 +1062,30 @@ class ToolCallProcessor:
             "allow", "reject" или "ask".
         """
         return await decide_tool_policy_async(session, tool_kind, self._global_policy_manager)
+
+    @staticmethod
+    async def _persist_step(
+        persist: Callable[[], Awaitable[None]] | None,
+        session_id: str,
+        step: str,
+    ) -> None:
+        """Сохранить состояние шага, не срывая turn при сбое записи.
+
+        Ошибка записи логируется и turn продолжается: срывать работу из-за
+        временного сбоя диска хуже, а финальное сохранение даст второй шанс. Молчать
+        при этом нельзя — именно молчание скрывало потерю решений в P2-42.
+        """
+        if persist is None:
+            return
+        try:
+            await persist()
+        except Exception as error:
+            logger.error(
+                "session_step_persist_failed",
+                session_id=session_id,
+                step=step,
+                error=str(error),
+            )
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""
