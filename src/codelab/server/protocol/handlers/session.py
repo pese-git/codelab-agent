@@ -200,6 +200,60 @@ def _validate_session_load_params(
     return None
 
 
+def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[ACPMessage]:
+    """Реплей tool call'ов из состояния, если их нет в `events_history`.
+
+    Обратная совместимость с сессиями, созданными до сохранения `tool_call` событий
+    в `events_history`.
+
+    ВНИМАНИЕ (P2-42, пункт «честный реплей»): каждый вызов реплеится со статусом
+    `pending` независимо от реального, а фактический статус досылается отдельным
+    `tool_call_update`. Это второй источник расхождения wire↔состояние; выправляется
+    отдельным шагом, здесь поведение сохранено как было.
+    """
+    has_tool_call_events = any(
+        event.get("type") == "session_update"
+        and event.get("update", {}).get("sessionUpdate") == "tool_call"
+        for event in session.events_history
+    )
+    if has_tool_call_events or not session.tool_calls:
+        return []
+
+    notifications: list[ACPMessage] = []
+    for tool_call in session.tool_calls.values():
+        notifications.append(
+            ACPMessage.notification(
+                "session/update",
+                {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": tool_call.tool_call_id,
+                        "title": tool_call.title,
+                        "kind": tool_call.kind,
+                        "status": "pending",
+                    },
+                },
+            )
+        )
+        if tool_call.status == "pending":
+            continue
+        update_payload: dict[str, Any] = {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": tool_call.tool_call_id,
+            "status": tool_call.status,
+        }
+        if tool_call.content:
+            update_payload["content"] = tool_call.content
+        notifications.append(
+            ACPMessage.notification(
+                "session/update",
+                {"sessionId": session_id, "update": update_payload},
+            )
+        )
+    return notifications
+
+
 async def session_load(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
@@ -207,7 +261,7 @@ async def session_load(
     authenticated: bool,
     config_specs: dict[str, dict[str, Any]],
     auth_methods: list[dict[str, Any]],
-    storage: SessionStorage,
+    storage: SessionStorage | None = None,
     session: SessionState | None = None,
 ) -> ProtocolOutcome:
     """Загружает существующую сессию и реплеит состояние через updates.
@@ -253,8 +307,8 @@ async def session_load(
     # Сессию передаёт вызывающий, если уже загрузил её (так делает
     # `SessionLoadCommandHandler`): вторая загрузка давала бы вторую копию, и
     # мутации первой терялись бы — `JsonFileStorage` отдаёт новый объект на каждый
-    # `load_session` (P2-42).
-    if session is None:
+    # `load_session` (P2-42). `storage` нужен только для самостоятельной загрузки.
+    if session is None and storage is not None:
         session = await storage.load_session(session_id)
     if session is None:
         logger.warning("session_load_not_found", session_id=session_id)
@@ -289,48 +343,8 @@ async def session_load(
     if plan_notification:
         notifications.append(plan_notification)
 
-    # Fallback: реплеим tool calls из session.tool_calls если они не были в events_history
-    # Это обеспечивает обратную совместимость с сессиями, созданными до внедрения
-    # сохранения tool_call событий в events_history
-    has_tool_call_events = any(
-        event.get("type") == "session_update"
-        and event.get("update", {}).get("sessionUpdate") == "tool_call"
-        for event in session.events_history
-    )
-    if not has_tool_call_events and session.tool_calls:
-        for tool_call in session.tool_calls.values():
-            notifications.append(
-                ACPMessage.notification(
-                    "session/update",
-                    {
-                        "sessionId": session_id,
-                        "update": {
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": tool_call.tool_call_id,
-                            "title": tool_call.title,
-                            "kind": tool_call.kind,
-                            "status": "pending",
-                        },
-                    },
-                )
-            )
-            if tool_call.status != "pending":
-                update_payload: dict[str, Any] = {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": tool_call.tool_call_id,
-                    "status": tool_call.status,
-                }
-                if tool_call.content:
-                    update_payload["content"] = tool_call.content
-                notifications.append(
-                    ACPMessage.notification(
-                        "session/update",
-                        {
-                            "sessionId": session_id,
-                            "update": update_payload,
-                        },
-                    )
-                )
+    fallback_notifications = _replay_tool_calls_fallback(session, session_id)
+    notifications.extend(fallback_notifications)
 
     notifications.append(
         ACPMessage.notification(
@@ -372,7 +386,7 @@ async def session_load(
         notifications_total=len(notifications),
         history_notifications=len(history_notifications),
         plan_replayed=plan_notification is not None,
-        tool_call_fallback_used=not has_tool_call_events and bool(session.tool_calls),
+        tool_call_fallback_used=bool(fallback_notifications),
         events_history=len(session.events_history),
         tool_calls=len(session.tool_calls),
     )

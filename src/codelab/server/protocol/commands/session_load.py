@@ -10,8 +10,9 @@ from typing import Any
 
 import structlog
 
+from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
-from ...storage import SessionStorage
+from ...storage import SessionRepository
 from ..handlers import session
 from ..pending_registry import PendingRequestRegistry
 from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
@@ -36,7 +37,7 @@ class SessionLoadCommandHandler:
 
     def __init__(
         self,
-        storage: SessionStorage,
+        repository: SessionRepository,
         config_specs: dict[str, dict[str, Any]],
         auth_methods: list[dict[str, Any]],
         require_auth: bool,
@@ -48,7 +49,7 @@ class SessionLoadCommandHandler:
         """Инициализирует обработчик.
 
         Args:
-            storage: Хранилище сессий.
+            repository: Доменный порт хранилища сессий.
             config_specs: Спецификации конфигурационных опций.
             auth_methods: Список методов аутентификации.
             require_auth: Требуется ли аутентификация.
@@ -57,7 +58,7 @@ class SessionLoadCommandHandler:
             pending_registry: Реестр pending permission requests.
             on_session_loaded: Callback для side effects (MCP setup и т.д.).
         """
-        self._storage = storage
+        self._repository = repository
         self._config_specs = config_specs
         self._auth_methods = auth_methods
         self._require_auth = require_auth
@@ -80,7 +81,12 @@ class SessionLoadCommandHandler:
         session_obj: SessionState | None = None
 
         if isinstance(session_id, str):
-            session_obj = await self._storage.load_session(session_id)
+            # Транзакция работает доменным агрегатом (фаза D ADR-006), но replay и
+            # MCP-setup остаются на wire-границе, поэтому конверсия — здесь.
+            domain_session = await self._repository.load_session(session_id)
+            session_obj = (
+                SessionMapper.to_protocol(domain_session) if domain_session is not None else None
+            )
             if session_obj is not None:
                 session_obj.runtime_capabilities = self._runtime_capabilities
 
@@ -108,7 +114,6 @@ class SessionLoadCommandHandler:
             self._authenticated,
             self._config_specs,
             self._auth_methods,
-            self._storage,
             session=session_obj,
         )
 
@@ -117,7 +122,7 @@ class SessionLoadCommandHandler:
         # вызовов и ответы модели на отложенный хвост батча (P2-42, измерено).
         succeeded = outcome.response is not None and outcome.response.error is None
         if session_obj is not None and succeeded:
-            await self._storage.save_session(session_obj)
+            await self._repository.save_session(SessionMapper.to_domain(session_obj))
             # info, а не debug: это запись на диск на границе транзакции, и по логу
             # должно быть видно, что решения обработчика сохранены. На прогоне
             # 2026-07-30 событие было debug — и прогон не смог подтвердить правку.

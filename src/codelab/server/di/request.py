@@ -150,7 +150,7 @@ class RequestProvider(Provider):
             on_session_created=_on_session_created,
         )
         session_load_handler = SessionLoadCommandHandler(
-            storage=storage,
+            repository=repository,
             config_specs=config_specs,
             auth_methods=auth_methods,
             require_auth=require_auth,

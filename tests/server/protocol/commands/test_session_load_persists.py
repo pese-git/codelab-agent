@@ -19,7 +19,7 @@ import pytest
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
-from codelab.server.storage import JsonFileStorage
+from codelab.server.storage import JsonFileStorage, SessionRepository
 
 
 def _tool_answers(session: SessionState) -> list[tuple[str, str]]:
@@ -42,8 +42,9 @@ def _tool_answers(session: SessionState) -> list[tuple[str, str]]:
 
 
 def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
+    """Обработчик на доменном порту поверх файлового бэкенда (фаза D ADR-006)."""
     return SessionLoadCommandHandler(
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         config_specs={},
         auth_methods=[],
         require_auth=False,
@@ -134,6 +135,7 @@ class TestSessionLoadPersistsDecisions:
             loads += 1
             return await original(session_id)
 
+        # Считаем обращения к бэкенду: порт ходит в него на каждую загрузку
         storage.load_session = _counting_load  # type: ignore[method-assign]
 
         await _load(storage)
@@ -170,3 +172,95 @@ class TestSessionLoadPersistsDecisions:
         assert outcome.response is not None
         assert outcome.response.error is not None
         assert await JsonFileStorage(tmp_path).load_session("missing") is None
+
+
+class TestDomainRoundTripDoesNotRewriteFormat:
+    """Гейт миграции на порт: `session/load` теперь пишет, значит потеря маппера
+    переписала бы существующие сессии (фаза D ADR-006).
+
+    Проверяется на форме, которую производит текущий код: сессия сначала проходит
+    цикл через диск (там pydantic нормализует записи), и только эта форма — та, что
+    реально лежит в `~/.codelab/data/sessions`.
+    """
+
+    @pytest.mark.asyncio
+    async def test_load_does_not_change_untouched_fields(self, tmp_path: Path) -> None:
+
+        storage = JsonFileStorage(tmp_path)
+        session = SessionState(session_id="sess_x", cwd="/work", mcp_servers=[])
+        session.title = "T"
+        session.config_values = {"mode": "standard"}
+        session.history = [
+            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "role": "assistant",
+                "text": "ok",
+                # `arguments` обязателен: так пишет боевой путь (`loop.py`), и без него
+                # round-trip добавил бы ключ — фикстура должна повторять реальную форму
+                "tool_calls": [{"id": "llm_1", "name": "fs_read", "arguments": {"path": "a"}}],
+            },
+            {"role": "tool", "tool_call_id": "llm_1", "content": "res"},
+        ]
+        session.events_history = [
+            {"type": "session_update", "update": {"sessionUpdate": "tool_call", "toolCallId": "c1"}}
+        ]
+        session.tool_calls["c1"] = ToolCallState(
+            tool_call_id="c1",
+            title="fs/read_text_file",
+            kind="read",
+            status="completed",
+            tool_call_id_from_llm="llm_1",
+            tool_name="fs/read_text_file",
+            tool_arguments={"path": "a"},
+            raw_input={"path": "a"},
+        )
+        session.latest_plan = [{"content": "x", "priority": "high", "status": "pending"}]
+        await storage.save_session(session)
+
+        before = (await JsonFileStorage(tmp_path).load_session("sess_x")).model_dump(mode="json")
+
+        await _load(storage, cwd="/work")
+
+        after = (await JsonFileStorage(tmp_path).load_session("sess_x")).model_dump(mode="json")
+
+        # Транзакция меняет только то, что решила: turn и updated_at
+        changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
+        assert changed <= {"active_turn", "updated_at"}, f"перезаписаны лишние поля: {changed}"
+
+    def test_known_normalizations_of_hand_built_records(self) -> None:
+        """Известные нормализации маппера — зафиксированы осознанно.
+
+        Обе проявляются только на записях, которых боевой путь не создаёт: он всегда
+        заполняет и `raw_input` (`create_tool_call`), и `arguments` в истории
+        (`loop.py`). На живой сессии таких записей 0 из 40 в обоих случаях. Тест
+        держит поведение зафиксированным, чтобы изменение маппера было заметным.
+
+        В домене у вызова одно поле `arguments` (решение фазы B), в wire их два:
+        `raw_input` (ACP rawInput) и `tool_arguments` — отсюда заполнение пустого
+        `raw_input`. Вторая нормализация: запись истории без ключа `arguments`
+        получает `arguments: {}`.
+        """
+        from codelab.server.mapping.session_mapper import SessionMapper
+
+        state = SessionState(session_id="s", cwd="/w", mcp_servers=[])
+        state.tool_calls["c1"] = ToolCallState(
+            tool_call_id="c1",
+            title="fs/read_text_file",
+            kind="read",
+            status="completed",
+            tool_name="fs/read_text_file",
+            tool_arguments={"path": "a"},
+            raw_input={},
+        )
+
+        restored = SessionMapper.to_protocol(SessionMapper.to_domain(state))
+
+        assert restored.tool_calls["c1"].raw_input == {"path": "a"}
+        assert restored.tool_calls["c1"].tool_arguments == {"path": "a"}
+
+        # Вторая нормализация: отсутствующий `arguments` в истории
+        state.history = [{"role": "assistant", "tool_calls": [{"id": "llm_1", "name": "fs_read"}]}]
+        restored = SessionMapper.to_protocol(SessionMapper.to_domain(state))
+        entry = restored.history[0]
+        calls = entry["tool_calls"] if isinstance(entry, dict) else entry.tool_calls
+        assert calls[0]["arguments"] == {}
