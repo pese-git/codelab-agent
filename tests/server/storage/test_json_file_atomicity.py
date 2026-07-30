@@ -57,7 +57,12 @@ class TestSaveIsAtomic:
         storage = JsonFileStorage(tmp_path)
         await storage.save_session(_session("/first"))
 
-        await storage.save_session(_session("/second"))
+        # Реальный поток: загрузить, изменить, записать — иначе CAS отклонит запись
+        # копии с устаревшей ревизией (ADR-007)
+        loaded = await storage.load_session("sess_x")
+        assert loaded is not None
+        loaded.cwd = "/second"
+        await storage.save_session(loaded)
 
         raw = json.loads((tmp_path / "sess_x.json").read_text(encoding="utf-8"))
         assert raw["cwd"] == "/second"
@@ -70,16 +75,19 @@ class TestSaveIsAtomic:
         await storage.save_session(_session("/first"))
         seen: list[str] = []
 
-        real_replace = __import__("os").replace
+        real_replace = os.replace
 
         def _peek_then_replace(src, dst):
             # В момент между записью tmp и подменой целевого файла
-            loaded = json.loads(Path(dst).read_text(encoding="utf-8"))
-            seen.append(loaded["cwd"])
+            snapshot = json.loads(Path(dst).read_text(encoding="utf-8"))
+            seen.append(snapshot["cwd"])
             real_replace(src, dst)
 
+        current = await storage.load_session("sess_x")
+        assert current is not None
+        current.cwd = "/second"
         with patch("codelab.server.storage.json_file.os.replace", _peek_then_replace):
-            await storage.save_session(_session("/second"))
+            await storage.save_session(current)
 
         assert seen == ["/first"]
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
@@ -98,8 +106,12 @@ class TestConcurrentSaves:
     @pytest.mark.asyncio
     async def test_parallel_saves_of_same_session_all_succeed(self, tmp_path: Path) -> None:
         storage = JsonFileStorage(tmp_path)
+        sessions = [_session(f"/p{i}") for i in range(8)]
 
-        await asyncio.gather(*(storage.save_session(_session(f"/p{i}")) for i in range(8)))
+        # Все копии с одной ревизией: проверка читается до записи, поэтому
+        # одновременные писатели проходят CAS — предел оптимистичной сверки
+        # зафиксирован тестом ниже (TestOptimisticLimits)
+        await asyncio.gather(*(storage.save_session(s) for s in sessions))
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
@@ -111,6 +123,7 @@ class TestConcurrentSaves:
     async def test_temp_names_are_unique_per_write(self, tmp_path: Path) -> None:
         """Имя временного файла не должно зависеть только от процесса."""
         storage = JsonFileStorage(tmp_path)
+        await storage.save_session(_session())
         seen: set[str] = set()
         real_replace = os.replace
 
@@ -119,7 +132,11 @@ class TestConcurrentSaves:
             real_replace(src, dst)
 
         with patch("codelab.server.storage.json_file.os.replace", _capture):
-            await storage.save_session(_session("/a"))
-            await storage.save_session(_session("/b"))
+            first = await storage.load_session("sess_x")
+            assert first is not None
+            await storage.save_session(first)
+            second = await storage.load_session("sess_x")
+            assert second is not None
+            await storage.save_session(second)
 
         assert len(seen) == 2, f"временные имена совпали: {seen}"

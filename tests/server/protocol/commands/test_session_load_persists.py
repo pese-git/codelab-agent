@@ -225,7 +225,11 @@ class TestDomainRoundTripDoesNotRewriteFormat:
 
         # Транзакция меняет только то, что решила: turn и updated_at
         changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        assert changed <= {"active_turn", "updated_at"}, f"перезаписаны лишние поля: {changed}"
+        # revision растёт на каждой записи — это и есть механизм CAS (ADR-007)
+        assert changed <= {"active_turn", "updated_at", "revision"}, (
+            f"перезаписаны лишние поля: {changed}"
+        )
+        assert after["revision"] == before["revision"] + 1
 
     def test_known_normalizations_of_hand_built_records(self) -> None:
         """Известные нормализации маппера — зафиксированы осознанно.

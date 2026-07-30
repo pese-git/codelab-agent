@@ -58,7 +58,12 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=6)
+    schema_version: int = Field(default=7)
+    # Ревизия документа: счётчик записей, растёт на каждое сохранение. Нужна для
+    # compare-and-set: копия сессии живёт через `await` (фоновое исполнение turn'а),
+    # и без сверки её запись молча затирала бы решения, принятые тем временем другим
+    # запросом (ADR-007). Это не `schema_version` — та про формат, эта про документ.
+    revision: int = Field(default=0)
 
     session_id: str
     cwd: str
@@ -303,6 +308,13 @@ class SessionState(BaseModel):
             ]
             data["schema_version"] = 6
             version = 6
+
+        # v6 → v7: ревизия документа для compare-and-set (ADR-007). Старые файлы
+        # начинают с 0 — первая же запись поднимет её до 1.
+        if version < 7:
+            data.setdefault("revision", 0)
+            data["schema_version"] = 7
+            version = 7
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})

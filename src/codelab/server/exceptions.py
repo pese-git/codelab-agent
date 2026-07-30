@@ -41,6 +41,26 @@ class StorageError(ACPError):
     pass
 
 
+class SessionRevisionConflictError(StorageError):
+    """Запись отклонена: документ сессии изменился с момента загрузки.
+
+    Возникает, когда пишущий держит копию с устаревшей ревизией — например
+    фоновое исполнение turn'а, чья копия живёт через `await`, пока другой запрос
+    успел сохранить свои решения. Отклонение вместо перезаписи выбрано осознанно
+    (ADR-007): молчаливое затирание уже дважды стоило нам потерянных решений
+    (P0-39, P2-42), а конфликт должен быть видимым.
+    """
+
+    def __init__(self, session_id: str, expected: int, actual: int) -> None:
+        self.session_id = session_id
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"Session {session_id} changed since load: "
+            f"ожидалась ревизия {expected}, на диске {actual}"
+        )
+
+
 class SessionNotFoundError(StorageError):
     """Сессия не найдена в хранилище."""
 

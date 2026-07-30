@@ -28,7 +28,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -48,7 +48,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.events_history == []
         assert session.config_values == {}
         assert session.active_strategy == "single"
@@ -59,7 +59,7 @@ class TestSessionStateMigrationV1toV4:
         """Новые поля имеют правильные значения по умолчанию."""
         session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
 
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -135,7 +135,7 @@ class TestSessionStateMigrationV1toV4:
         assert session.permission_policy == {"execute": "allow_always"}
 
         # Новые поля добавлены
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -188,11 +188,26 @@ class TestSessionStateMigrationV1toV4:
         assert session.permission_policy == {"read": "allow_always"}
         assert len(session.events_history) == 1
 
+    def test_migration_v6_to_v7_adds_revision(self) -> None:
+        """v6 → v7: документ получает ревизию для compare-and-set (ADR-007)."""
+        session = SessionState.model_validate(
+            {
+                "schema_version": 6,
+                "session_id": "sess_v6",
+                "cwd": "/tmp",
+                "mcp_servers": [],
+            }
+        )
+
+        assert session.schema_version == 7
+        # Старые сессии начинают с нуля — первая запись поднимет до 1
+        assert session.revision == 0
+
     def test_schema_version_updated_after_migration(self) -> None:
-        """После миграции schema_version равен 6."""
+        """После миграции schema_version равен 7 (v7 — ревизия документа, ADR-007)."""
         # v0
         session_v0 = SessionState(session_id="test", cwd="/tmp")
-        assert session_v0.schema_version == 6
+        assert session_v0.schema_version == 7
 
         # v1
         session_v1 = SessionState(
@@ -201,7 +216,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v1.schema_version == 6
+        assert session_v1.schema_version == 7
 
         # v3
         session_v3 = SessionState(
@@ -210,7 +225,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v3.schema_version == 6
+        assert session_v3.schema_version == 7
 
         # v4
         session_v4 = SessionState(
@@ -219,7 +234,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v4.schema_version == 6
+        assert session_v4.schema_version == 7
 
         # v5
         session_v5 = SessionState(
@@ -228,7 +243,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v5.schema_version == 6
+        assert session_v5.schema_version == 7
 
         # v6 (текущая)
         session_v6 = SessionState(
@@ -237,7 +252,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v6.schema_version == 6
+        assert session_v6.schema_version == 7
 
     def test_migration_v4_to_v5_adds_terminal_registry(self) -> None:
         """v4 → v5: добавляются поля terminal alias registry с defaults (#18)."""
@@ -250,7 +265,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.terminals == {}
         assert session.terminal_counter == 0
 
@@ -288,7 +303,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionState(**old_data)
 
-        assert session.schema_version == 6
+        assert session.schema_version == 7
         assert session.latest_plan == [
             {"content": "Step 1", "priority": "medium", "status": "pending"},
             {"content": "Step 2", "priority": "medium", "status": "pending"},

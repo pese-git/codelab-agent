@@ -67,6 +67,7 @@ class SessionMapper:
         state = SessionState(
             session_id=session.id,
             schema_version=session.schema_version,
+            revision=session.revision,
             cwd=session.config.cwd,
             mcp_servers=list(session.config.mcp_servers),
             title=session.title,
@@ -209,6 +210,7 @@ class SessionMapper:
             title=state.title,
             updated_at=state.updated_at,
             schema_version=state.schema_version,
+            revision=state.revision,
             available_commands=SessionMapper._normalize_commands(state.available_commands),
         )
 

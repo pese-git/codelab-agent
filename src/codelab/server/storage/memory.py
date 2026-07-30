@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from ..exceptions import SessionRevisionConflictError
 from ..protocol.state import SessionState
 from .base import SessionStorage
 
@@ -35,8 +36,17 @@ class InMemoryStorage(SessionStorage):
         Raises:
             StorageError: При ошибке сохранения (не должно происходить для памяти).
         """
+        # Compare-and-set, как в файловом бэкенде: поведение хранилищ не должно
+        # расходиться, иначе тесты на памяти пропустят конфликт (ADR-007).
+        stored = self._sessions.get(session.session_id)
+        if stored is not None and stored is not session and stored.revision != session.revision:
+            raise SessionRevisionConflictError(
+                session.session_id, session.revision, stored.revision
+            )
+
         # Обновить updated_at при каждом сохранении
         session.updated_at = datetime.now(UTC).isoformat()
+        session.revision = session.revision + 1
         self._sessions[session.session_id] = session
 
     async def load_session(self, session_id: str) -> SessionState | None:

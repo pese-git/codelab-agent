@@ -276,11 +276,14 @@ class TestRoundtripPrepFields:
         session = _rich_session()
         object.__setattr__(session, "title", "My session")
         object.__setattr__(session, "updated_at", "2026-07-24T09:22:50.227038+00:00")
-        object.__setattr__(session, "schema_version", 6)
+        object.__setattr__(session, "schema_version", 7)
         rt = _roundtrip(session)
         assert rt.title == "My session"
         assert rt.updated_at == "2026-07-24T09:22:50.227038+00:00"
-        assert rt.schema_version == 6
+        assert rt.schema_version == 7
+        # Ревизия документа несётся round-trip как есть: её инкрементирует хранилище
+        # при записи, маппер не должен её ни терять, ни менять (ADR-007)
+        assert rt.revision == session.revision
 
     def test_updated_at_not_regenerated(self) -> None:
         """`updated_at` несётся как есть, не подменяется свежим временем."""
@@ -337,7 +340,7 @@ class TestProtocolRoundtripLossless:
 
         return SessionState(
             session_id="sess_rt",
-            schema_version=6,
+            schema_version=7,
             cwd="/tmp/proj",
             mcp_servers=[{"name": "fs", "command": "srv"}],
             title="My session",
@@ -399,7 +402,7 @@ class TestProtocolRoundtripLossless:
 
         state0 = SessionState(
             session_id="sess_hist",
-            schema_version=6,
+            schema_version=7,
             cwd="/t",
             history=[
                 HistoryMessage(

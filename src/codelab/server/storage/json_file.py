@@ -15,7 +15,7 @@ from uuid import uuid4
 import aiofiles
 from pydantic import ValidationError
 
-from ..exceptions import StorageError
+from ..exceptions import SessionRevisionConflictError, StorageError
 from ..protocol.state import SessionState
 from .base import SessionStorage
 
@@ -50,6 +50,23 @@ class JsonFileStorage(SessionStorage):
         safe_id = session_id.replace("/", "_").replace("\\", "_").replace("..", "_")
         return self.base_path / f"{safe_id}.json"
 
+    async def _read_revision(self, file_path: Path) -> int | None:
+        """Ревизия документа на диске или `None`, если документа нет.
+
+        Битый или нечитаемый файл трактуется как «ревизия неизвестна»: CAS не должен
+        превращать повреждение в невозможность записи — иначе сессия окажется
+        заперта навсегда.
+        """
+        if not file_path.exists():
+            return None
+        try:
+            async with aiofiles.open(file_path, encoding="utf-8") as f:
+                data = json.loads(await f.read())
+        except Exception:
+            return None
+        revision = data.get("revision") if isinstance(data, dict) else None
+        return revision if isinstance(revision, int) else None
+
     async def save_session(self, session: SessionState) -> None:
         """Сохраняет сессию в JSON файл.
 
@@ -63,9 +80,20 @@ class JsonFileStorage(SessionStorage):
             StorageError: При ошибке сохранения.
         """
         try:
+            file_path = self._session_file_path(session.session_id)
+            # Compare-and-set: документ мог измениться, пока писатель держал копию
+            # (ADR-007). Отклоняем запись вместо затирания — конфликт должен быть
+            # видимым. Стоимость — лишнее чтение (1.8 мс на 575 КБ); сайдкар-файл с
+            # ревизией отвергнут: он добавил бы вторую задачу атомарности.
+            stored_revision = await self._read_revision(file_path)
+            if stored_revision is not None and stored_revision != session.revision:
+                raise SessionRevisionConflictError(
+                    session.session_id, session.revision, stored_revision
+                )
+
             # Обновить временную метку
             session.updated_at = datetime.now(UTC).isoformat()
-            file_path = self._session_file_path(session.session_id)
+            session.revision = session.revision + 1
 
             # model_dump(mode="json") — корректно конвертирует все типы
             data = session.model_dump(mode="json")
@@ -88,6 +116,10 @@ class JsonFileStorage(SessionStorage):
                 tmp_path.unlink(missing_ok=True)
                 raise
 
+        except SessionRevisionConflictError:
+            # Не оборачиваем: вызывающий различает конфликт и сбой ввода-вывода.
+            # Ревизию в объекте не откатываем — она инкрементируется после проверки.
+            raise
         except Exception as e:
             raise StorageError(f"Failed to save session {session.session_id}: {e}") from e
 

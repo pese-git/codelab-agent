@@ -303,7 +303,10 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionState.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 6
+    schema_version: int = 7
+    # Ревизия документа (ADR-007): парное поле к `SessionState.revision`, несётся
+    # round-trip как есть — инкрементирует её хранилище при записи.
+    revision: int = 0
     available_commands: list[dict[str, Any]] = field(default_factory=list)
 
     def add_message(self, message: ConversationMessage) -> None:
