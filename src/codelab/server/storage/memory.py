@@ -39,6 +39,9 @@ class InMemoryStorage(SessionStorage):
         # Compare-and-set, как в файловом бэкенде: поведение хранилищ не должно
         # расходиться, иначе тесты на памяти пропустят конфликт (ADR-007).
         stored = self._sessions.get(session.session_id)
+        if stored is None and session.revision > 0:
+            # Сессию удалили, пока писатель держал копию — не воскрешаем (ADR-007).
+            raise SessionRevisionConflictError(session.session_id, session.revision, 0)
         if stored is not None and stored is not session and stored.revision != session.revision:
             raise SessionRevisionConflictError(
                 session.session_id, session.revision, stored.revision

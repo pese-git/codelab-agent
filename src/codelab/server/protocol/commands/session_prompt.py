@@ -14,6 +14,7 @@ import structlog
 from ...messages import ACPMessage
 from ...storage import SessionStorage
 from ..handlers.prompt_orchestrator import PromptOrchestrator
+from ..session_merge import save_session_merging
 from ..session_runtime import SessionRuntimeRegistry
 from ..state import ProtocolOutcome
 
@@ -141,7 +142,11 @@ class SessionPromptCommandHandler:
 
         # Сохраняем сессию
         try:
-            await self._storage.save_session(session)
+            # Копия turn'а живёт весь turn, поэтому к финальной записи она может
+            # устареть: отмена или ответ на разрешение успели сохранить своё.
+            # Слияние вместо отклонения — иначе результаты turn'а терялись бы
+            # (ADR-007, воспроизведено на коде).
+            await save_session_merging(self._storage, session)
             logger.debug(
                 "session_saved_after_prompt",
                 session_id=session_id,

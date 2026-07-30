@@ -86,6 +86,12 @@ class JsonFileStorage(SessionStorage):
             # видимым. Стоимость — лишнее чтение (1.8 мс на 575 КБ); сайдкар-файл с
             # ревизией отвергнут: он добавил бы вторую задачу атомарности.
             stored_revision = await self._read_revision(file_path)
+            if stored_revision is None and session.revision > 0:
+                # Документа нет, а копия уже была записана — значит сессию удалили,
+                # пока писатель держал копию. Воскрешать её записью нельзя: удаление
+                # было осознанным решением (ADR-007). `actual=0` здесь означает
+                # «документа нет».
+                raise SessionRevisionConflictError(session.session_id, session.revision, 0)
             if stored_revision is not None and stored_revision != session.revision:
                 raise SessionRevisionConflictError(
                     session.session_id, session.revision, stored_revision

@@ -15,6 +15,7 @@ import structlog
 
 from ..messages import ACPMessage
 from .handlers import prompt
+from .session_merge import save_session_merging
 from .state import LLMLoopResult
 
 if TYPE_CHECKING:
@@ -187,7 +188,8 @@ class BackgroundExecutor:
 
         # Сохраняем сессию — критично для permission flow
         try:
-            await self._storage.save_session(session)
+            # Та же причина, что в session_prompt: копия жила всё исполнение вызова.
+            await save_session_merging(self._storage, session)
             logger.debug(
                 "session_saved_after_execute_pending_tool",
                 session_id=session_id,

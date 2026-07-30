@@ -184,6 +184,49 @@ class TestFirstWriteAndDamagedDocument:
         assert loaded.cwd == "/recovered"
 
 
+class TestDeletedSessionIsNotResurrected:
+    """Удаление во время turn'а: запись устаревшей копии не должна вернуть сессию.
+
+    Поведение было и до ревизии — запись просто пересоздавала файл. Теперь
+    отсутствие документа при `revision > 0` трактуется как удаление и отклоняется:
+    удаление было осознанным решением.
+    """
+
+    @pytest.mark.asyncio
+    async def test_write_after_delete_is_rejected(self, tmp_path: Path) -> None:
+        storage = JsonFileStorage(tmp_path)
+        await storage.save_session(_session())
+        held = await storage.load_session("sess_x")
+        assert held is not None
+        await storage.delete_session("sess_x")
+
+        with pytest.raises(SessionRevisionConflictError) as exc:
+            await storage.save_session(held)
+
+        assert exc.value.actual == 0, "0 означает «документа нет»"
+        assert await storage.load_session("sess_x") is None
+
+    @pytest.mark.asyncio
+    async def test_first_write_of_fresh_object_still_allowed(self, tmp_path: Path) -> None:
+        """Новая сессия (revision=0) записывается: документа нет и не должно быть."""
+        storage = JsonFileStorage(tmp_path)
+
+        await storage.save_session(_session())
+
+        assert await storage.load_session("sess_x") is not None
+
+    @pytest.mark.asyncio
+    async def test_memory_backend_rejects_write_after_delete(self) -> None:
+        storage = InMemoryStorage()
+        await storage.save_session(_session())
+        held = await storage.load_session("sess_x")
+        assert held is not None
+        await storage.delete_session("sess_x")
+
+        with pytest.raises(SessionRevisionConflictError):
+            await storage.save_session(held)
+
+
 class TestOptimisticLimits:
     """Предел сверки зафиксирован явно, чтобы его не приняли за гарантию."""
 
