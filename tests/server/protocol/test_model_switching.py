@@ -306,3 +306,62 @@ def test_get_default_model_fallback_without_resolver() -> None:
     # Без config_option_builder — fallback на openai/gpt-4o
     default_model = builder._get_default_model()
     assert default_model == "openai/gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_params_validated_before_session_lookup(
+    repository: SessionRepository,
+    config_specs: dict[str, dict],
+) -> None:
+    """Порядок ошибок: параметры проверяются до существования сессии (ADR-007).
+
+    Валидация вынесена перед транзакцией сознательно: иначе отклонённый запрос
+    закрывал бы область коммитом, а запись штампует `updated_at` — получилась бы
+    ложная «последняя активность» и перезапись всего документа на отказ.
+
+    Наблюдаемое следствие зафиксировано здесь: для несуществующей сессии с неверным
+    параметром клиент получает -32602, а не -32001.
+    """
+    outcome = await session_set_config_option(
+        request_id="req-1",
+        params={
+            "sessionId": "no-such-session",
+            "configId": "unknown_option",
+            "value": "some_value",
+        },
+        repository=repository,
+        config_specs=config_specs,
+    )
+
+    assert outcome.response is not None
+    assert outcome.response.error is not None
+    assert outcome.response.error.code == -32602
+    assert "unknown config option" in outcome.response.error.message
+
+
+@pytest.mark.asyncio
+async def test_rejected_request_does_not_touch_session(
+    repository: SessionRepository,
+    config_specs: dict[str, dict],
+) -> None:
+    """Отказ не должен переписывать документ и обновлять `updated_at`."""
+    before = await repository.load_session("test-session")
+    assert before is not None
+    stamp_before = before.updated_at
+
+    outcome = await session_set_config_option(
+        request_id="req-1",
+        params={
+            "sessionId": "test-session",
+            "configId": "model",
+            "value": "unknown/invalid-model",
+        },
+        repository=repository,
+        config_specs=config_specs,
+    )
+
+    assert outcome.response is not None
+    assert outcome.response.error is not None
+    after = await repository.load_session("test-session")
+    assert after is not None
+    assert after.updated_at == stamp_before

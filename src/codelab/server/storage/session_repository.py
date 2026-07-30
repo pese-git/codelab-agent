@@ -26,12 +26,18 @@ call-сайтов был механическим), но тип рабочей �
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import structlog
 
 from ..domain.session import Session
 from ..mapping.session_mapper import SessionMapper
 from ..protocol.state import SessionState
 from .base import SessionStorage
+
+logger = structlog.get_logger()
 
 
 class SessionRepository:
@@ -54,6 +60,46 @@ class SessionRepository:
             backend: Wire-типизированное хранилище для персистентности.
         """
         self._backend = backend
+        # Блокировки на сессию для `transaction()`: turn разорван круговыми обменами
+        # с клиентом, поэтому пересекающиеся запросы по одной сессии — норма, и без
+        # сериализации они затирают решения друг друга (ADR-007).
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    @asynccontextmanager
+    async def transaction(self, session_id: str) -> AsyncIterator[Session | None]:
+        """Область транзакции над сессией: одна загрузка, запись на успешном выходе.
+
+        Инвариант владения из ADR-007: состояние принадлежит транзакции, а не
+        процессу и не объекту. Область даёт три вещи конструктивно, а не
+        дисциплиной вызывающего:
+
+        * одна загрузка — вторая давала бы вторую копию, и мутации первой терялись
+          бы (так был устроен дефект P2-42);
+        * блокировка на сессию — пересекающиеся запросы не затирают решения друг
+          друга;
+        * запись при успешном выходе и её отсутствие при исключении — забыть
+          сохранение больше нельзя, а неудачная транзакция не оставляет полуправки.
+
+        Отдаёт `None`, если сессии нет: вызывающий возвращает свою ошибку, записи не
+        происходит.
+
+        Повторный вход по той же сессии внутри области — взаимная блокировка:
+        транзакция одна на запрос, вложенных не бывает.
+
+        Пример использования:
+            async with repository.transaction("sess_1") as session:
+                if session is None:
+                    return not_found()
+                session.set_title("Моя сессия")
+        """
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            session = await self.load_session(session_id)
+            yield session
+            if session is None:
+                return
+            await self.save_session(session)
+            logger.debug("session_transaction_committed", session_id=session_id)
 
     async def load_session(self, session_id: str) -> Session | None:
         """Загружает сессию как доменный агрегат.
