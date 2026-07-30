@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -68,8 +69,19 @@ class JsonFileStorage(SessionStorage):
             # model_dump(mode="json") — корректно конвертирует все типы
             data = session.model_dump(mode="json")
 
-            async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            # Запись через временный файл + os.replace: прямая запись в целевой файл
+            # оставляла обрезанный документ при падении или двух писателях, а сессия
+            # уже занимает сотни килобайт (ADR-007). os.replace атомарен в пределах
+            # файловой системы, поэтому читатель видит либо прежний документ, либо
+            # новый целиком.
+            tmp_path = file_path.with_name(f"{file_path.name}.{os.getpid()}.tmp")
+            try:
+                async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+                os.replace(tmp_path, file_path)
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
         except Exception as e:
             raise StorageError(f"Failed to save session {session.session_id}: {e}") from e
