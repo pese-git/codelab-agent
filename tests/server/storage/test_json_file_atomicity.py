@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -83,3 +85,41 @@ class TestSaveIsAtomic:
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
         assert on_disk.cwd == "/second"
+
+
+class TestConcurrentSaves:
+    """Одновременные записи одной сессии не должны мешать друг другу.
+
+    Первая версия правки давала временному файлу имя по PID — два параллельных
+    сохранения делили один tmp, первый `os.replace` забирал его, второй падал с
+    ENOENT. Поймано полным прогоном (e2e-тест отмены), не ревью.
+    """
+
+    @pytest.mark.asyncio
+    async def test_parallel_saves_of_same_session_all_succeed(self, tmp_path: Path) -> None:
+        storage = JsonFileStorage(tmp_path)
+
+        await asyncio.gather(*(storage.save_session(_session(f"/p{i}")) for i in range(8)))
+
+        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+        assert on_disk is not None
+        # Побеждает последний писатель — семантика прежняя; важно, что никто не упал
+        assert on_disk.cwd.startswith("/p")
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    @pytest.mark.asyncio
+    async def test_temp_names_are_unique_per_write(self, tmp_path: Path) -> None:
+        """Имя временного файла не должно зависеть только от процесса."""
+        storage = JsonFileStorage(tmp_path)
+        seen: set[str] = set()
+        real_replace = os.replace
+
+        def _capture(src, dst):
+            seen.add(Path(src).name)
+            real_replace(src, dst)
+
+        with patch("codelab.server.storage.json_file.os.replace", _capture):
+            await storage.save_session(_session("/a"))
+            await storage.save_session(_session("/b"))
+
+        assert len(seen) == 2, f"временные имена совпали: {seen}"

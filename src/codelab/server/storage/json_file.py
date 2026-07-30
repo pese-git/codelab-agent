@@ -10,6 +10,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import aiofiles
 from pydantic import ValidationError
@@ -74,7 +75,11 @@ class JsonFileStorage(SessionStorage):
             # уже занимает сотни килобайт (ADR-007). os.replace атомарен в пределах
             # файловой системы, поэтому читатель видит либо прежний документ, либо
             # новый целиком.
-            tmp_path = file_path.with_name(f"{file_path.name}.{os.getpid()}.tmp")
+            # Имя уникально на каждую запись, а не на процесс: два одновременных
+            # сохранения одной сессии (например `execute_pending_tool` и обработчик
+            # запроса) делили бы один временный файл — первый `os.replace` забирал
+            # бы его, второй падал с ENOENT. Поймано полным прогоном тестов.
+            tmp_path = file_path.with_name(f"{file_path.name}.{uuid4().hex}.tmp")
             try:
                 async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
                     await f.write(json.dumps(data, indent=2, ensure_ascii=False))
