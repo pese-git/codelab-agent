@@ -208,6 +208,7 @@ async def session_load(
     config_specs: dict[str, dict[str, Any]],
     auth_methods: list[dict[str, Any]],
     storage: SessionStorage,
+    session: SessionState | None = None,
 ) -> ProtocolOutcome:
     """Загружает существующую сессию и реплеит состояние через updates.
 
@@ -249,7 +250,12 @@ async def session_load(
     cwd = cast(str, cwd)
     mcp_servers = cast(list, mcp_servers)
 
-    session = await storage.load_session(session_id)
+    # Сессию передаёт вызывающий, если уже загрузил её (так делает
+    # `SessionLoadCommandHandler`): вторая загрузка давала бы вторую копию, и
+    # мутации первой терялись бы — `JsonFileStorage` отдаёт новый объект на каждый
+    # `load_session` (P2-42).
+    if session is None:
+        session = await storage.load_session(session_id)
     if session is None:
         logger.warning("session_load_not_found", session_id=session_id)
         return ProtocolOutcome(

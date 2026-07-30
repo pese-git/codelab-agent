@@ -77,6 +77,7 @@ class SessionLoadCommandHandler:
         """
         params = message.params or {}
         session_id = params.get("sessionId")
+        session_obj: SessionState | None = None
 
         if isinstance(session_id, str):
             session_obj = await self._storage.load_session(session_id)
@@ -97,9 +98,10 @@ class SessionLoadCommandHandler:
                             permission_request_id=perm_req_id,
                         )
                         session_obj.active_turn = None
-                        await self._storage.save_session(session_obj)
+                        # Отдельное сохранение здесь больше не нужно: транзакция
+                        # сохраняет объект целиком в конце (P2-42).
 
-        return await session.session_load(
+        outcome = await session.session_load(
             message.id,
             params,
             self._require_auth,
@@ -107,4 +109,22 @@ class SessionLoadCommandHandler:
             self._config_specs,
             self._auth_methods,
             self._storage,
+            session=session_obj,
         )
+
+        # Решения обработчика обязаны попасть на диск. Раньше сохранения не было
+        # вовсе, и `session/load` молча терял актуальный `cwd`, отмену незавершённых
+        # вызовов и ответы модели на отложенный хвост батча (P2-42, измерено).
+        succeeded = outcome.response is not None and outcome.response.error is None
+        if session_obj is not None and succeeded:
+            await self._storage.save_session(session_obj)
+            # info, а не debug: это запись на диск на границе транзакции, и по логу
+            # должно быть видно, что решения обработчика сохранены. На прогоне
+            # 2026-07-30 событие было debug — и прогон не смог подтвердить правку.
+            logger.info(
+                "session_saved_after_load",
+                session_id=session_id,
+                cwd=session_obj.cwd,
+            )
+
+        return outcome
