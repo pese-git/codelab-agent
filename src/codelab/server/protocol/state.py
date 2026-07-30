@@ -9,7 +9,7 @@ tool calls, и других компонентов протокола.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -43,6 +43,78 @@ def _migrate_plan_entry_to_acp(entry: Any) -> dict[str, Any]:
     return {"content": content, "priority": priority, "status": status}
 
 
+def _migrate_to_v1(data: dict[str, Any]) -> None:
+    """v0 → v1: events_history, config_values."""
+    data.setdefault("events_history", [])
+    data.setdefault("config_values", {})
+
+
+def _migrate_to_v3(data: dict[str, Any]) -> None:
+    """v1 → v3: поля мультиагентного режима."""
+    data.setdefault("active_strategy", "single")
+    data.setdefault("active_agents", [])
+    data.setdefault("session_metrics", None)
+    data.setdefault("correlation_id", None)
+    data.setdefault("parent_session_id", None)
+    data.setdefault("child_session_ids", [])
+    data.setdefault("is_child_session", False)
+    data.setdefault("task_result", None)
+    data.setdefault("sliced_summary", None)
+
+
+def _migrate_to_v4(data: dict[str, Any]) -> None:
+    """v3 → v4: разделение доменной модели — структура не менялась.
+
+    Совместимость обеспечивает `SessionMapper`, поэтому шаг только поднимает версию.
+    """
+
+
+def _migrate_to_v5(data: dict[str, Any]) -> None:
+    """v4 → v5: реестр alias'ов терминалов (tech-debt #18)."""
+    data.setdefault("terminals", {})
+    data.setdefault("terminal_counter", 0)
+
+
+def _migrate_to_v6(data: dict[str, Any]) -> None:
+    """v5 → v6: `latest_plan` в ACP-форме {content,priority,status} (P2-26).
+
+    Ранее часть путей хранила невалидный по ACP {title,description} — конвертируем,
+    чтобы replay на `session/load` отдавал ACP-валидные entries со статусами.
+    """
+    data["latest_plan"] = [
+        _migrate_plan_entry_to_acp(entry) for entry in data.get("latest_plan", [])
+    ]
+
+
+def _migrate_to_v7(data: dict[str, Any]) -> None:
+    """v6 → v7: ревизия документа для compare-and-set (ADR-007).
+
+    Старые файлы начинают с 0 — первая же запись поднимет её до 1.
+    """
+    data.setdefault("revision", 0)
+
+
+def _migrate_to_v8(data: dict[str, Any]) -> None:
+    """v7 → v8: владелец реестра терминалов (P2-44).
+
+    Для старых сессий владелец неизвестен — значит это точно не текущий процесс, и
+    реестр будет очищен при загрузке.
+    """
+    data.setdefault("terminals_owner", None)
+
+
+# Порядок обязателен: шаги применяются подряд от текущей версии документа.
+_SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
+    (1, _migrate_to_v1),
+    (3, _migrate_to_v3),
+    (4, _migrate_to_v4),
+    (5, _migrate_to_v5),
+    (6, _migrate_to_v6),
+    (7, _migrate_to_v7),
+    (8, _migrate_to_v8),
+]
+
+
 class SessionState(BaseModel):
     """ACP Protocol Model — контракт сессии согласно ACP 03-Session Setup.
 
@@ -58,7 +130,7 @@ class SessionState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=7)
+    schema_version: int = Field(default=8)
     # Ревизия документа: счётчик записей, растёт на каждое сохранение. Нужна для
     # compare-and-set: копия сессии живёт через `await` (фоновое исполнение turn'а),
     # и без сверки её запись молча затирала бы решения, принятые тем временем другим
@@ -92,6 +164,10 @@ class SessionState(BaseModel):
     # отдаётся короткий alias, а клиент по-прежнему адресуется своим родным id
     # (см. tech-debt #18, TerminalAliasRegistry).
     terminals: dict[str, str] = Field(default_factory=dict)
+    # Токен процесса, зарегистрировавшего терминалы. Сами терминалы живут у клиента и
+    # рестарт не переживают, а реестр персистится — без отметки владельца после
+    # перезапуска модель обращается к мёртвым дескрипторам (P2-44).
+    terminals_owner: str | None = None
     # Монотонный счётчик для детерминированной генерации terminal alias.
     terminal_counter: int = 0
     # Набор доступных slash-команд для `available_commands_update`.
@@ -259,62 +335,19 @@ class SessionState(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def migrate_schema(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Автоматическая миграция старых файлов с данными."""
+        """Автоматическая миграция старых файлов с данными.
+
+        Шаги описаны таблицей, а не цепочкой ветвлений: цепочка росла с каждой
+        версией и упёрлась в гейт сложности, а таблица делает добавление версии
+        одной строкой и не даёт пропустить проставление `schema_version`.
+        """
         if not isinstance(data, dict):
             return data
-        version = data.get("schema_version", 0)
 
-        # v0 → v1: events_history, config_values
-        if version < 1:
-            data.setdefault("events_history", [])
-            data.setdefault("config_values", {})
-            data["schema_version"] = 1
-            version = 1
-
-        # v1 → v3: multi-agent fields
-        if version < 3:
-            data.setdefault("active_strategy", "single")
-            data.setdefault("active_agents", [])
-            data.setdefault("session_metrics", None)
-            data.setdefault("correlation_id", None)
-            data.setdefault("parent_session_id", None)
-            data.setdefault("child_session_ids", [])
-            data.setdefault("is_child_session", False)
-            data.setdefault("task_result", None)
-            data.setdefault("sliced_summary", None)
-            data["schema_version"] = 3
-            version = 3
-
-        # v3 → v4: domain model separation (no structural changes, just version bump)
-        # This version introduces domain layer separation but maintains backward compatibility
-        # with existing SessionState structure. Migration is handled by SessionMapper.
-        if version < 4:
-            data["schema_version"] = 4
-            version = 4
-
-        # v4 → v5: terminal alias registry (tech-debt #18)
-        if version < 5:
-            data.setdefault("terminals", {})
-            data.setdefault("terminal_counter", 0)
-            data["schema_version"] = 5
-            version = 5
-
-        # v5 → v6: latest_plan в ACP-форме {content,priority,status} (tech-debt P2-26).
-        # Ранее часть путей хранила невалидный по ACP {title,description} — конвертируем,
-        # чтобы replay на session/load отдавал ACP-валидные entries со статусами.
-        if version < 6:
-            data["latest_plan"] = [
-                _migrate_plan_entry_to_acp(entry) for entry in data.get("latest_plan", [])
-            ]
-            data["schema_version"] = 6
-            version = 6
-
-        # v6 → v7: ревизия документа для compare-and-set (ADR-007). Старые файлы
-        # начинают с 0 — первая же запись поднимет её до 1.
-        if version < 7:
-            data.setdefault("revision", 0)
-            data["schema_version"] = 7
-            version = 7
+        for target_version, step in _SCHEMA_MIGRATIONS:
+            if data.get("schema_version", 0) < target_version:
+                step(data)
+                data["schema_version"] = target_version
 
         # Normalize mode in config_values (backward compatibility)
         config_values = data.get("config_values", {})

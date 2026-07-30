@@ -273,6 +273,8 @@ class SessionRuntime:
     """
 
     terminals: dict[str, str] = field(default_factory=dict)
+    # Владелец реестра терминалов (P2-44): парное поле к `SessionState.terminals_owner`.
+    terminals_owner: str | None = None
     terminal_counter: int = 0
     events_history: list[dict[str, Any]] = field(default_factory=list)
     cancelled_client_rpc_requests: set[str | int] = field(default_factory=set)
@@ -303,7 +305,7 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionState.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 7
+    schema_version: int = 8
     # Ревизия документа (ADR-007): парное поле к `SessionState.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0

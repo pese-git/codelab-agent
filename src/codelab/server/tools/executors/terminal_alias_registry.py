@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from codelab.server.process_identity import PROCESS_TOKEN
 from codelab.server.protocol.state import SessionState
 
 
@@ -28,6 +29,10 @@ class TerminalAliasRegistry:
         session.terminal_counter += 1
         alias = f"{self._PREFIX}{session.terminal_counter}"
         session.terminals[alias] = client_terminal_id
+        # Отметка владельца: терминалы живут у клиента и рестарт не переживают, а
+        # реестр персистится. Без отметки следующий процесс принял бы мёртвые
+        # дескрипторы за живые (P2-44).
+        session.terminals_owner = PROCESS_TOKEN
         return alias
 
     def resolve(self, session: SessionState, alias: str) -> str | None:
