@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from codelab.shared.logging import setup_logging
 
+from ..shared.logging import log_build_identity
 from .config import AppConfig
 from .http_server import ACPHttpServer
 from .storage import CachedSessionStorage, InMemoryStorage, JsonFileStorage, SessionStorage
@@ -292,6 +293,7 @@ def run_server() -> None:
 
     # В stdio режиме — запускаем stdio сервер
     if args.stdio:
+        log_build_identity("stdio")
         logger.info("starting stdio server")
         _run_stdio_server(
             storage=storage,

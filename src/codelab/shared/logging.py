@@ -248,6 +248,32 @@ def setup_logging(
     return structlog.get_logger("codelab")
 
 
+def log_build_identity(transport: str) -> None:
+    """Записать в лог, какая именно сборка работает.
+
+    Без этого по логу невозможно понять, чей код исполняется: файлы в
+    установленной копии можно подменить (`pipx install`), но уже запущенный
+    процесс продолжает работать с тем, что загрузил при старте. На разборе логов
+    2026-07-30 это дважды привело к ложным выводам — прогон считали проверкой
+    свежей правки, хотя сервер работал с версией до неё.
+
+    `package_path` важнее версии: версия в `pyproject.toml` меняется редко, а путь
+    сразу отвечает на вопрос «это рабочее дерево или установленная копия».
+    """
+    import sys
+
+    from .. import __version__
+
+    logger = structlog.get_logger("codelab")
+    logger.info(
+        "build_identity",
+        transport=transport,
+        version=__version__,
+        package_path=str(Path(__file__).resolve().parent.parent),
+        python=sys.version.split()[0],
+    )
+
+
 def reset_logging() -> None:
     """Сбрасывает состояние логирования для тестов.
 

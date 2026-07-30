@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 import structlog
 from dotenv import load_dotenv
 
-from codelab.shared.logging import resolve_codelab_home
+from codelab.shared.logging import log_build_identity, resolve_codelab_home
 
 if TYPE_CHECKING:
     pass
@@ -401,6 +401,7 @@ def run_serve(args: argparse.Namespace) -> None:
 
     if use_stdio:
         # Stdio режим
+        log_build_identity("stdio")
         logger.info("starting_server_mode", transport="stdio")
         from codelab.server.transport.stdio_runner import run_stdio_server
 
@@ -418,6 +419,7 @@ def run_serve(args: argparse.Namespace) -> None:
             logger.info("server_shutdown", reason="KeyboardInterrupt")
     else:
         # WebSocket режим
+        log_build_identity("websocket")
         logger.info(
             "starting_server_mode",
             host=host,
