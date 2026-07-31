@@ -713,8 +713,9 @@ class ToolCallProcessor:
                 )
                 status = "completed"
             else:
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
-                status = "failed"
+                # Отмена пользователем — не сбой инструмента (P2-50)
+                status = "cancelled" if result.cancelled else "failed"
+                self._tool_call_handler.update_tool_call_status(session, tool_call_id, status)
 
             notification_content = self._build_notification_content(extracted_content, result)
 
@@ -883,8 +884,12 @@ class ToolCallProcessor:
                         },
                     }
                 ]
+                # Отмена пользователем — не сбой инструмента (P2-50)
                 self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "failed", content=failure_content
+                    session,
+                    tool_call_id,
+                    "cancelled" if result.cancelled else "failed",
+                    content=failure_content,
                 )
                 # Добавляем tool result в историю для LLM (с сохранением output).
                 self._add_tool_result_to_history(

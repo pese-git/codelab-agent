@@ -36,6 +36,10 @@ class ToolExecutionResult:
         content: Готовые ToolCallContent items для ACP (опционально).
             Если задан, используется ToolResultMapper.to_acp_content() as-is.
             Формат соответствует ACP ToolCallContent union (terminal, content, diff).
+        cancelled: Вызов не выполнен, потому что пользователь отменил turn.
+            Отдельно от `success=False`: отмена — не сбой инструмента, и статус
+            вызова обязан быть `cancelled`, а не `failed` (tech-debt P2-50).
+            В ACP `ToolCallStatus` для этого есть отдельное значение.
     """
 
     success: bool
@@ -45,6 +49,7 @@ class ToolExecutionResult:
     locations: list[FileLocation] = field(default_factory=list)
     raw_output: dict[str, Any] = field(default_factory=dict)
     content: list[dict[str, Any]] | None = None
+    cancelled: bool = False
 
 
 class ToolRegistry(ABC):

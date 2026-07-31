@@ -190,6 +190,55 @@ class TestAgentLoopPermissionFlowTerminalContent:
         assert call_kwargs["status"] == "completed"
 
     @pytest.mark.asyncio
+    async def test_notification_status_comes_from_state_not_from_success(
+        self, mock_strategy, mock_session, mock_dependencies
+    ) -> None:
+        """Статус клиенту берётся из состояния, а не пересчитывается из `success`.
+
+        Отмена turn'а пользователем даёт `cancelled` (P2-50), тогда как вывод из
+        `success` дал бы `failed` — и разошёлся бы с тем, что лежит на диске.
+        """
+        tool_call_id = "tc_cancelled"
+        mock_session.tool_calls = {
+            tool_call_id: ToolCallState(
+                tool_call_id=tool_call_id,
+                title="terminal/wait_for_exit",
+                kind="read",
+                # Статус, который проставил исполнитель вызова
+                status="cancelled",
+                tool_name="terminal/wait_for_exit",
+                tool_arguments={"operation": "wait_for_exit", "terminal_id": "term_1"},
+            )
+        }
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = False
+        mock_tool_result.output = None
+        mock_tool_result.error = "Ожидание завершения терминала отменено пользователем: term_1"
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
+
+        mock_extracted = MagicMock()
+        mock_extracted.content_items = []
+        mock_dependencies["content_extractor"].extract_from_result = AsyncMock(
+            return_value=mock_extracted
+        )
+        mock_dependencies[
+            "tool_call_handler"
+        ].build_tool_update_notification.return_value = MagicMock()
+
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Done"
+        second_response.tool_calls = []
+        mock_strategy.continue_execution.return_value = second_response
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+
+        await loop.resume_after_permission(mock_session, "test_session", tool_call_id, None)
+
+        handler = mock_dependencies["tool_call_handler"]
+        assert handler.build_tool_update_notification.call_args.kwargs["status"] == "cancelled"
+
+    @pytest.mark.asyncio
     async def test_resume_after_permission_saves_to_replay(
         self, mock_strategy, mock_session, mock_dependencies
     ) -> None:

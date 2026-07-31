@@ -541,8 +541,22 @@ class AgentLoop:
                 stop_reason=StopReason.END_TURN,
             )
 
-        # Отправить notification клиенту с content (terminal embedding и т.д.)
-        status = "completed" if tool_result.success else "failed"
+        # Отправить notification клиенту с content (terminal embedding и т.д.).
+        # Статус берём из состояния, а не пересчитываем из `success`: его только что
+        # проставил `execute_pending` по матрице переходов, и он различает отмену
+        # пользователем (`cancelled`) от сбоя инструмента (P2-50). Пересчёт здесь
+        # разошёлся бы с диском — тот самый инвариант «последний статус в
+        # events_history = статус в tool_calls», который мы сверяем на прогонах.
+        # Нетерминальный статус в состоянии означает, что писатель до него не дошёл;
+        # отдать клиенту `pending` как итог исполнения нельзя — тогда лучше вывод из
+        # `success`, чем заведомо неверная «незавершённость».
+        stored_call = session.tool_calls.get(tool_call_id)
+        stored_status = stored_call.status if stored_call is not None else None
+        status = (
+            stored_status
+            if stored_status in {"completed", "failed", "cancelled"}
+            else ("completed" if tool_result.success else "failed")
+        )
         notification = self._tool_call_handler.build_tool_update_notification(
             session_id=session_id,
             tool_call_id=tool_call_id,

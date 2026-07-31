@@ -160,6 +160,7 @@ class FileSystemToolExecutor(ToolExecutor):
             )
             return ToolExecutionResult(
                 success=False,
+                cancelled=True,
                 error=f"Операция чтения файла отменена: {e}",
             )
 
@@ -264,6 +265,7 @@ class FileSystemToolExecutor(ToolExecutor):
             )
             return ToolExecutionResult(
                 success=False,
+                cancelled=True,
                 error=f"Операция записи файла отменена: {e}",
             )
 

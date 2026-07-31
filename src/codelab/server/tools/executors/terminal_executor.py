@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from codelab.server.client_rpc import ClientRPCCancelledError
 from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
@@ -213,6 +214,21 @@ class TerminalToolExecutor(ToolExecutor):
                 content=content_items,
             )
 
+        except ClientRPCCancelledError as e:
+            # Отмена turn'а пользователем — не сбой инструмента: статус вызова
+            # `cancelled`, и модель получает правдивый текст, а не «Ошибка»
+            # (tech-debt P2-50).
+            logger.info(
+                "client_rpc_cancelled",
+                operation="создания терминала",
+                reason=str(e),
+            )
+            return ToolExecutionResult(
+                success=False,
+                cancelled=True,
+                error="Создание терминала отменено пользователем",
+            )
+
         except Exception as e:
             logger.error(
                 "Ошибка при создании терминала",
@@ -349,6 +365,25 @@ class TerminalToolExecutor(ToolExecutor):
                 },
             )
 
+        except ClientRPCCancelledError as e:
+            # Отмена turn'а пользователем — не сбой инструмента: статус вызова
+            # `cancelled`, и модель получает правдивый текст, а не «Ошибка»
+            # (tech-debt P2-50).
+            logger.info(
+                "client_rpc_cancelled",
+                operation="ожидания завершения терминала",
+                terminal_id=terminal_id,
+                reason=str(e),
+            )
+            return ToolExecutionResult(
+                success=False,
+                cancelled=True,
+                error=(
+                    "Ожидание завершения терминала отменено пользователем: "
+                    f"{terminal_id}"
+                ),
+            )
+
         except Exception as e:
             logger.error(
                 "Ошибка при ожидании завершения терминала",
@@ -421,6 +456,22 @@ class TerminalToolExecutor(ToolExecutor):
                 metadata={
                     "terminal_id": terminal_id,
                 },
+            )
+
+        except ClientRPCCancelledError as e:
+            # Отмена turn'а пользователем — не сбой инструмента: статус вызова
+            # `cancelled`, и модель получает правдивый текст, а не «Ошибка»
+            # (tech-debt P2-50).
+            logger.info(
+                "client_rpc_cancelled",
+                operation="освобождения терминала",
+                terminal_id=terminal_id,
+                reason=str(e),
+            )
+            return ToolExecutionResult(
+                success=False,
+                cancelled=True,
+                error=f"Освобождение терминала отменено пользователем: {terminal_id}",
             )
 
         except Exception as e:

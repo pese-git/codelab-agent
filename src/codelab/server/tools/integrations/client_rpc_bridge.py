@@ -33,6 +33,13 @@ class ClientRPCBridge:
     ветку с таймаутами и сбоями, и один `session/cancel` давал единственный error
     за прогон — из-за чего «0 ошибок» перестало работать как критерий чистоты
     (tech-debt P2-37).
+
+    Отмена **пробрасывается вызывающему**, а сбой превращается в `None`/`False`.
+    Раньше терминальные методы возвращали `None` и на отмену тоже, поэтому executor
+    не мог их различить: отменённый пользователем `terminal/wait_for_exit` уходил
+    модели как «Ошибка при ожидании завершения терминала», а вызов ложился на диск
+    со статусом `failed` (tech-debt P2-50). fs-методы пробрасывали отмену с самого
+    начала — теперь поведение единообразно.
     """
 
     def __init__(self, client_rpc_service: ClientRPCService) -> None:
@@ -109,7 +116,7 @@ class ClientRPCBridge:
         except ClientRPCCancelledError as e:
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при чтении файла",
+                method="fs/read_text_file",
                 reason=str(e),
             )
             raise
@@ -179,7 +186,7 @@ class ClientRPCBridge:
         except ClientRPCCancelledError as e:
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при записи файла",
+                method="fs/write_text_file",
                 reason=str(e),
             )
             raise
@@ -252,12 +259,14 @@ class ClientRPCBridge:
             return None
 
         except ClientRPCCancelledError as e:
+            # Отмена пробрасывается, а не превращается в None: иначе вызывающий не
+            # отличит её от сбоя и назовёт штатную отмену ошибкой (P2-50).
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при создании терминала",
+                method="terminal/create",
                 reason=str(e),
             )
-            return None
+            raise
 
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
@@ -325,10 +334,10 @@ class ClientRPCBridge:
         except ClientRPCCancelledError as e:
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при ожидании завершения терминала",
+                method="terminal/wait_for_exit",
                 reason=str(e),
             )
-            return None
+            raise
 
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
@@ -403,10 +412,10 @@ class ClientRPCBridge:
         except ClientRPCCancelledError as e:
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при получении output терминала",
+                method="terminal/output",
                 reason=str(e),
             )
-            return None
+            raise
 
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
@@ -469,10 +478,10 @@ class ClientRPCBridge:
         except ClientRPCCancelledError as e:
             logger.info(
                 "client_rpc_cancelled",
-                method="Ошибка при освобождении терминала",
+                method="terminal/release",
                 reason=str(e),
             )
-            return False
+            raise
 
         except (ClientRPCTimeoutError, ClientRPCResponseError, ClientRPCError) as e:
             logger.error(

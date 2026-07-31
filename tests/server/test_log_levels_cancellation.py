@@ -38,14 +38,19 @@ def _levels(logs: list[dict], event: str) -> list[str]:
 
 class TestCancellationIsNotAnError:
     @pytest.mark.asyncio
-    async def test_wait_terminal_exit_cancelled_logs_info(self, session: SessionState) -> None:
-        """Отмена возвращает то же, что и раньше (None), но уровнем info."""
+    async def test_wait_terminal_exit_cancelled_reraises_with_info(
+        self, session: SessionState
+    ) -> None:
+        """Отмена пробрасывается, а не превращается в `None` (P2-50).
+
+        Раньше терминальные методы отдавали `None` и на отмену, и на сбой, поэтому
+        executor не мог их различить и называл штатную отмену ошибкой.
+        """
         bridge = _bridge(wait_for_exit=ClientRPCCancelledError("вызов отменён"))
 
-        with structlog.testing.capture_logs() as logs:
-            result = await bridge.wait_terminal_exit(session, "term_1")
+        with structlog.testing.capture_logs() as logs, pytest.raises(ClientRPCCancelledError):
+            await bridge.wait_terminal_exit(session, "term_1")
 
-        assert result is None
         assert _levels(logs, "client_rpc_cancelled") == ["info"]
         assert not [log for log in logs if log["log_level"] == "error"]
 
@@ -61,13 +66,13 @@ class TestCancellationIsNotAnError:
         assert not [log for log in logs if log["log_level"] == "error"]
 
     @pytest.mark.asyncio
-    async def test_release_terminal_cancelled_returns_false(self, session: SessionState) -> None:
+    async def test_release_terminal_cancelled_reraises(self, session: SessionState) -> None:
+        """`False` означал бы «освободить не удалось» — это не отмена (P2-50)."""
         bridge = _bridge(release_terminal=ClientRPCCancelledError("вызов отменён"))
 
-        with structlog.testing.capture_logs() as logs:
-            result = await bridge.release_terminal(session, "term_1")
+        with structlog.testing.capture_logs() as logs, pytest.raises(ClientRPCCancelledError):
+            await bridge.release_terminal(session, "term_1")
 
-        assert result is False
         assert _levels(logs, "client_rpc_cancelled") == ["info"]
 
 
