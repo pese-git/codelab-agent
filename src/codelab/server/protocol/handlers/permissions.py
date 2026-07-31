@@ -242,6 +242,28 @@ async def consume_cancelled_permission_response(
     return False
 
 
+async def find_session_id_by_permission_request_id(
+    request_id: JsonRpcId,
+    repository: SessionRepository,
+) -> str | None:
+    """Ищет id сессии, чей активный turn ждёт этот permission-request.
+
+    Возвращает именно **id**, а не агрегат: мутировать найденную на обходе копию
+    нельзя — решение применяется в области транзакции, которая берёт свою
+    (write-model, `SessionRepository.iter_sessions`).
+
+    Пример использования:
+        session_id = await find_session_id_by_permission_request_id("perm_1", repository)
+    """
+    async for session in repository.iter_sessions():
+        active_turn = session.active_turn
+        if active_turn is None:
+            continue
+        if active_turn.permission_request_id == request_id:
+            return str(session.id)
+    return None
+
+
 async def find_session_with_cancelled_permission(
     request_id: JsonRpcId,
     repository: SessionRepository,

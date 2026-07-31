@@ -275,7 +275,9 @@ class TestRealPathsAnswerDeferredBatch:
             resolve_permission_response_impl,
         )
 
-        session = self._session_with_deferred_batch()
+        # Путь переведён на доменный агрегат вместе с транзакцией
+        # permission-response (фаза D ADR-006)
+        session = SessionMapper.to_domain(self._session_with_deferred_batch())
 
         outcome = resolve_permission_response_impl(
             session=session,
@@ -284,9 +286,9 @@ class TestRealPathsAnswerDeferredBatch:
         )
 
         assert outcome is not None
-        tail = [m for m in _answers(session) if m["tool_call_id"] == "llm_2"]
+        tail = [m for m in _domain_answers(session) if m.tool_call_id == "llm_2"]
         assert len(tail) == 1
-        assert "отказано" in tail[0]["content"]
+        assert "отказано" in tail[0].content.text
 
     def test_permission_allow_path_keeps_tail_for_resume(self) -> None:
         """Разрешение НЕ должно отвечать на хвост: он будет выполнен."""
@@ -294,7 +296,7 @@ class TestRealPathsAnswerDeferredBatch:
             resolve_permission_response_impl,
         )
 
-        session = self._session_with_deferred_batch()
+        session = SessionMapper.to_domain(self._session_with_deferred_batch())
 
         resolve_permission_response_impl(
             session=session,
@@ -302,6 +304,6 @@ class TestRealPathsAnswerDeferredBatch:
             result={"outcome": {"outcome": "selected", "optionId": "allow_once"}},
         )
 
-        assert [m["tool_call_id"] for m in _answers(session)] == []
+        assert _domain_answers(session) == []
         assert session.active_turn is not None
         assert [c["id"] for c in session.active_turn.pending_batch] == ["llm_2"]

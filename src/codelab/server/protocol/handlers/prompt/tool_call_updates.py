@@ -13,9 +13,37 @@ executor-lifecycle и решение policy. Вынесено из `tool_calls.p
 
 from __future__ import annotations
 
+from typing import Any
+
 from ....messages import ACPMessage
 from ...state import SessionState
 from .tool_call_state import update_tool_call_status
+
+
+def tool_call_status_notification(
+    *,
+    session_id: str,
+    tool_call_id: str,
+    status: str,
+    content: list[dict[str, Any]] | None = None,
+) -> ACPMessage:
+    """ACP-нотификация о смене статуса tool call — чистый wire, без состояния.
+
+    Шов, по которому фаза D разрезает функции ниже: рендер остаётся здесь
+    навсегда, а смену статуса делает владелец состояния (для переехавших
+    транзакций — доменный `ToolCallRegistry.update_status`).
+    """
+    update: dict[str, Any] = {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": tool_call_id,
+        "status": status,
+    }
+    if content is not None:
+        update["content"] = content
+    return ACPMessage.notification(
+        "session/update",
+        {"sessionId": session_id, "update": update},
+    )
 
 
 def build_executor_tool_execution_updates(
@@ -36,16 +64,8 @@ def build_executor_tool_execution_updates(
         )
     """
 
-    in_progress = ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "tool_call_update",
-                "toolCallId": tool_call_id,
-                "status": "in_progress",
-            },
-        },
+    in_progress = tool_call_status_notification(
+        session_id=session_id, tool_call_id=tool_call_id, status="in_progress"
     )
     update_tool_call_status(session, tool_call_id, "in_progress")
 
@@ -67,17 +87,11 @@ def build_executor_tool_execution_updates(
         "completed",
         content=completed_content,
     )
-    completed = ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "tool_call_update",
-                "toolCallId": tool_call_id,
-                "status": "completed",
-                "content": completed_content,
-            },
-        },
+    completed = tool_call_status_notification(
+        session_id=session_id,
+        tool_call_id=tool_call_id,
+        status="completed",
+        content=completed_content,
     )
     return [in_progress, completed]
 
@@ -107,16 +121,8 @@ def build_policy_tool_execution_updates(
     if not allowed:
         update_tool_call_status(session, tool_call_id, "cancelled")
         return [
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": tool_call_id,
-                        "status": "cancelled",
-                    },
-                },
+            tool_call_status_notification(
+                session_id=session_id, tool_call_id=tool_call_id, status="cancelled"
             )
         ]
 
@@ -124,15 +130,7 @@ def build_policy_tool_execution_updates(
     # Реальное выполнение будет запущено асинхронно через pending_tool_execution.
     update_tool_call_status(session, tool_call_id, "in_progress")
     return [
-        ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": tool_call_id,
-                    "status": "in_progress",
-                },
-            },
+        tool_call_status_notification(
+            session_id=session_id, tool_call_id=tool_call_id, status="in_progress"
         )
     ]

@@ -188,30 +188,53 @@ class ResponseRouter:
             "_resolve_permission_response: searching for session",
             permission_request_id=permission_request_id,
         )
-        session = await permissions.find_session_by_permission_request_id(
-            permission_request_id, self._storage
+        session_id = await permissions.find_session_id_by_permission_request_id(
+            permission_request_id, self._repository
         )
-        if session is None:
+        if session_id is None:
             logger.debug(
                 "_resolve_permission_response: session not found for permission_request_id",
                 permission_request_id=permission_request_id,
             )
             return None
 
-        logger.debug(
-            "_resolve_permission_response: session found, resolving",
-            permission_request_id=permission_request_id,
-            session_id=session.session_id,
-            active_turn_exists=session.active_turn is not None,
-            active_turn_perm_request_id=(
-                session.active_turn.permission_request_id if session.active_turn else None
-            ),
-            active_turn_perm_tool_call_id=(
-                session.active_turn.permission_tool_call_id if session.active_turn else None
-            ),
-        )
-        return prompt.resolve_permission_response_impl(
-            session=session,
-            permission_request_id=permission_request_id,
-            result=result,
-        )
+        # Область транзакции: до неё решение применялось к копии, которую никто не
+        # сохранял — запомненная политика, снятые permission-идентификаторы и статус
+        # вызова не доживали до диска (P1-49, причина P2-46). Фоновое исполнение
+        # вызова запускается уже после выхода из области (`core.handle`), поэтому
+        # оно читает зафиксированное состояние, а не полуправку.
+        async with self._repository.transaction(session_id) as session:
+            if session is None:
+                logger.warning(
+                    "permission_response_session_gone",
+                    permission_request_id=permission_request_id,
+                    session_id=session_id,
+                )
+                return None
+
+            logger.debug(
+                "_resolve_permission_response: session found, resolving",
+                permission_request_id=permission_request_id,
+                session_id=session_id,
+                active_turn_exists=session.active_turn is not None,
+                active_turn_perm_request_id=(
+                    session.active_turn.permission_request_id if session.active_turn else None
+                ),
+                active_turn_perm_tool_call_id=(
+                    session.active_turn.permission_tool_call_id if session.active_turn else None
+                ),
+            )
+            outcome = prompt.resolve_permission_response_impl(
+                session=session,
+                permission_request_id=permission_request_id,
+                result=result,
+            )
+            logger.info(
+                "permission_response_applied",
+                session_id=session_id,
+                permission_request_id=permission_request_id,
+                applied=outcome is not None,
+                schedules_tool=outcome is not None and outcome.pending_tool_execution is not None,
+                remembered_policy=len(session.permissions.policy),
+            )
+            return outcome

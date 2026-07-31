@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
     build_fs_client_request,
@@ -1022,9 +1025,22 @@ class TestResolvePermissionResponseImpl:
             ),
         )
 
+    def _domain_session(self, *, with_tool_call: bool = True) -> DomainSession:
+        """Тот же сценарий доменным агрегатом — рабочая модель транзакции.
+
+        `resolve_permission_response_impl` работает агрегатом внутри транзакции
+        репозитория (фаза D ADR-006), поэтому wire-DTO ему больше не подходит.
+        """
+        session = self._make_session()
+        if with_tool_call:
+            create_tool_call(session, title="Demo", kind="execute")
+        return SessionMapper.to_domain(session)
+
     def test_no_active_turn_returns_none(self) -> None:
         """Без active_turn возвращает None."""
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionMapper.to_domain(
+            SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        )
 
         assert (
             resolve_permission_response_impl(
@@ -1037,14 +1053,16 @@ class TestResolvePermissionResponseImpl:
 
     def test_no_permission_tool_call_id_returns_none(self) -> None:
         """Без permission_tool_call_id возвращает None."""
-        session = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-            active_turn=ActiveTurnState(
-                prompt_request_id="req_1",
+        session = SessionMapper.to_domain(
+            SessionState(
                 session_id="sess_1",
-            ),
+                cwd="/tmp",
+                mcp_servers=[],
+                active_turn=ActiveTurnState(
+                    prompt_request_id="req_1",
+                    session_id="sess_1",
+                ),
+            )
         )
 
         assert (
@@ -1058,8 +1076,7 @@ class TestResolvePermissionResponseImpl:
 
     def test_reject_cancels_turn(self) -> None:
         """Reject option отменяет tool call и завершает turn."""
-        session = self._make_session()
-        create_tool_call(session, title="Demo", kind="execute")
+        session = self._domain_session()
 
         outcome = resolve_permission_response_impl(
             session=session,
@@ -1068,14 +1085,15 @@ class TestResolvePermissionResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "cancelled"
+        call = session.tool_calls.get("call_001")
+        assert call is not None
+        assert call.status is ToolCallStatus.CANCELLED
         assert session.active_turn is None
         assert len(outcome.followup_responses) == 1
 
     def test_allow_once_schedules_pending_execution(self) -> None:
         """Allow once сбрасывает permission state и планирует execution."""
-        session = self._make_session()
-        create_tool_call(session, title="Demo", kind="execute")
+        session = self._domain_session()
 
         outcome = resolve_permission_response_impl(
             session=session,
@@ -1084,6 +1102,7 @@ class TestResolvePermissionResponseImpl:
         )
 
         assert outcome is not None
+        assert session.active_turn is not None
         assert session.active_turn.permission_request_id is None
         assert session.active_turn.permission_tool_call_id is None
         assert outcome.pending_tool_execution is not None
@@ -1091,8 +1110,7 @@ class TestResolvePermissionResponseImpl:
 
     def test_allow_always_stores_session_policy(self) -> None:
         """Allow always сохраняет решение в session.permission_policy."""
-        session = self._make_session()
-        create_tool_call(session, title="Demo", kind="execute")
+        session = self._domain_session()
 
         resolve_permission_response_impl(
             session=session,
@@ -1100,12 +1118,11 @@ class TestResolvePermissionResponseImpl:
             result={"outcome": {"outcome": "selected", "optionId": "allow_always"}},
         )
 
-        assert session.permission_policy.get("execute") == "allow_always"
+        assert session.get_permission_policy("execute") == "allow_always"
 
     def test_reject_always_stores_session_policy(self) -> None:
         """Reject always сохраняет решение в session.permission_policy."""
-        session = self._make_session()
-        create_tool_call(session, title="Demo", kind="execute")
+        session = self._domain_session()
 
         resolve_permission_response_impl(
             session=session,
@@ -1113,4 +1130,4 @@ class TestResolvePermissionResponseImpl:
             result={"outcome": {"outcome": "selected", "optionId": "reject_always"}},
         )
 
-        assert session.permission_policy.get("execute") == "reject_always"
+        assert session.get_permission_policy("execute") == "reject_always"
