@@ -88,3 +88,10 @@ class PlanStatus(enum.StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+# Префикс alias'а терминала, который сервер выдаёт модели вместо 36-символьного
+# client-side `terminalId` (tech-debt #18: LLM теряла символы при ретрансляции).
+# Единственный источник: значение попадает в историю и на диск, поэтому вторая
+# копия развела бы alias'ы прошлых сессий с новыми.
+TERMINAL_ALIAS_PREFIX = "term_"

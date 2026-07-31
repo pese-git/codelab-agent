@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.domain.session import Session, SessionConfig
+from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import SessionId
 from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.protocol.state import SessionState
@@ -93,6 +94,49 @@ def test_assistant_text_seams_are_equivalent() -> None:
     mapped = HistoryMapper.to_protocol(domain.history.get_messages()[0])
 
     assert _slots(wire.history[0]) == _slots(mapped)
+
+
+def test_assistant_tool_call_seam_matches_the_form_turn_writes_today() -> None:
+    """Запись «ассистент + tool_calls» через сейм совпадает с сырой формой turn'а.
+
+    Wire-сейма для неё нет: turn-цикл (`agent_loop/loop.py`) собирает эту запись
+    сырым dict'ом. Именно поэтому история хранит две формы одной записи — этот
+    тест закрепляет, что доменный сейм даёт ту же форму, а не «похожую».
+    """
+    domain = _domain_session()
+    domain.add_assistant_tool_call_message(
+        "смотрю файлы",
+        [ToolCall(id="call_1", tool_name="fs/read", arguments={"path": "/a.py"})],
+    )
+
+    mapped = HistoryMapper.to_protocol(domain.history.get_messages()[0])
+
+    raw_form_written_by_turn_today = {
+        "role": "assistant",
+        "text": "смотрю файлы",
+        "tool_calls": [{"id": "call_1", "name": "fs/read", "arguments": {"path": "/a.py"}}],
+    }
+    assert _slots(mapped) == raw_form_written_by_turn_today
+
+
+def test_assistant_tool_call_seam_survives_domain_roundtrip() -> None:
+    """tool_calls в записи ассистента читаются обратно без потерь."""
+    domain = _domain_session()
+    domain.add_assistant_tool_call_message(
+        "",
+        [
+            ToolCall(id="call_1", tool_name="fs/read", arguments={"path": "/a.py"}),
+            ToolCall(id="call_2", tool_name="terminal/create", arguments={}),
+        ],
+    )
+    message = domain.history.get_messages()[0]
+
+    restored = HistoryMapper.to_domain(HistoryMapper.to_protocol(message))
+
+    assert [(tc.id, tc.tool_name, tc.arguments) for tc in restored.tool_calls] == [
+        ("call_1", "fs/read", {"path": "/a.py"}),
+        ("call_2", "terminal/create", {}),
+    ]
 
 
 def test_user_message_survives_domain_roundtrip() -> None:

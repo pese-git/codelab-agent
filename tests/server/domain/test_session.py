@@ -500,3 +500,75 @@ class TestSession:
         parsed = datetime.fromisoformat(session.updated_at)
         assert parsed.tzinfo is not None
         assert parsed.utcoffset() == UTC.utcoffset(None)
+
+
+class TestSessionTerminalSeams:
+    """Реестр терминалов на агрегате (шаг 2 фазы D ADR-006).
+
+    Сеймы одноимённы с `TerminalAliasRegistry`, чей единственный носитель
+    состояния — сессия. Поведение обязано совпадать до символа: alias уезжает на
+    диск и в историю, поэтому расхождение развело бы alias'ы старых сессий с новыми.
+    """
+
+    def _session(self) -> Session:
+        return Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
+
+    def test_register_returns_sequential_aliases(self) -> None:
+        session = self._session()
+
+        first = session.register_terminal("uuid-a", owner="proc-1")
+        second = session.register_terminal("uuid-b", owner="proc-1")
+
+        assert (first, second) == ("term_1", "term_2")
+        assert session.runtime.terminal_counter == 2
+
+    def test_register_marks_owner(self) -> None:
+        """Отметка владельца обязательна: реестр персистится, терминалы нет (P2-44)."""
+        session = self._session()
+
+        session.register_terminal("uuid-a", owner="proc-1")
+
+        assert session.runtime.terminals_owner == "proc-1"
+
+    def test_resolve_and_release(self) -> None:
+        session = self._session()
+        alias = session.register_terminal("uuid-a", owner="proc-1")
+
+        assert session.resolve_terminal(alias) == "uuid-a"
+        assert session.release_terminal(alias) == "uuid-a"
+        assert session.resolve_terminal(alias) is None
+
+    def test_unknown_alias_is_none_not_error(self) -> None:
+        """Неизвестный alias — не исключение: сегодня вызывающий логирует warning."""
+        session = self._session()
+
+        assert session.resolve_terminal("term_9") is None
+        assert session.release_terminal("term_9") is None
+
+    def test_counter_not_reused_after_release(self) -> None:
+        """Освобождение не откатывает счётчик — иначе новый терминал занял бы чужой alias."""
+        session = self._session()
+        alias = session.register_terminal("uuid-a", owner="proc-1")
+        session.release_terminal(alias)
+
+        assert session.register_terminal("uuid-b", owner="proc-1") == "term_2"
+
+    def test_seams_match_wire_registry(self) -> None:
+        """Паритет с `TerminalAliasRegistry` на wire-сессии: те же alias'ы и то же состояние."""
+        from codelab.server.protocol.state import SessionState
+        from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
+
+        wire = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        registry = TerminalAliasRegistry()
+        domain = self._session()
+
+        wire_aliases = [registry.register(wire, "uuid-a"), registry.register(wire, "uuid-b")]
+        domain_aliases = [
+            domain.register_terminal("uuid-a", owner=wire.terminals_owner or ""),
+            domain.register_terminal("uuid-b", owner=wire.terminals_owner or ""),
+        ]
+
+        assert wire_aliases == domain_aliases
+        assert wire.terminals == domain.runtime.terminals
+        assert wire.terminal_counter == domain.runtime.terminal_counter
+        assert registry.release(wire, "term_1") == domain.release_terminal("term_1")

@@ -27,6 +27,7 @@ from .plan import PlanEntry
 from .tool_call import ToolCall, ToolResult
 from .value_objects import (
     ALLOWED_TOOL_CALL_TRANSITIONS,
+    TERMINAL_ALIAS_PREFIX,
     FileLocation,
     MessageRole,
     PlanStatus,
@@ -411,6 +412,31 @@ class Session:
             )
         )
 
+    def add_assistant_tool_call_message(
+        self, text: str, tool_calls: Sequence[ToolCall]
+    ) -> None:
+        """Добавить ответ ассистента, несущий запрошенные им tool_calls.
+
+        Парного wire-сейма нет: единственный писатель этой записи (turn-цикл)
+        собирает её сырым dict'ом мимо `SessionState.add_assistant_message`,
+        потому что тот не принимает tool_calls. Из-за этого история хранит одну и
+        ту же запись в двух формах — плоским dict в текущем процессе и
+        `HistoryMessage` после чтения с диска, — а сравнение форм ломалось на
+        первой же записи turn'а (tech-debt P1-45). Сейм убирает саму развилку:
+        форму записи знает только маппер.
+
+        `tool_calls` — доменные сущности; в wire эмитится их embedded-срез
+        (`id`/`name`/`arguments`), см. `HistoryMapper.to_protocol`.
+        """
+        self.history.add(
+            ConversationMessage(
+                role=MessageRole.ASSISTANT,
+                content=MessageContent.from_text(text),
+                timestamp=datetime.now(UTC),
+                tool_calls=list(tool_calls),
+            )
+        )
+
     def create_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> ToolCall:
         """Создать новый tool call."""
         return self.tool_calls.create(tool_name, arguments)
@@ -452,6 +478,32 @@ class Session:
     def is_client_rpc_cancelled(self, request_id: str | int) -> bool:
         """Отмечен ли agent->client RPC отменённым."""
         return request_id in self.runtime.cancelled_client_rpc_requests
+
+    # Реестр терминалов. Сеймы одноимённы с `TerminalAliasRegistry`, чей единственный
+    # носитель состояния — сессия; поведение переезжает на агрегат, потому что
+    # `runtime.terminals` вложен, и вызывающий иначе обязан знать эту вложенность.
+    def register_terminal(self, client_terminal_id: str, *, owner: str) -> str:
+        """Зарегистрировать client terminalId и вернуть новый короткий alias.
+
+        `owner` передаётся вызывающим, а не берётся из `process_identity`: домен не
+        знает про процесс, в котором исполняется. Отметка владельца обязательна —
+        терминалы живут у клиента и рестарт не переживают, а реестр персистится,
+        поэтому следующий процесс иначе принял бы мёртвые дескрипторы за живые
+        (tech-debt P2-44).
+        """
+        self.runtime.terminal_counter += 1
+        alias = f"{TERMINAL_ALIAS_PREFIX}{self.runtime.terminal_counter}"
+        self.runtime.terminals[alias] = client_terminal_id
+        self.runtime.terminals_owner = owner
+        return alias
+
+    def resolve_terminal(self, alias: str) -> str | None:
+        """Client terminalId по alias (None — alias неизвестен)."""
+        return self.runtime.terminals.get(alias)
+
+    def release_terminal(self, alias: str) -> str | None:
+        """Убрать alias из реестра, вернуть освобождённый client terminalId (или None)."""
+        return self.runtime.terminals.pop(alias, None)
 
     # Жизненный цикл turn'а. Парные сеймы к `TurnLifecycleManager` (wire): дом
     # этих операций — агрегат, потому что они меняют только состояние turn'а.
