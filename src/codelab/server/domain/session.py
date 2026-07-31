@@ -86,6 +86,7 @@ class ToolCallRegistry:
         kind: str = "other",
         tool_call_id_from_llm: str | None = None,
         locations: list[FileLocation] | None = None,
+        status: ToolCallStatus = ToolCallStatus.PENDING,
     ) -> ToolCall:
         """Создать новый tool call.
 
@@ -95,6 +96,11 @@ class ToolCallRegistry:
         для ACP. Без них доменный create не выражал создание из turn-пути
         (фаза B ADR-006). `arguments` служит и как ACP `rawInput` — маппер отдаёт
         его в `raw_input`, отдельного поля нет.
+
+        `status` нужен вызывающим, у которых вызов начинает работу в момент
+        создания: client-RPC уходит клиенту вместе с нотификацией, и `pending` для
+        него — состояние, которого не бывает (P2-55). Парный параметр wire-хелпера
+        `prompt.tool_call_state.create_tool_call`.
         """
         self.counter += 1
         tool_call_id = f"call_{self.counter:03d}"
@@ -106,6 +112,7 @@ class ToolCallRegistry:
             kind=kind,
             tool_call_id_from_llm=tool_call_id_from_llm,
             locations=list(locations) if locations else [],
+            status=status,
         )
         self.calls[tool_call_id] = tool_call
         return tool_call

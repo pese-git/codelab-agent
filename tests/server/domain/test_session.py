@@ -572,3 +572,21 @@ class TestSessionTerminalSeams:
         assert wire.terminals == domain.runtime.terminals
         assert wire.terminal_counter == domain.runtime.terminal_counter
         assert registry.release(wire, "term_1") == domain.release_terminal("term_1")
+
+
+class TestToolCallCreateStatus:
+    """Начальный статус вызова — параметр создания (P2-55, парный к wire-хелперу)."""
+
+    def test_default_is_pending(self) -> None:
+        registry = ToolCallRegistry()
+
+        assert registry.create("fs/read", {}).status is ToolCallStatus.PENDING
+
+    def test_client_rpc_call_starts_in_progress(self) -> None:
+        """Вызов, за которым сразу уходит RPC, не бывает `pending`."""
+        registry = ToolCallRegistry()
+
+        call = registry.create("fs/read", {}, status=ToolCallStatus.IN_PROGRESS)
+
+        assert call.status is ToolCallStatus.IN_PROGRESS
+        assert registry.update_status(call.id, ToolCallStatus.COMPLETED) is True

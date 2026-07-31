@@ -1412,3 +1412,50 @@ turn'а (`prompt_orchestrator.py:213`), и по ходу turn'а в него п�
 **Чего шаг сознательно не делает.** Ни одного потребителя проекции не подключено: подключение —
 это и есть флип, он атомарен и весь лежит в шаге 3. Поэтому шаг 2 не меняет поведения вообще, и
 `make check` это подтверждает (7538 тестов, +15).
+
+### Карта шага 3 (разведка 2026-07-31, только чтение)
+
+Снята перед взятием шага и записана здесь, чтобы не проводить её заново. По turn-пути **140
+обращений к сессии, 28 различных атрибутов**; подавляющее большинство — уже одноимённые доменные
+сеймы (наследство фазы B: «писатель зовёт `session.<метод>()` и при switch резидента не меняется»).
+Настоящая работа — **42 сайта с расхождением вложенности в 13 файлах**:
+
+| сайтов | wire | домен |
+|---|---|---|
+| 15 | `session.session_id` | `session.id` |
+| 8 | `session.tool_calls[id]` (dict) | `session.tool_calls.get(id)` |
+| 3 | `session.runtime_capabilities` | `session.config.runtime_capabilities` |
+| 3 | `session.cwd` | `session.config.cwd` |
+| 3 | `session.latest_plan` | `session.plan` + `PlanMapper` |
+| 3 | `session.history` (список) | `session.history.get_messages()` |
+| 2 | `session.config_values` | `session.config.config_values` |
+| 2 | `session.tool_call_counter` | `session.tool_calls.counter` |
+| 1 | `session.events_history` | `session.runtime.events_history` |
+
+Крупнейшие по числу сайтов: `tool_processor.py` (7), `turn_lifecycle_manager.py` (7),
+`state_manager.py` (6), `client_requests.py` (4), `tool_call_state.py` (4). Сверх этого — смена
+аннотаций в 19 файлах, цепочка `tools/` (executors, decorators, definitions, registry) и до 42
+тестовых файлов.
+
+**Аддитивный пробел, закрытый заранее:** доменный `ToolCallRegistry.create` умел только `pending`,
+поэтому флип fs-ветки client-RPC уронил бы фикс P2-55 (вызов снова упёрся бы в запрет
+`pending → completed`). Параметр `status` добавлен вместе с этой картой, отдельно от флипа.
+
+**Порядок при взятии:**
+1. `PromptContext.session` → доменный агрегат; отдельное поле `domain_session` исчезает.
+2. Листовые менеджеры: `state_manager`, `turn_lifecycle_manager`, `event_history_writer`,
+   `tool_call_state`, `client_requests`. Проверено на первых двух: меняются только тип и
+   вложенность, вызовы сеймов остаются как есть.
+3. Стадии: `directives`, `llm_loop`, `agent_loop/{loop,tool_processor,updates,llm_caller}`. Здесь же
+   `loop.py:361` переезжает на `add_assistant_tool_call_message` — этим закрывается корень P1-45.
+4. `tools/`: `ToolExecutor.execute` на домен, `terminal_alias_registry` на сеймы шага 2, снятие трёх
+   записей из `ignore_imports` в import-linter.
+5. Чтения ядра — `DomainSessionView`; `persist` собирает wire-документ на границе.
+
+**Гейты:** байт-идентичность документа сессии на одном и том же turn'е до и после флипа; ноль
+расхождений wire↔диск по статусам вызовов; живой прогон на директиве `fsReadPath` (отлажен при
+P2-55, занимает секунды).
+
+**Почему шаг не взят сразу:** объём (≈25 файлов исходников плюс тесты) не укладывается в один
+аккуратный проход, а флип атомарен — половина переведённого пути означает несогласованное дерево.
+Берётся отдельным проходом целиком под него.
