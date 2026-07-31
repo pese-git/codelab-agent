@@ -38,8 +38,10 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
+from pydantic import ValidationError
 
 from ..exceptions import SessionRevisionConflictError
+from ..models import HistoryMessage
 from ..storage.base import SessionStorage
 from .state import SessionState
 
@@ -49,11 +51,36 @@ logger = structlog.get_logger()
 _CANCEL_OWNED_STATUSES = frozenset({"cancelled"})
 
 
+def _canonical_entry(entry: Any) -> Any:
+    """Одна форма записи журнала для сравнения копий.
+
+    `SessionState.history` объявлена союзом `HistoryMessage | dict`: запись,
+    добавленную в этом процессе, писатели кладут плоским dict, а та же запись,
+    прочитанная с диска, валидируется в модель. Сравнение «как есть» давало
+    неравенство на первой же записи текущего turn'а, префикс обрывался, и хвост
+    дописывался повторно — в истории появлялись дубли, включая два ответа
+    `role: tool` на один `tool_call_id` (tech-debt P1-45, воспроизведено на
+    живом прогоне `sess_ffff9be366bd`).
+
+    Приведение — защита, а не решение: корень (союз типов) снимается переводом
+    истории на одну форму вместе с turn-путём в фазе D ADR-006.
+    """
+    if isinstance(entry, HistoryMessage):
+        return entry
+    if isinstance(entry, dict):
+        try:
+            return HistoryMessage.model_validate(entry)
+        except ValidationError:
+            # Не запись истории (или несовместимая форма) — сравниваем как есть.
+            return entry
+    return entry
+
+
 def _common_prefix_length(base: list[Any], mine: list[Any]) -> int:
     """Длина общего префикса двух append-only журналов — это их общий предок."""
     limit = min(len(base), len(mine))
     for index in range(limit):
-        if base[index] != mine[index]:
+        if _canonical_entry(base[index]) != _canonical_entry(mine[index]):
             return index
     return limit
 

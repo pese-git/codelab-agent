@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.session_merge import (
     merge_session_states,
     save_session_merging,
@@ -161,6 +162,61 @@ class TestMergeRules:
         merged = merge_session_states(base=base, mine=mine)
 
         assert len(merged.history) == 2
+
+    def test_mixed_entry_forms_are_recognized_as_the_same_record(self) -> None:
+        """Одна и та же запись в двух формах — не повод считать её разной.
+
+        Прежние тесты сравнивали dict с dict и потому дефекта не видели: в бою
+        запись, добавленная в этом процессе, — плоский dict, а прочитанная с
+        диска — `HistoryMessage` (tech-debt P1-45).
+        """
+        base, mine = _session(), _session()
+        entry = {"role": "tool", "tool_call_id": "llm_1", "content": "результат"}
+        base.history = [HistoryMessage.model_validate(entry)]
+        mine.history = [dict(entry)]
+
+        merged = merge_session_states(base=base, mine=mine)
+
+        assert len(merged.history) == 1, "запись в двух формах не должна задвоиться"
+
+    @pytest.mark.asyncio
+    async def test_tail_already_on_disk_is_not_duplicated(self, tmp_path: Path) -> None:
+        """Пошаговые записи turn'а не должны приводить к дублям при слиянии.
+
+        Сценарий с живого прогона `sess_ffff9be366bd`: turn пишет состояние на
+        каждом шаге, поэтому его хвост УЖЕ на диске; затем приходит отмена, и
+        финальная запись turn'а конфликтует. До правки правило «дописать свой
+        хвост» дописывало его повторно — пять `tool_call_id` получали по два
+        ответа `role: tool`, что нарушает контракт LLM-API (родня P2-38).
+        """
+        storage = JsonFileStorage(tmp_path)
+        await storage.save_session(_session())
+
+        turn_copy = await storage.load_session("sess_x")
+        assert turn_copy is not None
+        turn_copy.add_assistant_message("вызываю инструмент")
+        turn_copy.add_tool_result("llm_1", "результат работы")
+        # Пошаговая запись turn'а: хвост оказывается на диске
+        await storage.save_session(turn_copy)
+
+        cancel_copy = await storage.load_session("sess_x")
+        assert cancel_copy is not None
+        cancel_copy.add_tool_result("llm_2", "Вызов не выполнялся: turn отменён")
+        cancel_copy.active_turn = None
+        await storage.save_session(cancel_copy)
+
+        # Финальная запись turn'а: его копия устарела на ревизию отмены
+        await save_session_merging(storage, turn_copy)
+
+        on_disk = await storage.load_session("sess_x")
+        assert on_disk is not None
+        answers = [
+            m.tool_call_id if isinstance(m, HistoryMessage) else m.get("tool_call_id")
+            for m in on_disk.history
+            if (m.role if isinstance(m, HistoryMessage) else m.get("role")) == "tool"
+        ]
+        assert answers == ["llm_1", "llm_2"], "на каждый вызов ровно один ответ"
+        assert len(on_disk.history) == 3, "дублей записей быть не должно"
 
     def test_counters_take_maximum(self) -> None:
         """Иначе следующий вызов получил бы занятый идентификатор."""
