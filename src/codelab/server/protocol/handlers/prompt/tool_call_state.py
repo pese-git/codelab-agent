@@ -19,8 +19,14 @@ from ...state import SessionState, ToolCallState
 logger = structlog.get_logger()
 
 
-def create_tool_call(session: SessionState, *, title: str, kind: str) -> str:
+def create_tool_call(
+    session: SessionState, *, title: str, kind: str, status: str = "pending"
+) -> str:
     """Создает запись нового tool call в состоянии сессии.
+
+    `status` нужен вызывающим, у которых вызов начинает работу в тот же момент,
+    когда создаётся: client-RPC уходит клиенту вместе с нотификацией о создании,
+    и `pending` для него — состояние, которого не бывает.
 
     Пример использования:
         tool_call_id = create_tool_call(state, title="Demo", kind="other")
@@ -33,7 +39,7 @@ def create_tool_call(session: SessionState, *, title: str, kind: str) -> str:
         tool_call_id=tool_call_id,
         title=title,
         kind=kind,
-        status="pending",
+        status=status,
     )
     return tool_call_id
 

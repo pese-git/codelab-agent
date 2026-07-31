@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+
 from ...domain.session import PendingExternalRequest
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import ToolCallStatus
@@ -25,6 +27,65 @@ from ...storage import SessionRepository
 from ..state import ProtocolOutcome
 from .prompt.tool_call_updates import tool_call_status_notification
 from .session import session_info_notification
+
+logger = structlog.get_logger()
+
+
+def _status_notifications(
+    *,
+    session: DomainSession,
+    changed: bool,
+    session_id: str,
+    tool_call_id: str,
+    status: ToolCallStatus,
+    content: list[dict[str, Any]] | None = None,
+    raw_output: dict[str, Any] | None = None,
+) -> list[ACPMessage]:
+    """Нотификация о смене статуса — только если состояние её подтверждает.
+
+    Раньше нотификация строилась независимо от исхода перехода, и отклонённый
+    матрицей переход давал клиенту `completed` при `pending` на диске (P2-55).
+    Клиент верит нотификации, а состояние остаётся своим — расхождение тем хуже,
+    что вызов остаётся нетерминальным и его потом «отменяет» скан незавершённых.
+
+    `update_status` возвращает `False` по двум разным причинам, и смешивать их
+    нельзя — иначе лог соврёт при разборе:
+
+    * **переход отклонён матрицей** (вызов есть) — нотификация не отправляется:
+      молчание вместо лжи. Отказ уже записан `tool_call_status_transition_rejected`.
+    * **вызова нет в состоянии** — поведение сохранено: клиент о вызове знает
+      (создание ему уже уходило), и путь отказа обязан его уведомить. Это
+      расхождение другого рода, поэтому оно логируется отдельным событием и не
+      меняется здесь.
+    """
+    if changed:
+        known = True
+    else:
+        known = session.tool_calls.get(tool_call_id) is not None
+        if known:
+            logger.warning(
+                "tool_call_status_notification_suppressed",
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                requested_status=status.value,
+                reason="переход отклонён матрицей — нотификация солгала бы клиенту",
+            )
+            return []
+        logger.warning(
+            "tool_call_status_notification_for_unknown_call",
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            requested_status=status.value,
+        )
+    return [
+        tool_call_status_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status.value,
+            content=content,
+            raw_output=raw_output,
+        )
+    ]
 
 
 def _finalize_turn(session: DomainSession, *, stop_reason: str = "end_turn") -> ACPMessage | None:
@@ -104,18 +165,18 @@ def _handle_fs_read(
             },
         }
     ]
-    session.tool_calls.update_status(
+    changed = session.tool_calls.update_status(
         pending.tool_call_id, ToolCallStatus.COMPLETED, content=content
     )
     return _ContinueToCompletion(
-        [
-            tool_call_status_notification(
-                session_id=session_id,
-                tool_call_id=pending.tool_call_id,
-                status=ToolCallStatus.COMPLETED.value,
-                content=content,
-            )
-        ]
+        _status_notifications(
+            session=session,
+            changed=changed,
+            session_id=session_id,
+            tool_call_id=pending.tool_call_id,
+            status=ToolCallStatus.COMPLETED,
+            content=content,
+        )
     )
 
 
@@ -148,18 +209,18 @@ def _handle_fs_write(
             "newText": new_text,
         }
     ]
-    session.tool_calls.update_status(
+    changed = session.tool_calls.update_status(
         pending.tool_call_id, ToolCallStatus.COMPLETED, content=diff_content
     )
     return _ContinueToCompletion(
-        [
-            tool_call_status_notification(
-                session_id=session_id,
-                tool_call_id=pending.tool_call_id,
-                status=ToolCallStatus.COMPLETED.value,
-                content=diff_content,
-            )
-        ]
+        _status_notifications(
+            session=session,
+            changed=changed,
+            session_id=session_id,
+            tool_call_id=pending.tool_call_id,
+            status=ToolCallStatus.COMPLETED,
+            content=diff_content,
+        )
     )
 
 
@@ -177,29 +238,29 @@ def _handle_terminal_create(
     if isinstance(result, dict) and isinstance(result.get("terminalId"), str):
         terminal_id = result["terminalId"]
     if terminal_id is None:
-        session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.FAILED)
-        notifications: list[ACPMessage] = [
-            tool_call_status_notification(
-                session_id=session_id,
-                tool_call_id=pending.tool_call_id,
-                status=ToolCallStatus.FAILED.value,
-            )
-        ]
+        changed = session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.FAILED)
+        notifications: list[ACPMessage] = _status_notifications(
+            session=session,
+            changed=changed,
+            session_id=session_id,
+            tool_call_id=pending.tool_call_id,
+            status=ToolCallStatus.FAILED,
+        )
         done = _finalize_turn(session)
         return ProtocolOutcome(
             notifications=notifications,
             followup_responses=[done] if done is not None else [],
         )
 
-    session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.IN_PROGRESS)
-    notifications = [
-        tool_call_status_notification(
-            session_id=session_id,
-            tool_call_id=pending.tool_call_id,
-            status=ToolCallStatus.IN_PROGRESS.value,
-            content=[{"type": "terminal", "terminalId": terminal_id}],
-        )
-    ]
+    changed = session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.IN_PROGRESS)
+    notifications = _status_notifications(
+        session=session,
+        changed=changed,
+        session_id=session_id,
+        tool_call_id=pending.tool_call_id,
+        status=ToolCallStatus.IN_PROGRESS,
+        content=[{"type": "terminal", "terminalId": terminal_id}],
+    )
 
     output_request = ACPMessage.request(
         "terminal/output",
@@ -432,25 +493,25 @@ def _handle_terminal_release(
             },
         },
     ]
-    session.tool_calls.update_status(
+    changed = session.tool_calls.update_status(
         pending.tool_call_id,
         ToolCallStatus.COMPLETED,
         content=completed_content,
     )
     return _ContinueToCompletion(
-        [
-            tool_call_status_notification(
-                session_id=session_id,
-                tool_call_id=pending.tool_call_id,
-                status=ToolCallStatus.COMPLETED.value,
-                content=completed_content,
-                raw_output={
-                    "exitCode": pending.terminal_exit_code,
-                    "signal": pending.terminal_signal,
-                    "truncated": pending.terminal_truncated,
-                },
-            )
-        ]
+        _status_notifications(
+            session=session,
+            changed=changed,
+            session_id=session_id,
+            tool_call_id=pending.tool_call_id,
+            status=ToolCallStatus.COMPLETED,
+            content=completed_content,
+            raw_output={
+                "exitCode": pending.terminal_exit_code,
+                "signal": pending.terminal_signal,
+                "truncated": pending.terminal_truncated,
+            },
+        )
     )
 
 
@@ -555,11 +616,13 @@ def finalize_failed_client_rpc_request(
             failure_text="Invalid terminal/output response.",
         )
     """
-    session.tool_calls.update_status(tool_call_id, ToolCallStatus.FAILED)
-    failure_notification = tool_call_status_notification(
+    changed = session.tool_calls.update_status(tool_call_id, ToolCallStatus.FAILED)
+    failure_notifications = _status_notifications(
+        session=session,
+        changed=changed,
         session_id=session_id,
         tool_call_id=tool_call_id,
-        status=ToolCallStatus.FAILED.value,
+        status=ToolCallStatus.FAILED,
         content=[{"type": "content", "content": {"type": "text", "text": failure_text}}],
     )
     session.mark_updated()
@@ -570,6 +633,6 @@ def finalize_failed_client_rpc_request(
     )
     failed = _finalize_turn(session)
     return ProtocolOutcome(
-        notifications=[failure_notification, session_info],
+        notifications=[*failure_notifications, session_info],
         followup_responses=[failed] if failed is not None else [],
     )

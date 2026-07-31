@@ -83,6 +83,12 @@ def build_fs_client_request(
             session=session,
             title="Read text file",
             kind="read",
+            # Вызов начинает работу здесь же: нотификация уходит клиенту вместе с
+            # самим `fs/read_text_file`, и всё время ожидания ответа он выполняется,
+            # а не ждёт запуска. `pending` вместо этого оставлял состояние в «не
+            # начат», из-за чего завершение упиралось в запрет `pending → completed`
+            # и на диске статус расходился с тем, что уже ушло клиенту (P2-55).
+            status="in_progress",
         )
         created = ACPMessage.notification(
             "session/update",
@@ -93,7 +99,7 @@ def build_fs_client_request(
                     "toolCallId": tool_call_id,
                     "title": "Read text file",
                     "kind": "read",
-                    "status": "pending",
+                    "status": "in_progress",
                     "locations": [{"path": target_path}],
                 },
             },
@@ -127,6 +133,8 @@ def build_fs_client_request(
             session=session,
             title="Write text file",
             kind="edit",
+            # См. комментарий в fs_read-ветке: запись начинается вместе с отправкой RPC.
+            status="in_progress",
         )
         created = ACPMessage.notification(
             "session/update",
@@ -137,7 +145,7 @@ def build_fs_client_request(
                     "toolCallId": tool_call_id,
                     "title": "Write text file",
                     "kind": "edit",
-                    "status": "pending",
+                    "status": "in_progress",
                     "locations": [{"path": target_path}],
                 },
             },

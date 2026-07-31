@@ -145,3 +145,104 @@ class TestClientRpcResponseReachesDisk:
         assert stored is not None
         assert stored.revision == before.revision
         assert stored.updated_at == before.updated_at
+
+
+def _session_via_production_builder(kind: str) -> tuple[SessionState, list[Any]]:
+    """Состояние готовит тот же код, что в проде, а не фикстура «как надо»."""
+    from codelab.server.protocol.handlers.prompt import build_fs_client_request
+    from codelab.server.protocol.state import ClientRuntimeCapabilities, PromptDirectives
+
+    session = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
+    session.runtime_capabilities = ClientRuntimeCapabilities(
+        fs_read=True, fs_write=True, terminal=True
+    )
+    session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_x")
+    directives = (
+        PromptDirectives(fs_read_path="/w/file.txt")
+        if kind == "fs_read"
+        else PromptDirectives(fs_write_path="/w/file.txt", fs_write_content="новое")
+    )
+    prepared = build_fs_client_request(session=session, session_id="sess_x", directives=directives)
+    assert prepared is not None
+    session.active_turn.pending_client_request = prepared.pending_request
+    return session, prepared.messages
+
+
+class TestClientRpcCallStartsInProgress:
+    """Вызов работает с момента отправки RPC — `pending` для него не бывает (P2-55)."""
+
+    @pytest.mark.parametrize("kind", ["fs_read", "fs_write"])
+    def test_call_starts_in_progress_not_pending(self, kind: str) -> None:
+        session, messages = _session_via_production_builder(kind)
+
+        assert session.tool_calls["call_001"].status == "in_progress"
+        created = messages[0].params["update"]
+        assert created["sessionUpdate"] == "tool_call"
+        assert created["status"] == "in_progress", "wire и состояние обязаны совпадать сразу"
+
+
+@pytest.mark.asyncio
+class TestStatusOnDiskMatchesWhatClientWasTold:
+    """Статус на диске совпадает с тем, что ушло клиенту (P2-55).
+
+    Гейт выше был зелёным, потому что фикстура сама ставила `in_progress`. Прод
+    создавал вызов `pending`, завершение упиралось в запрет `pending → completed`,
+    и на диске оставался `pending` при `completed` у клиента.
+    """
+
+    async def test_fs_read_status_on_disk_equals_status_sent_to_client(
+        self, tmp_path: Path
+    ) -> None:
+        """Сквозной гейт: что сказали клиенту, то и на диске."""
+        session, _ = _session_via_production_builder("fs_read")
+        storage = JsonFileStorage(tmp_path)
+        session.active_turn.pending_client_request.request_id = "rpc_1"  # type: ignore[union-attr]
+        await storage.save_session(session)
+
+        outcome = await _respond(storage, {"content": "содержимое"})
+
+        sent = [
+            m.params["update"]["status"]
+            for m in outcome.notifications
+            if m.params and m.params.get("update", {}).get("sessionUpdate") == "tool_call_update"
+        ]
+        stored = await storage.load_session("sess_x")
+        assert stored is not None
+        assert sent == ["completed"]
+        assert stored.tool_calls["call_001"].status == "completed"
+        assert stored.active_turn is None
+
+    async def test_rejected_transition_does_not_lie_to_client(self, tmp_path: Path) -> None:
+        """Отклонённый переход — молчание, а не `completed` при своём статусе на диске."""
+        session = _session_awaiting("fs_read")
+        session.tool_calls["call_001"].status = "cancelled"
+        storage = JsonFileStorage(tmp_path)
+        await storage.save_session(session)
+
+        outcome = await _respond(storage, {"content": "содержимое"})
+
+        statuses = [
+            m.params["update"]["status"]
+            for m in outcome.notifications
+            if m.params and m.params.get("update", {}).get("sessionUpdate") == "tool_call_update"
+        ]
+        stored = await storage.load_session("sess_x")
+        assert stored is not None
+        assert statuses == [], "перехода не было — нотификации быть не должно"
+        assert stored.tool_calls["call_001"].status == "cancelled"
+
+    async def test_unknown_call_still_notifies(self, tmp_path: Path) -> None:
+        """Вызова нет в состоянии — путь отказа обязан уведомить клиента (не менялось)."""
+        session = _session_awaiting("fs_read")
+        del session.tool_calls["call_001"]
+        storage = JsonFileStorage(tmp_path)
+        await storage.save_session(session)
+
+        outcome = await _respond(storage, "невалидный ответ")
+
+        statuses = [
+            m.params["update"]["status"]
+            for m in outcome.notifications
+            if m.params and m.params.get("update", {}).get("sessionUpdate") == "tool_call_update"
+        ]
+        assert statuses == ["failed"]
