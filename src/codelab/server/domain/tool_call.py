@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .value_objects import FileLocation, ToolCallStatus
+from .value_objects import TERMINAL_TOOL_CALL_STATUSES, FileLocation, ToolCallStatus
 
 
 @dataclass(frozen=True)
@@ -51,11 +51,7 @@ class ToolCall:
     def is_terminal(self) -> bool:
         """Статус финальный — дальнейших переходов нет.
 
-        Набор совпадает с терминальными состояниями матрицы переходов
-        `ToolCallHandler._ALLOWED_TRANSITIONS`, включая `CANCELLED`.
+        Производное от матрицы переходов, а не отдельный список: раньше набор был
+        продублирован и мог разойтись с ней.
         """
-        return self.status in (
-            ToolCallStatus.COMPLETED,
-            ToolCallStatus.CANCELLED,
-            ToolCallStatus.FAILED,
-        )
+        return self.status in TERMINAL_TOOL_CALL_STATUSES

@@ -19,9 +19,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
+from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 
@@ -31,6 +34,26 @@ def _session_in_turn() -> SessionState:
     session.set_config_value("mode", "standard")
     session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
     return session
+
+
+def _orchestrator(registry: TurnCancellationRegistry) -> PromptOrchestrator:
+    """Оркестратор для пути отмены: реальны реестр сигнала и tool-call хендлер.
+
+    Остальные компоненты `handle_cancel` не задействует — мутации состояния делают
+    доменные сеймы агрегата (фаза D ADR-006).
+    """
+    return PromptOrchestrator(
+        state_manager=MagicMock(),
+        plan_builder=MagicMock(),
+        turn_lifecycle_manager=MagicMock(),
+        tool_call_handler=ToolCallHandler(),
+        permission_manager=MagicMock(),
+        tool_registry=MagicMock(),
+        llm_loop_stage=MagicMock(),
+        command_registry=MagicMock(),
+        pipeline=MagicMock(),
+        turn_cancellation=registry,
+    )
 
 
 def _processor(registry: TurnCancellationRegistry | None) -> ToolCallProcessor:
@@ -152,20 +175,16 @@ class TestHandleCancelRegistersCancellation:
     """`handle_cancel` обязан отметить отмену в реестре."""
 
     def test_cancel_increments_generation(self) -> None:
-        from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-        from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
-
+        """Проверка идёт через настоящий `handle_cancel`, а не его пересказ."""
         registry = TurnCancellationRegistry()
-        session = _session_in_turn()
+        session = SessionMapper.to_domain(_session_in_turn())
         started = registry.generation("s")
 
-        # Порядок операций handle_cancel на реальных менеджерах
-        registry.cancel("s")
-        lifecycle = TurnLifecycleManager()
-        lifecycle.mark_cancel_requested(session)
-        ToolCallHandler().cancel_active_tools(session, "s")
-        lifecycle.finalize_turn(session, "cancelled")
-        lifecycle.clear_active_turn(session)
+        _orchestrator(registry).handle_cancel(
+            request_id="cancel_1",
+            params={"sessionId": "s"},
+            session=session,
+        )
 
         assert session.active_turn is None
         assert registry.is_cancelled("s", started) is True

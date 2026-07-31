@@ -17,6 +17,7 @@ from typing import Any
 
 import structlog
 
+from ...domain.session import Session as DomainSession
 from ..state import SessionState
 
 logger = structlog.get_logger()
@@ -105,7 +106,7 @@ class EventHistoryWriter:
 
     def save_tool_call_update(
         self,
-        session: SessionState,
+        session: SessionState | DomainSession,
         tool_call_id: str,
         status: str,
         *,
@@ -113,8 +114,13 @@ class EventHistoryWriter:
     ) -> None:
         """Сохраняет tool_call_update в events_history.
 
+        Единственный метод писателя, принимающий обе модели: журнал отмены пишет
+        уже переведённая транзакция `session/cancel` (фаза D ADR-006), а остальные
+        писатели пока на wire. Остальные методы менять не нужно — они переедут
+        вместе со своими транзакциями.
+
         Args:
-            session: Состояние сессии
+            session: Состояние сессии (wire-DTO или доменный агрегат)
             tool_call_id: ID tool call
             status: Новый статус (in_progress, completed, failed, cancelled)
             content: Опциональный контент результата
@@ -176,7 +182,7 @@ class EventHistoryWriter:
 
     def _append(
         self,
-        session: SessionState,
+        session: SessionState | DomainSession,
         update: dict[str, Any],
     ) -> None:
         """Добавляет `session/update` в events_history со временной меткой."""
@@ -185,10 +191,26 @@ class EventHistoryWriter:
             "update": update,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        session.events_history.append(event_entry)
+        events, session_id = _journal_of(session)
+        events.append(event_entry)
 
         logger.debug(
             "update saved to events_history",
-            session_id=session.session_id,
+            session_id=session_id,
             update_type=update.get("sessionUpdate"),
         )
+
+
+def _journal_of(
+    session: SessionState | DomainSession,
+) -> tuple[list[dict[str, Any]], str]:
+    """Журнал событий и id сессии — из wire-DTO либо доменного агрегата.
+
+    Развилка носителя временна и живёт ровно до конца фазы D ADR-006: элементы
+    `events_history` — опаковые ACP-нотификации, поэтому в обеих моделях это один
+    и тот же список, а писатель владеет только формой записи. Снять развилку =
+    оставить доменную ветку, когда последний писатель уедет с `SessionState`.
+    """
+    if isinstance(session, SessionState):
+        return session.events_history, session.session_id
+    return session.runtime.events_history, str(session.id)

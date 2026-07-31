@@ -10,7 +10,12 @@ from typing import Any
 
 import structlog
 
-from ...domain.value_objects import FileLocation
+from ...domain.session import Session as DomainSession
+from ...domain.value_objects import (
+    ALLOWED_TOOL_CALL_TRANSITIONS,
+    FileLocation,
+    ToolCallStatus,
+)
 from ...messages import ACPMessage
 from ..state import SessionState, ToolCallState
 
@@ -23,15 +28,6 @@ class ToolCallHandler:
     Инкапсулирует логику создания tool calls, обновления их статуса,
     построения notifications и отмены активных tool calls.
     """
-
-    # Матрица допустимых переходов между статусами tool call
-    _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-        "pending": {"in_progress", "cancelled", "failed"},
-        "in_progress": {"completed", "cancelled", "failed"},
-        "completed": set(),
-        "cancelled": set(),
-        "failed": set(),
-    }
 
     # Поддерживаемые tool kinds для нормализации
     _SUPPORTED_TOOL_KINDS: set[str] = {
@@ -134,8 +130,8 @@ class ToolCallHandler:
         if state is None:
             return
 
-        # Явная матрица переходов защищает от нелегальных смен статуса
-        next_states = self._ALLOWED_TRANSITIONS.get(state.status, set())
+        # Матрица переходов — доменная (`StrEnum` отвечает и на wire-строку).
+        next_states = ALLOWED_TOOL_CALL_TRANSITIONS.get(state.status, frozenset())
         if status not in next_states and status != state.status:
             # Отказ логируется: молчаливый пропуск однажды уже рассинхронизировал
             # состояние с wire-историей (pending → completed в resume-пути).
@@ -243,7 +239,7 @@ class ToolCallHandler:
 
     def cancel_active_tools(
         self,
-        session: SessionState,
+        session: DomainSession,
         session_id: str,
     ) -> list[ACPMessage]:
         """Отменяет все активные (pending, in_progress) tool calls.
@@ -252,8 +248,12 @@ class ToolCallHandler:
         требующих отмены всех незавершенных tool calls.
         Игнорирует tool calls в терминальных состояниях.
 
+        Мутации — доменные (`ToolCallRegistry.update_status`, `add_tool_result`);
+        wire остаётся только в построении нотификаций (транзакция `session/cancel`,
+        фаза D ADR-006).
+
         Args:
-            session: Состояние сессии (будет обновлено)
+            session: Доменный агрегат сессии (будет обновлён)
             session_id: ID сессии
 
         Returns:
@@ -261,22 +261,16 @@ class ToolCallHandler:
         """
         notifications: list[ACPMessage] = []
 
-        # Итерируем по всем tool calls и отменяем активные
-        for tool_call in session.tool_calls.values():
-            if tool_call.status not in {"pending", "in_progress"}:
-                # Пропускаем завершенные/отмененные tool calls
+        for tool_call in session.tool_calls.get_all():
+            if tool_call.is_terminal:
                 continue
 
-            self.update_tool_call_status(
-                session,
-                tool_call.tool_call_id,
-                "cancelled",
-            )
+            session.tool_calls.update_status(tool_call.id, ToolCallStatus.CANCELLED)
             notifications.append(
                 self.build_tool_update_notification(
                     session_id=session_id,
-                    tool_call_id=tool_call.tool_call_id,
-                    status="cancelled",
+                    tool_call_id=tool_call.id,
+                    status=ToolCallStatus.CANCELLED.value,
                 )
             )
             # Отменённый вызов тоже обязан получить ответ модели: его id лежит в
@@ -284,7 +278,7 @@ class ToolCallHandler:
             # на каждый `tool_call_id`. Без этого вызов оставался без ответа
             # навсегда — и модель повторяла его (tech-debt P2-38, источник 2).
             session.add_tool_result(
-                tool_call.tool_call_id_from_llm or tool_call.tool_call_id,
+                tool_call.tool_call_id_from_llm or tool_call.id,
                 "Вызов не выполнялся: turn отменён пользователем. "
                 "Запроси его снова, если он всё ещё нужен.",
             )

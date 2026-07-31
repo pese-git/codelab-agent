@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import structlog
 
 from ..messages import ACPMessage
-from ..storage import SessionStorage
+from ..storage import SessionRepository, SessionStorage
 from .pending_registry import PendingRequestRegistry
 from .state import (
     ProtocolOutcome,
@@ -29,6 +29,10 @@ if TYPE_CHECKING:
     from .session_runtime import SessionRuntimeRegistry
 
 logger = structlog.get_logger()
+
+
+class _TurnAlreadyEnded(Exception):
+    """Turn закончился до входа в транзакцию — выйти из области без записи."""
 
 
 # Тип обработчика метода: async-функция, принимающая сообщение и возвращающая outcome
@@ -76,6 +80,7 @@ class ACPProtocol:
         response_router: ResponseRouter,
         background_executor: BackgroundExecutor,
         storage: SessionStorage | None = None,
+        repository: SessionRepository | None = None,
         pending_registry: PendingRequestRegistry | None = None,
         runtime_registry: SessionRuntimeRegistry | None = None,
         middleware: list[MiddlewareFn] | None = None,
@@ -93,6 +98,9 @@ class ACPProtocol:
             response_router: Маршрутизатор ответов от клиента.
             background_executor: Исполнитель фоновых задач.
             storage: Хранилище сессий (по умолчанию InMemoryStorage).
+            repository: Доменный порт над тем же backend. По умолчанию строится
+                локально; DI обязан передать общий экземпляр — блокировки
+                транзакций живут в нём, и второй экземпляр их не разделяет.
             pending_registry: Реестр pending permission requests.
             runtime_registry: Реестр runtime-состояний сессий.
             middleware: Список middleware функций для сквозной логики.
@@ -105,6 +113,7 @@ class ACPProtocol:
 
             storage = InMemoryStorage()
         self._storage = storage
+        self._repository = repository if repository is not None else SessionRepository(storage)
         self._method_registry = method_registry
         self._response_router = response_router
         self._background_executor = background_executor
@@ -294,29 +303,48 @@ class ACPProtocol:
         if self._orchestrator_provider is None:
             return 0
 
+        # Сначала только читаем: сохранение переставляет сессию в порядке по
+        # `updated_at`, поэтому продолжать постраничный обход после записи нельзя —
+        # остаток страниц задвоился бы или пропустил записи
+        # (`SessionRepository.iter_sessions`).
+        active_session_ids = [
+            str(session.id)
+            async for session in self._repository.iter_sessions()
+            if session.active_turn is not None
+        ]
+
         cancelled_count = 0
-        cursor = None
-        while True:
-            sessions, cursor = await self._storage.list_sessions(cursor=cursor, limit=100)
-            for session_state in sessions:
-                if session_state.active_turn is None:
-                    continue
-
-                orchestrator = await self._orchestrator_provider()
-                orchestrator.handle_cancel(
-                    request_id=None,
-                    params={"sessionId": session_state.session_id},
-                    session=session_state,
-                )
+        for session_id in active_session_ids:
+            try:
+                async with self._repository.transaction(session_id) as session:
+                    if session is None:
+                        continue
+                    if session.active_turn is None:
+                        # Turn закончился между сканом и транзакцией. Область пишет
+                        # при успешном выходе, а отмены без исключения у неё нет
+                        # (намеренно, ADR-007), поэтому выходим исключением — иначе
+                        # пустой коммит переставил бы `updated_at`.
+                        raise _TurnAlreadyEnded
+                    orchestrator = await self._orchestrator_provider()
+                    orchestrator.handle_cancel(
+                        request_id=None,
+                        params={"sessionId": session_id},
+                        session=session,
+                    )
                 cancelled_count += 1
-
-                try:
-                    await self._storage.save_session(session_state)
-                except Exception:
-                    continue
-
-            if cursor is None:
-                break
+            except _TurnAlreadyEnded:
+                logger.debug("disconnect_cancel_turn_already_ended", session_id=session_id)
+            except Exception as error:
+                # Не срываем дисконнект-хендлер из-за одной сессии: остальные turn'ы
+                # обязаны быть отменены. Но и молчать нельзя — несохранённая отмена
+                # значит, что при следующей загрузке turn выглядит активным
+                # (прежде здесь стоял `except Exception: continue`).
+                logger.error(
+                    "disconnect_cancel_failed",
+                    session_id=session_id,
+                    error=str(error),
+                    exc_info=True,
+                )
 
         return cancelled_count
 

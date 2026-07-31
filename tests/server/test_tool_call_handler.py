@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 import structlog
 
+from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
 
@@ -212,14 +214,15 @@ class TestToolCallHandlerCancellation:
         handler.update_tool_call_status(session, id2, "in_progress")
         handler.update_tool_call_status(session, id2, "completed")
 
-        # Отменяем все активные
-        updates = handler.cancel_active_tools(session, "test_session")
+        # Отмена работает доменным агрегатом (фаза D ADR-006)
+        domain = SessionMapper.to_domain(session)
+        updates = handler.cancel_active_tools(domain, "test_session")
 
-        # Должны быть отмены для id1 и id3 (в_progress и pending)
+        # Должны быть отмены для id1 и id3 (in_progress и pending)
         assert len(updates) == 2
-        assert session.tool_calls[id1].status == "cancelled"
-        assert session.tool_calls[id2].status == "completed"  # не изменился
-        assert session.tool_calls[id3].status == "cancelled"
+        assert domain.tool_calls.get(id1).status == ToolCallStatus.CANCELLED
+        assert domain.tool_calls.get(id2).status == ToolCallStatus.COMPLETED  # не изменился
+        assert domain.tool_calls.get(id3).status == ToolCallStatus.CANCELLED
 
     def test_cancel_ignores_completed_tools(
         self, handler: ToolCallHandler, session: SessionState
@@ -229,15 +232,16 @@ class TestToolCallHandlerCancellation:
         handler.update_tool_call_status(session, id1, "in_progress")
         handler.update_tool_call_status(session, id1, "completed")
 
-        updates = handler.cancel_active_tools(session, "test_session")
+        domain = SessionMapper.to_domain(session)
+        updates = handler.cancel_active_tools(domain, "test_session")
 
         # Не должно быть notifications, так как tool call уже завершен
         assert len(updates) == 0
-        assert session.tool_calls[id1].status == "completed"
+        assert domain.tool_calls.get(id1).status == ToolCallStatus.COMPLETED
 
     def test_cancel_empty_session(self, handler: ToolCallHandler, session: SessionState) -> None:
         """Проверяет отмену в пустой сессии (без tool calls)."""
-        updates = handler.cancel_active_tools(session, "test_session")
+        updates = handler.cancel_active_tools(SessionMapper.to_domain(session), "test_session")
 
         assert len(updates) == 0
 

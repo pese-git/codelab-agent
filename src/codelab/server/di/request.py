@@ -205,7 +205,7 @@ class RequestProvider(Provider):
         )
         registry.register(
             SessionCancelCommandHandler(
-                storage=storage,
+                repository=repository,
                 orchestrator_provider=_make_async_provider(prompt_orchestrator),
                 llm_adapter=llm_adapter,
             )
@@ -266,6 +266,7 @@ class RequestProvider(Provider):
     def get_acp_protocol(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         method_registry: MethodCommandRegistry,
         response_router: ResponseRouter,
         background_executor: BackgroundExecutor,
@@ -289,6 +290,7 @@ class RequestProvider(Provider):
 
         return ACPProtocol(
             storage=storage,
+            repository=repository,
             method_registry=method_registry,
             response_router=response_router,
             background_executor=background_executor,

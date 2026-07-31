@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.llm.base import LLMToolCall
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline import (
@@ -191,6 +193,14 @@ def session() -> SessionState:
 
 
 @pytest.fixture
+def domain_session(session: SessionState) -> DomainSession:
+    """Доменный агрегат той же сессии — рабочая модель транзакции `session/cancel`."""
+    from codelab.server.mapping.session_mapper import SessionMapper
+
+    return SessionMapper.to_domain(session)
+
+
+@pytest.fixture
 def sessions(session: SessionState) -> dict[str, SessionState]:
     """Создает словарь сессий."""
     return {"sess_1": session}
@@ -333,18 +343,15 @@ class TestPromptOrchestratorHandlePrompt:
 
 
 class TestPromptOrchestratorHandleCancel:
-    """Тесты handle_cancel метода."""
+    """Тесты handle_cancel метода (доменный агрегат, фаза D ADR-006)."""
 
     def test_handle_cancel_with_active_turn(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        domain_session: DomainSession,
     ) -> None:
         """Обрабатывает cancel при активном turn."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
+        domain_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -352,29 +359,25 @@ class TestPromptOrchestratorHandleCancel:
         outcome = orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            session,
-            sessions,
+            domain_session,
         )
 
         # Должны быть notifications об отмене
         assert outcome.notifications is not None
         # Turn должен быть очищен
-        assert session.active_turn is None
+        assert domain_session.active_turn is None
 
     def test_handle_cancel_writes_permission_tombstone(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        domain_session: DomainSession,
     ) -> None:
-        """Отмена во время ожидания permission помечает request отменённым (P2-35).
+        """Отмена во время ожидания permission помечает request отменённым.
 
         Tombstone нужен, чтобы поздний ответ на диалог поглощался тихо, а не
         возвращал -32603.
         """
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
+        domain_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             permission_request_id="perm_1",
@@ -384,26 +387,23 @@ class TestPromptOrchestratorHandleCancel:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            session,
-            sessions,
+            domain_session,
         )
 
-        assert session.is_permission_cancelled("perm_1")
+        assert domain_session.is_permission_cancelled("perm_1")
 
     def test_handle_cancel_without_active_turn(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        domain_session: DomainSession,
     ) -> None:
         """Не падает при cancel без активного turn."""
-        session.active_turn = None
+        domain_session.active_turn = None
 
         outcome = orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            session,
-            sessions,
+            domain_session,
         )
 
         # Должно вернуть пустой результат
@@ -412,13 +412,10 @@ class TestPromptOrchestratorHandleCancel:
     def test_handle_cancel_marks_cancel_requested(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        domain_session: DomainSession,
     ) -> None:
-        """Устанавливает флаг cancel_requested."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
+        """Устанавливает флаг cancel_requested и отвечает на отложенный prompt."""
+        domain_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -426,12 +423,16 @@ class TestPromptOrchestratorHandleCancel:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            session,
-            sessions,
+            domain_session,
         )
 
         # После очистки active_turn сразу, проверяем что он был очищен
-        assert session.active_turn is None
+        assert domain_session.active_turn is None
+        # Ответ на исходный `session/prompt` отложен в состояние сессии
+        assert domain_session.runtime.pending_prompt_response == {
+            "request_id": "req_1",
+            "stop_reason": "cancelled",
+        }
 
 
 class TestPromptOrchestratorComponentIntegration:
@@ -471,13 +472,10 @@ class TestPromptOrchestratorComponentIntegration:
     def test_turn_lifecycle_integration(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        domain_session: DomainSession,
     ) -> None:
-        """TurnLifecycleManager интегрирован в cancel handling."""
-        from codelab.server.protocol.state import ActiveTurnState
-
-        session.active_turn = ActiveTurnState(
+        """Отмена снимает active turn (жизненный цикл — операции агрегата)."""
+        domain_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -485,12 +483,10 @@ class TestPromptOrchestratorComponentIntegration:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            session,
-            sessions,
+            domain_session,
         )
 
-        # Проверяем что TurnLifecycleManager очистил turn
-        assert session.active_turn is None
+        assert domain_session.active_turn is None
 
 
 class TestPromptOrchestratorToolCallFlow:

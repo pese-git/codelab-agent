@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import NewType
 
@@ -39,6 +40,29 @@ class ToolCallStatus(enum.StrEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+# Матрица допустимых переходов статуса tool call — единственный источник (фаза D
+# ADR-006). Прежде она существовала в трёх копиях (`ToolCallHandler`,
+# `prompt.tool_call_state`, неявно в `ToolCall.is_terminal`), причём одна из них
+# не логировала отказ — и молчаливый пропуск однажды рассинхронизировал состояние
+# с wire-историей. `ToolCallStatus` — `StrEnum`, поэтому таблица одинаково
+# отвечает на доменный член и на wire-строку.
+ALLOWED_TOOL_CALL_TRANSITIONS: Mapping[ToolCallStatus, frozenset[ToolCallStatus]] = {
+    ToolCallStatus.PENDING: frozenset(
+        {ToolCallStatus.IN_PROGRESS, ToolCallStatus.CANCELLED, ToolCallStatus.FAILED}
+    ),
+    ToolCallStatus.IN_PROGRESS: frozenset(
+        {ToolCallStatus.COMPLETED, ToolCallStatus.CANCELLED, ToolCallStatus.FAILED}
+    ),
+    ToolCallStatus.COMPLETED: frozenset(),
+    ToolCallStatus.CANCELLED: frozenset(),
+    ToolCallStatus.FAILED: frozenset(),
+}
+
+TERMINAL_TOOL_CALL_STATUSES: frozenset[ToolCallStatus] = frozenset(
+    status for status, next_states in ALLOWED_TOOL_CALL_TRANSITIONS.items() if not next_states
+)
 
 
 class MessageRole(enum.StrEnum):

@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
+from ....domain.value_objects import ALLOWED_TOOL_CALL_TRANSITIONS
 from ...state import SessionState, ToolCallState
+
+logger = structlog.get_logger()
 
 
 def create_tool_call(session: SessionState, *, title: str, kind: str) -> str:
@@ -50,16 +55,16 @@ def update_tool_call_status(
     if state is None:
         return
 
-    # Явная матрица переходов защищает от нелегальных смен статуса.
-    allowed_transitions: dict[str, set[str]] = {
-        "pending": {"in_progress", "cancelled", "failed"},
-        "in_progress": {"completed", "cancelled", "failed"},
-        "completed": set(),
-        "cancelled": set(),
-        "failed": set(),
-    }
-    next_states = allowed_transitions.get(state.status, set())
+    # Матрица переходов — доменная (`StrEnum` отвечает и на wire-строку); прежде
+    # тут была её третья копия, к тому же без лога отказа.
+    next_states = ALLOWED_TOOL_CALL_TRANSITIONS.get(state.status, frozenset())
     if status not in next_states and status != state.status:
+        logger.warning(
+            "tool_call_status_transition_rejected",
+            tool_call_id=tool_call_id,
+            current_status=state.status,
+            requested_status=status,
+        )
         return
 
     state.status = status

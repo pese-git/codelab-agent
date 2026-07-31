@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import structlog
 from _protocol_factory import build_protocol
 
 from codelab.server.mcp import MCPManager
@@ -397,7 +398,7 @@ class TestCancelActiveTurnsOnDisconnect:
     """Тесты для ACPProtocol.cancel_active_turns_on_disconnect (фасад)."""
 
     async def test_continues_on_save_exception(self) -> None:
-        """Ошибка save_session не прерывает цикл отмены."""
+        """Ошибка сохранения не прерывает цикл отмены, но и не молчит."""
         storage = InMemoryStorage()
         session_ok = SessionFactory.create_session(cwd="/tmp")
         session_ok.active_turn = ActiveTurnState(
@@ -427,10 +428,16 @@ class TestCancelActiveTurnsOnDisconnect:
             prompt_orchestrator=orchestrator,
         )
 
-        count = await protocol.cancel_active_turns_on_disconnect()
+        with structlog.testing.capture_logs() as logs:
+            count = await protocol.cancel_active_turns_on_disconnect()
 
-        assert count == 2
+        # Отменена и учтена только сессия, чья отмена доехала до диска: считать
+        # несохранённую отмену успешной значило бы врать — при следующей загрузке
+        # её turn выглядит активным.
+        assert count == 1
         orchestrator.handle_cancel.assert_called()
+        failures = [entry for entry in logs if entry["event"] == "disconnect_cancel_failed"]
+        assert [entry["session_id"] for entry in failures] == [session_bad.session_id]
 
     async def test_returns_cancelled_count(self) -> None:
         """Возвращает количество отменённых сессий."""
@@ -549,7 +556,7 @@ def _make_cancel_handler(
         return orchestrator
 
     return SessionCancelCommandHandler(
-        storage=storage,
+        repository=SessionRepository(backend=storage),
         orchestrator_provider=orchestrator_provider,
         llm_adapter=llm_adapter,
     )

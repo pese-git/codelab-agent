@@ -18,12 +18,23 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+import structlog
+
 from codelab.shared.capabilities import ClientCapabilities
 
 from .conversation import ConversationMessage, MessageContent
 from .plan import PlanEntry
-from .tool_call import ToolCall
-from .value_objects import FileLocation, MessageRole, PlanStatus, SessionId
+from .tool_call import ToolCall, ToolResult
+from .value_objects import (
+    ALLOWED_TOOL_CALL_TRANSITIONS,
+    FileLocation,
+    MessageRole,
+    PlanStatus,
+    SessionId,
+    ToolCallStatus,
+)
+
+logger = structlog.get_logger()
 
 
 @dataclass(frozen=True)
@@ -116,6 +127,49 @@ class ToolCallRegistry:
             if not hasattr(tool_call, name):
                 raise AttributeError(f"ToolCall has no field {name!r}")
             setattr(tool_call, name, value)
+
+    def update_status(
+        self,
+        tool_call_id: str,
+        status: ToolCallStatus,
+        *,
+        content: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Сменить статус tool call по матрице переходов.
+
+        Парный сейм к wire-`ToolCallHandler.update_tool_call_status`; матрица одна
+        (`ALLOWED_TOOL_CALL_TRANSITIONS`). Отказ логируется, а не пропускается
+        молча: молчание однажды уже дало расхождение состояния с wire-историей.
+
+        Returns:
+            True, если статус изменён (или уже равен запрошенному).
+        """
+        tool_call = self.calls.get(tool_call_id)
+        if tool_call is None:
+            return False
+
+        allowed = ALLOWED_TOOL_CALL_TRANSITIONS.get(tool_call.status, frozenset())
+        if status not in allowed and status != tool_call.status:
+            logger.warning(
+                "tool_call_status_transition_rejected",
+                tool_call_id=tool_call_id,
+                current_status=tool_call.status.value,
+                requested_status=ToolCallStatus(status).value,
+            )
+            return False
+
+        tool_call.status = status
+        if content is not None:
+            # Контент результата живёт в `ToolResult`, поэтому его нельзя записать,
+            # не сохранив остальные поля результата.
+            previous = tool_call.result
+            tool_call.result = ToolResult(
+                locations=previous.locations if previous else list(tool_call.locations),
+                raw_output=previous.raw_output if previous else dict(tool_call.raw_output),
+                content=[dict(item) for item in content],
+                result_content=previous.result_content if previous else [],
+            )
+        return True
 
     def get_all(self) -> list[ToolCall]:
         """Получить все tool calls."""
@@ -398,6 +452,59 @@ class Session:
     def is_client_rpc_cancelled(self, request_id: str | int) -> bool:
         """Отмечен ли agent->client RPC отменённым."""
         return request_id in self.runtime.cancelled_client_rpc_requests
+
+    # Жизненный цикл turn'а. Парные сеймы к `TurnLifecycleManager` (wire): дом
+    # этих операций — агрегат, потому что они меняют только состояние turn'а.
+    def mark_turn_cancel_requested(self) -> bool:
+        """Отметить активный turn как запрошенный к отмене.
+
+        Returns:
+            False, если активного turn'а нет (отмечать нечего).
+        """
+        if self.active_turn is None:
+            return False
+        self.active_turn.cancel_requested = True
+        return True
+
+    def clear_active_turn(self) -> None:
+        """Снять активный turn (идемпотентно)."""
+        self.active_turn = None
+
+    def answer_deferred_batch(self, *, reason: str) -> int:
+        """Ответить модели на вызовы, отложенные в `active_turn.pending_batch`.
+
+        Парный сейм к `prompt.turn_state.answer_deferred_batch`. Хвост батча ждёт
+        возобновления после permission (P2-40); если turn обрывается, эти вызовы
+        не выполнятся никогда, а их id уже лежат в assistant-сообщении истории.
+        Без ответа они остаются без `role: tool`, и модель повторяет их (P2-38).
+
+        Returns:
+            Число отвеченных вызовов.
+        """
+        active_turn = self.active_turn
+        if active_turn is None or not active_turn.pending_batch:
+            return 0
+
+        answered = 0
+        for call in active_turn.pending_batch:
+            tool_call_id = call.get("id")
+            if not tool_call_id:
+                continue
+            self.add_tool_result(
+                tool_call_id,
+                f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
+            )
+            answered += 1
+
+        active_turn.pending_batch = []
+        if answered:
+            logger.info(
+                "deferred_tool_calls_answered_on_turn_end",
+                session_id=str(self.id),
+                count=answered,
+                reason=reason,
+            )
+        return answered
 
     def set_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
         """Заменить набор доступных slash-команд (available_commands — opaque wire-DTO)."""

@@ -216,3 +216,45 @@ class TestSaveSessionInfoUpdate:
         update = session.events_history[0]["update"]
         assert update["title"] is None
         assert update["updatedAt"] is None
+
+
+class TestDomainJournalCarrier:
+    """Журнал доступен и на доменном агрегате (транзакция `session/cancel`).
+
+    Элементы `events_history` — опаковые ACP-нотификации, поэтому форма записи
+    обязана совпадать байт-в-байт независимо от носителя. Развилка носителя
+    временна и снимается вместе с последним wire-писателем (фаза D ADR-006).
+    """
+
+    def test_domain_and_wire_records_are_equivalent(
+        self,
+        history_writer: EventHistoryWriter,
+        session: SessionState,
+    ) -> None:
+        from codelab.server.mapping.session_mapper import SessionMapper
+
+        domain = SessionMapper.to_domain(session)
+
+        history_writer.save_tool_call_update(session, tool_call_id="call_001", status="cancelled")
+        history_writer.save_tool_call_update(domain, tool_call_id="call_001", status="cancelled")
+
+        wire_entry = session.events_history[0]
+        domain_entry = domain.runtime.events_history[0]
+        assert domain_entry["update"] == wire_entry["update"]
+        assert domain_entry["type"] == wire_entry["type"]
+
+    def test_content_is_carried(
+        self,
+        history_writer: EventHistoryWriter,
+        session: SessionState,
+    ) -> None:
+        from codelab.server.mapping.session_mapper import SessionMapper
+
+        domain = SessionMapper.to_domain(session)
+        content = [{"type": "content", "content": {"type": "text", "text": "готово"}}]
+
+        history_writer.save_tool_call_update(
+            domain, tool_call_id="call_001", status="completed", content=content
+        )
+
+        assert domain.runtime.events_history[0]["update"]["content"] == content

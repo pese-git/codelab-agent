@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import (
     ClientRuntimeCapabilities,
@@ -698,11 +700,12 @@ class TestToolCallLifecycleIntegration:
         # Начало выполнения
         handler.update_tool_call_status(session, tool_call_id, "in_progress")
 
-        # Отмена
-        updates = handler.cancel_active_tools(session, "sess_1")
+        # Отмена работает доменным агрегатом (фаза D ADR-006)
+        domain = SessionMapper.to_domain(session)
+        updates = handler.cancel_active_tools(domain, "sess_1")
 
         assert len(updates) == 1
-        assert session.tool_calls[tool_call_id].status == "cancelled"
+        assert domain.tool_calls.get(tool_call_id).status == ToolCallStatus.CANCELLED
         assert updates[0].params["update"]["status"] == "cancelled"
 
     def test_multiple_tool_calls_parallel_lifecycle(
@@ -727,12 +730,13 @@ class TestToolCallLifecycleIntegration:
         assert session.tool_calls[id3].status == "pending"
 
         # Отмена только активных
-        updates = handler.cancel_active_tools(session, "sess_1")
+        domain = SessionMapper.to_domain(session)
+        updates = handler.cancel_active_tools(domain, "sess_1")
 
         assert len(updates) == 2  # id2 и id3
-        assert session.tool_calls[id2].status == "cancelled"
-        assert session.tool_calls[id3].status == "cancelled"
-        assert session.tool_calls[id1].status == "completed"  # не изменился
+        assert domain.tool_calls.get(id2).status == ToolCallStatus.CANCELLED
+        assert domain.tool_calls.get(id3).status == ToolCallStatus.CANCELLED
+        assert domain.tool_calls.get(id1).status == ToolCallStatus.COMPLETED  # не изменился
 
     def test_tool_call_with_tool_arguments(
         self, handler: ToolCallHandler, session: SessionState

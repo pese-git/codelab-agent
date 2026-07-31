@@ -1,6 +1,7 @@
 """Unit тесты для Session агрегата и value objects."""
 
 import pytest
+import structlog
 
 from codelab.client.domain.entities import ClientCapabilities
 from codelab.server.domain.conversation import ConversationMessage, MessageContent
@@ -13,8 +14,12 @@ from codelab.server.domain.session import (
     Session,
     SessionConfig,
     ToolCallRegistry,
+    TurnState,
 )
+from codelab.server.domain.tool_call import ToolResult
 from codelab.server.domain.value_objects import (
+    ALLOWED_TOOL_CALL_TRANSITIONS,
+    TERMINAL_TOOL_CALL_STATUSES,
     FileLocation,
     MessageRole,
     PlanPriority,
@@ -180,6 +185,136 @@ class TestToolCallRegistry:
         registry = ToolCallRegistry()
         registry.update("call_404", status=ToolCallStatus.COMPLETED)
         assert registry.get_all() == []
+
+
+class TestToolCallStatusTransitions:
+    """Матрица переходов — доменная и единственная (фаза D ADR-006)."""
+
+    def test_pending_to_in_progress_allowed(self) -> None:
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+
+        assert registry.update_status(tc.id, ToolCallStatus.IN_PROGRESS) is True
+        assert tc.status is ToolCallStatus.IN_PROGRESS
+
+    def test_pending_to_completed_rejected_and_logged(self) -> None:
+        """Отказ громкий: молчаливый пропуск однажды разошёлся с wire-историей."""
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+
+        with structlog.testing.capture_logs() as logs:
+            changed = registry.update_status(tc.id, ToolCallStatus.COMPLETED)
+
+        assert changed is False
+        assert tc.status is ToolCallStatus.PENDING
+        rejections = [e for e in logs if e["event"] == "tool_call_status_transition_rejected"]
+        assert len(rejections) == 1
+        assert rejections[0]["current_status"] == "pending"
+        assert rejections[0]["requested_status"] == "completed"
+
+    def test_terminal_status_is_not_reopened(self) -> None:
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+        registry.update_status(tc.id, ToolCallStatus.CANCELLED)
+
+        assert registry.update_status(tc.id, ToolCallStatus.IN_PROGRESS) is False
+        assert tc.status is ToolCallStatus.CANCELLED
+
+    def test_same_status_is_idempotent(self) -> None:
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {})
+
+        assert registry.update_status(tc.id, ToolCallStatus.PENDING) is True
+
+    def test_unknown_tool_call_is_not_an_error(self) -> None:
+        assert ToolCallRegistry().update_status("call_404", ToolCallStatus.CANCELLED) is False
+
+    def test_content_does_not_drop_existing_result_fields(self) -> None:
+        """Контент результата живёт в `ToolResult` — остальные его поля обязаны выжить."""
+        registry = ToolCallRegistry()
+        tc = registry.create("read_file", {}, locations=[FileLocation(path="/tmp/a.py")])
+        tc.result = ToolResult(
+            locations=[FileLocation(path="/tmp/a.py")],
+            raw_output={"ok": True},
+            result_content=[{"type": "text", "text": "исходный"}],
+        )
+        registry.update_status(tc.id, ToolCallStatus.IN_PROGRESS)
+
+        registry.update_status(
+            tc.id,
+            ToolCallStatus.COMPLETED,
+            content=[{"type": "text", "text": "готово"}],
+        )
+
+        assert tc.result is not None
+        assert tc.result.content == [{"type": "text", "text": "готово"}]
+        assert tc.result.raw_output == {"ok": True}
+        assert tc.result.result_content == [{"type": "text", "text": "исходный"}]
+        assert [loc.path for loc in tc.result.locations] == ["/tmp/a.py"]
+
+    def test_is_terminal_follows_matrix(self) -> None:
+        """`is_terminal` производен от матрицы, а не второй список."""
+        assert {
+            status for status, nxt in ALLOWED_TOOL_CALL_TRANSITIONS.items() if not nxt
+        } == TERMINAL_TOOL_CALL_STATUSES
+
+
+class TestSessionTurnLifecycleSeams:
+    """Операции отмены turn'а на агрегате (транзакция `session/cancel`)."""
+
+    def _session_in_turn(self) -> Session:
+        session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
+        session.active_turn = TurnState(session_id="sess_1", prompt_request_id="req_1")
+        return session
+
+    def test_mark_cancel_requested(self) -> None:
+        session = self._session_in_turn()
+
+        assert session.mark_turn_cancel_requested() is True
+        assert session.active_turn is not None
+        assert session.active_turn.cancel_requested is True
+
+    def test_mark_cancel_requested_without_turn(self) -> None:
+        session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
+
+        assert session.mark_turn_cancel_requested() is False
+
+    def test_clear_active_turn_is_idempotent(self) -> None:
+        session = self._session_in_turn()
+
+        session.clear_active_turn()
+        session.clear_active_turn()
+
+        assert session.active_turn is None
+
+    def test_answer_deferred_batch_answers_each_call(self) -> None:
+        """Каждый отложенный вызов получает `role: tool` (P2-40/P2-38)."""
+        session = self._session_in_turn()
+        assert session.active_turn is not None
+        session.active_turn.pending_batch = [
+            {"id": "llm_1", "name": "fs_read_text_file", "arguments": {}},
+            {"id": "llm_2", "name": "terminal_create", "arguments": {}},
+        ]
+
+        answered = session.answer_deferred_batch(reason="turn отменён пользователем")
+
+        assert answered == 2
+        assert session.active_turn.pending_batch == []
+        tool_messages = [m for m in session.history.get_messages() if m.role == MessageRole.TOOL]
+        assert [m.tool_call_id for m in tool_messages] == ["llm_1", "llm_2"]
+        assert "отменён" in tool_messages[0].content.text
+
+    def test_answer_deferred_batch_skips_calls_without_id(self) -> None:
+        session = self._session_in_turn()
+        assert session.active_turn is not None
+        session.active_turn.pending_batch = [{"name": "fs_read_text_file"}]
+
+        assert session.answer_deferred_batch(reason="отмена") == 0
+
+    def test_answer_deferred_batch_without_turn(self) -> None:
+        session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
+
+        assert session.answer_deferred_batch(reason="отмена") == 0
 
 
 class TestPermissionState:

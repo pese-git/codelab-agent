@@ -11,7 +11,7 @@ from typing import Any
 import structlog
 
 from ...messages import ACPMessage
-from ...storage import SessionStorage
+from ...storage import SessionRepository
 from ..handlers.prompt_orchestrator import PromptOrchestrator
 from ..state import ProtocolOutcome
 
@@ -26,6 +26,9 @@ class SessionCancelCommandHandler:
     - Прерывание LLM-запроса
     - Отправку followup responses для deferred turns
 
+    Транзакция работает доменным агрегатом через `SessionRepository.transaction`
+    (фаза D ADR-006, инвариант владения ADR-007).
+
     Attributes:
         method_name: Имя обрабатываемого метода.
     """
@@ -34,18 +37,18 @@ class SessionCancelCommandHandler:
 
     def __init__(
         self,
-        storage: SessionStorage,
+        repository: SessionRepository,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
         llm_adapter: Any | None = None,
     ) -> None:
         """Инициализирует обработчик.
 
         Args:
-            storage: Хранилище сессий.
+            repository: Доменный порт хранилища сессий.
             orchestrator_provider: Функция для получения PromptOrchestrator.
             llm_adapter: Адаптер LLM для cancellation.
         """
-        self._storage = storage
+        self._repository = repository
         self._orchestrator_provider = orchestrator_provider
         self._llm_adapter = llm_adapter
 
@@ -64,56 +67,64 @@ class SessionCancelCommandHandler:
         session_id = params.get("sessionId")
         logger.info("session_cancel_received", session_id=session_id, request_id=message.id)
 
+        # Валидация до области транзакции: область записывает при успешном выходе,
+        # а запись штампует `updated_at` — отклонённый запрос не должен менять
+        # «последнюю активность» (правило ADR-007).
         if not isinstance(session_id, str):
             logger.warning("session_cancel_missing_session_id", params=params)
             return ProtocolOutcome(response=None, notifications=[])
 
-        session = await self._storage.load_session(session_id)
-        if session is None:
-            return ProtocolOutcome(
-                response=ACPMessage.response(message.id, None),
-                notifications=[],
-            )
+        notifications: list[ACPMessage] = []
+        followup: list[ACPMessage] = []
+        cancel_response: ACPMessage | None = None
 
-        outcome = orchestrator.handle_cancel(
-            request_id=message.id,
-            params=params,
-            session=session,
-        )
-        logger.info(
-            "session_cancel_handled",
-            session_id=session_id,
-            notifications_count=len(outcome.notifications),
-            followup_count=len(outcome.followup_responses),
-        )
-
-        # Прерываем активный LLM-запрос
-        if self._llm_adapter is not None:
-            await self._llm_adapter.cancel_prompt(session_id)
-            logger.info("agent_llm_task_cancelled", session_id=session_id)
-
-        await self._storage.save_session(session)
-
-        # Обрабатываем deferred turn
-        followup: list[ACPMessage] = list(outcome.followup_responses)
-        pending = session.pending_prompt_response
-        if pending is not None:
-            followup.append(
-                ACPMessage.response(
-                    pending["request_id"],
-                    {"stopReason": pending["stop_reason"]},
+        async with self._repository.transaction(session_id) as session:
+            if session is None:
+                logger.warning("session_cancel_session_not_found", session_id=session_id)
+                return ProtocolOutcome(
+                    response=ACPMessage.response(message.id, None),
+                    notifications=[],
                 )
-            )
-            session.pending_prompt_response = None
-            await self._storage.save_session(session)
 
-        # Для notification (id=None) не отправляем response
-        cancel_response = outcome.response or (
-            ACPMessage.response(message.id, None) if message.id is not None else None
-        )
+            outcome = orchestrator.handle_cancel(
+                request_id=message.id,
+                params=params,
+                session=session,
+            )
+            notifications = list(outcome.notifications)
+            logger.info(
+                "session_cancel_handled",
+                session_id=session_id,
+                notifications_count=len(notifications),
+                followup_count=len(outcome.followup_responses),
+                active_turn_cleared=session.active_turn is None,
+            )
+
+            # Прерываем активный LLM-запрос
+            if self._llm_adapter is not None:
+                await self._llm_adapter.cancel_prompt(session_id)
+                logger.info("agent_llm_task_cancelled", session_id=session_id)
+
+            # Отложенный turn: раньше его снятие было ВТОРОЙ записью подряд по той
+            # же сессии; в области транзакции хватает одного коммита на выходе.
+            followup = list(outcome.followup_responses)
+            pending = session.runtime.pending_prompt_response
+            if pending is not None:
+                followup.append(
+                    ACPMessage.response(
+                        pending["request_id"],
+                        {"stopReason": pending["stop_reason"]},
+                    )
+                )
+                session.runtime.pending_prompt_response = None
+
+            # Для notification (id=None) не отправляем response
+            cancel_response = outcome.response or (
+                ACPMessage.response(message.id, None) if message.id is not None else None
+            )
 
         return ProtocolOutcome(
             response=cancel_response,
-            notifications=outcome.notifications,
+            notifications=notifications,
             followup_responses=followup,
         )

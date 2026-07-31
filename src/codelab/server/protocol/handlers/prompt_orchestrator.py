@@ -25,7 +25,6 @@ from .pipeline import (
     PromptPipeline,
 )
 from .plan_builder import PlanBuilder
-from .prompt.turn_state import answer_deferred_batch
 from .slash_commands import CommandRegistry
 from .state_manager import StateManager
 from .tool_call_handler import ToolCallHandler
@@ -287,8 +286,7 @@ class PromptOrchestrator:
         self,
         request_id: JsonRpcId | None,
         params: dict[str, Any],
-        session: SessionState,
-        sessions: dict[str, SessionState] | None = None,
+        session: DomainSession,
     ) -> ProtocolOutcome:
         """Обрабатывает session/cancel request.
 
@@ -300,16 +298,18 @@ class PromptOrchestrator:
         5. Отметить cancelled client RPC requests
         6. Завершить turn с stop_reason='cancel'
 
+        Транзакция работает доменным агрегатом (фаза D ADR-006): состояние меняют
+        доменные сеймы, wire остаётся только в построении нотификаций.
+
         Args:
             request_id: ID cancel request
             params: Параметры (sessionId)
-            session: Состояние сессии (может быть найдена по sessionId)
-            sessions: Deprecated, не используется
+            session: Доменный агрегат сессии (будет обновлён)
 
         Returns:
             ProtocolOutcome с notifications об отмене
         """
-        session_id = params.get("sessionId", session.session_id)
+        session_id = params.get("sessionId", str(session.id))
         notifications: list[ACPMessage] = []
 
         if session.active_turn is None:
@@ -317,11 +317,11 @@ class PromptOrchestrator:
             return ProtocolOutcome(response=None, notifications=[])
 
         # Сигнал отмены — в процессном реестре, а не в состоянии сессии: у каждого
-        # запроса своя копия `SessionState` с диска, поэтому запись в неё идущий
-        # turn не увидит (P0-39).
+        # запроса своя копия сессии с диска, поэтому запись в неё идущий turn не
+        # увидит (P0-39, правило «сигнал против состояния» ADR-007).
         if self.turn_cancellation is not None:
             self.turn_cancellation.cancel(session_id)
-        self.turn_lifecycle_manager.mark_cancel_requested(session)
+        session.mark_turn_cancel_requested()
 
         cancel_messages = self.tool_call_handler.cancel_active_tools(session, session_id)
         notifications.extend(cancel_messages)
@@ -334,9 +334,9 @@ class PromptOrchestrator:
         if session.active_turn.permission_request_id is not None:
             session.cancel_permission_request(session.active_turn.permission_request_id)
 
-        if session.active_turn.pending_client_request is not None:
+        if session.active_turn.pending_external_request is not None:
             session.cancel_client_rpc_request(
-                session.active_turn.pending_client_request.request_id
+                session.active_turn.pending_external_request.request_id
             )
 
         if self.client_rpc_service is not None:
@@ -352,18 +352,17 @@ class PromptOrchestrator:
 
         # Отложенный хвост батча (P2-40) не выполнится — отвечаем модели, иначе
         # вызовы останутся без `role: tool` (найдено на `sess_a98dab30f7c3`).
-        answer_deferred_batch(session, session_id, reason="turn отменён пользователем")
+        session.answer_deferred_batch(reason="turn отменён пользователем")
 
-        self.turn_lifecycle_manager.finalize_turn(session, "cancelled")
-
-        # Сохраняем prompt response до очистки active_turn
-        if session.active_turn is not None and session.active_turn.prompt_request_id is not None:
-            session.pending_prompt_response = {
+        # Сохраняем prompt response до очистки active_turn. `stop_reason` —
+        # ACP-значение `cancelled`, нормализация не нужна (литерал уже валиден).
+        if session.active_turn.prompt_request_id is not None:
+            session.runtime.pending_prompt_response = {
                 "request_id": session.active_turn.prompt_request_id,
                 "stop_reason": "cancelled",
             }
 
-        self.turn_lifecycle_manager.clear_active_turn(session)
+        session.clear_active_turn()
 
         logger.debug(
             "cancel request handled", session_id=session_id, notifications_count=len(notifications)
@@ -395,7 +394,7 @@ class PromptOrchestrator:
 # ── module-level helpers ──────────────────────────────────────────────────────
 
 
-def _save_tool_updates_to_history(session: SessionState, messages: list[ACPMessage]) -> None:
+def _save_tool_updates_to_history(session: DomainSession, messages: list[ACPMessage]) -> None:
     """Сохранить отправленные tool_call_update в историю реплея.
 
     Форму события истории владеет `EventHistoryWriter`; создаётся здесь, так как

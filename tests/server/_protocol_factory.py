@@ -328,43 +328,25 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             return outcome
 
     class _SessionCancelWrapper:
+        """Делегирует прод-обработчику: транзакция отмены живёт в нём.
+
+        Раньше обёртка воспроизводила тело обработчика (load → handle_cancel →
+        два save) и переставала зависеть от кода, который проверяет. С переездом
+        транзакции на доменный агрегат (фаза D ADR-006) копия ещё и разошлась бы
+        по типу рабочей модели.
+        """
+
         method_name = "session/cancel"
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-            params = message.params or {}
-            orchestrator = await st.get_prompt_orchestrator()
-            session_id = params.get("sessionId")
-            if not isinstance(session_id, str):
-                return ProtocolOutcome(response=None, notifications=[])
-            sess = await st._storage.load_session(session_id)
-            if sess is None:
-                return ProtocolOutcome(
-                    response=ACPMessage.response(message.id, None), notifications=[]
-                )
-            outcome = orchestrator.handle_cancel(request_id=message.id, params=params, session=sess)
-            if st._llm_adapter is not None:
-                await st._llm_adapter.cancel_prompt(session_id)
-            await st._storage.save_session(sess)
+            from codelab.server.protocol.commands import SessionCancelCommandHandler
 
-            followup: list[ACPMessage] = list(outcome.followup_responses)
-            pending = sess.pending_prompt_response
-            if pending is not None:
-                followup.append(
-                    ACPMessage.response(
-                        pending["request_id"], {"stopReason": pending["stop_reason"]}
-                    )
-                )
-                sess.pending_prompt_response = None
-                await st._storage.save_session(sess)
-
-            cancel_response = outcome.response or (
-                ACPMessage.response(message.id, None) if message.id is not None else None
+            handler = SessionCancelCommandHandler(
+                repository=st._repository,
+                orchestrator_provider=st.get_prompt_orchestrator,
+                llm_adapter=st._llm_adapter,
             )
-            return ProtocolOutcome(
-                response=cancel_response,
-                notifications=outcome.notifications,
-                followup_responses=followup,
-            )
+            return await handler.handle(message)
 
     class _PermissionResponseWrapper:
         method_name = "session/request_permission_response"

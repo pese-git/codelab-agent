@@ -17,6 +17,10 @@ from typing import Any
 
 import pytest
 
+from codelab.server.domain.conversation import ConversationMessage
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.value_objects import MessageRole
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
@@ -45,42 +49,56 @@ def _answers(session: SessionState) -> list[dict[str, Any]]:
     return [m for m in session.history if isinstance(m, dict) and m.get("role") == "tool"]
 
 
+def _domain_session_with_pending_call(status: str = "pending") -> DomainSession:
+    """Тот же сценарий доменным агрегатом — через настоящий маппер.
+
+    `cancel_active_tools` переведён на агрегат вместе с транзакцией
+    `session/cancel` (фаза D ADR-006), поэтому проверять его на wire-DTO больше
+    нельзя.
+    """
+    return SessionMapper.to_domain(_session_with_pending_call(status))
+
+
+def _domain_answers(session: DomainSession) -> list[ConversationMessage]:
+    return [m for m in session.history.get_messages() if m.role == MessageRole.TOOL]
+
+
 class TestTurnCancelAnswersToolCalls:
     def test_cancel_active_tools_answers_with_llm_id(self) -> None:
         """Ответ адресуется id, который прислал LLM, иначе он не сматчится."""
-        session = _session_with_pending_call()
+        session = _domain_session_with_pending_call()
 
         notifications = ToolCallHandler().cancel_active_tools(session, "s")
 
         assert len(notifications) == 1
-        answers = _answers(session)
+        answers = _domain_answers(session)
         assert len(answers) == 1
-        assert answers[0]["tool_call_id"] == "chatcmpl-tool-abc"
-        assert "отменён" in answers[0]["content"]
+        assert answers[0].tool_call_id == "chatcmpl-tool-abc"
+        assert "отменён" in answers[0].content.text
 
     def test_cancel_active_tools_answers_in_progress_call(self) -> None:
-        session = _session_with_pending_call(status="in_progress")
+        session = _domain_session_with_pending_call(status="in_progress")
 
         ToolCallHandler().cancel_active_tools(session, "s")
 
-        assert len(_answers(session)) == 1
+        assert len(_domain_answers(session)) == 1
 
     def test_terminal_call_is_not_answered_twice(self) -> None:
         """Уже завершённый вызов не отменяется и второго ответа не получает."""
-        session = _session_with_pending_call(status="completed")
+        session = _domain_session_with_pending_call(status="completed")
 
         notifications = ToolCallHandler().cancel_active_tools(session, "s")
 
         assert notifications == []
-        assert _answers(session) == []
+        assert _domain_answers(session) == []
 
     def test_answer_falls_back_to_acp_id(self) -> None:
-        session = _session_with_pending_call()
-        session.tool_calls["call_001"].tool_call_id_from_llm = None
+        session = _domain_session_with_pending_call()
+        session.tool_calls.update("call_001", tool_call_id_from_llm=None)
 
         ToolCallHandler().cancel_active_tools(session, "s")
 
-        assert _answers(session)[0]["tool_call_id"] == "call_001"
+        assert _domain_answers(session)[0].tool_call_id == "call_001"
 
 
 class TestSessionSwitchAnswersToolCalls:
