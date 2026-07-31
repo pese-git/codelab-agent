@@ -98,3 +98,50 @@ class TestPolicyRejectionCarriesReason:
         entry = next(log for log in logs if log["event"] == "tool_call_rejected")
         assert entry["mode"] == "plan"
         assert "read-only" in entry["reason"]
+
+
+class TestPausedPermissionIsCorrelatableInLog:
+    """Пауза на разрешении логирует id запроса (наблюдаемость P2-46).
+
+    Без него лог не сшивается: `permission_response_applied` и
+    `session_loaded_with_orphaned_permission_request` называют запрос
+    идентификатором, а пауза называла только вызов — и различить «процесс умер на
+    реальной паузе» от «идентификатор не сняли» можно было лишь покадровым
+    снимком файла сессии.
+    """
+
+    def test_pause_logs_permission_request_id(self) -> None:
+        import structlog
+
+        from codelab.server.protocol.handlers.permission_manager import PermissionManager
+        from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
+            ToolCallProcessor,
+        )
+        from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+        from codelab.server.protocol.state import ActiveTurnState, SessionState
+
+        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        handler = ToolCallHandler()
+        tool_call_id = handler.create_tool_call(session, title="fs/read", kind="read")
+        processor = ToolCallProcessor(
+            tool_registry=MagicMock(),
+            tool_call_handler=handler,
+            permission_manager=PermissionManager(),
+            content_extractor=AsyncMock(),
+            content_validator=MagicMock(),
+            content_formatter=MagicMock(),
+            plan_builder=MagicMock(),
+            global_policy_manager=MagicMock(),
+            turn_cancellation=None,
+        )
+
+        with structlog.testing.capture_logs() as logs:
+            processor._pause_for_permission(
+                session, "s", tool_call_id, "fs/read_text_file", "read", MagicMock()
+            )
+
+        paused = [e for e in logs if e["event"] == "permission_request_sent_pausing_agent_loop"]
+        assert len(paused) == 1
+        assert paused[0]["permission_request_id"] == session.active_turn.permission_request_id
+        assert paused[0]["permission_request_id"] is not None

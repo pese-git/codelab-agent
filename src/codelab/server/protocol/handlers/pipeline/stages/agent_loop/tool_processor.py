@@ -463,6 +463,14 @@ class ToolCallProcessor:
             session_id=session_id,
             tool_call_id=tool_call_id,
             tool_name=acp_tool_name,
+            # Без id запроса лог не сшивается: `permission_response_applied` и
+            # `session_loaded_with_orphaned_permission_request` называют запрос
+            # идентификатором, а пауза — только вызовом. Из-за этого различить
+            # «процесс умер на реальной паузе» от «идентификатор не сняли»
+            # приходилось покадровым снимком файла сессии (P2-46).
+            permission_request_id=(
+                session.active_turn.permission_request_id if session.active_turn else None
+            ),
         )
 
     async def _reject_tool_call(
