@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import structlog
 
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
@@ -130,6 +131,29 @@ class TestCancelTransaction:
         # Ответ на отложенный `session/prompt` отдан клиенту и снят с состояния
         assert [m.id for m in outcome.followup_responses] == ["prompt_req"]
         assert stored.pending_prompt_response is None
+
+    async def test_log_reports_answered_deferred_prompt(self) -> None:
+        """Лог обязан показывать, ответили ли на отложенный `session/prompt`.
+
+        Счётчик считался до сбора followup, поэтому по логу это было не видно.
+        """
+        storage = InMemoryStorage()
+        session = _session_in_turn()
+        await storage.save_session(session)
+
+        with structlog.testing.capture_logs() as logs:
+            await _handler(storage, _orchestrator()).handle(
+                ACPMessage.request(
+                    "session/cancel",
+                    {"sessionId": session.session_id},
+                    request_id="cancel_1",
+                )
+            )
+
+        handled = [e for e in logs if e["event"] == "session_cancel_handled"]
+        assert len(handled) == 1
+        assert handled[0]["deferred_prompt_answered"] is True
+        assert handled[0]["followup_count"] == 1
 
     async def test_permission_tombstone_survives_write(self) -> None:
         """Tombstone нужен, чтобы поздний ответ поглощался тихо, а не -32603."""

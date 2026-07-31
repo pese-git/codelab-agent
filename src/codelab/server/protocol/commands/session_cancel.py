@@ -92,13 +92,6 @@ class SessionCancelCommandHandler:
                 session=session,
             )
             notifications = list(outcome.notifications)
-            logger.info(
-                "session_cancel_handled",
-                session_id=session_id,
-                notifications_count=len(notifications),
-                followup_count=len(outcome.followup_responses),
-                active_turn_cleared=session.active_turn is None,
-            )
 
             # Прерываем активный LLM-запрос
             if self._llm_adapter is not None:
@@ -121,6 +114,18 @@ class SessionCancelCommandHandler:
             # Для notification (id=None) не отправляем response
             cancel_response = outcome.response or (
                 ACPMessage.response(message.id, None) if message.id is not None else None
+            )
+
+            # Логируем ПОСЛЕ сбора followup: иначе по логу не видно, ответили ли
+            # клиенту на отложенный `session/prompt` — счётчик показывал состояние
+            # до того, как этот ответ добавлен.
+            logger.info(
+                "session_cancel_handled",
+                session_id=session_id,
+                notifications_count=len(notifications),
+                followup_count=len(followup),
+                deferred_prompt_answered=pending is not None,
+                active_turn_cleared=session.active_turn is None,
             )
 
         return ProtocolOutcome(
