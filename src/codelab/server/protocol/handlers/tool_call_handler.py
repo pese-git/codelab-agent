@@ -217,24 +217,17 @@ class ToolCallHandler:
         Returns:
             ACPMessage типа notification с sessionUpdate="tool_call_update"
         """
-        update_dict: dict[str, Any] = {
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": tool_call_id,
-            "status": status,
-        }
-        if content is not None:
-            update_dict["content"] = content
-        if locations is not None:
-            update_dict["locations"] = locations
-        if raw_output is not None:
-            update_dict["rawOutput"] = raw_output
+        # Форма события — в одном месте (`tool_call_status_notification`), иначе
+        # копии расходятся: этот же рендер зовут пути отмены и ответов client-RPC.
+        from .prompt.tool_call_updates import tool_call_status_notification
 
-        return ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": update_dict,
-            },
+        return tool_call_status_notification(
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            status=status,
+            content=content,
+            locations=locations,
+            raw_output=raw_output,
         )
 
     def cancel_active_tools(

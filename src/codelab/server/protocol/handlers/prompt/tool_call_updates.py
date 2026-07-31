@@ -26,12 +26,18 @@ def tool_call_status_notification(
     tool_call_id: str,
     status: str,
     content: list[dict[str, Any]] | None = None,
+    locations: list[dict[str, Any]] | None = None,
+    raw_output: dict[str, Any] | None = None,
 ) -> ACPMessage:
     """ACP-нотификация о смене статуса tool call — чистый wire, без состояния.
 
     Шов, по которому фаза D разрезает функции ниже: рендер остаётся здесь
     навсегда, а смену статуса делает владелец состояния (для переехавших
     транзакций — доменный `ToolCallRegistry.update_status`).
+
+    Единственное место, где собирается форма `tool_call_update`: остальные
+    строители (`ToolCallHandler.build_tool_update_notification`, обработчики
+    ответов client-RPC) делегируют сюда, иначе форма расходилась бы по копиям.
     """
     update: dict[str, Any] = {
         "sessionUpdate": "tool_call_update",
@@ -40,6 +46,10 @@ def tool_call_status_notification(
     }
     if content is not None:
         update["content"] = content
+    if locations is not None:
+        update["locations"] = locations
+    if raw_output is not None:
+        update["rawOutput"] = raw_output
     return ACPMessage.notification(
         "session/update",
         {"sessionId": session_id, "update": update},

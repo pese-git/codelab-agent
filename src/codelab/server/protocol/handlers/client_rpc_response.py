@@ -1,14 +1,15 @@
 """Обработка ответов на agent->client RPC (fs/*, terminal/*).
 
-Выделено из ``prompt.py`` (см. doc/internals/tech-debt.md, P0-2): диспетчеризация
-response по виду ожидаемого client-request (``PendingClientRequestState.kind``)
-реализована таблицей обработчиков — по одному на каждый вид fs/terminal-операции.
-Это разбивает исходную функцию с цикломатической сложностью 51 на набор
-самостоятельных обработчиков и тонкий диспетчер.
+Диспетчеризация response по виду ожидаемого client-request
+(`PendingExternalRequest.kind`) реализована таблицей обработчиков — по одному на
+каждый вид fs/terminal-операции. Это разбивает исходную функцию с цикломатической
+сложностью 51 на набор самостоятельных обработчиков и тонкий диспетчер
+(см. doc/internals/tech-debt.md, P0-2).
 
-Общие примитивы состояния (``update_tool_call_status``, ``finalize_active_turn``)
-живут в ``prompt.py`` и импортируются лениво, чтобы избежать цикла импортов —
-как это уже сделано для ``permissions`` внутри ``prompt.py``.
+Работает доменным агрегатом внутри транзакции репозитория (транзакция 7 фазы D,
+ADR-006): мутации — доменные сеймы, wire остаётся в построении ACP-сообщений.
+Форму `tool_call_update` собирает единственный рендер
+(`prompt.tool_call_updates.tool_call_status_notification`).
 """
 
 from __future__ import annotations
@@ -16,32 +17,48 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ...domain.session import PendingExternalRequest
+from ...domain.session import Session as DomainSession
+from ...domain.value_objects import ToolCallStatus
 from ...messages import ACPMessage, JsonRpcId
-from ...storage import SessionStorage
-from ..state import (
-    PendingClientRequestState,
-    ProtocolOutcome,
-    SessionState,
-)
+from ...storage import SessionRepository
+from ..state import ProtocolOutcome
+from .prompt.tool_call_updates import tool_call_status_notification
 from .session import session_info_notification
 
 
-async def find_session_by_pending_client_request_id(
+def _finalize_turn(session: DomainSession, *, stop_reason: str = "end_turn") -> ACPMessage | None:
+    """Снять active turn и построить ответ на исходный `session/prompt`.
+
+    Доменный аналог `prompt.turn_state.finalize_active_turn`: очистка turn'а —
+    операция агрегата, а сборка JSON-RPC ответа остаётся wire.
+    """
+    active_turn = session.active_turn
+    if active_turn is None or active_turn.prompt_request_id is None:
+        return None
+    prompt_request_id = active_turn.prompt_request_id
+    session.clear_active_turn()
+    return ACPMessage.response(prompt_request_id, {"stopReason": stop_reason})
+
+
+async def find_session_id_by_pending_client_request_id(
     request_id: JsonRpcId,
-    storage: SessionStorage,
-) -> SessionState | None:
-    """Ищет сессию по id ожидаемого agent->client запроса.
+    repository: SessionRepository,
+) -> str | None:
+    """Ищет id сессии, чей активный turn ждёт этот agent->client запрос.
+
+    Возвращает **id**, а не агрегат: мутировать копию с обхода нельзя — ответ
+    применяется к копии, которую берёт транзакция (см. `iter_sessions`).
 
     Пример использования:
-        session = await find_session_by_pending_client_request_id("req_1", storage)
+        session_id = await find_session_id_by_pending_client_request_id("req_1", repository)
     """
-    sessions, _ = await storage.list_sessions(limit=500)
-    for session in sessions:
+    async for session in repository.iter_sessions():
         active_turn = session.active_turn
-        if active_turn is None or active_turn.pending_client_request is None:
+        if active_turn is None or active_turn.pending_external_request is None:
             continue
-        if active_turn.pending_client_request.request_id == request_id:
-            return session
+        if active_turn.pending_external_request.request_id == request_id:
+            return str(session.id)
     return None
 
 
@@ -65,13 +82,11 @@ _HandlerResult = ProtocolOutcome | _ContinueToCompletion | None
 
 def _handle_fs_read(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
-    from .prompt import update_tool_call_status
-
     if not isinstance(result, dict) or not isinstance(result.get("content"), str):
         return finalize_failed_client_rpc_request(
             session=session,
@@ -89,20 +104,16 @@ def _handle_fs_read(
             },
         }
     ]
-    update_tool_call_status(session, pending.tool_call_id, "completed", content=content)
+    session.tool_calls.update_status(
+        pending.tool_call_id, ToolCallStatus.COMPLETED, content=content
+    )
     return _ContinueToCompletion(
         [
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": pending.tool_call_id,
-                        "status": "completed",
-                        "content": content,
-                    },
-                },
+            tool_call_status_notification(
+                session_id=session_id,
+                tool_call_id=pending.tool_call_id,
+                status=ToolCallStatus.COMPLETED.value,
+                content=content,
             )
         ]
     )
@@ -110,13 +121,11 @@ def _handle_fs_read(
 
 def _handle_fs_write(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
-    from .prompt import update_tool_call_status
-
     if not isinstance(result, dict):
         return finalize_failed_client_rpc_request(
             session=session,
@@ -139,20 +148,16 @@ def _handle_fs_write(
             "newText": new_text,
         }
     ]
-    update_tool_call_status(session, pending.tool_call_id, "completed", content=diff_content)
+    session.tool_calls.update_status(
+        pending.tool_call_id, ToolCallStatus.COMPLETED, content=diff_content
+    )
     return _ContinueToCompletion(
         [
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": pending.tool_call_id,
-                        "status": "completed",
-                        "content": diff_content,
-                    },
-                },
+            tool_call_status_notification(
+                session_id=session_id,
+                tool_call_id=pending.tool_call_id,
+                status=ToolCallStatus.COMPLETED.value,
+                content=diff_content,
             )
         ]
     )
@@ -160,13 +165,11 @@ def _handle_fs_write(
 
 def _handle_terminal_create(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
-    from .prompt import finalize_active_turn, update_tool_call_status
-
     if session.active_turn is None:
         return None
 
@@ -174,39 +177,27 @@ def _handle_terminal_create(
     if isinstance(result, dict) and isinstance(result.get("terminalId"), str):
         terminal_id = result["terminalId"]
     if terminal_id is None:
-        update_tool_call_status(session, pending.tool_call_id, "failed")
+        session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.FAILED)
         notifications: list[ACPMessage] = [
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": pending.tool_call_id,
-                        "status": "failed",
-                    },
-                },
+            tool_call_status_notification(
+                session_id=session_id,
+                tool_call_id=pending.tool_call_id,
+                status=ToolCallStatus.FAILED.value,
             )
         ]
-        done = finalize_active_turn(session=session, stop_reason="end_turn")
+        done = _finalize_turn(session)
         return ProtocolOutcome(
             notifications=notifications,
             followup_responses=[done] if done is not None else [],
         )
 
-    update_tool_call_status(session, pending.tool_call_id, "in_progress")
+    session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.IN_PROGRESS)
     notifications = [
-        ACPMessage.notification(
-            "session/update",
-            {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": pending.tool_call_id,
-                    "status": "in_progress",
-                    "content": [{"type": "terminal", "terminalId": terminal_id}],
-                },
-            },
+        tool_call_status_notification(
+            session_id=session_id,
+            tool_call_id=pending.tool_call_id,
+            status=ToolCallStatus.IN_PROGRESS.value,
+            content=[{"type": "terminal", "terminalId": terminal_id}],
         )
     ]
 
@@ -219,7 +210,7 @@ def _handle_terminal_create(
     )
     if output_request.id is None:
         return None
-    session.active_turn.pending_client_request = PendingClientRequestState(
+    session.active_turn.pending_external_request = PendingExternalRequest(
         request_id=output_request.id,
         kind="terminal_output",
         tool_call_id=pending.tool_call_id,
@@ -231,12 +222,12 @@ def _handle_terminal_create(
 
 
 def _issue_terminal_followup(
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
     *,
     method: str,
     next_kind: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     terminal_id: str,
     terminal_output: str | None,
     terminal_truncated: bool | None,
@@ -258,7 +249,7 @@ def _issue_terminal_followup(
     )
     if request.id is None:
         return None
-    session.active_turn.pending_client_request = PendingClientRequestState(
+    session.active_turn.pending_external_request = PendingExternalRequest(
         request_id=request.id,
         kind=next_kind,
         tool_call_id=pending.tool_call_id,
@@ -296,9 +287,9 @@ def _parse_terminal_exit_status(raw: dict[str, Any]) -> _TerminalExitStatus | No
 
 def _handle_terminal_output(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
     if session.active_turn is None:
@@ -366,9 +357,9 @@ def _handle_terminal_output(
 
 def _handle_terminal_wait_for_exit(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
     if session.active_turn is None:
@@ -403,13 +394,11 @@ def _handle_terminal_wait_for_exit(
 
 def _handle_terminal_release(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
-    pending: PendingClientRequestState,
+    pending: PendingExternalRequest,
     result: Any,
 ) -> _HandlerResult:
-    from .prompt import update_tool_call_status
-
     terminal_id = pending.terminal_id
     if terminal_id is None:
         return None
@@ -443,29 +432,22 @@ def _handle_terminal_release(
             },
         },
     ]
-    update_tool_call_status(
-        session,
+    session.tool_calls.update_status(
         pending.tool_call_id,
-        "completed",
+        ToolCallStatus.COMPLETED,
         content=completed_content,
     )
     return _ContinueToCompletion(
         [
-            ACPMessage.notification(
-                "session/update",
-                {
-                    "sessionId": session_id,
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": pending.tool_call_id,
-                        "status": "completed",
-                        "content": completed_content,
-                        "rawOutput": {
-                            "exitCode": pending.terminal_exit_code,
-                            "signal": pending.terminal_signal,
-                            "truncated": pending.terminal_truncated,
-                        },
-                    },
+            tool_call_status_notification(
+                session_id=session_id,
+                tool_call_id=pending.tool_call_id,
+                status=ToolCallStatus.COMPLETED.value,
+                content=completed_content,
+                raw_output={
+                    "exitCode": pending.terminal_exit_code,
+                    "signal": pending.terminal_signal,
+                    "truncated": pending.terminal_truncated,
                 },
             )
         ]
@@ -484,15 +466,13 @@ _CLIENT_RPC_RESPONSE_HANDLERS = {
 
 
 def _complete_resolved_client_rpc(
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
     notifications: list[ACPMessage],
 ) -> ProtocolOutcome:
     """Общий «хвост» для завершающих ветвей: очищает pending и финализирует turn."""
-    from .prompt import finalize_active_turn
-
     assert session.active_turn is not None
-    session.active_turn.pending_client_request = None
+    session.active_turn.pending_external_request = None
     session.mark_updated()
     notifications.append(
         session_info_notification(
@@ -501,7 +481,7 @@ def _complete_resolved_client_rpc(
             updated_at=session.updated_at,
         )
     )
-    completed = finalize_active_turn(session=session, stop_reason="end_turn")
+    completed = _finalize_turn(session)
     return ProtocolOutcome(
         notifications=notifications,
         followup_responses=[completed] if completed is not None else [],
@@ -510,7 +490,7 @@ def _complete_resolved_client_rpc(
 
 def resolve_pending_client_rpc_response_impl(
     *,
-    session: SessionState,
+    session: DomainSession,
     request_id: JsonRpcId,
     result: Any,
     error: dict[str, Any] | None,
@@ -531,11 +511,11 @@ def resolve_pending_client_rpc_response_impl(
     """
     if session.active_turn is None:
         return None
-    pending = session.active_turn.pending_client_request
+    pending = session.active_turn.pending_external_request
     if pending is None:
         return None
 
-    session_id = session.session_id
+    session_id = str(session.id)
 
     if error is not None:
         raw_message = error.get("message")
@@ -560,7 +540,7 @@ def resolve_pending_client_rpc_response_impl(
 
 def finalize_failed_client_rpc_request(
     *,
-    session: SessionState,
+    session: DomainSession,
     session_id: str,
     tool_call_id: str,
     failure_text: str,
@@ -575,28 +555,12 @@ def finalize_failed_client_rpc_request(
             failure_text="Invalid terminal/output response.",
         )
     """
-    from .prompt import finalize_active_turn, update_tool_call_status
-
-    update_tool_call_status(session, tool_call_id, "failed")
-    failure_notification = ACPMessage.notification(
-        "session/update",
-        {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "tool_call_update",
-                "toolCallId": tool_call_id,
-                "status": "failed",
-                "content": [
-                    {
-                        "type": "content",
-                        "content": {
-                            "type": "text",
-                            "text": failure_text,
-                        },
-                    }
-                ],
-            },
-        },
+    session.tool_calls.update_status(tool_call_id, ToolCallStatus.FAILED)
+    failure_notification = tool_call_status_notification(
+        session_id=session_id,
+        tool_call_id=tool_call_id,
+        status=ToolCallStatus.FAILED.value,
+        content=[{"type": "content", "content": {"type": "text", "text": failure_text}}],
     )
     session.mark_updated()
     session_info = session_info_notification(
@@ -604,7 +568,7 @@ def finalize_failed_client_rpc_request(
         title=None,
         updated_at=session.updated_at,
     )
-    failed = finalize_active_turn(session=session, stop_reason="end_turn")
+    failed = _finalize_turn(session)
     return ProtocolOutcome(
         notifications=[failure_notification, session_info],
         followup_responses=[failed] if failed is not None else [],

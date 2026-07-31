@@ -21,7 +21,7 @@ from codelab.server.protocol.handlers.prompt import (
     create_tool_call,
     extract_prompt_directives,
     finalize_failed_client_rpc_request,
-    find_session_by_pending_client_request_id,
+    find_session_id_by_pending_client_request_id,
     normalize_stop_reason,
     resolve_pending_client_rpc_response_impl,
     resolve_permission_response_impl,
@@ -38,6 +38,7 @@ from codelab.server.protocol.state import (
     PromptDirectives,
     SessionState,
 )
+from codelab.server.storage import SessionRepository
 
 
 class TestCompleteActiveTurn:
@@ -607,8 +608,14 @@ class TestUpdateToolCallStatus:
         assert "nonexistent" not in session.tool_calls
 
 
-class TestFindSessionByPendingClientRequestId:
-    """Тесты find_session_by_pending_client_request_id."""
+class TestFindSessionIdByPendingClientRequestId:
+    """Тесты find_session_id_by_pending_client_request_id (доменный порт)."""
+
+    def _repository(self, session: SessionState) -> SessionRepository:
+        """Репозиторий поверх backend'а с одной сохранённой сессией."""
+        storage = AsyncMock()
+        storage.list_sessions = AsyncMock(return_value=([session], None))
+        return SessionRepository(backend=storage)
 
     async def test_finds_matching_session(self) -> None:
         """Находит сессию с совпадающим pending client request id."""
@@ -627,26 +634,20 @@ class TestFindSessionByPendingClientRequestId:
                 ),
             ),
         )
-        storage = AsyncMock()
-        storage.list_sessions = AsyncMock(return_value=([session], None))
 
-        found = await find_session_by_pending_client_request_id("rpc_1", storage)
+        found = await find_session_id_by_pending_client_request_id(
+            "rpc_1", self._repository(session)
+        )
 
-        assert found is not None
-        assert found.session_id == "sess_1"
-        storage.list_sessions.assert_awaited_once_with(limit=500)
+        assert found == "sess_1"
 
     async def test_returns_none_when_not_found(self) -> None:
         """Возвращает None если совпадения не найдено."""
-        session = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-        )
-        storage = AsyncMock()
-        storage.list_sessions = AsyncMock(return_value=([session], None))
+        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
-        found = await find_session_by_pending_client_request_id("rpc_1", storage)
+        found = await find_session_id_by_pending_client_request_id(
+            "rpc_1", self._repository(session)
+        )
 
         assert found is None
 
@@ -667,9 +668,13 @@ class TestResolvePendingClientRpcResponseImpl:
             ),
         )
 
+    def _domain(self, session: SessionState) -> DomainSession:
+        """Доменный агрегат — рабочая модель транзакции 7 (фаза D ADR-006)."""
+        return SessionMapper.to_domain(session)
+
     def test_no_active_turn_returns_none(self) -> None:
         """Без active_turn возвращает None."""
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = self._domain(SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
 
         assert (
             resolve_pending_client_rpc_response_impl(
@@ -683,14 +688,16 @@ class TestResolvePendingClientRpcResponseImpl:
 
     def test_no_pending_request_returns_none(self) -> None:
         """Без pending_client_request возвращает None."""
-        session = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-            active_turn=ActiveTurnState(
-                prompt_request_id="req_1",
+        session = self._domain(
+            SessionState(
                 session_id="sess_1",
-            ),
+                cwd="/tmp",
+                mcp_servers=[],
+                active_turn=ActiveTurnState(
+                    prompt_request_id="req_1",
+                    session_id="sess_1",
+                ),
+            )
         )
 
         assert (
@@ -711,8 +718,8 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="file.txt",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Read", kind="read")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("fs/read_text_file", {}, title="Read", kind="read")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -722,7 +729,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "failed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.FAILED
         assert session.active_turn is None
 
     def test_fs_read_invalid_result_finalizes_failed(self) -> None:
@@ -733,8 +740,8 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="file.txt",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Read", kind="read")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("fs/read_text_file", {}, title="Read", kind="read")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -744,7 +751,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "failed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.FAILED
 
     def test_fs_read_success_completes_turn(self) -> None:
         """Успешный fs/read_text_file завершает tool call и turn."""
@@ -754,9 +761,9 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="file.txt",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Read", kind="read")
-        update_tool_call_status(session, "call_001", "in_progress")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("fs/read_text_file", {}, title="Read", kind="read")
+        session.tool_calls.update_status("call_001", ToolCallStatus.IN_PROGRESS)
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -766,7 +773,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "completed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.COMPLETED
         assert session.active_turn is None
         assert len(outcome.followup_responses) == 1
 
@@ -779,9 +786,9 @@ class TestResolvePendingClientRpcResponseImpl:
             path="file.txt",
             expected_new_text="new",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Write", kind="edit")
-        update_tool_call_status(session, "call_001", "in_progress")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Write", kind="edit")
+        session.tool_calls.update_status("call_001", ToolCallStatus.IN_PROGRESS)
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -791,7 +798,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "completed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.COMPLETED
         assert session.active_turn is None
 
     def test_terminal_create_missing_terminal_id_fails(self) -> None:
@@ -802,8 +809,8 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="echo hi",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -813,7 +820,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "failed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.FAILED
         assert session.active_turn is None
 
     def test_terminal_create_success_starts_output_request(self) -> None:
@@ -824,8 +831,8 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="echo hi",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -835,9 +842,9 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "in_progress"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.IN_PROGRESS
         assert session.active_turn is not None
-        assert session.active_turn.pending_client_request.kind == "terminal_output"
+        assert session.active_turn.pending_external_request.kind == "terminal_output"
 
     def test_terminal_output_with_exit_status_sends_release(self) -> None:
         """terminal/output с exitStatus отправляет terminal/release."""
@@ -848,8 +855,8 @@ class TestResolvePendingClientRpcResponseImpl:
             path="echo hi",
             terminal_id="term_1",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -860,7 +867,7 @@ class TestResolvePendingClientRpcResponseImpl:
 
         assert outcome is not None
         assert session.active_turn is not None
-        assert session.active_turn.pending_client_request.kind == "terminal_release"
+        assert session.active_turn.pending_external_request.kind == "terminal_release"
 
     def test_terminal_output_without_exit_status_sends_wait(self) -> None:
         """terminal/output без exitStatus отправляет terminal/wait_for_exit."""
@@ -871,8 +878,8 @@ class TestResolvePendingClientRpcResponseImpl:
             path="echo hi",
             terminal_id="term_1",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -882,7 +889,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.active_turn.pending_client_request.kind == "terminal_wait_for_exit"
+        assert session.active_turn.pending_external_request.kind == "terminal_wait_for_exit"
 
     def test_terminal_output_invalid_exit_status_fails(self) -> None:
         """Невалидный exitStatus в terminal/output финализирует failed."""
@@ -893,8 +900,8 @@ class TestResolvePendingClientRpcResponseImpl:
             path="echo hi",
             terminal_id="term_1",
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -904,7 +911,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "failed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.FAILED
 
     def test_terminal_wait_for_exit_success_releases(self) -> None:
         """terminal/wait_for_exit успешно переходит к terminal/release."""
@@ -917,8 +924,8 @@ class TestResolvePendingClientRpcResponseImpl:
             terminal_output="hi",
             terminal_truncated=False,
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -928,7 +935,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.active_turn.pending_client_request.kind == "terminal_release"
+        assert session.active_turn.pending_external_request.kind == "terminal_release"
 
     def test_terminal_release_success_completes_turn(self) -> None:
         """terminal/release завершает tool call и turn."""
@@ -942,9 +949,9 @@ class TestResolvePendingClientRpcResponseImpl:
             terminal_exit_code=0,
             terminal_truncated=False,
         )
-        session = self._make_session(pending)
-        create_tool_call(session, title="Run", kind="execute")
-        update_tool_call_status(session, "call_001", "in_progress")
+        session = self._domain(self._make_session(pending))
+        session.tool_calls.create("demo", {}, title="Run", kind="execute")
+        session.tool_calls.update_status("call_001", ToolCallStatus.IN_PROGRESS)
 
         outcome = resolve_pending_client_rpc_response_impl(
             session=session,
@@ -954,7 +961,7 @@ class TestResolvePendingClientRpcResponseImpl:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "completed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.COMPLETED
         assert session.active_turn is None
 
     def test_unknown_pending_kind_returns_none(self) -> None:
@@ -965,7 +972,7 @@ class TestResolvePendingClientRpcResponseImpl:
             tool_call_id="call_001",
             path="x",
         )
-        session = self._make_session(pending)
+        session = self._domain(self._make_session(pending))
 
         assert (
             resolve_pending_client_rpc_response_impl(
@@ -983,16 +990,18 @@ class TestFinalizeFailedClientRpcRequest:
 
     def test_finalizes_failed_tool_call_and_turn(self) -> None:
         """Финализирует failed tool call и активный turn."""
-        session = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-            active_turn=ActiveTurnState(
-                prompt_request_id="req_1",
+        session = SessionMapper.to_domain(
+            SessionState(
                 session_id="sess_1",
-            ),
+                cwd="/tmp",
+                mcp_servers=[],
+                active_turn=ActiveTurnState(
+                    prompt_request_id="req_1",
+                    session_id="sess_1",
+                ),
+            )
         )
-        create_tool_call(session, title="Demo", kind="other")
+        session.tool_calls.create("demo", {}, title="Demo", kind="other")
 
         outcome = finalize_failed_client_rpc_request(
             session=session,
@@ -1002,7 +1011,7 @@ class TestFinalizeFailedClientRpcRequest:
         )
 
         assert outcome is not None
-        assert session.tool_calls["call_001"].status == "failed"
+        assert session.tool_calls.get("call_001").status is ToolCallStatus.FAILED
         assert session.active_turn is None
         assert len(outcome.notifications) == 2
         assert len(outcome.followup_responses) == 1

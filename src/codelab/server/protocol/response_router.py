@@ -80,7 +80,24 @@ class ResponseRouter:
             has_result=message.result is not None,
         )
 
-        # Пробуем разрешить как pending client RPC response
+        # Сначала — процессный реестр ожидающих RPC: это словарь, тогда как поиск по
+        # состоянию сессий ниже делает полный скан хранилища (90 мс на 30 сессиях).
+        # Наборы идентификаторов не пересекаются: запросы `ClientRPCService` живут в
+        # его futures, а `pending_external_request` заводит директивный путь, который
+        # через сервис не проходит. Живой путь fs/terminal идёт именно через сервис,
+        # поэтому раньше каждый его ответ платил за скан впустую.
+        if self._client_rpc_service is not None and self._client_rpc_service.has_pending_request(
+            message.id
+        ):
+            logger.debug(
+                "forwarding_client_response_to_client_rpc_service",
+                request_id=message.id,
+                has_error=message.error is not None,
+            )
+            self._client_rpc_service.handle_response(message.to_dict())
+            return ProtocolOutcome()
+
+        # Пробуем разрешить как pending client RPC response (директивный путь)
         resolved_client_rpc = await self._resolve_pending_client_rpc_response(
             request_id=message.id,
             result=message.result,
@@ -94,18 +111,6 @@ class ResponseRouter:
                 request_id=message.id,
             )
             return resolved_client_rpc
-
-        # Пробуем пробросить в ClientRPCService
-        if self._client_rpc_service is not None and self._client_rpc_service.has_pending_request(
-            message.id
-        ):
-            logger.debug(
-                "forwarding_client_response_to_client_rpc_service",
-                request_id=message.id,
-                has_error=message.error is not None,
-            )
-            self._client_rpc_service.handle_response(message.to_dict())
-            return ProtocolOutcome()
 
         # Пробуем обработать как cancelled client RPC response
         if await permissions.consume_cancelled_client_rpc_response(message.id, self._repository):
@@ -159,16 +164,42 @@ class ResponseRouter:
         Returns:
             ProtocolOutcome если обработано, иначе None.
         """
-        session = await prompt.find_session_by_pending_client_request_id(request_id, self._storage)
-        if session is None:
+        session_id = await prompt.find_session_id_by_pending_client_request_id(
+            request_id, self._repository
+        )
+        if session_id is None:
             return None
 
-        return prompt.resolve_pending_client_rpc_response_impl(
-            session=session,
-            request_id=request_id,
-            result=result,
-            error=error,
-        )
+        # Область транзакции: до неё ответ применялся к копии, которую никто не
+        # сохранял, — тот же класс, что P1-49 на permission-пути. Здесь это било
+        # реже (путь директивный, `pending_client_request` в проде почти не
+        # заводится), но терялось то же: статус вызова, снятый pending и финал turn'а.
+        async with self._repository.transaction(session_id) as session:
+            if session is None:
+                logger.warning(
+                    "client_rpc_response_session_gone",
+                    request_id=request_id,
+                    session_id=session_id,
+                )
+                return None
+
+            outcome = prompt.resolve_pending_client_rpc_response_impl(
+                session=session,
+                request_id=request_id,
+                result=result,
+                error=error,
+            )
+            logger.info(
+                "client_rpc_response_applied",
+                session_id=session_id,
+                request_id=request_id,
+                applied=outcome is not None,
+                chains_next_request=bool(
+                    session.active_turn is not None
+                    and session.active_turn.pending_external_request is not None
+                ),
+            )
+            return outcome
 
     async def _resolve_permission_response(
         self,

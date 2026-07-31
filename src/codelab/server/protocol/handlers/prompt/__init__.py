@@ -14,7 +14,7 @@ from ..client_rpc_response import (
     finalize_failed_client_rpc_request as finalize_failed_client_rpc_request,
 )
 from ..client_rpc_response import (
-    find_session_by_pending_client_request_id as find_session_by_pending_client_request_id,
+    find_session_id_by_pending_client_request_id as find_session_id_by_pending_client_request_id,
 )
 from ..client_rpc_response import (
     resolve_pending_client_rpc_response_impl as resolve_pending_client_rpc_response_impl,
@@ -72,7 +72,7 @@ __all__ = [
     "extract_prompt_directives",
     "finalize_active_turn",
     "finalize_failed_client_rpc_request",
-    "find_session_by_pending_client_request_id",
+    "find_session_id_by_pending_client_request_id",
     "normalize_plan_entries",
     "normalize_session_path",
     "normalize_stop_reason",

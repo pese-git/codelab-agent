@@ -10,6 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from codelab.server.domain.session import PendingExternalRequest
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.prompt import (
     build_fs_client_request,
     build_terminal_client_request,
@@ -17,7 +20,6 @@ from codelab.server.protocol.handlers.prompt import (
 )
 from codelab.server.protocol.state import (
     ActiveTurnState,
-    PendingClientRequestState,
     PromptDirectives,
     SessionState,
 )
@@ -142,25 +144,26 @@ class TestResolvePendingClientRpcTerminalGuards:
     """Тесты guard-веток terminal_* в resolve_pending_client_rpc_response_impl."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
-        """Сессия с активным turn."""
-        sess = SessionState(
-            session_id="sess_1",
-            cwd="/tmp",
-            mcp_servers=[],
-            active_turn=ActiveTurnState(
-                prompt_request_id="req_0",
+    def session(self) -> DomainSession:
+        """Сессия с активным turn — доменный агрегат (транзакция 7, фаза D)."""
+        return SessionMapper.to_domain(
+            SessionState(
                 session_id="sess_1",
-            ),
+                cwd="/tmp",
+                mcp_servers=[],
+                active_turn=ActiveTurnState(
+                    prompt_request_id="req_0",
+                    session_id="sess_1",
+                ),
+            )
         )
-        return sess
 
     def test_terminal_create_output_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии id у terminal/output запроса возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_create",
             kind="terminal_create",
             tool_call_id="call_001",
@@ -168,7 +171,7 @@ class TestResolvePendingClientRpcTerminalGuards:
         )
 
         with patch(
-            "codelab.server.protocol.handlers.prompt.ACPMessage.request",
+            "codelab.server.protocol.handlers.client_rpc_response.ACPMessage.request",
             return_value=MagicMock(id=None),
         ):
             result = resolve_pending_client_rpc_response_impl(
@@ -182,10 +185,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_output_missing_terminal_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если у pending terminal_output отсутствует terminal_id, возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_output",
             kind="terminal_output",
             tool_call_id="call_001",
@@ -204,10 +207,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_output_invalid_exit_code_type_fails(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Некорректный тип exitCode в terminal/output завершает turn с ошибкой."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_output",
             kind="terminal_output",
             tool_call_id="call_001",
@@ -232,10 +235,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_output_invalid_signal_type_fails(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Некорректный тип signal в terminal/output завершает turn с ошибкой."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_output",
             kind="terminal_output",
             tool_call_id="call_001",
@@ -260,10 +263,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_output_release_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии id у release-запроса после terminal/output возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_output",
             kind="terminal_output",
             tool_call_id="call_001",
@@ -272,7 +275,7 @@ class TestResolvePendingClientRpcTerminalGuards:
         )
 
         with patch(
-            "codelab.server.protocol.handlers.prompt.ACPMessage.request",
+            "codelab.server.protocol.handlers.client_rpc_response.ACPMessage.request",
             return_value=MagicMock(id=None),
         ):
             result = resolve_pending_client_rpc_response_impl(
@@ -289,10 +292,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_output_wait_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии id у wait-запроса после terminal/output возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_output",
             kind="terminal_output",
             tool_call_id="call_001",
@@ -301,7 +304,7 @@ class TestResolvePendingClientRpcTerminalGuards:
         )
 
         with patch(
-            "codelab.server.protocol.handlers.prompt.ACPMessage.request",
+            "codelab.server.protocol.handlers.client_rpc_response.ACPMessage.request",
             return_value=MagicMock(id=None),
         ):
             result = resolve_pending_client_rpc_response_impl(
@@ -315,10 +318,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_wait_for_exit_missing_terminal_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии terminal_id у terminal_wait_for_exit возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_wait",
             kind="terminal_wait_for_exit",
             tool_call_id="call_001",
@@ -337,10 +340,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_wait_for_exit_non_dict_result_fails(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Некорректный result при terminal_wait_for_exit завершает turn с ошибкой."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_wait",
             kind="terminal_wait_for_exit",
             tool_call_id="call_001",
@@ -362,10 +365,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_wait_for_exit_valid_signal(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Корректный signal при terminal_wait_for_exit сохраняется в pending."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_wait",
             kind="terminal_wait_for_exit",
             tool_call_id="call_001",
@@ -383,16 +386,16 @@ class TestResolvePendingClientRpcTerminalGuards:
 
         assert result is not None
         assert any(n.method == "terminal/release" for n in result.notifications)
-        next_pending = session.active_turn.pending_client_request
+        next_pending = session.active_turn.pending_external_request
         assert next_pending is not None
         assert next_pending.terminal_signal == "SIGTERM"
 
     def test_terminal_wait_for_exit_release_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии id у release-запроса после wait_for_exit возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_wait",
             kind="terminal_wait_for_exit",
             tool_call_id="call_001",
@@ -401,7 +404,7 @@ class TestResolvePendingClientRpcTerminalGuards:
         )
 
         with patch(
-            "codelab.server.protocol.handlers.prompt.ACPMessage.request",
+            "codelab.server.protocol.handlers.client_rpc_response.ACPMessage.request",
             return_value=MagicMock(id=None),
         ):
             result = resolve_pending_client_rpc_response_impl(
@@ -415,10 +418,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_release_missing_terminal_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """При отсутствии terminal_id у terminal_release возвращается None."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_release",
             kind="terminal_release",
             tool_call_id="call_001",
@@ -437,10 +440,10 @@ class TestResolvePendingClientRpcTerminalGuards:
 
     def test_terminal_release_non_dict_result_fails(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Некорректный result при terminal_release завершает turn с ошибкой."""
-        session.active_turn.pending_client_request = PendingClientRequestState(
+        session.active_turn.pending_external_request = PendingExternalRequest(
             request_id="req_release",
             kind="terminal_release",
             tool_call_id="call_001",
