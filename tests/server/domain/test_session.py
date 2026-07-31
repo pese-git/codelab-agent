@@ -553,25 +553,28 @@ class TestSessionTerminalSeams:
 
         assert session.register_terminal("uuid-b", owner="proc-1") == "term_2"
 
-    def test_seams_match_wire_registry(self) -> None:
-        """Паритет с `TerminalAliasRegistry` на wire-сессии: те же alias'ы и то же состояние."""
-        from codelab.server.protocol.state import SessionState
+    def test_executor_adapter_delegates_to_seams(self) -> None:
+        """`TerminalAliasRegistry` — адаптер над сеймами и владельцем процесса.
+
+        Прежде здесь стоял паритет с wire-реестром: у него было своё состояние на
+        `SessionState`. С переездом turn-пути на агрегат (шаг 3 фазы D) состояние
+        одно, поэтому проверяется то, что осталось контрактом адаптера — alias'ы
+        те же, что у сеймов, и отметка владельца ставится (P2-44).
+        """
+        from codelab.server.process_identity import PROCESS_TOKEN
         from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
-        wire = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         registry = TerminalAliasRegistry()
-        domain = self._session()
+        session = self._session()
 
-        wire_aliases = [registry.register(wire, "uuid-a"), registry.register(wire, "uuid-b")]
-        domain_aliases = [
-            domain.register_terminal("uuid-a", owner=wire.terminals_owner or ""),
-            domain.register_terminal("uuid-b", owner=wire.terminals_owner or ""),
-        ]
+        aliases = [registry.register(session, "uuid-a"), registry.register(session, "uuid-b")]
 
-        assert wire_aliases == domain_aliases
-        assert wire.terminals == domain.runtime.terminals
-        assert wire.terminal_counter == domain.runtime.terminal_counter
-        assert registry.release(wire, "term_1") == domain.release_terminal("term_1")
+        assert aliases == ["term_1", "term_2"]
+        assert session.runtime.terminals == {"term_1": "uuid-a", "term_2": "uuid-b"}
+        assert session.runtime.terminals_owner == PROCESS_TOKEN
+        assert registry.resolve(session, "term_2") == "uuid-b"
+        assert registry.release(session, "term_1") == "uuid-a"
+        assert registry.release(session, "term_1") is None
 
 
 class TestToolCallCreateStatus:

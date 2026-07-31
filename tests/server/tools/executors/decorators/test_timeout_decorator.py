@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.mcp.exceptions import MCPTimeoutError
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.decorators import TimeoutDecorator
 
@@ -24,7 +24,7 @@ class MockExecutor:
 
     async def execute(
         self,
-        session: SessionState,
+        session: DomainSession,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         self.call_count += 1
@@ -34,10 +34,10 @@ class MockExecutor:
 
 
 @pytest.fixture
-def mock_session() -> SessionState:
+def mock_session() -> DomainSession:
     """Создать mock сессию."""
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
+    session = MagicMock(spec=DomainSession)
+    session.id = "test_session"
     return session
 
 
@@ -53,7 +53,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_execute_success_within_timeout(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Успешное выполнение в пределах timeout."""
@@ -69,7 +69,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_execute_timeout_exceeded(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Превышение timeout генерирует MCPTimeoutError."""
@@ -85,7 +85,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_execute_with_custom_timeout(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Кастомный timeout корректно применяется."""
@@ -100,7 +100,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_execute_preserves_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Результат выполнения сохраняется."""
@@ -121,7 +121,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_execute_with_error_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Ошибка в результате не вызывает исключение."""
@@ -140,7 +140,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_default_timeout_is_30_seconds(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Default timeout равен 30 секундам."""
@@ -152,7 +152,7 @@ class TestTimeoutDecorator:
     @pytest.mark.asyncio
     async def test_timeout_error_contains_tool_name(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
     ) -> None:
         """MCPTimeoutError содержит имя инструмента."""
         mock_executor = MockExecutor(delay=2.0)

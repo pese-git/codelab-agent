@@ -25,7 +25,7 @@ from codelab.server.tools.executors.decorators.base import (
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.file_cache import SessionFileCacheRegistry
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger(__name__)
 
@@ -60,15 +60,15 @@ class FileCacheDecorator(ToolExecutorDecorator):
         self._cache = cache
         self._session_registry = session_registry
 
-    def _get_cache_for_session(self, session: SessionState) -> FileContentCache | None:
+    def _get_cache_for_session(self, session: Session) -> FileContentCache | None:
         """Получить кэш для конкретной сессии."""
         if self._session_registry is not None:
-            return self._session_registry.get_or_create(session.session_id)
+            return self._session_registry.get_or_create(str(session.id))
         return self._cache
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с кэшированием файловых операций.
@@ -121,7 +121,7 @@ class FileCacheDecorator(ToolExecutorDecorator):
         return result
 
     def _try_cache_hit(
-        self, session: SessionState, operation: str, path: str
+        self, session: Session, operation: str, path: str
     ) -> ToolExecutionResult | None:
         """Возвращает результат из кэша при fs/read-попадании, иначе None."""
         if operation != "read" or not path:

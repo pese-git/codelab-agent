@@ -23,8 +23,10 @@ from codelab.server.client_rpc.exceptions import (
     ClientRPCTimeoutError,
 )
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.protocol.state import ClientRuntimeCapabilities
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
+from tests.server._domain_sessions import make_domain_session
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -32,9 +34,9 @@ from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Фикстура для создания базовой сессии."""
-    sess = SessionState(
+    sess = make_domain_session(
         session_id="test_session_001",
         cwd="/tmp",
         mcp_servers=[],
@@ -71,7 +73,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_running(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение output от работающего терминала (без exit status)."""
         mock_rpc_service.terminal_output.return_value = (
@@ -97,7 +99,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_completed_with_exit_code(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение output от завершенного терминала с exit code."""
         mock_rpc_service.terminal_output.return_value = (
@@ -118,7 +120,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_completed_with_non_zero_exit_code(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение output от терминала с ненулевым exit code."""
         mock_rpc_service.terminal_output.return_value = (
@@ -136,7 +138,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_completed_with_signal(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение output от терминала завершенного сигналом."""
         mock_rpc_service.terminal_output.return_value = (
@@ -155,7 +157,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_with_both_exit_code_and_signal(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение output с exit code и signal (редкий случай)."""
         mock_rpc_service.terminal_output.return_value = (
@@ -174,7 +176,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_truncated(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение truncated output."""
         mock_rpc_service.terminal_output.return_value = (
@@ -193,7 +195,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_empty(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Получение пустого output."""
         mock_rpc_service.terminal_output.return_value = (
@@ -211,7 +213,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_passes_correct_session_id(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Проверка что передается правильный session_id."""
         mock_rpc_service.terminal_output.return_value = ("", False, None, None)
@@ -225,7 +227,7 @@ class TestTerminalOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_terminal_output_passes_correct_terminal_id(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Проверка что передается правильный terminal_id."""
         mock_rpc_service.terminal_output.return_value = ("", False, None, None)
@@ -248,7 +250,7 @@ class TestTerminalOutputErrors:
 
     @pytest.mark.asyncio
     async def test_terminal_output_capability_missing(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Обработка отсутствия capability terminal."""
         mock_rpc_service.terminal_output.side_effect = ClientCapabilityMissingError("terminal")
@@ -259,7 +261,7 @@ class TestTerminalOutputErrors:
 
     @pytest.mark.asyncio
     async def test_terminal_output_timeout(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Обработка timeout при получении output."""
         mock_rpc_service.terminal_output.side_effect = ClientRPCTimeoutError(
@@ -272,7 +274,7 @@ class TestTerminalOutputErrors:
 
     @pytest.mark.asyncio
     async def test_terminal_output_response_error(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Обработка ошибки response от клиента."""
         mock_rpc_service.terminal_output.side_effect = ClientRPCResponseError(
@@ -285,7 +287,7 @@ class TestTerminalOutputErrors:
 
     @pytest.mark.asyncio
     async def test_terminal_output_general_error(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Обработка общей ошибки ClientRPCError."""
         mock_rpc_service.terminal_output.side_effect = ClientRPCError("Internal client error")
@@ -296,7 +298,7 @@ class TestTerminalOutputErrors:
 
     @pytest.mark.asyncio
     async def test_terminal_output_error_does_not_raise_exception(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибки не должны пробрасываться наружу, только возвращать None."""
         mock_rpc_service.terminal_output.side_effect = ClientRPCTimeoutError("timeout")
@@ -316,7 +318,7 @@ class TestTerminalOutputIntegration:
     """Интеграционные тесты с реальным ClientRPCService."""
 
     @pytest.mark.asyncio
-    async def test_terminal_output_integration_success(self, session: SessionState) -> None:
+    async def test_terminal_output_integration_success(self, session: DomainSession) -> None:
         """Интеграционный тест: успешный вызов через реальный ClientRPCService."""
         sent_requests: list[dict[str, object]] = []
 
@@ -376,7 +378,7 @@ class TestTerminalOutputIntegration:
 
     @pytest.mark.asyncio
     async def test_terminal_output_integration_running_terminal(
-        self, session: SessionState
+        self, session: DomainSession
     ) -> None:
         """Интеграционный тест: работающий терминал без exit status."""
         sent_requests: list[dict[str, object]] = []
@@ -424,7 +426,7 @@ class TestTerminalOutputIntegration:
 
     @pytest.mark.asyncio
     async def test_terminal_output_integration_capability_missing(
-        self, session: SessionState
+        self, session: DomainSession
     ) -> None:
         """Интеграционный тест: отсутствие capability terminal."""
         sent_requests: list[dict[str, object]] = []
@@ -450,7 +452,7 @@ class TestTerminalOutputIntegration:
         assert len(sent_requests) == 0
 
     @pytest.mark.asyncio
-    async def test_terminal_output_integration_with_signal(self, session: SessionState) -> None:
+    async def test_terminal_output_integration_with_signal(self, session: DomainSession) -> None:
         """Интеграционный тест: терминал завершен сигналом."""
         sent_requests: list[dict[str, object]] = []
 
@@ -510,7 +512,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_read_file_success(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Успешное чтение файла."""
         mock_rpc_service.read_text_file = AsyncMock(return_value="file content")
@@ -527,7 +529,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_read_file_with_line_and_limit(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Чтение файла с line и limit."""
         mock_rpc_service.read_text_file = AsyncMock(return_value="lines 10-20")
@@ -544,7 +546,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_read_file_error_raises(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибка чтения файла пробрасывает исключение."""
         mock_rpc_service.read_text_file = AsyncMock(side_effect=ClientRPCError("error"))
@@ -554,7 +556,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_write_file_success(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Успешная запись файла."""
         mock_rpc_service.write_text_file = AsyncMock(return_value=True)
@@ -565,7 +567,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_write_file_error_raises(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибка записи файла пробрасывает исключение."""
         mock_rpc_service.write_text_file = AsyncMock(side_effect=ClientRPCError("error"))
@@ -575,7 +577,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_create_terminal_success(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Успешное создание терминала."""
         mock_rpc_service.create_terminal = AsyncMock(return_value="term_001")
@@ -586,7 +588,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_create_terminal_error_returns_none(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибка создания терминала возвращает None."""
         mock_rpc_service.create_terminal = AsyncMock(
@@ -599,7 +601,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_wait_terminal_exit_success(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Успешное ожидание завершения терминала."""
         mock_rpc_service.wait_for_exit = AsyncMock(return_value=(0, None))
@@ -612,7 +614,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_wait_terminal_exit_error_returns_none(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибка ожидания завершения возвращает None."""
         mock_rpc_service.wait_for_exit = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
@@ -623,7 +625,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_release_terminal_success(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Успешное освобождение терминала."""
         mock_rpc_service.release_terminal = AsyncMock(return_value=True)
@@ -634,7 +636,7 @@ class TestClientRPCBridgeOtherMethods:
 
     @pytest.mark.asyncio
     async def test_release_terminal_error_returns_false(
-        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: SessionState
+        self, bridge: ClientRPCBridge, mock_rpc_service: AsyncMock, session: DomainSession
     ) -> None:
         """Ошибка освобождения терминала возвращает False."""
         mock_rpc_service.release_terminal = AsyncMock(

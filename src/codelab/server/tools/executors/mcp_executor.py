@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
 from codelab.server.tools.executors.decorators import (
@@ -132,7 +132,7 @@ class MCPToolExecutor(ToolExecutor):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить MCP инструмент с timeout, retry, metrics и tracing.
@@ -162,7 +162,7 @@ class MCPToolExecutor(ToolExecutor):
             )
 
         if self._mcp_manager is None:
-            session_id = session.session_id if session else "unknown"
+            session_id = str(session.id) if session else "unknown"
             return ToolExecutionResult(
                 success=False,
                 error=f"MCP manager not available for session {session_id}",
@@ -170,7 +170,7 @@ class MCPToolExecutor(ToolExecutor):
 
         logger.info(
             "executing MCP tool with decorators",
-            session_id=session.session_id,
+            session_id=str(session.id),
             tool_name=tool_name,
             timeout=self._default_timeout,
             max_retries=self._max_retries,
@@ -208,7 +208,7 @@ class MCPToolExecutor(ToolExecutor):
 
             async def execute(
                 self,
-                session: SessionState,
+                session: Session,
                 arguments: dict[str, Any],
             ) -> ToolExecutionResult:
                 """Выполнить MCP инструмент без декораторов."""
@@ -241,7 +241,7 @@ class MCPToolExecutor(ToolExecutor):
                 except Exception as exc:
                     logger.error(
                         "MCP tool execution failed",
-                        session_id=session.session_id,
+                        session_id=str(session.id),
                         tool_name=tool_name,
                         error=str(exc),
                         exc_info=True,
@@ -258,7 +258,7 @@ class MCPToolExecutor(ToolExecutor):
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any],
-        session: SessionState | None = None,
+        session: Session | None = None,
     ) -> ToolExecutionResult:
         """Выполнить MCP инструмент напрямую (без SessionState).
 

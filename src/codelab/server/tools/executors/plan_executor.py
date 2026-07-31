@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
 
@@ -30,7 +30,7 @@ class PlanToolExecutor(ToolExecutor):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить update_plan - обновить план в состоянии сессии.
@@ -66,7 +66,7 @@ class PlanToolExecutor(ToolExecutor):
 
         logger.debug(
             "update_plan tool executed",
-            session_id=session.session_id,
+            session_id=str(session.id),
             num_entries=len(validated_entries),
         )
 

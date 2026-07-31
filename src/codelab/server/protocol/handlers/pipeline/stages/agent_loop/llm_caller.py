@@ -18,15 +18,17 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codelab.server.mapping.session_view import DomainSessionView
+
 if TYPE_CHECKING:
     from codelab.server.agent.core.agent_base import AgentResponse
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
         SessionUpdateSink,
     )
-    from codelab.server.protocol.state import SessionState
 
 logger = structlog.get_logger()
 
@@ -67,7 +69,7 @@ class LlmCaller:
 
     async def call(
         self,
-        session: SessionState,
+        session: Session,
         prompt: str | None,
         mcp_manager: MCPManager | None,
         iteration: int,
@@ -85,15 +87,20 @@ class LlmCaller:
         Returns:
             LlmCallResult с ответом и признаком стриминга.
         """
+        # Граница с ядром: оно читает сессию через порт `SessionView`, а носитель
+        # turn'а — доменный агрегат. Проекция read-only и читает сквозь агрегат,
+        # поэтому дописанное по ходу turn'а видно сразу (ADR-006, шаг 2 фазы D).
+        view = DomainSessionView(session)
+
         # Формируем system prompt (agent + config + MCP info)
-        system_prompt = self._system_prompt_builder.build(session, mcp_manager)
+        system_prompt = self._system_prompt_builder.build(view, mcp_manager)
 
         # Стриминг: on_delta эмитит текстовые дельты как agent_message_chunk
         # вживую. Полный текст ответа НЕ эмитится повторно (см. AgentLoop).
         streamed = False
         on_delta = None
         if self._streaming_enabled:
-            session_id = session.session_id
+            session_id = str(session.id)
 
             async def on_delta(delta: str) -> None:
                 nonlocal streamed
@@ -102,7 +109,7 @@ class LlmCaller:
 
         if iteration == 1 and prompt:
             response = await self._strategy.execute(
-                session,
+                view,
                 prompt,
                 mcp_manager,
                 system_prompt=system_prompt,
@@ -110,14 +117,14 @@ class LlmCaller:
             )
         else:
             response = await self._strategy.continue_execution(
-                session,
+                view,
                 mcp_manager,
                 on_delta=on_delta,
             )
 
         return LlmCallResult(response=response, streamed=streamed)
 
-    def ensure_strategy_selected(self, session: SessionState, session_id: str) -> None:
+    def ensure_strategy_selected(self, session: Session, session_id: str) -> None:
         """Гарантировать, что стратегия выбрана (для continue_execution).
 
         StrategyDispatcher имеет ``_current_strategy_name`` и ``select_strategy``,
@@ -128,7 +135,7 @@ class LlmCaller:
         if strategy_name_attr is None:
             select_fn = getattr(self._strategy, "select_strategy", None)
             if callable(select_fn):
-                select_fn(session, context_meta=None)
+                select_fn(DomainSessionView(session), context_meta=None)
                 logger.debug(
                     "resume_after_permission: strategy re-initialized",
                     strategy=getattr(self._strategy, "_current_strategy_name", "unknown"),

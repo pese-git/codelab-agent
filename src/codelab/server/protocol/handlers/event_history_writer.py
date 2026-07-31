@@ -34,7 +34,7 @@ class EventHistoryWriter:
 
     def save_user_message_chunk(
         self,
-        session: SessionState,
+        session: DomainSession,
         content: dict[str, Any],
     ) -> None:
         """Сохраняет user_message_chunk в events_history.
@@ -56,7 +56,7 @@ class EventHistoryWriter:
 
     def save_agent_message_chunk(
         self,
-        session: SessionState,
+        session: DomainSession,
         content: dict[str, Any],
     ) -> None:
         """Сохраняет agent_message_chunk в events_history.
@@ -75,7 +75,7 @@ class EventHistoryWriter:
 
     def save_tool_call(
         self,
-        session: SessionState,
+        session: DomainSession,
         tool_call_id: str,
         title: str,
         kind: str,
@@ -114,10 +114,10 @@ class EventHistoryWriter:
     ) -> None:
         """Сохраняет tool_call_update в events_history.
 
-        Единственный метод писателя, принимающий обе модели: журнал отмены пишет
-        уже переведённая транзакция `session/cancel` (фаза D ADR-006), а остальные
-        писатели пока на wire. Остальные методы менять не нужно — они переедут
-        вместе со своими транзакциями.
+        Единственный метод писателя, принимающий обе модели: turn-путь и транзакции
+        фазы D пишут доменным агрегатом, а wire-ветка остаётся ради последнего
+        не переведённого писателя — отмены вызовов при переключении сессии
+        (`handlers.session`). Снимается вместе с ним.
 
         Args:
             session: Состояние сессии (wire-DTO или доменный агрегат)
@@ -136,7 +136,7 @@ class EventHistoryWriter:
 
     def save_plan(
         self,
-        session: SessionState,
+        session: DomainSession,
         entries: list[dict[str, Any]],
     ) -> None:
         """Сохраняет plan update в events_history.
@@ -155,7 +155,7 @@ class EventHistoryWriter:
 
     def save_session_info_update(
         self,
-        session: SessionState,
+        session: DomainSession,
         *,
         title: str | None,
         updated_at: str | None,

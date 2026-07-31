@@ -25,7 +25,7 @@ from codelab.server.tools.base import ToolExecutionResult
 from .base import ToolExecutorDecorator, ToolExecutorProtocol
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -78,7 +78,7 @@ class ProjectStructureDecorator(ToolExecutorDecorator):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент и извлечь структуру проекта если применимо."""
@@ -128,7 +128,7 @@ class ProjectStructureDecorator(ToolExecutorDecorator):
 
     def _handle_terminal_wait(
         self,
-        session: SessionState,
+        session: Session,
         result: ToolExecutionResult,
         arguments: dict[str, Any],
     ) -> None:
@@ -160,7 +160,7 @@ class ProjectStructureDecorator(ToolExecutorDecorator):
 
         logger.info(
             "project_structure.auto_saved",
-            session_id=session.session_id,
+            session_id=str(session.id),
             terminal_id=terminal_id,
             command=command_str,
             total_files=len(files),

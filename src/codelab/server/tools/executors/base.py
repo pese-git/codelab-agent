@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 from codelab.server.tools.base import ToolExecutionResult
 
 
@@ -17,7 +17,7 @@ class ToolExecutor(ABC):
     @abstractmethod
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент в контексте сессии.

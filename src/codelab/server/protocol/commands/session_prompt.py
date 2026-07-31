@@ -11,6 +11,7 @@ from typing import Any
 
 import structlog
 
+from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionStorage
 from ..handlers.prompt_orchestrator import PromptOrchestrator
@@ -110,11 +111,17 @@ class SessionPromptCommandHandler:
         if content_error is not None:
             return ProtocolOutcome(response=content_error)
 
-        # Очищаем stale active_turn
-        session.active_turn = None
-
-        # Получить MCP manager
+        # Получить MCP manager (читает wire-конфигурацию сессии)
         mcp_manager = await self._mcp_provider(session)
+
+        # Носитель состояния turn'а — доменный агрегат (ADR-006, фаза D шаг 3):
+        # wire-документ собирается обратно только на границе записи. Перевод
+        # хендлера на репозиторий — следующий шаг, поэтому загрузка и запись пока
+        # идут через storage.
+        domain_session = SessionMapper.to_domain(session)
+
+        # Очищаем stale active_turn
+        domain_session.clear_active_turn()
 
         # Получить MCP prompt handlers из runtime registry
         runtime = await self._runtime_registry.get(session_id)
@@ -133,7 +140,7 @@ class SessionPromptCommandHandler:
         outcome = await orchestrator.handle_prompt(
             request_id=message.id,
             params=params,
-            session=session,
+            session=domain_session,
             storage=self._storage,
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
@@ -146,11 +153,11 @@ class SessionPromptCommandHandler:
             # устареть: отмена или ответ на разрешение успели сохранить своё.
             # Слияние вместо отклонения — иначе результаты turn'а терялись бы
             # (ADR-007, воспроизведено на коде).
-            await save_session_merging(self._storage, session)
+            await save_session_merging(self._storage, SessionMapper.to_protocol(domain_session))
             logger.debug(
                 "session_saved_after_prompt",
                 session_id=session_id,
-                active_turn_exists=session.active_turn is not None,
+                active_turn_exists=domain_session.active_turn is not None,
             )
         except Exception as e:
             logger.error(

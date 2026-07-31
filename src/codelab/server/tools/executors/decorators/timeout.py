@@ -17,7 +17,7 @@ from codelab.server.tools.base import ToolExecutionResult
 from .base import ToolExecutorDecorator, ToolExecutorProtocol
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -52,7 +52,7 @@ class TimeoutDecorator(ToolExecutorDecorator):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с timeout.
@@ -73,7 +73,7 @@ class TimeoutDecorator(ToolExecutorDecorator):
             "executing_tool_with_timeout",
             tool_name=tool_name,
             timeout=self._timeout,
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
 
         try:
@@ -86,7 +86,7 @@ class TimeoutDecorator(ToolExecutorDecorator):
                 "tool_execution_completed",
                 tool_name=tool_name,
                 success=result.success,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
             return result
@@ -96,6 +96,6 @@ class TimeoutDecorator(ToolExecutorDecorator):
                 "tool_execution_timeout",
                 tool_name=tool_name,
                 timeout=self._timeout,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
             raise MCPTimeoutError(tool_name, self._timeout) from None

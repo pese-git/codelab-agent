@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...domain.session import Session
 from ...messages import ACPMessage
-from ..state import SessionState
 
 
 class PermissionManager:
@@ -44,7 +44,7 @@ class PermissionManager:
         },
     ]
 
-    def _resolve_policy(self, session: SessionState, tool_kind: str) -> str:
+    def _resolve_policy(self, session: Session, tool_kind: str) -> str:
         """Разрешает политику для данного tool kind в единой точке.
 
         Args:
@@ -66,7 +66,7 @@ class PermissionManager:
 
     def should_request_permission(
         self,
-        session: SessionState,
+        session: Session,
         tool_kind: str,
     ) -> bool:
         """Определяет, нужен ли permission request для данного tool kind.
@@ -86,7 +86,7 @@ class PermissionManager:
 
     def get_remembered_permission(
         self,
-        session: SessionState,
+        session: Session,
         tool_kind: str,
     ) -> str:
         """Возвращает применяемое решение из permission_policy.
@@ -113,7 +113,7 @@ class PermissionManager:
 
     def build_permission_request(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         tool_title: str,
@@ -248,7 +248,7 @@ class PermissionManager:
 
     def build_permission_acceptance_updates(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         option_id: str,

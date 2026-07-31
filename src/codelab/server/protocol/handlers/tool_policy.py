@@ -21,15 +21,15 @@ import structlog
 from ..mode import DEFAULT_MODE, MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
 
 if TYPE_CHECKING:
+    from codelab.server.domain.session import Session
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
-    from codelab.server.protocol.state import SessionState
 
 PermissionDecision = Literal["allow", "reject", "ask"]
 
 logger = structlog.get_logger()
 
 
-def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecision:
+def decide_tool_policy(session: Session, tool_kind: str) -> PermissionDecision:
     """Определить политику выполнения инструмента (синхронная версия).
 
     Цепочка решений:
@@ -103,7 +103,7 @@ def decide_tool_policy(session: SessionState, tool_kind: str) -> PermissionDecis
 
 
 
-def describe_rejection(session: SessionState, tool_kind: str) -> str:
+def describe_rejection(session: Session, tool_kind: str) -> str:
     """Причина отказа для модели — тем же знанием, каким принято решение.
 
     Текст уходит модели в теле tool result (и клиенту в `tool_call_update`),
@@ -142,7 +142,7 @@ def describe_rejection(session: SessionState, tool_kind: str) -> str:
 
 
 async def decide_tool_policy_async(
-    session: SessionState,
+    session: Session,
     tool_kind: str,
     global_policy_manager: GlobalPolicyManager | None = None,
 ) -> PermissionDecision:
@@ -226,7 +226,7 @@ async def decide_tool_policy_async(
 
 
 def _decide_core(
-    session: SessionState,
+    session: Session,
     tool_kind: str,
     global_policy: str | None,
 ) -> PermissionDecision:

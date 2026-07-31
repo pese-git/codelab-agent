@@ -16,7 +16,7 @@ from codelab.server.models import AvailableCommand
 from .base import CommandHandler
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -121,7 +121,7 @@ class CommandRegistry:
         """
         return name in self._handlers
 
-    def get_commands(self, session: SessionState | None = None) -> list[AvailableCommand]:
+    def get_commands(self, session: Session | None = None) -> list[AvailableCommand]:
         """Возвращает список всех доступных команд.
 
         Args:
@@ -143,7 +143,7 @@ class CommandRegistry:
         return commands
 
     def get_commands_as_dicts(
-        self, session: SessionState | None = None
+        self, session: Session | None = None
     ) -> list[dict[str, str | dict[str, str] | None]]:
         """Возвращает список команд в формате dict для JSON-RPC.
 

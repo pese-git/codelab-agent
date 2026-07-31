@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from codelab.server.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
     from codelab.server.tools.base import ToolRegistry
     from codelab.server.tools.executors.plan_executor import PlanToolExecutor
 
@@ -94,7 +94,7 @@ class PlanToolDefinitions:
         """
 
         # Создать обработчик для update_plan
-        async def plan_handler(session: SessionState, **arguments: Any) -> Any:
+        async def plan_handler(session: Session, **arguments: Any) -> Any:
             """Обработчик для update_plan."""
             return await executor.execute(session, arguments)
 

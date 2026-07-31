@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
@@ -23,9 +24,9 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import 
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.registry import SimpleToolRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
 @dataclass
@@ -95,9 +96,9 @@ def agent_loop(
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создаёт базовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test-session",
         cwd="/tmp",
         mcp_servers=[],
@@ -121,11 +122,11 @@ class TestE2EMcpToolExecution:
     async def test_full_mcp_tool_flow(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Полный поток: prompt → MCP tool call → response."""
-        session.permission_policy = {"other": "allow_always", "read": "allow_always"}
+        session.permissions.policy = {"other": "allow_always", "read": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=True,
             output="File content: Hello, World!",
@@ -156,11 +157,11 @@ class TestE2EMcpToolExecution:
     async def test_multiple_mcp_tool_calls(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Несколько MCP tool calls выполняются последовательно."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=True,
             output="result",
@@ -187,12 +188,12 @@ class TestE2EMcpToolExecution:
     async def test_mixed_builtin_and_mcp_tools(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
         tool_registry: SimpleToolRegistry,
     ) -> None:
         """Смешанные builtin и MCP tools выполняются корректно."""
-        session.permission_policy = {"other": "allow_always", "read": "allow_always"}
+        session.permissions.policy = {"other": "allow_always", "read": "allow_always"}
 
         # Регистрируем builtin tool
         async def mock_execute(*args, **kwargs):
@@ -243,7 +244,7 @@ class TestMcpToolPermissionFlow:
     async def test_permission_ask_flow(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Permission flow: ask → pending_permission."""
@@ -266,11 +267,11 @@ class TestMcpToolPermissionFlow:
     async def test_permission_allow_flow(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Permission flow: allow → execute."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=True,
             output="allowed result",
@@ -294,11 +295,11 @@ class TestMcpToolPermissionFlow:
     async def test_permission_reject_flow(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Permission flow: reject → failed."""
-        session.permission_policy = {"other": "reject_always"}
+        session.permissions.policy = {"other": "reject_always"}
 
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
         notifications: list = []
@@ -322,11 +323,11 @@ class TestMcpToolErrorHandling:
     async def test_mcp_server_error(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """MCP server возвращает ошибку."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=False,
             error="Server error: connection refused",
@@ -350,11 +351,11 @@ class TestMcpToolErrorHandling:
     async def test_mcp_server_crash(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """MCP server падает с exception."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.side_effect = RuntimeError("Server crashed")
 
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
@@ -375,11 +376,11 @@ class TestMcpToolErrorHandling:
     async def test_mcp_timeout(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """MCP tool timeout."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.side_effect = TimeoutError("Operation timed out")
 
         tool_calls = [MockToolCall(name="mcp_test_tool", arguments={}, id="call_1")]
@@ -404,11 +405,11 @@ class TestMcpToolNotifications:
     async def test_tool_call_notifications(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Tool call генерирует правильные notifications."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=True,
             output="result",
@@ -433,11 +434,11 @@ class TestMcpToolNotifications:
     async def test_tool_status_transitions(
         self,
         agent_loop: AgentLoop,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Tool status переходит через правильные состояния."""
-        session.permission_policy = {"other": "allow_always"}
+        session.permissions.policy = {"other": "allow_always"}
         mock_mcp_manager.call_tool.return_value = ToolExecutionResult(
             success=True,
             output="result",
@@ -455,9 +456,9 @@ class TestMcpToolNotifications:
         )
 
         # Проверяем что tool_call создан (ID генерируется ToolCallHandler)
-        assert len(session.tool_calls) == 1
+        assert len(session.tool_calls.calls) == 1
         # Проверяем что tool_call_id_from_llm сохранён
-        tool_call_state = list(session.tool_calls.values())[0]
+        tool_call_state = list(session.tool_calls.get_all())[0]
         assert tool_call_state.tool_call_id_from_llm == "call_1"
         # Проверяем что статус обновлён
         assert tool_call_state.status == "completed"

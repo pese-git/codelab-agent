@@ -15,11 +15,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.client_rpc.exceptions import ClientRPCResponseError
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestFileSystemExecutorInit:
@@ -51,9 +52,9 @@ class TestFileSystemExecutorRead:
         return FileSystemToolExecutor(mock_bridge, mock_checker)
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -64,7 +65,7 @@ class TestFileSystemExecutorRead:
     async def test_execute_read_success(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Успешное чтение файла."""
         # Arrange
@@ -93,7 +94,7 @@ class TestFileSystemExecutorRead:
     async def test_execute_read_with_line_and_limit(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Чтение с параметрами line и limit."""
         # Arrange
@@ -122,7 +123,7 @@ class TestFileSystemExecutorRead:
     async def test_execute_read_file_not_found(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка ошибки 'файл не найден'."""
         # Arrange
@@ -144,7 +145,7 @@ class TestFileSystemExecutorRead:
     async def test_execute_read_permission_denied(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка ошибки доступа."""
         # Arrange
@@ -164,7 +165,7 @@ class TestFileSystemExecutorRead:
     async def test_execute_read_exception_handling(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка исключений при чтении."""
         # Arrange
@@ -187,7 +188,7 @@ class TestFileSystemExecutorRead:
     async def test_read_file_directory_returns_error_message(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Сообщение ClientRPCResponseError доходит до LLM."""
         # Arrange
@@ -222,9 +223,9 @@ class TestFileSystemExecutorWrite:
         return FileSystemToolExecutor(mock_bridge, mock_checker)
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -235,7 +236,7 @@ class TestFileSystemExecutorWrite:
     async def test_execute_write_success(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Успешная запись файла."""
         # Arrange
@@ -262,7 +263,7 @@ class TestFileSystemExecutorWrite:
     async def test_execute_write_permission_denied(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка ошибки доступа при записи."""
         # Arrange
@@ -283,7 +284,7 @@ class TestFileSystemExecutorWrite:
     async def test_execute_write_exception_handling(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка исключений при записи."""
         # Arrange
@@ -306,7 +307,7 @@ class TestFileSystemExecutorWrite:
     async def test_write_file_error_propagation(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Сообщение ClientRPCResponseError при записи доходит до LLM."""
         # Arrange
@@ -342,9 +343,9 @@ class TestFileSystemExecutorDispatch:
         return FileSystemToolExecutor(mock_bridge, mock_checker)
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -355,7 +356,7 @@ class TestFileSystemExecutorDispatch:
     async def test_execute_with_read_operation(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Выполнение операции read через execute()."""
         # Arrange
@@ -378,7 +379,7 @@ class TestFileSystemExecutorDispatch:
     async def test_execute_with_write_operation(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Выполнение операции write через execute()."""
         # Arrange
@@ -400,7 +401,7 @@ class TestFileSystemExecutorDispatch:
     async def test_execute_unknown_operation(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка неизвестной операции."""
         # Arrange
@@ -421,7 +422,7 @@ class TestFileSystemExecutorDispatch:
     async def test_execute_missing_operation(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обработка отсутствия поля operation."""
         # Arrange
@@ -449,9 +450,9 @@ class TestFileSystemExecutorToolExecutionResult:
         return FileSystemToolExecutor(mock_bridge, mock_checker)
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -462,7 +463,7 @@ class TestFileSystemExecutorToolExecutionResult:
     async def test_result_has_success_field(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Результат имеет поле success."""
         # Arrange
@@ -479,7 +480,7 @@ class TestFileSystemExecutorToolExecutionResult:
     async def test_result_success_true_has_output(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Успешный результат имеет output."""
         # Arrange
@@ -497,7 +498,7 @@ class TestFileSystemExecutorToolExecutionResult:
     async def test_result_failure_has_error(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Неудачный результат имеет error."""
         # Arrange
@@ -515,7 +516,7 @@ class TestFileSystemExecutorToolExecutionResult:
     async def test_result_metadata_for_write(
         self,
         executor: FileSystemToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Результат write содержит metadata с bytes."""
         # Arrange

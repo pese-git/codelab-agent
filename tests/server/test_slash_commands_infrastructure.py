@@ -5,6 +5,7 @@
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.models import AvailableCommand, AvailableCommandInput
 from codelab.server.protocol.handlers.slash_commands import (
     CommandHandler,
@@ -17,13 +18,13 @@ from codelab.server.protocol.handlers.slash_commands.builtin import (
     ModeCommandHandler,
     StatusCommandHandler,
 )
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создает тестовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session_123",
         cwd="/tmp/test",
         mcp_servers=[],
@@ -45,7 +46,7 @@ class DummyHandler(CommandHandler):
         self._name = name
         self._description = description
 
-    def execute(self, args: list[str], session: SessionState) -> CommandResult:
+    def execute(self, args: list[str], session: DomainSession) -> CommandResult:
         return CommandResult(
             content=[{"type": "text", "text": f"Dummy executed with args: {args}"}]
         )
@@ -132,7 +133,11 @@ class TestSlashCommandRouter:
     """Тесты для SlashCommandRouter."""
 
     @pytest.mark.asyncio
-    async def test_route_to_handler(self, registry: CommandRegistry, session: SessionState) -> None:
+    async def test_route_to_handler(
+        self,
+        registry: CommandRegistry,
+        session: DomainSession,
+    ) -> None:
         """Маршрутизация команды к handler'у."""
         registry.register(DummyHandler("test"))
         router = SlashCommandRouter(registry)
@@ -150,7 +155,7 @@ class TestSlashCommandRouter:
 
     @pytest.mark.asyncio
     async def test_route_unknown_command_returns_none(
-        self, registry: CommandRegistry, session: SessionState
+        self, registry: CommandRegistry, session: DomainSession
     ) -> None:
         """Неизвестная команда возвращает None для fallback."""
         router = SlashCommandRouter(registry)
@@ -163,14 +168,14 @@ class TestSlashCommandRouter:
 class TestStatusCommandHandler:
     """Тесты для StatusCommandHandler."""
 
-    def test_execute_returns_session_info(self, session: SessionState) -> None:
+    def test_execute_returns_session_info(self, session: DomainSession) -> None:
         """Команда /status возвращает информацию о сессии."""
         handler = StatusCommandHandler()
         result = handler.execute([], session)
 
         assert len(result.content) == 1
         text = result.content[0]["text"]
-        assert session.session_id in text
+        assert str(session.id) in text
         assert "Состояние сессии" in text
 
     def test_get_definition(self) -> None:
@@ -186,7 +191,7 @@ class TestStatusCommandHandler:
 class TestModeCommandHandler:
     """Тесты для ModeCommandHandler."""
 
-    def test_show_current_mode(self, session: SessionState) -> None:
+    def test_show_current_mode(self, session: DomainSession) -> None:
         """Без аргументов показывает текущий режим."""
         handler = ModeCommandHandler()
         result = handler.execute([], session)
@@ -195,19 +200,19 @@ class TestModeCommandHandler:
         assert "bypass" in text
         assert "Текущий режим" in text
 
-    def test_change_mode(self, session: SessionState) -> None:
+    def test_change_mode(self, session: DomainSession) -> None:
         """С аргументом изменяет режим."""
         handler = ModeCommandHandler()
         result = handler.execute(["plan"], session)
 
         # Проверяем, что режим изменился
-        assert session.config_values["mode"] == "plan"
+        assert session.config.config_values["mode"] == "plan"
         # Проверяем, что есть update для клиента
         assert len(result.updates) == 1
         assert result.updates[0]["sessionUpdate"] == "current_mode_update"
         assert result.updates[0]["mode"] == "plan"
 
-    def test_invalid_mode(self, session: SessionState) -> None:
+    def test_invalid_mode(self, session: DomainSession) -> None:
         """Неизвестный режим возвращает ошибку."""
         handler = ModeCommandHandler()
         result = handler.execute(["invalid_mode"], session)
@@ -215,9 +220,9 @@ class TestModeCommandHandler:
         text = result.content[0]["text"]
         assert "Неизвестный режим" in text
         # Режим не изменился (остался bypass после миграции)
-        assert session.config_values["mode"] == "bypass"
+        assert session.config.config_values["mode"] == "bypass"
 
-    def test_same_mode(self, session: SessionState) -> None:
+    def test_same_mode(self, session: DomainSession) -> None:
         """Установка текущего режима сообщает, что режим уже активен."""
         handler = ModeCommandHandler()
         result = handler.execute(["bypass"], session)
@@ -238,7 +243,7 @@ class TestModeCommandHandler:
 class TestHelpCommandHandler:
     """Тесты для HelpCommandHandler."""
 
-    def test_list_all_commands(self, registry: CommandRegistry, session: SessionState) -> None:
+    def test_list_all_commands(self, registry: CommandRegistry, session: DomainSession) -> None:
         """Без аргументов показывает все команды."""
         registry.register(StatusCommandHandler())
         registry.register(ModeCommandHandler())
@@ -255,7 +260,7 @@ class TestHelpCommandHandler:
         assert "/help" in text
 
     def test_help_for_specific_command(
-        self, registry: CommandRegistry, session: SessionState
+        self, registry: CommandRegistry, session: DomainSession
     ) -> None:
         """Справка по конкретной команде."""
         registry.register(StatusCommandHandler())
@@ -268,7 +273,7 @@ class TestHelpCommandHandler:
         assert "status" in text
         assert "Описание" in text
 
-    def test_help_unknown_command(self, registry: CommandRegistry, session: SessionState) -> None:
+    def test_help_unknown_command(self, registry: CommandRegistry, session: DomainSession) -> None:
         """Справка по несуществующей команде."""
         help_handler = HelpCommandHandler(registry)
 
@@ -286,7 +291,7 @@ class TestHelpCommandHandler:
         assert definition.input is not None
 
     def test_list_includes_mcp_prompts(
-        self, registry: CommandRegistry, session: SessionState
+        self, registry: CommandRegistry, session: DomainSession
     ) -> None:
         """/help показывает MCP prompts из runtime registry."""
         from unittest.mock import MagicMock
@@ -315,7 +320,7 @@ class TestHelpCommandHandler:
         assert "Review code" in text
 
     def test_help_for_mcp_prompt_command(
-        self, registry: CommandRegistry, session: SessionState
+        self, registry: CommandRegistry, session: DomainSession
     ) -> None:
         """/help <command> работает для MCP prompt команд."""
         from unittest.mock import MagicMock

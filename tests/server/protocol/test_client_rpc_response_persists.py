@@ -148,15 +148,23 @@ class TestClientRpcResponseReachesDisk:
 
 
 def _session_via_production_builder(kind: str) -> tuple[SessionState, list[Any]]:
-    """Состояние готовит тот же код, что в проде, а не фикстура «как надо»."""
+    """Состояние готовит тот же код, что в проде, а не фикстура «как надо».
+
+    Подготовка идёт доменным агрегатом — носителем turn-пути (ADR-006, фаза D шаг
+    3), а возвращается wire-документ: именно он уезжает на диск, и дальше тест
+    сверяет диск с тем, что ушло клиенту.
+    """
+    from codelab.server.domain.session import TurnState
+    from codelab.server.mapping.session_mapper import SessionMapper
     from codelab.server.protocol.handlers.prompt import build_fs_client_request
     from codelab.server.protocol.state import ClientRuntimeCapabilities, PromptDirectives
 
-    session = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
-    session.runtime_capabilities = ClientRuntimeCapabilities(
+    state = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
+    state.runtime_capabilities = ClientRuntimeCapabilities(
         fs_read=True, fs_write=True, terminal=True
     )
-    session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_x")
+    session = SessionMapper.to_domain(state)
+    session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_x")
     directives = (
         PromptDirectives(fs_read_path="/w/file.txt")
         if kind == "fs_read"
@@ -164,8 +172,8 @@ def _session_via_production_builder(kind: str) -> tuple[SessionState, list[Any]]
     )
     prepared = build_fs_client_request(session=session, session_id="sess_x", directives=directives)
     assert prepared is not None
-    session.active_turn.pending_client_request = prepared.pending_request
-    return session, prepared.messages
+    session.active_turn.pending_external_request = prepared.pending_request
+    return SessionMapper.to_protocol(session), prepared.messages
 
 
 class TestClientRpcCallStartsInProgress:

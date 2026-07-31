@@ -33,8 +33,8 @@ from codelab.server.protocol.handlers.slash_commands.builtin import (
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.registry import SimpleToolRegistry
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -183,9 +183,9 @@ def orchestrator(
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает SessionState."""
-    return SessionState(
+def session() -> DomainSession:
+    """Создает DomainSession."""
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -193,15 +193,7 @@ def session() -> SessionState:
 
 
 @pytest.fixture
-def domain_session(session: SessionState) -> DomainSession:
-    """Доменный агрегат той же сессии — рабочая модель транзакции `session/cancel`."""
-    from codelab.server.mapping.session_mapper import SessionMapper
-
-    return SessionMapper.to_domain(session)
-
-
-@pytest.fixture
-def sessions(session: SessionState) -> dict[str, SessionState]:
+def sessions(session: DomainSession) -> dict[str, DomainSession]:
     """Создает словарь сессий."""
     return {"sess_1": session}
 
@@ -225,8 +217,8 @@ class TestPromptOrchestratorHandlePrompt:
     async def test_handle_prompt_creates_active_turn(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Создает active turn при обработке промпта."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -243,8 +235,8 @@ class TestPromptOrchestratorHandlePrompt:
     async def test_handle_prompt_updates_session_state(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Обновляет состояние сессии при обработке."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -256,15 +248,15 @@ class TestPromptOrchestratorHandlePrompt:
         )
 
         # Проверяем что история обновлена
-        assert len(session.history) > 0
-        assert session.history[0]["role"] == "user"
+        assert len(wire_history(session)) > 0
+        assert wire_history(session)[0]["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_handle_prompt_returns_notifications(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Возвращает notifications при обработке."""
         prompt = [{"type": "text", "text": "Test prompt"}]
@@ -287,8 +279,8 @@ class TestPromptOrchestratorHandlePrompt:
     async def test_handle_prompt_with_empty_prompt(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Обрабатывает пустой промпт."""
         outcome = await orchestrator.handle_prompt(
@@ -305,8 +297,8 @@ class TestPromptOrchestratorHandlePrompt:
     async def test_handle_prompt_with_agent_error(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Обрабатывает ошибку агента."""
 
@@ -327,8 +319,8 @@ class TestPromptOrchestratorHandlePrompt:
     async def test_handle_prompt_sets_session_title(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """Устанавливает заголовок сессии из первого промпта."""
         prompt = [{"type": "text", "text": "My test prompt"}]
@@ -348,10 +340,10 @@ class TestPromptOrchestratorHandleCancel:
     def test_handle_cancel_with_active_turn(
         self,
         orchestrator: PromptOrchestrator,
-        domain_session: DomainSession,
+        session: DomainSession,
     ) -> None:
         """Обрабатывает cancel при активном turn."""
-        domain_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -359,25 +351,25 @@ class TestPromptOrchestratorHandleCancel:
         outcome = orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            domain_session,
+            session,
         )
 
         # Должны быть notifications об отмене
         assert outcome.notifications is not None
         # Turn должен быть очищен
-        assert domain_session.active_turn is None
+        assert session.active_turn is None
 
     def test_handle_cancel_writes_permission_tombstone(
         self,
         orchestrator: PromptOrchestrator,
-        domain_session: DomainSession,
+        session: DomainSession,
     ) -> None:
         """Отмена во время ожидания permission помечает request отменённым.
 
         Tombstone нужен, чтобы поздний ответ на диалог поглощался тихо, а не
         возвращал -32603.
         """
-        domain_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             permission_request_id="perm_1",
@@ -387,23 +379,23 @@ class TestPromptOrchestratorHandleCancel:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            domain_session,
+            session,
         )
 
-        assert domain_session.is_permission_cancelled("perm_1")
+        assert session.is_permission_cancelled("perm_1")
 
     def test_handle_cancel_without_active_turn(
         self,
         orchestrator: PromptOrchestrator,
-        domain_session: DomainSession,
+        session: DomainSession,
     ) -> None:
         """Не падает при cancel без активного turn."""
-        domain_session.active_turn = None
+        session.active_turn = None
 
         outcome = orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            domain_session,
+            session,
         )
 
         # Должно вернуть пустой результат
@@ -412,10 +404,10 @@ class TestPromptOrchestratorHandleCancel:
     def test_handle_cancel_marks_cancel_requested(
         self,
         orchestrator: PromptOrchestrator,
-        domain_session: DomainSession,
+        session: DomainSession,
     ) -> None:
         """Устанавливает флаг cancel_requested и отвечает на отложенный prompt."""
-        domain_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -423,13 +415,13 @@ class TestPromptOrchestratorHandleCancel:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            domain_session,
+            session,
         )
 
         # После очистки active_turn сразу, проверяем что он был очищен
-        assert domain_session.active_turn is None
+        assert session.active_turn is None
         # Ответ на исходный `session/prompt` отложен в состояние сессии
-        assert domain_session.runtime.pending_prompt_response == {
+        assert session.runtime.pending_prompt_response == {
             "request_id": "req_1",
             "stop_reason": "cancelled",
         }
@@ -453,8 +445,8 @@ class TestPromptOrchestratorComponentIntegration:
     async def test_state_manager_integration(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
     ) -> None:
         """StateManager интегрирован в prompt handling."""
         prompt = [{"type": "text", "text": "Test"}]
@@ -467,15 +459,15 @@ class TestPromptOrchestratorComponentIntegration:
 
         # Проверяем что StateManager обновил состояние
         assert session.title == "Test"
-        assert len(session.history) > 0
+        assert len(wire_history(session)) > 0
 
     def test_turn_lifecycle_integration(
         self,
         orchestrator: PromptOrchestrator,
-        domain_session: DomainSession,
+        session: DomainSession,
     ) -> None:
         """Отмена снимает active turn (жизненный цикл — операции агрегата)."""
-        domain_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
@@ -483,10 +475,10 @@ class TestPromptOrchestratorComponentIntegration:
         orchestrator.handle_cancel(
             "cancel_req",
             {"sessionId": "sess_1"},
-            domain_session,
+            session,
         )
 
-        assert domain_session.active_turn is None
+        assert session.active_turn is None
 
 
 class TestPromptOrchestratorToolCallFlow:
@@ -496,15 +488,15 @@ class TestPromptOrchestratorToolCallFlow:
     async def test_handle_prompt_processes_tool_calls_with_valid_signature(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
         tool_registry: SimpleToolRegistry,
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что tool call обрабатывается без TypeError по сигнатуре."""
-        session.config_values["mode"] = "auto"
+        session.config.config_values["mode"] = "auto"
         # Устанавливаем policy чтобы пропустить permission flow
-        session.permission_policy["other"] = "allow_always"
+        session.permissions.policy["other"] = "allow_always"
 
         tool_registry.register_tool(
             name="demo/tool",
@@ -572,13 +564,13 @@ class TestPromptOrchestratorToolCallFlow:
     async def test_handle_prompt_ask_mode_keeps_pending_status_while_waiting_permission(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
         tool_registry: SimpleToolRegistry,
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что ask-режим не публикует не-ACP статус pending_permission."""
-        session.config_values["mode"] = "ask"
+        session.config.config_values["mode"] = "ask"
 
         tool_registry.register_tool(
             name="fs/read_text_file",
@@ -639,13 +631,13 @@ class TestPromptOrchestratorToolCallFlow:
     async def test_handle_prompt_emits_single_permission_request_message(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
         tool_registry: SimpleToolRegistry,
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что в ask-flow отправляется ровно один RPC permission request."""
-        session.config_values["mode"] = "ask"
+        session.config.config_values["mode"] = "ask"
 
         tool_registry.register_tool(
             name="fs/read_text_file",
@@ -690,14 +682,14 @@ class TestPromptOrchestratorToolCallFlow:
     async def test_handle_prompt_reject_policy_maps_to_failed_status(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
-        sessions: dict[str, SessionState],
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
         llm_loop_stage: LLMLoopStage,
     ) -> None:
         """Проверяет, что reject policy публикуется как failed, а не cancelled."""
-        session.config_values["mode"] = "ask"
+        session.config.config_values["mode"] = "ask"
         # Устанавливаем reject policy на "other" kind, т.к. tool не найден в registry
-        session.permission_policy["other"] = "reject_always"
+        session.permissions.policy["other"] = "reject_always"
 
         mock_dispatcher = llm_loop_stage._strategy_dispatcher
         mock_dispatcher.execute.return_value = SimpleNamespace(

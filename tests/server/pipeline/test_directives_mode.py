@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
 from codelab.server.protocol.handlers.pipeline.stages.directives import DirectivesStage
 from codelab.server.protocol.state import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
-    SessionState,
 )
 from codelab.server.tools.registry import SimpleToolRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -39,8 +40,8 @@ def stage(
     return DirectivesStage(tool_registry, permission_manager)
 
 
-def _make_session(mode: str = "standard") -> SessionState:
-    return SessionState(
+def _make_session(mode: str = "standard") -> DomainSession:
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -50,7 +51,7 @@ def _make_session(mode: str = "standard") -> SessionState:
 
 
 def _make_context(
-    session: SessionState,
+    session: DomainSession,
     params: dict | None = None,
 ) -> PromptContext:
     return PromptContext(
@@ -227,7 +228,7 @@ class TestDirectivesStageStandardMode:
     async def test_standard_mode_allow_always_auto_executes(self, stage: DirectivesStage) -> None:
         """В standard mode с allow_always policy — auto-execute."""
         session = _make_session(mode="standard")
-        session.permission_policy["execute"] = "allow_always"
+        session.permissions.policy["execute"] = "allow_always"
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
@@ -253,7 +254,7 @@ class TestDirectivesStageStandardMode:
     async def test_standard_mode_reject_always_cancels(self, stage: DirectivesStage) -> None:
         """В standard mode с reject_always policy — cancel."""
         session = _make_session(mode="standard")
-        session.permission_policy["execute"] = "reject_always"
+        session.permissions.policy["execute"] = "reject_always"
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,

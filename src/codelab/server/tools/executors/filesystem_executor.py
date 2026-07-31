@@ -10,7 +10,7 @@ from codelab.server.client_rpc.exceptions import (
     ClientRPCCancelledError,
     ClientRPCResponseError,
 )
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
@@ -45,7 +45,7 @@ class FileSystemToolExecutor(ToolExecutor):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент на основе аргументов.
@@ -81,7 +81,7 @@ class FileSystemToolExecutor(ToolExecutor):
 
     async def execute_read(
         self,
-        session: SessionState,
+        session: Session,
         path: str,
         line: int | None = None,
         limit: int | None = None,
@@ -100,7 +100,7 @@ class FileSystemToolExecutor(ToolExecutor):
         try:
             logger.debug(
                 "Начало выполнения read_text_file",
-                extra={"session_id": session.session_id, "path": path},
+                extra={"session_id": str(session.id), "path": path},
             )
 
             # Примечание: Проверка разрешений выполняется в
@@ -124,7 +124,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.debug(
                 "Файл успешно прочитан",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "bytes": len(content),
                 },
@@ -139,7 +139,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.error(
                 "RPC ошибка при чтении файла",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "error": str(e),
                 },
@@ -168,7 +168,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.error(
                 "Ошибка при чтении файла",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "error": str(e),
                 },
@@ -180,7 +180,7 @@ class FileSystemToolExecutor(ToolExecutor):
 
     async def execute_write(
         self,
-        session: SessionState,
+        session: Session,
         path: str,
         content: str,
     ) -> ToolExecutionResult:
@@ -200,7 +200,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.debug(
                 "Начало выполнения write_text_file",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "bytes": len(content),
                 },
@@ -226,7 +226,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.debug(
                 "Файл успешно записан",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "bytes": len(content),
                 },
@@ -244,7 +244,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.error(
                 "RPC ошибка при записи файла",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "error": str(e),
                 },
@@ -273,7 +273,7 @@ class FileSystemToolExecutor(ToolExecutor):
             logger.error(
                 "Ошибка при записи файла",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "error": str(e),
                 },

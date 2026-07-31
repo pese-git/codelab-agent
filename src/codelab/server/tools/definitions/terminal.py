@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
     from codelab.server.tools.base import ToolRegistry
 
 
@@ -159,18 +159,18 @@ class TerminalToolDefinitions:
         """
 
         # Создать обработчик для создания терминала и запуска команды
-        async def create_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
+        async def create_handler(session: Session, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/create."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "create"
-            # Подставить session.cwd если LLM не передал cwd явно
-            if "cwd" not in arguments and session.cwd:
-                arguments["cwd"] = session.cwd
+            # Подставить session.config.cwd если LLM не передал cwd явно
+            if "cwd" not in arguments and session.config.cwd:
+                arguments["cwd"] = session.config.cwd
             return await executor.execute(session, arguments)
 
         # Создать обработчик для ожидания завершения
         async def wait_for_exit_handler(
-            session: SessionState,
+            session: Session,
             **arguments: Any,
         ) -> ToolExecutionResult:
             """Обработчик для terminal/wait_for_exit."""
@@ -179,7 +179,7 @@ class TerminalToolDefinitions:
             return await executor.execute(session, arguments)
 
         # Создать обработчик для освобождения терминала
-        async def release_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
+        async def release_handler(session: Session, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для terminal/release_terminal (release)."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "release"

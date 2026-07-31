@@ -18,7 +18,7 @@ from codelab.server.protocol.mode import (
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 
 class ModeCommandHandler(CommandHandler):
@@ -33,7 +33,7 @@ class ModeCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду /mode.
 
@@ -44,7 +44,7 @@ class ModeCommandHandler(CommandHandler):
         Returns:
             CommandResult с информацией о режиме или подтверждением смены
         """
-        current_mode = session.config_values.get("mode", DEFAULT_MODE)
+        current_mode = session.config.config_values.get("mode", DEFAULT_MODE)
 
         # Если аргументов нет — показываем текущий режим
         if not args:

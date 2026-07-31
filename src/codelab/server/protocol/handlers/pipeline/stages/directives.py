@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 import structlog
 
+from codelab.server.domain.session import Session
 from codelab.server.messages import ACPMessage
-from codelab.server.models import PlanStep
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
     build_fs_client_request,
@@ -21,7 +21,7 @@ from codelab.server.protocol.handlers.prompt import (
     resolve_tool_title,
 )
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
-from codelab.server.protocol.state import PromptDirectives, SessionState
+from codelab.server.protocol.state import PromptDirectives
 
 from ..base import PromptStage
 from ..context import PromptContext
@@ -33,9 +33,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-def _can_run_tool_runtime(session: SessionState) -> bool:
+def _can_run_tool_runtime(session: Session) -> bool:
     """Проверяет, можно ли запускать tool-runtime в текущей сессии."""
-    caps = session.runtime_capabilities
+    caps = session.config.runtime_capabilities
     if caps is None:
         return False
     return caps.terminal or caps.fs_read or caps.fs_write
@@ -113,22 +113,15 @@ class DirectivesStage(PromptStage):
                 },
             )
         )
-        # Сохраняем план в сессии для replay в ACP-форме {content, priority, status} —
-        # идентично тому, что ушло в wire выше (P2-26). Раньше урезалось до
-        # {title, description}, что невалидно по ACP и теряло статусы при replay.
+        # План сохраняется в сессии для replay. Носитель — доменный агрегат; ACP-форма
+        # {content, priority, status}, ушедшая в wire выше, воспроизводится маппером на
+        # границе сохранения (P2-26: прежняя форма {title, description} невалидна по ACP
+        # и теряла статусы при replay).
+        from codelab.server.domain.session import AgentPlan
         from codelab.server.mapping.plan_mapper import PlanMapper
 
         acp_entries = PlanMapper.entries_to_acp(list(plan_entries))
-        context.session.latest_plan = cast("list[PlanStep | dict[str, Any]]", acp_entries)
-        # Dual-carry (write-фаза D4-b/b1): синхронизируем доменный агрегат из тех же
-        # данных. Здесь вход (build_plan_entries) не проходит validate_plan_entries,
-        # поэтому latest_plan пишется точь-в-точь (байт-в-байт с wire), а домен наполняется
-        # из тех же entries — в отличие от sink-пути, где вход валидирован и latest_plan
-        # деривируется из домена.
-        if context.domain_session is not None:
-            from codelab.server.domain.session import AgentPlan
-
-            context.domain_session.plan = AgentPlan(steps=PlanMapper.from_acp(acp_entries))
+        context.session.plan = AgentPlan(steps=PlanMapper.from_acp(acp_entries))
 
     def _apply_terminal_rpc(self, context: PromptContext, directives: PromptDirectives) -> bool:
         """Директива terminal_command: сформировать client RPC. True — turn deferred."""
@@ -143,7 +136,7 @@ class DirectivesStage(PromptStage):
             return False
         context.notifications.extend(prepared.messages)
         if context.session.active_turn is not None:
-            context.session.active_turn.pending_client_request = prepared.pending_request
+            context.session.active_turn.pending_external_request = prepared.pending_request
             context.session.active_turn.phase = "waiting_client_rpc"
         context.pending_permission = True  # turn deferred — не отправлять response
         context.should_stop = True
@@ -165,7 +158,7 @@ class DirectivesStage(PromptStage):
             return False
         context.notifications.extend(prepared.messages)
         if context.session.active_turn is not None:
-            context.session.active_turn.pending_client_request = prepared.pending_request
+            context.session.active_turn.pending_external_request = prepared.pending_request
             context.session.active_turn.phase = "waiting_client_rpc"
         context.pending_permission = True  # turn deferred — не отправлять response
         context.should_stop = True

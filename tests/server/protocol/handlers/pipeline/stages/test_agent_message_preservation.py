@@ -9,7 +9,7 @@ import pytest
 from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestAgentMessageChunkPreservation:
@@ -19,7 +19,7 @@ class TestAgentMessageChunkPreservation:
     async def test_agent_response_saved_to_events_history(self) -> None:
         """Agent response сохраняется в events_history для replay."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -59,12 +59,12 @@ class TestAgentMessageChunkPreservation:
 
         # Assert
         assert result.stop_reason.value == "end_turn"
-        assert len(session.events_history) > 0
+        assert len(session.runtime.events_history) > 0
 
         # Проверяем, что agent_message_chunk сохранён
         agent_chunks = [
             event
-            for event in session.events_history
+            for event in session.runtime.events_history
             if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
         assert len(agent_chunks) > 0
@@ -78,7 +78,7 @@ class TestAgentMessageChunkPreservation:
     async def test_multiple_agent_responses_all_saved(self) -> None:
         """Несколько agent responses сохраняются в правильном порядке."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -136,7 +136,7 @@ class TestAgentMessageChunkPreservation:
         # Assert
         agent_chunks = [
             event
-            for event in session.events_history
+            for event in session.runtime.events_history
             if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
 

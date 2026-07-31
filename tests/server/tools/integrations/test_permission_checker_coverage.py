@@ -9,9 +9,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -27,9 +28,9 @@ def checker(mock_manager: MagicMock) -> PermissionChecker:
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Базовая сессия."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -43,7 +44,7 @@ class TestShouldRequestPermission:
         self,
         checker: PermissionChecker,
         mock_manager: MagicMock,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Делегирует менеджеру и возвращает True."""
         mock_manager.should_request_permission.return_value = True
@@ -57,7 +58,7 @@ class TestShouldRequestPermission:
         self,
         checker: PermissionChecker,
         mock_manager: MagicMock,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Делегирует менеджеру и возвращает False."""
         mock_manager.should_request_permission.return_value = False
@@ -75,7 +76,7 @@ class TestGetRememberedPermission:
         self,
         checker: PermissionChecker,
         mock_manager: MagicMock,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает 'allow' от менеджера."""
         mock_manager.get_remembered_permission.return_value = "allow"
@@ -89,7 +90,7 @@ class TestGetRememberedPermission:
         self,
         checker: PermissionChecker,
         mock_manager: MagicMock,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает 'reject' от менеджера."""
         mock_manager.get_remembered_permission.return_value = "reject"
@@ -103,7 +104,7 @@ class TestGetRememberedPermission:
         self,
         checker: PermissionChecker,
         mock_manager: MagicMock,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает 'ask' от менеджера."""
         mock_manager.get_remembered_permission.return_value = "ask"

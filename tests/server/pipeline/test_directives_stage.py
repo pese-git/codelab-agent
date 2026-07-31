@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
 from codelab.server.protocol.handlers.pipeline.stages.directives import DirectivesStage
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PromptDirectives,
-    SessionState,
 )
 from codelab.server.tools.registry import SimpleToolRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -41,8 +42,8 @@ def stage(
 
 
 @pytest.fixture
-def session() -> SessionState:
-    return SessionState(
+def session() -> DomainSession:
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -50,7 +51,7 @@ def session() -> SessionState:
 
 
 def _make_context(
-    session: SessionState,
+    session: DomainSession,
     raw_text: str,
     params: dict | None = None,
 ) -> PromptContext:
@@ -68,7 +69,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_max_tokens_from_slash(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /stop-max-tokens устанавливает context.stop_reason."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -81,7 +82,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_max_turn_requests_from_slash(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /stop-max-turn-requests устанавливает context.stop_reason."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -94,7 +95,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_refusal_from_slash(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /refuse устанавливает context.stop_reason."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -107,7 +108,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_max_tokens_from_meta(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: max_tokens."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -130,7 +131,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_max_turn_requests_from_meta(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: max_turn_requests."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -153,7 +154,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_stop_reason_refusal_from_meta(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: refusal."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -176,7 +177,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_no_forced_stop_reason_keeps_default(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Без forced_stop_reason context.stop_reason остаётся 'end_turn'."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -188,7 +189,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_forced_stop_reason_does_not_stop_pipeline(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason изменяет stop_reason, но НЕ устанавливает should_stop."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -202,7 +203,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_forced_stop_reason_with_additional_text(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason извлекается даже с дополнительным текстом."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -214,7 +215,7 @@ class TestDirectivesStageForcedStopReason:
 
     @pytest.mark.asyncio
     async def test_forced_stop_reason_stored_in_meta(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Directives сохраняются в context.meta['directives']."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -232,12 +233,12 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
 
     @pytest.mark.asyncio
     async def test_forced_stop_reason_with_request_tool(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason может сосуществовать с requestTool."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
         # Настраиваем capabilities для tool runtime
-        session.runtime_capabilities = type(
+        session.config.runtime_capabilities = type(
             "Caps", (), {"terminal": True, "fs_read": False, "fs_write": False}
         )()
         context = _make_context(
@@ -262,7 +263,7 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
 
     @pytest.mark.asyncio
     async def test_forced_stop_reason_with_publish_plan(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason с publishPlan — plan notification добавляется."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -292,7 +293,7 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
 
     @pytest.mark.asyncio
     async def test_stored_plan_matches_wire_notification(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """P2-26: latest_plan байт-идентичен entries в live-notification.
 
@@ -311,11 +312,11 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         ]
         assert len(plan_notifications) == 1
         wire_entries = plan_notifications[0].params["update"]["entries"]
-        assert session.latest_plan == wire_entries
+        assert session.plan == wire_entries
 
     @pytest.mark.asyncio
     async def test_meta_overrides_slash_forced_stop_reason(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta forcedStopReason имеет приоритет над slash-командой."""
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
@@ -342,7 +343,7 @@ class TestDirectivesStageShouldStopBehavior:
 
     @pytest.mark.asyncio
     async def test_all_forced_stop_reasons_dont_stop_pipeline(
-        self, stage: DirectivesStage, session: SessionState
+        self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Все forced_stop_reason значения НЕ останавливают pipeline."""
         forced_reasons = ["max_tokens", "max_turn_requests", "refusal"]

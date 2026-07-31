@@ -12,7 +12,6 @@ import pytest
 
 from codelab.server.domain.session import PendingExternalRequest
 from codelab.server.domain.session import Session as DomainSession
-from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.prompt import (
     build_fs_client_request,
     build_terminal_client_request,
@@ -21,24 +20,24 @@ from codelab.server.protocol.handlers.prompt import (
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PromptDirectives,
-    SessionState,
 )
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestBuildFsClientRequestGuards:
     """Тесты guard-веток в build_fs_client_request."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Сессия с активным turn."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
             active_turn=ActiveTurnState(prompt_request_id="req_0", session_id="sess_1"),
         )
 
-    def test_fs_read_invalid_path_returns_none(self, session: SessionState) -> None:
+    def test_fs_read_invalid_path_returns_none(self, session: DomainSession) -> None:
         """При пустом пути чтения возвращается None."""
         directives = PromptDirectives(fs_read_path="   ")
 
@@ -50,7 +49,7 @@ class TestBuildFsClientRequestGuards:
 
         assert result is None
 
-    def test_fs_write_invalid_path_returns_none(self, session: SessionState) -> None:
+    def test_fs_write_invalid_path_returns_none(self, session: DomainSession) -> None:
         """При пустом пути записи возвращается None."""
         directives = PromptDirectives(
             fs_write_path="   ",
@@ -67,7 +66,7 @@ class TestBuildFsClientRequestGuards:
 
     def test_fs_read_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если ACPMessage.request для fs/read не получил id, возвращается None."""
         directives = PromptDirectives(fs_read_path="file.txt")
@@ -86,7 +85,7 @@ class TestBuildFsClientRequestGuards:
 
     def test_fs_write_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если ACPMessage.request для fs/write не получил id, возвращается None."""
         directives = PromptDirectives(
@@ -111,9 +110,9 @@ class TestBuildTerminalClientRequestGuards:
     """Тесты guard-веток в build_terminal_client_request."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Сессия с активным turn."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -122,7 +121,7 @@ class TestBuildTerminalClientRequestGuards:
 
     def test_terminal_create_request_without_id_returns_none(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если ACPMessage.request для terminal/create не получил id, возвращается None."""
         directives = PromptDirectives(terminal_command="ls")
@@ -146,8 +145,7 @@ class TestResolvePendingClientRpcTerminalGuards:
     @pytest.fixture
     def session(self) -> DomainSession:
         """Сессия с активным turn — доменный агрегат (транзакция 7, фаза D)."""
-        return SessionMapper.to_domain(
-            SessionState(
+        return make_domain_session(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -156,7 +154,6 @@ class TestResolvePendingClientRpcTerminalGuards:
                     session_id="sess_1",
                 ),
             )
-        )
 
     def test_terminal_create_output_request_without_id_returns_none(
         self,

@@ -8,23 +8,24 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.models import AvailableCommand
 from codelab.server.protocol.handlers.slash_commands.base import CommandHandler, CommandResult
 from codelab.server.protocol.handlers.slash_commands.registry import CommandRegistry
 from codelab.server.protocol.handlers.slash_commands.router import SlashCommandRouter
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 class HelpWithHandlers(CommandHandler):
     """Handler команды help с execute_with_handlers."""
 
-    def execute(self, args: list[str], session: SessionState) -> CommandResult:
+    def execute(self, args: list[str], session: DomainSession) -> CommandResult:
         return CommandResult(content=[])
 
     def execute_with_handlers(
         self,
         args: list[str],
-        session: SessionState,
+        session: DomainSession,
         mcp_prompt_handlers: dict,
     ) -> CommandResult:
         return CommandResult(content=[{"type": "text", "text": "help result"}])
@@ -36,7 +37,7 @@ class HelpWithHandlers(CommandHandler):
 class FailingHandler(CommandHandler):
     """Handler, который бросает исключение при выполнении."""
 
-    def execute(self, args: list[str], session: SessionState) -> CommandResult:
+    def execute(self, args: list[str], session: DomainSession) -> CommandResult:
         raise RuntimeError("boom")
 
     def get_definition(self) -> AvailableCommand:
@@ -46,7 +47,7 @@ class FailingHandler(CommandHandler):
 class UpdateHandler(CommandHandler):
     """Handler, возвращающий дополнительные updates."""
 
-    def execute(self, args: list[str], session: SessionState) -> CommandResult:
+    def execute(self, args: list[str], session: DomainSession) -> CommandResult:
         return CommandResult(
             content=[{"type": "text", "text": "main"}],
             updates=[{"sessionUpdate": "mode_update", "modeId": "standard"}],
@@ -57,15 +58,15 @@ class UpdateHandler(CommandHandler):
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создает тестовую сессию."""
-    return SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    return make_domain_session(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
 
 class TestSlashCommandRouterCoverage:
     """Тесты покрытия router."""
 
-    async def test_route_help_uses_execute_with_handlers(self, session: SessionState) -> None:
+    async def test_route_help_uses_execute_with_handlers(self, session: DomainSession) -> None:
         """Команда help передает mcp_prompt_handlers в execute_with_handlers."""
         registry = CommandRegistry()
         handler = HelpWithHandlers()
@@ -84,7 +85,7 @@ class TestSlashCommandRouterCoverage:
 
     async def test_route_builtin_exception_returns_error_outcome(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Исключение во встроенном handler возвращает outcome с ошибкой."""
         registry = CommandRegistry()
@@ -100,7 +101,7 @@ class TestSlashCommandRouterCoverage:
             if n.params is not None
         )
 
-    def test_build_outcome_with_updates(self, session: SessionState) -> None:
+    def test_build_outcome_with_updates(self, session: DomainSession) -> None:
         """_build_outcome корректно добавляет update-уведомления."""
         registry = CommandRegistry()
         router = SlashCommandRouter(registry)

@@ -1,6 +1,6 @@
 """Тесты для AgentLoop."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -13,6 +13,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
 )
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -26,35 +27,34 @@ def mock_strategy():
 
 @pytest.fixture
 def real_session():
-    """Настоящий SessionState.
+    """Настоящий DomainSession.
 
     Форму записи истории теперь владеет носитель состояния (history-seam,
     фаза B ADR-006), поэтому состав tool-ответа проверяется на реальном
-    `SessionState`, а не на моке: мок раскладку слотов не воспроизводит.
+    `DomainSession`, а не на моке: мок раскладку слотов не воспроизводит.
     """
-    from codelab.server.protocol.state import SessionState
-
-    return SessionState(session_id="test_session", cwd="/tmp", mcp_servers=[])
+    
+    return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
 
 
 @pytest.fixture
 def mock_session():
-    """Mock SessionState."""
+    """Mock DomainSession."""
     session = MagicMock()
-    session.session_id = "test_session"
-    session.config_values = {}
+    session.id = "test_session"
+    session.config.config_values = {}
     session.history = []
     session.tool_calls = {}
     session.active_turn = None
-    session.permission_policy = {}
-    session.latest_plan = None
+    session.permissions.policy = {}
+    session.plan = None
     # Read-seam'ы (фаза B, ADR-006) читают те же словари, что тесты подменяют
     # напрямую. side_effect берёт атрибут в момент вызова, поэтому переприсваивание
-    # session.config_values/permission_policy внутри теста продолжает работать.
-    session.get_config_value.side_effect = lambda key, default=None: session.config_values.get(
-        key, default
+    # session.config.config_values/permission_policy внутри теста продолжает работать.
+    session.get_config_value.side_effect = (
+        lambda key, default=None: session.config.config_values.get(key, default)
     )
-    session.get_permission_policy.side_effect = lambda kind: session.permission_policy.get(kind)
+    session.get_permission_policy.side_effect = lambda kind: session.permissions.policy.get(kind)
     return session
 
 
@@ -415,13 +415,16 @@ class TestAgentLoop:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         await loop.run(mock_session, "test_session", "Initial prompt")
 
+        # Ядро читает сессию через порт `SessionView`, поэтому в стратегию уходит
+        # проекция агрегата, а не сам агрегат (ADR-006, шаг 2 фазы D).
         mock_strategy.execute.assert_called_once_with(
-            mock_session,
+            ANY,
             "Initial prompt",
             None,
             system_prompt="You are a helpful assistant.",
             on_delta=None,
         )
+        assert mock_strategy.execute.call_args.args[0]._session is mock_session
         mock_strategy.continue_execution.assert_not_called()
 
     @pytest.mark.asyncio
@@ -471,7 +474,8 @@ class TestAgentLoop:
         await loop.run(mock_session, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
-        mock_strategy.continue_execution.assert_called_once_with(mock_session, None, on_delta=None)
+        mock_strategy.continue_execution.assert_called_once_with(ANY, None, on_delta=None)
+        assert mock_strategy.continue_execution.call_args.args[0]._session is mock_session
 
     def test_add_tool_result_to_history_success(
         self, mock_strategy, real_session, mock_dependencies
@@ -483,8 +487,8 @@ class TestAgentLoop:
             real_session, "tc_1", success=True, output="Result text", error=None
         )
 
-        assert len(real_session.history) == 1
-        assert real_session.history[0] == {
+        assert len(wire_history(real_session)) == 1
+        assert wire_history(real_session)[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Result text",
@@ -500,8 +504,8 @@ class TestAgentLoop:
             real_session, "tc_1", success=False, output=None, error="Something failed"
         )
 
-        assert len(real_session.history) == 1
-        assert real_session.history[0] == {
+        assert len(wire_history(real_session)) == 1
+        assert wire_history(real_session)[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Something failed",
@@ -517,7 +521,7 @@ class TestAgentLoop:
             real_session, "tc_1", success=False, output=None, error=None
         )
 
-        assert real_session.history[0]["content"] == "Tool execution failed"
+        assert wire_history(real_session)[0]["content"] == "Tool execution failed"
 
     def test_add_tool_result_to_history_failure_preserves_output(
         self, mock_strategy, real_session, mock_dependencies
@@ -534,7 +538,7 @@ class TestAgentLoop:
             real_session, "tc_1", success=False, output=analyze_output, error=None
         )
 
-        assert real_session.history[0]["content"] == analyze_output
+        assert wire_history(real_session)[0]["content"] == analyze_output
 
     def test_add_tool_result_to_history_failure_combines_output_and_error(
         self, mock_strategy, real_session, mock_dependencies
@@ -546,7 +550,7 @@ class TestAgentLoop:
             real_session, "tc_1", success=False, output="partial output", error="boom"
         )
 
-        content = real_session.history[0]["content"]
+        content = wire_history(real_session)[0]["content"]
         assert "partial output" in content
         assert "boom" in content
 
@@ -664,7 +668,7 @@ class TestAgentLoop:
         ].build_tool_update_notification.return_value = MagicMock()
 
         # Политика отклоняет
-        mock_session.permission_policy = {"terminal": "reject_always"}
+        mock_session.permissions.policy = {"terminal": "reject_always"}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop.run(mock_session, "test_session", "Try blocked")
@@ -866,7 +870,7 @@ class TestAgentLoopBypassMode:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         # Bypass mode в config
-        mock_session.config_values = {"mode": "bypass"}
+        mock_session.config.config_values = {"mode": "bypass"}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop.run(mock_session, "test_session", "Read README.md")
@@ -921,7 +925,7 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config_values = {"mode": "bypass"}
+        mock_session.config.config_values = {"mode": "bypass"}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop.run(mock_session, "test_session", "Read both files")
@@ -972,7 +976,7 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config_values = {"mode": "bypass"}
+        mock_session.config.config_values = {"mode": "bypass"}
         mock_session.active_turn = MagicMock()
         mock_session.active_turn.cancel_requested = False
 
@@ -1025,7 +1029,7 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config_values = {"mode": "bypass"}
+        mock_session.config.config_values = {"mode": "bypass"}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop.run(mock_session, "test_session", "Read file")

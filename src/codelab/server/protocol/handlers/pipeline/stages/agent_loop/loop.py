@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.domain.tool_call import ToolCall as DomainToolCall
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
@@ -38,7 +39,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import 
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import SessionState, ToolResult
+from codelab.server.protocol.state import ToolResult
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolRegistry
@@ -46,7 +47,7 @@ from codelab.server.tools.base import ToolRegistry
 if TYPE_CHECKING:
     from codelab.server.agent.core.strategies.base import LLMCallStrategy
     from codelab.server.agent.core.system_prompt_builder import SystemPromptBuilder
-    from codelab.server.domain.session import Session as DomainSession
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
 
@@ -211,11 +212,10 @@ class AgentLoop:
 
     async def run(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         initial_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
-        domain_session: DomainSession | None = None,
         started_epoch: int | None = None,
         persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
@@ -243,7 +243,7 @@ class AgentLoop:
         """
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._history_writer, self._notification_callback, notifications, domain_session
+            self._history_writer, self._notification_callback, notifications
         )
         iteration = 0
         final_text: str | None = None
@@ -284,7 +284,7 @@ class AgentLoop:
 
     async def _run_iteration(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         prompt: str | None,
         mcp_manager: MCPManager | None,
@@ -354,16 +354,16 @@ class AgentLoop:
             num_tool_calls=len(response.tool_calls),
         )
 
-        # Добавляем tool_calls в историю
-        tool_calls_for_history = [
-            {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
-        ]
-        session.history.append(
-            {
-                "role": "assistant",
-                "text": agent_text or "",
-                "tool_calls": tool_calls_for_history,
-            }
+        # Запись «ассистент + запрошенные им tool_calls» — доменный сейм. Раньше
+        # писалась сырым dict'ом мимо носителя, из-за чего одна и та же запись
+        # существовала в двух формах и сравнение по префиксу ломалось на первой же
+        # записи turn'а (корень P1-45).
+        session.add_assistant_tool_call_message(
+            agent_text or "",
+            [
+                DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
+                for tc in response.tool_calls
+            ],
         )
 
         # Обрабатываем tool_calls
@@ -404,7 +404,7 @@ class AgentLoop:
 
     async def _obtain_llm_response(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         prompt: str | None,
         mcp_manager: MCPManager | None,
@@ -456,7 +456,7 @@ class AgentLoop:
 
     async def _emit_agent_text(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         agent_text: str,
         sink: SessionUpdateSink,
@@ -475,7 +475,7 @@ class AgentLoop:
 
     async def _emit_response_plan(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         response: Any,
         sink: SessionUpdateSink,
@@ -487,17 +487,16 @@ class AgentLoop:
         validated_plan = self._plan_builder.validate_plan_entries(plan)
         if not validated_plan:
             return
-        # latest_plan пишет sink.emit_and_save_plan (единый писатель, dual-carry — D4-b/b1).
+        # План пишет sink.emit_and_save_plan — единый писатель плана в turn-пути.
         plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
         await sink.emit_and_save_plan(plan_notification, session=session, entries=validated_plan)
 
     async def resume_after_permission(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
-        domain_session: DomainSession | None = None,
         persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
         """Продолжить цикл после permission approval.
@@ -518,7 +517,7 @@ class AgentLoop:
         """
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._history_writer, self._notification_callback, notifications, domain_session
+            self._history_writer, self._notification_callback, notifications
         )
 
         # Поколение на входе в resume: отмена может прийти, пока pending tool
@@ -551,7 +550,7 @@ class AgentLoop:
         # отдать клиенту `pending` как итог исполнения нельзя — тогда лучше вывод из
         # `success`, чем заведомо неверная «незавершённость».
         stored_call = session.tool_calls.get(tool_call_id)
-        stored_status = stored_call.status if stored_call is not None else None
+        stored_status = stored_call.status.value if stored_call is not None else None
         status = (
             stored_status
             if stored_status in {"completed", "failed", "cancelled"}
@@ -618,7 +617,6 @@ class AgentLoop:
             session_id=session_id,
             initial_prompt=None,
             mcp_manager=mcp_manager,
-            domain_session=domain_session,
             started_epoch=started_epoch,
             persist=persist,
         )
@@ -635,7 +633,7 @@ class AgentLoop:
 
     async def _process_deferred_batch(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
@@ -683,7 +681,7 @@ class AgentLoop:
         return self._turn_cancellation.generation(session_id)
 
     def _is_cancel_requested(
-        self, session: SessionState, started_epoch: int, session_id: str | None = None
+        self, session: Session, started_epoch: int, session_id: str | None = None
     ) -> bool:
         """Проверить отмену: поколение в процессном реестре либо флаг в `active_turn`.
 

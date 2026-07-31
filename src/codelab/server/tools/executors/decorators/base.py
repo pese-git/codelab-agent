@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from codelab.server.tools.base import ToolExecutionResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 
 @runtime_checkable
@@ -24,7 +24,7 @@ class ToolExecutorProtocol(Protocol):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент.
@@ -68,7 +68,7 @@ class ToolExecutorDecorator(ABC):
     @abstractmethod
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с дополнительной логикой.

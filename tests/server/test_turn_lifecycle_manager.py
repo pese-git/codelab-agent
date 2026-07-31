@@ -5,12 +5,13 @@
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.protocol.state import (
     ActiveTurnState,
     PromptDirectives,
-    SessionState,
 )
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -20,9 +21,9 @@ def lifecycle_manager() -> TurnLifecycleManager:
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает экземпляр SessionState для тестов."""
-    return SessionState(
+def session() -> DomainSession:
+    """Создает экземпляр DomainSession для тестов."""
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -65,7 +66,7 @@ class TestTurnLifecycleCancel:
     def test_mark_cancel_requested(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Устанавливает cancel_requested флаг."""
         session.active_turn = ActiveTurnState(
@@ -78,7 +79,7 @@ class TestTurnLifecycleCancel:
     def test_mark_cancel_without_active_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не падает если нет active turn."""
         session.active_turn = None
@@ -88,7 +89,7 @@ class TestTurnLifecycleCancel:
     def test_is_cancel_requested_true(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает True если cancel был запрошен."""
         session.active_turn = ActiveTurnState(
@@ -101,7 +102,7 @@ class TestTurnLifecycleCancel:
     def test_is_cancel_requested_false(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает False если cancel не был запрошен."""
         session.active_turn = ActiveTurnState(
@@ -114,7 +115,7 @@ class TestTurnLifecycleCancel:
     def test_is_cancel_requested_no_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает False если нет active turn."""
         session.active_turn = None
@@ -127,7 +128,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_running(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Устанавливает фазу running."""
         session.active_turn = ActiveTurnState(
@@ -140,7 +141,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_awaiting_permission(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Переходит в фазу awaiting_permission."""
         session.active_turn = ActiveTurnState(
@@ -154,7 +155,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_awaiting_client_rpc(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Переходит в фазу awaiting_client_rpc."""
         session.active_turn = ActiveTurnState(
@@ -168,7 +169,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_completing(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Переходит в фазу completing."""
         session.active_turn = ActiveTurnState(
@@ -182,7 +183,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_invalid(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не устанавливает невалидную фазу."""
         session.active_turn = ActiveTurnState(
@@ -196,7 +197,7 @@ class TestTurnLifecyclePhases:
     def test_get_turn_phase(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает текущую фазу."""
         session.active_turn = ActiveTurnState(
@@ -209,7 +210,7 @@ class TestTurnLifecyclePhases:
     def test_get_turn_phase_no_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает 'unknown' если нет active turn."""
         session.active_turn = None
@@ -218,7 +219,7 @@ class TestTurnLifecyclePhases:
     def test_set_turn_phase_no_active_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не падает если нет active turn."""
         session.active_turn = None
@@ -293,7 +294,7 @@ class TestTurnLifecycleFinalization:
     def test_finalize_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Финализирует turn и возвращает stop reason."""
         session.active_turn = ActiveTurnState(
@@ -307,7 +308,7 @@ class TestTurnLifecycleFinalization:
     def test_finalize_turn_no_active_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает None если нет active turn."""
         session.active_turn = None
@@ -317,7 +318,7 @@ class TestTurnLifecycleFinalization:
     def test_finalize_turn_different_stop_reasons(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Финализирует turn с разными stop reasons ACP."""
         for stop_reason in ["end_turn", "max_tokens", "cancelled"]:
@@ -331,7 +332,7 @@ class TestTurnLifecycleFinalization:
     def test_finalize_turn_normalizes_stop_reason(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Нормализует неподдерживаемый stop reason при финализации."""
         session.active_turn = ActiveTurnState(
@@ -348,7 +349,7 @@ class TestTurnLifecycleClear:
     def test_clear_active_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Очищает active turn."""
         session.active_turn = ActiveTurnState(
@@ -361,7 +362,7 @@ class TestTurnLifecycleClear:
     def test_clear_active_turn_already_none(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не падает если active_turn уже None."""
         session.active_turn = None
@@ -375,7 +376,7 @@ class TestTurnLifecycleShouldHandleCancel:
     def test_should_handle_cancel_true(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает True если есть active turn и cancel_requested."""
         session.active_turn = ActiveTurnState(
@@ -388,7 +389,7 @@ class TestTurnLifecycleShouldHandleCancel:
     def test_should_handle_cancel_false_no_request(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает False если cancel_requested=False."""
         session.active_turn = ActiveTurnState(
@@ -401,7 +402,7 @@ class TestTurnLifecycleShouldHandleCancel:
     def test_should_handle_cancel_false_no_turn(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает False если нет active turn."""
         session.active_turn = None
@@ -414,7 +415,7 @@ class TestTurnLifecyclePhaseTransitions:
     def test_running_to_any_phase(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """От running можно перейти в любую фазу."""
         session.active_turn = ActiveTurnState(
@@ -435,7 +436,7 @@ class TestTurnLifecyclePhaseTransitions:
     def test_awaiting_permission_to_valid_phases(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """От awaiting_permission можно перейти только в running или completing."""
         session.active_turn = ActiveTurnState(
@@ -456,7 +457,7 @@ class TestTurnLifecyclePhaseTransitions:
     def test_awaiting_client_rpc_to_valid_phases(
         self,
         lifecycle_manager: TurnLifecycleManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """От awaiting_client_rpc можно перейти в running или completing."""
         session.active_turn = ActiveTurnState(

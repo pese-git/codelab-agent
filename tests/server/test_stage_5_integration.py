@@ -20,6 +20,7 @@ from codelab.server.protocol.state import (
     SessionState,
 )
 from codelab.server.storage import InMemoryStorage
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 class TestSessionPromptValidationStage5:
@@ -384,7 +385,7 @@ class TestPromptOrchestratorIntegrationFullStack:
         """Проверяет полный жизненный цикл turn через orchestrator."""
         # Arrange
         orchestrator = make_orchestrator()
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -424,7 +425,7 @@ class TestPromptOrchestratorIntegrationFullStack:
         """Проверяет обновление состояния через StateManager в orchestrator."""
         # Arrange
         orchestrator = make_orchestrator()
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -453,7 +454,7 @@ class TestPromptOrchestratorIntegrationFullStack:
         )
 
         # Assert
-        assert len(session.history) > 0
+        assert len(wire_history(session)) > 0
 
 
 class TestSessionPromptWithOrchestratorIntegration:

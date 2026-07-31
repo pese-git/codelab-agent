@@ -9,12 +9,13 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 from codelab.server.protocol.state import (
     ActiveTurnState,
-    SessionState,
     ToolCallState,
 )
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestPromptOrchestratorFactory:
@@ -49,9 +50,9 @@ class TestSessionPromptValidation:
     """Тесты валидации параметров session/prompt."""
 
     @pytest.fixture
-    def sessions(self) -> dict[str, SessionState]:
+    def sessions(self) -> dict[str, DomainSession]:
         """Создает тестовую сессию."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -64,25 +65,25 @@ class TestSessionPromptValidation:
         )
         return {"sess_1": session}
 
-    def test_session_prompt_missing_session_id(self, sessions: dict[str, SessionState]) -> None:
+    def test_session_prompt_missing_session_id(self, sessions: dict[str, DomainSession]) -> None:
         """Возвращает ошибку при отсутствии sessionId."""
         # Placeholder для тестирования отсутствия sessionId
         # Для асинхронной функции понадобится pytest-asyncio
         assert True  # placeholder
 
     def test_session_prompt_invalid_session_id_type(
-        self, sessions: dict[str, SessionState]
+        self, sessions: dict[str, DomainSession]
     ) -> None:
         """Возвращает ошибку при неправильном типе sessionId."""
         # sessionId должен быть str, а не int
         assert True  # placeholder
 
-    def test_session_prompt_session_not_found(self, sessions: dict[str, SessionState]) -> None:
+    def test_session_prompt_session_not_found(self, sessions: dict[str, DomainSession]) -> None:
         """Возвращает ошибку при отсутствии сессии."""
         # Попытаемся использовать несуществующий sessionId
         assert True  # placeholder
 
-    def test_session_prompt_invalid_prompt_type(self, sessions: dict[str, SessionState]) -> None:
+    def test_session_prompt_invalid_prompt_type(self, sessions: dict[str, DomainSession]) -> None:
         """Возвращает ошибку при неправильном типе prompt."""
         # prompt должен быть list, а не string
         assert True  # placeholder
@@ -97,9 +98,9 @@ class TestSessionPromptWithOrchestrator:
         return make_orchestrator()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -112,12 +113,12 @@ class TestSessionPromptWithOrchestrator:
         )
 
     @pytest.fixture
-    def sessions(self, session: SessionState) -> dict[str, SessionState]:
+    def sessions(self, session: DomainSession) -> dict[str, DomainSession]:
         """Создает словарь сессий."""
         return {"sess_1": session}
 
     def test_orchestrator_handles_state_management(
-        self, orchestrator: PromptOrchestrator, session: SessionState
+        self, orchestrator: PromptOrchestrator, session: DomainSession
     ) -> None:
         """PromptOrchestrator корректно управляет состоянием сессии."""
         # Assert
@@ -143,9 +144,9 @@ class TestSessionPromptComponentIntegration:
         return make_orchestrator()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает сессию с инициализированным turn."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -162,7 +163,7 @@ class TestSessionPromptComponentIntegration:
         return session
 
     def test_state_manager_updates_session_state(
-        self, orchestrator: PromptOrchestrator, session: SessionState
+        self, orchestrator: PromptOrchestrator, session: DomainSession
     ) -> None:
         """StateManager корректно обновляет состояние сессии."""
         # Act - обновляем заголовок сессии
@@ -191,7 +192,7 @@ class TestSessionPromptComponentIntegration:
         assert all(isinstance(entry, dict) for entry in normalized)
 
     def test_turn_lifecycle_manager_handles_stop_reason(
-        self, orchestrator: PromptOrchestrator, session: SessionState
+        self, orchestrator: PromptOrchestrator, session: DomainSession
     ) -> None:
         """TurnLifecycleManager правильно определяет stop reason."""
         # Assume session has active_turn
@@ -211,7 +212,7 @@ class TestSessionPromptComponentIntegration:
         assert final_message.result == {"stopReason": "end_turn"}
 
     def test_tool_call_handler_creates_tool_calls(
-        self, orchestrator: PromptOrchestrator, session: SessionState
+        self, orchestrator: PromptOrchestrator, session: DomainSession
     ) -> None:
         """ToolCallHandler создает tool calls."""
         # Act
@@ -223,8 +224,8 @@ class TestSessionPromptComponentIntegration:
 
         # Assert
         assert tool_call_id is not None
-        assert tool_call_id in session.tool_calls
-        tool_call = session.tool_calls[tool_call_id]
+        assert tool_call_id in session.tool_calls.calls
+        tool_call = session.tool_calls.calls[tool_call_id]
         assert isinstance(tool_call, ToolCallState)
         assert tool_call.title == "Test Tool"
 
@@ -243,9 +244,9 @@ class TestSessionPromptErrorHandling:
     """Тесты обработки ошибок в session/prompt."""
 
     @pytest.fixture
-    def sessions(self) -> dict[str, SessionState]:
+    def sessions(self) -> dict[str, DomainSession]:
         """Создает словарь сессий."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -258,7 +259,7 @@ class TestSessionPromptErrorHandling:
         )
         return {"sess_1": session}
 
-    def test_error_on_missing_params(self, sessions: dict[str, SessionState]) -> None:
+    def test_error_on_missing_params(self, sessions: dict[str, DomainSession]) -> None:
         """Возвращает error response при отсутствии параметров."""
         # Arrange - params с missing sessionId
         params: dict[str, Any] = {"prompt": []}
@@ -266,7 +267,7 @@ class TestSessionPromptErrorHandling:
         # Assert - проверим, что обработка ошибок работает
         assert params.get("sessionId") is None
 
-    def test_error_on_invalid_content(self, sessions: dict[str, SessionState]) -> None:
+    def test_error_on_invalid_content(self, sessions: dict[str, DomainSession]) -> None:
         """Возвращает error response при невалидном контенте."""
         # Arrange
         invalid_prompt = [
@@ -286,10 +287,10 @@ class TestPromptIntegrationWithAllComponents:
     @pytest.fixture
     def setup(
         self,
-    ) -> tuple[PromptOrchestrator, SessionState, dict[str, SessionState]]:
+    ) -> tuple[PromptOrchestrator, DomainSession, dict[str, DomainSession]]:
         """Подготавливает PromptOrchestrator, сессию и словарь сессий."""
         orchestrator = make_orchestrator()
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -305,7 +306,7 @@ class TestPromptIntegrationWithAllComponents:
 
     def test_all_components_work_together(
         self,
-        setup: tuple[PromptOrchestrator, SessionState, dict[str, SessionState]],
+        setup: tuple[PromptOrchestrator, DomainSession, dict[str, DomainSession]],
     ) -> None:
         """Все компоненты работают вместе в едином оркестраторе."""
         # Arrange
@@ -337,5 +338,5 @@ class TestPromptIntegrationWithAllComponents:
         # Assert
         assert session.title == "Integration Test"
         assert normalized_plan is not None
-        assert tool_call_id in session.tool_calls
+        assert tool_call_id in session.tool_calls.calls
         assert len(permission_options) > 0

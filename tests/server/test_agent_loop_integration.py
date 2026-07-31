@@ -22,11 +22,11 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoo
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 from codelab.server.protocol.state import (
     ActiveTurnState,
-    SessionState,
     ToolCallState,
 )
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.storage.memory import InMemoryStorage
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def storage():
 @pytest.fixture
 def mock_session():
     """Мок сессии с реальными dataclass полями."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -163,7 +163,7 @@ class TestAgentLoopEventBusPath:
         mock_tool_registry.execute_tool.assert_called_once()
 
         # Проверяем что tool result добавлен в историю
-        assert len(mock_session.history) >= 2  # assistant tool_call + tool result
+        assert len(wire_history(mock_session)) >= 2  # assistant tool_call + tool result
 
 
 class TestAgentLoopPermissionFlow:
@@ -242,7 +242,7 @@ class TestAgentLoopPermissionFlow:
             status="pending",
             result_content=[],
         )
-        mock_session.tool_calls["tc_1"] = mock_tool_call_state
+        mock_session.tool_calls.calls["tc_1"] = mock_tool_call_state
 
         loop = AgentLoop(
             strategy=mock_strategy,

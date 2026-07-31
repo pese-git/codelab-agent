@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from ..agent.config.models import SessionMetrics
+from ..domain.session import PendingExternalRequest
 from ..messages import ACPMessage, JsonRpcId
 from ..models import AvailableCommand, HistoryMessage, PlanStep
 
@@ -490,7 +491,9 @@ class PreparedFsClientRequest(BaseModel):
 
     kind: str
     messages: list[ACPMessage]
-    pending_request: PendingClientRequestState
+    # Доменное состояние ожидания: носитель turn-пути — агрегат (ADR-006, фаза D
+    # шаг 3), а этот пакет живёт только внутри запроса и на диск не уезжает.
+    pending_request: PendingExternalRequest
 
 
 class ClientRuntimeCapabilities(BaseModel):

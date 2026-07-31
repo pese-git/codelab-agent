@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -19,9 +20,9 @@ def mock_mcp_manager() -> MagicMock:
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создаёт базовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test-session",
         cwd="/tmp",
         mcp_servers=[],
@@ -46,7 +47,7 @@ class TestMcpExecuteResultContent:
     @pytest.mark.asyncio
     async def test_execute_result_with_empty_content(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Результат с пустым content возвращает строковое представление (строка 155, 164)."""
@@ -69,7 +70,7 @@ class TestMcpExecuteResultContent:
     @pytest.mark.asyncio
     async def test_execute_result_without_content_attribute(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Результат без атрибута content возвращает строковое представление (строка 164)."""
@@ -90,7 +91,7 @@ class TestMcpExecuteResultContent:
     @pytest.mark.asyncio
     async def test_execute_result_with_content_and_error_flag(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Результат с content и is_error=True возвращает ошибку (строки 155-162)."""

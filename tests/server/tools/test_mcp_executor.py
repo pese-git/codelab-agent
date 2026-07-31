@@ -13,9 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -27,9 +28,9 @@ def mock_mcp_manager() -> MagicMock:
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создаёт базовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test-session",
         cwd="/tmp",
         mcp_servers=[],
@@ -64,7 +65,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_success(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Успешное выполнение MCP инструмента."""
@@ -92,7 +93,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_failure(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """MCP инструмент возвращает ошибку."""
@@ -116,7 +117,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_exception(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Исключение при выполнении MCP инструмента."""
@@ -137,7 +138,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_not_mcp_tool(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Попытка выполнить не-MCP инструмент через MCPExecutor."""
         executor = MCPToolExecutor(MagicMock())
@@ -155,7 +156,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_no_mcp_manager(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Выполнение без MCPManager (None в конструкторе)."""
         executor = MCPToolExecutor(None)  # type: ignore[arg-type]
@@ -177,7 +178,7 @@ class TestExecuteTool:
     @pytest.mark.asyncio
     async def test_execute_tool_success(
         self,
-        session: SessionState,
+        session: DomainSession,
         mock_mcp_manager: MagicMock,
     ) -> None:
         """Успешное выполнение через execute_tool()."""

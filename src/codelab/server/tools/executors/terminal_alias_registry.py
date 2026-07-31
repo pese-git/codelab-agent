@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from codelab.server.domain.session import Session
 from codelab.server.process_identity import PROCESS_TOKEN
-from codelab.server.protocol.state import SessionState
 
 
 class TerminalAliasRegistry:
@@ -15,30 +15,28 @@ class TerminalAliasRegistry:
     детерминированный alias (``term_<n>``) устраняет саму поверхность ошибки, а
     клиент по-прежнему адресуется своим родным id — ACP-контракт не нарушается.
 
-    Состояние живёт в :class:`SessionState` (``terminals`` + ``terminal_counter``),
-    чтобы переживать tool-call'ы turn'а и персиститься вместе с сессией. Класс
-    инкапсулирует только поведение над этим состоянием (регистрация, разрешение,
-    освобождение) и сам состояния не хранит — потокобезопасно переиспользуется
-    как singleton executor'а.
+    Состояние живёт в доменном агрегате сессии (``runtime.terminals`` +
+    ``runtime.terminal_counter``), чтобы переживать tool-call'ы turn'а и
+    персиститься вместе с сессией. Поведение над этим состоянием принадлежит
+    агрегату (сеймы ``register_terminal``/``resolve_terminal``/
+    ``release_terminal``, шаг 2 фазы D ADR-006); класс остаётся адаптером
+    executor'а и сам состояния не хранит — потокобезопасно переиспользуется
+    как singleton.
     """
 
-    _PREFIX = "term_"
+    def register(self, session: Session, client_terminal_id: str) -> str:
+        """Регистрирует client terminalId и возвращает новый короткий alias.
 
-    def register(self, session: SessionState, client_terminal_id: str) -> str:
-        """Регистрирует client terminalId и возвращает новый короткий alias."""
-        session.terminal_counter += 1
-        alias = f"{self._PREFIX}{session.terminal_counter}"
-        session.terminals[alias] = client_terminal_id
-        # Отметка владельца: терминалы живут у клиента и рестарт не переживают, а
-        # реестр персистится. Без отметки следующий процесс принял бы мёртвые
-        # дескрипторы за живые (P2-44).
-        session.terminals_owner = PROCESS_TOKEN
-        return alias
+        Владелец передаётся отсюда: домен не знает про процесс, в котором
+        исполняется, а отметка обязательна — терминалы живут у клиента и рестарт
+        не переживают, тогда как реестр персистится (P2-44).
+        """
+        return session.register_terminal(client_terminal_id, owner=PROCESS_TOKEN)
 
-    def resolve(self, session: SessionState, alias: str) -> str | None:
+    def resolve(self, session: Session, alias: str) -> str | None:
         """Возвращает client terminalId по alias или ``None``, если alias неизвестен."""
-        return session.terminals.get(alias)
+        return session.resolve_terminal(alias)
 
-    def release(self, session: SessionState, alias: str) -> str | None:
+    def release(self, session: Session, alias: str) -> str | None:
         """Удаляет alias из реестра, возвращает освобождённый client terminalId (или None)."""
-        return session.terminals.pop(alias, None)
+        return session.release_terminal(alias)

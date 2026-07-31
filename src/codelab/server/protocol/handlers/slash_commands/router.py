@@ -17,7 +17,7 @@ from .base import CommandResult
 from .registry import CommandRegistry
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -53,7 +53,7 @@ class SlashCommandRouter:
         self,
         command: str,
         args: list[str],
-        session: SessionState,
+        session: Session,
         mcp_prompt_handlers: dict[str, Any] | None = None,
     ) -> ProtocolOutcome | None:
         """Маршрутизирует команду к handler'у.
@@ -78,7 +78,7 @@ class SlashCommandRouter:
                 "Routing slash command to handler",
                 command=command,
                 args=args,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
             try:
@@ -105,7 +105,7 @@ class SlashCommandRouter:
                 "Routing MCP prompt slash command",
                 command=command,
                 args=args,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
             try:
@@ -123,14 +123,14 @@ class SlashCommandRouter:
         logger.debug(
             "No handler for slash command, falling back",
             command=command,
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
         return None
 
     def _build_outcome(
         self,
         result: CommandResult,
-        session: SessionState,
+        session: Session,
     ) -> ProtocolOutcome:
         """Строит ProtocolOutcome из CommandResult.
 
@@ -149,7 +149,7 @@ class SlashCommandRouter:
                 ACPMessage.notification(
                     "session/update",
                     {
-                        "sessionId": session.session_id,
+                        "sessionId": str(session.id),
                         "update": update,
                     },
                 )
@@ -162,7 +162,7 @@ class SlashCommandRouter:
                 ACPMessage.notification(
                     "session/update",
                     {
-                        "sessionId": session.session_id,
+                        "sessionId": str(session.id),
                         "update": {
                             "sessionUpdate": "agent_message_chunk",
                             "content": content_block,
@@ -177,7 +177,7 @@ class SlashCommandRouter:
         self,
         command: str,
         error: str,
-        session: SessionState,
+        session: Session,
     ) -> ProtocolOutcome:
         """Строит ProtocolOutcome для ошибки выполнения.
 
@@ -199,7 +199,7 @@ class SlashCommandRouter:
                 ACPMessage.notification(
                     "session/update",
                     {
-                        "sessionId": session.session_id,
+                        "sessionId": str(session.id),
                         "update": {
                             "sessionUpdate": "agent_message_chunk",
                             "content": error_content,

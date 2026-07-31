@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ....domain.session import PendingExternalRequest, Session
 from ....messages import ACPMessage
 from ...state import (
-    PendingClientRequestState,
     PreparedFsClientRequest,
     PromptDirectives,
-    SessionState,
 )
 from .tool_call_state import create_tool_call
 
@@ -29,14 +28,14 @@ def normalize_session_path(cwd: str, candidate: str) -> str | None:
     return str(Path(cwd) / candidate_path)
 
 
-def can_use_fs_client_rpc(session: SessionState, kind: str) -> bool:
+def can_use_fs_client_rpc(session: Session, kind: str) -> bool:
     """Проверяет доступность fs/* client RPC для указанной операции.
 
     Пример использования:
         enabled = can_use_fs_client_rpc(session, "fs_read")
     """
 
-    caps = session.runtime_capabilities
+    caps = session.config.runtime_capabilities
     if caps is None:
         return False
     if kind == "fs_read":
@@ -46,14 +45,14 @@ def can_use_fs_client_rpc(session: SessionState, kind: str) -> bool:
     return False
 
 
-def can_use_terminal_client_rpc(session: SessionState) -> bool:
+def can_use_terminal_client_rpc(session: Session) -> bool:
     """Проверяет доступность terminal/* client RPC в текущем runtime.
 
     Пример использования:
         enabled = can_use_terminal_client_rpc(session)
     """
 
-    caps = session.runtime_capabilities
+    caps = session.config.runtime_capabilities
     if caps is None:
         return False
     return caps.terminal
@@ -61,7 +60,7 @@ def can_use_terminal_client_rpc(session: SessionState) -> bool:
 
 def build_fs_client_request(
     *,
-    session: SessionState,
+    session: Session,
     session_id: str,
     directives: PromptDirectives,
 ) -> PreparedFsClientRequest | None:
@@ -76,7 +75,7 @@ def build_fs_client_request(
     """
 
     if directives.fs_read_path is not None:
-        target_path = normalize_session_path(session.cwd, directives.fs_read_path)
+        target_path = normalize_session_path(session.config.cwd, directives.fs_read_path)
         if target_path is None:
             return None
         tool_call_id = create_tool_call(
@@ -113,7 +112,7 @@ def build_fs_client_request(
         )
         if fs_request.id is None:
             return None
-        pending = PendingClientRequestState(
+        pending = PendingExternalRequest(
             request_id=fs_request.id,
             kind="fs_read",
             tool_call_id=tool_call_id,
@@ -126,7 +125,7 @@ def build_fs_client_request(
         )
 
     if directives.fs_write_path is not None and directives.fs_write_content is not None:
-        target_path = normalize_session_path(session.cwd, directives.fs_write_path)
+        target_path = normalize_session_path(session.config.cwd, directives.fs_write_path)
         if target_path is None:
             return None
         tool_call_id = create_tool_call(
@@ -160,7 +159,7 @@ def build_fs_client_request(
         )
         if fs_request.id is None:
             return None
-        pending = PendingClientRequestState(
+        pending = PendingExternalRequest(
             request_id=fs_request.id,
             kind="fs_write",
             tool_call_id=tool_call_id,
@@ -178,7 +177,7 @@ def build_fs_client_request(
 
 def build_terminal_client_request(
     *,
-    session: SessionState,
+    session: Session,
     session_id: str,
     directives: PromptDirectives,
 ) -> PreparedFsClientRequest | None:
@@ -229,7 +228,7 @@ def build_terminal_client_request(
     if terminal_create_request.id is None:
         return None
 
-    pending = PendingClientRequestState(
+    pending = PendingExternalRequest(
         request_id=terminal_create_request.id,
         kind="terminal_create",
         tool_call_id=tool_call_id,

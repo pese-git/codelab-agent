@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
-def _session() -> SessionState:
-    return SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def _session() -> DomainSession:
+    return make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
 
 
 class TestTerminalAliasRegistry:
@@ -20,7 +21,7 @@ class TestTerminalAliasRegistry:
 
         assert alias1 == "term_1"
         assert alias2 == "term_2"
-        assert session.terminal_counter == 2
+        assert session.runtime.terminal_counter == 2
 
     def test_resolve_returns_client_terminal_id(self) -> None:
         session = _session()

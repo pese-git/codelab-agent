@@ -16,14 +16,15 @@ from codelab.server.client_rpc.exceptions import (
     ClientRPCTimeoutError,
 )
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Базовая тестовая сессия."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -44,7 +45,7 @@ class TestClientRPCBridgeReadFileErrors:
     async def test_read_file_capability_missing_returns_none(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Отсутствие capability fs.readTextFile возвращает None."""
         bridge._service.read_text_file = AsyncMock(
@@ -59,7 +60,7 @@ class TestClientRPCBridgeReadFileErrors:
     async def test_read_file_timeout_returns_none(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Timeout при чтении файла возвращает None."""
         bridge._service.read_text_file = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
@@ -76,7 +77,7 @@ class TestClientRPCBridgeWriteFileErrors:
     async def test_write_file_capability_missing_returns_false(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Отсутствие capability fs.writeTextFile возвращает False."""
         bridge._service.write_text_file = AsyncMock(
@@ -91,7 +92,7 @@ class TestClientRPCBridgeWriteFileErrors:
     async def test_write_file_timeout_returns_false(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Timeout при записи файла возвращает False."""
         bridge._service.write_text_file = AsyncMock(side_effect=ClientRPCTimeoutError("timeout"))
@@ -108,7 +109,7 @@ class TestClientRPCBridgeCreateTerminalErrors:
     async def test_create_terminal_rpc_error_returns_none(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """RPC-ошибка при создании терминала возвращает None."""
         bridge._service.create_terminal = AsyncMock(side_effect=ClientRPCError("terminal failed"))
@@ -125,7 +126,7 @@ class TestClientRPCBridgeWaitTerminalExitErrors:
     async def test_wait_terminal_exit_capability_missing_returns_none(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Отсутствие capability terminal возвращает None."""
         bridge._service.wait_for_exit = AsyncMock(
@@ -144,7 +145,7 @@ class TestClientRPCBridgeReleaseTerminalErrors:
     async def test_release_terminal_capability_missing_returns_false(
         self,
         bridge: ClientRPCBridge,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Отсутствие capability terminal при release возвращает False."""
         bridge._service.release_terminal = AsyncMock(

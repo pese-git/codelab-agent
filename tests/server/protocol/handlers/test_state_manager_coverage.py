@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.state_manager import (
     StateManager,
     _extract_text_from_content_blocks,
 )
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -22,9 +23,9 @@ def state_manager() -> StateManager:
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает экземпляр SessionState для тестов."""
-    return SessionState(
+def session() -> DomainSession:
+    """Создает экземпляр DomainSession для тестов."""
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -66,13 +67,13 @@ class TestHistorySeams:
     def test_add_user_message_delegates_to_seam(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Запись истории идёт через history-seam носителя состояния (фаза B)."""
         state_manager.add_user_message(session, [{"type": "text", "text": "test"}])
 
-        assert len(session.history) == 1
-        entry = session.history[0]
+        assert len(wire_history(session)) == 1
+        entry = wire_history(session)[0]
         assert isinstance(entry, dict)
         assert entry["role"] == "user"
         assert entry["content"] == [{"type": "text", "text": "test"}]

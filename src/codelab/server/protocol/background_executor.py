@@ -170,33 +170,37 @@ class BackgroundExecutor:
         async def notification_callback(message: ACPMessage) -> None:
             await self._send_message(message, session_id)
 
-        # Write-фаза D4-b (E-resume, ADR-006): resume-путь тоже несёт доменный агрегат.
-        # background_executor грузит SessionState из storage и не имеет PromptContext,
-        # поэтому строим domain_session здесь (аддитивно; source-of-truth пока SessionState).
+        # Носитель состояния resume-пути — доменный агрегат (ADR-006, фаза D шаг 3).
+        # `background_executor` грузит документ из storage и не имеет PromptContext,
+        # поэтому агрегат строится здесь, а wire-документ собирается обратно только
+        # на границе записи.
         from ..mapping.session_mapper import SessionMapper
 
         domain_session = SessionMapper.to_domain(session)
 
         llm_result = await orchestrator.execute_pending_tool(
-            session=session,
+            session=domain_session,
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
-            domain_session=domain_session,
             # Промежуточные записи: копия живёт всё исполнение вызова (ADR-007)
-            persist=lambda: save_session_merging(self._storage, session),
+            persist=lambda: save_session_merging(
+                self._storage, SessionMapper.to_protocol(domain_session)
+            ),
         )
 
         # Сохраняем сессию — критично для permission flow
         try:
             # Та же причина, что в session_prompt: копия жила всё исполнение вызова.
-            await save_session_merging(self._storage, session)
+            await save_session_merging(self._storage, SessionMapper.to_protocol(domain_session))
             logger.debug(
                 "session_saved_after_execute_pending_tool",
                 session_id=session_id,
                 active_turn_perm_request_id=(
-                    session.active_turn.permission_request_id if session.active_turn else None
+                    domain_session.active_turn.permission_request_id
+                    if domain_session.active_turn
+                    else None
                 ),
             )
         except Exception as save_exc:

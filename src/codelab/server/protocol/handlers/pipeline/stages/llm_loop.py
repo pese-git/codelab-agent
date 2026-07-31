@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.mapping.session_view import DomainSessionView
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.formatter import ContentFormatter
@@ -46,7 +47,7 @@ if TYPE_CHECKING:
     from codelab.server.protocol.handlers.plan_builder import PlanBuilder
     from codelab.server.protocol.handlers.state_manager import StateManager
     from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-    from codelab.server.protocol.state import LLMLoopResult, SessionState
+    from codelab.server.protocol.state import LLMLoopResult
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger()
@@ -165,7 +166,7 @@ class LLMLoopStage(PromptStage):
         # Это гарантирует что _current_strategy_name установлен для continue_execution.
         if not self._strategy_selected:
             strategy_name, fallback_from = self._strategy_dispatcher.select_strategy(
-                session=context.session,
+                session=DomainSessionView(context.session),
                 context_meta=context.meta,
             )
 
@@ -274,7 +275,6 @@ class LLMLoopStage(PromptStage):
             session_id=context.session_id,
             initial_prompt=context.raw_text,
             mcp_manager=mcp_manager,
-            domain_session=context.domain_session,
             persist=context.persist,
         )
 
@@ -289,12 +289,11 @@ class LLMLoopStage(PromptStage):
 
     async def execute_pending_tool(
         self,
-        session: SessionState,
+        session: DomainSession,
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
-        domain_session: DomainSession | None = None,
         persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
@@ -339,7 +338,7 @@ class LLMLoopStage(PromptStage):
             if self._strategy_dispatcher is not None:
                 # Выбрать стратегию через dispatcher (без context_meta для pending tool)
                 strategy_name, _ = self._strategy_dispatcher.select_strategy(
-                    session=session,
+                    session=DomainSessionView(session),
                     context_meta=None,
                 )
                 self._strategy_dispatcher.set_current_strategy(strategy_name)
@@ -374,7 +373,6 @@ class LLMLoopStage(PromptStage):
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
-            domain_session=domain_session,
             persist=persist,
         )
 

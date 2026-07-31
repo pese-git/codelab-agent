@@ -1,19 +1,16 @@
 """Менеджер управления фазами и жизненным циклом prompt-turn.
 
-Содержит логику управления ActiveTurnState, фазами и stop reasons.
+Содержит логику управления состоянием turn'а, фазами и stop reasons.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import structlog
 
-from ...messages import ACPMessage, JsonRpcId
-from ..state import ActiveTurnState, PromptDirectives, SessionState
+from codelab.server.domain.session import Session, TurnState
 
-if TYPE_CHECKING:
-    pass
+from ...messages import ACPMessage, JsonRpcId
+from ..state import PromptDirectives
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -33,7 +30,7 @@ class TurnLifecycleManager:
         self,
         session_id: str,
         prompt_request_id: JsonRpcId | None,
-    ) -> ActiveTurnState:
+    ) -> TurnState:
         """Создает новое состояние active turn.
 
         Args:
@@ -41,9 +38,9 @@ class TurnLifecycleManager:
             prompt_request_id: ID входящего prompt request
 
         Returns:
-            Инициализированный ActiveTurnState
+            Инициализированный TurnState (доменное состояние turn'а)
         """
-        turn = ActiveTurnState(
+        turn = TurnState(
             prompt_request_id=prompt_request_id,
             session_id=session_id,
             phase="running",
@@ -55,7 +52,7 @@ class TurnLifecycleManager:
         )
         return turn
 
-    def mark_cancel_requested(self, session: SessionState) -> None:
+    def mark_cancel_requested(self, session: Session) -> None:
         """Устанавливает флаг cancel_requested в active turn.
 
         Args:
@@ -64,17 +61,17 @@ class TurnLifecycleManager:
         if session.active_turn is None:
             logger.warning(
                 "cannot mark cancel: no active turn",
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
             return
 
-        session.active_turn.cancel_requested = True
+        session.mark_turn_cancel_requested()
         logger.debug(
             "cancel requested marked",
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
 
-    def is_cancel_requested(self, session: SessionState) -> bool:
+    def is_cancel_requested(self, session: Session) -> bool:
         """Проверяет, был ли запрошен cancel для активного turn.
 
         Args:
@@ -89,7 +86,7 @@ class TurnLifecycleManager:
 
     def set_turn_phase(
         self,
-        session: SessionState,
+        session: Session,
         phase: str,
     ) -> None:
         """Переходит turn в новую фазу.
@@ -102,7 +99,7 @@ class TurnLifecycleManager:
         if session.active_turn is None:
             logger.warning(
                 "cannot set turn phase: no active turn",
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
             return
 
@@ -127,12 +124,12 @@ class TurnLifecycleManager:
         session.active_turn.phase = phase
         logger.debug(
             "turn phase changed",
-            session_id=session.session_id,
+            session_id=str(session.id),
             from_phase=current_phase,
             to_phase=phase,
         )
 
-    def get_turn_phase(self, session: SessionState) -> str:
+    def get_turn_phase(self, session: Session) -> str:
         """Возвращает текущую фазу turn.
 
         Args:
@@ -185,7 +182,7 @@ class TurnLifecycleManager:
 
     def finalize_turn(
         self,
-        session: SessionState,
+        session: Session,
         stop_reason: str,
     ) -> str | None:
         """Финализирует active turn и возвращает нормализованный stop reason.
@@ -200,7 +197,7 @@ class TurnLifecycleManager:
         if session.active_turn is None:
             logger.warning(
                 "cannot finalize turn: no active turn",
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
             return None
 
@@ -210,13 +207,13 @@ class TurnLifecycleManager:
 
         logger.debug(
             "turn finalized",
-            session_id=session.session_id,
+            session_id=str(session.id),
             stop_reason=normalized_reason,
         )
 
         return normalized_reason
 
-    def finalize_active_turn(self, session: SessionState, *, stop_reason: str) -> ACPMessage | None:
+    def finalize_active_turn(self, session: Session, *, stop_reason: str) -> ACPMessage | None:
         """Финализирует текущий active turn и очищает его состояние.
 
         Args:
@@ -230,13 +227,13 @@ class TurnLifecycleManager:
         if active_turn is None or active_turn.prompt_request_id is None:
             return None
 
-        session.active_turn = None
+        session.clear_active_turn()
         return ACPMessage.response(
             active_turn.prompt_request_id,
             {"stopReason": stop_reason},
         )
 
-    def clear_active_turn(self, session: SessionState) -> None:
+    def clear_active_turn(self, session: Session) -> None:
         """Очищает active turn (устанавливает в None).
 
         Args:
@@ -245,14 +242,14 @@ class TurnLifecycleManager:
         if session.active_turn is None:
             return
 
-        session_id = session.session_id
-        session.active_turn = None
+        session_id = str(session.id)
+        session.clear_active_turn()
         logger.debug(
             "active turn cleared",
             session_id=session_id,
         )
 
-    def should_handle_cancel(self, session: SessionState) -> bool:
+    def should_handle_cancel(self, session: Session) -> bool:
         """Проверяет, нужно ли обрабатывать cancel.
 
         Returns:

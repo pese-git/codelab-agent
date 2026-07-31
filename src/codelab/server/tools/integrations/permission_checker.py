@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import structlog
 
+from codelab.server.domain.session import Session
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
-from codelab.server.protocol.state import SessionState
 
 logger = structlog.get_logger()
 
@@ -29,7 +29,7 @@ class PermissionChecker:
 
     def should_request_permission(
         self,
-        session: SessionState,
+        session: Session,
         tool_kind: str,
     ) -> bool:
         """Определить, нужно ли запрашивать разрешение для tool kind.
@@ -46,7 +46,7 @@ class PermissionChecker:
         logger.debug(
             "Проверка разрешения для tool kind",
             extra={
-                "session_id": session.session_id,
+                "session_id": str(session.id),
                 "tool_kind": tool_kind,
                 "should_request": should_ask,
             },
@@ -56,7 +56,7 @@ class PermissionChecker:
 
     def get_remembered_permission(
         self,
-        session: SessionState,
+        session: Session,
         tool_kind: str,
     ) -> str:
         """Получить запомненное разрешение для tool kind.
@@ -75,7 +75,7 @@ class PermissionChecker:
         logger.debug(
             "Получение запомненного разрешения",
             extra={
-                "session_id": session.session_id,
+                "session_id": str(session.id),
                 "tool_kind": tool_kind,
                 "decision": decision,
             },

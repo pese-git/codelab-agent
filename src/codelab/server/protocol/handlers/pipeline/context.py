@@ -9,7 +9,6 @@ from typing import Any
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.messages import ACPMessage, JsonRpcId
-from codelab.server.protocol.state import SessionState
 
 
 @dataclass
@@ -18,17 +17,13 @@ class PromptContext:
 
     # Входные данные
     session_id: str
-    session: SessionState
+    # Носитель состояния turn'а — доменный агрегат (ADR-006, фаза D шаг 3). Wire-DTO
+    # собирается только на границе сохранения (`persist`), поэтому по ходу turn'а
+    # существует одна правда, а не две.
+    session: DomainSession
     request_id: JsonRpcId | None
     params: dict[str, Any]
     raw_text: str
-
-    # Write-фаза (ADR-006, D4-a): доменный снимок рабочей модели, построенный из
-    # `session` через `SessionMapper.to_domain` на входе turn'а. Пока аддитивно —
-    # `session` (SessionState) остаётся source-of-truth, потребителей нет. По ходу
-    # D4-b/c чтения и мутации переезжают на этот агрегат; на D4-d он становится
-    # source-of-truth, а `session` строится только на границе wire/storage.
-    domain_session: DomainSession | None = None
 
     # Мультимодальное содержимое (ContentPart-ы, маппенные из ACP блоков)
     content_parts: list[ContentPart] = field(default_factory=list)

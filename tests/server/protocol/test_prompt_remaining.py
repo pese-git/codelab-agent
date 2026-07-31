@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.value_objects import ToolCallStatus
-from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
     build_fs_client_request,
@@ -39,6 +38,7 @@ from codelab.server.protocol.state import (
     SessionState,
 )
 from codelab.server.storage import SessionRepository
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestCompleteActiveTurn:
@@ -46,7 +46,7 @@ class TestCompleteActiveTurn:
 
     def test_complete_active_turn_returns_response(self) -> None:
         """complete_active_turn возвращает response с нормализованным stopReason."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -65,7 +65,7 @@ class TestCompleteActiveTurn:
 
     def test_complete_active_turn_without_active_turn_returns_none(self) -> None:
         """complete_active_turn возвращает None если нет активного turn."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -79,7 +79,7 @@ class TestShouldAutoCompleteActiveTurn:
 
     def test_no_active_turn_returns_false(self) -> None:
         """Без активного turn автозавершение невозможно."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -89,7 +89,7 @@ class TestShouldAutoCompleteActiveTurn:
 
     def test_waiting_tool_completion_returns_true(self) -> None:
         """Фаза waiting_tool_completion разрешает автозавершение."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -104,7 +104,7 @@ class TestShouldAutoCompleteActiveTurn:
 
     def test_other_phase_returns_false(self) -> None:
         """Другие фазы не разрешают автозавершение."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -292,9 +292,9 @@ class TestNormalizeStopReason:
 class TestBuildExecutorToolExecutionUpdates:
     """Тесты build_executor_tool_execution_updates."""
 
-    def _make_session_with_tool(self) -> SessionState:
+    def _make_session_with_tool(self) -> DomainSession:
         """Создает сессию с одним pending tool call."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -314,7 +314,7 @@ class TestBuildExecutorToolExecutionUpdates:
 
         assert len(updates) == 1
         assert updates[0].params["update"]["status"] == "in_progress"
-        assert session.tool_calls["call_001"].status == "in_progress"
+        assert session.tool_calls.calls["call_001"].status == "in_progress"
 
     def test_full_lifecycle_returns_in_progress_and_completed(self) -> None:
         """leave_running=False возвращает in_progress и completed updates."""
@@ -329,15 +329,15 @@ class TestBuildExecutorToolExecutionUpdates:
         assert len(updates) == 2
         assert updates[0].params["update"]["status"] == "in_progress"
         assert updates[1].params["update"]["status"] == "completed"
-        assert session.tool_calls["call_001"].status == "completed"
+        assert session.tool_calls.calls["call_001"].status == "completed"
 
 
 class TestBuildPolicyToolExecutionUpdates:
     """Тесты build_policy_tool_execution_updates."""
 
-    def _make_session_with_tool(self) -> SessionState:
+    def _make_session_with_tool(self) -> DomainSession:
         """Создает сессию с одним pending tool call."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -357,7 +357,7 @@ class TestBuildPolicyToolExecutionUpdates:
 
         assert len(updates) == 1
         assert updates[0].params["update"]["status"] == "in_progress"
-        assert session.tool_calls["call_001"].status == "in_progress"
+        assert session.tool_calls.calls["call_001"].status == "in_progress"
 
     def test_allowed_false_returns_cancelled(self) -> None:
         """allowed=False отменяет tool_call."""
@@ -371,7 +371,7 @@ class TestBuildPolicyToolExecutionUpdates:
 
         assert len(updates) == 1
         assert updates[0].params["update"]["status"] == "cancelled"
-        assert session.tool_calls["call_001"].status == "cancelled"
+        assert session.tool_calls.calls["call_001"].status == "cancelled"
 
 
 class TestBuildPlanEntries:
@@ -406,9 +406,9 @@ class TestBuildPlanEntries:
 class TestBuildFsClientRequest:
     """Тесты build_fs_client_request."""
 
-    def _make_session(self) -> SessionState:
+    def _make_session(self) -> DomainSession:
         """Создает сессию с fs-возможностями."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/work",
             mcp_servers=[],
@@ -430,7 +430,7 @@ class TestBuildFsClientRequest:
         assert len(prepared.messages) == 2
         assert prepared.pending_request.kind == "fs_read"
         assert prepared.pending_request.path == "/work/file.txt"
-        assert session.tool_calls["call_001"].kind == "read"
+        assert session.tool_calls.calls["call_001"].kind == "read"
 
     def test_fs_read_invalid_path_returns_none(self) -> None:
         """Невалидный путь чтения возвращает None."""
@@ -463,7 +463,7 @@ class TestBuildFsClientRequest:
         assert prepared.kind == "fs_write"
         assert prepared.pending_request.kind == "fs_write"
         assert prepared.pending_request.expected_new_text == "hello"
-        assert session.tool_calls["call_001"].kind == "edit"
+        assert session.tool_calls.calls["call_001"].kind == "edit"
 
     def test_no_fs_directive_returns_none(self) -> None:
         """Без fs-directives возвращает None."""
@@ -483,9 +483,9 @@ class TestBuildFsClientRequest:
 class TestBuildTerminalClientRequest:
     """Тесты build_terminal_client_request."""
 
-    def _make_session(self) -> SessionState:
+    def _make_session(self) -> DomainSession:
         """Создает сессию с terminal-возможностью."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/work",
             mcp_servers=[],
@@ -507,7 +507,7 @@ class TestBuildTerminalClientRequest:
         assert len(prepared.messages) == 2
         assert prepared.pending_request.kind == "terminal_create"
         assert prepared.pending_request.path == "echo hi"
-        assert session.tool_calls["call_001"].kind == "execute"
+        assert session.tool_calls.calls["call_001"].kind == "execute"
 
     def test_no_terminal_command_returns_none(self) -> None:
         """Без terminal_command возвращает None."""
@@ -529,7 +529,7 @@ class TestCreateToolCall:
 
     def test_creates_monotonic_ids(self) -> None:
         """create_tool_call генерирует монотонные call_xxx id."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -540,8 +540,8 @@ class TestCreateToolCall:
 
         assert first == "call_001"
         assert second == "call_002"
-        assert session.tool_calls["call_001"].title == "First"
-        assert session.tool_calls["call_002"].kind == "execute"
+        assert session.tool_calls.calls["call_001"].title == "First"
+        assert session.tool_calls.calls["call_002"].kind == "execute"
 
 
 class TestUpdateToolCallStatus:
@@ -549,7 +549,7 @@ class TestUpdateToolCallStatus:
 
     def test_valid_transition_updates_status(self) -> None:
         """Допустимый переход обновляет статус."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -557,11 +557,11 @@ class TestUpdateToolCallStatus:
         create_tool_call(session, title="Demo", kind="other")
         update_tool_call_status(session, "call_001", "in_progress")
 
-        assert session.tool_calls["call_001"].status == "in_progress"
+        assert session.tool_calls.calls["call_001"].status == "in_progress"
 
     def test_invalid_transition_ignored(self) -> None:
         """Недопустимый переход игнорируется."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -569,11 +569,11 @@ class TestUpdateToolCallStatus:
         create_tool_call(session, title="Demo", kind="other")
         update_tool_call_status(session, "call_001", "completed")
 
-        assert session.tool_calls["call_001"].status == "pending"
+        assert session.tool_calls.calls["call_001"].status == "pending"
 
     def test_same_status_allowed(self) -> None:
         """Переход в тот же статус разрешен."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -581,11 +581,11 @@ class TestUpdateToolCallStatus:
         create_tool_call(session, title="Demo", kind="other")
         update_tool_call_status(session, "call_001", "pending")
 
-        assert session.tool_calls["call_001"].status == "pending"
+        assert session.tool_calls.calls["call_001"].status == "pending"
 
     def test_updates_content(self) -> None:
         """Обновление статуса может сохранить content."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -594,25 +594,29 @@ class TestUpdateToolCallStatus:
         content = [{"type": "content", "content": {"type": "text", "text": "ok"}}]
         update_tool_call_status(session, "call_001", "in_progress", content=content)
 
-        assert session.tool_calls["call_001"].content == content
+        assert session.tool_calls.calls["call_001"].result.content == content
 
     def test_missing_tool_call_ignored(self) -> None:
         """Обновление несуществующего tool call не падает."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
         )
         update_tool_call_status(session, "nonexistent", "in_progress")
 
-        assert "nonexistent" not in session.tool_calls
+        assert "nonexistent" not in session.tool_calls.calls
 
 
 class TestFindSessionIdByPendingClientRequestId:
     """Тесты find_session_id_by_pending_client_request_id (доменный порт)."""
 
     def _repository(self, session: SessionState) -> SessionRepository:
-        """Репозиторий поверх backend'а с одной сохранённой сессией."""
+        """Репозиторий поверх backend'а с одним сохранённым документом сессии.
+
+        Backend отдаёт wire-документы, а агрегаты собирает уже репозиторий, —
+        поэтому фикстура здесь остаётся wire-формой.
+        """
         storage = AsyncMock()
         storage.list_sessions = AsyncMock(return_value=([session], None))
         return SessionRepository(backend=storage)
@@ -655,9 +659,9 @@ class TestFindSessionIdByPendingClientRequestId:
 class TestResolvePendingClientRpcResponseImpl:
     """Тесты resolve_pending_client_rpc_response_impl."""
 
-    def _make_session(self, pending: PendingClientRequestState) -> SessionState:
+    def _make_session(self, pending: PendingClientRequestState) -> DomainSession:
         """Создает сессию с активным turn и pending client request."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -668,13 +672,13 @@ class TestResolvePendingClientRpcResponseImpl:
             ),
         )
 
-    def _domain(self, session: SessionState) -> DomainSession:
+    def _domain(self, session: DomainSession) -> DomainSession:
         """Доменный агрегат — рабочая модель транзакции 7 (фаза D ADR-006)."""
-        return SessionMapper.to_domain(session)
+        return session
 
     def test_no_active_turn_returns_none(self) -> None:
         """Без active_turn возвращает None."""
-        session = self._domain(SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
+        session = self._domain(make_domain_session(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
 
         assert (
             resolve_pending_client_rpc_response_impl(
@@ -689,7 +693,7 @@ class TestResolvePendingClientRpcResponseImpl:
     def test_no_pending_request_returns_none(self) -> None:
         """Без pending_client_request возвращает None."""
         session = self._domain(
-            SessionState(
+            make_domain_session(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -990,8 +994,7 @@ class TestFinalizeFailedClientRpcRequest:
 
     def test_finalizes_failed_tool_call_and_turn(self) -> None:
         """Финализирует failed tool call и активный turn."""
-        session = SessionMapper.to_domain(
-            SessionState(
+        session = make_domain_session(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -1000,7 +1003,6 @@ class TestFinalizeFailedClientRpcRequest:
                     session_id="sess_1",
                 ),
             )
-        )
         session.tool_calls.create("demo", {}, title="Demo", kind="other")
 
         outcome = finalize_failed_client_rpc_request(
@@ -1020,9 +1022,9 @@ class TestFinalizeFailedClientRpcRequest:
 class TestResolvePermissionResponseImpl:
     """Тесты resolve_permission_response_impl."""
 
-    def _make_session(self) -> SessionState:
+    def _make_session(self) -> DomainSession:
         """Создает сессию с активным permission turn."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -1043,13 +1045,11 @@ class TestResolvePermissionResponseImpl:
         session = self._make_session()
         if with_tool_call:
             create_tool_call(session, title="Demo", kind="execute")
-        return SessionMapper.to_domain(session)
+        return session
 
     def test_no_active_turn_returns_none(self) -> None:
         """Без active_turn возвращает None."""
-        session = SessionMapper.to_domain(
-            SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        )
+        session = make_domain_session(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
         assert (
             resolve_permission_response_impl(
@@ -1062,8 +1062,7 @@ class TestResolvePermissionResponseImpl:
 
     def test_no_permission_tool_call_id_returns_none(self) -> None:
         """Без permission_tool_call_id возвращает None."""
-        session = SessionMapper.to_domain(
-            SessionState(
+        session = make_domain_session(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -1072,7 +1071,6 @@ class TestResolvePermissionResponseImpl:
                     session_id="sess_1",
                 ),
             )
-        )
 
         assert (
             resolve_permission_response_impl(
@@ -1118,7 +1116,7 @@ class TestResolvePermissionResponseImpl:
         assert outcome.pending_tool_execution.tool_call_id == "call_001"
 
     def test_allow_always_stores_session_policy(self) -> None:
-        """Allow always сохраняет решение в session.permission_policy."""
+        """Allow always сохраняет решение в session.permissions.policy."""
         session = self._domain_session()
 
         resolve_permission_response_impl(
@@ -1130,7 +1128,7 @@ class TestResolvePermissionResponseImpl:
         assert session.get_permission_policy("execute") == "allow_always"
 
     def test_reject_always_stores_session_policy(self) -> None:
-        """Reject always сохраняет решение в session.permission_policy."""
+        """Reject always сохраняет решение в session.permissions.policy."""
         session = self._domain_session()
 
         resolve_permission_response_impl(

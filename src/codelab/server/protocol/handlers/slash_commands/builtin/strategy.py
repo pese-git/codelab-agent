@@ -13,7 +13,7 @@ from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
     from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 
 class StrategyCommandHandler(CommandHandler):
@@ -41,7 +41,7 @@ class StrategyCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду /strategy.
 
@@ -109,7 +109,7 @@ class StrategyCommandHandler(CommandHandler):
                 ]
             )
 
-        # Сохраняем в session.config_values для persistence между turn'ами
+        # Сохраняем в session.config.config_values для persistence между turn'ами
         session.set_config_value("_active_strategy", new_strategy)
 
         return CommandResult(

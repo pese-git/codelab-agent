@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 from codelab.server.tools.definitions.filesystem import (
     FileSystemToolDefinitions,
     _normalize_path,
 )
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestNormalizePath:
@@ -61,7 +61,7 @@ class TestReadHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.read_handler
 
         await handler(session=session, path="README.md")
@@ -85,7 +85,7 @@ class TestReadHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.read_handler
 
         await handler(session=session, path="/workspace/file.txt")
@@ -107,7 +107,7 @@ class TestReadHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.read_handler
 
         result = await handler(session=session, path="/tmp/file.txt")
@@ -134,7 +134,7 @@ class TestReadHandlerValidatesPath:
             tool_registry=FakeRegistry(),
             executor=mock_executor,
         )
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.read_handler
 
         kwargs = {} if bad_path is None else {"path": bad_path}
@@ -158,7 +158,7 @@ class TestReadHandlerValidatesPath:
             tool_registry=FakeRegistry(),
             executor=mock_executor,
         )
-        session = SessionState(session_id="sess_1", cwd=str(tmp_path))
+        session = make_domain_session(session_id="sess_1", cwd=str(tmp_path))
         handler = FakeRegistry.read_handler
 
         result = await handler(session=session, path="src")
@@ -183,7 +183,7 @@ class TestWriteHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.write_handler
 
         await handler(session=session, path="output.txt", content="hello")
@@ -206,7 +206,7 @@ class TestWriteHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.write_handler
 
         await handler(session=session, path="/workspace/output.txt", content="hello")
@@ -228,7 +228,7 @@ class TestWriteHandlerNormalizesPath:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
         handler = FakeRegistry.write_handler
 
         result = await handler(session=session, path="/tmp/output.txt", content="hello")

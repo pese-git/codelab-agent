@@ -10,18 +10,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Тестовая сессия.
 
     ``term_1`` предрегистрирован тождественным маппингом: wait/release-тесты
     проверяют dispatch, а не выдачу alias (см. TerminalAliasRegistry, #18).
     """
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -43,7 +44,7 @@ class TestTerminalExecutorDispatch:
 
     @pytest.mark.asyncio
     async def test_execute_create(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """execute dispatch'ит operation=create в execute_create."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_1")
@@ -58,7 +59,7 @@ class TestTerminalExecutorDispatch:
 
     @pytest.mark.asyncio
     async def test_execute_wait_for_exit(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """execute dispatch'ит operation=wait_for_exit в execute_wait_for_exit."""
         executor._bridge.terminal_output = AsyncMock(
@@ -81,7 +82,7 @@ class TestTerminalExecutorDispatch:
 
     @pytest.mark.asyncio
     async def test_execute_release(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """execute dispatch'ит operation=release в execute_release."""
         executor._bridge.release_terminal = AsyncMock(return_value=True)
@@ -96,7 +97,7 @@ class TestTerminalExecutorDispatch:
 
     @pytest.mark.asyncio
     async def test_execute_unknown_operation(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """Неизвестная operation возвращает ошибку."""
         result = await executor.execute(
@@ -113,7 +114,7 @@ class TestTerminalExecutorCreateErrors:
 
     @pytest.mark.asyncio
     async def test_create_terminal_returns_none(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """Если bridge.create_terminal вернул None, возвращается ошибка."""
         executor._bridge.create_terminal = AsyncMock(return_value=None)
@@ -131,7 +132,7 @@ class TestTerminalExecutorWaitForExitSignal:
     async def test_wait_for_exit_signal_after_wait(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Сигнал после wait_for_exit корректно отображается в результате."""
         executor._bridge.terminal_output = AsyncMock(
@@ -174,7 +175,7 @@ class TestTerminalExecutorReleaseErrors:
     async def test_release_terminal_exception(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Исключение в release_terminal обрабатывается и возвращает ошибку."""
         executor._bridge.release_terminal = AsyncMock(side_effect=RuntimeError("boom"))

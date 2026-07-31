@@ -21,7 +21,7 @@ from codelab.server.tools.base import ToolExecutionResult
 from .base import ToolExecutorDecorator, ToolExecutorProtocol
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -154,7 +154,7 @@ class TracingDecorator(ToolExecutorDecorator):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         tool_name = arguments.get("tool_name", "unknown")
@@ -169,7 +169,7 @@ class TracingDecorator(ToolExecutorDecorator):
             span_id=span_id,
             parent_span_id=parent_span_id,
             tool_name=tool_name,
-            session_id=session.session_id,
+            session_id=str(session.id),
             start_time_ms=time.perf_counter() * 1000,
         )
 
@@ -196,5 +196,5 @@ class TracingDecorator(ToolExecutorDecorator):
                 tool_name=tool_name,
                 duration_ms=round(span.duration_ms, 2),
                 status=span.status.value,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )

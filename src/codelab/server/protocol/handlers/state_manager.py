@@ -1,18 +1,15 @@
 """Менеджер состояния сессии и истории промптов.
 
-Содержит логику управления SessionState, историей и метаданными сессии.
+Содержит логику управления состоянием сессии, историей и метаданными.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
-from ..state import SessionState
-
-if TYPE_CHECKING:
-    pass
+from codelab.server.domain.session import Session
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -22,7 +19,7 @@ class StateManager:
     """Управляет состоянием сессии и историей промптов.
 
     Ответственность:
-    - Управление состоянием SessionState
+    - Управление состоянием доменного агрегата сессии
     - Обновление истории (история)
     - Управление заголовком сессии (title)
     - Синхронизация временных меток (updated_at)
@@ -30,7 +27,7 @@ class StateManager:
 
     def update_session_title(
         self,
-        session: SessionState,
+        session: Session,
         text_preview: str,
     ) -> None:
         """Устанавливает title сессии из первого пользовательского запроса.
@@ -48,13 +45,13 @@ class StateManager:
                 session.set_title(stripped[:80])
                 logger.debug(
                     "session title set",
-                    session_id=session.session_id,
+                    session_id=str(session.id),
                     title=session.title,
                 )
 
     def add_user_message(
         self,
-        session: SessionState,
+        session: Session,
         prompt: list[dict[str, Any]],
     ) -> None:
         """Добавляет пользовательское сообщение в историю.
@@ -67,13 +64,13 @@ class StateManager:
         session.add_user_message(prompt)
         logger.debug(
             "user message added to history",
-            session_id=session.session_id,
+            session_id=str(session.id),
             message_length=len(prompt),
         )
 
     def add_assistant_message(
         self,
-        session: SessionState,
+        session: Session,
         content: str | dict[str, Any],
     ) -> None:
         """Добавляет ответ ассистента в историю.
@@ -85,11 +82,11 @@ class StateManager:
         session.add_assistant_message(content)
         logger.debug(
             "assistant message added to history",
-            session_id=session.session_id,
+            session_id=str(session.id),
             content_type=type(content).__name__,
         )
 
-    def update_session_timestamp(self, session: SessionState) -> None:
+    def update_session_timestamp(self, session: Session) -> None:
         """Обновляет updated_at на текущее время в UTC ISO 8601.
 
         Args:
@@ -98,11 +95,11 @@ class StateManager:
         session.mark_updated()
         logger.debug(
             "session timestamp updated",
-            session_id=session.session_id,
+            session_id=str(session.id),
             timestamp=session.updated_at,
         )
 
-    def get_session_summary(self, session: SessionState) -> dict[str, Any]:
+    def get_session_summary(self, session: Session) -> dict[str, Any]:
         """Возвращает сводку состояния сессии для notifications.
 
         Returns:
@@ -111,8 +108,8 @@ class StateManager:
         return {
             "title": session.title,
             "updated_at": session.updated_at,
-            "history_length": len(session.history),
-            "cwd": session.cwd,
+            "history_length": len(session.history.get_messages()),
+            "cwd": session.config.cwd,
         }
 
 

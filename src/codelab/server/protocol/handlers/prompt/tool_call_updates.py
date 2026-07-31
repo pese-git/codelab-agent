@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ....domain.session import Session
 from ....messages import ACPMessage
-from ...state import SessionState
 from .tool_call_state import update_tool_call_status
 
 
@@ -58,7 +58,7 @@ def tool_call_status_notification(
 
 def build_executor_tool_execution_updates(
     *,
-    session: SessionState,
+    session: Session,
     session_id: str,
     tool_call_id: str,
     leave_running: bool,
@@ -108,7 +108,7 @@ def build_executor_tool_execution_updates(
 
 def build_policy_tool_execution_updates(
     *,
-    session: SessionState,
+    session: Session,
     session_id: str,
     tool_call_id: str,
     allowed: bool,

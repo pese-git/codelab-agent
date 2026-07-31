@@ -13,8 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.agent.core.agent_base import AgentResponse
+from codelab.server.domain.session import ToolCallRegistry
+from codelab.server.domain.tool_call import ToolCall
+from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-from codelab.server.protocol.state import SessionState, ToolCallState
 
 
 @pytest.fixture
@@ -28,15 +30,17 @@ def mock_strategy():
 
 @pytest.fixture
 def mock_session():
-    """Mock SessionState."""
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
-    session.config_values = {}
+    """Mock DomainSession."""
+    # Без spec: доменный агрегат — dataclass, его поля не живут на классе, поэтому
+    # spec отрезал бы `config`/`runtime` (см. тот же приём в test_agent_loop).
+    session = MagicMock()
+    session.id = "test_session"
+    session.config.config_values = {}
     session.history = []
     session.tool_calls = {}
     session.active_turn = None
-    session.permission_policy = {}
-    session.latest_plan = None
+    session.permissions.policy = {}
+    session.plan = None
     return session
 
 
@@ -71,15 +75,16 @@ class TestAgentLoopPermissionFlowTerminalContent:
         """_execute_pending_tool() возвращает ToolResult с content."""
         # Arrange
         tool_call_id = "tc_001"
-        tool_call_state = ToolCallState(
-            tool_call_id=tool_call_id,
+        registry = ToolCallRegistry()
+        registry.calls[tool_call_id] = ToolCall(
+            id=tool_call_id,
+            tool_name="terminal/create",
+            arguments={},
             title="terminal/create",
             kind="execute",
-            status="pending",
-            tool_name="terminal/create",
-            tool_arguments={},
+            status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = {tool_call_id: tool_call_state}
+        mock_session.tool_calls = registry
 
         # Tool execution result
         mock_tool_result = MagicMock()
@@ -121,15 +126,16 @@ class TestAgentLoopPermissionFlowTerminalContent:
         """resume_after_permission() отправляет notification с terminal content."""
         # Arrange
         tool_call_id = "tc_001"
-        tool_call_state = ToolCallState(
-            tool_call_id=tool_call_id,
+        registry = ToolCallRegistry()
+        registry.calls[tool_call_id] = ToolCall(
+            id=tool_call_id,
+            tool_name="terminal/create",
+            arguments={"operation": "create", "command": "ls"},
             title="terminal/create",
             kind="execute",
-            status="pending",
-            tool_name="terminal/create",
-            tool_arguments={"operation": "create", "command": "ls"},
+            status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = {tool_call_id: tool_call_state}
+        mock_session.tool_calls = registry
 
         # Tool execution result
         mock_tool_result = MagicMock()
@@ -199,17 +205,17 @@ class TestAgentLoopPermissionFlowTerminalContent:
         `success` дал бы `failed` — и разошёлся бы с тем, что лежит на диске.
         """
         tool_call_id = "tc_cancelled"
-        mock_session.tool_calls = {
-            tool_call_id: ToolCallState(
-                tool_call_id=tool_call_id,
-                title="terminal/wait_for_exit",
-                kind="read",
-                # Статус, который проставил исполнитель вызова
-                status="cancelled",
-                tool_name="terminal/wait_for_exit",
-                tool_arguments={"operation": "wait_for_exit", "terminal_id": "term_1"},
-            )
-        }
+        registry = ToolCallRegistry()
+        registry.calls[tool_call_id] = ToolCall(
+            id=tool_call_id,
+            tool_name="terminal/wait_for_exit",
+            arguments={"operation": "wait_for_exit", "terminal_id": "term_1"},
+            title="terminal/wait_for_exit",
+            kind="read",
+            # Статус, который проставил исполнитель вызова
+            status=ToolCallStatus.CANCELLED,
+        )
+        mock_session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = False
@@ -245,15 +251,16 @@ class TestAgentLoopPermissionFlowTerminalContent:
         """resume_after_permission() сохраняет tool_call_update в replay."""
         # Arrange
         tool_call_id = "tc_replay"
-        tool_call_state = ToolCallState(
-            tool_call_id=tool_call_id,
+        registry = ToolCallRegistry()
+        registry.calls[tool_call_id] = ToolCall(
+            id=tool_call_id,
+            tool_name="terminal/create",
+            arguments={"operation": "create", "command": "ls"},
             title="terminal/create",
             kind="execute",
-            status="pending",
-            tool_name="terminal/create",
-            tool_arguments={"operation": "create", "command": "ls"},
+            status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = {tool_call_id: tool_call_state}
+        mock_session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = True

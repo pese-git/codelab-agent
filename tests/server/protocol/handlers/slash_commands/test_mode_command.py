@@ -9,15 +9,16 @@
 
 from __future__ import annotations
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.slash_commands.builtin.mode import (
     ModeCommandHandler,
 )
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
-def _make_session(mode: str = "standard") -> SessionState:
+def _make_session(mode: str = "standard") -> DomainSession:
     """Создать сессию с указанным mode."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -60,7 +61,7 @@ class TestModeCommandShow:
 
     def test_show_default_mode_when_not_set(self) -> None:
         handler = ModeCommandHandler()
-        session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="test", cwd="/tmp", mcp_servers=[])
         result = handler.execute([], session)
 
         text = result.content[0]["text"]
@@ -76,7 +77,7 @@ class TestModeCommandSet:
         result = handler.execute(["plan"], session)
 
         assert result is not None
-        assert session.config_values.get("mode") == "plan"
+        assert session.config.config_values.get("mode") == "plan"
         text = result.content[0]["text"]
         assert "standard" in text
         assert "plan" in text
@@ -86,7 +87,7 @@ class TestModeCommandSet:
         session = _make_session(mode="standard")
         result = handler.execute(["bypass"], session)
 
-        assert session.config_values.get("mode") == "bypass"
+        assert session.config.config_values.get("mode") == "bypass"
         assert result is not None
         assert result.updates is not None
         assert len(result.updates) == 1
@@ -99,14 +100,14 @@ class TestModeCommandSet:
 
         text = result.content[0]["text"]
         assert "уже активен" in text
-        assert session.config_values.get("mode") == "standard"
+        assert session.config.config_values.get("mode") == "standard"
 
     def test_set_mode_case_insensitive(self) -> None:
         handler = ModeCommandHandler()
         session = _make_session()
         handler.execute(["PLAN"], session)
 
-        assert session.config_values.get("mode") == "plan"
+        assert session.config.config_values.get("mode") == "plan"
 
 
 class TestModeCommandNormalization:
@@ -117,7 +118,7 @@ class TestModeCommandNormalization:
         session = _make_session(mode="bypass")
         result = handler.execute(["ask"], session)
 
-        assert session.config_values.get("mode") == "standard"
+        assert session.config.config_values.get("mode") == "standard"
         text = result.content[0]["text"]
         assert "нормализовано" in text
         assert "ask" in text
@@ -127,7 +128,7 @@ class TestModeCommandNormalization:
         session = _make_session()
         result = handler.execute(["code"], session)
 
-        assert session.config_values.get("mode") == "bypass"
+        assert session.config.config_values.get("mode") == "bypass"
         assert "нормализовано" in result.content[0]["text"]
 
     def test_old_mode_architect_normalizes(self) -> None:
@@ -135,7 +136,7 @@ class TestModeCommandNormalization:
         session = _make_session()
         result = handler.execute(["architect"], session)
 
-        assert session.config_values.get("mode") == "plan"
+        assert session.config.config_values.get("mode") == "plan"
         assert "нормализовано" in result.content[0]["text"]
 
 

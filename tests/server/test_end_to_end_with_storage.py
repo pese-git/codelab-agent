@@ -54,8 +54,8 @@ class TestEndToEndWithStorage:
             EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Assert - Проверяем формат события в memory
-        assert len(session.events_history) == 1
-        event = session.events_history[0]
+        assert len(session.runtime.events_history) == 1
+        event = session.runtime.events_history[0]
 
         # Проверяем что используется новый формат "update" вместо "event"
         assert "update" in event, "Event должен иметь поле 'update'"
@@ -86,7 +86,7 @@ class TestEndToEndWithStorage:
         )
 
         # Assert - Проверяем структуру
-        event = session.events_history[0]
+        event = session.runtime.events_history[0]
 
         assert "update" in event
         update = event["update"]
@@ -121,7 +121,7 @@ class TestEndToEndWithStorage:
             EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Сериализуем как JSON (как делает JsonFileStorage)
-        json_str = json.dumps({"events_history": session.events_history})
+        json_str = json.dumps({"events_history": session.runtime.events_history})
 
         # Десериализуем обратно
         deserialized = json.loads(json_str)
@@ -167,7 +167,7 @@ class TestEndToEndWithStorage:
         # Act - Загружаем сессию
         outcome = await session_load(
             request_id="req_load",
-            params={"sessionId": session.session_id, "cwd": "/tmp", "mcpServers": []},
+            params={"sessionId": str(session.id), "cwd": "/tmp", "mcpServers": []},
             require_auth=False,
             authenticated=True,
             config_specs=config_specs,

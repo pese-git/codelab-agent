@@ -20,8 +20,8 @@ from codelab.server.models import AvailableCommand, AvailableCommandInput
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
-    from codelab.server.protocol.state import SessionState
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class MCPPromptCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду — вызывает MCP prompt.
 
@@ -120,7 +120,7 @@ class MCPPromptCommandHandler(CommandHandler):
     async def execute_async(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Async версия execute — основной метод.
 

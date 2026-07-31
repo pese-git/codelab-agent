@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.decorators import MetricsDecorator
 from codelab.server.tools.executors.decorators.metrics import MetricsCollector
@@ -30,7 +30,7 @@ class MockExecutor:
 
     async def execute(
         self,
-        session: SessionState,
+        session: DomainSession,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         self.call_count += 1
@@ -42,9 +42,9 @@ class MockExecutor:
 
 
 @pytest.fixture
-def mock_session() -> SessionState:
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
+def mock_session() -> DomainSession:
+    session = MagicMock(spec=DomainSession)
+    session.id = "test_session"
     return session
 
 
@@ -64,7 +64,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_records_success(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -83,7 +83,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_records_failure_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -101,7 +101,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_records_exception_as_failure(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -119,7 +119,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_records_duration(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -136,7 +136,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_multiple_calls_aggregated(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -155,7 +155,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_preserves_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         collector: MetricsCollector,
     ) -> None:
@@ -172,7 +172,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_unknown_tool_name(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         collector: MetricsCollector,
     ) -> None:
         mock_executor = MockExecutor()
@@ -187,7 +187,7 @@ class TestMetricsDecorator:
     @pytest.mark.asyncio
     async def test_uses_global_collector_by_default(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         from codelab.server.tools.executors.decorators.metrics import (

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.config import session_set_mode
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
@@ -20,10 +21,10 @@ from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
 from codelab.server.protocol.state import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
-    SessionState,
 )
 from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.tools.registry import SimpleToolRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def stage(
     return DirectivesStage(tool_registry, permission_manager)
 
 
-async def _seed(session: SessionState) -> tuple[SessionRepository, InMemoryStorage]:
+async def _seed(session: DomainSession) -> tuple[SessionRepository, InMemoryStorage]:
     """Backend с засеянной сессией и доменный репозиторий над ним.
 
     Транзакция config доменная (фаза D ADR-006): мутируется не переданный
@@ -75,8 +76,8 @@ def _make_config_specs():
     }
 
 
-def _make_session(mode: str = "standard") -> SessionState:
-    return SessionState(
+def _make_session(mode: str = "standard") -> DomainSession:
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -86,7 +87,7 @@ def _make_session(mode: str = "standard") -> SessionState:
 
 
 def _make_context(
-    session: SessionState,
+    session: DomainSession,
     params: dict | None = None,
 ) -> PromptContext:
     return PromptContext(
@@ -233,7 +234,7 @@ class TestModeTransitionIntegration:
         assert decide_tool_policy(session, "read") == "allow"
 
         # Сменяем режим на bypass
-        session.config_values["mode"] = "bypass"
+        session.config.config_values["mode"] = "bypass"
 
         # В bypass mode всё разрешено
         assert decide_tool_policy(session, "execute") == "allow"
@@ -250,7 +251,7 @@ class TestModeTransitionIntegration:
         assert decide_tool_policy(session, "edit") == "allow"
 
         # Сменяем режим на standard
-        session.config_values["mode"] = "standard"
+        session.config.config_values["mode"] = "standard"
 
         # В standard mode требуется permission
         assert decide_tool_policy(session, "execute") == "ask"
@@ -266,7 +267,7 @@ class TestModeTransitionIntegration:
         assert decide_tool_policy(session, "edit") == "ask"
 
         # Сменяем режим на plan
-        session.config_values["mode"] = "plan"
+        session.config.config_values["mode"] = "plan"
 
         # В plan mode write заблокированы
         assert decide_tool_policy(session, "execute") == "reject"
@@ -295,7 +296,7 @@ class TestModeTransitionIntegration:
         # Политика читает состояние, загруженное заново — как турн-путь после смены режима
         reloaded = await backend.load_session("sess_1")
         assert reloaded is not None
-        assert reloaded.config_values.get("mode") == "bypass"
+        assert reloaded.config.config_values.get("mode") == "bypass"
         assert decide_tool_policy(reloaded, "execute") == "allow"
 
     @pytest.mark.asyncio
@@ -316,7 +317,7 @@ class TestModeTransitionIntegration:
         assert outcome.response.error is None
         reloaded = await backend.load_session("sess_1")
         assert reloaded is not None
-        assert reloaded.config_values.get("mode") == "bypass"
+        assert reloaded.config.config_values.get("mode") == "bypass"
 
         # Tool policy должна соответствовать bypass
         assert decide_tool_policy(reloaded, "execute") == "allow"
@@ -329,35 +330,35 @@ class TestToolPolicyDecisionIntegration:
     def test_plan_mode_with_allow_always_policy(self) -> None:
         """В plan mode allow_always policy не должен override блокировку."""
         session = _make_session(mode="plan")
-        session.permission_policy["execute"] = "allow_always"
+        session.permissions.policy["execute"] = "allow_always"
 
         assert decide_tool_policy(session, "execute") == "reject"
 
     def test_plan_mode_with_reject_always_policy(self) -> None:
         """В plan mode reject_always policy согласуется с блокировкой."""
         session = _make_session(mode="plan")
-        session.permission_policy["execute"] = "reject_always"
+        session.permissions.policy["execute"] = "reject_always"
 
         assert decide_tool_policy(session, "execute") == "reject"
 
     def test_bypass_mode_with_reject_always_policy(self) -> None:
         """В bypass mode bypass override reject_always policy."""
         session = _make_session(mode="bypass")
-        session.permission_policy["execute"] = "reject_always"
+        session.permissions.policy["execute"] = "reject_always"
 
         assert decide_tool_policy(session, "execute") == "allow"
 
     def test_standard_mode_with_allow_always_policy(self) -> None:
         """В standard mode allow_always policy должен auto-execute."""
         session = _make_session(mode="standard")
-        session.permission_policy["execute"] = "allow_always"
+        session.permissions.policy["execute"] = "allow_always"
 
         assert decide_tool_policy(session, "execute") == "allow"
 
     def test_standard_mode_with_reject_always_policy(self) -> None:
         """В standard mode reject_always policy должен auto-reject."""
         session = _make_session(mode="standard")
-        session.permission_policy["execute"] = "reject_always"
+        session.permissions.policy["execute"] = "reject_always"
 
         assert decide_tool_policy(session, "execute") == "reject"
 
@@ -371,7 +372,7 @@ class TestToolPolicyDecisionIntegration:
 
     def test_default_mode_is_standard(self) -> None:
         """Сессия без mode должна использовать standard."""
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

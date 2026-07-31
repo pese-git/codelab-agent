@@ -18,10 +18,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestTerminalExecutorInit:
@@ -50,14 +51,14 @@ class TestTerminalExecutorWaitForExitFlow:
     """
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию.
 
         Терминалы предрегистрированы тождественным alias→client-id маппингом:
         эти тесты проверяют flow wait_for_exit, а не выдачу alias, поэтому bridge
         по-прежнему адресуется тем же id (см. TerminalAliasRegistry, #18).
         """
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -76,7 +77,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_already_complete_skips_wait(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если terminal/output показывает завершённый статус — wait_for_exit не вызывается."""
         # Arrange
@@ -120,7 +121,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_running_terminal_calls_output_then_wait_then_output(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если терминал ещё работает — вызывается output → wait → output."""
         # Arrange
@@ -174,7 +175,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_with_signal(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Корректная обработка сигнала завершения."""
         # Arrange
@@ -203,7 +204,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_non_zero_exit_code(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Ненулевой exit_code возвращает success=False."""
         # Arrange
@@ -247,7 +248,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_wait_returns_none(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если wait_terminal_exit возвращает None — ошибка."""
         # Arrange
@@ -277,7 +278,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_output_returns_none_before_wait(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если первый terminal_output возвращает None — продолжается wait."""
         # Arrange
@@ -316,7 +317,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_final_output_returns_none(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Если финальный terminal_output возвращает None — output остаётся пустым."""
         # Arrange
@@ -354,7 +355,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_call_sequence_order(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверка точной последовательности вызовов: output → wait → output."""
         # Arrange
@@ -399,7 +400,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_content_includes_exit_message(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Content содержит сообщение о завершении с exit code."""
         # Arrange
@@ -428,7 +429,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_content_includes_signal_message(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Content содержит сообщение о сигнале завершения."""
         # Arrange
@@ -457,7 +458,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_terminal_id_passed_correctly(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """terminal_id корректно передаётся во все вызовы."""
         # Arrange
@@ -505,7 +506,7 @@ class TestTerminalExecutorWaitForExitFlow:
     async def test_wait_for_exit_exception_handling(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Исключение в bridge корректно обрабатывается."""
         # Arrange

@@ -15,20 +15,21 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.filesystem_executor import FileSystemToolExecutor
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestToolExecutionErrorHandling:
     """Тесты обработки ошибок при выполнении инструментов."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -54,7 +55,7 @@ class TestToolExecutionErrorHandling:
     @pytest.mark.asyncio
     async def test_filesystem_read_error_handling(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Обработка ошибок при чтении файла."""
@@ -77,7 +78,7 @@ class TestToolExecutionErrorHandling:
     @pytest.mark.asyncio
     async def test_filesystem_write_error_handling(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Обработка ошибок при записи файла."""
@@ -98,7 +99,7 @@ class TestToolExecutionErrorHandling:
     @pytest.mark.asyncio
     async def test_terminal_create_error_handling(
         self,
-        session: SessionState,
+        session: DomainSession,
         term_executor: TerminalToolExecutor,
     ) -> None:
         """Обработка ошибок при создании терминала."""
@@ -121,7 +122,7 @@ class TestToolExecutionErrorHandling:
     @pytest.mark.asyncio
     async def test_terminal_release_error_handling(
         self,
-        session: SessionState,
+        session: DomainSession,
         term_executor: TerminalToolExecutor,
     ) -> None:
         """Обработка ошибок при освобождении терминала."""
@@ -143,9 +144,9 @@ class TestMultipleToolCallsSequence:
     """Тесты последовательного выполнения нескольких tool calls."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -171,7 +172,7 @@ class TestMultipleToolCallsSequence:
     @pytest.mark.asyncio
     async def test_tool_calls_with_mixed_results(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Последовательное выполнение с успехом и ошибками."""
@@ -199,13 +200,13 @@ class TestMultipleToolCallsSequence:
     @pytest.mark.asyncio
     async def test_tool_calls_preserve_session_state(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Tool calls сохраняют состояние сессии."""
         # Arrange
         fs_executor._bridge.read_file = AsyncMock(return_value="content1")  # type: ignore
-        initial_session_id = session.session_id
+        initial_session_id = str(session.id)
 
         # Act
         result1 = await fs_executor.execute_read(
@@ -214,7 +215,7 @@ class TestMultipleToolCallsSequence:
         )
 
         # Assert
-        assert session.session_id == initial_session_id
+        assert str(session.id) == initial_session_id
         assert result1.success is True
 
         # Act
@@ -224,7 +225,7 @@ class TestMultipleToolCallsSequence:
         )
 
         # Assert
-        assert session.session_id == initial_session_id
+        assert str(session.id) == initial_session_id
         assert result2.success is True
 
 
@@ -232,9 +233,9 @@ class TestToolExecutionResultValidation:
     """Тесты валидации ToolExecutionResult."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает тестовую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -260,7 +261,7 @@ class TestToolExecutionResultValidation:
     @pytest.mark.asyncio
     async def test_result_success_field_is_boolean(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Поле success всегда boolean."""
@@ -276,7 +277,7 @@ class TestToolExecutionResultValidation:
     @pytest.mark.asyncio
     async def test_result_output_is_optional(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Поле output опционально."""
@@ -298,7 +299,7 @@ class TestToolExecutionResultValidation:
     @pytest.mark.asyncio
     async def test_result_error_only_on_failure(
         self,
-        session: SessionState,
+        session: DomainSession,
         fs_executor: FileSystemToolExecutor,
     ) -> None:
         """Поле error только при ошибке."""

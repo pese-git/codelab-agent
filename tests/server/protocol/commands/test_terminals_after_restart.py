@@ -16,12 +16,14 @@ from pathlib import Path
 
 import pytest
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.process_identity import PROCESS_TOKEN
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.protocol.state import SessionState
 from codelab.server.storage import JsonFileStorage, SessionRepository
 from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
+from tests.server._domain_sessions import make_domain_session
 
 
 def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
@@ -47,6 +49,7 @@ async def _load(storage: JsonFileStorage) -> None:
 
 
 def _session_with_terminals(owner: str | None) -> SessionState:
+    """Документ сессии на диске: реестр терминалов переживает рестарт (P2-44)."""
     session = SessionState(session_id="sess_x", cwd="/work", mcp_servers=[])
     session.terminals = {"term_1": "client-uuid-1", "term_2": "client-uuid-2"}
     session.terminal_counter = 2
@@ -102,7 +105,10 @@ class TestTerminalsFromPreviousProcess:
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
         assert on_disk.terminal_counter == 2
-        assert TerminalAliasRegistry().register(on_disk, "новый") == "term_3"
+        # Реестр — адаптер над агрегатом, поэтому проверка идёт на нём же
+        assert TerminalAliasRegistry().register(SessionMapper.to_domain(on_disk), "новый") == (
+            "term_3"
+        )
 
     @pytest.mark.asyncio
     async def test_dropped_terminal_resolves_to_none(self, tmp_path: Path) -> None:
@@ -117,13 +123,13 @@ class TestTerminalsFromPreviousProcess:
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
-        assert TerminalAliasRegistry().resolve(on_disk, "term_1") is None
+        assert TerminalAliasRegistry().resolve(SessionMapper.to_domain(on_disk), "term_1") is None
 
 
 class TestRegistryStampsOwner:
     def test_register_marks_current_process(self) -> None:
-        session = SessionState(session_id="sess_x", cwd="/work", mcp_servers=[])
+        session = make_domain_session(session_id="sess_x", cwd="/work", mcp_servers=[])
 
         TerminalAliasRegistry().register(session, "client-uuid")
 
-        assert session.terminals_owner == PROCESS_TOKEN
+        assert session.runtime.terminals_owner == PROCESS_TOKEN

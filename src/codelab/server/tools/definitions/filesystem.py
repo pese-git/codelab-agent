@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
     from codelab.server.tools.base import ToolRegistry
     from codelab.server.tools.executors.decorators.base import ToolExecutorProtocol
 
@@ -159,7 +159,7 @@ class FileSystemToolDefinitions:
         """
 
         # Создать обработчик для чтения файлов
-        async def read_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
+        async def read_handler(session: Session, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для fs/read_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "read"
@@ -175,12 +175,12 @@ class FileSystemToolDefinitions:
                     ),
                 )
 
-            # Нормализовать путь относительно session.cwd
-            if session.cwd:
-                arguments["path"] = _normalize_path(session.cwd, arguments["path"])
+            # Нормализовать путь относительно session.config.cwd
+            if session.config.cwd:
+                arguments["path"] = _normalize_path(session.config.cwd, arguments["path"])
                 # Валидировать что путь внутри cwd
                 try:
-                    _validate_path_in_cwd(arguments["path"], session.cwd)
+                    _validate_path_in_cwd(arguments["path"], session.config.cwd)
                 except ValueError as e:
                     return ToolExecutionResult(
                         success=False,
@@ -199,16 +199,16 @@ class FileSystemToolDefinitions:
             return await executor.execute(session, arguments)
 
         # Создать обработчик для записи файлов
-        async def write_handler(session: SessionState, **arguments: Any) -> ToolExecutionResult:
+        async def write_handler(session: Session, **arguments: Any) -> ToolExecutionResult:
             """Обработчик для fs/write_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "write"
-            # Нормализовать путь относительно session.cwd
-            if "path" in arguments and session.cwd:
-                arguments["path"] = _normalize_path(session.cwd, arguments["path"])
+            # Нормализовать путь относительно session.config.cwd
+            if "path" in arguments and session.config.cwd:
+                arguments["path"] = _normalize_path(session.config.cwd, arguments["path"])
                 # Валидировать что путь внутри cwd
                 try:
-                    _validate_path_in_cwd(arguments["path"], session.cwd)
+                    _validate_path_in_cwd(arguments["path"], session.config.cwd)
                 except ValueError as e:
                     from codelab.server.tools.base import ToolExecutionResult
 

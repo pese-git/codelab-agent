@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from codelab.server.domain.session import Session
     from codelab.server.models import AvailableCommand
-    from codelab.server.protocol.state import SessionState
 
 
 @dataclass
@@ -48,7 +48,7 @@ class CommandHandler(ABC):
         class StatusCommandHandler(CommandHandler):
             def execute(self, args, session):
                 return CommandResult(
-                    content=[{"type": "text", "text": f"Session: {session.session_id}"}]
+                    content=[{"type": "text", "text": f"Session: {str(session.id)}"}]
                 )
 
             def get_definition(self):
@@ -59,7 +59,7 @@ class CommandHandler(ABC):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду.
 

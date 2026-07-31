@@ -12,7 +12,7 @@ from codelab.server.models import AvailableCommand, AvailableCommandInput
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
     from ..registry import CommandRegistry
 
@@ -44,7 +44,7 @@ class HelpCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду /help.
 
@@ -66,7 +66,7 @@ class HelpCommandHandler(CommandHandler):
     def execute_with_handlers(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
         mcp_prompt_handlers: dict[str, Any],
     ) -> CommandResult:
         """Выполняет команду /help с передачей MCP prompt handlers.
@@ -89,7 +89,7 @@ class HelpCommandHandler(CommandHandler):
 
     def _get_all_commands(
         self,
-        session: SessionState,
+        session: Session,
         mcp_prompt_handlers: dict[str, Any],
     ) -> list[AvailableCommand]:
         """Возвращает все команды: встроенные + MCP prompts.
@@ -112,7 +112,7 @@ class HelpCommandHandler(CommandHandler):
 
     def _help_all(
         self,
-        session: SessionState,
+        session: Session,
         mcp_prompt_handlers: dict[str, Any],
     ) -> CommandResult:
         """Формирует справку по всем командам."""
@@ -148,7 +148,7 @@ class HelpCommandHandler(CommandHandler):
     def _help_for_command(
         self,
         command_name: str,
-        session: SessionState,
+        session: Session,
         mcp_prompt_handlers: dict[str, Any],
     ) -> CommandResult:
         """Формирует справку по конкретной команде."""

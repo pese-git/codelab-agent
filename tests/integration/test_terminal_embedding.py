@@ -15,18 +15,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.client.presentation.chat.handlers.tool_call_handler import ToolCallHandler
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.content.extractor import ContentExtractor
 from codelab.server.protocol.content.validator import ContentValidator
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создает тестовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -47,7 +48,7 @@ class TestTerminalEmbeddingIntegration:
 
     @pytest.mark.asyncio
     async def test_terminal_tool_full_pipeline(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """Полный pipeline: executor → extractor → validator → notification."""
         # Arrange: Mock bridge возвращает terminal_id
@@ -84,7 +85,7 @@ class TestTerminalEmbeddingIntegration:
 
     @pytest.mark.asyncio
     async def test_terminal_content_preserved_through_client_handler(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """Terminal content сохраняется в клиентском ToolCallHandler."""
         # Arrange
@@ -135,7 +136,7 @@ class TestTerminalEmbeddingIntegration:
 
     @pytest.mark.asyncio
     async def test_terminal_content_update_preserved(
-        self, executor: TerminalToolExecutor, session: SessionState
+        self, executor: TerminalToolExecutor, session: DomainSession
     ) -> None:
         """Terminal content обновляется в клиентском ToolCallHandler."""
         # Arrange

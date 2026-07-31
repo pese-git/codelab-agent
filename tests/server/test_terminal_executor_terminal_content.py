@@ -13,16 +13,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> DomainSession:
     """Создает тестовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -45,7 +46,7 @@ class TestTerminalExecutorCreateTerminalContent:
     async def test_execute_create_returns_terminal_content(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """execute_create() возвращает content с terminal и text items."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_xyz789")
@@ -63,7 +64,7 @@ class TestTerminalExecutorCreateTerminalContent:
     async def test_execute_create_terminal_content_has_terminal_id(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Terminal content содержит terminalId."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_abc123")
@@ -82,7 +83,7 @@ class TestTerminalExecutorCreateTerminalContent:
     async def test_execute_create_text_content_wrapped(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Text content обёрнут в ToolCallContent.content wrapper."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_test")
@@ -104,7 +105,7 @@ class TestTerminalExecutorCreateTerminalContent:
     async def test_execute_create_terminal_content_first(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Terminal content идёт первым для быстрого отображения клиентом."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_first")
@@ -122,7 +123,7 @@ class TestTerminalExecutorCreateTerminalContent:
     async def test_execute_create_content_includes_command(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Text content содержит информацию о команде."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_cmd")
@@ -144,7 +145,7 @@ class TestTerminalAliasRoundTrip:
     async def test_wait_for_exit_resolves_alias_to_client_id(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """LLM возвращает alias; bridge адресуется настоящим client terminalId."""
         client_id = "6c8323e0-08bb-4a20-944e-1aeb85afedb1"
@@ -169,7 +170,7 @@ class TestTerminalAliasRoundTrip:
     async def test_unknown_alias_fails_without_touching_bridge(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Неизвестный alias → failed с внятной ошибкой, без вызова bridge (нет recreate-loop)."""
         executor._bridge.terminal_output = AsyncMock()
@@ -189,7 +190,7 @@ class TestTerminalAliasRoundTrip:
     async def test_release_removes_alias_from_registry(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """После release alias снимается — повторное обращение даёт ошибку контракта."""
         executor._bridge.create_terminal = AsyncMock(return_value="client-uuid")
@@ -200,7 +201,7 @@ class TestTerminalAliasRoundTrip:
 
         released = await executor.execute_release(session=session, terminal_id=alias)
         assert released.success is True
-        assert session.terminals == {}
+        assert session.runtime.terminals == {}
 
         again = await executor.execute_release(session=session, terminal_id=alias)
         assert again.success is False
@@ -209,7 +210,7 @@ class TestTerminalAliasRoundTrip:
     async def test_execute_create_preserves_output_and_metadata(
         self,
         executor: TerminalToolExecutor,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """execute_create() сохраняет output и metadata."""
         executor._bridge.create_terminal = AsyncMock(return_value="term_full")
@@ -231,4 +232,4 @@ class TestTerminalAliasRoundTrip:
         assert result.content is not None
         assert result.content[0]["terminalId"] == "term_full"
         # Маппинг alias → client id зарегистрирован в сессии.
-        assert session.terminals == {"term_1": "term_full"}
+        assert session.runtime.terminals == {"term_1": "term_full"}

@@ -11,9 +11,10 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestUserMessageChunkPersistence:
@@ -25,9 +26,9 @@ class TestUserMessageChunkPersistence:
         return make_orchestrator()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает пустую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -42,7 +43,7 @@ class TestUserMessageChunkPersistence:
     def test_user_message_chunk_saved_in_events_history(
         self,
         orchestrator,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Каждый блок user_message_chunk сохраняется в events_history."""
         # Arrange
@@ -59,12 +60,12 @@ class TestUserMessageChunkPersistence:
             EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Assert
-        assert len(session.events_history) >= 2
+        assert len(session.runtime.events_history) >= 2
 
         # Проверяем, что события сохранены в правильном формате
         user_message_events = [
             e
-            for e in session.events_history
+            for e in session.runtime.events_history
             if e.get("type") == "session_update"
             and e.get("update", {}).get("sessionUpdate") == "user_message_chunk"
         ]
@@ -84,9 +85,9 @@ class TestAgentMessageChunkFormat:
         return make_orchestrator()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создает пустую сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -101,7 +102,7 @@ class TestAgentMessageChunkFormat:
     def test_agent_message_chunk_correct_format(
         self,
         orchestrator,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """agent_message_chunk сохраняется в правильном формате с ContentBlock."""
         # Arrange
@@ -115,9 +116,9 @@ class TestAgentMessageChunkFormat:
 
         # Assert
         # Проверяем, что событие содержит правильную структуру
-        assert len(session.events_history) > 0
+        assert len(session.runtime.events_history) > 0
 
-        agent_event = session.events_history[-1]
+        agent_event = session.runtime.events_history[-1]
         assert agent_event["type"] == "session_update"
 
         update = agent_event["update"]
@@ -131,7 +132,7 @@ class TestAgentMessageChunkFormat:
     def test_agent_message_chunk_has_timestamp(
         self,
         orchestrator,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """agent_message_chunk событие содержит временную метку."""
         # Arrange
@@ -144,7 +145,7 @@ class TestAgentMessageChunkFormat:
         )
 
         # Assert
-        event = session.events_history[-1]
+        event = session.runtime.events_history[-1]
         assert "timestamp" in event
         assert isinstance(event["timestamp"], str)
 
@@ -172,7 +173,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays user_message_chunk события из events_history."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -233,7 +234,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays agent_message_chunk события из events_history."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -291,7 +292,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays полную беседу из events_history."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -368,7 +369,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load игнорирует события без type=session_update."""
         # Arrange
-        session = SessionState(
+        session = make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

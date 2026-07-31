@@ -18,7 +18,7 @@ from codelab.server.tools.base import ToolExecutionResult
 from .base import ToolExecutorDecorator, ToolExecutorProtocol
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -151,7 +151,7 @@ class MetricsDecorator(ToolExecutorDecorator):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         tool_name = arguments.get("tool_name", "unknown")
@@ -168,7 +168,7 @@ class MetricsDecorator(ToolExecutorDecorator):
                 tool_name=tool_name,
                 duration_ms=round(duration_ms, 2),
                 success=result.success,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
             return result
@@ -182,7 +182,7 @@ class MetricsDecorator(ToolExecutorDecorator):
                 tool_name=tool_name,
                 duration_ms=round(duration_ms, 2),
                 success=False,
-                session_id=session.session_id,
+                session_id=str(session.id),
             )
 
             raise

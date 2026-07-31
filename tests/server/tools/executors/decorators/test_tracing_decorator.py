@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.decorators import TracingDecorator
 from codelab.server.tools.executors.decorators.tracing import (
@@ -33,7 +33,7 @@ class MockExecutor:
 
     async def execute(
         self,
-        session: SessionState,
+        session: DomainSession,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         self.call_count += 1
@@ -45,9 +45,9 @@ class MockExecutor:
 
 
 @pytest.fixture
-def mock_session() -> SessionState:
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
+def mock_session() -> DomainSession:
+    session = MagicMock(spec=DomainSession)
+    session.id = "test_session"
     return session
 
 
@@ -67,7 +67,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_creates_span_on_success(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -91,7 +91,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_creates_span_on_failure_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -109,7 +109,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_creates_span_on_exception(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -127,7 +127,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_span_has_timing(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -144,7 +144,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_span_has_no_parent_by_default(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -159,7 +159,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_nested_decorators_share_trace_id(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -182,7 +182,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_preserves_result(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -199,7 +199,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_multiple_calls_create_separate_spans(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
         recorder: TraceRecorder,
     ) -> None:
@@ -216,7 +216,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_uses_global_recorder_by_default(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         from codelab.server.tools.executors.decorators.tracing import (
@@ -237,7 +237,7 @@ class TestTracingDecorator:
     @pytest.mark.asyncio
     async def test_unknown_tool_name(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         recorder: TraceRecorder,
     ) -> None:
         mock_executor = MockExecutor()

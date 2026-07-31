@@ -67,11 +67,11 @@ class TestFullSessionLifecycle:
         )
 
         # Assert - Проверяем что события сохранены
-        assert len(session.events_history) >= 2
+        assert len(session.runtime.events_history) >= 2
 
         user_events = [
             e
-            for e in session.events_history
+            for e in session.runtime.events_history
             if e.get("type") == "session_update"
             and e.get("update", {}).get("sessionUpdate") == "user_message_chunk"
         ]
@@ -79,7 +79,7 @@ class TestFullSessionLifecycle:
 
         agent_events = [
             e
-            for e in session.events_history
+            for e in session.runtime.events_history
             if e.get("type") == "session_update"
             and e.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
         ]
@@ -94,7 +94,7 @@ class TestFullSessionLifecycle:
         # Act - Загружаем сессию через session/load (симулирует переподключение клиента)
         outcome = await session_load(
             request_id="req_load",
-            params={"sessionId": session.session_id, "cwd": "/tmp", "mcpServers": []},
+            params={"sessionId": str(session.id), "cwd": "/tmp", "mcpServers": []},
             require_auth=False,
             authenticated=True,
             config_specs=config_specs,
@@ -180,7 +180,7 @@ class TestFullSessionLifecycle:
         )
 
         # Assert - Проверяем что все события сохранены
-        assert len(session.events_history) == 4  # 2 user + 2 agent
+        assert len(session.runtime.events_history) == 4  # 2 user + 2 agent
 
         # Сохраняем сессию в storage
         from codelab.server.storage import InMemoryStorage
@@ -191,7 +191,7 @@ class TestFullSessionLifecycle:
         # Act - Загружаем сессию
         outcome = await session_load(
             request_id="req_load",
-            params={"sessionId": session.session_id, "cwd": "/tmp", "mcpServers": []},
+            params={"sessionId": str(session.id), "cwd": "/tmp", "mcpServers": []},
             require_auth=False,
             authenticated=True,
             config_specs=config_specs,
@@ -272,7 +272,7 @@ class TestFullSessionLifecycle:
         # Act - Загружаем сессию
         outcome = await session_load(
             request_id="req_load",
-            params={"sessionId": session.session_id, "cwd": "/tmp", "mcpServers": []},
+            params={"sessionId": str(session.id), "cwd": "/tmp", "mcpServers": []},
             require_auth=False,
             authenticated=True,
             config_specs=config_specs,

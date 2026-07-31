@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.prompt import (
     can_use_fs_client_rpc,
     can_use_terminal_client_rpc,
@@ -20,7 +21,8 @@ from codelab.server.protocol.handlers.prompt import (
     resolve_prompt_directives,
     resolve_tool_title,
 )
-from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
+from codelab.server.protocol.state import ClientRuntimeCapabilities
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestExtractPromptDirectivesSlashCommands:
@@ -319,9 +321,9 @@ class TestResolveToolTitle:
 class TestRuntimeCapabilityChecks:
     """Тесты проверок runtime-возможностей клиента."""
 
-    def _make_session(self, caps: ClientRuntimeCapabilities | None) -> SessionState:
-        """Хелпер для создания SessionState с заданными capabilities."""
-        return SessionState(
+    def _make_session(self, caps: ClientRuntimeCapabilities | None) -> DomainSession:
+        """Хелпер для создания DomainSession с заданными capabilities."""
+        return make_domain_session(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

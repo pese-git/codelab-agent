@@ -2,9 +2,10 @@
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.definitions.plan import PlanToolDefinitions
 from codelab.server.tools.executors.plan_executor import PlanToolExecutor
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestPlanToolDefinitions:
@@ -54,16 +55,20 @@ class TestPlanToolExecutor:
         return PlanToolExecutor()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> DomainSession:
         """Создать mock сессию."""
-        return SessionState(
+        return make_domain_session(
             session_id="test-session",
             cwd="/tmp",
             mcp_servers=[],
         )
 
     @pytest.mark.asyncio
-    async def test_execute_success(self, executor: PlanToolExecutor, session: SessionState) -> None:
+    async def test_execute_success(
+        self,
+        executor: PlanToolExecutor,
+        session: DomainSession,
+    ) -> None:
         """Успешное выполнение с валидными entries."""
         arguments = {
             "entries": [
@@ -81,7 +86,7 @@ class TestPlanToolExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_empty_entries(
-        self, executor: PlanToolExecutor, session: SessionState
+        self, executor: PlanToolExecutor, session: DomainSession
     ) -> None:
         """Пустой список entries возвращает ошибку."""
         arguments = {"entries": []}
@@ -93,7 +98,7 @@ class TestPlanToolExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_invalid_entries_type(
-        self, executor: PlanToolExecutor, session: SessionState
+        self, executor: PlanToolExecutor, session: DomainSession
     ) -> None:
         """Невалидный тип entries возвращает ошибку."""
         arguments = {"entries": "not a list"}
@@ -105,7 +110,7 @@ class TestPlanToolExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_normalization(
-        self, executor: PlanToolExecutor, session: SessionState
+        self, executor: PlanToolExecutor, session: DomainSession
     ) -> None:
         """Проверить нормализацию entries."""
         arguments = {
@@ -127,7 +132,7 @@ class TestPlanToolExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_skip_invalid_entries(
-        self, executor: PlanToolExecutor, session: SessionState
+        self, executor: PlanToolExecutor, session: DomainSession
     ) -> None:
         """Пропустить entries без content."""
         arguments = {
@@ -146,7 +151,7 @@ class TestPlanToolExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_title_alias(
-        self, executor: PlanToolExecutor, session: SessionState
+        self, executor: PlanToolExecutor, session: DomainSession
     ) -> None:
         """Поле title как альтернатива content."""
         arguments = {

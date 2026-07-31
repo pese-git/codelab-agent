@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 from codelab.server.tools.definitions.terminal import TerminalToolDefinitions
+from tests.server._domain_sessions import make_domain_session
 
 
 class FakeRegistry:
@@ -26,11 +26,11 @@ class FakeRegistry:
 
 
 class TestCreateHandlerCwd:
-    """Тесты что create_handler подставляет session.cwd."""
+    """Тесты что create_handler подставляет session.config.cwd."""
 
     @pytest.mark.asyncio
     async def test_create_handler_sets_session_cwd_when_not_provided(self) -> None:
-        """Create handler должен подставить session.cwd если cwd не передан."""
+        """Create handler должен подставить session.config.cwd если cwd не передан."""
         mock_executor = MagicMock()
         mock_execute = AsyncMock(
             return_value=ToolExecutionResult(success=True, output="terminal created")
@@ -42,7 +42,7 @@ class TestCreateHandlerCwd:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace/project")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace/project")
         handler = FakeRegistry.create_handler
         assert handler is not None
 
@@ -69,7 +69,7 @@ class TestCreateHandlerCwd:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="/workspace/project")
+        session = make_domain_session(session_id="sess_1", cwd="/workspace/project")
         handler = FakeRegistry.create_handler
         assert handler is not None
 
@@ -83,7 +83,7 @@ class TestCreateHandlerCwd:
 
     @pytest.mark.asyncio
     async def test_create_handler_no_cwd_when_session_cwd_empty(self) -> None:
-        """Create handler не должен подставлять cwd если session.cwd пустой."""
+        """Create handler не должен подставлять cwd если session.config.cwd пустой."""
         mock_executor = MagicMock()
         mock_execute = AsyncMock(
             return_value=ToolExecutionResult(success=True, output="terminal created")
@@ -95,7 +95,7 @@ class TestCreateHandlerCwd:
             executor=mock_executor,
         )
 
-        session = SessionState(session_id="sess_1", cwd="")
+        session = make_domain_session(session_id="sess_1", cwd="")
         handler = FakeRegistry.create_handler
         assert handler is not None
 

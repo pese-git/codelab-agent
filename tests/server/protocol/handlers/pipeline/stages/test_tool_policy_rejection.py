@@ -11,10 +11,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 def _make_processor() -> ToolCallProcessor:
@@ -30,8 +31,8 @@ def _make_processor() -> ToolCallProcessor:
     )
 
 
-def _plan_mode_session() -> SessionState:
-    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def _plan_mode_session() -> DomainSession:
+    session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
     session.set_config_value("mode", "plan")
     return session
 
@@ -118,9 +119,9 @@ class TestPausedPermissionIsCorrelatableInLog:
             ToolCallProcessor,
         )
         from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-        from codelab.server.protocol.state import ActiveTurnState, SessionState
+        from codelab.server.protocol.state import ActiveTurnState
 
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
         session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
         handler = ToolCallHandler()
         tool_call_id = handler.create_tool_call(session, title="fs/read", kind="read")

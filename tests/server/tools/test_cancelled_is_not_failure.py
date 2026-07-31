@@ -17,16 +17,17 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.client_rpc import ClientRPCCancelledError
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
-    session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-    session.terminals = {"term_1": "client-term-1"}
-    session.terminal_counter = 1
+def session() -> DomainSession:
+    session = make_domain_session(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session.runtime.terminals = {"term_1": "client-term-1"}
+    session.runtime.terminal_counter = 1
     return session
 
 
@@ -45,7 +46,7 @@ def _executor(bridge: ClientRPCBridge) -> TerminalToolExecutor:
 
 @pytest.mark.asyncio
 class TestCancelledResultIsMarkedCancelled:
-    async def test_wait_for_exit_cancel_is_not_an_error(self, session: SessionState) -> None:
+    async def test_wait_for_exit_cancel_is_not_an_error(self, session: DomainSession) -> None:
         """Результат помечен `cancelled`, а текст не называет отмену ошибкой."""
         bridge = _bridge(
             terminal_output=ClientRPCCancelledError("RPC вызов terminal/output был отменён"),
@@ -60,7 +61,7 @@ class TestCancelledResultIsMarkedCancelled:
         assert "отменено пользователем" in result.error
         assert "Ошибка" not in result.error
 
-    async def test_create_cancel_is_not_an_error(self, session: SessionState) -> None:
+    async def test_create_cancel_is_not_an_error(self, session: DomainSession) -> None:
         bridge = _bridge(
             create_terminal=ClientRPCCancelledError("RPC вызов terminal/create был отменён")
         )
@@ -71,7 +72,7 @@ class TestCancelledResultIsMarkedCancelled:
         assert result.error is not None
         assert "отменено пользователем" in result.error
 
-    async def test_failure_is_still_a_failure(self, session: SessionState) -> None:
+    async def test_failure_is_still_a_failure(self, session: DomainSession) -> None:
         """Сбой обязан остаться сбоем: признак отмены не должен его поглотить."""
         bridge = _bridge(wait_for_exit=RuntimeError("клиент отвалился"))
 

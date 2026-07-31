@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.mcp.models import (
     MCPPrompt,
     MCPPromptArgument,
@@ -27,6 +28,7 @@ from codelab.server.protocol.handlers.slash_commands.builtin.mcp_prompt import (
 from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.session_runtime import SessionRuntimeState
 from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -52,6 +54,12 @@ def session() -> SessionState:
         cwd="/tmp",
         mcp_servers=[],
     )
+
+
+@pytest.fixture
+def domain_session() -> DomainSession:
+    """Доменный агрегат: `SlashCommandRouter` работает носителем turn-пути (ADR-006)."""
+    return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
 
 
 @pytest.fixture
@@ -179,7 +187,7 @@ class TestSlashCommandRouterMcpPrompts:
     """Тесты для маршрутизации MCP prompts через SlashCommandRouter."""
 
     @pytest.mark.asyncio
-    async def test_routes_to_mcp_prompt_handler(self, session: SessionState) -> None:
+    async def test_routes_to_mcp_prompt_handler(self, domain_session: DomainSession) -> None:
         """Маршрутизирует команду к MCP prompt handler."""
         registry = CommandRegistry()
         router = SlashCommandRouter(registry)
@@ -194,13 +202,13 @@ class TestSlashCommandRouterMcpPrompts:
         # Передаём handlers как параметр (из runtime registry)
         mcp_prompt_handlers = {"test_prompt": mock_handler}
 
-        outcome = await router.route("test_prompt", ["arg1"], session, mcp_prompt_handlers)
+        outcome = await router.route("test_prompt", ["arg1"], domain_session, mcp_prompt_handlers)
 
         assert outcome is not None
-        mock_handler.execute_async.assert_called_once_with(["arg1"], session)
+        mock_handler.execute_async.assert_called_once_with(["arg1"], domain_session)
 
     @pytest.mark.asyncio
-    async def test_registry_handler_takes_priority(self, session: SessionState) -> None:
+    async def test_registry_handler_takes_priority(self, domain_session: DomainSession) -> None:
         """Handler из registry имеет приоритет над MCP prompt."""
         from codelab.server.protocol.handlers.slash_commands.builtin import StatusCommandHandler
 
@@ -213,24 +221,24 @@ class TestSlashCommandRouterMcpPrompts:
         mock_handler.execute_async = AsyncMock()
         mcp_prompt_handlers = {"status": mock_handler}
 
-        outcome = await router.route("status", [], session, mcp_prompt_handlers)
+        outcome = await router.route("status", [], domain_session, mcp_prompt_handlers)
 
         # Должен вызваться handler из registry, а не MCP prompt
         assert outcome is not None
         mock_handler.execute_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_none_for_unknown_command(self, session: SessionState) -> None:
+    async def test_returns_none_for_unknown_command(self, domain_session: DomainSession) -> None:
         """Возвращает None для неизвестной команды."""
         registry = CommandRegistry()
         router = SlashCommandRouter(registry)
 
-        outcome = await router.route("unknown_command", [], session)
+        outcome = await router.route("unknown_command", [], domain_session)
 
         assert outcome is None
 
     @pytest.mark.asyncio
-    async def test_handles_mcp_prompt_error(self, session: SessionState) -> None:
+    async def test_handles_mcp_prompt_error(self, domain_session: DomainSession) -> None:
         """Обрабатывает ошибки выполнения MCP prompt."""
         registry = CommandRegistry()
         router = SlashCommandRouter(registry)
@@ -239,7 +247,7 @@ class TestSlashCommandRouterMcpPrompts:
         mock_handler.execute_async = AsyncMock(side_effect=Exception("MCP error"))
         mcp_prompt_handlers = {"failing_prompt": mock_handler}
 
-        outcome = await router.route("failing_prompt", [], session, mcp_prompt_handlers)
+        outcome = await router.route("failing_prompt", [], domain_session, mcp_prompt_handlers)
 
         assert outcome is not None
         # Должно содержать сообщение об ошибке

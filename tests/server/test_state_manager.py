@@ -7,8 +7,9 @@ from datetime import datetime
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.state_manager import StateManager
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -18,9 +19,9 @@ def state_manager() -> StateManager:
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает экземпляр SessionState для тестов."""
-    return SessionState(
+def session() -> DomainSession:
+    """Создает экземпляр DomainSession для тестов."""
+    return make_domain_session(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -33,7 +34,7 @@ class TestStateManagerTitle:
     def test_update_session_title_from_preview(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Устанавливает title из preview текста."""
         state_manager.update_session_title(session, "This is a test prompt")
@@ -42,7 +43,7 @@ class TestStateManagerTitle:
     def test_update_session_title_truncates_long_text(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обрезает title до 80 символов."""
         long_text = "A" * 150
@@ -53,7 +54,7 @@ class TestStateManagerTitle:
     def test_update_session_title_strips_whitespace(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Убирает пробелы в начале и конце."""
         state_manager.update_session_title(session, "  Test prompt  ")
@@ -62,7 +63,7 @@ class TestStateManagerTitle:
     def test_update_session_title_skips_if_already_set(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не перезаписывает уже установленный title."""
         session.title = "Original title"
@@ -72,7 +73,7 @@ class TestStateManagerTitle:
     def test_update_session_title_skips_empty_text(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Пропускает обновление для пустого текста."""
         state_manager.update_session_title(session, "")
@@ -81,7 +82,7 @@ class TestStateManagerTitle:
     def test_update_session_title_skips_whitespace_only(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Пропускает обновление для текста только с пробелами."""
         state_manager.update_session_title(session, "   \n  \t  ")
@@ -94,7 +95,7 @@ class TestStateManagerHistory:
     def test_add_user_message_to_history(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Добавляет пользовательское сообщение в историю."""
         prompt = [
@@ -102,76 +103,81 @@ class TestStateManagerHistory:
             {"type": "text", "text": "World"},
         ]
         state_manager.add_user_message(session, prompt)
-        assert len(session.history) == 1
-        assert session.history[0]["role"] == "user"
-        assert session.history[0]["content"] == prompt
+        assert len(wire_history(session)) == 1
+        assert wire_history(session)[0]["role"] == "user"
+        assert wire_history(session)[0]["content"] == prompt
 
     def test_add_user_message_multiple(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Добавляет несколько пользовательских сообщений."""
         prompt1 = [{"type": "text", "text": "First"}]
         prompt2 = [{"type": "text", "text": "Second"}]
         state_manager.add_user_message(session, prompt1)
         state_manager.add_user_message(session, prompt2)
-        assert len(session.history) == 2
-        assert session.history[0]["content"] == prompt1
-        assert session.history[1]["content"] == prompt2
+        assert len(wire_history(session)) == 2
+        assert wire_history(session)[0]["content"] == prompt1
+        assert wire_history(session)[1]["content"] == prompt2
 
     def test_add_assistant_message_as_text(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Добавляет ответ ассистента как текст."""
         state_manager.add_assistant_message(session, "This is a response")
-        assert len(session.history) == 1
-        assert session.history[0]["role"] == "assistant"
-        assert session.history[0]["text"] == "This is a response"
+        assert len(wire_history(session)) == 1
+        assert wire_history(session)[0]["role"] == "assistant"
+        assert wire_history(session)[0]["text"] == "This is a response"
 
     def test_add_assistant_message_as_dict(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
-        """Добавляет ответ ассистента как словарь."""
+        """Добавляет ответ ассистента как словарь (одиночный ACP-блок).
+
+        Носитель разбирает блок и хранит его текстом, а не сырым dict'ом: форма
+        записи истории принадлежит агрегату (ADR-006). Прод по этому пути передаёт
+        только строку — dict остаётся принятым входом ради одноимённости сейма.
+        """
         content = {
             "type": "text",
             "text": "Structured response",
         }
         state_manager.add_assistant_message(session, content)
-        assert len(session.history) == 1
-        assert session.history[0]["role"] == "assistant"
-        assert session.history[0]["content"] == content
+        assert len(wire_history(session)) == 1
+        assert wire_history(session)[0]["role"] == "assistant"
+        assert wire_history(session)[0]["text"] == "Structured response"
 
     def test_add_assistant_message_multiple(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Добавляет несколько ответов ассистента."""
         state_manager.add_assistant_message(session, "Response 1")
         state_manager.add_assistant_message(session, "Response 2")
-        assert len(session.history) == 2
-        assert session.history[0]["text"] == "Response 1"
-        assert session.history[1]["text"] == "Response 2"
+        assert len(wire_history(session)) == 2
+        assert wire_history(session)[0]["text"] == "Response 1"
+        assert wire_history(session)[1]["text"] == "Response 2"
 
     def test_add_messages_interleaved(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Добавляет чередующиеся user и assistant сообщения."""
         prompt = [{"type": "text", "text": "User message"}]
         state_manager.add_user_message(session, prompt)
         state_manager.add_assistant_message(session, "Assistant response")
         state_manager.add_user_message(session, prompt)
-        assert len(session.history) == 3
-        assert session.history[0]["role"] == "user"
-        assert session.history[1]["role"] == "assistant"
-        assert session.history[2]["role"] == "user"
+        assert len(wire_history(session)) == 3
+        assert wire_history(session)[0]["role"] == "user"
+        assert wire_history(session)[1]["role"] == "assistant"
+        assert wire_history(session)[2]["role"] == "user"
 
 
 class TestStateManagerTimestamp:
@@ -180,7 +186,7 @@ class TestStateManagerTimestamp:
     def test_update_session_timestamp(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обновляет timestamp на текущее время."""
         old_timestamp = session.updated_at
@@ -192,7 +198,7 @@ class TestStateManagerTimestamp:
     def test_update_session_timestamp_multiple(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обновляет timestamp несколько раз."""
         timestamps = []
@@ -209,7 +215,7 @@ class TestStateManagerSummary:
     def test_get_session_summary_initial(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает сводку пустой сессии."""
         summary = state_manager.get_session_summary(session)
@@ -221,7 +227,7 @@ class TestStateManagerSummary:
     def test_get_session_summary_with_title(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает сводку с заголовком."""
         state_manager.update_session_title(session, "Test Title")
@@ -231,7 +237,7 @@ class TestStateManagerSummary:
     def test_get_session_summary_with_history(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает сводку с историей."""
         prompt = [{"type": "text", "text": "Test"}]
@@ -243,7 +249,7 @@ class TestStateManagerSummary:
     def test_get_session_summary_complete(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Возвращает полную сводку."""
         state_manager.update_session_title(session, "My Session")
@@ -264,7 +270,7 @@ class TestStateManagerEdgeCases:
     def test_add_message_with_invalid_entry_not_dict(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не добавляет невалидную запись (не dict)."""
         # Это будет обработано внутри, но не добавится
@@ -275,7 +281,7 @@ class TestStateManagerEdgeCases:
     def test_session_title_none_check(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Корректно проверяет None title."""
         assert session.title is None
@@ -285,8 +291,8 @@ class TestStateManagerEdgeCases:
     def test_empty_content_blocks(
         self,
         state_manager: StateManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обрабатывает пустые content blocks."""
         state_manager.add_user_message(session, [])
-        assert len(session.history) == 1
+        assert len(wire_history(session)) == 1

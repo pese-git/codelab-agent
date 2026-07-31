@@ -16,13 +16,14 @@ import structlog
 
 from codelab.server.client_rpc.exceptions import ClientRPCCancelledError
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
-    return SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def session() -> DomainSession:
+    return make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
 
 
 def _bridge(**service_behaviour: object) -> ClientRPCBridge:
@@ -39,7 +40,7 @@ def _levels(logs: list[dict], event: str) -> list[str]:
 class TestCancellationIsNotAnError:
     @pytest.mark.asyncio
     async def test_wait_terminal_exit_cancelled_reraises_with_info(
-        self, session: SessionState
+        self, session: DomainSession
     ) -> None:
         """Отмена пробрасывается, а не превращается в `None` (P2-50).
 
@@ -55,7 +56,7 @@ class TestCancellationIsNotAnError:
         assert not [log for log in logs if log["log_level"] == "error"]
 
     @pytest.mark.asyncio
-    async def test_read_file_cancelled_reraises_with_info(self, session: SessionState) -> None:
+    async def test_read_file_cancelled_reraises_with_info(self, session: DomainSession) -> None:
         """Для read_file поведение прежнее — проброс исключения, но без error."""
         bridge = _bridge(read_text_file=ClientRPCCancelledError("вызов отменён"))
 
@@ -66,7 +67,7 @@ class TestCancellationIsNotAnError:
         assert not [log for log in logs if log["log_level"] == "error"]
 
     @pytest.mark.asyncio
-    async def test_release_terminal_cancelled_reraises(self, session: SessionState) -> None:
+    async def test_release_terminal_cancelled_reraises(self, session: DomainSession) -> None:
         """`False` означал бы «освободить не удалось» — это не отмена (P2-50)."""
         bridge = _bridge(release_terminal=ClientRPCCancelledError("вызов отменён"))
 
@@ -77,7 +78,7 @@ class TestCancellationIsNotAnError:
 
 
 class TestModelMistakesAreWarnings:
-    def test_unknown_terminal_alias_is_warning(self, session: SessionState) -> None:
+    def test_unknown_terminal_alias_is_warning(self, session: DomainSession) -> None:
         """Промах по alias — галлюцинация модели; сервер отработал верно."""
         from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 
@@ -94,7 +95,7 @@ class TestModelMistakesAreWarnings:
         assert _levels(logs, "terminal_alias_not_found") == ["warning"]
 
     @pytest.mark.asyncio
-    async def test_unknown_tool_is_warning(self, session: SessionState) -> None:
+    async def test_unknown_tool_is_warning(self, session: DomainSession) -> None:
         """Несуществующий инструмент — тоже галлюцинация, а не сбой сервера."""
         from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
             ToolCallProcessor,

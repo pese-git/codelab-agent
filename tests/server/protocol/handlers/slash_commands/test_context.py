@@ -16,12 +16,12 @@ class TestContextCommandHandler:
     """Тесты для /context slash-команды."""
 
     def _make_session(self, session_id: str = "test-session") -> MagicMock:
-        """Создать mock SessionState."""
+        """Создать mock DomainSession."""
         session = MagicMock()
-        session.session_id = session_id
-        session.config_values = {}
+        session.id = session_id
+        session.config.config_values = {}
         # Seam-контракт резидента (pre-step D4-d): set_config_value пишет в config_values.
-        session.set_config_value = lambda k, v: session.config_values.__setitem__(k, v)
+        session.set_config_value = lambda k, v: session.config.config_values.__setitem__(k, v)
         return session
 
     def _make_config(self, enabled: bool = False, gather_enabled: bool = True) -> ContextConfig:
@@ -127,7 +127,7 @@ class TestContextCommandHandler:
 
         text = result.content[0]["text"]
         assert "включён" in text
-        assert session.config_values["context_enabled"] == "true"
+        assert session.config.config_values["context_enabled"] == "true"
 
         # После on статус должен показывать enabled=True
         result2 = handler.execute([], session)
@@ -149,7 +149,7 @@ class TestContextCommandHandler:
 
         text = result.content[0]["text"]
         assert "выключен" in text
-        assert session.config_values["context_enabled"] == "false"
+        assert session.config.config_values["context_enabled"] == "false"
 
         # После off статус должен показывать enabled=False
         result2 = handler.execute([], session)
@@ -259,7 +259,7 @@ class TestContextCommandHandler:
         config = self._make_config()
         handler = ContextCommandHandler(tracker, config)
         session = self._make_session()
-        session.config_values["context_enabled"] = "true"
+        session.config.config_values["context_enabled"] = "true"
 
         result = handler.execute(["config"], session)
 

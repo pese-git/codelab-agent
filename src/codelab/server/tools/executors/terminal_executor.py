@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from codelab.server.client_rpc import ClientRPCCancelledError
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.base import ToolExecutor
 from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
@@ -45,7 +45,7 @@ class TerminalToolExecutor(ToolExecutor):
 
     def _resolve_terminal(
         self,
-        session: SessionState,
+        session: Session,
         alias: str,
     ) -> tuple[str | None, ToolExecutionResult | None]:
         """Разрешает alias LLM в настоящий client terminalId.
@@ -60,13 +60,13 @@ class TerminalToolExecutor(ToolExecutor):
         if client_terminal_id is not None:
             return client_terminal_id, None
 
-        known = sorted(session.terminals)
+        known = sorted(session.runtime.terminals)
         # warning, а не error: промах по alias — галлюцинация модели, сервер отработал
         # верно и вернул модели список доступных терминалов. Уровень error здесь ломал
         # критерий «0 ошибок за прогон» (tech-debt P2-37).
         logger.warning(
             "terminal_alias_not_found",
-            session_id=session.session_id,
+            session_id=str(session.id),
             alias=alias,
             known_aliases=known,
         )
@@ -78,7 +78,7 @@ class TerminalToolExecutor(ToolExecutor):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент на основе аргументов.
@@ -120,7 +120,7 @@ class TerminalToolExecutor(ToolExecutor):
 
     async def execute_create(
         self,
-        session: SessionState,
+        session: Session,
         command: str,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
@@ -144,7 +144,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Начало выполнения terminal/create",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "command": command,
                     "cwd": cwd,
                 },
@@ -177,7 +177,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Терминал успешно создан",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": alias,
                     "client_terminal_id": client_terminal_id,
                     "command": command,
@@ -233,7 +233,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.error(
                 "Ошибка при создании терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "command": command,
                     "error": str(e),
                 },
@@ -245,7 +245,7 @@ class TerminalToolExecutor(ToolExecutor):
 
     async def execute_wait_for_exit(
         self,
-        session: SessionState,
+        session: Session,
         terminal_id: str,
     ) -> ToolExecutionResult:
         """Ожидать завершения терминала через ClientRPC.
@@ -264,7 +264,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Начало выполнения terminal/wait_for_exit",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
@@ -295,7 +295,7 @@ class TerminalToolExecutor(ToolExecutor):
                     logger.debug(
                         "Терминал уже завершён (получено из terminal/output)",
                         extra={
-                            "session_id": session.session_id,
+                            "session_id": str(session.id),
                             "terminal_id": terminal_id,
                             "exit_code": exit_code,
                         },
@@ -343,7 +343,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Терминал завершен",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "exit_code": resolved_exit_code,
                     "signal": signal,
@@ -388,7 +388,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.error(
                 "Ошибка при ожидании завершения терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "error": str(e),
                 },
@@ -400,7 +400,7 @@ class TerminalToolExecutor(ToolExecutor):
 
     async def execute_release(
         self,
-        session: SessionState,
+        session: Session,
         terminal_id: str,
     ) -> ToolExecutionResult:
         """Освободить терминал через ClientRPC.
@@ -416,7 +416,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Начало выполнения terminal/release",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
@@ -445,7 +445,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.debug(
                 "Терминал успешно освобожден",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
@@ -478,7 +478,7 @@ class TerminalToolExecutor(ToolExecutor):
             logger.error(
                 "Ошибка при освобождении терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "error": str(e),
                 },

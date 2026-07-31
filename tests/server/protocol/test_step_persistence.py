@@ -18,10 +18,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from codelab.server.protocol.state import ActiveTurnState, SessionState
+from codelab.server.protocol.state import ActiveTurnState
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 def _processor() -> ToolCallProcessor:
@@ -37,10 +39,10 @@ def _processor() -> ToolCallProcessor:
     )
 
 
-def _session() -> SessionState:
+def _session() -> DomainSession:
     # plan: вызовы отклоняются политикой, то есть обрабатываются без реального
     # исполнения инструмента — достаточно, чтобы проверить точки записи
-    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+    session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
     session.set_config_value("mode", "plan")
     session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
     return session
@@ -62,7 +64,7 @@ class TestStepPersistence:
         calls: list[int] = []
 
         async def _persist() -> None:
-            calls.append(len(session.history))
+            calls.append(len(wire_history(session)))
 
         await processor.process_batch(
             session, "s", [_Call("llm_1"), _Call("llm_2")], AsyncMock(), None, None, _persist

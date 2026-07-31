@@ -23,15 +23,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from codelab.server.protocol.state import (
-    ActiveTurnState,  # noqa: F401
-    SessionState,
-)
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_domain_session, wire_history
 
 
 def _make_processor(
@@ -50,14 +49,15 @@ def _make_processor(
     )
 
 
-def _session(mode: str = "plan") -> SessionState:
-    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def _session(mode: str = "plan") -> DomainSession:
+    session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
     session.set_config_value("mode", mode)
     return session
 
 
-def _tool_answers(session: SessionState) -> list[dict[str, Any]]:
-    return [m for m in session.history if isinstance(m, dict) and m.get("role") == "tool"]
+def _tool_answers(session: DomainSession) -> list[dict[str, Any]]:
+    """Ответы `role: tool` в том виде, в каком они уезжают на диск."""
+    return [m for m in wire_history(session) if m.get("role") == "tool"]
 
 
 class TestRejectPathsAnswerTheModel:
@@ -157,7 +157,7 @@ class TestInterruptedBatchIsFullyAnswered:
         """
         processor = _make_processor()
         session = _session(mode="standard")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
         batch = [_Call(f"llm_{i}") for i in range(11)]
 
         async def _pause_first(*args: Any, **kwargs: Any):

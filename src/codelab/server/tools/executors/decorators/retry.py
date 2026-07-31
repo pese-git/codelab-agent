@@ -17,7 +17,7 @@ from codelab.server.tools.base import ToolExecutionResult
 from .base import ToolExecutorDecorator, ToolExecutorProtocol
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -63,7 +63,7 @@ class RetryDecorator(ToolExecutorDecorator):
 
     async def execute(
         self,
-        session: SessionState,
+        session: Session,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         """Выполнить инструмент с retry.
@@ -88,7 +88,7 @@ class RetryDecorator(ToolExecutorDecorator):
                     tool_name=tool_name,
                     attempt=attempt + 1,
                     max_retries=self._max_retries,
-                    session_id=session.session_id,
+                    session_id=str(session.id),
                 )
 
                 result = await self._wrapped.execute(session, arguments)
@@ -98,7 +98,7 @@ class RetryDecorator(ToolExecutorDecorator):
                         "retry_succeeded",
                         tool_name=tool_name,
                         attempt=attempt + 1,
-                        session_id=session.session_id,
+                        session_id=str(session.id),
                     )
 
                 return result
@@ -115,7 +115,7 @@ class RetryDecorator(ToolExecutorDecorator):
                         delay=delay,
                         error_type=type(e).__name__,
                         error_message=str(e),
-                        session_id=session.session_id,
+                        session_id=str(session.id),
                     )
                     await asyncio.sleep(delay)
                 else:
@@ -125,7 +125,7 @@ class RetryDecorator(ToolExecutorDecorator):
                         max_retries=self._max_retries,
                         error_type=type(e).__name__,
                         error_message=str(e),
-                        session_id=session.session_id,
+                        session_id=str(session.id),
                     )
 
             except Exception as e:
@@ -135,7 +135,7 @@ class RetryDecorator(ToolExecutorDecorator):
                     tool_name=tool_name,
                     error_type=type(e).__name__,
                     error_message=str(e),
-                    session_id=session.session_id,
+                    session_id=str(session.id),
                 )
                 raise
 
@@ -152,7 +152,7 @@ class RetryDecorator(ToolExecutorDecorator):
             tool_name=tool_name,
             max_retries=self._max_retries,
             error_message=error_message,
-            session_id=session.session_id,
+            session_id=str(session.id),
         )
 
         return ToolExecutionResult(

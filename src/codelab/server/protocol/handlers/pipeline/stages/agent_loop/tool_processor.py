@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
 
+from codelab.server.domain.tool_call import ToolResult as DomainToolResult
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
     ToolLoopDetector,
 )
@@ -32,6 +33,7 @@ from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
 
 if TYPE_CHECKING:
+    from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.content.extractor import ContentExtractor, ExtractedContent
     from codelab.server.protocol.content.formatter import ContentFormatter
@@ -43,7 +45,6 @@ if TYPE_CHECKING:
     )
     from codelab.server.protocol.handlers.plan_builder import PlanBuilder
     from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-    from codelab.server.protocol.state import SessionState
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger()
@@ -112,7 +113,7 @@ class ToolCallProcessor:
 
     async def process_batch(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_calls: list,
         sink: SessionUpdateSink,
@@ -222,7 +223,7 @@ class ToolCallProcessor:
 
     def _answer_unprocessed_tool_calls(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_calls: list,
         *,
@@ -266,7 +267,7 @@ class ToolCallProcessor:
 
     async def _process_single_tool_call(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call: object,
         sink: SessionUpdateSink,
@@ -391,7 +392,7 @@ class ToolCallProcessor:
             tool_kind=tool_kind,
             is_mcp=is_mcp,
             requires_permission=(tool_definition.requires_permission if tool_definition else None),
-            mode=session.config_values.get("mode", "standard"),
+            mode=session.config.config_values.get("mode", "standard"),
             decision=decision,
         )
 
@@ -432,7 +433,7 @@ class ToolCallProcessor:
 
     def _pause_for_permission(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -445,8 +446,8 @@ class ToolCallProcessor:
             permission_msg = self._permission_manager.build_permission_request(
                 session,
                 session_id,
-                tool_call_state.tool_call_id,
-                tool_call_state.title,
+                tool_call_state.id,
+                tool_call_state.title or "",
                 tool_kind,
             )
             sink.buffer_only(permission_msg)
@@ -475,7 +476,7 @@ class ToolCallProcessor:
 
     async def _reject_tool_call(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -533,7 +534,7 @@ class ToolCallProcessor:
 
     async def _reject_unknown_tool(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -593,7 +594,7 @@ class ToolCallProcessor:
 
     async def _reject_looping_tool(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -657,7 +658,7 @@ class ToolCallProcessor:
 
     async def _execute_allowed_tool_call(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         tool_name: str,
@@ -801,7 +802,7 @@ class ToolCallProcessor:
 
     async def execute_pending(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None,
@@ -827,10 +828,10 @@ class ToolCallProcessor:
             return None
 
         tool_name = tool_call_state.tool_name
-        tool_arguments = tool_call_state.tool_arguments
+        tool_arguments = tool_call_state.arguments
         tool_call_id_from_llm = tool_call_state.tool_call_id_from_llm
 
-        if tool_name is None:
+        if not tool_name:
             logger.error(
                 "tool_name not found in tool_call_state",
                 session_id=session_id,
@@ -941,7 +942,7 @@ class ToolCallProcessor:
 
     async def _run_tool(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         acp_tool_name: str,
         tool_arguments: dict,
@@ -966,15 +967,23 @@ class ToolCallProcessor:
 
     def _store_and_format(
         self,
-        session: SessionState,
+        session: Session,
         tool_call_id: str,
         extracted_content: ExtractedContent,
     ) -> None:
         """Сохранить extracted content в tool_call_state и отформатировать для LLM."""
-        tool_call_state = session.tool_calls.get(tool_call_id)
-        if tool_call_state:
-            tool_call_state.result_content = extracted_content.content_items
-        provider_raw = session.config_values.get("llm_provider", "openai")
+        tool_call = session.tool_calls.get(tool_call_id)
+        if tool_call is not None:
+            # Извлечённый контент живёт в `ToolResult` вызова: писать его отдельным
+            # полем нельзя, не потеряв остальные поля результата.
+            previous = tool_call.result
+            tool_call.result = DomainToolResult(
+                locations=previous.locations if previous else list(tool_call.locations),
+                raw_output=previous.raw_output if previous else dict(tool_call.raw_output),
+                content=previous.content if previous else [],
+                result_content=list(extracted_content.content_items),
+            )
+        provider_raw = session.config.config_values.get("llm_provider", "openai")
         provider = cast(Literal["openai", "anthropic"], provider_raw)
         self._content_formatter.format_for_llm(extracted_content, provider=provider)
 
@@ -993,7 +1002,7 @@ class ToolCallProcessor:
 
     async def _emit_plan_notification_if_needed(
         self,
-        session: SessionState,
+        session: Session,
         session_id: str,
         acp_tool_name: str,
         result,
@@ -1019,7 +1028,7 @@ class ToolCallProcessor:
 
     def _add_tool_result_to_history(
         self,
-        session: SessionState,
+        session: Session,
         tool_call_id: str,
         success: bool,
         output: str | None,
@@ -1055,14 +1064,14 @@ class ToolCallProcessor:
         preview = final_content[:200].replace("\n", " ⏎ ")
         logger.info(
             "tool_result_to_history",
-            session_id=session.session_id,
+            session_id=str(session.id),
             tool_call_id=tool_call_id,
             success=success,
             content_len=len(final_content),
             content_preview=preview,
         )
 
-    async def _decide_tool_execution(self, session: SessionState, tool_kind: str) -> str:
+    async def _decide_tool_execution(self, session: Session, tool_kind: str) -> str:
         """Определить решение о выполнении tool.
 
         Делегирует единой логике в ToolPolicyDecider.
@@ -1107,7 +1116,7 @@ class ToolCallProcessor:
         return self._turn_cancellation.generation(session_id)
 
     def _is_cancel_requested(
-        self, session: SessionState, started_epoch: int, session_id: str | None = None
+        self, session: Session, started_epoch: int, session_id: str | None = None
     ) -> bool:
         """Проверить отмену: поколение в реестре либо флаг в живом `active_turn`."""
         if session_id is not None and self._cancellation_generation(session_id) != started_epoch:

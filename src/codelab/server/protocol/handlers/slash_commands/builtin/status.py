@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.models import AvailableCommand
 
 from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
-    from codelab.server.protocol.state import SessionState
+    from codelab.server.domain.session import Session
 
 
 class StatusCommandHandler(CommandHandler):
@@ -33,7 +34,7 @@ class StatusCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду /status.
 
@@ -48,30 +49,32 @@ class StatusCommandHandler(CommandHandler):
         lines = [
             "📊 **Состояние сессии**",
             "",
-            f"**ID:** `{session.session_id}`",
+            f"**ID:** `{str(session.id)}`",
         ]
 
         if session.title:
             lines.append(f"**Заголовок:** {session.title}")
 
         lines.append(f"**Обновлено:** {session.updated_at}")
-        lines.append(f"**Сообщений в истории:** {len(session.history)}")
+        lines.append(f"**Сообщений в истории:** {len(session.history.get_messages())}")
 
         # Информация о tool calls
         active_calls = [
-            tc for tc in session.tool_calls.values() if tc.status in ("pending", "in_progress")
+            tc
+            for tc in session.tool_calls.get_all()
+            if tc.status in (ToolCallStatus.PENDING, ToolCallStatus.IN_PROGRESS)
         ]
         if active_calls:
             lines.append(f"**Активных tool calls:** {len(active_calls)}")
 
         # Информация о config values
-        if session.config_values:
-            config_str = ", ".join(f"{k}={v}" for k, v in session.config_values.items())
+        if session.config.config_values:
+            config_str = ", ".join(f"{k}={v}" for k, v in session.config.config_values.items())
             lines.append(f"**Конфигурация:** {config_str}")
 
         # Информация о permission policy
-        if session.permission_policy:
-            policy_str = ", ".join(f"{k}={v}" for k, v in session.permission_policy.items())
+        if session.permissions.policy:
+            policy_str = ", ".join(f"{k}={v}" for k, v in session.permissions.policy.items())
             lines.append(f"**Permission policy:** {policy_str}")
 
         content = [{"type": "text", "text": "\n".join(lines)}]

@@ -7,13 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.mcp.exceptions import (
     MCPConnectionError,
     MCPServerError,
     MCPTimeoutError,
     MCPValidationError,
 )
-from codelab.server.protocol.state import SessionState
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.executors.decorators import RetryDecorator
 
@@ -41,7 +41,7 @@ class MockExecutor:
 
     async def execute(
         self,
-        session: SessionState,
+        session: DomainSession,
         arguments: dict[str, Any],
     ) -> ToolExecutionResult:
         self.call_count += 1
@@ -63,10 +63,10 @@ class MockExecutor:
 
 
 @pytest.fixture
-def mock_session() -> SessionState:
+def mock_session() -> DomainSession:
     """Создать mock сессию."""
-    session = MagicMock(spec=SessionState)
-    session.session_id = "test_session"
+    session = MagicMock(spec=DomainSession)
+    session.id = "test_session"
     return session
 
 
@@ -82,7 +82,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_success_first_attempt(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Успех с первой попытки."""
@@ -97,7 +97,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_success_after_retry(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Успех после retry."""
@@ -116,7 +116,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_all_retries_exhausted(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Все попытки исчерпаны."""
@@ -137,7 +137,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_non_retryable_error(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Non-retryable ошибка не повторяется."""
@@ -154,7 +154,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_server_error_not_retried(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """MCPServerError не повторяется."""
@@ -169,7 +169,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_connection_error_is_retried(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """MCPConnectionError повторяется."""
@@ -188,7 +188,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_default_max_retries_is_3(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Default max_retries равен 3."""
@@ -200,7 +200,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_default_backoff_factor_is_2(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Default backoff_factor равен 2.0."""
@@ -232,7 +232,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_preserves_result_on_success(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Результат сохраняется при успехе."""
@@ -253,7 +253,7 @@ class TestRetryDecorator:
     @pytest.mark.asyncio
     async def test_execute_with_custom_max_retries(
         self,
-        mock_session: SessionState,
+        mock_session: DomainSession,
         mock_arguments: dict[str, Any],
     ) -> None:
         """Кастомный max_retries корректно применяется."""

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from ...client_rpc.service import ClientRPCService
+from ...domain.session import Session as DomainSession
 from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
@@ -15,7 +16,7 @@ from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
 from ..session_merge import save_session_merging
-from ..state import LLMLoopResult, ProtocolOutcome, SessionState
+from ..state import LLMLoopResult, ProtocolOutcome
 from ..turn_cancellation import TurnCancellationRegistry
 from .event_history_writer import EventHistoryWriter
 from .permission_manager import PermissionManager
@@ -32,7 +33,6 @@ from .turn_lifecycle_manager import TurnLifecycleManager
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.file_cache import SessionFileCacheRegistry
-    from codelab.server.domain.session import Session as DomainSession
     from codelab.server.mcp.manager import MCPManager
 
     from .global_policy_manager import GlobalPolicyManager
@@ -158,7 +158,7 @@ class PromptOrchestrator:
         self,
         request_id: JsonRpcId | None,
         params: dict[str, Any],
-        session: SessionState,
+        session: DomainSession,
         storage: SessionStorage,
         mcp_manager: MCPManager | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
@@ -177,7 +177,7 @@ class PromptOrchestrator:
         Args:
             request_id: ID входящего request
             params: Параметры (должны содержать prompt array)
-            session: Состояние сессии
+            session: Доменный агрегат сессии — носитель состояния turn'а
             storage: Хранилище сессий
             mcp_manager: MCP manager для сессии (из runtime registry)
             mcp_prompt_handlers: Обработчики MCP prompts (из runtime registry)
@@ -189,7 +189,7 @@ class PromptOrchestrator:
         # Лениво регистрируем tool executors если service стал доступен
         self._ensure_tools_registered()
 
-        session_id = session.session_id
+        session_id = str(session.id)
         prompt = params.get("prompt", [])
 
         # Подготовка состояния сессии до запуска pipeline
@@ -208,13 +208,12 @@ class PromptOrchestrator:
             params=params,
             raw_text=prompt_text,
             content_parts=ACPContentCodec().decode(prompt) if isinstance(prompt, list) else [],
-            # Write-фаза (ADR-006, D4-a): доменный снимок рабочей модели. Аддитивно,
-            # source-of-truth пока `session` (SessionState); потребителей нет.
-            domain_session=SessionMapper.to_domain(session),
             # Промежуточные записи turn'а (ADR-007): без них копия turn'а
-            # расходилась с диском на десятки секунд. Слияние внутри — развязка на
-            # случай, если отмена или ответ на разрешение успели записать своё.
-            persist=lambda: save_session_merging(storage, session),
+            # расходилась с диском на десятки секунд. Wire-документ собирается
+            # маппером здесь — на границе записи, а не внутри turn'а. Слияние —
+            # развязка на случай, если отмена или ответ на разрешение успели
+            # записать своё.
+            persist=lambda: save_session_merging(storage, SessionMapper.to_protocol(session)),
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
@@ -371,12 +370,11 @@ class PromptOrchestrator:
 
     async def execute_pending_tool(
         self,
-        session: SessionState,
+        session: DomainSession,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
-        domain_session: DomainSession | None = None,
         persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
@@ -386,7 +384,6 @@ class PromptOrchestrator:
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
-            domain_session=domain_session,
             persist=persist,
         )
 

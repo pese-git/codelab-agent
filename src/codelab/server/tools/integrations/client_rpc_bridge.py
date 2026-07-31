@@ -14,7 +14,7 @@ from codelab.server.client_rpc.exceptions import (
     ClientRPCTimeoutError,
 )
 from codelab.server.client_rpc.service import ClientRPCService
-from codelab.server.protocol.state import SessionState
+from codelab.server.domain.session import Session
 
 logger = structlog.get_logger()
 
@@ -52,7 +52,7 @@ class ClientRPCBridge:
 
     async def read_file(
         self,
-        session: SessionState,
+        session: Session,
         path: str,
         line: int | None = None,
         limit: int | None = None,
@@ -74,7 +74,7 @@ class ClientRPCBridge:
             logger.debug(
                 "Чтение файла через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "line": line,
                     "limit": limit,
@@ -82,7 +82,7 @@ class ClientRPCBridge:
             )
 
             content = await self._service.read_text_file(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 path=path,
                 line=line,
                 limit=limit,
@@ -91,7 +91,7 @@ class ClientRPCBridge:
             logger.debug(
                 "Файл успешно прочитан",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "bytes": len(content),
                 },
@@ -102,14 +102,14 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability fs.readTextFile отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return None
 
         except ClientRPCTimeoutError as e:
             logger.error(
                 "Timeout при чтении файла",
-                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+                extra={"session_id": str(session.id), "path": path, "error": str(e)},
             )
             return None
 
@@ -124,13 +124,13 @@ class ClientRPCBridge:
         except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при чтении файла",
-                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+                extra={"session_id": str(session.id), "path": path, "error": str(e)},
             )
             raise
 
     async def write_file(
         self,
-        session: SessionState,
+        session: Session,
         path: str,
         content: str,
     ) -> bool:
@@ -150,21 +150,21 @@ class ClientRPCBridge:
             logger.debug(
                 "Запись файла через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "path": path,
                     "bytes": len(content),
                 },
             )
 
             success = await self._service.write_text_file(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 path=path,
                 content=content,
             )
 
             logger.debug(
                 "Файл успешно записан",
-                extra={"session_id": session.session_id, "path": path},
+                extra={"session_id": str(session.id), "path": path},
             )
 
             return success
@@ -172,14 +172,14 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability fs.writeTextFile отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return False
 
         except ClientRPCTimeoutError as e:
             logger.error(
                 "Timeout при записи файла",
-                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+                extra={"session_id": str(session.id), "path": path, "error": str(e)},
             )
             return False
 
@@ -194,13 +194,13 @@ class ClientRPCBridge:
         except (ClientRPCResponseError, ClientRPCError) as e:
             logger.error(
                 "Ошибка при записи файла",
-                extra={"session_id": session.session_id, "path": path, "error": str(e)},
+                extra={"session_id": str(session.id), "path": path, "error": str(e)},
             )
             raise
 
     async def create_terminal(
         self,
-        session: SessionState,
+        session: Session,
         command: str,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
@@ -226,14 +226,14 @@ class ClientRPCBridge:
             logger.debug(
                 "Создание терминала через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "command": command,
                     "cwd": cwd,
                 },
             )
 
             terminal_id = await self._service.create_terminal(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 command=command,
                 args=args,
                 env=env,
@@ -244,7 +244,7 @@ class ClientRPCBridge:
             logger.debug(
                 "Терминал успешно создан",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
@@ -254,7 +254,7 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return None
 
@@ -272,7 +272,7 @@ class ClientRPCBridge:
             logger.error(
                 "Ошибка при создании терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "command": command,
                     "error": str(e),
                 },
@@ -281,7 +281,7 @@ class ClientRPCBridge:
 
     async def wait_terminal_exit(
         self,
-        session: SessionState,
+        session: Session,
         terminal_id: str,
     ) -> dict[str, Any] | None:
         """Ожидать завершения терминала через ClientRPC.
@@ -299,20 +299,20 @@ class ClientRPCBridge:
             logger.debug(
                 "Ожидание завершения терминала через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
 
             exit_code, signal = await self._service.wait_for_exit(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 terminal_id=terminal_id,
             )
 
             logger.debug(
                 "Терминал завершен",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "exit_code": exit_code,
                     "signal": signal,
@@ -327,7 +327,7 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return None
 
@@ -343,7 +343,7 @@ class ClientRPCBridge:
             logger.error(
                 "Ошибка при ожидании завершения терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "error": str(e),
                 },
@@ -352,7 +352,7 @@ class ClientRPCBridge:
 
     async def terminal_output(
         self,
-        session: SessionState,
+        session: Session,
         terminal_id: str,
     ) -> dict[str, Any] | None:
         """Получить текущий output терминала через ClientRPC.
@@ -371,13 +371,13 @@ class ClientRPCBridge:
             logger.debug(
                 "Получение output терминала через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
 
             output, truncated, exit_code, signal = await self._service.terminal_output(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 terminal_id=terminal_id,
             )
 
@@ -386,7 +386,7 @@ class ClientRPCBridge:
             logger.debug(
                 "Output терминала получен",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "output_size": len(output),
                     "truncated": truncated,
@@ -405,7 +405,7 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return None
 
@@ -421,7 +421,7 @@ class ClientRPCBridge:
             logger.error(
                 "Ошибка при получении output терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "error": str(e),
                 },
@@ -430,7 +430,7 @@ class ClientRPCBridge:
 
     async def release_terminal(
         self,
-        session: SessionState,
+        session: Session,
         terminal_id: str,
     ) -> bool:
         """Освободить терминал через ClientRPC.
@@ -448,20 +448,20 @@ class ClientRPCBridge:
             logger.debug(
                 "Освобождение терминала через ClientRPC",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
 
             success = await self._service.release_terminal(
-                session_id=session.session_id,
+                session_id=str(session.id),
                 terminal_id=terminal_id,
             )
 
             logger.debug(
                 "Терминал успешно освобожден",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                 },
             )
@@ -471,7 +471,7 @@ class ClientRPCBridge:
         except ClientCapabilityMissingError as e:
             logger.error(
                 "Capability terminal отсутствует на клиенте",
-                extra={"session_id": session.session_id, "error": str(e)},
+                extra={"session_id": str(session.id), "error": str(e)},
             )
             return False
 
@@ -487,7 +487,7 @@ class ClientRPCBridge:
             logger.error(
                 "Ошибка при освобождении терминала",
                 extra={
-                    "session_id": session.session_id,
+                    "session_id": str(session.id),
                     "terminal_id": terminal_id,
                     "error": str(e),
                 },

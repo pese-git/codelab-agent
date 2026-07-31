@@ -15,9 +15,9 @@ from ..base import CommandHandler, CommandResult
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.models import ContextConfig
+    from codelab.server.domain.session import Session
     from codelab.server.observability.metrics_tracker import MetricsTracker
     from codelab.server.observability.tracer import SpanContext, Tracer
-    from codelab.server.protocol.state import SessionState
 
 
 class ContextCommandHandler(CommandHandler):
@@ -54,7 +54,7 @@ class ContextCommandHandler(CommandHandler):
     def execute(
         self,
         args: list[str],
-        session: SessionState,
+        session: Session,
     ) -> CommandResult:
         """Выполняет команду /context.
 
@@ -116,18 +116,18 @@ class ContextCommandHandler(CommandHandler):
             ]
         )
 
-    def _show_summary(self, session: SessionState) -> CommandResult:
+    def _show_summary(self, session: Session) -> CommandResult:
         """Показать расширенную сводку метрик Context Manager."""
-        session_id = session.session_id
+        session_id = str(session.id)
         metrics = self._metrics_tracker.get_metrics(session_id)
 
-        session_enabled = session.config_values.get("context_enabled")
+        session_enabled = session.config.config_values.get("context_enabled")
         if session_enabled is not None:
             context_enabled = session_enabled == "true"
         else:
             context_enabled = self._config.enabled
 
-        session_gather = session.config_values.get("context_gather_enabled")
+        session_gather = session.config.config_values.get("context_gather_enabled")
         if session_gather is not None:
             gather_enabled = session_gather == "true"
         else:
@@ -202,7 +202,7 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_config(self, session: SessionState) -> CommandResult:
+    def _show_config(self, session: Session) -> CommandResult:
         """Показать полную конфигурацию Context Manager."""
         max_tokens = self._config.max_context_tokens
 
@@ -250,7 +250,9 @@ class ContextCommandHandler(CommandHandler):
         )
 
         # Runtime overrides
-        overrides = {k: v for k, v in session.config_values.items() if k.startswith("context_")}
+        overrides = {
+            k: v for k, v in session.config.config_values.items() if k.startswith("context_")
+        }
         if overrides:
             lines.extend(["", "**Runtime overrides:**"])
             for key, value in sorted(overrides.items()):
@@ -258,9 +260,9 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_last(self, session: SessionState) -> CommandResult:
+    def _show_last(self, session: Session) -> CommandResult:
         """Показать детали последней сборки контекста."""
-        metrics = self._metrics_tracker.get_metrics(session.session_id)
+        metrics = self._metrics_tracker.get_metrics(str(session.id))
 
         if not metrics.context_build_details:
             return CommandResult(
@@ -340,9 +342,9 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_files(self, session: SessionState) -> CommandResult:
+    def _show_files(self, session: Session) -> CommandResult:
         """Показать список собранных файлов из последней сборки."""
-        metrics = self._metrics_tracker.get_metrics(session.session_id)
+        metrics = self._metrics_tracker.get_metrics(str(session.id))
 
         if not metrics.context_build_details:
             return CommandResult(
@@ -382,9 +384,9 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_graph(self, session: SessionState) -> CommandResult:
+    def _show_graph(self, session: Session) -> CommandResult:
         """Показать статистику графа зависимостей."""
-        metrics = self._metrics_tracker.get_metrics(session.session_id)
+        metrics = self._metrics_tracker.get_metrics(str(session.id))
 
         if not metrics.context_build_details:
             return CommandResult(
@@ -420,9 +422,9 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_profile(self, session: SessionState) -> CommandResult:
+    def _show_profile(self, session: Session) -> CommandResult:
         """Показать последний профиль задачи."""
-        metrics = self._metrics_tracker.get_metrics(session.session_id)
+        metrics = self._metrics_tracker.get_metrics(str(session.id))
         profile = metrics.last_task_profile
 
         if profile is None:
@@ -447,7 +449,7 @@ class ContextCommandHandler(CommandHandler):
 
         return CommandResult(content=[{"type": "text", "text": "\n".join(lines)}])
 
-    def _show_spans(self, session: SessionState) -> CommandResult:
+    def _show_spans(self, session: Session) -> CommandResult:
         """Показать последние span'ы context.build и context.gather.
 
         Использует комбинированный подход:
@@ -464,7 +466,7 @@ class ContextCommandHandler(CommandHandler):
                 ]
             )
 
-        session_id = session.session_id
+        session_id = str(session.id)
         source = "memory"
 
         # 1. Сначала проверяем память (актуальные span'ы)
@@ -575,14 +577,14 @@ class ContextCommandHandler(CommandHandler):
         except Exception:
             return []
 
-    def _get_effective_enabled(self, session: SessionState) -> bool:
+    def _get_effective_enabled(self, session: Session) -> bool:
         """Получить эффективный статус Context Manager (конфиг + runtime override)."""
-        session_enabled = session.config_values.get("context_enabled")
+        session_enabled = session.config.config_values.get("context_enabled")
         if session_enabled is not None:
             return session_enabled == "true"
         return self._config.enabled
 
-    def _set_enabled(self, session: SessionState, enabled: bool) -> CommandResult:
+    def _set_enabled(self, session: Session, enabled: bool) -> CommandResult:
         """Включить или выключить Context Manager."""
         current = self._get_effective_enabled(session)
 

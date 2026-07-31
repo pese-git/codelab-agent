@@ -291,41 +291,26 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             return ProtocolOutcome(response=response)
 
     class _SessionPromptWrapper:
+        """Делегирует прод-обработчику по той же причине, что и отмена.
+
+        Копия тела расходилась бы с кодом, который проверяет: с переездом turn'а на
+        доменный агрегат (фаза D ADR-006) она разошлась бы ещё и по типу рабочей
+        модели, и по тому, из чего собирается wire-документ на записи.
+        """
+
         method_name = "session/prompt"
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-            params = message.params or {}
-            orchestrator = await st.get_prompt_orchestrator()
-            session_id = params.get("sessionId")
-            if not isinstance(session_id, str):
-                return ProtocolOutcome(
-                    response=ACPMessage.error_response(
-                        message.id,
-                        code=-32602,
-                        message="Invalid params: sessionId is required",
-                    )
-                )
-            sess = await st._storage.load_session(session_id)
-            if sess is None:
-                return ProtocolOutcome(
-                    response=ACPMessage.error_response(
-                        message.id,
-                        code=-32001,
-                        message=f"Session not found: {session_id}",
-                    )
-                )
-            sess.active_turn = None
-            outcome = await orchestrator.handle_prompt(
-                request_id=message.id,
-                params=params,
-                session=sess,
+            from codelab.server.protocol.commands import SessionPromptCommandHandler
+
+            handler = SessionPromptCommandHandler(
                 storage=st._storage,
-                mcp_manager=None,
-                mcp_prompt_handlers={},
+                orchestrator_provider=st.get_prompt_orchestrator,
+                runtime_registry=st._runtime_registry,
+                mcp_provider=st.ensure_mcp_initialized,
                 notification_callback=st._send_message,
             )
-            await st._storage.save_session(sess)
-            return outcome
+            return await handler.handle(message)
 
     class _SessionCancelWrapper:
         """Делегирует прод-обработчику: транзакция отмены живёт в нём.

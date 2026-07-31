@@ -9,6 +9,7 @@ from typing import Any
 
 import structlog
 
+from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository, SessionStorage
 from ..handlers import permissions
@@ -143,9 +144,14 @@ class PermissionResponseCommandHandler:
 
         tool_call_id = session.active_turn.permission_tool_call_id
 
-        # Сохранить policy если нужно
+        # Сохранить policy если нужно. Носитель — доменный агрегат (turn-путь и
+        # транзакции фазы D ADR-006); этот метод (`session/request_permission_response`)
+        # ещё ищет сессию сканом storage и не открывает транзакцию, поэтому
+        # запомненная политика здесь на диск не доезжает — тот же класс, что P1-49,
+        # но на этой ветке он предсуществующий: живой путь идёт через
+        # `ResponseRouter._resolve_permission_response`.
         acceptance_updates = permission_manager.build_permission_acceptance_updates(
-            session,
+            SessionMapper.to_domain(session),
             session_id,
             tool_call_id,
             option_id,

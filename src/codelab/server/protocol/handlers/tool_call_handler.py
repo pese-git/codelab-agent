@@ -12,12 +12,10 @@ import structlog
 
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import (
-    ALLOWED_TOOL_CALL_TRANSITIONS,
     FileLocation,
     ToolCallStatus,
 )
 from ...messages import ACPMessage
-from ..state import SessionState, ToolCallState
 
 logger = structlog.get_logger()
 
@@ -59,7 +57,7 @@ class ToolCallHandler:
 
     def create_tool_call(
         self,
-        session: SessionState,
+        session: DomainSession,
         *,
         title: str,
         kind: str,
@@ -70,11 +68,12 @@ class ToolCallHandler:
     ) -> str:
         """Создает новый tool call, возвращает его ID.
 
-        Использует локально монотонный счетчик для генерации стабильных ID
-        вида "call_NNN". Записывает ToolCallState в session.tool_calls.
+        Мутация делегируется доменному `ToolCallRegistry.create`: счётчик и форма
+        записи принадлежат агрегату (фаза D ADR-006). Здесь остаётся только
+        поверхность turn-пути.
 
         Args:
-            session: Состояние сессии
+            session: Доменный агрегат сессии
             title: Название для UI (e.g., "Tool execution")
             kind: Категория tool (read, edit, delete, move, search, execute,
                 think, fetch, switch_mode, other)
@@ -86,26 +85,19 @@ class ToolCallHandler:
         Returns:
             ID вида "call_NNN" (e.g., "call_001", "call_002")
         """
-        # Локально монотонный ID делает тесты предсказуемыми и читабельными
-        session.tool_call_counter += 1
-        tool_call_id = f"call_{session.tool_call_counter:03d}"
-        loc_dicts = [{"path": loc.path, "line": loc.line} for loc in locations] if locations else []
-        session.tool_calls[tool_call_id] = ToolCallState(
-            tool_call_id=tool_call_id,
+        tool_call = session.tool_calls.create(
+            tool_name or "",
+            tool_arguments or {},
             title=title,
             kind=kind,
-            status="pending",
-            tool_name=tool_name,
-            tool_arguments=tool_arguments or {},
             tool_call_id_from_llm=tool_call_id_from_llm,
-            locations=loc_dicts,
-            raw_input=tool_arguments or {},
+            locations=locations,
         )
-        return tool_call_id
+        return tool_call.id
 
     def update_tool_call_status(
         self,
-        session: SessionState,
+        session: DomainSession,
         tool_call_id: str,
         status: str,
         *,
@@ -118,34 +110,19 @@ class ToolCallHandler:
         - in_progress → completed, cancelled, failed
         - completed, cancelled, failed → (терминальные состояния)
 
-        Если переход невалиден, игнорирует обновление.
+        Если переход невалиден, игнорирует обновление (отказ логирует домен).
 
         Args:
-            session: Состояние сессии
+            session: Доменный агрегат сессии
             tool_call_id: ID tool call'а для обновления
-            status: Новый статус
+            status: Новый статус (wire-строка; `ToolCallStatus` — StrEnum)
             content: Опциональный контент (результат tool call)
         """
-        state = session.tool_calls.get(tool_call_id)
-        if state is None:
-            return
-
-        # Матрица переходов — доменная (`StrEnum` отвечает и на wire-строку).
-        next_states = ALLOWED_TOOL_CALL_TRANSITIONS.get(state.status, frozenset())
-        if status not in next_states and status != state.status:
-            # Отказ логируется: молчаливый пропуск однажды уже рассинхронизировал
-            # состояние с wire-историей (pending → completed в resume-пути).
-            logger.warning(
-                "tool_call_status_transition_rejected",
-                tool_call_id=tool_call_id,
-                current_status=state.status,
-                requested_status=status,
-            )
-            return
-
-        state.status = status
-        if content is not None:
-            state.content = content
+        session.tool_calls.update_status(
+            tool_call_id,
+            ToolCallStatus(status),
+            content=content,
+        )
 
     def build_tool_call_notification(
         self,
