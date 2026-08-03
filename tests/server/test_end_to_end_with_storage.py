@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
@@ -36,12 +37,16 @@ class TestEndToEndWithStorage:
     ) -> None:
         """Новая сессия сохраняет события в правильном формате."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         orchestrator = make_orchestrator()
@@ -71,12 +76,16 @@ class TestEndToEndWithStorage:
     ) -> None:
         """Agent message событие имеет правильный ContentBlock формат."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         # Act
@@ -103,12 +112,16 @@ class TestEndToEndWithStorage:
     ) -> None:
         """События сохраняют правильный формат при JSON сериализации."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         orchestrator = make_orchestrator()
@@ -139,19 +152,21 @@ class TestEndToEndWithStorage:
     ) -> None:
         """session/load корректно воспроизводит события в новом формате."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         from codelab.server.storage import InMemoryStorage
 
         storage = InMemoryStorage()
-        await storage.save_session(session)
-
         orchestrator = make_orchestrator()
 
         # Act - Заполняем session с правильным форматом
@@ -162,7 +177,7 @@ class TestEndToEndWithStorage:
             EventHistoryWriter().save_user_message_chunk(session, block)
 
         # Сохраняем обновлённую сессию
-        await storage.save_session(session)
+        await storage.save_session(SessionMapper.to_protocol(session))
 
         # Act - Загружаем сессию
         outcome = await session_load(

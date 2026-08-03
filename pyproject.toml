@@ -183,17 +183,16 @@ layers = [
 ]
 # ДОЛГ (ADR-003): остаточная протечка protocol.state в agent — симптом
 # незавершённой доменной миграции. Read-фаза (SessionView, ADR-005 Фаза 1)
-# развязала ядро (agent.core.*) — эти рёбра сняты. Остаток удаляется по мере фаз:
-# - file_cache_decorator форвардит session в tools-executor (типизирован против
-#   SessionState) — развязка вместе с цепочкой tools, вне области Фазы 1;
-# - child_session -> session_factory — Фаза 4 (ChildSessionFactory);
-# - storage/tools — вне области change acp-independent-agent-core.
+# развязала ядро (agent.core.*), флип turn-пути (ADR-006, фаза D шаг 3) — цепочку
+# `tools/` и `file_cache_decorator`: они типизированы доменным агрегатом. Остаток:
+# - storage.base — хранилище владеет формой документа, это его дом, а не протечка;
+#   ребро уйдёт вместе с шагом 5 (resume), когда `SessionState` останется только
+#   внутри репозитория;
+# - child_session -> session_factory — Фаза 4 (ChildSessionFactory).
 # Удалять по мере выполнения; обходные абстракции не вводить.
 # См. doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md
 ignore_imports = [
-    "codelab.server.agent.context.file_cache_decorator -> codelab.server.protocol.state",
     "codelab.server.storage.base -> codelab.server.protocol.state",
-    "codelab.server.tools.executors.decorators.base -> codelab.server.protocol.state",
 ]
 
 [[tool.importlinter.contracts]]

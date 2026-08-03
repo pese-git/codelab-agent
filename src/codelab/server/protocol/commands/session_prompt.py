@@ -15,7 +15,7 @@ from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionStorage
 from ..handlers.prompt_orchestrator import PromptOrchestrator
-from ..session_merge import save_session_merging
+from ..session_merge import save_domain_session_merging
 from ..session_runtime import SessionRuntimeRegistry
 from ..state import ProtocolOutcome
 
@@ -153,7 +153,7 @@ class SessionPromptCommandHandler:
             # устареть: отмена или ответ на разрешение успели сохранить своё.
             # Слияние вместо отклонения — иначе результаты turn'а терялись бы
             # (ADR-007, воспроизведено на коде).
-            await save_session_merging(self._storage, SessionMapper.to_protocol(domain_session))
+            await save_domain_session_merging(self._storage, domain_session)
             logger.debug(
                 "session_saved_after_prompt",
                 session_id=session_id,

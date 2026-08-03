@@ -40,7 +40,9 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
+from ..domain.session import Session as DomainSession
 from ..exceptions import SessionRevisionConflictError
+from ..mapping.session_mapper import SessionMapper
 from ..models import HistoryMessage
 from ..storage.base import SessionStorage
 from .state import SessionState
@@ -127,7 +129,7 @@ def merge_session_states(base: SessionState, mine: SessionState) -> SessionState
     return base
 
 
-async def save_session_merging(storage: SessionStorage, session: SessionState) -> None:
+async def save_session_merging(storage: SessionStorage, session: SessionState) -> int | None:
     """Сохранить копию, слив её со свежей при конфликте ревизий.
 
     В отсутствие конфликта — обычная запись без лишнего чтения. При конфликте:
@@ -136,10 +138,16 @@ async def save_session_merging(storage: SessionStorage, session: SessionState) -
 
     Повтор один: если и слитая запись конфликтует, значит запись идёт под гонкой,
     которую слияние не разрешает — такое лучше увидеть как ошибку.
+
+    Returns:
+        Ревизия, оказавшаяся на диске, либо `None`, если запись не состоялась
+        (сессию удалили). Нужна вызывающему, который держит не сам документ, а
+        доменный агрегат: `save_session` инкрементирует ревизию в переданном
+        объекте, а для агрегата этот объект — одноразовая проекция.
     """
     try:
         await storage.save_session(session)
-        return
+        return session.revision
     except SessionRevisionConflictError as conflict:
         logger.info(
             "session_save_merging_after_conflict",
@@ -155,7 +163,7 @@ async def save_session_merging(storage: SessionStorage, session: SessionState) -
             "session_save_skipped_session_gone",
             session_id=session.session_id,
         )
-        return
+        return None
 
     merged = merge_session_states(base=base, mine=session)
     await storage.save_session(merged)
@@ -165,3 +173,20 @@ async def save_session_merging(storage: SessionStorage, session: SessionState) -
         revision=merged.revision,
         history_entries=len(merged.history),
     )
+    return merged.revision
+
+
+async def save_domain_session_merging(storage: SessionStorage, session: DomainSession) -> None:
+    """Записать доменный агрегат как документ сессии и вернуть ему ревизию записи.
+
+    Возврат ревизии — не деталь: `save_session` инкрементирует её в переданном
+    объекте, а turn с фазы D передаёт одноразовую проекцию агрегата. Без синка
+    агрегат навсегда остаётся на ревизии загрузки, каждая следующая запись turn'а
+    считается конфликтом и уходит в слияние — а правило «`active_turn` из свежей
+    копии» выбрасывает только что заведённый `permission_request_id`. Ответ на
+    разрешение после этого не находит сессию, и turn виснет (найдено живым
+    прогоном батча из трёх вызовов, ADR-006 фаза D шаг 3).
+    """
+    revision = await save_session_merging(storage, SessionMapper.to_protocol(session))
+    if revision is not None:
+        session.revision = revision

@@ -39,6 +39,7 @@ from codelab.server.agent.context.models import (
     ContextType,
     TaskProfile,
 )
+from codelab.server.agent.contracts.ports import writable_session
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
@@ -568,10 +569,13 @@ class ACPContextGatherer(ContextGatherer):
 
             if filtered:
                 self._dependency_graph.set_project_files(filtered)
-                # Пишем в резидент через seam (pre-step D4-d, ADR-006). Ранее
-                # `getattr(...) or {}` при пустом config_values писал в throwaway —
-                # запись терялась; seam всегда пишет в поле резидента.
-                session.set_config_value("project_structure", json.dumps(filtered))
+                # Пишем в носитель состояния через seam (ADR-006). Порт `SessionView`
+                # read-only, а сюда приходит именно он — поэтому носитель достаём
+                # `writable_session`: иначе запись падала бы, а Context Manager молча
+                # оставался без структуры проекта (найдено в проде после флипа).
+                writable_session(session).set_config_value(
+                    "project_structure", json.dumps(filtered)
+                )
 
                 logger.info(
                     "context.gather.bootstrap.complete",

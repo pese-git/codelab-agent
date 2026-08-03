@@ -10,10 +10,10 @@ import pytest
 from factories import make_orchestrator
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.tool_call import ToolCall
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 from codelab.server.protocol.state import (
     ActiveTurnState,
-    ToolCallState,
 )
 from tests.server._domain_sessions import make_domain_session
 
@@ -226,7 +226,7 @@ class TestSessionPromptComponentIntegration:
         assert tool_call_id is not None
         assert tool_call_id in session.tool_calls.calls
         tool_call = session.tool_calls.calls[tool_call_id]
-        assert isinstance(tool_call, ToolCallState)
+        assert isinstance(tool_call, ToolCall)
         assert tool_call.title == "Test Tool"
 
     def test_permission_manager_builds_options(self, orchestrator: PromptOrchestrator) -> None:

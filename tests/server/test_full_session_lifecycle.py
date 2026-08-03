@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from factories import make_orchestrator
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
@@ -40,12 +41,16 @@ class TestFullSessionLifecycle:
     ) -> None:
         """Полный цикл: создание → использование → загрузка с replay."""
         # Arrange - Создаем новую сессию через factory
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         # Act - Симулируем использование сессии (добавляем события вручную)
@@ -89,7 +94,7 @@ class TestFullSessionLifecycle:
         from codelab.server.storage import InMemoryStorage
 
         storage = InMemoryStorage()
-        await storage.save_session(session)
+        await storage.save_session(SessionMapper.to_protocol(session))
 
         # Act - Загружаем сессию через session/load (симулирует переподключение клиента)
         outcome = await session_load(
@@ -139,12 +144,16 @@ class TestFullSessionLifecycle:
     ) -> None:
         """Полный цикл с несколькими turn'ами (диалог)."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         orchestrator = make_orchestrator()
@@ -186,7 +195,7 @@ class TestFullSessionLifecycle:
         from codelab.server.storage import InMemoryStorage
 
         storage = InMemoryStorage()
-        await storage.save_session(session)
+        await storage.save_session(SessionMapper.to_protocol(session))
 
         # Act - Загружаем сессию
         outcome = await session_load(
@@ -231,12 +240,16 @@ class TestFullSessionLifecycle:
     ) -> None:
         """Проверяет что порядок событий сохраняется при replay."""
         # Arrange
-        session = SessionFactory.create_session(
-            cwd="/tmp",
-            mcp_servers=[],
-            config_values={"mode": "auto"},
-            available_commands=[],
-            runtime_capabilities=None,
+        # Сессия рождается wire-документом (фабрика), а turn-путь работает
+        # доменным агрегатом — как в проде после флипа (ADR-006, фаза D шаг 3).
+        session = SessionMapper.to_domain(
+            SessionFactory.create_session(
+                cwd="/tmp",
+                mcp_servers=[],
+                config_values={"mode": "auto"},
+                available_commands=[],
+                runtime_capabilities=None,
+            )
         )
 
         orchestrator = make_orchestrator()
@@ -267,7 +280,7 @@ class TestFullSessionLifecycle:
         from codelab.server.storage import InMemoryStorage
 
         storage = InMemoryStorage()
-        await storage.save_session(session)
+        await storage.save_session(SessionMapper.to_protocol(session))
 
         # Act - Загружаем сессию
         outcome = await session_load(

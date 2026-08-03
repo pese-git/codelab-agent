@@ -18,12 +18,11 @@ from codelab.server.agent.core.strategies.base import LLMCallStrategy
 from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
+from codelab.server.domain.session import TurnState
+from codelab.server.domain.tool_call import ToolCall
+from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    ToolCallState,
-)
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.storage.memory import InMemoryStorage
 from tests.server._domain_sessions import make_domain_session, wire_history
@@ -130,7 +129,7 @@ class TestAgentLoopEventBusPath:
         mock_extracted.content_items = []
         mock_content_extractor.extract_from_result.return_value = mock_extracted
 
-        mock_session.active_turn = ActiveTurnState(
+        mock_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -223,7 +222,7 @@ class TestAgentLoopPermissionFlow:
         mock_content_extractor.extract_from_result.return_value = mock_extracted
 
         # Setup session with active turn
-        mock_session.active_turn = ActiveTurnState(
+        mock_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -231,18 +230,16 @@ class TestAgentLoopPermissionFlow:
             permission_tool_call_id=None,
         )
 
-        # Setup tool_call_state для resume
-        mock_tool_call_state = ToolCallState(
-            tool_call_id="tc_1",
+        # Вызов для resume — доменный: носитель turn-пути агрегат (ADR-006)
+        mock_session.tool_calls.calls["tc_1"] = ToolCall(
+            id="tc_1",
+            tool_name="dangerous_tool",
+            arguments={},
             title="dangerous_tool",
             kind="terminal",
-            tool_name="dangerous_tool",
-            tool_arguments={},
             tool_call_id_from_llm="call_1",
-            status="pending",
-            result_content=[],
+            status=ToolCallStatus.PENDING,
         )
-        mock_session.tool_calls.calls["tc_1"] = mock_tool_call_state
 
         loop = AgentLoop(
             strategy=mock_strategy,
@@ -307,7 +304,7 @@ class TestAgentLoopCancellation:
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
 
         # Setup session — отмена запрашивается после первого вызова
-        mock_session.active_turn = ActiveTurnState(
+        mock_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -506,7 +503,7 @@ class TestAgentLoopErrorHandling:
         # Tool result с ошибой добавлен в историю
         assert any(
             h.get("role") == "tool" and "Tool crashed" in str(h.get("content", ""))
-            for h in mock_session.history
+            for h in wire_history(mock_session)
         )
 
 
@@ -542,7 +539,7 @@ class TestLLMLoopStageStrategyReuse:
         # Живой turn обязателен: после P0-39 `execute_pending_tool` отказывается
         # возобновлять вызов, если turn'а больше нет (его отсутствие = отмена).
         # Предмет теста — переиспользование стратегии, не жизненный цикл turn'а.
-        mock_session.active_turn = ActiveTurnState(
+        mock_session.active_turn = TurnState(
             prompt_request_id="req_1", session_id="test_session"
         )
         mock_session.tool_calls = {}

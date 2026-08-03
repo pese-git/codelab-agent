@@ -52,6 +52,18 @@ class DomainSessionView:
         self._session = session
 
     @property
+    def aggregate(self) -> Session:
+        """Носитель, поверх которого построена проекция.
+
+        Единственный законный потребитель — граница `tools/`: инструменты меняют
+        состояние сессии (реестр терминалов, `set_config_value`), поэтому им нужен
+        агрегат, а не read-проекция. Разворачивает ровно одно место —
+        `SimpleToolRegistry.execute_tool`, чтобы знание о проекции не расползлось
+        по исполнителям. Ядру это свойство не нужно: оно читает через порт.
+        """
+        return self._session
+
+    @property
     def session_id(self) -> str:
         return self._session.id
 

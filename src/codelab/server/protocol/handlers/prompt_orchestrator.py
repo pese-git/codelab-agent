@@ -9,13 +9,12 @@ import structlog
 
 from ...client_rpc.service import ClientRPCService
 from ...domain.session import Session as DomainSession
-from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
 from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
-from ..session_merge import save_session_merging
+from ..session_merge import save_domain_session_merging
 from ..state import LLMLoopResult, ProtocolOutcome
 from ..turn_cancellation import TurnCancellationRegistry
 from .event_history_writer import EventHistoryWriter
@@ -213,7 +212,7 @@ class PromptOrchestrator:
             # маппером здесь — на границе записи, а не внутри turn'а. Слияние —
             # развязка на случай, если отмена или ответ на разрешение успели
             # записать своё.
-            persist=lambda: save_session_merging(storage, SessionMapper.to_protocol(session)),
+            persist=lambda: save_domain_session_merging(storage, session),
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}

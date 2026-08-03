@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from codelab.server.agent.contracts.ports import writable_session
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name, llm_name_to_acp_name
 
@@ -185,11 +186,17 @@ class SimpleToolRegistry(ToolRegistry):
             session_id: ID сессии для контекста выполнения
             tool_name: Имя инструмента (может быть в LLM формате с `_`)
             arguments: Аргументы для выполнения
-            session: Опциональный объект SessionState для executors (опционально)
+            session: Опциональный доменный агрегат сессии для executors.
+                Ядро держит read-проекцию (`SessionView`) и передаёт её сюда как
+                есть — разворачиваем на границе (`writable_session`), потому что
+                инструменты состояние меняют (реестр терминалов,
+                `set_config_value`), а проекция read-only.
 
         Returns:
             ToolExecutionResult с успехом/ошибкой и metadata если доступен
         """
+        session = writable_session(session)
+
         # Конвертируем LLM имя обратно в ACP формат для lookup в registry
         acp_tool_name = llm_name_to_acp_name(tool_name)
 

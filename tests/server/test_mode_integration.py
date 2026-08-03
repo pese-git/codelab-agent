@@ -49,13 +49,13 @@ async def _seed(session: DomainSession) -> tuple[SessionRepository, InMemoryStor
     """Backend с засеянной сессией и доменный репозиторий над ним.
 
     Транзакция config доменная (фаза D ADR-006): мутируется не переданный
-    wire-объект, а копия из репозитория. Backend отдаётся тестам отдельно,
-    потому что `decide_tool_policy` читает wire-состояние — ровно как турн-путь,
-    который загружает сессию заново после смены режима.
+    объект, а копия из репозитория. Backend отдаётся тестам отдельно, чтобы они
+    могли перечитать сессию — ровно как турн-путь после смены режима.
     """
     backend = InMemoryStorage()
-    await backend.save_session(session)
-    return SessionRepository(backend=backend), backend
+    repository = SessionRepository(backend=backend)
+    await repository.save_session(session)
+    return repository, backend
 
 
 def _make_config_specs():
@@ -294,7 +294,7 @@ class TestModeTransitionIntegration:
         assert outcome.response is not None
         assert outcome.response.error is None
         # Политика читает состояние, загруженное заново — как турн-путь после смены режима
-        reloaded = await backend.load_session("sess_1")
+        reloaded = await repository.load_session("sess_1")
         assert reloaded is not None
         assert reloaded.config.config_values.get("mode") == "bypass"
         assert decide_tool_policy(reloaded, "execute") == "allow"
@@ -315,7 +315,7 @@ class TestModeTransitionIntegration:
 
         assert outcome.response is not None
         assert outcome.response.error is None
-        reloaded = await backend.load_session("sess_1")
+        reloaded = await repository.load_session("sess_1")
         assert reloaded is not None
         assert reloaded.config.config_values.get("mode") == "bypass"
 

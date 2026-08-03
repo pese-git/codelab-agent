@@ -36,7 +36,9 @@ from codelab.server.agent.context.models import (
 )
 from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
+from codelab.server.mapping.session_view import DomainSessionView
 from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_domain_session
 
 
 class _FakeTool:
@@ -285,6 +287,41 @@ class TestContextGathererE2E:
 
         paths = [item.id for item in items]
         assert any("auth" in p for p in paths)
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_writes_structure_through_read_only_view(self):
+        """Bootstrap пишет структуру в сессию, хотя ядру отдан read-порт.
+
+        Ядро (и Context Manager внутри него) читает сессию через `SessionView`,
+        а bootstrap состояние **меняет**. На mock-сессии это незаметно: mock
+        отвечает на любой вызов. На настоящей проекции запись падала, и Context
+        Manager молча оставался без структуры проекта — так и было в проде после
+        флипа turn-пути на доменный агрегат (ADR-006, фаза D шаг 3).
+        """
+        terminal_output = "./lib/main.dart\n./pubspec.yaml\n"
+        tool_registry = MockToolRegistry(
+            {"lib/main.dart": "void main() {}", "pubspec.yaml": "name: test_app"},
+            terminal_output=terminal_output,
+        )
+        gatherer = ACPContextGatherer(
+            tool_registry=tool_registry,
+            dependency_graph=RegexDependencyGraph(),
+            session_id="test_session",
+        )
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["main"],
+            target_modules=[],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+        session = make_domain_session(session_id="test_session", cwd="/work")
+
+        await gatherer.gather(profile, DomainSessionView(session))
+
+        stored = session.config.config_values.get("project_structure")
+        assert stored is not None, "структура проекта обязана попасть в сессию"
+        assert "lib/main.dart" in json.loads(stored)
 
     @pytest.mark.asyncio
     async def test_gather_filters_ignored_dirs(self):

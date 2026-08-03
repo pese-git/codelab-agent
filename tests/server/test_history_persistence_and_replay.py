@@ -14,6 +14,7 @@ from factories import make_orchestrator
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
+from codelab.server.protocol.state import SessionState
 from tests.server._domain_sessions import make_domain_session
 
 
@@ -173,7 +174,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays user_message_chunk события из events_history."""
         # Arrange
-        session = make_domain_session(
+        session = SessionState(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -234,7 +235,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays agent_message_chunk события из events_history."""
         # Arrange
-        session = make_domain_session(
+        session = SessionState(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -292,7 +293,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load replays полную беседу из events_history."""
         # Arrange
-        session = make_domain_session(
+        session = SessionState(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -369,7 +370,7 @@ class TestSessionLoadReplay:
     ) -> None:
         """session/load игнорирует события без type=session_update."""
         # Arrange
-        session = make_domain_session(
+        session = SessionState(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

@@ -19,10 +19,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from codelab.server.protocol.state import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session, wire_history
 
 
@@ -44,7 +44,7 @@ def _session() -> DomainSession:
     # исполнения инструмента — достаточно, чтобы проверить точки записи
     session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
     session.set_config_value("mode", "plan")
-    session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+    session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
     return session
 
 

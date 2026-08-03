@@ -15,7 +15,7 @@ import structlog
 
 from ..messages import ACPMessage
 from .handlers import prompt
-from .session_merge import save_session_merging
+from .session_merge import save_domain_session_merging
 from .state import LLMLoopResult
 
 if TYPE_CHECKING:
@@ -185,15 +185,13 @@ class BackgroundExecutor:
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
             # Промежуточные записи: копия живёт всё исполнение вызова (ADR-007)
-            persist=lambda: save_session_merging(
-                self._storage, SessionMapper.to_protocol(domain_session)
-            ),
+            persist=lambda: save_domain_session_merging(self._storage, domain_session),
         )
 
         # Сохраняем сессию — критично для permission flow
         try:
             # Та же причина, что в session_prompt: копия жила всё исполнение вызова.
-            await save_session_merging(self._storage, SessionMapper.to_protocol(domain_session))
+            await save_domain_session_merging(self._storage, domain_session)
             logger.debug(
                 "session_saved_after_execute_pending_tool",
                 session_id=session_id,

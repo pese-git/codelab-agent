@@ -12,11 +12,13 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
+from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
 from codelab.server.protocol.handlers.pipeline.stages.directives import DirectivesStage
 from codelab.server.protocol.state import (
-    ActiveTurnState,
+    ClientRuntimeCapabilities,
     PromptDirectives,
 )
 from codelab.server.tools.registry import SimpleToolRegistry
@@ -72,7 +74,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /stop-max-tokens устанавливает context.stop_reason."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/stop-max-tokens")
 
         result = await stage.process(context)
@@ -85,7 +87,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /stop-max-turn-requests устанавливает context.stop_reason."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/stop-max-turn-requests")
 
         result = await stage.process(context)
@@ -98,7 +100,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Slash-команда /refuse устанавливает context.stop_reason."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/refuse")
 
         result = await stage.process(context)
@@ -111,7 +113,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: max_tokens."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "plain text",
@@ -134,7 +136,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: max_turn_requests."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "plain text",
@@ -157,7 +159,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta.promptDirectives.forcedStopReason: refusal."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "plain text",
@@ -180,7 +182,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Без forced_stop_reason context.stop_reason остаётся 'end_turn'."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "hello world")
 
         result = await stage.process(context)
@@ -192,7 +194,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason изменяет stop_reason, но НЕ устанавливает should_stop."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/refuse")
 
         result = await stage.process(context)
@@ -206,7 +208,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason извлекается даже с дополнительным текстом."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/stop-max-tokens because of limit")
 
         result = await stage.process(context)
@@ -218,7 +220,7 @@ class TestDirectivesStageForcedStopReason:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """Directives сохраняются в context.meta['directives']."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/stop-max-turn-requests")
 
         result = await stage.process(context)
@@ -236,11 +238,17 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason может сосуществовать с requestTool."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
-        # Настраиваем capabilities для tool runtime
-        session.config.runtime_capabilities = type(
-            "Caps", (), {"terminal": True, "fs_read": False, "fs_write": False}
-        )()
+        # Capabilities — поле неизменяемого `SessionConfig`, поэтому сессия для
+        # tool-runtime собирается со своими capabilities, а не патчится после.
+        session = make_domain_session(
+            session_id="sess_1",
+            cwd="/tmp",
+            mcp_servers=[],
+            runtime_capabilities=ClientRuntimeCapabilities(
+                terminal=True, fs_read=False, fs_write=False
+            ),
+        )
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "text",
@@ -266,7 +274,7 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """forced_stop_reason с publishPlan — plan notification добавляется."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "/plan entry1, entry2",
@@ -300,7 +308,7 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         Гарантирует, что replay на session/load отдаст ту же ACP-форму, что ушла
         клиенту вживую (никаких {title, description} в хранении).
         """
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(session, "/plan entry1, entry2")
 
         result = await stage.process(context)
@@ -312,14 +320,16 @@ class TestDirectivesStageForcedStopReasonWithOtherDirectives:
         ]
         assert len(plan_notifications) == 1
         wire_entries = plan_notifications[0].params["update"]["entries"]
-        assert session.plan == wire_entries
+        # Сверяем ACP-форму: план хранится доменным `AgentPlan`, а на диск и в wire
+        # уезжает через `PlanMapper` — совпасть обязаны именно эти формы.
+        assert PlanMapper.to_acp(session.plan.get_steps()) == wire_entries
 
     @pytest.mark.asyncio
     async def test_meta_overrides_slash_forced_stop_reason(
         self, stage: DirectivesStage, session: DomainSession
     ) -> None:
         """_meta forcedStopReason имеет приоритет над slash-командой."""
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             "/stop-max-tokens",
@@ -349,7 +359,7 @@ class TestDirectivesStageShouldStopBehavior:
         forced_reasons = ["max_tokens", "max_turn_requests", "refusal"]
 
         for reason in forced_reasons:
-            session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+            session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
             context = _make_context(
                 session,
                 "text",
