@@ -49,7 +49,7 @@ class SessionMapper:
         # История сообщений: делегируем в lossless HistoryMapper (единый путь
         # сериализации истории — write-фаза D2-b, ADR-006). Тело сообщения (блочный
         # content, плоский text, embedded LLM tool_calls) сохраняется без потерь.
-        history: list[HistoryMessage | dict[str, Any]] = [
+        history: list[HistoryMessage] = [
             HistoryMapper.to_protocol(msg) for msg in session.history.get_messages()
         ]
 
@@ -272,8 +272,9 @@ class SessionMapper:
     def _build_history(state: SessionState) -> ConversationHistory:
         """Собирает ConversationHistory из protocol-history, делегируя в lossless HistoryMapper.
 
-        Единый путь десериализации истории (write-фаза D2-b, ADR-006): и HistoryMessage,
-        и сырой dict нормализуются HistoryMapper.to_domain, сохраняя тело сообщения.
+        Единый путь десериализации истории (write-фаза D2-b, ADR-006). Форма записи
+        одна: `SessionState.history` типизирована `HistoryMessage`, а документы
+        прошлых версий приводятся к ней валидацией при загрузке.
         """
         history = ConversationHistory()
         for msg_data in state.history:

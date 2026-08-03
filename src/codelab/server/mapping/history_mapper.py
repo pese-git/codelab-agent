@@ -54,11 +54,8 @@ class HistoryMapper:
         )
 
     @staticmethod
-    def to_domain(protocol: HistoryMessage | dict[str, Any]) -> ConversationMessage:
-        """Конвертировать protocol HistoryMessage (или сырой dict) в domain ConversationMessage."""
-        if isinstance(protocol, dict):
-            protocol = HistoryMessage.model_validate(protocol)
-
+    def to_domain(protocol: HistoryMessage) -> ConversationMessage:
+        """Конвертировать protocol HistoryMessage в domain ConversationMessage."""
         role = _parse_role(protocol.role)
         content = _parse_content(protocol.content)
 

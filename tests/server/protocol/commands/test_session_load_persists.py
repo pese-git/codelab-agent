@@ -18,27 +18,22 @@ import pytest
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.storage import JsonFileStorage, SessionRepository
 
 
 def _tool_answers(session: SessionState) -> list[tuple[str, str]]:
     """Ответы `role: tool` из истории.
-
-    После round-trip через диск pydantic приводит записи к `HistoryMessage`, а
-    свежезаписанные остаются dict'ами — поле истории допускает и то, и другое.
-    Тест обязан видеть обе формы, иначе он молча пропустит то, что проверяет.
+    
+    Форма одна: после снятия союза `HistoryMessage | dict` (ADR-006, фаза D
+    шаг 4) и свежая запись, и прочитанная с диска — одна и та же модель.
     """
-    answers: list[tuple[str, str]] = []
-    for message in session.history:
-        role = message.get("role") if isinstance(message, dict) else getattr(message, "role", None)
-        if role != "tool":
-            continue
-        if isinstance(message, dict):
-            answers.append((message["tool_call_id"], message.get("content") or ""))
-        else:
-            answers.append((message.tool_call_id, message.content or ""))
-    return answers
+    return [
+        (message.tool_call_id or "", str(message.content or ""))
+        for message in session.history
+        if message.role == "tool"
+    ]
 
 
 def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
@@ -262,9 +257,21 @@ class TestDomainRoundTripDoesNotRewriteFormat:
         assert restored.tool_calls["c1"].raw_input == {"path": "a"}
         assert restored.tool_calls["c1"].tool_arguments == {"path": "a"}
 
-        # Вторая нормализация: отсутствующий `arguments` в истории
-        state.history = [{"role": "assistant", "tool_calls": [{"id": "llm_1", "name": "fs_read"}]}]
-        restored = SessionMapper.to_protocol(SessionMapper.to_domain(state))
-        entry = restored.history[0]
-        calls = entry["tool_calls"] if isinstance(entry, dict) else entry.tool_calls
-        assert calls[0]["arguments"] == {}
+        # Вторая нормализация: отсутствующий `arguments` в истории. Документ
+        # собирается валидацией, а не присваиванием поля, — именно так его
+        # получает загрузка с диска, и именно так сырая запись прошлых версий
+        # приводится к `HistoryMessage` после снятия союза (ADR-006, D4).
+        loaded = SessionState.model_validate(
+            {
+                "session_id": "s",
+                "cwd": "/w",
+                "mcp_servers": [],
+                "history": [
+                    {"role": "assistant", "tool_calls": [{"id": "llm_1", "name": "fs_read"}]}
+                ],
+            }
+        )
+        assert isinstance(loaded.history[0], HistoryMessage), "сырой dict приведён к модели"
+
+        restored = SessionMapper.to_protocol(SessionMapper.to_domain(loaded))
+        assert restored.history[0].tool_calls[0]["arguments"] == {}

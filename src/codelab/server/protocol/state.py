@@ -147,8 +147,14 @@ class SessionState(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     # Значения конфигурационных опций в рамках этой сессии.
     config_values: dict[str, str] = Field(default_factory=dict)
-    # Упрощенная история, достаточная для текущих update-сценариев.
-    history: list[HistoryMessage | dict[str, Any]] = Field(default_factory=list)
+    # История сообщений в единственной форме (ADR-006, фаза D шаг 4). Раньше поле
+    # было союзом `HistoryMessage | dict`: запись, добавленную в этом процессе,
+    # писатели клали плоским dict'ом, а та же запись, прочитанная с диска,
+    # валидировалась в модель. Две формы одной записи ломали сравнение по
+    # префиксу при слиянии — корень P1-45. Форму теперь пишет только домен, а
+    # документы прошлых версий приводятся к модели при валидации (`extra="allow"`
+    # сохраняет поля вроде `tool_calls`).
+    history: list[HistoryMessage] = Field(default_factory=list)
     # Текущее активное выполнение prompt-turn (если есть).
     # Сериализуется для корректного сопоставления permission/client_rpc ответов
     # с сессией через find_session_by_permission_request_id.
@@ -288,11 +294,11 @@ class SessionState(BaseModel):
         (строка распадалась на символы).
         """
         self.history.append(
-            {
-                "role": "user",
-                "content": prompt,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
+            HistoryMessage(
+                role="user",
+                content=prompt if isinstance(prompt, str) else list(prompt),
+                timestamp=datetime.now(UTC).isoformat(),
+            )
         )
 
     def add_assistant_message(self, content: str | dict[str, Any]) -> None:
@@ -301,11 +307,12 @@ class SessionState(BaseModel):
         Строка идёт в плоский слот `text`, структурный контент — в `content`
         (та же роль-driven раскладка, что у `HistoryMapper`).
         """
-        entry: dict[str, Any] = {"role": "assistant", "timestamp": datetime.now(UTC).isoformat()}
+        entry = HistoryMessage(role="assistant", timestamp=datetime.now(UTC).isoformat())
         if isinstance(content, str):
-            entry["text"] = content
+            entry.text = content
         else:
-            entry["content"] = content
+            # dict — одиночный ACP-блок, как в одноимённом доменном сейме.
+            entry.content = [content]
         self.history.append(entry)
 
     def add_tool_result(self, tool_call_id: str, content: str) -> None:
@@ -318,11 +325,7 @@ class SessionState(BaseModel):
         для tool-ответа его не несёт (ср. `HistoryMapper`).
         """
         self.history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": content,
-            }
+            HistoryMessage(role="tool", tool_call_id=tool_call_id, content=content)
         )
 
     def set_title(self, title: str) -> None:

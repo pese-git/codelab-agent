@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from codelab.server.messages import ACPMessage
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.protocol.response_router import ResponseRouter
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
@@ -38,14 +39,14 @@ def _session_awaiting_permission() -> SessionState:
     )
     session.tool_call_counter = 1
     session.history.append(
-        {
-            "role": "assistant",
-            "text": "",
-            "tool_calls": [
+        HistoryMessage(
+            role="assistant",
+            text="",
+            tool_calls=[
                 {"id": "llm_1", "name": "fs_read_text_file", "arguments": {}},
                 {"id": "llm_2", "name": "fs_read_text_file", "arguments": {}},
             ],
-        }
+        )
     )
     session.active_turn = ActiveTurnState(
         prompt_request_id="req_1",

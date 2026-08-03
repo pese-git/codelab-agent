@@ -48,8 +48,9 @@ class SessionView(Protocol):
     (`protocol.state.SessionState`) удовлетворяет порт структурно — чтение идёт
     «сквозь» неё (не снимок): дописанная mid-turn история видна сразу.
 
-    `history` — последовательность записей в исходной форме (`HistoryMessage`/dict);
-    ядро трактует их duck-typed через `HistoryBuilder`. Доменный content-VO не
+    `history` — последовательность записей в исходной форме (`HistoryMessage`;
+    союз с сырым dict снят в фазе D ADR-006); ядро трактует их duck-typed через
+    `HistoryBuilder`. Доменный content-VO не
     вводится до появления второго драйвера (см. design.md, вне области).
     """
 

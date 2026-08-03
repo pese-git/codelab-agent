@@ -77,7 +77,4 @@ def wire_history(session: Session) -> list[dict[str, Any]]:
     тесты истории смотрят именно на то, что уедет в документ сессии.
     """
     protocol = SessionMapper.to_protocol(session)
-    return [
-        entry if isinstance(entry, dict) else entry.model_dump(exclude_none=True)
-        for entry in protocol.history
-    ]
+    return [entry.model_dump(exclude_none=True) for entry in protocol.history]

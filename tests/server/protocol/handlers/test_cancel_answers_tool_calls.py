@@ -13,14 +13,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from codelab.server.domain.conversation import ConversationMessage
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.value_objects import MessageRole
 from codelab.server.mapping.session_mapper import SessionMapper
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
@@ -36,17 +35,17 @@ def _session_with_pending_call(status: str = "pending") -> SessionState:
         tool_call_id_from_llm="chatcmpl-tool-abc",
     )
     session.history.append(
-        {
-            "role": "assistant",
-            "text": "",
-            "tool_calls": [{"id": "chatcmpl-tool-abc", "name": "terminal_create", "arguments": {}}],
-        }
+        HistoryMessage(
+            role="assistant",
+            text="",
+            tool_calls=[{"id": "chatcmpl-tool-abc", "name": "terminal_create", "arguments": {}}],
+        )
     )
     return session
 
 
-def _answers(session: SessionState) -> list[dict[str, Any]]:
-    return [m for m in session.history if isinstance(m, dict) and m.get("role") == "tool"]
+def _answers(session: SessionState) -> list[HistoryMessage]:
+    return [m for m in session.history if m.role == "tool"]
 
 
 def _domain_session_with_pending_call(status: str = "pending") -> DomainSession:
@@ -111,8 +110,8 @@ class TestSessionSwitchAnswersToolCalls:
 
         answers = _answers(session)
         assert len(answers) == 1
-        assert answers[0]["tool_call_id"] == "chatcmpl-tool-abc"
-        assert "переключена" in answers[0]["content"]
+        assert answers[0].tool_call_id == "chatcmpl-tool-abc"
+        assert "переключена" in answers[0].content
         assert session.tool_calls["call_001"].status == "cancelled"
 
     def test_cleanup_keeps_history_consistent_with_events(self) -> None:
@@ -147,11 +146,13 @@ class TestHistorySeamParityForToolResult:
 
         mapped = HistoryMapper.to_protocol(domain.history.get_messages()[0])
 
-        assert wire.history[0] == {
-            "role": "tool",
-            "tool_call_id": "llm_1",
-            "content": "результат",
-        }
+        # Формы больше не две: wire-сейм кладёт ту же модель, что отдаёт маппер
+        # от доменного сейма (ADR-006, фаза D шаг 4 — снятие союза).
+        assert (wire.history[0].role, wire.history[0].tool_call_id, wire.history[0].content) == (
+            "tool",
+            "llm_1",
+            "результат",
+        )
         assert (mapped.role, mapped.tool_call_id, mapped.content) == (
             "tool",
             "llm_1",
@@ -201,9 +202,9 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         answered = answer_deferred_batch(session, "s", reason="turn отменён пользователем")
 
         assert answered == 2
-        ids = {m["tool_call_id"] for m in _answers(session)}
+        ids = {m.tool_call_id for m in _answers(session)}
         assert ids == {"llm_2", "llm_3"}
-        assert all("отменён" in m["content"] for m in _answers(session))
+        assert all("отменён" in m.content for m in _answers(session))
         # Хвост снят: иначе он всплыл бы при следующем resume
         assert session.active_turn.pending_batch == []
 
@@ -215,14 +216,14 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         answer_deferred_batch(session, "s", reason="в разрешении отказано")
 
         assert len(_answers(session)) == 2
-        assert all("отказано" in m["content"] for m in _answers(session))
+        assert all("отказано" in m.content for m in _answers(session))
 
     def test_session_switch_answers_deferred_batch(self) -> None:
         session = self._session_with_deferred_batch()
 
         _cleanup_session_state(session)
 
-        ids = {m["tool_call_id"] for m in _answers(session)}
+        ids = {m.tool_call_id for m in _answers(session)}
         assert ids == {"llm_2", "llm_3"}
         assert session.active_turn is None
 

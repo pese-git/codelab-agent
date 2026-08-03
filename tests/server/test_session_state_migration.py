@@ -9,6 +9,7 @@ Spec: openspec/specs/agent-config/spec.md (session-state-migration)
 from __future__ import annotations
 
 from codelab.server.agent.config.models import SessionMetrics
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.state import SessionState
 
 
@@ -476,7 +477,7 @@ class TestHistoryContentBlocksPreserved:
 
     def test_blocks_survive_storage_roundtrip(self) -> None:
         session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
-        session.history.append({"role": "user", "content": self._BLOCKS})
+        session.history.append(HistoryMessage(role="user", content=self._BLOCKS))
 
         restored = SessionState.model_validate(session.model_dump(mode="json"))
 

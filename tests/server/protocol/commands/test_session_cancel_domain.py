@@ -16,6 +16,7 @@ import structlog
 
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
+from codelab.server.models import HistoryMessage
 from codelab.server.protocol.commands.session_cancel import SessionCancelCommandHandler
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
@@ -82,11 +83,11 @@ def _session_in_turn(*, permission_request_id: str | None = None) -> SessionStat
     )
     session.tool_call_counter = 1
     session.history.append(
-        {
-            "role": "assistant",
-            "text": "",
-            "tool_calls": [{"id": "chatcmpl-tool-abc", "name": "terminal_create", "arguments": {}}],
-        }
+        HistoryMessage(
+            role="assistant",
+            text="",
+            tool_calls=[{"id": "chatcmpl-tool-abc", "name": "terminal_create", "arguments": {}}],
+        )
     )
     session.active_turn = ActiveTurnState(
         prompt_request_id="prompt_req",
