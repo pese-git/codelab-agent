@@ -13,16 +13,17 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ..mapping.session_mapper import SessionMapper
 from ..messages import ACPMessage
 from .handlers import prompt
-from .session_merge import save_domain_session_merging
+from .session_commands import SessionCommands
 from .state import LLMLoopResult
 
 if TYPE_CHECKING:
     from ..mcp import MCPManager
     from ..protocol.session_runtime import SessionRuntimeRegistry
     from ..protocol.state import SessionState
-    from ..storage import SessionStorage
+    from ..storage import SessionRepository, SessionStorage
     from .handlers.prompt_orchestrator import PromptOrchestrator
 
 logger = structlog.get_logger()
@@ -49,6 +50,7 @@ class BackgroundExecutor:
     def __init__(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
         mcp_provider: Callable[[SessionState], Awaitable[MCPManager | None]],
         runtime_registry: SessionRuntimeRegistry,
@@ -57,11 +59,13 @@ class BackgroundExecutor:
 
         Args:
             storage: Хранилище сессий.
+            repository: Доменный порт над тем же backend — путь записи turn'а.
             orchestrator_provider: Функция для получения PromptOrchestrator.
             mcp_provider: Функция для получения MCP manager для сессии.
             runtime_registry: Реестр runtime-состояний сессий.
         """
         self._storage = storage
+        self._repository = repository
         self._orchestrator_provider = orchestrator_provider
         self._mcp_provider = mcp_provider
         self._runtime_registry = runtime_registry
@@ -144,8 +148,11 @@ class BackgroundExecutor:
         Returns:
             LLMLoopResult с notifications, stop_reason и pending_permission флагом.
         """
-        session = await self._storage.load_session(session_id)
-        if session is None:
+        # Носитель состояния resume-пути — доменный агрегат (ADR-006, фаза D шаг 3),
+        # а запись идёт командами: каждое изменение коммитится своей короткой
+        # транзакцией, и копия, пережившая ожидание, на диск не уезжает (шаг 4).
+        domain_session = await self._repository.load_session(session_id)
+        if domain_session is None:
             logger.error(
                 "session_not_found_for_pending_tool_execution",
                 session_id=session_id,
@@ -153,8 +160,9 @@ class BackgroundExecutor:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-        # Получить MCP manager из runtime registry с defensive re-initialization
-        mcp_manager = await self._mcp_provider(session)
+        # MCP-менеджер читает wire-конфигурацию: проекция строится на месте и
+        # никуда не сохраняется.
+        mcp_manager = await self._mcp_provider(SessionMapper.to_protocol(domain_session))
 
         # Получить или создать PromptOrchestrator (переиспользуется)
         orchestrator = await self._orchestrator_provider()
@@ -170,45 +178,13 @@ class BackgroundExecutor:
         async def notification_callback(message: ACPMessage) -> None:
             await self._send_message(message, session_id)
 
-        # Носитель состояния resume-пути — доменный агрегат (ADR-006, фаза D шаг 3).
-        # `background_executor` грузит документ из storage и не имеет PromptContext,
-        # поэтому агрегат строится здесь, а wire-документ собирается обратно только
-        # на границе записи.
-        from ..mapping.session_mapper import SessionMapper
-
-        domain_session = SessionMapper.to_domain(session)
-
-        llm_result = await orchestrator.execute_pending_tool(
-            session=domain_session,
+        return await orchestrator.execute_pending_tool(
+            commands=SessionCommands(self._repository, domain_session),
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
-            # Промежуточные записи: копия живёт всё исполнение вызова (ADR-007)
-            persist=lambda: save_domain_session_merging(self._storage, domain_session),
         )
-
-        # Сохраняем сессию — критично для permission flow
-        try:
-            # Та же причина, что в session_prompt: копия жила всё исполнение вызова.
-            await save_domain_session_merging(self._storage, domain_session)
-            logger.debug(
-                "session_saved_after_execute_pending_tool",
-                session_id=session_id,
-                active_turn_perm_request_id=(
-                    domain_session.active_turn.permission_request_id
-                    if domain_session.active_turn
-                    else None
-                ),
-            )
-        except Exception as save_exc:
-            logger.error(
-                "failed_to_save_session_after_execute_pending_tool",
-                session_id=session_id,
-                error=str(save_exc),
-            )
-
-        return llm_result
 
     async def complete_active_turn(
         self, session_id: str, *, stop_reason: str = "end_turn"

@@ -15,7 +15,7 @@ from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 def _make_processor() -> ToolCallProcessor:
@@ -50,7 +50,7 @@ class TestPolicyRejectionCarriesReason:
         sink = AsyncMock()
 
         result = await processor._reject_tool_call(
-            _plan_mode_session(),
+            make_commands(_plan_mode_session()),
             "s",
             "call_1",
             "terminal/create",
@@ -74,7 +74,13 @@ class TestPolicyRejectionCarriesReason:
         sink = AsyncMock()
 
         await processor._reject_tool_call(
-            _plan_mode_session(), "s", "call_1", "terminal/create", "execute", None, sink
+            make_commands(_plan_mode_session()),
+            "s",
+            "call_1",
+            "terminal/create",
+            "execute",
+            None,
+            sink,
         )
 
         content = processor._tool_call_handler.build_tool_update_notification.call_args.kwargs[
@@ -93,7 +99,13 @@ class TestPolicyRejectionCarriesReason:
 
         with structlog.testing.capture_logs() as logs:
             await processor._reject_tool_call(
-                _plan_mode_session(), "s", "call_1", "terminal/create", "execute", None, AsyncMock()
+                make_commands(_plan_mode_session()),
+                "s",
+                "call_1",
+                "terminal/create",
+                "execute",
+                None,
+                AsyncMock(),
             )
 
         entry = next(log for log in logs if log["event"] == "tool_call_rejected")
@@ -111,18 +123,19 @@ class TestPausedPermissionIsCorrelatableInLog:
     снимком файла сессии.
     """
 
-    def test_pause_logs_permission_request_id(self) -> None:
+    @pytest.mark.asyncio
+    async def test_pause_logs_permission_request_id(self) -> None:
         import structlog
 
+        from codelab.server.domain.session import TurnState
         from codelab.server.protocol.handlers.permission_manager import PermissionManager
         from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
             ToolCallProcessor,
         )
         from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-        from codelab.server.protocol.state import ActiveTurnState
 
         session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
         handler = ToolCallHandler()
         tool_call_id = handler.create_tool_call(session, title="fs/read", kind="read")
         processor = ToolCallProcessor(
@@ -138,8 +151,9 @@ class TestPausedPermissionIsCorrelatableInLog:
         )
 
         with structlog.testing.capture_logs() as logs:
-            processor._pause_for_permission(
-                session, "s", tool_call_id, "fs/read_text_file", "read", MagicMock()
+            commands = make_commands(session)
+            await processor._pause_for_permission(
+                commands, "s", tool_call_id, "fs/read_text_file", "read", MagicMock()
             )
 
         paused = [e for e in logs if e["event"] == "permission_request_sent_pausing_agent_loop"]

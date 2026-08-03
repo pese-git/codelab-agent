@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import structlog
 from _protocol_factory import build_protocol
 
@@ -67,6 +68,7 @@ def _make_background_executor(
 
     return BackgroundExecutor(
         storage=storage,
+        repository=SessionRepository(storage),
         orchestrator_provider=orchestrator_provider,
         mcp_provider=mcp_provider,
         runtime_registry=runtime_registry or SessionRuntimeRegistry(),
@@ -474,7 +476,7 @@ def _make_prompt_handler(
         return None
 
     return SessionPromptCommandHandler(
-        storage=storage,
+        repository=SessionRepository(storage),
         orchestrator_provider=orchestrator_provider,
         runtime_registry=runtime_registry or SessionRuntimeRegistry(),
         mcp_provider=mcp_provider,
@@ -515,8 +517,15 @@ class TestHandleSessionPrompt:
         assert outcome.response.error is not None
         assert outcome.response.error.code == -32001
 
-    async def test_logs_error_on_save_exception(self) -> None:
-        """Исключение save_session логируется, но не ломает обработку."""
+    async def test_save_failure_is_not_swallowed(self) -> None:
+        """Сбой записи не проглатывается: состояние turn'а — это и есть запись.
+
+        Раньше сессия сохранялась один раз в `finally`, и ошибка записи
+        логировалась, а turn отвечал как ни в чём не бывало — то есть клиент
+        получал ответ по состоянию, которого нет на диске. С переходом на
+        команды (ADR-006, фаза D шаг 4) запись перестала быть послесловием:
+        несостоявшаяся команда обязана быть видна вызывающему.
+        """
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
@@ -529,19 +538,16 @@ class TestHandleSessionPrompt:
             "save_session",
             side_effect=RuntimeError("save failed"),
         ):
-            with patch("codelab.server.protocol.commands.session_prompt.logger") as mock_logger:
-                message = ACPMessage.request(
-                    "session/prompt",
-                    {
-                        "sessionId": session.session_id,
-                        "prompt": [{"type": "text", "text": "hi"}],
-                    },
-                    request_id="req_1",
-                )
-                outcome = await handler.handle(message)
-
-        mock_logger.error.assert_called_once()
-        assert outcome == ProtocolOutcome()
+            message = ACPMessage.request(
+                "session/prompt",
+                {
+                    "sessionId": session.session_id,
+                    "prompt": [{"type": "text", "text": "hi"}],
+                },
+                request_id="req_1",
+            )
+            with pytest.raises(RuntimeError, match="save failed"):
+                await handler.handle(message)
 
 
 def _make_cancel_handler(
@@ -904,28 +910,17 @@ class TestExecutePendingTool:
 
         assert result == LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-    async def test_logs_error_on_save_exception(self) -> None:
-        """Исключение save_session логируется."""
+    async def test_save_failure_is_not_swallowed(self) -> None:
+        """Сбой записи виден вызывающему (см. одноимённый тест prompt-пути)."""
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
         await storage.save_session(session)
         orchestrator = AsyncMock()
-        orchestrator.execute_pending_tool.return_value = LLMLoopResult()
+        orchestrator.execute_pending_tool.side_effect = RuntimeError("save failed")
         executor = _make_background_executor(storage, orchestrator=orchestrator)
 
-        with patch.object(
-            storage,
-            "save_session",
-            side_effect=RuntimeError("save failed"),
-        ):
-            with patch("codelab.server.protocol.background_executor.logger") as mock_logger:
-                result = await executor.execute_pending_tool(
-                    session.session_id,
-                    "call_1",
-                )
-
-        mock_logger.error.assert_called_once()
-        assert result == LLMLoopResult()
+        with pytest.raises(RuntimeError, match="save failed"):
+            await executor.execute_pending_tool(session.session_id, "call_1")
 
     async def test_returns_llm_result(self) -> None:
         """Возвращает результат orchestrator.execute_pending_tool."""

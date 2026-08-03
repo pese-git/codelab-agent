@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from codelab.server.messages import ACPMessage
+from codelab.server.protocol.session_commands import SessionCommands
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -46,6 +47,7 @@ class SessionUpdateSink:
         history_writer: EventHistoryWriter,
         callback: Callable[[ACPMessage], Awaitable[None]] | None,
         buffer: list[ACPMessage],
+        commands: SessionCommands,
     ) -> None:
         """Инициализация sink.
 
@@ -54,10 +56,14 @@ class SessionUpdateSink:
             callback: Callback для немедленной отправки notifications (или None).
             buffer: Список notifications для накопления (fallback / permission).
                 Sink хранит ссылку — вызывающий читает его после turn'а.
+            commands: Шов команд над сессией. Запись события реплея — изменение
+                состояния, и она коммитится своей короткой транзакцией
+                (ADR-006, фаза D шаг 4), а не копится в копии turn'а.
         """
         self._history_writer = history_writer
         self._callback = callback
         self._buffer = buffer
+        self._commands = commands
 
     @property
     def notifications(self) -> list[ACPMessage]:
@@ -144,9 +150,12 @@ class SessionUpdateSink:
         """
         await self._send_immediately(self.build_agent_message_chunk(session_id, text))
 
-    def save_agent_message_chunk(self, session: DomainSession, content: dict[str, Any]) -> None:
+    async def save_agent_message_chunk(self, content: dict[str, Any]) -> None:
         """Сохранить agent_message_chunk в events_history для replay."""
-        self._history_writer.save_agent_message_chunk(session, content)
+        await self._commands.apply(
+            lambda session: self._history_writer.save_agent_message_chunk(session, content),
+            name="agent_message_chunk",
+        )
 
     # ── Комбинированные emit + replay ──────────────────────────────────────
 
@@ -154,17 +163,23 @@ class SessionUpdateSink:
         self,
         notification: ACPMessage,
         *,
-        session: DomainSession,
         entries: list[dict[str, str]],
     ) -> None:
         """Отправить plan-notification, обновить план и сохранить в replay.
 
         Единственный писатель плана в turn-пути: план — доменная операция агрегата,
         а ACP-форма `latest_plan` собирается маппером на границе сохранения.
+
+        План и его событие реплея — одна команда: разрыв дал бы состояние «план
+        обновлён, реплей показывает прежний».
         """
-        self._apply_plan(session, entries)
+
+        def _write(session: DomainSession) -> None:
+            self._apply_plan(session, entries)
+            self._history_writer.save_plan(session, entries)
+
         await self.emit(notification)
-        self._history_writer.save_plan(session, entries)
+        await self._commands.apply(_write, name="plan_updated")
 
     def _apply_plan(self, session: DomainSession, entries: list[dict[str, str]]) -> None:
         """Единая запись плана — доменная операция агрегата."""
@@ -177,7 +192,6 @@ class SessionUpdateSink:
         self,
         notification: ACPMessage,
         *,
-        session: DomainSession,
         tool_call_id: str,
         title: str,
         kind: str,
@@ -185,28 +199,33 @@ class SessionUpdateSink:
     ) -> None:
         """Отправить tool_call-notification и сохранить создание tool call в replay."""
         await self.emit(notification)
-        self._history_writer.save_tool_call(
-            session=session,
-            tool_call_id=tool_call_id,
-            title=title,
-            kind=kind,
-            status=status,
+        await self._commands.apply(
+            lambda session: self._history_writer.save_tool_call(
+                session=session,
+                tool_call_id=tool_call_id,
+                title=title,
+                kind=kind,
+                status=status,
+            ),
+            name="tool_call_created_event",
         )
 
     async def emit_and_save_tool_update(
         self,
         notification: ACPMessage,
         *,
-        session: DomainSession,
         tool_call_id: str,
         status: str,
         content: list[dict[str, Any]] | None = None,
     ) -> None:
         """Отправить tool_call_update-notification и сохранить статус в replay."""
         await self.emit(notification)
-        self._history_writer.save_tool_call_update(
-            session=session,
-            tool_call_id=tool_call_id,
-            status=status,
-            content=content,
+        await self._commands.apply(
+            lambda session: self._history_writer.save_tool_call_update(
+                session=session,
+                tool_call_id=tool_call_id,
+                status=status,
+                content=content,
+            ),
+            name="tool_call_update_event",
         )

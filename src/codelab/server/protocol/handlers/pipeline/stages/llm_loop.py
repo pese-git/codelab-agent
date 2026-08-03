@@ -30,6 +30,7 @@ from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
+from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 
@@ -260,8 +261,11 @@ class LLMLoopStage(PromptStage):
                         },
                     )
                 )
-                self._history_writer.save_agent_message_chunk(context.session, ack_content)
-                self._state_manager.add_assistant_message(context.session, ack_text)
+                def _ack(target: DomainSession) -> None:
+                    self._history_writer.save_agent_message_chunk(target, ack_content)
+                    self._state_manager.add_assistant_message(target, ack_text)
+
+                await context.commands.apply(_ack, name="demo_ack")
             return context
 
         agent_loop = await self._get_or_create_agent_loop(
@@ -271,11 +275,10 @@ class LLMLoopStage(PromptStage):
         mcp_manager = self._get_mcp_manager(context)
 
         result = await agent_loop.run(
-            session=context.session,
+            commands=context.commands,
             session_id=context.session_id,
             initial_prompt=context.raw_text,
             mcp_manager=mcp_manager,
-            persist=context.persist,
         )
 
         context.notifications.extend(result.notifications)
@@ -289,12 +292,11 @@ class LLMLoopStage(PromptStage):
 
     async def execute_pending_tool(
         self,
-        session: DomainSession,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         mcp_manager: Any | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполнить pending tool после permission approval.
 
@@ -302,7 +304,7 @@ class LLMLoopStage(PromptStage):
         Если AgentLoop ещё не создан, создаёт его с правильной стратегией.
 
         Args:
-            session: Состояние сессии.
+            commands: Шов команд над сессией — единственный путь записи состояния.
             session_id: ID сессии.
             tool_call_id: ID tool call для выполнения.
             mcp_manager: MCP manager для tool execution.
@@ -311,6 +313,7 @@ class LLMLoopStage(PromptStage):
         Returns:
             LLMLoopResult с результатами выполнения.
         """
+        session = commands.session
         # Отменённый turn возобновлять нельзя. Отмена очищает `active_turn`, поэтому
         # его отсутствие здесь и означает «turn, к которому относился этот вызов,
         # больше не существует». Раньше проверки не было вовсе, и каждое разрешение
@@ -369,11 +372,10 @@ class LLMLoopStage(PromptStage):
 
         # Использовать AgentLoop.resume_after_permission
         result = await self._agent_loop.resume_after_permission(
-            session=session,
+            commands=commands,
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
-            persist=persist,
         )
 
         # Конвертировать AgentLoopResult → LLMLoopResult

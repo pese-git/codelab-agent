@@ -11,6 +11,7 @@ import pytest
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -72,7 +73,9 @@ class TestTerminalEmbeddingImmediateDelivery:
             send_times.append(time.time())
 
         # Создание AgentLoop с callback
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Создание notification с terminal content
         start_time = time.time()
@@ -117,7 +120,9 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Создание notification с terminal content
         terminal_notification = ACPMessage.notification(
@@ -161,7 +166,9 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Создание notification с terminal content
         terminal_notification = ACPMessage.notification(
@@ -213,7 +220,9 @@ class TestTerminalEmbeddingImmediateDelivery:
         async def mock_callback(notification: ACPMessage) -> None:
             sent_notifications.append(notification)
 
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Симуляция получения notification клиентом
         terminal_notification = ACPMessage.notification(

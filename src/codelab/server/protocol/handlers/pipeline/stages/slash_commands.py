@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.slash_commands.router import SlashCommandRouter
 
 from ..base import PromptStage
 from ..context import PromptContext
+
+
+def _carry_config(working: DomainSession, fresh: DomainSession) -> None:
+    """Перенести сессионный конфиг и список команд, которые правит slash-команда."""
+    fresh.config.config_values.update(working.config.config_values)
+    fresh.available_commands = list(working.available_commands)
 
 
 class SlashCommandStage(PromptStage):
@@ -32,6 +39,10 @@ class SlashCommandStage(PromptStage):
 
         # Пробуем обработать через router (async для поддержки MCP prompts)
         outcome = await self._router.route(command_name, args, context.session, mcp_prompt_handlers)
+        # Команды правят сессионный конфиг (`/mode`, `/strategy`, `/context`) прямо
+        # в рабочей копии — переносим их решения в команду, иначе они не доедут до
+        # диска (временный шов, см. `SessionCommands.carry_working_changes`).
+        await context.commands.carry_working_changes(_carry_config, name="slash_command_applied")
         if outcome is not None:
             context.notifications.extend(outcome.notifications)
             context.should_stop = True  # slash-команда обработана, LLM не нужен

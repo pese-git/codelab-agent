@@ -2,14 +2,15 @@
 
 from codelab.server.llm.content_parts import ContentPart
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 def _make_minimal_context(**kwargs: object) -> PromptContext:
-    session = SessionState(session_id="test-session", cwd="/tmp")
+    session = make_domain_session(session_id="test-session", cwd="/tmp")
     defaults = {
         "session_id": "test-session",
         "session": session,
+        "commands": make_commands(session),
         "request_id": "req_1",
         "params": {},
         "raw_text": "hello",

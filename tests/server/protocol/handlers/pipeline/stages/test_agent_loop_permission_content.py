@@ -17,6 +17,8 @@ from codelab.server.domain.session import ToolCallRegistry
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -29,19 +31,9 @@ def mock_strategy():
 
 
 @pytest.fixture
-def mock_session():
-    """Mock DomainSession."""
-    # Без spec: доменный агрегат — dataclass, его поля не живут на классе, поэтому
-    # spec отрезал бы `config`/`runtime` (см. тот же приём в test_agent_loop).
-    session = MagicMock()
-    session.id = "test_session"
-    session.config.config_values = {}
-    session.history = []
-    session.tool_calls = {}
-    session.active_turn = None
-    session.permissions.policy = {}
-    session.plan = None
-    return session
+def session():
+    """Настоящий доменный агрегат: turn пишет состояние командами (ADR-006, D4)."""
+    return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
 
 
 @pytest.fixture
@@ -70,7 +62,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
     @pytest.mark.asyncio
     async def test_execute_pending_tool_returns_content(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """_execute_pending_tool() возвращает ToolResult с content."""
         # Arrange
@@ -84,14 +76,12 @@ class TestAgentLoopPermissionFlowTerminalContent:
             kind="execute",
             status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = registry
+        session.tool_calls = registry
 
         # Tool execution result
-        mock_tool_result = MagicMock()
-        mock_tool_result.success = True
-        mock_tool_result.output = "Terminal created"
-        mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(success=True, output="Terminal created")
+        )
 
         # Extracted content с terminal embedding
         terminal_content = [
@@ -111,7 +101,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
         # Act
         result = await loop._tool_processor.execute_pending(
-            mock_session, "test_session", tool_call_id, None
+            make_commands(session), "test_session", tool_call_id, None
         )
 
         # Assert
@@ -121,7 +111,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
     @pytest.mark.asyncio
     async def test_resume_after_permission_sends_notification_with_content(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """resume_after_permission() отправляет notification с terminal content."""
         # Arrange
@@ -135,14 +125,12 @@ class TestAgentLoopPermissionFlowTerminalContent:
             kind="execute",
             status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = registry
+        session.tool_calls = registry
 
         # Tool execution result
-        mock_tool_result = MagicMock()
-        mock_tool_result.success = True
-        mock_tool_result.output = "Terminal created"
-        mock_tool_result.error = None
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=mock_tool_result)
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(success=True, output="Terminal created")
+        )
 
         # Extracted content с terminal embedding
         terminal_content = [
@@ -183,7 +171,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
         # Act
         result = await loop.resume_after_permission(
-            mock_session, "test_session", tool_call_id, None
+            make_commands(session), "test_session", tool_call_id, None
         )
 
         # Assert
@@ -197,7 +185,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
     @pytest.mark.asyncio
     async def test_notification_status_comes_from_state_not_from_success(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """Статус клиенту берётся из состояния, а не пересчитывается из `success`.
 
@@ -215,7 +203,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
             # Статус, который проставил исполнитель вызова
             status=ToolCallStatus.CANCELLED,
         )
-        mock_session.tool_calls = registry
+        session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = False
@@ -239,14 +227,15 @@ class TestAgentLoopPermissionFlowTerminalContent:
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
-        await loop.resume_after_permission(mock_session, "test_session", tool_call_id, None)
+        commands = make_commands(session)
+        await loop.resume_after_permission(commands, "test_session", tool_call_id, None)
 
         handler = mock_dependencies["tool_call_handler"]
         assert handler.build_tool_update_notification.call_args.kwargs["status"] == "cancelled"
 
     @pytest.mark.asyncio
     async def test_resume_after_permission_saves_to_replay(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """resume_after_permission() сохраняет tool_call_update в replay."""
         # Arrange
@@ -260,7 +249,7 @@ class TestAgentLoopPermissionFlowTerminalContent:
             kind="execute",
             status=ToolCallStatus("pending"),
         )
-        mock_session.tool_calls = registry
+        session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = True
@@ -287,7 +276,8 @@ class TestAgentLoopPermissionFlowTerminalContent:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         # Act
-        await loop.resume_after_permission(mock_session, "test_session", tool_call_id, None)
+        commands = make_commands(session)
+        await loop.resume_after_permission(commands, "test_session", tool_call_id, None)
 
         # Assert
         mock_dependencies["history_writer"].save_tool_call_update.assert_called()

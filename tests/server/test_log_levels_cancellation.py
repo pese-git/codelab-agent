@@ -18,7 +18,7 @@ from codelab.server.client_rpc.exceptions import ClientRPCCancelledError
 from codelab.server.client_rpc.service import ClientRPCService
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ class TestModelMistakesAreWarnings:
 
         with structlog.testing.capture_logs() as logs:
             await processor._reject_unknown_tool(
-                session, "s", "call_1", "hallucinated", "llm_1", AsyncMock()
+                make_commands(session), "s", "call_1", "hallucinated", "llm_1", AsyncMock()
             )
 
         assert _levels(logs, "tool not found in registry") == ["warning"]

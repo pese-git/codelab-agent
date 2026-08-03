@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -27,6 +26,7 @@ from codelab.server.protocol.handlers.tool_policy import (
     decide_tool_policy_async,
     describe_rejection,
 )
+from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.protocol.state import ToolResult
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
@@ -48,6 +48,27 @@ if TYPE_CHECKING:
     from codelab.server.tools.base import ToolRegistry
 
 logger = structlog.get_logger()
+
+
+def _carry_executor_changes(*, source: Session, target: Session) -> None:
+    """Перенести в команду изменения, сделанные исполнителями инструментов.
+
+    ВРЕМЕННЫЙ ШОВ (ADR-006, фаза D шаг 4). Исполнители пишут состояние прямо в
+    рабочую копию: реестр терминалов (`terminal_alias_registry`) и
+    `set_config_value` из декоратора структуры проекта. Своего шва команд у
+    цепочки `tools/` пока нет — её зовут два вызывающих (turn и Context Manager,
+    см. шаг 3), и порт исполнителя пришлось бы менять для обоих. Пока их решения
+    переносятся сюда явно: перечень конечный и виден целиком.
+
+    Уходит, когда исполнители получат собственные команды; до тех пор новая
+    мутация в исполнителе, не перечисленная здесь, до диска не доедет.
+    """
+    target.runtime.terminals = dict(source.runtime.terminals)
+    target.runtime.terminals_owner = source.runtime.terminals_owner
+    target.runtime.terminal_counter = max(
+        target.runtime.terminal_counter, source.runtime.terminal_counter
+    )
+    target.config.config_values.update(source.config.config_values)
 
 
 @dataclass
@@ -113,13 +134,12 @@ class ToolCallProcessor:
 
     async def process_batch(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_calls: list,
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
         started_epoch: int | None = None,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> ToolProcessingResult:
         """Обработать tool calls из ответа LLM.
 
@@ -128,7 +148,7 @@ class ToolCallProcessor:
         permission (agent loop ставится на паузу до ответа клиента).
 
         Args:
-            session: Состояние сессии.
+            commands: Шов команд над сессией — единственный путь записи состояния.
             session_id: ID сессии.
             tool_calls: Список tool calls из ответа LLM.
             sink: Канал доставки notifications (+ replay).
@@ -136,12 +156,11 @@ class ToolCallProcessor:
             started_epoch: Поколение отмены, с которым стартовал цикл (P0-39). `None`
                 — взять текущее на входе: одиночный вызов вне цикла отменяется только
                 тем, что произошло во время самого батча.
-            persist: Сохранить состояние после каждого вызова (ADR-007). `None` — не
-                сохранять.
 
         Returns:
             ToolProcessingResult с результатами обработки.
         """
+        session = commands.session
         epoch = (
             self._cancellation_generation(session_id) if started_epoch is None else started_epoch
         )
@@ -153,8 +172,8 @@ class ToolCallProcessor:
                 # Прерывание батча оставляло остаток вызовов без ответа: их id уже
                 # лежат в assistant-сообщении истории (`loop.py`), и модель получала
                 # неконсистентную историю (tech-debt P2-38).
-                self._answer_unprocessed_tool_calls(
-                    session,
+                await self._answer_unprocessed_tool_calls(
+                    commands,
                     session_id,
                     tool_calls[index:],
                     reason="turn отменён пользователем",
@@ -165,7 +184,7 @@ class ToolCallProcessor:
                 )
 
             step = await self._process_single_tool_call(
-                session, session_id, tool_call, sink, mcp_manager
+                commands, session_id, tool_call, sink, mcp_manager
             )
             if step.pause_tool_call_id is not None:
                 # Остаток батча возобновляется после разрешения, а не выбрасывается:
@@ -174,21 +193,24 @@ class ToolCallProcessor:
                 # честно отвечаем модели — иначе вызовы остались бы без `role: tool`.
                 remaining = list(tool_calls[index + 1 :])
                 if remaining and session.active_turn is not None:
-                    session.active_turn.pending_batch = [
-                        self._tool_call_to_dict(call) for call in remaining
-                    ]
+                    deferred = [self._tool_call_to_dict(call) for call in remaining]
+
+                    # Отложенный хвост обязан попасть на диск до паузы: ответ на
+                    # разрешение придёт отдельным запросом и загрузит сессию заново.
+                    def _defer(target: Session, tail: list = deferred) -> None:
+                        if target.active_turn is not None:
+                            target.active_turn.pending_batch = tail
+
+                    await commands.require_active_turn(_defer, name="batch_deferred")
                     logger.info(
                         "tool_calls_deferred_to_resume",
                         session_id=session_id,
                         count=len(remaining),
                         paused_tool_call_id=step.pause_tool_call_id,
                     )
-                    # Отложенный хвост обязан попасть на диск до паузы: ответ на
-                    # разрешение придёт отдельным запросом и загрузит сессию заново.
-                    await self._persist_step(persist, session_id, "batch_deferred")
                 else:
-                    self._answer_unprocessed_tool_calls(
-                        session,
+                    await self._answer_unprocessed_tool_calls(
+                        commands,
                         session_id,
                         remaining,
                         reason="turn приостановлен на запросе разрешения, "
@@ -201,10 +223,6 @@ class ToolCallProcessor:
                 )
             if step.tool_result is not None:
                 tool_results.append(step.tool_result)
-
-            # Результат вызова — на диск сразу. Иначе он жил бы только в копии turn'а
-            # до конца turn'а: на живом прогоне это 39 секунд расхождения (ADR-007).
-            await self._persist_step(persist, session_id, "tool_call_processed")
 
         return ToolProcessingResult(tool_results=tool_results)
 
@@ -221,9 +239,9 @@ class ToolCallProcessor:
             "arguments": getattr(tool_call, "arguments", None) or {},
         }
 
-    def _answer_unprocessed_tool_calls(
+    async def _answer_unprocessed_tool_calls(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_calls: list,
         *,
@@ -244,19 +262,29 @@ class ToolCallProcessor:
         if not tool_calls:
             return
 
-        answered = 0
-        for tool_call in tool_calls:
-            tool_call_id_from_llm = getattr(tool_call, "id", None)
-            if not tool_call_id_from_llm:
-                continue
-            self._add_tool_result_to_history(
-                session,
-                tool_call_id_from_llm,
-                False,
-                None,
-                f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
-            )
-            answered += 1
+        answers: list[str] = [
+            str(tool_call_id)
+            for tool_call_id in (getattr(tool_call, "id", None) for tool_call in tool_calls)
+            if tool_call_id
+        ]
+        if not answers:
+            return
+
+        # Ответы на неисполненные вызовы — одна команда: они описывают одно решение
+        # («батч дальше не идёт»), и частично записанный набор оставил бы часть
+        # вызовов без `role: tool` — ровно то, что здесь и лечится (P2-38).
+        def _answer(target: Session) -> None:
+            for tool_call_id_from_llm in answers:
+                self._add_tool_result_to_history(
+                    target,
+                    tool_call_id_from_llm,
+                    False,
+                    None,
+                    f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
+                )
+
+        await commands.apply(_answer, name="unprocessed_tool_calls_answered")
+        answered = len(answers)
 
         logger.info(
             "tool_calls_left_unprocessed",
@@ -265,9 +293,33 @@ class ToolCallProcessor:
             reason=reason,
         )
 
+    async def _answer_nameless_tool_call(
+        self,
+        commands: SessionCommands,
+        session_id: str,
+        tool_call_id_from_llm: str | None,
+    ) -> None:
+        """Ответить модели на вызов без имени инструмента.
+
+        Ответ обязателен и здесь: иначе вызов остаётся без `role: tool` (P2-38).
+        """
+        logger.warning("tool_call has no name", session_id=session_id)
+        if not tool_call_id_from_llm:
+            return
+        await commands.apply(
+            lambda target: self._add_tool_result_to_history(
+                target,
+                tool_call_id_from_llm,
+                False,
+                None,
+                "Вызов не выполнялся: в запросе не указано имя инструмента.",
+            ),
+            name="nameless_tool_call_answered",
+        )
+
     async def _process_single_tool_call(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call: object,
         sink: SessionUpdateSink,
@@ -278,21 +330,13 @@ class ToolCallProcessor:
         Возвращает `_ToolCallStep`, сигнализирующий вызывающему циклу: либо
         готовый `ToolResult` (продолжить), либо паузу для permission.
         """
+        session = commands.session
         tool_name = getattr(tool_call, "name", None)
         tool_arguments = getattr(tool_call, "arguments", {})
         tool_call_id_from_llm = getattr(tool_call, "id", None)
 
         if not tool_name:
-            logger.warning("tool_call has no name", session_id=session_id)
-            # Ответ обязателен и здесь: иначе вызов остаётся без `role: tool` (P2-38).
-            if tool_call_id_from_llm:
-                self._add_tool_result_to_history(
-                    session,
-                    tool_call_id_from_llm,
-                    False,
-                    None,
-                    "Вызов не выполнялся: в запросе не указано имя инструмента.",
-                )
+            await self._answer_nameless_tool_call(commands, session_id, tool_call_id_from_llm)
             return _ToolCallStep()
 
         # Конвертируем LLM имя обратно в ACP формат
@@ -304,14 +348,25 @@ class ToolCallProcessor:
         if tool_definition is not None:
             tool_kind = tool_definition.kind
 
-        tool_call_id = self._tool_call_handler.create_tool_call(
-            session=session,
-            title=acp_tool_name,
-            kind=tool_kind,
-            tool_name=acp_tool_name,
-            tool_arguments=tool_arguments,
-            tool_call_id_from_llm=tool_call_id_from_llm,
+        tool_call_id = await commands.apply(
+            lambda target: self._tool_call_handler.create_tool_call(
+                session=target,
+                title=acp_tool_name,
+                kind=tool_kind,
+                tool_name=acp_tool_name,
+                tool_arguments=tool_arguments,
+                tool_call_id_from_llm=tool_call_id_from_llm,
+            ),
+            name="tool_call_created",
         )
+        if tool_call_id is None:
+            # Сессии больше нет — исполнять вызов некуда и некому отвечать.
+            logger.warning(
+                "tool_call_not_created_session_gone",
+                session_id=session_id,
+                tool_name=acp_tool_name,
+            )
+            return _ToolCallStep()
 
         logger.info(
             "tool_call_created",
@@ -330,7 +385,6 @@ class ToolCallProcessor:
         )
         await sink.emit_and_save_tool_call(
             tool_call_notification,
-            session=session,
             tool_call_id=tool_call_id,
             title=acp_tool_name,
             kind=tool_kind,
@@ -351,7 +405,7 @@ class ToolCallProcessor:
         if tool_definition is None and not is_mcp:
             return _ToolCallStep(
                 tool_result=await self._reject_unknown_tool(
-                    session,
+                    commands,
                     session_id,
                     tool_call_id,
                     acp_tool_name,
@@ -366,7 +420,7 @@ class ToolCallProcessor:
         if self._loop_detector.register_attempt(acp_tool_name, tool_arguments):
             return _ToolCallStep(
                 tool_result=await self._reject_looping_tool(
-                    session,
+                    commands,
                     session_id,
                     tool_call_id,
                     acp_tool_name,
@@ -397,15 +451,15 @@ class ToolCallProcessor:
         )
 
         if decision == "ask":
-            self._pause_for_permission(
-                session, session_id, tool_call_id, acp_tool_name, tool_kind, sink
+            await self._pause_for_permission(
+                commands, session_id, tool_call_id, acp_tool_name, tool_kind, sink
             )
             return _ToolCallStep(pause_tool_call_id=tool_call_id)
 
         if decision == "reject":
             return _ToolCallStep(
                 tool_result=await self._reject_tool_call(
-                    session,
+                    commands,
                     session_id,
                     tool_call_id,
                     acp_tool_name,
@@ -418,7 +472,7 @@ class ToolCallProcessor:
         # decision == "allow"
         return _ToolCallStep(
             tool_result=await self._execute_allowed_tool_call(
-                session,
+                commands,
                 session_id,
                 tool_call_id,
                 tool_name,
@@ -431,9 +485,9 @@ class ToolCallProcessor:
             )
         )
 
-    def _pause_for_permission(
+    async def _pause_for_permission(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -441,23 +495,29 @@ class ToolCallProcessor:
         sink: SessionUpdateSink,
     ) -> None:
         """Сформировать permission request и перевести turn в awaiting_permission."""
+        session = commands.session
         tool_call_state = session.tool_calls.get(tool_call_id)
         if tool_call_state is not None:
-            permission_msg = self._permission_manager.build_permission_request(
-                session,
-                session_id,
-                tool_call_state.id,
-                tool_call_state.title or "",
-                tool_kind,
-            )
-            sink.buffer_only(permission_msg)
-            # НЕ отправляем permission request через immediate callback.
-            # Он будет отправлен через стандартный механизм outcome.notifications
-            # чтобы избежать дублирования и корректной обработки ответа.
+            # Заведение запроса разрешения и пауза turn'а — одна команда: ответ на
+            # разрешение придёт отдельным запросом и найдёт сессию по
+            # `permission_request_id`, поэтому оба поля обязаны лечь на диск вместе.
+            def _pause(target: Session) -> None:
+                permission_msg = self._permission_manager.build_permission_request(
+                    target,
+                    session_id,
+                    tool_call_state.id,
+                    tool_call_state.title or "",
+                    tool_kind,
+                )
+                sink.buffer_only(permission_msg)
+                # НЕ отправляем permission request через immediate callback.
+                # Он будет отправлен через стандартный механизм outcome.notifications
+                # чтобы избежать дублирования и корректной обработки ответа.
+                if target.active_turn:
+                    target.active_turn.phase = "awaiting_permission"
+                    target.active_turn.permission_tool_call_id = tool_call_id
 
-            if session.active_turn:
-                session.active_turn.phase = "awaiting_permission"
-                session.active_turn.permission_tool_call_id = tool_call_id
+            await commands.require_active_turn(_pause, name="permission_requested")
 
         logger.info(
             "permission_request_sent_pausing_agent_loop",
@@ -476,7 +536,7 @@ class ToolCallProcessor:
 
     async def _reject_tool_call(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -485,6 +545,7 @@ class ToolCallProcessor:
         sink: SessionUpdateSink,
     ) -> ToolResult:
         """Отклонить tool call по policy: пометить failed и вернуть ToolResult."""
+        session = commands.session
         rejection_reason = describe_rejection(session, tool_kind)
         logger.info(
             "tool_call_rejected",
@@ -495,11 +556,18 @@ class ToolCallProcessor:
             mode=session.get_config_value("mode", "standard"),
             reason=rejection_reason,
         )
-        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
         rejection_msg = f"Инструмент '{acp_tool_name}' не выполнен. {rejection_reason}"
         rejection_content = [
             {"type": "content", "content": {"type": "text", "text": rejection_msg}}
         ]
+
+        await self._fail_tool_call(
+            commands,
+            tool_call_id=tool_call_id,
+            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            message=rejection_msg,
+        )
+
         rejection_notification = self._tool_call_handler.build_tool_update_notification(
             session_id=session_id,
             tool_call_id=tool_call_id,
@@ -508,22 +576,9 @@ class ToolCallProcessor:
         )
         await sink.emit_and_save_tool_update(
             rejection_notification,
-            session=session,
             tool_call_id=tool_call_id,
             status="failed",
             content=rejection_content,
-        )
-        # Отказ — такой же результат вызова, как ошибка исполнения, и обязан уйти
-        # модели: ACP `05-Prompt Turn` шаг 6 требует отправлять tool results обратно
-        # в LLM, а контракт LLM-API — ответ `role: tool` на каждый `tool_call_id`.
-        # Без записи модель видела вызов без ответа и повторяла его до упора в
-        # `max_turn_requests` (tech-debt P2-36).
-        self._add_tool_result_to_history(
-            session,
-            tool_call_id_from_llm or tool_call_id,
-            False,
-            None,
-            rejection_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -532,9 +587,31 @@ class ToolCallProcessor:
             error=rejection_msg,
         )
 
+    async def _fail_tool_call(
+        self,
+        commands: SessionCommands,
+        *,
+        tool_call_id: str,
+        answer_tool_call_id: str,
+        message: str,
+    ) -> None:
+        """Пометить вызов failed и ответить модели — одной командой.
+
+        Статус вызова и ответ модели описывают одно решение: ACP `05-Prompt Turn`
+        шаг 6 требует отдать результат модели, а контракт LLM-API — `role: tool` на
+        каждый `tool_call_id`. Разрыв по транзакциям дал бы вызов без ответа, и
+        модель повторяла бы его до упора в `max_turn_requests` (P2-36).
+        """
+
+        def _fail(target: Session) -> None:
+            self._tool_call_handler.update_tool_call_status(target, tool_call_id, "failed")
+            self._add_tool_result_to_history(target, answer_tool_call_id, False, None, message)
+
+        await commands.apply(_fail, name="tool_call_failed")
+
     async def _reject_unknown_tool(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -562,7 +639,13 @@ class ToolCallProcessor:
             f"Доступные инструменты: {', '.join(available) if available else 'нет'}."
         )
         error_content = [{"type": "content", "content": {"type": "text", "text": error_msg}}]
-        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+        # Список доступных инструментов нужен модели, а не только клиенту.
+        await self._fail_tool_call(
+            commands,
+            tool_call_id=tool_call_id,
+            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            message=error_msg,
+        )
         notification = self._tool_call_handler.build_tool_update_notification(
             session_id=session_id,
             tool_call_id=tool_call_id,
@@ -571,19 +654,9 @@ class ToolCallProcessor:
         )
         await sink.emit_and_save_tool_update(
             notification,
-            session=session,
             tool_call_id=tool_call_id,
             status="failed",
             content=error_content,
-        )
-        # Список доступных инструментов нужен модели, а не только клиенту:
-        # ответ `role: tool` обязателен на каждый вызов (см. `_reject_tool_call`).
-        self._add_tool_result_to_history(
-            session,
-            tool_call_id_from_llm or tool_call_id,
-            False,
-            None,
-            error_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -594,7 +667,7 @@ class ToolCallProcessor:
 
     async def _reject_looping_tool(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         acp_tool_name: str,
@@ -626,7 +699,13 @@ class ToolCallProcessor:
             f"Измени подход (другой инструмент/аргументы) или заверши ответ, не повторяя вызов."
         )
         error_content = [{"type": "content", "content": {"type": "text", "text": error_msg}}]
-        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+        # Подсказка про повтор бесполезна, если не доходит до модели.
+        await self._fail_tool_call(
+            commands,
+            tool_call_id=tool_call_id,
+            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            message=error_msg,
+        )
         notification = self._tool_call_handler.build_tool_update_notification(
             session_id=session_id,
             tool_call_id=tool_call_id,
@@ -635,19 +714,9 @@ class ToolCallProcessor:
         )
         await sink.emit_and_save_tool_update(
             notification,
-            session=session,
             tool_call_id=tool_call_id,
             status="failed",
             content=error_content,
-        )
-        # Подсказка про повтор бесполезна, если не доходит до модели (см.
-        # `_reject_tool_call`): ответ `role: tool` обязателен на каждый вызов.
-        self._add_tool_result_to_history(
-            session,
-            tool_call_id_from_llm or tool_call_id,
-            False,
-            None,
-            error_msg,
         )
         return ToolResult(
             tool_call_id=tool_call_id_from_llm or tool_call_id,
@@ -658,7 +727,7 @@ class ToolCallProcessor:
 
     async def _execute_allowed_tool_call(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         tool_name: str,
@@ -670,6 +739,7 @@ class ToolCallProcessor:
         sink: SessionUpdateSink,
     ) -> ToolResult:
         """Исполнить разрешённый tool call и сформировать ToolResult."""
+        session = commands.session
         logger.info(
             "tool_call_executing",
             session_id=session_id,
@@ -679,7 +749,12 @@ class ToolCallProcessor:
         )
         effective_id = tool_call_id_from_llm or tool_call_id
         try:
-            self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
+            await commands.apply(
+                lambda target: self._tool_call_handler.update_tool_call_status(
+                    target, tool_call_id, "in_progress"
+                ),
+                name="tool_call_in_progress",
+            )
             in_progress_notification = self._tool_call_handler.build_tool_update_notification(
                 session_id=session_id,
                 tool_call_id=tool_call_id,
@@ -687,7 +762,6 @@ class ToolCallProcessor:
             )
             await sink.emit_and_save_tool_update(
                 in_progress_notification,
-                session=session,
                 tool_call_id=tool_call_id,
                 status="in_progress",
             )
@@ -710,21 +784,34 @@ class ToolCallProcessor:
                     errors=errors,
                 )
 
-            self._store_and_format(session, tool_call_id, extracted_content)
-
             if result.success:
                 success_text = result.output or "Success"
-                success_content = [
+                success_content: list[dict[str, Any]] | None = [
                     {"type": "content", "content": {"type": "text", "text": success_text}}
                 ]
-                self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "completed", content=success_content
-                )
                 status = "completed"
             else:
                 # Отмена пользователем — не сбой инструмента (P2-50)
+                success_content = None
                 status = "cancelled" if result.cancelled else "failed"
-                self._tool_call_handler.update_tool_call_status(session, tool_call_id, status)
+
+            # Итог вызова — одна команда: содержимое, статус и ответ модели
+            # описывают один результат.
+            def _commit_result(target: Session) -> None:
+                _carry_executor_changes(source=session, target=target)
+                self._store_and_format(target, tool_call_id, extracted_content)
+                self._tool_call_handler.update_tool_call_status(
+                    target, tool_call_id, status, content=success_content
+                )
+                self._add_tool_result_to_history(
+                    target,
+                    effective_id,
+                    result.success,
+                    result.output,
+                    result.error,
+                )
+
+            await commands.apply(_commit_result, name="tool_call_result")
 
             notification_content = self._build_notification_content(extracted_content, result)
 
@@ -736,24 +823,12 @@ class ToolCallProcessor:
             )
             await sink.emit_and_save_tool_update(
                 tool_update_notification,
-                session=session,
                 tool_call_id=tool_call_id,
                 status=status,
                 content=notification_content,
             )
 
-            # Добавляем tool result в историю для LLM
-            self._add_tool_result_to_history(
-                session,
-                effective_id,
-                result.success,
-                result.output,
-                result.error,
-            )
-
-            await self._emit_plan_notification_if_needed(
-                session, session_id, acp_tool_name, result, sink
-            )
+            await self._emit_plan_notification_if_needed(session_id, acp_tool_name, result, sink)
 
             return ToolResult(
                 tool_call_id=effective_id,
@@ -771,7 +846,12 @@ class ToolCallProcessor:
                 tool_name=tool_name,
                 error=str(e),
             )
-            self._tool_call_handler.update_tool_call_status(session, tool_call_id, "failed")
+            await self._fail_tool_call(
+                commands,
+                tool_call_id=tool_call_id,
+                answer_tool_call_id=effective_id,
+                message=str(e),
+            )
             # P2-25: доставляем failed-статус немедленно (как success-ветка выше), а не
             # только в буфер. Иначе в стриминге карточка tool'а висит «в процессе» до
             # конца turn'а и порядок живых событий может нарушиться. emit() безопасен в
@@ -782,16 +862,8 @@ class ToolCallProcessor:
                     tool_call_id=tool_call_id,
                     status="failed",
                 ),
-                session=session,
                 tool_call_id=tool_call_id,
                 status="failed",
-            )
-            self._add_tool_result_to_history(
-                session,
-                effective_id,
-                False,
-                None,
-                str(e),
             )
             return ToolResult(
                 tool_call_id=effective_id,
@@ -802,7 +874,7 @@ class ToolCallProcessor:
 
     async def execute_pending(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None,
@@ -810,7 +882,7 @@ class ToolCallProcessor:
         """Выполнить pending tool после permission approval.
 
         Args:
-            session: Состояние сессии.
+            commands: Шов команд над сессией — единственный путь записи состояния.
             session_id: ID сессии.
             tool_call_id: ID tool call для выполнения.
             mcp_manager: MCP manager.
@@ -818,6 +890,7 @@ class ToolCallProcessor:
         Returns:
             ToolResult или None если tool не найден.
         """
+        session = commands.session
         tool_call_state = session.tool_calls.get(tool_call_id)
         if tool_call_state is None:
             logger.error(
@@ -850,7 +923,12 @@ class ToolCallProcessor:
         # Матрица переходов допускает completed только из in_progress, поэтому
         # resume-путь обязан отметить запуск так же, как обычный (_execute_allowed_tool).
         # Без этого completed молча отбрасывается и состояние застревает в pending.
-        self._tool_call_handler.update_tool_call_status(session, tool_call_id, "in_progress")
+        await commands.apply(
+            lambda target: self._tool_call_handler.update_tool_call_status(
+                target, tool_call_id, "in_progress"
+            ),
+            name="pending_tool_in_progress",
+        )
         try:
             result = await self._run_tool(
                 session,
@@ -864,16 +942,21 @@ class ToolCallProcessor:
             extracted_content = await self._content_extractor.extract_from_result(
                 tool_call_id, result
             )
-            self._store_and_format(session, tool_call_id, extracted_content)
-
             notification_content = self._build_notification_content(extracted_content, result)
 
             if result.success:
-                self._tool_call_handler.update_tool_call_status(
-                    session, tool_call_id, "completed", content=notification_content
+                await self._commit_pending_result(
+                    commands,
+                    session=session,
+                    tool_call_id=tool_call_id,
+                    extracted_content=extracted_content,
+                    status="completed",
+                    content=notification_content,
+                    answer_tool_call_id=effective_id,
+                    success=True,
+                    output=result.output,
+                    error=None,
                 )
-                # Добавляем tool result в историю для LLM
-                self._add_tool_result_to_history(session, effective_id, True, result.output, None)
                 return ToolResult(
                     tool_call_id=effective_id,
                     tool_name=tool_name,
@@ -893,16 +976,18 @@ class ToolCallProcessor:
                         },
                     }
                 ]
-                # Отмена пользователем — не сбой инструмента (P2-50)
-                self._tool_call_handler.update_tool_call_status(
-                    session,
-                    tool_call_id,
-                    "cancelled" if result.cancelled else "failed",
+                await self._commit_pending_result(
+                    commands,
+                    session=session,
+                    tool_call_id=tool_call_id,
+                    extracted_content=extracted_content,
+                    # Отмена пользователем — не сбой инструмента (P2-50)
+                    status="cancelled" if result.cancelled else "failed",
                     content=failure_content,
-                )
-                # Добавляем tool result в историю для LLM (с сохранением output).
-                self._add_tool_result_to_history(
-                    session, effective_id, False, result.output, result.error
+                    answer_tool_call_id=effective_id,
+                    success=False,
+                    output=result.output,
+                    error=result.error,
                 )
                 return ToolResult(
                     tool_call_id=effective_id,
@@ -922,23 +1007,54 @@ class ToolCallProcessor:
                 error=str(exc),
                 exc_info=True,
             )
+            error_text = str(exc)
             error_content = [
                 {
                     "type": "content",
-                    "content": {"type": "text", "text": f"Tool execution error: {exc}"},
+                    "content": {"type": "text", "text": f"Tool execution error: {error_text}"},
                 }
             ]
-            self._tool_call_handler.update_tool_call_status(
-                session, tool_call_id, "failed", content=error_content
-            )
-            # Добавляем tool result в историю для LLM
-            self._add_tool_result_to_history(session, effective_id, False, None, str(exc))
+
+            def _fail(target: Session) -> None:
+                _carry_executor_changes(source=session, target=target)
+                self._tool_call_handler.update_tool_call_status(
+                    target, tool_call_id, "failed", content=error_content
+                )
+                self._add_tool_result_to_history(target, effective_id, False, None, error_text)
+
+            await commands.apply(_fail, name="pending_tool_failed")
             return ToolResult(
                 tool_call_id=effective_id,
                 tool_name=tool_name,
                 success=False,
                 error=str(exc),
             )
+
+    async def _commit_pending_result(
+        self,
+        commands: SessionCommands,
+        *,
+        session: Session,
+        tool_call_id: str,
+        extracted_content: ExtractedContent,
+        status: str,
+        content: list | None,
+        answer_tool_call_id: str,
+        success: bool,
+        output: str | None,
+        error: str | None,
+    ) -> None:
+        """Итог приостановленного вызова — одной командой (см. `_fail_tool_call`)."""
+
+        def _commit(target: Session) -> None:
+            _carry_executor_changes(source=session, target=target)
+            self._store_and_format(target, tool_call_id, extracted_content)
+            self._tool_call_handler.update_tool_call_status(
+                target, tool_call_id, status, content=content
+            )
+            self._add_tool_result_to_history(target, answer_tool_call_id, success, output, error)
+
+        await commands.apply(_commit, name="pending_tool_result")
 
     async def _run_tool(
         self,
@@ -1002,7 +1118,6 @@ class ToolCallProcessor:
 
     async def _emit_plan_notification_if_needed(
         self,
-        session: Session,
         session_id: str,
         acp_tool_name: str,
         result,
@@ -1019,7 +1134,7 @@ class ToolCallProcessor:
             return
         # latest_plan пишет sink.emit_and_save_plan (единый писатель, dual-carry — D4-b/b1).
         plan_notification = self._plan_builder.build_plan_notification(session_id, plan_entries)
-        await sink.emit_and_save_plan(plan_notification, session=session, entries=plan_entries)
+        await sink.emit_and_save_plan(plan_notification, entries=plan_entries)
         logger.debug(
             "plan notification sent from update_plan tool",
             session_id=session_id,
@@ -1084,30 +1199,6 @@ class ToolCallProcessor:
             "allow", "reject" или "ask".
         """
         return await decide_tool_policy_async(session, tool_kind, self._global_policy_manager)
-
-    @staticmethod
-    async def _persist_step(
-        persist: Callable[[], Awaitable[None]] | None,
-        session_id: str,
-        step: str,
-    ) -> None:
-        """Сохранить состояние шага, не срывая turn при сбое записи.
-
-        Ошибка записи логируется и turn продолжается: срывать работу из-за
-        временного сбоя диска хуже, а финальное сохранение даст второй шанс. Молчать
-        при этом нельзя — именно молчание скрывало потерю решений в P2-42.
-        """
-        if persist is None:
-            return
-        try:
-            await persist()
-        except Exception as error:
-            logger.error(
-                "session_step_persist_failed",
-                session_id=session_id,
-                step=step,
-                error=str(error),
-            )
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""

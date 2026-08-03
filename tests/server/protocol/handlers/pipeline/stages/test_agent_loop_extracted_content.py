@@ -14,6 +14,7 @@ import pytest
 
 from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -26,17 +27,9 @@ def mock_strategy():
 
 
 @pytest.fixture
-def mock_session():
-    """Mock SessionState."""
-    session = MagicMock()
-    session.session_id = "test_session"
-    session.config_values = {}
-    session.history = []
-    session.tool_calls = {}
-    session.active_turn = None
-    session.permission_policy = {}
-    session.latest_plan = None
-    return session
+def session():
+    """Настоящий доменный агрегат: turn пишет состояние командами (ADR-006, D4)."""
+    return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
 
 
 @pytest.fixture
@@ -65,7 +58,7 @@ class TestAgentLoopExtractedContent:
 
     @pytest.mark.asyncio
     async def test_notification_uses_extracted_content_items(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """AgentLoop передаёт extracted_content.content_items в notification."""
         mock_tool_call = MagicMock()
@@ -113,7 +106,8 @@ class TestAgentLoopExtractedContent:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        await loop.run(mock_session, "test_session", "Run ls")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Run ls")
 
         # Проверяем что build_tool_update_notification был вызван с terminal content
         update_calls = h.build_tool_update_notification.call_args_list
@@ -126,7 +120,7 @@ class TestAgentLoopExtractedContent:
 
     @pytest.mark.asyncio
     async def test_notification_fallback_to_text_if_content_empty(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """AgentLoop использует text fallback если extracted content пустой."""
         mock_tool_call = MagicMock()
@@ -167,7 +161,8 @@ class TestAgentLoopExtractedContent:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        await loop.run(mock_session, "test_session", "Read file")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Read file")
 
         # Проверяем что build_tool_update_notification был вызван с text fallback
         update_calls = h.build_tool_update_notification.call_args_list
@@ -183,7 +178,7 @@ class TestAgentLoopExtractedContent:
 
     @pytest.mark.asyncio
     async def test_notification_content_none_if_no_output_and_empty_content(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ) -> None:
         """AgentLoop передаёт None если нет output и content пустой."""
         mock_tool_call = MagicMock()
@@ -224,7 +219,8 @@ class TestAgentLoopExtractedContent:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        await loop.run(mock_session, "test_session", "Run tool")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Run tool")
 
         # Проверяем что build_tool_update_notification был вызван с content=None
         update_calls = h.build_tool_update_notification.call_args_list

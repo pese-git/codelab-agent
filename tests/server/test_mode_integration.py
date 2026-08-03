@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.config import session_set_mode
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
@@ -19,12 +20,11 @@ from codelab.server.protocol.handlers.pipeline.stages.directives import (
 )
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
 from codelab.server.protocol.state import (
-    ActiveTurnState,
     ClientRuntimeCapabilities,
 )
 from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.tools.registry import SimpleToolRegistry
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -93,6 +93,7 @@ def _make_context(
     return PromptContext(
         session_id="sess_1",
         session=session,
+        commands=make_commands(session),
         request_id="req_1",
         params=params or {},
         raw_text="",
@@ -111,7 +112,7 @@ class TestToolExecutionIntegration:
     async def test_plan_mode_blocks_all_write_operations(self, stage: DirectivesStage) -> None:
         """В plan mode все write операции должны быть заблокированы."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
 
         blocked_kinds = ["edit", "delete", "execute"]
 
@@ -136,7 +137,7 @@ class TestToolExecutionIntegration:
     async def test_plan_mode_allows_all_read_operations(self, stage: DirectivesStage) -> None:
         """В plan mode все read операции должны быть разрешены."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
 
         allowed_kinds = ["read", "search", "think", "fetch", "move"]
 
@@ -162,7 +163,7 @@ class TestToolExecutionIntegration:
     async def test_bypass_mode_allows_all_operations(self, stage: DirectivesStage) -> None:
         """В bypass mode все операции должны выполняться автоматически."""
         session = _make_session(mode="bypass")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
 
         all_kinds = [
             "edit",
@@ -198,7 +199,7 @@ class TestToolExecutionIntegration:
     ) -> None:
         """В standard mode write операции должны запрашивать permission."""
         session = _make_session(mode="standard")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
 
         write_kinds = ["edit", "delete", "execute", "bash", "terminal"]
 

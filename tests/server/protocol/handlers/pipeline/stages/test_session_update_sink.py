@@ -16,6 +16,7 @@ from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import (
     SessionUpdateSink,
 )
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 def _notification(text: str = "hi") -> ACPMessage:
@@ -39,7 +40,7 @@ async def test_emit_delivers_immediately_when_callback_set() -> None:
         delivered.append(msg)
 
     buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(MagicMock(), callback, buffer)
+    sink = SessionUpdateSink(MagicMock(), callback, buffer, make_commands(make_domain_session()))
     notification = _notification()
 
     await sink.emit(notification)
@@ -51,7 +52,7 @@ async def test_emit_delivers_immediately_when_callback_set() -> None:
 @pytest.mark.asyncio
 async def test_emit_falls_back_to_buffer_without_callback() -> None:
     buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(MagicMock(), None, buffer)
+    sink = SessionUpdateSink(MagicMock(), None, buffer, make_commands(make_domain_session()))
     notification = _notification()
 
     await sink.emit(notification)
@@ -65,7 +66,7 @@ async def test_emit_falls_back_to_buffer_when_callback_raises() -> None:
         raise RuntimeError("transport down")
 
     buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(MagicMock(), callback, buffer)
+    sink = SessionUpdateSink(MagicMock(), callback, buffer, make_commands(make_domain_session()))
     notification = _notification()
 
     await sink.emit(notification)
@@ -76,7 +77,7 @@ async def test_emit_falls_back_to_buffer_when_callback_raises() -> None:
 def test_buffer_only_never_delivers_immediately() -> None:
     callback = AsyncMock()
     buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(MagicMock(), callback, buffer)
+    sink = SessionUpdateSink(MagicMock(), callback, buffer, make_commands(make_domain_session()))
     notification = _notification()
 
     sink.buffer_only(notification)
@@ -94,11 +95,10 @@ async def test_emit_and_save_tool_update_order_emit_before_replay() -> None:
 
     replay = MagicMock()
     replay.save_tool_call_update.side_effect = lambda **_: calls.append("replay")
-    sink = SessionUpdateSink(replay, callback, [])
+    sink = SessionUpdateSink(replay, callback, [], make_commands(make_domain_session()))
 
     await sink.emit_and_save_tool_update(
         _notification(),
-        session=MagicMock(),
         tool_call_id="call_1",
         status="completed",
         content=None,
@@ -114,7 +114,7 @@ async def test_streaming_delta_never_buffers() -> None:
         raise RuntimeError("dropped")
 
     buffer: list[ACPMessage] = []
-    sink = SessionUpdateSink(MagicMock(), callback, buffer)
+    sink = SessionUpdateSink(MagicMock(), callback, buffer, make_commands(make_domain_session()))
 
     await sink.emit_streaming_delta("s1", "chunk")
 

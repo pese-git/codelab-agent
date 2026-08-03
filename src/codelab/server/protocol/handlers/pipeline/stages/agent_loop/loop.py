@@ -39,6 +39,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import 
 from codelab.server.protocol.handlers.plan_builder import PlanBuilder
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
+from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.protocol.state import ToolResult
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
@@ -212,12 +213,11 @@ class AgentLoop:
 
     async def run(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         initial_prompt: str | None = None,
         mcp_manager: MCPManager | None = None,
         started_epoch: int | None = None,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
         """Запустить цикл итераций.
 
@@ -230,7 +230,7 @@ class AgentLoop:
         6. Продолжить цикл
 
         Args:
-            session: Состояние сессии.
+            commands: Шов команд над сессией — единственный путь записи состояния.
             session_id: ID сессии для логирования.
             initial_prompt: Текст начального промпта (None для продолжения).
             mcp_manager: MCP manager для tool execution.
@@ -243,7 +243,7 @@ class AgentLoop:
         """
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._history_writer, self._notification_callback, notifications
+            self._history_writer, self._notification_callback, notifications, commands
         )
         iteration = 0
         final_text: str | None = None
@@ -255,7 +255,7 @@ class AgentLoop:
         while iteration < self._max_turn_requests:
             iteration += 1
             result, final_text = await self._run_iteration(
-                session,
+                commands,
                 session_id,
                 initial_prompt,
                 mcp_manager,
@@ -263,7 +263,6 @@ class AgentLoop:
                 sink,
                 final_text,
                 started_epoch,
-                persist,
             )
             if result is not None:
                 return result
@@ -284,7 +283,7 @@ class AgentLoop:
 
     async def _run_iteration(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         prompt: str | None,
         mcp_manager: MCPManager | None,
@@ -292,7 +291,6 @@ class AgentLoop:
         sink: SessionUpdateSink,
         final_text: str | None,
         started_epoch: int,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[AgentLoopResult | None, str | None]:
         """Одна итерация цикла: LLM-вызов + обработка ответа/tool_calls.
 
@@ -300,6 +298,7 @@ class AgentLoop:
             (terminal_result | None, final_text). None-результат означает
             «продолжать цикл»; final_text прокидывается между итерациями.
         """
+        session = commands.session
         call_result, terminal = await self._obtain_llm_response(
             session, session_id, prompt, mcp_manager, iteration, sink, started_epoch
         )
@@ -326,9 +325,9 @@ class AgentLoop:
 
         if agent_text:
             final_text = agent_text
-            await self._emit_agent_text(session, session_id, agent_text, sink, streamed)
+            await self._emit_agent_text(commands, session_id, agent_text, sink, streamed)
 
-        await self._emit_response_plan(session, session_id, response, sink)
+        await self._emit_response_plan(session_id, response, sink)
 
         # Нет tool_calls → завершить
         if not has_tool_calls:
@@ -358,17 +357,20 @@ class AgentLoop:
         # писалась сырым dict'ом мимо носителя, из-за чего одна и та же запись
         # существовала в двух формах и сравнение по префиксу ломалось на первой же
         # записи turn'а (корень P1-45).
-        session.add_assistant_tool_call_message(
-            agent_text or "",
-            [
-                DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
-                for tc in response.tool_calls
-            ],
+        requested_calls = [
+            DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
+            for tc in response.tool_calls
+        ]
+        await commands.apply(
+            lambda target: target.add_assistant_tool_call_message(
+                agent_text or "", requested_calls
+            ),
+            name="assistant_tool_call_message",
         )
 
         # Обрабатываем tool_calls
         tool_result = await self._tool_processor.process_batch(
-            session, session_id, response.tool_calls, sink, mcp_manager, started_epoch, persist
+            commands, session_id, response.tool_calls, sink, mcp_manager, started_epoch
         )
 
         # Permission pause
@@ -456,14 +458,17 @@ class AgentLoop:
 
     async def _emit_agent_text(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         agent_text: str,
         sink: SessionUpdateSink,
         streamed: bool,
     ) -> None:
         """Добавить текст ассистента в историю, эмитировать (если не стримился), в replay."""
-        self._state_manager.add_assistant_message(session, agent_text)
+        await commands.apply(
+            lambda session: self._state_manager.add_assistant_message(session, agent_text),
+            name="assistant_message",
+        )
         # При стриминге текст уже доставлен дельтами через on_delta —
         # не эмитим полный текст повторно (иначе дубль). Но если дельт
         # не было (провайдер без стрима) — эмитим полный текст.
@@ -471,11 +476,10 @@ class AgentLoop:
             await sink.emit_agent_message(session_id, agent_text)
         # Сохранить в events_history для replay при session/load
         # (полный текст одним chunk'ом — авторитетно для реплея).
-        sink.save_agent_message_chunk(session, {"type": "text", "text": agent_text})
+        await sink.save_agent_message_chunk({"type": "text", "text": agent_text})
 
     async def _emit_response_plan(
         self,
-        session: Session,
         session_id: str,
         response: Any,
         sink: SessionUpdateSink,
@@ -489,15 +493,14 @@ class AgentLoop:
             return
         # План пишет sink.emit_and_save_plan — единый писатель плана в turn-пути.
         plan_notification = self._plan_builder.build_plan_notification(session_id, validated_plan)
-        await sink.emit_and_save_plan(plan_notification, session=session, entries=validated_plan)
+        await sink.emit_and_save_plan(plan_notification, entries=validated_plan)
 
     async def resume_after_permission(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> AgentLoopResult:
         """Продолжить цикл после permission approval.
 
@@ -507,7 +510,7 @@ class AgentLoop:
         3. Продолжить цикл через run()
 
         Args:
-            session: Состояние сессии.
+            commands: Шов команд над сессией — единственный путь записи состояния.
             session_id: ID сессии для логирования.
             tool_call_id: ID tool call для выполнения.
             mcp_manager: MCP manager для tool execution.
@@ -515,9 +518,10 @@ class AgentLoop:
         Returns:
             AgentLoopResult с результатом выполнения.
         """
+        session = commands.session
         notifications: list[ACPMessage] = []
         sink = SessionUpdateSink(
-            self._history_writer, self._notification_callback, notifications
+            self._history_writer, self._notification_callback, notifications, commands
         )
 
         # Поколение на входе в resume: отмена может прийти, пока pending tool
@@ -531,7 +535,7 @@ class AgentLoop:
 
         # Выполнить pending tool
         tool_result = await self._tool_processor.execute_pending(
-            session, session_id, tool_call_id, mcp_manager
+            commands, session_id, tool_call_id, mcp_manager
         )
 
         if tool_result is None:
@@ -564,7 +568,6 @@ class AgentLoop:
         )
         await sink.emit_and_save_tool_update(
             notification,
-            session=session,
             tool_call_id=tool_call_id,
             status=status,
             content=tool_result.content,
@@ -593,15 +596,11 @@ class AgentLoop:
                 stop_reason=StopReason.CANCELLED,
             )
 
-        # Результат приостановленного вызова — на диск сразу: до этого он жил только
-        # в копии turn'а (ADR-007).
-        await self._persist_step(persist, session_id, "pending_tool_executed")
-
         # Доработать остаток батча, отложенный паузой на permission (P2-40).
         # Только после него имеет смысл идти к модели: иначе она увидит ответы не на
         # все свои вызовы и запросит их снова.
         batch_result = await self._process_deferred_batch(
-            session, session_id, sink, mcp_manager, started_epoch, persist
+            commands, session_id, sink, mcp_manager, started_epoch
         )
         if batch_result is not None:
             return AgentLoopResult(
@@ -613,12 +612,11 @@ class AgentLoop:
 
         # Продолжить цикл (tool_results уже в session.history)
         loop_result = await self.run(
-            session=session,
+            commands=commands,
             session_id=session_id,
             initial_prompt=None,
             mcp_manager=mcp_manager,
             started_epoch=started_epoch,
-            persist=persist,
         )
 
         # Объединяем notifications
@@ -633,12 +631,11 @@ class AgentLoop:
 
     async def _process_deferred_batch(
         self,
-        session: Session,
+        commands: SessionCommands,
         session_id: str,
         sink: SessionUpdateSink,
         mcp_manager: MCPManager | None,
         started_epoch: int,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> ToolProcessingResult | None:
         """Обработать остаток батча, отложенный предыдущей паузой на permission.
 
@@ -646,12 +643,20 @@ class AgentLoop:
         останавливается до следующего resume), и `None`, если хвост исчерпан и можно
         идти к модели.
         """
+        session = commands.session
         if session.active_turn is None or not session.active_turn.pending_batch:
             return None
 
         deferred = [_DeferredToolCall(call) for call in session.active_turn.pending_batch]
-        # Снимаем хвост до обработки: очередная пауза положит сюда свой остаток.
-        session.active_turn.pending_batch = []
+
+        # Снимаем хвост командой, до обработки: очередная пауза положит сюда свой
+        # остаток, а несохранённое снятие вернуло бы батч к повторному исполнению
+        # на следующем resume.
+        def _take_batch(target: Session) -> None:
+            if target.active_turn is not None:
+                target.active_turn.pending_batch = []
+
+        await commands.require_active_turn(_take_batch, name="deferred_batch_taken")
         logger.info(
             "resuming_deferred_tool_calls",
             session_id=session_id,
@@ -659,20 +664,11 @@ class AgentLoop:
         )
 
         result = await self._tool_processor.process_batch(
-            session, session_id, deferred, sink, mcp_manager, started_epoch, persist
+            commands, session_id, deferred, sink, mcp_manager, started_epoch
         )
         if result.pending_permission:
             return result
         return None
-
-    async def _persist_step(
-        self,
-        persist: Callable[[], Awaitable[None]] | None,
-        session_id: str,
-        step: str,
-    ) -> None:
-        """Сохранить состояние шага (делегирует процессору — правило одно)."""
-        await self._tool_processor._persist_step(persist, session_id, step)
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""

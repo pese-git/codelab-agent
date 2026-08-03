@@ -9,7 +9,7 @@ import pytest
 from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 class TestAgentMessageChunkPreservation:
@@ -51,8 +51,9 @@ class TestAgentMessageChunkPreservation:
         )
 
         # Act
+        commands = make_commands(session)
         result = await loop.run(
-            session=session,
+            commands=commands,
             session_id="test_session",
             initial_prompt="Hello",
         )
@@ -127,8 +128,9 @@ class TestAgentMessageChunkPreservation:
         )
 
         # Act
+        commands = make_commands(session)
         await loop.run(
-            session=session,
+            commands=commands,
             session_id="test_session",
             initial_prompt="Hello",
         )

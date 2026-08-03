@@ -14,6 +14,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor 
     ToolCallProcessor,
 )
 from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 def _make_processor(limit: int = 3) -> ToolCallProcessor:
@@ -47,10 +48,11 @@ class TestProcessorLoopGuardIntegration:
         )
 
         sink = AsyncMock()
-        session = MagicMock()
-        session.session_id = "s"
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
 
-        result = await p._reject_looping_tool(session, "s", "call_1", name, args, "llm_1", sink)
+        result = await p._reject_looping_tool(
+            make_commands(session), "s", "call_1", name, args, "llm_1", sink
+        )
 
         assert result.success is False
         assert result.error is not None

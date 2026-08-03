@@ -13,9 +13,9 @@ import structlog
 
 from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
-from ...storage import SessionStorage
+from ...storage import SessionRepository
 from ..handlers.prompt_orchestrator import PromptOrchestrator
-from ..session_merge import save_domain_session_merging
+from ..session_commands import SessionCommands
 from ..session_runtime import SessionRuntimeRegistry
 from ..state import ProtocolOutcome
 
@@ -40,7 +40,7 @@ class SessionPromptCommandHandler:
 
     def __init__(
         self,
-        storage: SessionStorage,
+        repository: SessionRepository,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
         runtime_registry: SessionRuntimeRegistry,
         mcp_provider: Callable[[Any], Awaitable[Any]],
@@ -49,13 +49,13 @@ class SessionPromptCommandHandler:
         """Инициализирует обработчик.
 
         Args:
-            storage: Хранилище сессий.
+            repository: Доменный порт хранилища сессий.
             orchestrator_provider: Функция для получения PromptOrchestrator.
             runtime_registry: Реестр runtime-состояний сессий.
             mcp_provider: Функция для получения MCP manager для сессии.
             notification_callback: Callback для отправки notifications.
         """
-        self._storage = storage
+        self._repository = repository
         self._orchestrator_provider = orchestrator_provider
         self._runtime_registry = runtime_registry
         self._mcp_provider = mcp_provider
@@ -83,8 +83,8 @@ class SessionPromptCommandHandler:
                 )
             )
 
-        session = await self._storage.load_session(session_id)
-        if session is None:
+        domain_session = await self._repository.load_session(session_id)
+        if domain_session is None:
             return ProtocolOutcome(
                 response=ACPMessage.error_response(
                     message.id,
@@ -111,17 +111,15 @@ class SessionPromptCommandHandler:
         if content_error is not None:
             return ProtocolOutcome(response=content_error)
 
-        # Получить MCP manager (читает wire-конфигурацию сессии)
-        mcp_manager = await self._mcp_provider(session)
+        # MCP-менеджер читает wire-конфигурацию сессии: проекция строится на месте
+        # и никуда не сохраняется — носитель состояния turn'а остаётся доменным.
+        mcp_manager = await self._mcp_provider(SessionMapper.to_protocol(domain_session))
 
-        # Носитель состояния turn'а — доменный агрегат (ADR-006, фаза D шаг 3):
-        # wire-документ собирается обратно только на границе записи. Перевод
-        # хендлера на репозиторий — следующий шаг, поэтому загрузка и запись пока
-        # идут через storage.
-        domain_session = SessionMapper.to_domain(session)
+        commands = SessionCommands(self._repository, domain_session)
 
-        # Очищаем stale active_turn
-        domain_session.clear_active_turn()
+        # Stale active_turn снимается командой: это изменение состояния, и оно
+        # обязано быть на диске до того, как turn начнёт писать своё.
+        await commands.apply(lambda s: s.clear_active_turn(), name="clear_stale_active_turn")
 
         # Получить MCP prompt handlers из runtime registry
         runtime = await self._runtime_registry.get(session_id)
@@ -137,33 +135,11 @@ class SessionPromptCommandHandler:
             bus = await self._runtime_registry.get_notification_bus(session_id)
             notification_callback = bus.publish
 
-        outcome = await orchestrator.handle_prompt(
+        return await orchestrator.handle_prompt(
             request_id=message.id,
             params=params,
-            session=domain_session,
-            storage=self._storage,
+            commands=commands,
             mcp_manager=mcp_manager,
             mcp_prompt_handlers=mcp_prompt_handlers,
             notification_callback=notification_callback,
         )
-
-        # Сохраняем сессию
-        try:
-            # Копия turn'а живёт весь turn, поэтому к финальной записи она может
-            # устареть: отмена или ответ на разрешение успели сохранить своё.
-            # Слияние вместо отклонения — иначе результаты turn'а терялись бы
-            # (ADR-007, воспроизведено на коде).
-            await save_domain_session_merging(self._storage, domain_session)
-            logger.debug(
-                "session_saved_after_prompt",
-                session_id=session_id,
-                active_turn_exists=domain_session.active_turn is not None,
-            )
-        except Exception as e:
-            logger.error(
-                "failed_to_save_session_after_prompt",
-                session_id=session_id,
-                error=str(e),
-            )
-
-        return outcome

@@ -34,7 +34,7 @@ from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.tools.registry import SimpleToolRegistry
-from tests.server._domain_sessions import make_domain_session, wire_history
+from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -225,8 +225,7 @@ class TestPromptOrchestratorHandlePrompt:
         await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         assert session.active_turn is None  # Должен быть очищен после завершения
@@ -243,8 +242,7 @@ class TestPromptOrchestratorHandlePrompt:
         await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         # Проверяем что история обновлена
@@ -263,8 +261,7 @@ class TestPromptOrchestratorHandlePrompt:
         outcome = await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         assert outcome.notifications is not None
@@ -286,8 +283,7 @@ class TestPromptOrchestratorHandlePrompt:
         outcome = await orchestrator.handle_prompt(
             "req_1",
             {"prompt": []},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         # Должны быть notifications даже при пустом промпте
@@ -306,8 +302,7 @@ class TestPromptOrchestratorHandlePrompt:
         outcome = await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         # Должны быть notifications с ошибкой
@@ -327,8 +322,7 @@ class TestPromptOrchestratorHandlePrompt:
         await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         assert session.title == "My test prompt"
@@ -453,8 +447,7 @@ class TestPromptOrchestratorComponentIntegration:
         await orchestrator.handle_prompt(
             "req_1",
             {"prompt": prompt},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         # Проверяем что StateManager обновил состояние
@@ -526,8 +519,7 @@ class TestPromptOrchestratorToolCallFlow:
         outcome = await orchestrator.handle_prompt(
             "req_1",
             {"prompt": [{"type": "text", "text": "run tool"}]},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         tool_call_notifications = [
@@ -599,8 +591,7 @@ class TestPromptOrchestratorToolCallFlow:
         outcome = await orchestrator.handle_prompt(
             "req_2",
             {"prompt": [{"type": "text", "text": "read file"}]},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         permission_requests = [
@@ -666,8 +657,7 @@ class TestPromptOrchestratorToolCallFlow:
         outcome = await orchestrator.handle_prompt(
             "req_4",
             {"prompt": [{"type": "text", "text": "read file"}]},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         permission_requests = [
@@ -709,8 +699,7 @@ class TestPromptOrchestratorToolCallFlow:
         outcome = await orchestrator.handle_prompt(
             "req_3",
             {"prompt": [{"type": "text", "text": "read file"}]},
-            session,
-            sessions,
+            make_commands(session),
         )
 
         statuses: list[str | None] = []

@@ -197,7 +197,7 @@ class RequestProvider(Provider):
         )
         registry.register(
             SessionPromptCommandHandler(
-                storage=storage,
+                repository=repository,
                 orchestrator_provider=_make_async_provider(prompt_orchestrator),
                 runtime_registry=runtime_registry,
                 mcp_provider=mcp_session_manager.ensure_initialized,
@@ -250,6 +250,7 @@ class RequestProvider(Provider):
     def get_background_executor(
         self,
         storage: SessionStorage,
+        repository: SessionRepository,
         prompt_orchestrator: PromptOrchestrator,
         mcp_session_manager: MCPSessionManager,
         runtime_registry: SessionRuntimeRegistry,
@@ -257,6 +258,7 @@ class RequestProvider(Provider):
         """Создаёт BackgroundExecutor для текущего соединения."""
         return BackgroundExecutor(
             storage=storage,
+            repository=repository,
             orchestrator_provider=_make_async_provider(prompt_orchestrator),
             mcp_provider=mcp_session_manager.ensure_initialized,
             runtime_registry=runtime_registry,

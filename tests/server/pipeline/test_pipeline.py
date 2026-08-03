@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline import (
     PromptContext,
     PromptPipeline,
@@ -27,21 +28,20 @@ from codelab.server.protocol.handlers.pipeline.stages import (
     TurnLifecycleStage,
     ValidationStage,
 )
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    SessionState,
-)
+from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.shared.messages import ACPMessage
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 class TestPromptContext:
     """Тесты для PromptContext."""
 
     def test_create_context_with_defaults(self):
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -56,10 +56,11 @@ class TestPromptContext:
         assert context.meta == {}
 
     def test_context_meta_stores_arbitrary_data(self):
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -104,10 +105,11 @@ class TestPromptPipeline:
         stage2.process = AsyncMock(side_effect=lambda ctx: ctx)
 
         pipeline = PromptPipeline(stages=[stage1, stage2])
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -134,10 +136,11 @@ class TestPromptPipeline:
         stage2.process = AsyncMock(side_effect=lambda ctx: ctx)
 
         pipeline = PromptPipeline(stages=[stage1, stage2])
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -167,10 +170,11 @@ class TestPromptPipeline:
         stage2.process = AsyncMock(side_effect=lambda ctx: ctx)
 
         pipeline = PromptPipeline(stages=[stage1, stage2])
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -189,10 +193,11 @@ class TestPromptPipeline:
         stage1.process = AsyncMock(side_effect=RuntimeError("Stage error"))
 
         pipeline = PromptPipeline(stages=[stage1])
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -228,10 +233,11 @@ class TestPromptPipeline:
         stage2.process = AsyncMock(side_effect=add_notif2)
 
         pipeline = PromptPipeline(stages=[stage1, stage2])
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -251,10 +257,11 @@ class TestValidationStage:
     async def test_validation_passes_for_valid_context(self):
         stage = ValidationStage()
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -269,8 +276,8 @@ class TestValidationStage:
     async def test_validation_stops_on_active_turn(self):
         stage = ValidationStage()
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
-        session.active_turn = ActiveTurnState(
+        session = make_domain_session(session_id="s1", cwd="/")
+        session.active_turn = TurnState(
             prompt_request_id="req-0",
             session_id="s1",
         )
@@ -278,6 +285,7 @@ class TestValidationStage:
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -294,10 +302,11 @@ class TestValidationStage:
     async def test_validation_stops_on_empty_prompt(self):
         stage = ValidationStage()
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="   ",
@@ -323,10 +332,11 @@ class TestSlashCommandStage:
 
         stage = SlashCommandStage(router)
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="/help",
@@ -342,10 +352,11 @@ class TestSlashCommandStage:
         router = MagicMock()
         stage = SlashCommandStage(router)
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello world",
@@ -363,10 +374,11 @@ class TestSlashCommandStage:
 
         stage = SlashCommandStage(router)
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="/unknown",
@@ -387,10 +399,11 @@ class TestPlanBuildingStage:
 
         stage = PlanBuildingStage(PlanBuilder())
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="do something",
@@ -410,15 +423,16 @@ class TestTurnLifecycleStage:
     @pytest.mark.asyncio
     async def test_open_turn_creates_active_turn(self):
         turn_manager = MagicMock()
-        active_turn = ActiveTurnState(prompt_request_id="req-1", session_id="s1")
+        active_turn = TurnState(prompt_request_id="req-1", session_id="s1")
         turn_manager.create_active_turn = MagicMock(return_value=active_turn)
 
         stage = TurnLifecycleStage(turn_manager, action="open")
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
+        session = make_domain_session(session_id="s1", cwd="/")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -431,17 +445,22 @@ class TestTurnLifecycleStage:
 
     @pytest.mark.asyncio
     async def test_close_turn_finalizes_and_clears(self):
-        turn_manager = MagicMock()
-        turn_manager.finalize_turn = MagicMock()
-        turn_manager.clear_active_turn = MagicMock()
+        """Закрытие turn'а применяется к сессии, загруженной командой.
+
+        Сверяем состояние, а не объект: команда применяется к агрегату, который
+        загружен в момент применения, поэтому идентичность рабочей копии здесь
+        ничего не доказывает (ADR-006, фаза D шаг 4).
+        """
+        turn_manager = TurnLifecycleManager()
 
         stage = TurnLifecycleStage(turn_manager, action="close")
 
-        session = SessionState(session_id="s1", cwd="/", mcp_servers=[])
-        session.active_turn = ActiveTurnState(prompt_request_id="req-1", session_id="s1")
+        session = make_domain_session(session_id="s1", cwd="/")
+        session.active_turn = TurnState(prompt_request_id="req-1", session_id="s1")
         context = PromptContext(
             session_id="s1",
             session=session,
+            commands=make_commands(session),
             request_id="req-1",
             params={},
             raw_text="hello",
@@ -450,5 +469,7 @@ class TestTurnLifecycleStage:
 
         await stage.process(context)
 
-        turn_manager.finalize_turn.assert_called_once_with(session, "end_turn")
-        turn_manager.clear_active_turn.assert_called_once_with(session)
+        assert session.active_turn is None
+        # Ревизия рабочей копии — та, что состоялась на диске: команда переносит
+        # штампы записи обратно в неё.
+        assert session.revision == 1

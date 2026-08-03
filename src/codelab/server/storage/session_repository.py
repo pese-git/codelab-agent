@@ -116,11 +116,14 @@ class SessionRepository:
         """Персистит доменный агрегат."""
         state = SessionMapper.to_protocol(session)
         await self._backend.save_session(state)
-        # Backend штампует метку сохранения на wire-DTO. Сегодня он делает это
-        # in-place на объекте вызывающего, поэтому тот видит свежую метку сразу
-        # после save (её кладут в session_info-нотификации). Возвращаем штамп в
-        # домен, чтобы switch остался behavior-neutral.
+        # Backend штампует метку сохранения и ревизию на wire-DTO. Сегодня он
+        # делает это in-place на объекте вызывающего, поэтому тот видит свежую
+        # метку сразу после save (её кладут в session_info-нотификации). Для
+        # агрегата этот объект — одноразовая проекция, и без возврата штампов он
+        # остаётся на ревизии загрузки: следующая запись упирается в CAS. Ровно
+        # этот класс дефектов дал зависший turn на шаге 3 (ADR-006, фаза D).
         session.updated_at = state.updated_at
+        session.revision = state.revision
 
     async def delete_session(self, session_id: str) -> bool:
         """Удаляет сессию."""

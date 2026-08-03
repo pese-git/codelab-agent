@@ -19,20 +19,21 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codelab.server.mapping.session_mapper import SessionMapper
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
-def _session_in_turn() -> SessionState:
-    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def _session_in_turn() -> DomainSession:
+    session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
     session.set_config_value("mode", "standard")
-    session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+    session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
     return session
 
 
@@ -153,15 +154,16 @@ class TestCancelledTurnIsNotResumed:
             strategy_dispatcher=MagicMock(),
         )
         session = _session_in_turn()
-        session.tool_calls["call_001"] = ToolCallState(
-            tool_call_id="call_001", title="fs/read_text_file", kind="read", status="pending"
+        session.tool_calls.create(
+            tool_name="fs/read_text_file", arguments={}, title="fs/read_text_file", kind="read"
         )
         # Отмена сохранила сессию с очищенным active_turn; следующая загрузка
         # (в BackgroundExecutor) видит именно это состояние
         session.active_turn = None
 
+        commands = make_commands(session)
         result = await stage.execute_pending_tool(
-            session=session,
+            commands=commands,
             session_id="s",
             tool_call_id="call_001",
             notification_callback=AsyncMock(),
@@ -177,7 +179,7 @@ class TestHandleCancelRegistersCancellation:
     def test_cancel_increments_generation(self) -> None:
         """Проверка идёт через настоящий `handle_cancel`, а не его пересказ."""
         registry = TurnCancellationRegistry()
-        session = SessionMapper.to_domain(_session_in_turn())
+        session = _session_in_turn()
         started = registry.generation("s")
 
         _orchestrator(registry).handle_cancel(
@@ -240,8 +242,9 @@ class TestLoopStopsWhenCancelArrivesMidTurn:
             turn_cancellation=registry,
         )
 
-        result = await loop.run(session, "s", "Прочитай файл")
+        commands = make_commands(session)
+        result = await loop.run(commands, "s", "Прочитай файл")
 
         assert result.stop_reason == StopReason.CANCELLED
         tool_call_handler.create_tool_call.assert_not_called()
-        assert session.tool_calls == {}
+        assert session.tool_calls.get_all() == []

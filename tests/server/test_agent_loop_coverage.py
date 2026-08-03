@@ -11,11 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codelab.server.agent.core.agent_base import AgentResponse
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoop,
     StopReason,
     ToolResult,
 )
+from codelab.server.tools.base import ToolExecutionResult
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 # Tool-processing логи (пропуск tool без имени, невалидный content) эмитит
 # ToolCallProcessor — патчим его logger.
@@ -32,17 +35,13 @@ def mock_strategy() -> MagicMock:
 
 
 @pytest.fixture
-def mock_session() -> MagicMock:
-    """Mock SessionState."""
-    session = MagicMock()
-    session.session_id = "test_session"
-    session.config_values = {}
-    session.history = []
-    session.tool_calls = {}
-    session.active_turn = None
-    session.permission_policy = {}
-    session.latest_plan = None
-    return session
+def session():
+    """Настоящий доменный агрегат сессии.
+
+    Мок не годится: turn пишет состояние командами, а команда загружает сессию
+    из хранилища в момент применения (ADR-006, фаза D шаг 4).
+    """
+    return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
 
 
 @pytest.fixture
@@ -70,7 +69,7 @@ class TestAgentLoopCancellation:
     async def test_run_cancelled_after_llm_call(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """Отмена после успешного LLM-вызова возвращает CANCELLED."""
@@ -79,15 +78,15 @@ class TestAgentLoopCancellation:
         response.tool_calls = []
         mock_strategy.execute.return_value = response
 
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = False
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=False)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         cancel_calls = [False, True]
         loop._is_cancel_requested = MagicMock(side_effect=cancel_calls.copy())
 
-        result = await loop.run(mock_session, "test_session", "hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "hello")
 
         assert result.stop_reason == StopReason.CANCELLED
 
@@ -99,7 +98,7 @@ class TestAgentLoopResume:
     async def test_resume_reinitializes_strategy_and_logs(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -107,11 +106,9 @@ class TestAgentLoopResume:
         mock_strategy._current_strategy_name = None
         mock_strategy.select_strategy = MagicMock()
 
-        tool_state = MagicMock()
-        tool_state.tool_name = "test_tool"
-        tool_state.tool_arguments = {}
-        tool_state.tool_call_id_from_llm = "llm_1"
-        mock_session.tool_calls = {"tc_1": tool_state}
+        stored = session.tool_calls.create(
+            tool_name="test_tool", arguments={}, tool_call_id_from_llm="llm_1"
+        )
 
         tool_result = MagicMock()
         tool_result.success = True
@@ -135,7 +132,8 @@ class TestAgentLoopResume:
             "codelab.server.protocol.handlers.pipeline.stages.agent_loop.llm_caller.logger"
         )
         with patch(llm_caller_logger) as mock_logger:
-            result = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
+            commands = make_commands(session)
+            result = await loop.resume_after_permission(commands, "test_session", stored.id)
 
         assert result.stop_reason == StopReason.END_TURN
         mock_strategy.select_strategy.assert_called_once()
@@ -152,7 +150,7 @@ class TestAgentLoopToolProcessing:
     async def test_tool_call_without_name_is_skipped(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """Tool call без имени пропускается с предупреждением."""
@@ -175,7 +173,8 @@ class TestAgentLoopToolProcessing:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(_LOGGER_PATH) as mock_logger:
-            result = await loop.run(mock_session, "test_session", "hello")
+            commands = make_commands(session)
+            result = await loop.run(commands, "test_session", "hello")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_logger.warning.assert_called_once()
@@ -186,7 +185,7 @@ class TestAgentLoopToolProcessing:
     async def test_unknown_tool_rejected_before_permission(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """Галлюцинированный tool → failed без permission и без execute_tool (#21)."""
@@ -218,7 +217,8 @@ class TestAgentLoopToolProcessing:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(_LOGGER_PATH) as mock_logger:
-            result = await loop.run(mock_session, "test_session", "hello")
+            commands = make_commands(session)
+            result = await loop.run(commands, "test_session", "hello")
 
         assert result.stop_reason == StopReason.END_TURN
         # Не дошёл до permission и до реального исполнения.
@@ -237,7 +237,7 @@ class TestAgentLoopToolProcessing:
     async def test_tool_result_validation_failure_is_logged(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -289,7 +289,8 @@ class TestAgentLoopToolProcessing:
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         with patch(_LOGGER_PATH) as mock_logger:
-            result = await loop.run(mock_session, "test_session", "hello")
+            commands = make_commands(session)
+            result = await loop.run(commands, "test_session", "hello")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_logger.warning.assert_called_once()
@@ -303,17 +304,15 @@ class TestAgentLoopExecutePendingTool:
     async def test_execute_pending_tool_with_missing_name_returns_none(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """Если tool_name отсутствует в состоянии, возвращается None."""
-        state = MagicMock()
-        state.tool_name = None
-        mock_session.tool_calls = {"tc_1": state}
+        stored = session.tool_calls.create(tool_name="", arguments={})
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop._tool_processor.execute_pending(
-            mock_session, "test_session", "tc_1", None
+            make_commands(session), "test_session", stored.id, None
         )
 
         assert result is None
@@ -322,15 +321,14 @@ class TestAgentLoopExecutePendingTool:
     async def test_execute_pending_mcp_tool_without_manager_fails(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """MCP tool без mcp_manager возвращает ошибку, не выбрасывая исключение."""
-        state = MagicMock()
-        state.tool_name = "mcp_server/tool"
-        state.tool_arguments = {}
-        state.tool_call_id_from_llm = "llm_1"
-        mock_session.tool_calls = {"tc_1": state}
+        stored = session.tool_calls.create(
+            tool_name="mcp_server/tool", arguments={}, tool_call_id_from_llm="llm_1"
+        )
+        commands = make_commands(session)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
@@ -339,7 +337,7 @@ class TestAgentLoopExecutePendingTool:
             return_value=True,
         ):
             result = await loop._tool_processor.execute_pending(
-                mock_session, "test_session", "tc_1", None
+                commands, "test_session", stored.id, None
             )
 
         assert isinstance(result, ToolResult)
@@ -350,21 +348,16 @@ class TestAgentLoopExecutePendingTool:
     async def test_execute_pending_tool_failure_result(
         self,
         mock_strategy: MagicMock,
-        mock_session: MagicMock,
+        session: MagicMock,
         mock_dependencies: dict[str, MagicMock],
     ) -> None:
         """Неуспешный результат tool корректно оформляется как ToolResult."""
-        state = MagicMock()
-        state.tool_name = "test_tool"
-        state.tool_arguments = {}
-        state.tool_call_id_from_llm = "llm_1"
-        mock_session.tool_calls = {"tc_1": state}
-
-        tool_result = MagicMock()
-        tool_result.success = False
-        tool_result.output = None
-        tool_result.error = "execution failed"
-        mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=tool_result)
+        stored = session.tool_calls.create(
+            tool_name="test_tool", arguments={}, tool_call_id_from_llm="llm_1"
+        )
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(success=False, error="execution failed")
+        )
 
         extracted = MagicMock()
         extracted.content_items = []
@@ -372,7 +365,7 @@ class TestAgentLoopExecutePendingTool:
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
         result = await loop._tool_processor.execute_pending(
-            mock_session, "test_session", "tc_1", None
+            make_commands(session), "test_session", stored.id, None
         )
 
         assert isinstance(result, ToolResult)

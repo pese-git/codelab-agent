@@ -11,15 +11,15 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
 from codelab.server.protocol.handlers.pipeline.stages.directives import DirectivesStage
 from codelab.server.protocol.state import (
-    ActiveTurnState,
     ClientRuntimeCapabilities,
 )
 from codelab.server.tools.registry import SimpleToolRegistry
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -57,6 +57,7 @@ def _make_context(
     return PromptContext(
         session_id="sess_1",
         session=session,
+        commands=make_commands(session),
         request_id="req_1",
         params=params or {},
         raw_text="",
@@ -70,7 +71,7 @@ class TestDirectivesStagePlanMode:
     async def test_plan_mode_rejects_execute(self, stage: DirectivesStage) -> None:
         """В plan mode execute инструмент должен быть отклонён."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -97,7 +98,7 @@ class TestDirectivesStagePlanMode:
     async def test_plan_mode_rejects_edit(self, stage: DirectivesStage) -> None:
         """В plan mode edit инструмент должен быть отклонён."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -117,7 +118,7 @@ class TestDirectivesStagePlanMode:
     async def test_plan_mode_allows_read(self, stage: DirectivesStage) -> None:
         """В plan mode read инструмент должен быть разрешён."""
         session = _make_session(mode="plan")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -147,7 +148,7 @@ class TestDirectivesStageBypassMode:
     async def test_bypass_mode_auto_executes_execute(self, stage: DirectivesStage) -> None:
         """В bypass mode execute инструмент должен выполниться автоматически."""
         session = _make_session(mode="bypass")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -174,7 +175,7 @@ class TestDirectivesStageBypassMode:
     async def test_bypass_mode_auto_executes_edit(self, stage: DirectivesStage) -> None:
         """В bypass mode edit инструмент должен выполниться автоматически."""
         session = _make_session(mode="bypass")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -201,7 +202,7 @@ class TestDirectivesStageStandardMode:
     async def test_standard_mode_requests_permission(self, stage: DirectivesStage) -> None:
         """В standard mode без policy должен запрашиваться permission."""
         session = _make_session(mode="standard")
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -229,7 +230,7 @@ class TestDirectivesStageStandardMode:
         """В standard mode с allow_always policy — auto-execute."""
         session = _make_session(mode="standard")
         session.permissions.policy["execute"] = "allow_always"
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={
@@ -255,7 +256,7 @@ class TestDirectivesStageStandardMode:
         """В standard mode с reject_always policy — cancel."""
         session = _make_session(mode="standard")
         session.permissions.policy["execute"] = "reject_always"
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         context = _make_context(
             session,
             params={

@@ -11,10 +11,9 @@ from ...client_rpc.service import ClientRPCService
 from ...domain.session import Session as DomainSession
 from ...messages import ACPMessage, JsonRpcId
 from ...rpc_holder import ClientRPCServiceHolder
-from ...storage import SessionStorage
 from ...tools.base import ToolRegistry
 from ..content.acp_codec import ACPContentCodec
-from ..session_merge import save_domain_session_merging
+from ..session_commands import SessionCommands
 from ..state import LLMLoopResult, ProtocolOutcome
 from ..turn_cancellation import TurnCancellationRegistry
 from .event_history_writer import EventHistoryWriter
@@ -157,8 +156,7 @@ class PromptOrchestrator:
         self,
         request_id: JsonRpcId | None,
         params: dict[str, Any],
-        session: DomainSession,
-        storage: SessionStorage,
+        commands: SessionCommands,
         mcp_manager: MCPManager | None = None,
         mcp_prompt_handlers: dict[str, Any] | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
@@ -176,8 +174,7 @@ class PromptOrchestrator:
         Args:
             request_id: ID входящего request
             params: Параметры (должны содержать prompt array)
-            session: Доменный агрегат сессии — носитель состояния turn'а
-            storage: Хранилище сессий
+            commands: Шов команд над сессией — единственный путь записи состояния
             mcp_manager: MCP manager для сессии (из runtime registry)
             mcp_prompt_handlers: Обработчики MCP prompts (из runtime registry)
             notification_callback: Опциональный callback для немедленной отправки notifications.
@@ -188,31 +185,33 @@ class PromptOrchestrator:
         # Лениво регистрируем tool executors если service стал доступен
         self._ensure_tools_registered()
 
+        session = commands.session
         session_id = str(session.id)
         prompt = params.get("prompt", [])
 
-        # Подготовка состояния сессии до запуска pipeline
+        # Приём промпта — одна команда: заголовок, запись пользователя и её
+        # событие реплея описывают одно изменение состояния, и разрывать их по
+        # транзакциям значило бы допустить состояние «сообщение есть, события нет».
         text_preview = _extract_text_preview(prompt)
         prompt_text = _extract_full_text(prompt)
-        self.state_manager.update_session_title(session, text_preview)
-        self.state_manager.add_user_message(session, prompt)
-        for block in prompt:
-            self._history_writer.save_user_message_chunk(session, block)
-        self.state_manager.update_session_timestamp(session)
+
+        def _accept_prompt(target: DomainSession) -> None:
+            self.state_manager.update_session_title(target, text_preview)
+            self.state_manager.add_user_message(target, prompt)
+            for block in prompt:
+                self._history_writer.save_user_message_chunk(target, block)
+            self.state_manager.update_session_timestamp(target)
+
+        await commands.apply(_accept_prompt, name="prompt_received")
 
         context = PromptContext(
             session_id=session_id,
             session=session,
+            commands=commands,
             request_id=request_id,
             params=params,
             raw_text=prompt_text,
             content_parts=ACPContentCodec().decode(prompt) if isinstance(prompt, list) else [],
-            # Промежуточные записи turn'а (ADR-007): без них копия turn'а
-            # расходилась с диском на десятки секунд. Wire-документ собирается
-            # маппером здесь — на границе записи, а не внутри turn'а. Слияние —
-            # развязка на случай, если отмена или ответ на разрешение успели
-            # записать своё.
-            persist=lambda: save_domain_session_merging(storage, session),
         )
         context.meta["mcp_manager"] = mcp_manager
         context.meta["mcp_prompt_handlers"] = mcp_prompt_handlers or {}
@@ -224,8 +223,12 @@ class PromptOrchestrator:
         # Pipeline-ошибка: закрыть turn если он был открыт
         if result.error_response is not None:
             if session.active_turn is not None:
-                self.turn_lifecycle_manager.finalize_turn(session, "end_turn")
-                self.turn_lifecycle_manager.clear_active_turn(session)
+
+                def _close_turn(target: DomainSession) -> None:
+                    self.turn_lifecycle_manager.finalize_turn(target, "end_turn")
+                    self.turn_lifecycle_manager.clear_active_turn(target)
+
+                await commands.require_active_turn(_close_turn, name="turn_closed_on_error")
             # Не отправляем notifications при ошибке валидации
             return ProtocolOutcome(response=result.error_response, notifications=[])
 
@@ -249,10 +252,13 @@ class PromptOrchestrator:
                 },
             )
         )
-        self._history_writer.save_session_info_update(
-            session,
-            title=summary.get("title"),
-            updated_at=summary.get("updated_at"),
+        await commands.apply(
+            lambda target: self._history_writer.save_session_info_update(
+                target,
+                title=summary.get("title"),
+                updated_at=summary.get("updated_at"),
+            ),
+            name="session_info_update",
         )
 
         # Turn отложен — ожидает разрешения пользователя
@@ -369,21 +375,19 @@ class PromptOrchestrator:
 
     async def execute_pending_tool(
         self,
-        session: DomainSession,
+        commands: SessionCommands,
         session_id: str,
         tool_call_id: str,
         mcp_manager: MCPManager | None = None,
         notification_callback: Callable[[ACPMessage], Awaitable[None]] | None = None,
-        persist: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMLoopResult:
         """Выполняет pending tool после permission approval и продолжает LLM loop."""
         return await self._llm_loop_stage.execute_pending_tool(
-            session=session,
+            commands=commands,
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,
             notification_callback=notification_callback,
-            persist=persist,
         )
 
 

@@ -11,6 +11,7 @@ import pytest
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.updates import SessionUpdateSink
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -53,7 +54,9 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Измерение latency для 100 notifications
         for i in range(100):
@@ -109,7 +112,9 @@ class TestNotificationPerformanceBenchmark:
             # Имитация работы transport
             pass
 
-        sink = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         # Измерение latency для 100 terminal embedding notifications
         for i in range(100):
@@ -167,7 +172,9 @@ class TestNotificationPerformanceBenchmark:
     async def test_callback_overhead_benchmark(self, mock_strategy, mock_dependencies):
         """Измерить overhead от использования callback."""
         # Измерение без callback
-        sink_without_callback = SessionUpdateSink(MagicMock(), None, [])
+        sink_without_callback = SessionUpdateSink(
+            MagicMock(), None, [], make_commands(make_domain_session())
+        )
 
         notification = ACPMessage.notification(
             "session/update",
@@ -192,7 +199,9 @@ class TestNotificationPerformanceBenchmark:
         async def mock_callback(notification: ACPMessage) -> None:
             pass
 
-        sink_with_callback = SessionUpdateSink(MagicMock(), mock_callback, [])
+        sink_with_callback = SessionUpdateSink(
+            MagicMock(), mock_callback, [], make_commands(make_domain_session())
+        )
 
         start_time = time.time()
         for _ in range(1000):

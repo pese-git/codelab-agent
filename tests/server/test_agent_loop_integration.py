@@ -25,7 +25,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoo
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.storage.memory import InMemoryStorage
-from tests.server._domain_sessions import make_domain_session, wire_history
+from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def storage():
 
 
 @pytest.fixture
-def mock_session():
+def session():
     """Мок сессии с реальными dataclass полями."""
     return make_domain_session(
         session_id="test_session",
@@ -81,7 +81,7 @@ class TestAgentLoopEventBusPath:
     """Тесты AgentLoop через EventBus путь (StrategyDispatcher)."""
 
     @pytest.mark.asyncio
-    async def test_full_cycle_with_tool_calls(self, mock_session):
+    async def test_full_cycle_with_tool_calls(self, session):
         """Полный цикл: LLM → tool_calls → continue → завершение."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -129,7 +129,7 @@ class TestAgentLoopEventBusPath:
         mock_extracted.content_items = []
         mock_content_extractor.extract_from_result.return_value = mock_extracted
 
-        mock_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -152,7 +152,8 @@ class TestAgentLoopEventBusPath:
         )
 
         # Act
-        result = await loop.run(mock_session, "test_session", "Сделай что-нибудь")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Сделай что-нибудь")
 
         # Assert
         assert result.stop_reason == StopReason.END_TURN
@@ -162,14 +163,14 @@ class TestAgentLoopEventBusPath:
         mock_tool_registry.execute_tool.assert_called_once()
 
         # Проверяем что tool result добавлен в историю
-        assert len(wire_history(mock_session)) >= 2  # assistant tool_call + tool result
+        assert len(wire_history(session)) >= 2  # assistant tool_call + tool result
 
 
 class TestAgentLoopPermissionFlow:
     """Тесты permission flow через AgentLoop."""
 
     @pytest.mark.asyncio
-    async def test_permission_pause_and_resume(self, mock_session):
+    async def test_permission_pause_and_resume(self, session):
         """Полный permission flow: pause → approve → resume → continue."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -222,7 +223,7 @@ class TestAgentLoopPermissionFlow:
         mock_content_extractor.extract_from_result.return_value = mock_extracted
 
         # Setup session with active turn
-        mock_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -231,7 +232,7 @@ class TestAgentLoopPermissionFlow:
         )
 
         # Вызов для resume — доменный: носитель turn-пути агрегат (ADR-006)
-        mock_session.tool_calls.calls["tc_1"] = ToolCall(
+        session.tool_calls.calls["tc_1"] = ToolCall(
             id="tc_1",
             tool_name="dangerous_tool",
             arguments={},
@@ -256,14 +257,16 @@ class TestAgentLoopPermissionFlow:
         )
 
         # Act 1: Запуск — должен приостановиться на permission
-        result1 = await loop.run(mock_session, "test_session", "Выполни опасное")
+        commands = make_commands(session)
+        result1 = await loop.run(commands, "test_session", "Выполни опасное")
 
         # Assert 1: Приостановка
         assert result1.pending_permission is True
         assert "tc_1" in result1.pending_tool_calls
 
         # Act 2: Resume после permission approval
-        result2 = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
+        commands = make_commands(session)
+        result2 = await loop.resume_after_permission(commands, "test_session", "tc_1")
 
         # Assert 2: Завершение
         assert result2.stop_reason == StopReason.END_TURN
@@ -276,7 +279,7 @@ class TestAgentLoopCancellation:
     """Тесты cancellation в AgentLoop."""
 
     @pytest.mark.asyncio
-    async def test_cancellation_during_tool_execution(self, mock_session):
+    async def test_cancellation_during_tool_execution(self, session):
         """Отмена во время выполнения tool calls."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -304,7 +307,7 @@ class TestAgentLoopCancellation:
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
 
         # Setup session — отмена запрашивается после первого вызова
-        mock_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
@@ -337,7 +340,8 @@ class TestAgentLoopCancellation:
         loop._is_cancel_requested = cancel_after_tool_processing
 
         # Act
-        result = await loop.run(mock_session, "test_session", "Начни")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Начни")
 
         # Assert
         assert result.stop_reason == StopReason.CANCELLED
@@ -347,7 +351,7 @@ class TestAgentLoopMaxTurnRequests:
     """Тесты ограничения max_turn_requests."""
 
     @pytest.mark.asyncio
-    async def test_max_turn_requests_stops_loop(self, mock_session):
+    async def test_max_turn_requests_stops_loop(self, session):
         """Цикл останавливается при достижении max_turn_requests."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -404,7 +408,8 @@ class TestAgentLoopMaxTurnRequests:
         )
 
         # Act
-        result = await loop.run(mock_session, "test_session", "Бесконечный цикл")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Бесконечный цикл")
 
         # Assert
         assert result.stop_reason == StopReason.MAX_TURN_REQUESTS
@@ -416,7 +421,7 @@ class TestAgentLoopErrorHandling:
     """Тесты обработки ошибок в AgentLoop."""
 
     @pytest.mark.asyncio
-    async def test_llm_error_stops_gracefully(self, mock_session):
+    async def test_llm_error_stops_gracefully(self, session):
         """Ошибка LLM приводит к graceful остановке."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -437,14 +442,15 @@ class TestAgentLoopErrorHandling:
         )
 
         # Act
-        result = await loop.run(mock_session, "test_session", "Test")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Test")
 
         # Assert
         assert result.stop_reason == StopReason.END_TURN
         assert len(result.notifications) == 1  # Error notification
 
     @pytest.mark.asyncio
-    async def test_tool_error_continues_loop(self, mock_session):
+    async def test_tool_error_continues_loop(self, session):
         """Ошибка tool не останавливает цикл — LLM получает ошибку и продолжает."""
         # Arrange
         mock_strategy = AsyncMock(spec=LLMCallStrategy)
@@ -495,7 +501,8 @@ class TestAgentLoopErrorHandling:
         )
 
         # Act
-        result = await loop.run(mock_session, "test_session", "Try failing tool")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Try failing tool")
 
         # Assert
         assert result.stop_reason == StopReason.END_TURN
@@ -503,7 +510,7 @@ class TestAgentLoopErrorHandling:
         # Tool result с ошибой добавлен в историю
         assert any(
             h.get("role") == "tool" and "Tool crashed" in str(h.get("content", ""))
-            for h in wire_history(mock_session)
+            for h in wire_history(session)
         )
 
 
@@ -511,7 +518,7 @@ class TestLLMLoopStageStrategyReuse:
     """Тесты что LLMLoopStage переиспользует стратегию при resume."""
 
     @pytest.mark.asyncio
-    async def test_execute_pending_tool_reuses_strategy_dispatcher(self, mock_session):
+    async def test_execute_pending_tool_reuses_strategy_dispatcher(self, session):
         """execute_pending_tool переиспользует StrategyDispatcher из process()."""
         from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
         from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
@@ -539,12 +546,12 @@ class TestLLMLoopStageStrategyReuse:
         # Живой turn обязателен: после P0-39 `execute_pending_tool` отказывается
         # возобновлять вызов, если turn'а больше нет (его отсутствие = отмена).
         # Предмет теста — переиспользование стратегии, не жизненный цикл turn'а.
-        mock_session.active_turn = TurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1", session_id="test_session"
         )
-        mock_session.tool_calls = {}
+        commands = make_commands(session)
         await stage.execute_pending_tool(
-            session=mock_session,
+            commands=commands,
             session_id="test_session",
             tool_call_id="nonexistent_tc",
             mcp_manager=None,

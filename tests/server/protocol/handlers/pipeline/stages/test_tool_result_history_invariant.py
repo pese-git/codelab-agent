@@ -30,7 +30,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor 
 )
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
-from tests.server._domain_sessions import make_domain_session, wire_history
+from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
 
 
 def _make_processor(
@@ -67,7 +67,13 @@ class TestRejectPathsAnswerTheModel:
         session = _session()
 
         await processor._reject_tool_call(
-            session, "s", "call_1", "terminal/create", "execute", "llm_1", AsyncMock()
+            make_commands(session),
+            "s",
+            "call_1",
+            "terminal/create",
+            "execute",
+            "llm_1",
+            AsyncMock(),
         )
 
         answers = _tool_answers(session)
@@ -82,7 +88,7 @@ class TestRejectPathsAnswerTheModel:
         session = _session()
 
         await processor._reject_unknown_tool(
-            session, "s", "call_1", "hallucinated_tool", "llm_1", AsyncMock()
+            make_commands(session), "s", "call_1", "hallucinated_tool", "llm_1", AsyncMock()
         )
 
         answers = _tool_answers(session)
@@ -102,7 +108,7 @@ class TestRejectPathsAnswerTheModel:
         )
 
         await processor._reject_looping_tool(
-            session, "s", "call_1", name, args, "llm_1", AsyncMock()
+            make_commands(session), "s", "call_1", name, args, "llm_1", AsyncMock()
         )
 
         answers = _tool_answers(session)
@@ -117,7 +123,13 @@ class TestRejectPathsAnswerTheModel:
         session = _session()
 
         await processor._reject_tool_call(
-            session, "s", "call_042", "terminal/create", "execute", "chatcmpl-tool-abc", AsyncMock()
+            make_commands(session),
+            "s",
+            "call_042",
+            "terminal/create",
+            "execute",
+            "chatcmpl-tool-abc",
+            AsyncMock(),
         )
 
         assert _tool_answers(session)[0]["tool_call_id"] == "chatcmpl-tool-abc"
@@ -128,7 +140,7 @@ class TestRejectPathsAnswerTheModel:
         session = _session()
 
         await processor._reject_tool_call(
-            session, "s", "call_042", "terminal/create", "execute", None, AsyncMock()
+            make_commands(session), "s", "call_042", "terminal/create", "execute", None, AsyncMock()
         )
 
         assert _tool_answers(session)[0]["tool_call_id"] == "call_042"
@@ -169,7 +181,9 @@ class TestInterruptedBatchIsFullyAnswered:
 
         processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
 
-        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+        result = await processor.process_batch(
+            make_commands(session), "s", batch, AsyncMock(), None
+        )
 
         assert result.pending_permission is True
         deferred = session.active_turn.pending_batch
@@ -197,7 +211,7 @@ class TestInterruptedBatchIsFullyAnswered:
 
         processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
 
-        await processor.process_batch(session, "s", batch, AsyncMock(), None)
+        await processor.process_batch(make_commands(session), "s", batch, AsyncMock(), None)
 
         answered = {m["tool_call_id"] for m in _tool_answers(session)}
         assert answered == {"llm_1", "llm_2"}
@@ -225,7 +239,9 @@ class TestInterruptedBatchIsFullyAnswered:
 
         processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
 
-        result = await processor.process_batch(session, "s", batch, AsyncMock(), None)
+        result = await processor.process_batch(
+            make_commands(session), "s", batch, AsyncMock(), None
+        )
 
         assert result.pending_permission is True
         # Без `active_turn` (например, turn уже закрыт) хвост сохранить некуда,
@@ -250,7 +266,7 @@ class TestInterruptedBatchIsFullyAnswered:
         registry.cancel("s")
 
         result = await processor.process_batch(
-            session, "s", batch, AsyncMock(), None, started_epoch
+            make_commands(session), "s", batch, AsyncMock(), None, started_epoch
         )
 
         assert result.pending_permission is False
@@ -265,7 +281,7 @@ class TestInterruptedBatchIsFullyAnswered:
         session = _session(mode="standard")
         nameless = _Call("llm_x", name="")
 
-        await processor.process_batch(session, "s", [nameless], AsyncMock(), None)
+        await processor.process_batch(make_commands(session), "s", [nameless], AsyncMock(), None)
 
         answers = _tool_answers(session)
         assert len(answers) == 1
@@ -278,6 +294,8 @@ class TestInterruptedBatchIsFullyAnswered:
         processor = _make_processor()
         session = _session(mode="standard")
 
-        processor._answer_unprocessed_tool_calls(session, "s", [], reason="неважно")
+        await processor._answer_unprocessed_tool_calls(
+            make_commands(session), "s", [], reason="неважно"
+        )
 
         assert _tool_answers(session) == []

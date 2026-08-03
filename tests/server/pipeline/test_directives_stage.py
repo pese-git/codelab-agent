@@ -22,7 +22,7 @@ from codelab.server.protocol.state import (
     PromptDirectives,
 )
 from codelab.server.tools.registry import SimpleToolRegistry
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session
 
 
 @pytest.fixture
@@ -60,6 +60,7 @@ def _make_context(
     return PromptContext(
         session_id="sess_1",
         session=session,
+        commands=make_commands(session),
         request_id="req_1",
         params=params or {},
         raw_text=raw_text,

@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 import pytest
 
 from codelab.server.agent.core.agent_base import AgentResponse
+from codelab.server.domain.session import TurnState
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoop,
@@ -13,7 +14,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
 )
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolExecutionResult
-from tests.server._domain_sessions import make_domain_session, wire_history
+from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
 
 
 @pytest.fixture
@@ -26,36 +27,16 @@ def mock_strategy():
 
 
 @pytest.fixture
-def real_session():
-    """Настоящий DomainSession.
+def session():
+    """Настоящий доменный агрегат сессии.
 
-    Форму записи истории теперь владеет носитель состояния (history-seam,
-    фаза B ADR-006), поэтому состав tool-ответа проверяется на реальном
-    `DomainSession`, а не на моке: мок раскладку слотов не воспроизводит.
+    Мока здесь быть не может: turn пишет состояние командами, а команда
+    загружает сессию из хранилища в момент применения. Мок отвечает на любой
+    вызов, поэтому «команда не доехала» на нём неотличима от «команда
+    применилась» — ровно тот класс, что скрывал дефекты цепочки `tools/`
+    (ADR-006, фаза D шаг 3) и потерю записей (P1-49).
     """
-    
     return make_domain_session(session_id="test_session", cwd="/tmp", mcp_servers=[])
-
-
-@pytest.fixture
-def mock_session():
-    """Mock DomainSession."""
-    session = MagicMock()
-    session.id = "test_session"
-    session.config.config_values = {}
-    session.history = []
-    session.tool_calls = {}
-    session.active_turn = None
-    session.permissions.policy = {}
-    session.plan = None
-    # Read-seam'ы (фаза B, ADR-006) читают те же словари, что тесты подменяют
-    # напрямую. side_effect берёт атрибут в момент вызова, поэтому переприсваивание
-    # session.config.config_values/permission_policy внутри теста продолжает работать.
-    session.get_config_value.side_effect = (
-        lambda key, default=None: session.config.config_values.get(key, default)
-    )
-    session.get_permission_policy.side_effect = lambda kind: session.permissions.policy.get(kind)
-    return session
 
 
 @pytest.fixture
@@ -117,7 +98,7 @@ class TestAgentLoop:
     """Тесты AgentLoop."""
 
     @pytest.mark.asyncio
-    async def test_run_no_tool_calls(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_no_tool_calls(self, mock_strategy, session, mock_dependencies):
         """run() завершается без tool_calls."""
         from codelab.server.agent.core.agent_base import AgentResponse
 
@@ -127,14 +108,15 @@ class TestAgentLoop:
         mock_strategy.execute.return_value = mock_response
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Hello")
 
         assert result.text == "Hello!"
         assert result.stop_reason == StopReason.END_TURN
         mock_strategy.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_max_turn_requests(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_max_turn_requests(self, mock_strategy, session, mock_dependencies):
         """run() достигает max_turn_requests."""
         from codelab.server.agent.core.agent_base import AgentResponse
 
@@ -176,24 +158,25 @@ class TestAgentLoop:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies, max_turn_requests=2)
-        result = await loop.run(mock_session, "test_session", "Hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Hello")
 
         assert result.stop_reason == StopReason.MAX_TURN_REQUESTS
 
     @pytest.mark.asyncio
-    async def test_run_cancellation(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_cancellation(self, mock_strategy, session, mock_dependencies):
         """run() обрабатывает отмену."""
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = True
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=True)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Hello")
 
         assert result.stop_reason == StopReason.CANCELLED
 
     @pytest.mark.asyncio
     async def test_run_with_tool_calls_completes(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """run() выполняет tool_calls и завершается с END_TURN."""
         mock_tool_call = MagicMock()
@@ -238,7 +221,8 @@ class TestAgentLoop:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Hello")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Done!"
@@ -246,7 +230,7 @@ class TestAgentLoop:
         mock_strategy.continue_execution.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_permission_pause(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_permission_pause(self, mock_strategy, session, mock_dependencies):
         """run() приостанавливается при запросе permission."""
         mock_tool_call = MagicMock()
         mock_tool_call.id = "call_1"
@@ -272,24 +256,24 @@ class TestAgentLoop:
         mock_dependencies["permission_manager"].build_permission_request.return_value = MagicMock()
 
         # active_turn для установки phase
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = False
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=False)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Do something")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Do something")
 
         assert result.pending_permission is True
         assert "tc_1" in result.pending_tool_calls
 
     @pytest.mark.asyncio
-    async def test_resume_after_permission(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_resume_after_permission(self, mock_strategy, session, mock_dependencies):
         """resume_after_permission() выполняет pending tool и продолжает цикл."""
         # Настройка tool_call_state
-        mock_tool_call_state = MagicMock()
-        mock_tool_call_state.tool_name = "test_tool"
-        mock_tool_call_state.tool_arguments = {"arg": "value"}
-        mock_tool_call_state.tool_call_id_from_llm = "call_1"
-        mock_session.tool_calls = {"tc_1": mock_tool_call_state}
+        stored_call = session.tool_calls.create(
+            tool_name="test_tool",
+            arguments={"arg": "value"},
+            tool_call_id_from_llm="call_1",
+        )
 
         # Tool execution result
         mock_tool_result = MagicMock()
@@ -309,7 +293,8 @@ class TestAgentLoop:
         mock_strategy.continue_execution.return_value = final_response
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.resume_after_permission(mock_session, "test_session", "tc_1")
+        commands = make_commands(session)
+        result = await loop.resume_after_permission(commands, "test_session", stored_call.id)
 
         assert result.stop_reason == StopReason.END_TURN
         mock_dependencies["tool_registry"].execute_tool.assert_called_once()
@@ -317,30 +302,32 @@ class TestAgentLoop:
 
     @pytest.mark.asyncio
     async def test_resume_after_permission_tool_not_found(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """resume_after_permission() возвращает END_TURN если tool не найден."""
-        mock_session.tool_calls = {}  # Пустой словарь — tool не найден
+        # Реестр вызовов пуст — tool не найден
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.resume_after_permission(mock_session, "test_session", "nonexistent_tc")
+        commands = make_commands(session)
+        result = await loop.resume_after_permission(commands, "test_session", "nonexistent_tc")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_dependencies["tool_registry"].execute_tool.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_llm_error(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_llm_error(self, mock_strategy, session, mock_dependencies):
         """run() обрабатывает ошибку LLM и возвращает END_TURN."""
         mock_strategy.execute.side_effect = RuntimeError("LLM unavailable")
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Hello")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Hello")
 
         assert result.stop_reason == StopReason.END_TURN
         assert len(result.notifications) == 1
 
     @pytest.mark.asyncio
-    async def test_run_tool_execution_error(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_tool_execution_error(self, mock_strategy, session, mock_dependencies):
         """run() обрабатывает ошибку выполнения tool и продолжает цикл."""
         mock_tool_call = MagicMock()
         mock_tool_call.id = "call_1"
@@ -376,13 +363,14 @@ class TestAgentLoop:
         mock_dependencies["tool_registry"].execute_tool.side_effect = RuntimeError("Tool crash")
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Try tool")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Try tool")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Recovered"
 
     @pytest.mark.asyncio
-    async def test_run_with_plan(self, mock_strategy, mock_session, mock_dependencies):
+    async def test_run_with_plan(self, mock_strategy, session, mock_dependencies):
         """run() обрабатывает plan из ответа LLM."""
         mock_plan = [{"id": "1", "content": "Step 1"}]
 
@@ -396,7 +384,8 @@ class TestAgentLoop:
         mock_dependencies["plan_builder"].build_plan_notification.return_value = MagicMock()
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Plan this")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Plan this")
 
         assert result.stop_reason == StopReason.END_TURN
         mock_dependencies["plan_builder"].validate_plan_entries.assert_called_once_with(mock_plan)
@@ -404,7 +393,7 @@ class TestAgentLoop:
 
     @pytest.mark.asyncio
     async def test_first_iteration_uses_execute(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Первая итерация вызывает strategy.execute()."""
         mock_response = MagicMock(spec=AgentResponse)
@@ -413,7 +402,8 @@ class TestAgentLoop:
         mock_strategy.execute.return_value = mock_response
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        await loop.run(mock_session, "test_session", "Initial prompt")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Initial prompt")
 
         # Ядро читает сессию через порт `SessionView`, поэтому в стратегию уходит
         # проекция агрегата, а не сам агрегат (ADR-006, шаг 2 фазы D).
@@ -424,12 +414,12 @@ class TestAgentLoop:
             system_prompt="You are a helpful assistant.",
             on_delta=None,
         )
-        assert mock_strategy.execute.call_args.args[0]._session is mock_session
+        assert mock_strategy.execute.call_args.args[0]._session is session
         mock_strategy.continue_execution.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_subsequent_iterations_use_continue_execution(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Последующие итерации вызывают strategy.continue_execution()."""
         mock_tool_call = MagicMock()
@@ -471,60 +461,61 @@ class TestAgentLoop:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        await loop.run(mock_session, "test_session", "Start")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Start")
 
         mock_strategy.execute.assert_called_once()
         mock_strategy.continue_execution.assert_called_once_with(ANY, None, on_delta=None)
-        assert mock_strategy.continue_execution.call_args.args[0]._session is mock_session
+        assert mock_strategy.continue_execution.call_args.args[0]._session is session
 
     def test_add_tool_result_to_history_success(
-        self, mock_strategy, real_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """_add_tool_result_to_history() добавляет успешный результат."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            real_session, "tc_1", success=True, output="Result text", error=None
+            session, "tc_1", success=True, output="Result text", error=None
         )
 
-        assert len(wire_history(real_session)) == 1
-        assert wire_history(real_session)[0] == {
+        assert len(wire_history(session)) == 1
+        assert wire_history(session)[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Result text",
         }
 
     def test_add_tool_result_to_history_failure(
-        self, mock_strategy, real_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """_add_tool_result_to_history() добавляет ошибку."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            real_session, "tc_1", success=False, output=None, error="Something failed"
+            session, "tc_1", success=False, output=None, error="Something failed"
         )
 
-        assert len(wire_history(real_session)) == 1
-        assert wire_history(real_session)[0] == {
+        assert len(wire_history(session)) == 1
+        assert wire_history(session)[0] == {
             "role": "tool",
             "tool_call_id": "tc_1",
             "content": "Something failed",
         }
 
     def test_add_tool_result_to_history_failure_no_error(
-        self, mock_strategy, real_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """_add_tool_result_to_history() использует дефолтное сообщение при отсутствии error."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            real_session, "tc_1", success=False, output=None, error=None
+            session, "tc_1", success=False, output=None, error=None
         )
 
-        assert wire_history(real_session)[0]["content"] == "Tool execution failed"
+        assert wire_history(session)[0]["content"] == "Tool execution failed"
 
     def test_add_tool_result_to_history_failure_preserves_output(
-        self, mock_strategy, real_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Неуспех (ненулевой exit code) НЕ теряет output — LLM видит результат команды.
 
@@ -535,68 +526,66 @@ class TestAgentLoop:
         analyze_output = "9 issues found. error • Missing concrete implementation ..."
 
         loop._tool_processor._add_tool_result_to_history(
-            real_session, "tc_1", success=False, output=analyze_output, error=None
+            session, "tc_1", success=False, output=analyze_output, error=None
         )
 
-        assert wire_history(real_session)[0]["content"] == analyze_output
+        assert wire_history(session)[0]["content"] == analyze_output
 
     def test_add_tool_result_to_history_failure_combines_output_and_error(
-        self, mock_strategy, real_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """При наличии и output, и error в историю попадают оба."""
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
 
         loop._tool_processor._add_tool_result_to_history(
-            real_session, "tc_1", success=False, output="partial output", error="boom"
+            session, "tc_1", success=False, output="partial output", error="boom"
         )
 
-        content = wire_history(real_session)[0]["content"]
+        content = wire_history(session)[0]["content"]
         assert "partial output" in content
         assert "boom" in content
 
-    def test_is_cancel_requested_true(self, mock_strategy, mock_session, mock_dependencies):
+    def test_is_cancel_requested_true(self, mock_strategy, session, mock_dependencies):
         """_is_cancel_requested() возвращает True при cancel_requested."""
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = True
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=True)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session, 0, "test_session") is True
+        assert loop._is_cancel_requested(session, 0, "test_session") is True
 
     def test_is_cancel_requested_true_on_registry_generation_change(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Отмена в процессном реестре видна, даже если active_turn очищен (P0-39)."""
         from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 
         registry = TurnCancellationRegistry()
-        mock_session.active_turn = None
+        session.active_turn = None
         registry.cancel("test_session")
 
         loop = AgentLoop(strategy=mock_strategy, turn_cancellation=registry, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session, 0, "test_session") is True
+        assert loop._is_cancel_requested(session, 0, "test_session") is True
 
     def test_is_cancel_requested_false_no_active_turn(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """_is_cancel_requested() возвращает False при отсутствии active_turn."""
-        mock_session.active_turn = None
+        session.active_turn = None
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session, 0, "test_session") is False
+        assert loop._is_cancel_requested(session, 0, "test_session") is False
 
     def test_is_cancel_requested_false_not_cancelled(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """_is_cancel_requested() возвращает False когда cancel_requested=False."""
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = False
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=False)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        assert loop._is_cancel_requested(mock_session, 0, "test_session") is False
+        assert loop._is_cancel_requested(session, 0, "test_session") is False
 
     @pytest.mark.asyncio
     async def test_run_cancellation_during_tool_processing(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """run() обрабатывает отмену во время обработки tool_calls."""
         mock_tool_call = MagicMock()
@@ -630,13 +619,14 @@ class TestAgentLoop:
 
         loop._is_cancel_requested = MagicMock(side_effect=cancel_side_effect)
 
-        result = await loop.run(mock_session, "test_session", "Start")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Start")
 
         assert result.stop_reason == StopReason.CANCELLED
 
     @pytest.mark.asyncio
     async def test_run_tool_rejected_by_policy(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """run() обрабатывает отклонение tool политикой."""
         mock_tool_call = MagicMock()
@@ -668,17 +658,18 @@ class TestAgentLoop:
         ].build_tool_update_notification.return_value = MagicMock()
 
         # Политика отклоняет
-        mock_session.permissions.policy = {"terminal": "reject_always"}
+        session.permissions.policy = {"terminal": "reject_always"}
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Try blocked")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Try blocked")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Handled rejection"
 
     @pytest.mark.asyncio
     async def test_update_plan_tool_sends_plan_notification(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """update_plan tool отправляет plan notification клиенту."""
         mock_tool_call = MagicMock()
@@ -739,9 +730,11 @@ class TestAgentLoop:
         )
         mock_dependencies["plan_builder"].build_plan_notification.return_value = plan_notification
 
-        mock_tool_call_state = MagicMock()
-        mock_tool_call_state.tool_call_id_from_llm = "call_1"
-        mock_session.tool_calls = {"tc_1": mock_tool_call_state}
+        session.tool_calls.create(
+            tool_name="test_tool",
+            arguments={},
+            tool_call_id_from_llm="call_1",
+        )
 
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
@@ -749,7 +742,8 @@ class TestAgentLoop:
         mock_dependencies["content_validator"].validate_content_list.return_value = (True, [])
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Update plan")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Update plan")
 
         plan_notifications = [
             n
@@ -764,7 +758,7 @@ class TestAgentLoop:
 
     @pytest.mark.asyncio
     async def test_update_plan_tool_invalid_entries_no_notification(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """update_plan tool с невалидными entries не отправляет plan notification."""
         mock_tool_call = MagicMock()
@@ -804,9 +798,11 @@ class TestAgentLoop:
         )
         mock_dependencies["tool_registry"].execute_tool = AsyncMock(return_value=exec_result)
 
-        mock_tool_call_state = MagicMock()
-        mock_tool_call_state.tool_call_id_from_llm = "call_1"
-        mock_session.tool_calls = {"tc_1": mock_tool_call_state}
+        session.tool_calls.create(
+            tool_name="test_tool",
+            arguments={},
+            tool_call_id_from_llm="call_1",
+        )
 
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
@@ -814,7 +810,8 @@ class TestAgentLoop:
         mock_dependencies["content_validator"].validate_content_list.return_value = (True, [])
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Update plan")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Update plan")
 
         plan_notifications = [
             n
@@ -830,7 +827,7 @@ class TestAgentLoopBypassMode:
 
     @pytest.mark.asyncio
     async def test_bypass_mode_tool_executes_and_loop_continues(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """В bypass mode tool выполняется синхронно, цикл продолжает и LLM возвращает ответ."""
         mock_tool_call = MagicMock()
@@ -870,10 +867,11 @@ class TestAgentLoopBypassMode:
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
         # Bypass mode в config
-        mock_session.config.config_values = {"mode": "bypass"}
+        session.set_config_value("mode", "bypass")
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Read README.md")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Read README.md")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "File contains: Hello World"
@@ -882,7 +880,7 @@ class TestAgentLoopBypassMode:
 
     @pytest.mark.asyncio
     async def test_bypass_mode_multiple_tool_calls(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """В bypass mode несколько tool calls выполняются последовательно."""
         mock_tool_call_1 = MagicMock()
@@ -925,10 +923,11 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config.config_values = {"mode": "bypass"}
+        session.set_config_value("mode", "bypass")
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Read both files")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Read both files")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Both files read successfully"
@@ -937,7 +936,7 @@ class TestAgentLoopBypassMode:
 
     @pytest.mark.asyncio
     async def test_bypass_mode_tool_requires_permission_but_mode_allows(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """В bypass mode tool с requires_permission=True выполняется без запроса."""
         mock_tool_call = MagicMock()
@@ -976,12 +975,12 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config.config_values = {"mode": "bypass"}
-        mock_session.active_turn = MagicMock()
-        mock_session.active_turn.cancel_requested = False
+        session.set_config_value("mode", "bypass")
+        session.active_turn = TurnState(session_id="test_session", cancel_requested=False)
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Run ls")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Run ls")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Command completed"
@@ -990,7 +989,7 @@ class TestAgentLoopBypassMode:
 
     @pytest.mark.asyncio
     async def test_bypass_mode_tool_error_continues_loop(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """В bypass mode ошибка инструмента не прерывает цикл."""
         mock_tool_call = MagicMock()
@@ -1029,10 +1028,11 @@ class TestAgentLoopBypassMode:
         mock_extracted.content_items = []
         mock_dependencies["content_extractor"].extract_from_result.return_value = mock_extracted
 
-        mock_session.config.config_values = {"mode": "bypass"}
+        session.set_config_value("mode", "bypass")
 
         loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
-        result = await loop.run(mock_session, "test_session", "Read file")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Read file")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "File not found, sorry"
@@ -1062,7 +1062,7 @@ class TestAgentLoopNotificationCallback:
 
     @pytest.mark.asyncio
     async def test_notification_callback_called_for_tool_call(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Callback вызывается для tool call notification."""
         mock_tool_call = MagicMock()
@@ -1075,6 +1075,12 @@ class TestAgentLoopNotificationCallback:
         response.tool_calls = [mock_tool_call]
 
         mock_strategy.execute.return_value = response
+        # Второй виток цикла обязан вернуть настоящий ответ: его текст уезжает в
+        # историю и дальше в wire.
+        second_response = MagicMock(spec=AgentResponse)
+        second_response.text = "Done"
+        second_response.tool_calls = []
+        mock_strategy.continue_execution.return_value = second_response
 
         mock_tool_def = MagicMock()
         mock_tool_def.requires_permission = False
@@ -1085,10 +1091,11 @@ class TestAgentLoopNotificationCallback:
         h.build_tool_call_notification.return_value = MagicMock()
         h.build_tool_update_notification.return_value = MagicMock()
 
-        mock_tool_result = MagicMock()
-        mock_tool_result.success = True
-        mock_tool_result.output = "File content"
-        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+        # Настоящий результат исполнения, а не мок: его поля уезжают в историю и
+        # дальше в wire — на моке туда попадал бы объект мока, а не текст.
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(success=True, output="File content")
+        )
 
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
@@ -1107,14 +1114,15 @@ class TestAgentLoopNotificationCallback:
         )
 
         # Запускаем loop с tool call
-        await loop.run(mock_session, "test_session", "Read file")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Read file")
 
         # Проверяем что callback был вызван для tool call notification
         assert len(sent_notifications) > 0, "Callback должен быть вызван хотя бы один раз"
 
     @pytest.mark.asyncio
     async def test_tool_exception_delivers_failed_update_immediately(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """P2-25: при исключении tool'а failed-update уходит через callback сразу.
 
@@ -1163,7 +1171,8 @@ class TestAgentLoopNotificationCallback:
             notification_callback=mock_callback,
         )
 
-        result = await loop.run(mock_session, "test_session", "Try tool")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Try tool")
 
         # failed-update доставлен НЕМЕДЛЕННО через callback (а не только в буфере).
         assert failed_update in sent_notifications
@@ -1172,7 +1181,7 @@ class TestAgentLoopNotificationCallback:
 
     @pytest.mark.asyncio
     async def test_notification_callback_error_does_not_break_loop(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Ошибка в callback не прерывает AgentLoop."""
         mock_tool_call = MagicMock()
@@ -1200,10 +1209,11 @@ class TestAgentLoopNotificationCallback:
         h.build_tool_call_notification.return_value = MagicMock()
         h.build_tool_update_notification.return_value = MagicMock()
 
-        mock_tool_result = MagicMock()
-        mock_tool_result.success = True
-        mock_tool_result.output = "File content"
-        mock_dependencies["tool_registry"].execute_tool.return_value = mock_tool_result
+        # Настоящий результат исполнения, а не мок: его поля уезжают в историю и
+        # дальше в wire — на моке туда попадал бы объект мока, а не текст.
+        mock_dependencies["tool_registry"].execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(success=True, output="File content")
+        )
 
         mock_extracted = MagicMock()
         mock_extracted.content_items = []
@@ -1220,7 +1230,8 @@ class TestAgentLoopNotificationCallback:
         )
 
         # Loop должен завершиться успешно несмотря на ошибку в callback
-        result = await loop.run(mock_session, "test_session", "Read file")
+        commands = make_commands(session)
+        result = await loop.run(commands, "test_session", "Read file")
 
         assert result.stop_reason == StopReason.END_TURN
         assert result.text == "Done reading"
@@ -1241,7 +1252,7 @@ class TestAgentLoopStreaming:
 
     @pytest.mark.asyncio
     async def test_streaming_emits_deltas_no_full_text_dup(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Дельты эмитятся как agent_message_chunk; полный текст не дублируется."""
         captured: list = []
@@ -1268,14 +1279,15 @@ class TestAgentLoopStreaming:
             notification_callback=capture,
             streaming_enabled=True,
         )
-        await loop.run(mock_session, "test_session", "Hi")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Hi")
 
         # Ровно дельты, без повторного полного "Hello"
         assert _chunk_texts(captured) == ["Hel", "lo"]
 
     @pytest.mark.asyncio
     async def test_streaming_without_deltas_falls_back_to_full_text(
-        self, mock_strategy, mock_session, mock_dependencies
+        self, mock_strategy, session, mock_dependencies
     ):
         """Стриминг включён, но провайдер не отдал дельт → эмитим полный текст."""
         captured: list = []
@@ -1300,6 +1312,7 @@ class TestAgentLoopStreaming:
             notification_callback=capture,
             streaming_enabled=True,
         )
-        await loop.run(mock_session, "test_session", "Hi")
+        commands = make_commands(session)
+        await loop.run(commands, "test_session", "Hi")
 
         assert _chunk_texts(captured) == ["Whole answer"]

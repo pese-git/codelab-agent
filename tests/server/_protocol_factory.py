@@ -304,7 +304,7 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             from codelab.server.protocol.commands import SessionPromptCommandHandler
 
             handler = SessionPromptCommandHandler(
-                storage=st._storage,
+                repository=st._repository,
                 orchestrator_provider=st.get_prompt_orchestrator,
                 runtime_registry=st._runtime_registry,
                 mcp_provider=st.ensure_mcp_initialized,
@@ -432,6 +432,7 @@ def build_protocol(
     )
     background_executor = BackgroundExecutor(
         storage=st._storage,
+        repository=st._repository,
         orchestrator_provider=_orchestrator_provider,
         mcp_provider=st.ensure_mcp_initialized,
         runtime_registry=st._runtime_registry,

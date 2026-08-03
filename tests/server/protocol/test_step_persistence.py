@@ -1,29 +1,32 @@
-"""Пошаговые записи turn'а (ADR-007).
+"""Пошаговые записи turn'а: гейты команд (ADR-006, фаза D шаг 4; ADR-007).
 
-До этого turn копил мутации в своей копии и писал один раз в конце: на живом
-прогоне копия расходилась с диском 39 секунд, и слияние приходилось применять как
-постоянное лечение, а не как редкую развязку.
+До фазы D turn копил мутации в своей копии и писал их отдельным `persist`-ом:
+на живом прогоне копия расходилась с диском 39 секунд, а запись документа,
+пережившего `await`, приходилось примирять слиянием.
 
-Теперь состояние сохраняется на границах шагов — после каждого обработанного вызова
-и перед паузой на разрешение. Окно сокращается до длительности одного вызова.
-
-Полный вариант (turn вообще не держит состояние, каждый шаг работает против свежей
-копии) остаётся целью: он снимает слияние совсем, но требует переезда turn-пути на
-доменный агрегат.
+Теперь запись — не послесловие, а сама операция: каждое изменение состояния
+применяется к агрегату, загруженному в момент применения, и коммитится своей
+короткой транзакцией. Гейты ниже проверяют именно это, и на `JsonFileStorage`,
+а не на памяти: на in-memory backend класс дефектов «мутировали и не сохранили»
+невидим (P1-49).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.session import TurnState
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
-from tests.server._domain_sessions import make_domain_session, wire_history
+from codelab.server.protocol.session_commands import SessionCommands
+from codelab.server.storage import JsonFileStorage, SessionRepository
+from tests.server._domain_sessions import make_domain_session
 
 
 def _processor() -> ToolCallProcessor:
@@ -48,6 +51,24 @@ def _session() -> DomainSession:
     return session
 
 
+async def _seeded(
+    tmp_path: Path, session: DomainSession
+) -> tuple[SessionRepository, SessionCommands]:
+    """Репозиторий поверх файлового backend'а с посеянной сессией."""
+    repository = SessionRepository(JsonFileStorage(tmp_path))
+    state = SessionMapper.to_protocol(session)
+    await repository._backend.save_session(state)
+    session.revision = state.revision
+    return repository, SessionCommands(repository, session)
+
+
+async def _on_disk(repository: SessionRepository) -> DomainSession:
+    """Сессия, прочитанная с диска, — единственный источник правды для гейтов."""
+    stored = await repository.load_session("s")
+    assert stored is not None
+    return stored
+
+
 class _Call:
     def __init__(self, id_: str) -> None:
         self.id = id_
@@ -55,36 +76,37 @@ class _Call:
         self.arguments = {"path": "a.md"}
 
 
-class TestStepPersistence:
+class TestEveryStepReachesDisk:
     @pytest.mark.asyncio
-    async def test_persist_called_after_each_processed_call(self) -> None:
-        """Каждый обработанный вызов кладётся на диск, а не ждёт конца turn'а."""
+    async def test_each_processed_call_is_on_disk(self, tmp_path: Path) -> None:
+        """Каждый обработанный вызов лежит на диске, а не ждёт конца turn'а."""
         processor = _processor()
         session = _session()
-        calls: list[int] = []
-
-        async def _persist() -> None:
-            calls.append(len(wire_history(session)))
+        repository, commands = await _seeded(tmp_path, session)
 
         await processor.process_batch(
-            session, "s", [_Call("llm_1"), _Call("llm_2")], AsyncMock(), None, None, _persist
+            commands, "s", [_Call("llm_1"), _Call("llm_2")], AsyncMock(), None, None
         )
 
-        assert len(calls) == 2, "по одной записи на вызов"
+        stored = await _on_disk(repository)
+        answered = [
+            message
+            for message in SessionMapper.to_protocol(stored).history
+            if getattr(message, "role", None) == "tool"
+        ]
+        assert len(answered) == 2, "оба вызова отвечены модели и это видно на диске"
 
     @pytest.mark.asyncio
-    async def test_persist_called_before_permission_pause(self) -> None:
-        """Отложенный хвост должен лечь на диск до паузы.
+    async def test_deferred_tail_is_on_disk_before_pause(self, tmp_path: Path) -> None:
+        """Отложенный хвост ложится на диск до паузы.
 
-        Ответ на разрешение придёт отдельным запросом и загрузит сессию заново — если
-        хвост остался только в памяти, он потеряется (P2-40 живёт в состоянии).
+        Ответ на разрешение придёт отдельным запросом и загрузит сессию заново —
+        если хвост остался только в памяти, он потеряется (P2-40 живёт в
+        состоянии).
         """
         processor = _processor()
         session = _session()
-        persisted: list[int] = []
-
-        async def _persist() -> None:
-            persisted.append(len(session.active_turn.pending_batch))
+        repository, commands = await _seeded(tmp_path, session)
 
         async def _pause_first(*args, **kwargs):
             from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
@@ -96,48 +118,56 @@ class TestStepPersistence:
         processor._process_single_tool_call = _pause_first  # type: ignore[method-assign]
 
         await processor.process_batch(
-            session,
+            commands,
             "s",
             [_Call("llm_1"), _Call("llm_2"), _Call("llm_3")],
             AsyncMock(),
             None,
             None,
-            _persist,
         )
 
-        assert persisted == [2], "хвост из двух вызовов сохранён до паузы"
+        stored = await _on_disk(repository)
+        assert stored.active_turn is not None
+        assert len(stored.active_turn.pending_batch) == 2, "хвост из двух вызовов на диске"
 
     @pytest.mark.asyncio
-    async def test_write_failure_does_not_abort_turn(self) -> None:
-        """Сбой записи логируется, но turn продолжается.
+    async def test_write_failure_is_visible_to_caller(self, tmp_path: Path) -> None:
+        """Сбой записи не проглатывается.
 
-        Срывать работу из-за временного сбоя диска хуже: финальное сохранение даст
-        второй шанс. Молчать при этом нельзя — молчание скрывало потерю в P2-42.
+        Раньше запись была послесловием, и её ошибку можно было залогировать и
+        продолжить — финальное сохранение давало второй шанс. Теперь второго шанса
+        нет: несостоявшаяся команда означает, что состояния turn'а не существует, и
+        молчать об этом — это ровно та потеря решений, что была P2-42.
         """
         processor = _processor()
         session = _session()
-        attempts = 0
+        repository, commands = await _seeded(tmp_path, session)
 
-        async def _failing() -> None:
-            nonlocal attempts
-            attempts += 1
+        async def _failing(_state: object) -> None:
             raise OSError("диск недоступен")
 
-        result = await processor.process_batch(
-            session, "s", [_Call("llm_1"), _Call("llm_2")], AsyncMock(), None, None, _failing
-        )
+        repository._backend.save_session = _failing  # type: ignore[method-assign]
 
-        assert attempts == 2, "сбой не должен останавливать обработку следующих вызовов"
-        assert result.pending_permission is False
+        with pytest.raises(OSError, match="диск недоступен"):
+            await processor.process_batch(
+                commands, "s", [_Call("llm_1")], AsyncMock(), None, None
+            )
 
     @pytest.mark.asyncio
-    async def test_no_persist_callback_is_allowed(self) -> None:
-        """Путь без хранилища (демо, тесты) должен работать без записи."""
-        processor = _processor()
+    async def test_one_command_one_revision(self, tmp_path: Path) -> None:
+        """Одна команда — одна ревизия, и рабочая копия знает состоявшуюся.
+
+        Вторая половина — не деталь: `save_session` штампует ревизию на
+        wire-документе, а turn держит агрегат. Без возврата штампа копия навсегда
+        осталась бы на ревизии загрузки, и следующая запись упёрлась бы в
+        compare-and-set (на шаге 3 этот же класс дал зависший turn).
+        """
         session = _session()
+        repository, commands = await _seeded(tmp_path, session)
+        before = (await _on_disk(repository)).revision
 
-        result = await processor.process_batch(
-            session, "s", [_Call("llm_1")], AsyncMock(), None, None, None
-        )
+        await commands.apply(lambda target: target.set_title("одна команда"), name="title_set")
 
-        assert result.pending_permission is False
+        after = (await _on_disk(repository)).revision
+        assert after - before == 1
+        assert session.revision == after
