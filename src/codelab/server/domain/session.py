@@ -573,6 +573,33 @@ class Session:
         """Добавить slash-команды к текущему набору."""
         self.available_commands.extend(commands)
 
+    def apply_client_context(
+        self,
+        *,
+        cwd: str,
+        mcp_servers: Sequence[dict[str, Any]],
+        runtime_capabilities: ClientCapabilities | None,
+    ) -> None:
+        """Принять контекст клиента, сообщённый при `session/load`.
+
+        Рабочая директория, набор MCP-серверов и согласованные возможности
+        принадлежат подключению, а не сессии: клиент может вернуться из другого
+        каталога и с другим набором серверов. `SessionConfig` заморожен, поэтому
+        это замена конфигурации целиком, а не правка поля — иначе вызывающему
+        пришлось бы знать, что часть полей конфигурации переживает загрузку, а
+        часть нет.
+
+        `config_values` и `active_strategy` переживают: это решения пользователя
+        по сессии (режим, стратегия), а не свойства подключения.
+        """
+        self.config = SessionConfig(
+            cwd=cwd,
+            config_values=self.config.config_values,
+            active_strategy=self.config.active_strategy,
+            runtime_capabilities=runtime_capabilities,
+            mcp_servers=list(mcp_servers),
+        )
+
     def set_config_value(self, key: str, value: str) -> None:
         """Установить значение config_values (persistent session-config)."""
         self.config.config_values[key] = value

@@ -4,13 +4,14 @@
 race conditions, утечек памяти и зависающих операций при session_load().
 """
 
+from codelab.server.domain.session import TurnState
+from codelab.server.domain.tool_call import ToolCall
+from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.state import (
-    ActiveTurnState,
     PendingClientRequestState,
-    SessionState,
-    ToolCallState,
 )
+from tests.server._domain_sessions import make_domain_session
 
 
 class TestSessionCleanup:
@@ -19,8 +20,8 @@ class TestSessionCleanup:
     def test_cleanup_clears_active_turn(self) -> None:
         """Проверяет, что активный turn обнуляется при очистке."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
 
         # Act
         _cleanup_session_state(session)
@@ -31,8 +32,8 @@ class TestSessionCleanup:
     def test_cleanup_marks_active_turn_as_cancelled(self) -> None:
         """Проверяет, что active turn отмечается как cancelled перед очисткой."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_1")
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        active_turn = TurnState(prompt_request_id="req_1", session_id="sess_1")
         session.active_turn = active_turn
 
         # Act
@@ -45,43 +46,35 @@ class TestSessionCleanup:
     def test_cleanup_cancels_pending_tool_calls(self) -> None:
         """Проверяет, что pending tool calls отмечаются как cancelled."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        session.tool_calls = {
-            "call_1": ToolCallState(
-                tool_call_id="call_1",
-                title="Task 1",
-                kind="other",
-                status="pending",
-            ),
-            "call_2": ToolCallState(
-                tool_call_id="call_2",
-                title="Task 2",
-                kind="other",
-                status="in_progress",
-            ),
-            "call_3": ToolCallState(
-                tool_call_id="call_3",
-                title="Task 3",
-                kind="other",
-                status="completed",
-            ),
-        }
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        session.tool_calls.calls["call_1"] = ToolCall(
+            id="call_1", tool_name="Task 1", arguments={}, title="Task 1",
+            kind="other", status=ToolCallStatus("pending")
+        )
+        session.tool_calls.calls["call_2"] = ToolCall(
+            id="call_2", tool_name="Task 2", arguments={}, title="Task 2",
+            kind="other", status=ToolCallStatus("in_progress")
+        )
+        session.tool_calls.calls["call_3"] = ToolCall(
+            id="call_3", tool_name="Task 3", arguments={}, title="Task 3",
+            kind="other", status=ToolCallStatus("completed")
+        )
 
         # Act
         _cleanup_session_state(session)
 
         # Assert
         # Только pending должен стать cancelled
-        assert session.tool_calls["call_1"].status == "cancelled"
+        assert session.tool_calls.get("call_1").status.value == "cancelled"
         # in_progress и completed остаются без изменений
-        assert session.tool_calls["call_2"].status == "in_progress"
-        assert session.tool_calls["call_3"].status == "completed"
+        assert session.tool_calls.get("call_2").status.value == "in_progress"
+        assert session.tool_calls.get("call_3").status.value == "completed"
 
     def test_cleanup_adds_permission_request_to_cancelled_set(self) -> None:
         """Проверяет, что permission request ID добавляется в cancelled set."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             permission_request_id="perm_req_1",
@@ -91,59 +84,59 @@ class TestSessionCleanup:
         _cleanup_session_state(session)
 
         # Assert
-        assert "perm_req_1" in session.cancelled_permission_requests
+        assert "perm_req_1" in session.permissions.cancelled_requests
 
     def test_cleanup_adds_client_rpc_request_to_cancelled_set(self) -> None:
         """Проверяет, что client RPC request ID добавляется в cancelled set."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
         pending_request = PendingClientRequestState(
             request_id="rpc_req_1",
             kind="fs_read",
             tool_call_id="call_1",
             path="/tmp/file.txt",
         )
-        session.active_turn = ActiveTurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            pending_client_request=pending_request,
+            pending_external_request=pending_request,
         )
 
         # Act
         _cleanup_session_state(session)
 
         # Assert
-        assert "rpc_req_1" in session.cancelled_client_rpc_requests
+        assert "rpc_req_1" in session.runtime.cancelled_client_rpc_requests
 
     def test_cleanup_handles_both_permission_and_rpc_requests(self) -> None:
         """Проверяет, что обрабатываются и permission и RPC requests одновременно."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
         pending_request = PendingClientRequestState(
             request_id="rpc_req_1",
             kind="fs_write",
             tool_call_id="call_1",
             path="/tmp/file.txt",
         )
-        session.active_turn = ActiveTurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             permission_request_id="perm_req_1",
-            pending_client_request=pending_request,
+            pending_external_request=pending_request,
         )
 
         # Act
         _cleanup_session_state(session)
 
         # Assert
-        assert "perm_req_1" in session.cancelled_permission_requests
-        assert "rpc_req_1" in session.cancelled_client_rpc_requests
+        assert "perm_req_1" in session.permissions.cancelled_requests
+        assert "rpc_req_1" in session.runtime.cancelled_client_rpc_requests
         assert session.active_turn is None
 
     def test_cleanup_handles_null_active_turn(self) -> None:
         """Проверяет безопасную обработку NULL active turn."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
         assert session.active_turn is None
 
         # Act & Assert (не должно быть исключений)
@@ -153,27 +146,27 @@ class TestSessionCleanup:
     def test_cleanup_handles_active_turn_without_permission_request(self) -> None:
         """Проверяет очистку active turn без permission request."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        session.active_turn = TurnState(
             prompt_request_id="req_1", session_id="sess_1", permission_request_id=None
         )
-        initial_cancelled_perms = len(session.cancelled_permission_requests)
+        initial_cancelled_perms = len(session.permissions.cancelled_requests)
 
         # Act
         _cleanup_session_state(session)
 
         # Assert
         assert session.active_turn is None
-        assert len(session.cancelled_permission_requests) == initial_cancelled_perms
+        assert len(session.permissions.cancelled_requests) == initial_cancelled_perms
 
     def test_cleanup_preserves_existing_cancelled_requests(self) -> None:
         """Проверяет, что очистка сохраняет уже отмененные requests."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-        session.cancelled_permission_requests.add("old_perm_1")
-        session.cancelled_client_rpc_requests.add("old_rpc_1")
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        session.permissions.cancelled_requests.add("old_perm_1")
+        session.runtime.cancelled_client_rpc_requests.add("old_rpc_1")
 
-        session.active_turn = ActiveTurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             permission_request_id="new_perm_1",
@@ -184,43 +177,35 @@ class TestSessionCleanup:
             tool_call_id="call_1",
             path="/tmp/file.txt",
         )
-        session.active_turn.pending_client_request = pending_request
+        session.active_turn.pending_external_request = pending_request
 
         # Act
         _cleanup_session_state(session)
 
         # Assert
-        assert "old_perm_1" in session.cancelled_permission_requests
-        assert "new_perm_1" in session.cancelled_permission_requests
-        assert "old_rpc_1" in session.cancelled_client_rpc_requests
-        assert "new_rpc_1" in session.cancelled_client_rpc_requests
+        assert "old_perm_1" in session.permissions.cancelled_requests
+        assert "new_perm_1" in session.permissions.cancelled_requests
+        assert "old_rpc_1" in session.runtime.cancelled_client_rpc_requests
+        assert "new_rpc_1" in session.runtime.cancelled_client_rpc_requests
 
     def test_cleanup_comprehensive_scenario(self) -> None:
         """Полный сценарий очистки с активным turn и multiple tool calls."""
         # Arrange
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = make_domain_session(session_id="sess_1", cwd="/tmp")
 
         # Добавляем несколько tool calls в разных состояниях
-        session.tool_calls = {
-            "call_pending_1": ToolCallState(
-                tool_call_id="call_pending_1",
-                title="Pending Task",
-                kind="other",
-                status="pending",
-            ),
-            "call_pending_2": ToolCallState(
-                tool_call_id="call_pending_2",
-                title="Another Pending",
-                kind="execute",
-                status="pending",
-            ),
-            "call_completed": ToolCallState(
-                tool_call_id="call_completed",
-                title="Completed Task",
-                kind="other",
-                status="completed",
-            ),
-        }
+        session.tool_calls.calls["call_pending_1"] = ToolCall(
+            id="call_pending_1", tool_name="Pending Task", arguments={}, title="Pending Task",
+            kind="other", status=ToolCallStatus("pending")
+        )
+        session.tool_calls.calls["call_pending_2"] = ToolCall(
+            id="call_pending_2", tool_name="Another Pending", arguments={}, title="Another Pending",
+            kind="execute", status=ToolCallStatus("pending")
+        )
+        session.tool_calls.calls["call_completed"] = ToolCall(
+            id="call_completed", tool_name="Completed Task", arguments={}, title="Completed Task",
+            kind="other", status=ToolCallStatus("completed")
+        )
 
         # Активный turn с permission и RPC requests
         pending_request = PendingClientRequestState(
@@ -230,14 +215,14 @@ class TestSessionCleanup:
             path="",
             terminal_id="term_1",
         )
-        session.active_turn = ActiveTurnState(
+        session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
             cancel_requested=False,
             permission_request_id="perm_req_1",
             permission_tool_call_id="call_pending_1",
             phase="running",
-            pending_client_request=pending_request,
+            pending_external_request=pending_request,
         )
 
         # Act
@@ -248,12 +233,12 @@ class TestSessionCleanup:
         assert session.active_turn is None
 
         # Все pending tool calls должны быть отмечены как cancelled
-        assert session.tool_calls["call_pending_1"].status == "cancelled"
-        assert session.tool_calls["call_pending_2"].status == "cancelled"
+        assert session.tool_calls.get("call_pending_1").status.value == "cancelled"
+        assert session.tool_calls.get("call_pending_2").status.value == "cancelled"
 
         # Completed остается без изменений
-        assert session.tool_calls["call_completed"].status == "completed"
+        assert session.tool_calls.get("call_completed").status.value == "completed"
 
         # Cancelled requests должны быть зафиксированы
-        assert "perm_req_1" in session.cancelled_permission_requests
-        assert "rpc_req_1" in session.cancelled_client_rpc_requests
+        assert "perm_req_1" in session.permissions.cancelled_requests
+        assert "rpc_req_1" in session.runtime.cancelled_client_rpc_requests

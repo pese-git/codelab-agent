@@ -268,19 +268,33 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             return ProtocolOutcome(response=response_msg)
 
     class _SessionLoadWrapper:
+        """Делегирует прод-обработчику: запись решений загрузки живёт в нём.
+
+        Раньше обёртка звала функцию реплея напрямую и опиралась на то, что
+        `InMemoryStorage` отдаёт тот же объект, — то есть проверяла свойство
+        хранилища, а не поведение сервера. На файловом бэкенде и после переезда
+        загрузки на доменный агрегат (ADR-006, шаг 5) это разошлось бы молча.
+        """
+
         method_name = "session/load"
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-            params = message.params or {}
-            return await session.session_load(
-                message.id,
-                params,
-                st._require_auth,
-                st._authenticated,
-                st._config_specs,
-                st._auth_methods,
-                st._storage,
+            from codelab.server.protocol.commands import SessionLoadCommandHandler
+
+            async def _on_session_loaded(session_state: Any, params: dict) -> None:
+                await st.get_mcp_session_manager().setup_if_needed(session_state, params)
+
+            handler = SessionLoadCommandHandler(
+                repository=st._repository,
+                config_specs=st._config_specs,
+                auth_methods=st._auth_methods,
+                require_auth=st._require_auth,
+                authenticated=st._authenticated,
+                runtime_capabilities=st._runtime_capabilities,
+                pending_registry=st._pending_registry,
+                on_session_loaded=_on_session_loaded,
             )
+            return await handler.handle(message)
 
     class _SessionListWrapper:
         method_name = "session/list"

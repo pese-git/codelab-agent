@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import structlog
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.session import (
     _serialize_available_commands,
     session_list,
@@ -91,7 +92,6 @@ class TestSessionLoadEdgeCases:
             authenticated=False,
             config_specs={},
             auth_methods=[{"id": "basic"}],
-            storage=AsyncMock(),
         )
 
         assert outcome.response is not None
@@ -108,7 +108,6 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=AsyncMock(),
         )
 
         assert outcome.response is not None
@@ -125,7 +124,6 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=AsyncMock(),
         )
 
         assert outcome.response is not None
@@ -142,7 +140,6 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=AsyncMock(),
         )
 
         assert outcome.response is not None
@@ -152,9 +149,6 @@ class TestSessionLoadEdgeCases:
 
     async def test_session_not_found(self) -> None:
         """Если сессия не найдена, возвращается ошибка Session not found."""
-        storage = AsyncMock()
-        storage.load_session = AsyncMock(return_value=None)
-
         outcome = await session_load(
             request_id="req_1",
             params={"sessionId": "missing", "cwd": "/tmp", "mcpServers": []},
@@ -162,7 +156,6 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=storage,
         )
 
         assert outcome.response is not None
@@ -172,9 +165,6 @@ class TestSessionLoadEdgeCases:
 
     async def test_session_not_found_is_logged(self) -> None:
         """Ненайденная сессия пишет warning: иначе -32001 остаётся невидимым в логах."""
-        storage = AsyncMock()
-        storage.load_session = AsyncMock(return_value=None)
-
         with structlog.testing.capture_logs() as logs:
             await session_load(
                 request_id="req_1",
@@ -183,7 +173,6 @@ class TestSessionLoadEdgeCases:
                 authenticated=True,
                 config_specs={},
                 auth_methods=[],
-                storage=storage,
             )
 
         entry = next(log for log in logs if log["event"] == "session_load_not_found")
@@ -219,8 +208,6 @@ class TestSessionLoadEdgeCases:
             }
         )
 
-        storage = AsyncMock()
-        storage.load_session = AsyncMock(return_value=session)
 
         with structlog.testing.capture_logs() as logs:
             outcome = await session_load(
@@ -230,7 +217,7 @@ class TestSessionLoadEdgeCases:
                 authenticated=True,
                 config_specs={},
                 auth_methods=[],
-                storage=storage,
+                session=SessionMapper.to_domain(session),
             )
 
         entry = next(log for log in logs if log["event"] == "session_loaded")
@@ -272,8 +259,10 @@ class TestSessionLoadEdgeCases:
             }
         )
 
-        storage = AsyncMock()
-        storage.load_session = AsyncMock(return_value=session)
+
+        # Носитель реплея — доменный агрегат (ADR-006, D5), поэтому смотреть надо
+        # на него: wire-фикстура здесь только источник формы документа.
+        domain_session = SessionMapper.to_domain(session)
 
         outcome = await session_load(
             request_id="req_1",
@@ -282,16 +271,18 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=storage,
+            session=domain_session,
         )
 
-        assert session.tool_calls["call_1"].status == "cancelled"
+        stored_call = domain_session.tool_calls.get("call_1")
+        assert stored_call is not None
+        assert stored_call.status.value == "cancelled"
 
         # В историю запись легла — значит любое последующее сохранение сессии
         # оставит историю и состояние согласованными.
         recorded = [
             event["update"]
-            for event in session.events_history
+            for event in domain_session.runtime.events_history
             if event.get("update", {}).get("sessionUpdate") == "tool_call_update"
         ]
         assert [u["status"] for u in recorded] == ["cancelled"]
@@ -321,8 +312,6 @@ class TestSessionLoadEdgeCases:
             content=[{"type": "text", "text": "result"}],
         )
 
-        storage = AsyncMock()
-        storage.load_session = AsyncMock(return_value=session)
 
         outcome = await session_load(
             request_id="req_1",
@@ -331,7 +320,7 @@ class TestSessionLoadEdgeCases:
             authenticated=True,
             config_specs={},
             auth_methods=[],
-            storage=storage,
+            session=SessionMapper.to_domain(session),
         )
 
         assert outcome.response is not None

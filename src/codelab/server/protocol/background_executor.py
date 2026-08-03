@@ -160,9 +160,19 @@ class BackgroundExecutor:
             )
             return LLMLoopResult(notifications=[], stop_reason="end_turn")
 
-        # MCP-менеджер читает wire-конфигурацию: проекция строится на месте и
-        # никуда не сохраняется.
-        mcp_manager = await self._mcp_provider(SessionMapper.to_protocol(domain_session))
+        commands = SessionCommands(self._repository, domain_session)
+
+        # Проекция для MCP-менеджера не read-only: восстановление prompt'ов подрезает
+        # `available_commands` (см. `session_prompt`), и это решение возвращается в
+        # сессию командой.
+        mcp_projection = SessionMapper.to_protocol(domain_session)
+        mcp_manager = await self._mcp_provider(mcp_projection)
+        mcp_commands = SessionMapper.normalize_commands(mcp_projection.available_commands)
+        if mcp_commands != domain_session.available_commands:
+            await commands.apply(
+                lambda target: target.set_available_commands(mcp_commands),
+                name="mcp_commands_synced",
+            )
 
         # Получить или создать PromptOrchestrator (переиспользуется)
         orchestrator = await self._orchestrator_provider()
@@ -179,7 +189,7 @@ class BackgroundExecutor:
             await self._send_message(message, session_id)
 
         return await orchestrator.execute_pending_tool(
-            commands=SessionCommands(self._repository, domain_session),
+            commands=commands,
             session_id=session_id,
             tool_call_id=tool_call_id,
             mcp_manager=mcp_manager,

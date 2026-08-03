@@ -13,6 +13,7 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
+from codelab.server.storage import SessionRepository
 
 
 class TestEndToEndWithStorage:
@@ -187,7 +188,7 @@ class TestEndToEndWithStorage:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session(str(session.id)),
         )
 
         # Assert - Проверяем что события воспроизведены правильно

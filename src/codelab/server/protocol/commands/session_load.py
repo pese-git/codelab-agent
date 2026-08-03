@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 
+from ...domain.session import Session as DomainSession
 from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionRepository
@@ -78,21 +79,30 @@ class SessionLoadCommandHandler:
         """
         params = message.params or {}
         session_id = params.get("sessionId")
-        session_obj: SessionState | None = None
+        session_obj: DomainSession | None = None
 
         if isinstance(session_id, str):
-            # Транзакция работает доменным агрегатом (фаза D ADR-006), но replay и
-            # MCP-setup остаются на wire-границе, поэтому конверсия — здесь.
-            domain_session = await self._repository.load_session(session_id)
-            session_obj = (
-                SessionMapper.to_protocol(domain_session) if domain_session is not None else None
-            )
+            # Носитель — доменный агрегат от загрузки до записи: круга
+            # `to_protocol`/`to_domain` здесь больше нет (ADR-006, фаза D шаг 5).
+            session_obj = await self._repository.load_session(session_id)
             if session_obj is not None:
-                session_obj.runtime_capabilities = self._runtime_capabilities
+                session_obj.apply_client_context(
+                    cwd=session_obj.config.cwd,
+                    mcp_servers=session_obj.config.mcp_servers,
+                    runtime_capabilities=SessionMapper.capabilities_to_domain(self._runtime_capabilities),
+                )
 
-                # Выполняем side effects через callback
+                # MCP-setup всё ещё типизирован wire-DTO (transient
+                # `mcp_prompt_handlers` в домен не переехал), поэтому на границе
+                # строится проекция. Она не read-only: setup правит
+                # `available_commands`, и это решение возвращается в агрегат —
+                # иначе клиент увидит список команд, которого на диске нет.
                 if self._on_session_loaded:
-                    await self._on_session_loaded(session_obj, params)
+                    mcp_projection = SessionMapper.to_protocol(session_obj)
+                    await self._on_session_loaded(mcp_projection, params)
+                    session_obj.set_available_commands(
+                        SessionMapper.normalize_commands(mcp_projection.available_commands)
+                    )
 
                 # Обработка orphaned permission requests
                 if session_obj.active_turn and session_obj.active_turn.permission_request_id:
@@ -103,7 +113,7 @@ class SessionLoadCommandHandler:
                             session_id=session_id,
                             permission_request_id=perm_req_id,
                         )
-                        session_obj.active_turn = None
+                        session_obj.clear_active_turn()
                         # Отдельное сохранение здесь больше не нужно: транзакция
                         # сохраняет объект целиком в конце (P2-42).
 
@@ -122,14 +132,14 @@ class SessionLoadCommandHandler:
         # вызовов и ответы модели на отложенный хвост батча (P2-42, измерено).
         succeeded = outcome.response is not None and outcome.response.error is None
         if session_obj is not None and succeeded:
-            await self._repository.save_session(SessionMapper.to_domain(session_obj))
+            await self._repository.save_session(session_obj)
             # info, а не debug: это запись на диск на границе транзакции, и по логу
             # должно быть видно, что решения обработчика сохранены. На прогоне
             # 2026-07-30 событие было debug — и прогон не смог подтвердить правку.
             logger.info(
                 "session_saved_after_load",
                 session_id=session_id,
-                cwd=session_obj.cwd,
+                cwd=session_obj.config.cwd,
             )
 
         return outcome

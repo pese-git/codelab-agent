@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.models import HistoryMessage
+from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.storage import JsonFileStorage, SessionRepository
 
@@ -186,15 +186,15 @@ class TestDomainRoundTripDoesNotRewriteFormat:
         session.title = "T"
         session.config_values = {"mode": "standard"}
         session.history = [
-            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
-            {
-                "role": "assistant",
-                "text": "ok",
+            HistoryMessage(role="user", content=[{"type": "text", "text": "hi"}]),
+            HistoryMessage(
+                role="assistant",
+                text="ok",
                 # `arguments` обязателен: так пишет боевой путь (`loop.py`), и без него
                 # round-trip добавил бы ключ — фикстура должна повторять реальную форму
-                "tool_calls": [{"id": "llm_1", "name": "fs_read", "arguments": {"path": "a"}}],
-            },
-            {"role": "tool", "tool_call_id": "llm_1", "content": "res"},
+                tool_calls=[{"id": "llm_1", "name": "fs_read", "arguments": {"path": "a"}}],
+            ),
+            HistoryMessage(role="tool", tool_call_id="llm_1", content="res"),
         ]
         session.events_history = [
             {"type": "session_update", "update": {"sessionUpdate": "tool_call", "toolCallId": "c1"}}

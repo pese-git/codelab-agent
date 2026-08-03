@@ -12,13 +12,14 @@ from typing import Any, cast
 
 import structlog
 
+from ...domain.session import Session as DomainSession
+from ...domain.value_objects import ToolCallStatus
 from ...messages import ACPMessage, JsonRpcId
 from ...process_identity import PROCESS_TOKEN
-from ...storage import SessionRepository, SessionStorage
+from ...storage import SessionRepository
 from ..session_factory import SessionFactory
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
+from ..state import ClientRuntimeCapabilities, ProtocolOutcome
 from .event_history_writer import EventHistoryWriter
-from .prompt.turn_state import answer_deferred_batch
 from .session_replayer import SessionReplayer
 
 # Используем structlog для структурированного логирования
@@ -43,7 +44,7 @@ def _serialize_available_commands(
     return result
 
 
-def _cleanup_session_state(session: SessionState) -> None:
+def _cleanup_session_state(session: DomainSession) -> None:
     """Очищает незавершенные операции при переключении сессии.
 
     Выполняет следующие действия для безопасного переключения:
@@ -58,7 +59,7 @@ def _cleanup_session_state(session: SessionState) -> None:
     (pending), состояние в памяти (cancelled) и диск (pending).
 
     Аргументы:
-        session: SessionState для очистки.
+        session: Доменный агрегат сессии для очистки.
 
     Пример использования:
         _cleanup_session_state(session)
@@ -73,22 +74,23 @@ def _cleanup_session_state(session: SessionState) -> None:
             session.cancel_permission_request(session.active_turn.permission_request_id)
 
         # Если был pending client request, отменить его
-        if session.active_turn.pending_client_request is not None:
+        if session.active_turn.pending_external_request is not None:
             session.cancel_client_rpc_request(
-                session.active_turn.pending_client_request.request_id
+                session.active_turn.pending_external_request.request_id
             )
 
         # Отложенный хвост батча (P2-40) не выполнится после переключения сессии.
         # Обязательно до очистки: `pending_batch` живёт в `active_turn`.
-        answer_deferred_batch(session, session.session_id, reason="сессия была переключена")
+        session.answer_deferred_batch(reason="сессия была переключена")
 
-        session.active_turn = None
+        session.clear_active_turn()
 
     # Отметить все pending tool calls как cancelled
     history_writer = EventHistoryWriter()
-    for tool_call_id, tool_call in session.tool_calls.items():
-        if tool_call.status == "pending":
-            tool_call.status = "cancelled"
+    for tool_call in session.tool_calls.get_all():
+        if tool_call.status == ToolCallStatus.PENDING:
+            tool_call_id = tool_call.id
+            session.tool_calls.update_status(tool_call_id, ToolCallStatus.CANCELLED)
             history_writer.save_tool_call_update(
                 session,
                 tool_call_id=tool_call_id,
@@ -201,7 +203,7 @@ def _validate_session_load_params(
     return None
 
 
-def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[ACPMessage]:
+def _replay_tool_calls_fallback(session: DomainSession, session_id: str) -> list[ACPMessage]:
     """Реплей tool call'ов из состояния, если их нет в `events_history`.
 
     Обратная совместимость с сессиями, созданными до сохранения `tool_call` событий
@@ -215,13 +217,13 @@ def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[
     has_tool_call_events = any(
         event.get("type") == "session_update"
         and event.get("update", {}).get("sessionUpdate") == "tool_call"
-        for event in session.events_history
+        for event in session.runtime.events_history
     )
-    if has_tool_call_events or not session.tool_calls:
+    if has_tool_call_events or not session.tool_calls.get_all():
         return []
 
     notifications: list[ACPMessage] = []
-    for tool_call in session.tool_calls.values():
+    for tool_call in session.tool_calls.get_all():
         notifications.append(
             ACPMessage.notification(
                 "session/update",
@@ -229,7 +231,7 @@ def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[
                     "sessionId": session_id,
                     "update": {
                         "sessionUpdate": "tool_call",
-                        "toolCallId": tool_call.tool_call_id,
+                        "toolCallId": tool_call.id,
                         "title": tool_call.title,
                         "kind": tool_call.kind,
                         "status": "pending",
@@ -237,15 +239,15 @@ def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[
                 },
             )
         )
-        if tool_call.status == "pending":
+        if tool_call.status == ToolCallStatus.PENDING:
             continue
         update_payload: dict[str, Any] = {
             "sessionUpdate": "tool_call_update",
-            "toolCallId": tool_call.tool_call_id,
-            "status": tool_call.status,
+            "toolCallId": tool_call.id,
+            "status": tool_call.status.value,
         }
-        if tool_call.content:
-            update_payload["content"] = tool_call.content
+        if tool_call.result and tool_call.result.content:
+            update_payload["content"] = tool_call.result.content
         notifications.append(
             ACPMessage.notification(
                 "session/update",
@@ -255,7 +257,7 @@ def _replay_tool_calls_fallback(session: SessionState, session_id: str) -> list[
     return notifications
 
 
-def _drop_terminals_from_previous_process(session: SessionState, session_id: str) -> None:
+def _drop_terminals_from_previous_process(session: DomainSession, session_id: str) -> None:
     """Убрать из реестра терминалы, оставшиеся от другого процесса (P2-44).
 
     Реестр alias'ов персистится вместе с сессией, а сами терминалы живут у клиента и
@@ -270,14 +272,14 @@ def _drop_terminals_from_previous_process(session: SessionState, session_id: str
     После очистки обращение к старому alias'у идёт по существующему пути «неизвестный
     терминал» и модель получает внятный ответ вместо внутренней ошибки.
     """
-    if not session.terminals:
+    if not session.runtime.terminals:
         return
-    if session.terminals_owner == PROCESS_TOKEN:
+    if session.runtime.terminals_owner == PROCESS_TOKEN:
         return
 
-    dropped = len(session.terminals)
-    session.terminals = {}
-    session.terminals_owner = None
+    dropped = len(session.runtime.terminals)
+    session.runtime.terminals = {}
+    session.runtime.terminals_owner = None
     logger.info(
         "terminals_dropped_from_previous_process",
         session_id=session_id,
@@ -292,8 +294,7 @@ async def session_load(
     authenticated: bool,
     config_specs: dict[str, dict[str, Any]],
     auth_methods: list[dict[str, Any]],
-    storage: SessionStorage | None = None,
-    session: SessionState | None = None,
+    session: DomainSession | None = None,
 ) -> ProtocolOutcome:
     """Загружает существующую сессию и реплеит состояние через updates.
 
@@ -335,12 +336,9 @@ async def session_load(
     cwd = cast(str, cwd)
     mcp_servers = cast(list, mcp_servers)
 
-    # Сессию передаёт вызывающий, если уже загрузил её (так делает
-    # `SessionLoadCommandHandler`): вторая загрузка давала бы вторую копию, и
-    # мутации первой терялись бы — `JsonFileStorage` отдаёт новый объект на каждый
-    # `load_session` (P2-42). `storage` нужен только для самостоятельной загрузки.
-    if session is None and storage is not None:
-        session = await storage.load_session(session_id)
+    # Сессию передаёт вызывающий, уже загрузивший её (`SessionLoadCommandHandler`):
+    # вторая загрузка давала бы вторую копию, и мутации первой терялись бы —
+    # `JsonFileStorage` отдаёт новый объект на каждый `load_session` (P2-42).
     if session is None:
         logger.warning("session_load_not_found", session_id=session_id)
         return ProtocolOutcome(
@@ -356,8 +354,11 @@ async def session_load(
     _cleanup_session_state(session)
 
     # При загрузке фиксируем актуальный контекст клиента.
-    session.cwd = cwd
-    session.mcp_servers = [server for server in mcp_servers if isinstance(server, dict)]
+    session.apply_client_context(
+        cwd=cwd,
+        mcp_servers=[server for server in mcp_servers if isinstance(server, dict)],
+        runtime_capabilities=session.config.runtime_capabilities,
+    )
 
     notifications: list[ACPMessage] = []
 
@@ -386,7 +387,9 @@ async def session_load(
                 "sessionId": session_id,
                 "update": {
                     "sessionUpdate": "config_option_update",
-                    "configOptions": build_config_options(session.config_values, config_specs),
+                    "configOptions": build_config_options(
+                        session.config.config_values, config_specs
+                    ),
                 },
             },
         )
@@ -420,16 +423,16 @@ async def session_load(
         history_notifications=len(history_notifications),
         plan_replayed=plan_notification is not None,
         tool_call_fallback_used=bool(fallback_notifications),
-        events_history=len(session.events_history),
-        tool_calls=len(session.tool_calls),
+        events_history=len(session.runtime.events_history),
+        tool_calls=len(session.tool_calls.get_all()),
     )
 
     return ProtocolOutcome(
         response=ACPMessage.response(
             request_id,
             {
-                "configOptions": build_config_options(session.config_values, config_specs),
-                "modes": build_modes_state(session.config_values, config_specs),
+                "configOptions": build_config_options(session.config.config_values, config_specs),
+                "modes": build_modes_state(session.config.config_values, config_specs),
             },
         ),
         notifications=notifications,

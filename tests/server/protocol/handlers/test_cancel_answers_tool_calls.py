@@ -17,12 +17,14 @@ import pytest
 
 from codelab.server.domain.conversation import ConversationMessage
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
 from codelab.server.domain.value_objects import MessageRole
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
+from tests.server._domain_sessions import make_domain_session
 
 
 def _session_with_pending_call(status: str = "pending") -> SessionState:
@@ -44,8 +46,9 @@ def _session_with_pending_call(status: str = "pending") -> SessionState:
     return session
 
 
-def _answers(session: SessionState) -> list[HistoryMessage]:
-    return [m for m in session.history if m.role == "tool"]
+def _answers(session: DomainSession) -> list[ConversationMessage]:
+    """Ответы `role: tool` доменной сессии — путь переключения теперь на агрегате."""
+    return [m for m in session.history.get_messages() if m.role == MessageRole.TOOL]
 
 
 def _domain_session_with_pending_call(status: str = "pending") -> DomainSession:
@@ -103,26 +106,26 @@ class TestTurnCancelAnswersToolCalls:
 class TestSessionSwitchAnswersToolCalls:
     def test_cleanup_answers_pending_call(self) -> None:
         """Переключение сессии тоже не оставляет вызов без ответа."""
-        session = _session_with_pending_call()
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        session = _domain_session_with_pending_call()
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
 
         _cleanup_session_state(session)
 
         answers = _answers(session)
         assert len(answers) == 1
         assert answers[0].tool_call_id == "chatcmpl-tool-abc"
-        assert "переключена" in answers[0].content
-        assert session.tool_calls["call_001"].status == "cancelled"
+        assert "переключена" in answers[0].content.text
+        assert session.tool_calls.get("call_001").status.value == "cancelled"
 
     def test_cleanup_keeps_history_consistent_with_events(self) -> None:
         """Отмена уходит и в реплей клиенту, и в историю модели — в одной копии."""
-        session = _session_with_pending_call()
+        session = _domain_session_with_pending_call()
 
         _cleanup_session_state(session)
 
         replayed = [
             e
-            for e in session.events_history
+            for e in session.runtime.events_history
             if (e.get("update") or {}).get("sessionUpdate") == "tool_call_update"
         ]
         assert len(replayed) == 1
@@ -185,9 +188,9 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
     требует явного ответа на каждом пути обрыва.
     """
 
-    def _session_with_deferred_batch(self) -> SessionState:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+    def _session_with_deferred_batch(self) -> DomainSession:
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
         session.active_turn.pending_batch = [
             {"id": "llm_2", "name": "fs_read_text_file", "arguments": {"path": "B.md"}},
             {"id": "llm_3", "name": "fs_read_text_file", "arguments": {"path": "C.md"}},
@@ -195,28 +198,25 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         return session
 
     def test_cancel_answers_deferred_batch(self) -> None:
-        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
-
         session = self._session_with_deferred_batch()
 
-        answered = answer_deferred_batch(session, "s", reason="turn отменён пользователем")
+        answered = session.answer_deferred_batch(reason="turn отменён пользователем")
 
         assert answered == 2
         ids = {m.tool_call_id for m in _answers(session)}
         assert ids == {"llm_2", "llm_3"}
-        assert all("отменён" in m.content for m in _answers(session))
+        assert all("отменён" in m.content.text for m in _answers(session))
         # Хвост снят: иначе он всплыл бы при следующем resume
         assert session.active_turn.pending_batch == []
 
     def test_permission_reject_answers_deferred_batch(self) -> None:
-        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
 
         session = self._session_with_deferred_batch()
 
-        answer_deferred_batch(session, "s", reason="в разрешении отказано")
+        session.answer_deferred_batch(reason="в разрешении отказано")
 
         assert len(_answers(session)) == 2
-        assert all("отказано" in m.content for m in _answers(session))
+        assert all("отказано" in m.content.text for m in _answers(session))
 
     def test_session_switch_answers_deferred_batch(self) -> None:
         session = self._session_with_deferred_batch()
@@ -228,22 +228,20 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         assert session.active_turn is None
 
     def test_empty_batch_writes_nothing(self) -> None:
-        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
 
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
-        session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="s")
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
+        session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
 
-        assert answer_deferred_batch(session, "s", reason="неважно") == 0
+        assert session.answer_deferred_batch(reason="неважно") == 0
         assert _answers(session) == []
 
     def test_call_without_id_is_skipped_not_crashed(self) -> None:
         """Битая запись в хвосте не должна ронять путь отмены."""
-        from codelab.server.protocol.handlers.prompt.turn_state import answer_deferred_batch
 
         session = self._session_with_deferred_batch()
         session.active_turn.pending_batch.append({"name": "fs_read_text_file"})
 
-        assert answer_deferred_batch(session, "s", reason="turn отменён пользователем") == 2
+        assert session.answer_deferred_batch(reason="turn отменён пользователем") == 2
 
 
 class TestRealPathsAnswerDeferredBatch:

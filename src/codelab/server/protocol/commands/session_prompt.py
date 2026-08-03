@@ -111,11 +111,21 @@ class SessionPromptCommandHandler:
         if content_error is not None:
             return ProtocolOutcome(response=content_error)
 
-        # MCP-менеджер читает wire-конфигурацию сессии: проекция строится на месте
-        # и никуда не сохраняется — носитель состояния turn'а остаётся доменным.
-        mcp_manager = await self._mcp_provider(SessionMapper.to_protocol(domain_session))
-
         commands = SessionCommands(self._repository, domain_session)
+
+        # MCP-менеджер всё ещё типизирован wire-DTO (его держит transient
+        # `mcp_prompt_handlers`, которого нет в домене), поэтому на границе строится
+        # проекция. Она не read-only: восстановление MCP-prompt'ов подрезает
+        # `available_commands`, и это решение обязано вернуться в сессию — иначе
+        # клиент получит список команд, которого на диске нет.
+        mcp_projection = SessionMapper.to_protocol(domain_session)
+        mcp_manager = await self._mcp_provider(mcp_projection)
+        mcp_commands = SessionMapper.normalize_commands(mcp_projection.available_commands)
+        if mcp_commands != domain_session.available_commands:
+            await commands.apply(
+                lambda target: target.set_available_commands(mcp_commands),
+                name="mcp_commands_synced",
+            )
 
         # Stale active_turn снимается командой: это изменение состояния, и оно
         # обязано быть на диске до того, как turn начнёт писать своё.

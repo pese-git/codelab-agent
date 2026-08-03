@@ -27,6 +27,7 @@ from codelab.server.mapping.tool_call_mapper import ToolCallMapper
 from codelab.server.models import HistoryMessage, PlanStep
 from codelab.server.protocol.state import (
     ActiveTurnState,
+    ClientRuntimeCapabilities,
     PendingClientRequestState,
     SessionState,
 )
@@ -94,8 +95,6 @@ class SessionMapper:
 
         # Runtime capabilities
         if session.config.runtime_capabilities:
-            from codelab.server.protocol.state import ClientRuntimeCapabilities
-
             state.runtime_capabilities = ClientRuntimeCapabilities(
                 fs_read=session.config.runtime_capabilities.fs_read,
                 fs_write=session.config.runtime_capabilities.fs_write,
@@ -154,13 +153,7 @@ class SessionMapper:
             Domain Session aggregate
         """
         # Создаем SessionConfig
-        runtime_caps = None
-        if state.runtime_capabilities:
-            runtime_caps = ClientCapabilities(
-                fs_read=state.runtime_capabilities.fs_read,
-                fs_write=state.runtime_capabilities.fs_write,
-                terminal=state.runtime_capabilities.terminal,
-            )
+        runtime_caps = SessionMapper.capabilities_to_domain(state.runtime_capabilities)
 
         config = SessionConfig(
             cwd=state.cwd,
@@ -212,11 +205,11 @@ class SessionMapper:
             updated_at=state.updated_at,
             schema_version=state.schema_version,
             revision=state.revision,
-            available_commands=SessionMapper._normalize_commands(state.available_commands),
+            available_commands=SessionMapper.normalize_commands(state.available_commands),
         )
 
     @staticmethod
-    def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
+    def normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
         """available_commands → list[dict]: AvailableCommand (pydantic) или dict."""
         result: list[dict[str, Any]] = []
         for cmd in commands:
@@ -266,6 +259,24 @@ class SessionMapper:
                 state.session_metrics.model_dump() if state.session_metrics is not None else None
             ),
             correlation_id=state.correlation_id,
+        )
+
+    @staticmethod
+    def capabilities_to_domain(
+        wire: ClientRuntimeCapabilities | None,
+    ) -> ClientCapabilities | None:
+        """Согласованные возможности клиента: wire-DTO → доменный VO.
+
+        Отдельный шов, потому что возможности приходят не только из документа
+        сессии: `initialize` согласует их за пределами хранилища, а применяет
+        `session/load` (ADR-006, фаза D шаг 5).
+        """
+        if wire is None:
+            return None
+        return ClientCapabilities(
+            fs_read=wire.fs_read,
+            fs_write=wire.fs_write,
+            terminal=wire.terminal,
         )
 
     @staticmethod

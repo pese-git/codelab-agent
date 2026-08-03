@@ -15,6 +15,7 @@ from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.state import SessionState
+from codelab.server.storage import SessionRepository
 from tests.server._domain_sessions import make_domain_session
 
 
@@ -195,7 +196,7 @@ class TestSessionLoadReplay:
             active_turn=None,
         )
 
-        from codelab.server.storage import InMemoryStorage
+        from codelab.server.storage import InMemoryStorage, SessionRepository
 
         storage = InMemoryStorage()
         await storage.save_session(session)
@@ -208,7 +209,7 @@ class TestSessionLoadReplay:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session("sess_1"),
         )
 
         # Assert
@@ -269,7 +270,7 @@ class TestSessionLoadReplay:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session("sess_1"),
         )
 
         # Assert
@@ -335,7 +336,7 @@ class TestSessionLoadReplay:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session("sess_1"),
         )
 
         # Assert
@@ -405,7 +406,7 @@ class TestSessionLoadReplay:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session("sess_1"),
         )
 
         # Assert

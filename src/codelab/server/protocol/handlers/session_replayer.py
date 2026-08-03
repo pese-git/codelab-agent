@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import structlog
 
+from codelab.server.domain.session import Session as DomainSession
 from codelab.server.mapping.plan_mapper import PlanMapper
 
 from ...messages import ACPMessage
-from ..state import SessionState
 
 logger = structlog.get_logger()
 
@@ -52,7 +52,7 @@ class SessionReplayer:
 
     def replay_history(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> list[ACPMessage]:
         """Воспроизводит полную историю session/update уведомлений.
 
@@ -67,10 +67,10 @@ class SessionReplayer:
             Список ACPMessage notifications для отправки клиенту
         """
         notifications: list[ACPMessage] = []
-        session_id = session.session_id
+        session_id = str(session.id)
 
         # Replay из events_history - восстанавливаем полную историю
-        for event in session.events_history:
+        for event in session.runtime.events_history:
             if event.get("type") != "session_update":
                 continue
 
@@ -89,7 +89,7 @@ class SessionReplayer:
         logger.debug(
             "replay_history completed",
             session_id=session_id,
-            events_count=len(session.events_history),
+            events_count=len(session.runtime.events_history),
             notifications_count=len(notifications),
         )
 
@@ -97,7 +97,7 @@ class SessionReplayer:
 
     def replay_latest_plan(
         self,
-        session: SessionState,
+        session: DomainSession,
     ) -> ACPMessage | None:
         """Воспроизводит последний план если он есть.
 
@@ -110,19 +110,18 @@ class SessionReplayer:
         Returns:
             ACPMessage с plan update или None если плана нет
         """
-        if not session.latest_plan:
+        if not session.plan.get_steps():
             return None
 
-        # `latest_plan` шире ACP-формы (PlanStep | dict, а после переключения резидента —
-        # доменные PlanEntry). Приведение — единственным швом Plan↔ACP: без него
-        # ACPMessage.to_json падал с "PlanStep is not JSON serializable", а pre-P2-26
-        # записи уходили клиенту без обязательных по ACP полей.
-        entries = PlanMapper.entries_to_acp(list(session.latest_plan))
+        # Приведение — единственным швом Plan↔ACP: без него ACPMessage.to_json падал
+        # с "PlanStep is not JSON serializable", а pre-P2-26 записи уходили клиенту
+        # без обязательных по ACP полей.
+        entries = PlanMapper.to_acp(session.plan.get_steps())
 
         return ACPMessage.notification(
             "session/update",
             {
-                "sessionId": session.session_id,
+                "sessionId": str(session.id),
                 "update": {
                     "sessionUpdate": "plan",
                     "entries": entries,

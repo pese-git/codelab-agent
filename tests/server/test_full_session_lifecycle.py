@@ -16,6 +16,7 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
+from codelab.server.storage import SessionRepository
 
 
 class TestFullSessionLifecycle:
@@ -91,7 +92,7 @@ class TestFullSessionLifecycle:
         assert len(agent_events) == 1
 
         # Сохраняем сессию в storage
-        from codelab.server.storage import InMemoryStorage
+        from codelab.server.storage import InMemoryStorage, SessionRepository
 
         storage = InMemoryStorage()
         await storage.save_session(SessionMapper.to_protocol(session))
@@ -104,7 +105,7 @@ class TestFullSessionLifecycle:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session(str(session.id)),
         )
 
         # Assert - Проверяем что notifications содержат полную историю
@@ -205,7 +206,7 @@ class TestFullSessionLifecycle:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session(str(session.id)),
         )
 
         # Assert - Проверяем что все сообщения воспроизведены в правильном порядке
@@ -290,7 +291,7 @@ class TestFullSessionLifecycle:
             authenticated=True,
             config_specs=config_specs,
             auth_methods=[],
-            storage=storage,
+            session=await SessionRepository(storage).load_session(str(session.id)),
         )
 
         # Assert - Проверяем порядок событий в notifications

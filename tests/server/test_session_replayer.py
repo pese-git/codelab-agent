@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import AgentPlan
+from codelab.server.domain.session import Session as DomainSession
+from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session_replayer import SessionReplayer
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает тестовую сессию."""
-    return SessionState(
+def session() -> DomainSession:
+    """Создает тестовую сессию (доменный агрегат — носитель реплея, ADR-006 D5)."""
+    return make_domain_session(
         session_id="sess_test_001",
         cwd="/tmp/test",
         mcp_servers=[],
@@ -43,7 +46,7 @@ class TestReplayHistory:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет replay пустой истории."""
         notifications = replayer.replay_history(session)
@@ -54,7 +57,7 @@ class TestReplayHistory:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет replay сообщений пользователя и агента."""
         # Сохраняем историю
@@ -78,7 +81,7 @@ class TestReplayHistory:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет replay полного жизненного цикла tool call."""
         # Сохраняем события tool call
@@ -115,7 +118,7 @@ class TestReplayHistory:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет replay полной беседы с tool calls."""
         # Симулируем полную беседу
@@ -159,11 +162,11 @@ class TestReplayHistory:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет что события не из _REPLAYABLE_UPDATE_TYPES пропускаются."""
         # Добавляем событие напрямую в events_history с неизвестным типом
-        session.events_history.append(
+        session.runtime.events_history.append(
             {
                 "type": "session_update",
                 "update": {"sessionUpdate": "unknown_type", "data": "test"},
@@ -187,7 +190,7 @@ class TestReplayLatestPlan:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет возврат None когда плана нет."""
         result = replayer.replay_latest_plan(session)
@@ -198,13 +201,14 @@ class TestReplayLatestPlan:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет replay последнего плана в ACP-форме (P2-26)."""
-        session.latest_plan = [
+        plan_entries = [
             {"content": "Step 1", "priority": "high", "status": "completed"},
             {"content": "Step 2", "priority": "medium", "status": "pending"},
         ]
+        session.plan = AgentPlan(steps=PlanMapper.from_acp(plan_entries))
 
         notification = replayer.replay_latest_plan(session)
 
@@ -212,27 +216,33 @@ class TestReplayLatestPlan:
         assert notification.method == "session/update"
         assert notification.params["sessionId"] == "sess_test_001"
         assert notification.params["update"]["sessionUpdate"] == "plan"
-        assert notification.params["update"]["entries"] == session.latest_plan
+        assert notification.params["update"]["entries"] == plan_entries
 
     def test_replays_plan_with_planstep_objects_is_serializable(
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
-        """Регресс: план из PlanStep-объектов (после загрузки из JSON) сериализуется.
+        """Регресс: пре-P2-26 план (форма `description`) сериализуется после загрузки.
 
         Ранее session/load сессии с планом крашил WS-соединение с
-        `TypeError: Object of type PlanStep is not JSON serializable`.
-        Пре-P2-26 форма (`description`) приводится к ACP-записи: ACP
-        11-Agent Plan требует content/priority/status у каждой записи.
+        `TypeError: Object of type PlanStep is not JSON serializable`. Носитель
+        реплея — доменный агрегат (ADR-006, D5), поэтому старая wire-форма
+        приходит сюда так же, как из хранилища: через маппер.
         """
         from codelab.server.models import PlanStep
 
-        session.latest_plan = [
-            PlanStep(description="Step 1", status="completed"),
-            PlanStep(description="Step 2", status="pending"),
-        ]
+        session.plan = AgentPlan(
+            steps=PlanMapper.from_acp(
+                PlanMapper.entries_to_acp(
+                    [
+                        PlanStep(description="Step 1", status="completed"),
+                        PlanStep(description="Step 2", status="pending"),
+                    ]
+                )
+            )
+        )
 
         notification = replayer.replay_latest_plan(session)
 
@@ -250,7 +260,7 @@ class TestReplayLatestPlan:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Доменные PlanEntry проходят путь реплея (блокер фазы D снят).
 
@@ -260,9 +270,13 @@ class TestReplayLatestPlan:
         from codelab.server.domain.plan import PlanEntry
         from codelab.server.domain.value_objects import PlanPriority, PlanStatus
 
-        session.latest_plan = [  # type: ignore[list-item]
-            PlanEntry(content="Step 1", priority=PlanPriority.HIGH, status=PlanStatus.IN_PROGRESS)
-        ]
+        session.plan = AgentPlan(
+            steps=[
+                PlanEntry(
+                    content="Step 1", priority=PlanPriority.HIGH, status=PlanStatus.IN_PROGRESS
+                )
+            ]
+        )
 
         notification = replayer.replay_latest_plan(session)
 
@@ -280,7 +294,7 @@ class TestIntegrationWithSessionLoad:
         self,
         replayer: SessionReplayer,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Проверяет полный сценарий replay для session/load."""
         # Симулируем историю сессии
