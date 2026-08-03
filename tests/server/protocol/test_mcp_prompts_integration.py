@@ -49,7 +49,7 @@ def manager(mock_runtime_registry: AsyncMock) -> MCPSessionManager:
 @pytest.fixture
 def session() -> SessionState:
     """Создаёт тестовую сессию."""
-    return SessionState(
+    return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -75,7 +75,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
     async def test_registers_prompts_in_runtime_registry(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Регистрирует MCP prompts в runtime.mcp_prompt_handlers."""
@@ -103,14 +103,12 @@ class TestRegisterMcpPromptsAsSlashCommands:
         assert "plan" in runtime_state.mcp_prompt_handlers
         assert isinstance(runtime_state.mcp_prompt_handlers["code_review"], MCPPromptCommandHandler)
         assert isinstance(runtime_state.mcp_prompt_handlers["plan"], MCPPromptCommandHandler)
-        # Session.mcp_prompt_handlers должен быть пуст (handlers скопированы в runtime)
-        assert len(session.mcp_prompt_handlers) == 0
 
     @pytest.mark.asyncio
     async def test_adds_prompts_to_available_commands(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Добавляет MCP prompts в session_state.available_commands."""
@@ -143,7 +141,7 @@ class TestRegisterMcpPromptsAsSlashCommands:
     async def test_handles_empty_prompts(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обрабатывает случай без prompts."""
         mock_manager = MagicMock()
@@ -151,13 +149,12 @@ class TestRegisterMcpPromptsAsSlashCommands:
 
         await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
-        assert len(session.mcp_prompt_handlers) == 0
 
     @pytest.mark.asyncio
     async def test_handles_missing_server(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обрабатывает случай когда сервер не найден в prompts."""
         mock_manager = MagicMock()
@@ -165,13 +162,12 @@ class TestRegisterMcpPromptsAsSlashCommands:
 
         await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
-        assert len(session.mcp_prompt_handlers) == 0
 
     @pytest.mark.asyncio
     async def test_handles_error_gracefully(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Обрабатывает ошибки при получении prompts без прерывания."""
         mock_manager = MagicMock()
@@ -180,7 +176,6 @@ class TestRegisterMcpPromptsAsSlashCommands:
         # Не должно выбрасывать исключение
         await manager._register_mcp_prompts_as_slash_commands(session, mock_manager, "test_server")
 
-        assert len(session.mcp_prompt_handlers) == 0
 
 
 class TestSlashCommandRouterMcpPrompts:
@@ -261,7 +256,7 @@ class TestInitializeMcpServersWithPrompts:
     async def test_calls_register_prompts_after_add_server(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Вызывает _register_mcp_prompts_as_slash_commands после add_server."""
         mcp_servers = [{"name": "test", "command": "test-cmd", "args": [], "env": []}]
@@ -291,7 +286,7 @@ class TestInitializeMcpServersWithPrompts:
     async def test_includes_prompts_in_available_commands_update(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Включает MCP prompts в available_commands_update."""
         # Добавляем slash команду в session
@@ -338,13 +333,13 @@ class TestRestoreMcpPrompts:
     async def test_restores_prompts_from_configured_servers(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Восстанавливает prompts для всех серверов из mcp_servers."""
         from codelab.server.mcp.models import MCPPrompt
 
-        session.mcp_servers = [
+        session.config.mcp_servers[:] = [
             {"name": "server1", "command": "cmd1"},
             {"name": "server2", "command": "cmd2"},
         ]
@@ -367,20 +362,18 @@ class TestRestoreMcpPrompts:
         # Handlers должны быть в runtime registry
         assert "prompt1" in runtime_state.mcp_prompt_handlers
         assert "prompt2" in runtime_state.mcp_prompt_handlers
-        # Session.mcp_prompt_handlers должен быть пуст
-        assert len(session.mcp_prompt_handlers) == 0
 
     @pytest.mark.asyncio
     async def test_skips_invalid_server_configs(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Пропускает невалидные конфигурации серверов."""
         from codelab.server.mcp.models import MCPPrompt
 
-        session.mcp_servers = [
+        session.config.mcp_servers[:] = [
             {"name": "valid", "command": "cmd"},
             {"command": "no_name"},  # нет name
             "not_a_dict",  # не dict
@@ -405,7 +398,7 @@ class TestRestoreMcpPrompts:
     async def test_clears_old_mcp_prompts_before_restore(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Очищает старые MCP prompts перед восстановлением."""
@@ -413,11 +406,11 @@ class TestRestoreMcpPrompts:
 
         # Добавляем старые prompts в runtime
         runtime_state.mcp_prompt_handlers["old_prompt"] = MagicMock()
-        session.available_commands = [
+        session.set_available_commands([
             {"name": "status", "description": "Built-in"},
             {"name": "old_prompt", "description": "Old MCP prompt"},
-        ]
-        session.mcp_servers = [{"name": "server1", "command": "cmd"}]
+        ])
+        session.config.mcp_servers.append({"name": "server1", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_manager.get_all_prompts = AsyncMock(
@@ -451,10 +444,10 @@ class TestEnsureMcpInitializedWithRestore:
     async def test_restores_prompts_when_handlers_empty(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Восстанавливает prompts если runtime.mcp_prompt_handlers пуст."""
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_runtime = MagicMock()
@@ -473,10 +466,10 @@ class TestEnsureMcpInitializedWithRestore:
     async def test_does_not_restore_when_handlers_exist(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не восстанавливает prompts если handlers уже есть в runtime."""
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_runtime = MagicMock()
@@ -495,10 +488,10 @@ class TestEnsureMcpInitializedWithRestore:
     async def test_does_not_restore_when_no_mcp_servers(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Не восстанавливает prompts если нет mcp_servers."""
-        session.mcp_servers = []
+        session.config.mcp_servers[:] = []
 
         mock_manager = MagicMock()
         mock_runtime = MagicMock()
@@ -514,33 +507,6 @@ class TestEnsureMcpInitializedWithRestore:
             mock_restore.assert_not_called()
 
 
-class TestSessionStateMcpPromptHandlers:
-    """Тесты для поля mcp_prompt_handlers в SessionState."""
-
-    def test_default_empty_dict(self) -> None:
-        """По умолчанию mcp_prompt_handlers — пустой dict."""
-        session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
-        assert session.mcp_prompt_handlers == {}
-
-    def test_handlers_not_serialized(self) -> None:
-        """mcp_prompt_handlers не сериализуется (exclude=True)."""
-        session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
-        session.mcp_prompt_handlers["test"] = MagicMock()
-
-        data = session.model_dump()
-        assert "mcp_prompt_handlers" not in data
-
-    def test_handlers_per_session_isolation(self) -> None:
-        """Handlers изолированы между сессиями."""
-        session1 = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
-        session2 = SessionState(session_id="s2", cwd="/tmp", mcp_servers=[])
-
-        session1.mcp_prompt_handlers["prompt1"] = MagicMock()
-
-        assert "prompt1" in session1.mcp_prompt_handlers
-        assert "prompt1" not in session2.mcp_prompt_handlers
-
-
 class TestSendAvailableCommandsUpdate:
     """Тесты для метода send_available_commands_update."""
 
@@ -548,7 +514,7 @@ class TestSendAvailableCommandsUpdate:
     async def test_combines_native_and_mcp_tools(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Объединяет native tools, MCP tools и slash commands."""
         from codelab.server.tools.base import ToolDefinition
@@ -601,7 +567,7 @@ class TestSendAvailableCommandsUpdate:
     async def test_sends_correct_notification_format(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Формат notification соответствует ACP спецификации."""
         manager._tool_registry = MagicMock()
@@ -636,7 +602,7 @@ class TestSendAvailableCommandsUpdate:
     async def test_handles_send_error_gracefully(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Ошибка отправки не ломает работу."""
         manager._tool_registry = MagicMock()
@@ -661,7 +627,7 @@ class TestMcpPromptChangeCallback:
     async def test_callback_registered_on_init(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
     ) -> None:
         """Callback регистрируется при инициализации MCP серверов."""
         mcp_servers = [{"name": "test", "command": "test-cmd", "args": [], "env": []}]
@@ -689,17 +655,17 @@ class TestMcpPromptChangeCallback:
     async def test_clears_old_mcp_prompts(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """При изменении prompts старые handlers удаляются из runtime."""
         # Добавляем старые MCP prompts в runtime
         runtime_state.mcp_prompt_handlers["old_prompt"] = MagicMock()
-        session.available_commands = [
+        session.set_available_commands([
             {"name": "status", "description": "Built-in"},
             {"name": "old_prompt", "description": "Old MCP prompt"},
-        ]
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        ])
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])
@@ -743,25 +709,22 @@ class TestMcpPromptChangeCallback:
         assert "old_prompt" not in runtime_state.mcp_prompt_handlers
         # Новый prompt добавлен в runtime
         assert "new_prompt" in runtime_state.mcp_prompt_handlers
-        # Session.mcp_prompt_handlers должен быть пуст (handlers в runtime)
-        assert len(session.mcp_prompt_handlers) == 0
 
     @pytest.mark.asyncio
     async def test_preserves_builtin_commands(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Built-in команды (status, mode, help) сохраняются."""
-        session.available_commands = [
+        session.set_available_commands([
             {"name": "status", "description": "Session status"},
             {"name": "mode", "description": "Switch mode"},
             {"name": "help", "description": "Show help"},
             {"name": "old_mcp_prompt", "description": "Old MCP prompt"},
-        ]
-        session.mcp_prompt_handlers["old_mcp_prompt"] = MagicMock()
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        ])
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])
@@ -809,11 +772,11 @@ class TestMcpPromptChangeCallback:
     async def test_sends_available_commands_update(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """После изменения prompts отправляется available_commands_update."""
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])
@@ -870,11 +833,11 @@ class TestMcpPromptChangeCallback:
     async def test_handles_error_gracefully(
         self,
         manager: MCPSessionManager,
-        session: SessionState,
+        session: DomainSession,
         runtime_state: SessionRuntimeState,
     ) -> None:
         """Ошибка в callback не ломает работу."""
-        session.mcp_servers = [{"name": "test", "command": "cmd"}]
+        session.config.mcp_servers.append({"name": "test", "command": "cmd"})
 
         mock_manager = MagicMock()
         mock_manager.add_server = AsyncMock(return_value=[])

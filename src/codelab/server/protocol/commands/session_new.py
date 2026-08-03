@@ -10,12 +10,13 @@ from typing import Any
 
 import structlog
 
+from ...domain.session import Session as DomainSession
 from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionRepository
 from ..handlers import session
 from ..session_factory import SessionFactory
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
+from ..state import ClientRuntimeCapabilities, ProtocolOutcome
 
 logger = structlog.get_logger()
 
@@ -44,7 +45,9 @@ class SessionNewCommandHandler:
         authenticated: bool,
         runtime_capabilities: ClientRuntimeCapabilities | None = None,
         command_registry: Any | None = None,
-        on_session_created: Callable[[SessionState, dict[str, Any]], Awaitable[None]] | None = None,
+        on_session_created: (
+            Callable[[DomainSession, dict[str, Any]], Awaitable[None]] | None
+        ) = None,
     ) -> None:
         """Инициализирует обработчик.
 
@@ -111,15 +114,16 @@ class SessionNewCommandHandler:
                     session_id=session_id,
                 )
 
-                # Выполняем side effects через callback
-                if self._on_session_created:
-                    await self._on_session_created(session_state, params)
+                # Сессию собирает `SessionFactory` в wire-форме — он остаётся на
+                # постоянной wire-границе (ADR-006). Конверсия в домен идёт сразу,
+                # ДО side effects: MCP-setup правит `available_commands`, и он
+                # обязан править тот же объект, который уедет на диск.
+                domain_session = SessionMapper.to_domain(session_state)
 
-                # Сессию собирает `SessionFactory` в wire-форме, и он остаётся на
-                # постоянной wire-границе (ADR-006), поэтому конверсия в домен стоит
-                # здесь — единственное место в прикладном пути, где она вне порта.
-                # Дальше транзакция работает доменным агрегатом (фаза D ADR-006).
-                await self._repository.save_session(SessionMapper.to_domain(session_state))
+                if self._on_session_created:
+                    await self._on_session_created(domain_session, params)
+
+                await self._repository.save_session(domain_session)
 
                 logger.info(
                     "session_created",

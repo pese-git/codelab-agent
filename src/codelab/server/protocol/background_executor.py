@@ -13,16 +13,15 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from ..mapping.session_mapper import SessionMapper
 from ..messages import ACPMessage
 from .handlers import prompt
 from .session_commands import SessionCommands
 from .state import LLMLoopResult
 
 if TYPE_CHECKING:
+    from ..domain.session import Session as DomainSession
     from ..mcp import MCPManager
     from ..protocol.session_runtime import SessionRuntimeRegistry
-    from ..protocol.state import SessionState
     from ..storage import SessionRepository, SessionStorage
     from .handlers.prompt_orchestrator import PromptOrchestrator
 
@@ -52,7 +51,7 @@ class BackgroundExecutor:
         storage: SessionStorage,
         repository: SessionRepository,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
-        mcp_provider: Callable[[SessionState], Awaitable[MCPManager | None]],
+        mcp_provider: Callable[[DomainSession], Awaitable[MCPManager | None]],
         runtime_registry: SessionRuntimeRegistry,
     ) -> None:
         """Инициализирует BackgroundExecutor.
@@ -162,13 +161,12 @@ class BackgroundExecutor:
 
         commands = SessionCommands(self._repository, domain_session)
 
-        # Проекция для MCP-менеджера не read-only: восстановление prompt'ов подрезает
-        # `available_commands` (см. `session_prompt`), и это решение возвращается в
-        # сессию командой.
-        mcp_projection = SessionMapper.to_protocol(domain_session)
-        mcp_manager = await self._mcp_provider(mcp_projection)
-        mcp_commands = SessionMapper.normalize_commands(mcp_projection.available_commands)
-        if mcp_commands != domain_session.available_commands:
+        # MCP-менеджер правит `available_commands` (см. `session_prompt`), поэтому
+        # его решение уходит на диск командой.
+        commands_before = list(domain_session.available_commands)
+        mcp_manager = await self._mcp_provider(domain_session)
+        if domain_session.available_commands != commands_before:
+            mcp_commands = list(domain_session.available_commands)
             await commands.apply(
                 lambda target: target.set_available_commands(mcp_commands),
                 name="mcp_commands_synced",

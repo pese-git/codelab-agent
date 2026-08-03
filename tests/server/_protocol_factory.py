@@ -224,48 +224,33 @@ def _build_method_registry(st: _Assembler) -> CommandRegistry:
             return ProtocolOutcome(response=response)
 
     class _SessionNewWrapper:
+        """Делегирует прод-обработчику: порядок «создать → side effects → запись».
+
+        Копия тела расходилась с кодом, который проверяет: в проде конверсия в
+        домен идёт ДО MCP-setup, чтобы его правки `available_commands` уехали на
+        диск (ADR-006, фаза D шаг 5). Обёртка, повторявшая шаги вручную, этот
+        порядок не воспроизводила.
+        """
+
         method_name = "session/new"
 
         async def handle(self, message: ACPMessage) -> ProtocolOutcome:
-            params = message.params or {}
-            response_msg = session.session_new(
-                message.id,
-                params,
-                st._require_auth,
-                st._authenticated,
-                st._config_specs,
-                st._auth_methods,
-                st._runtime_capabilities,
-                st._command_registry,
+            from codelab.server.protocol.commands import SessionNewCommandHandler
+
+            async def _on_session_created(created: Any, params: dict) -> None:
+                await st.get_mcp_session_manager().setup_if_needed(created, params)
+
+            handler = SessionNewCommandHandler(
+                repository=st._repository,
+                config_specs=st._config_specs,
+                auth_methods=st._auth_methods,
+                require_auth=st._require_auth,
+                authenticated=st._authenticated,
+                runtime_capabilities=st._runtime_capabilities,
+                command_registry=st._command_registry,
+                on_session_created=_on_session_created,
             )
-            if response_msg.result is not None:
-                session_id = response_msg.result.get("sessionId")
-                if isinstance(session_id, str):
-                    from codelab.server.protocol.session_factory import SessionFactory
-
-                    config_values = {
-                        config_id: str(spec["default"])
-                        for config_id, spec in st._config_specs.items()
-                    }
-                    available_commands = (
-                        st._command_registry.get_commands_as_dicts()
-                        if st._command_registry is not None
-                        else []
-                    )
-                    session_state = SessionFactory.create_session(
-                        cwd=params.get("cwd", ""),
-                        mcp_servers=params.get("mcpServers", []),
-                        config_values=config_values,
-                        available_commands=available_commands,
-                        runtime_capabilities=st._runtime_capabilities,
-                        session_id=session_id,
-                    )
-                    # Как в проде: сохранение через доменный порт (фаза D ADR-006)
-                    from codelab.server.mapping.session_mapper import SessionMapper
-
-                    await st._repository.save_session(SessionMapper.to_domain(session_state))
-                    await st.get_mcp_session_manager().setup_if_needed(session_state, params)
-            return ProtocolOutcome(response=response_msg)
+            return await handler.handle(message)
 
     class _SessionLoadWrapper:
         """Делегирует прод-обработчику: запись решений загрузки живёт в нём.

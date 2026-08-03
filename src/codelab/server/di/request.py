@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from dishka import Provider, Scope, from_context, provide
 
 from ..agent.factory import AgentFactory
+from ..domain.session import Session as DomainSession
 from ..llm.resolver import ModelResolver
 from ..protocol.background_executor import BackgroundExecutor
 from ..protocol.commands import (
@@ -37,7 +38,7 @@ from ..protocol.mcp_session_manager import MCPSessionManager
 from ..protocol.pending_registry import PendingRequestRegistry
 from ..protocol.response_router import ResponseRouter
 from ..protocol.session_runtime import SessionRuntimeRegistry
-from ..protocol.state import ClientRuntimeCapabilities, SessionState
+from ..protocol.state import ClientRuntimeCapabilities
 from ..rpc_holder import ClientRPCServiceHolder
 from ..storage import SessionRepository, SessionStorage
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
@@ -126,10 +127,10 @@ class RequestProvider(Provider):
             }
         ]
 
-        async def _on_session_created(session_state: SessionState, params: dict) -> None:
+        async def _on_session_created(session_state: DomainSession, params: dict) -> None:
             await mcp_session_manager.setup_if_needed(session_state, params)
 
-        async def _on_session_loaded(session_state: SessionState, params: dict) -> None:
+        async def _on_session_loaded(session_state: DomainSession, params: dict) -> None:
             await mcp_session_manager.setup_if_needed(session_state, params)
 
         llm_adapter = agent_factory.get_primary_adapter()

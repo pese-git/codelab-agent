@@ -11,7 +11,6 @@ from typing import Any
 
 import structlog
 
-from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionRepository
 from ..handlers.prompt_orchestrator import PromptOrchestrator
@@ -113,15 +112,14 @@ class SessionPromptCommandHandler:
 
         commands = SessionCommands(self._repository, domain_session)
 
-        # MCP-менеджер всё ещё типизирован wire-DTO (его держит transient
-        # `mcp_prompt_handlers`, которого нет в домене), поэтому на границе строится
-        # проекция. Она не read-only: восстановление MCP-prompt'ов подрезает
-        # `available_commands`, и это решение обязано вернуться в сессию — иначе
-        # клиент получит список команд, которого на диске нет.
-        mcp_projection = SessionMapper.to_protocol(domain_session)
-        mcp_manager = await self._mcp_provider(mcp_projection)
-        mcp_commands = SessionMapper.normalize_commands(mcp_projection.available_commands)
-        if mcp_commands != domain_session.available_commands:
+        # MCP-менеджер работает доменным агрегатом (ADR-006, фаза D шаг 5). Он не
+        # read-only: восстановление prompt'ов правит `available_commands`, и это
+        # решение уходит на диск командой — иначе клиент получил бы список команд,
+        # которого на диске нет.
+        commands_before = list(domain_session.available_commands)
+        mcp_manager = await self._mcp_provider(domain_session)
+        if domain_session.available_commands != commands_before:
+            mcp_commands = list(domain_session.available_commands)
             await commands.apply(
                 lambda target: target.set_available_commands(mcp_commands),
                 name="mcp_commands_synced",

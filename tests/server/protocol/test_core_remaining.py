@@ -19,6 +19,7 @@ import pytest
 import structlog
 from _protocol_factory import build_protocol
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.mcp import MCPManager
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.background_executor import BackgroundExecutor
@@ -688,7 +689,7 @@ class TestRestoreMcpPrompts:
         manager = MCPSessionManager(runtime_registry=SessionRuntimeRegistry())
 
         with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
-            await manager._restore_mcp_prompts(session, mcp_manager)
+            await manager._restore_mcp_prompts(SessionMapper.to_domain(session), mcp_manager)
 
         mock_logger.warning.assert_called_once()
 
@@ -702,7 +703,7 @@ class TestRestoreMcpPrompts:
         manager = MCPSessionManager(runtime_registry=registry)
 
         with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
-            await manager._restore_mcp_prompts(session, mcp_manager)
+            await manager._restore_mcp_prompts(SessionMapper.to_domain(session), mcp_manager)
 
         mock_logger.warning.assert_called_once()
 
@@ -719,7 +720,7 @@ class TestRestoreMcpPrompts:
         manager = MCPSessionManager(runtime_registry=registry)
 
         with patch.object(manager, "_register_mcp_prompts_from_list") as register:
-            await manager._restore_mcp_prompts(session, mcp_manager)
+            await manager._restore_mcp_prompts(SessionMapper.to_domain(session), mcp_manager)
 
         register.assert_not_called()
 
@@ -741,7 +742,9 @@ class TestSendAvailableCommandsUpdate:
         )
 
         with patch.object(manager, "_send_message", new=AsyncMock()):
-            await manager.send_available_commands_update(session, mcp_manager)
+            await manager.send_available_commands_update(
+                SessionMapper.to_domain(session), mcp_manager
+            )
 
         mcp_manager.get_all_tools.assert_called_once()
 
@@ -761,7 +764,7 @@ class TestSetupMcpIfNeeded:
 
         with patch.object(manager, "_initialize_mcp_servers") as init:
             await manager.setup_if_needed(
-                session,
+                SessionMapper.to_domain(session),
                 {"mcpServers": [{"name": "srv", "command": "cmd"}]},
             )
 
@@ -957,7 +960,7 @@ async def _init_with_mock_manager(
         return_value=mcp_manager,
     ):
         with patch.object(manager, "_send_message", new=AsyncMock()):
-            await manager._initialize_mcp_servers(session, mcp_servers)
+            await manager._initialize_mcp_servers(SessionMapper.to_domain(session), mcp_servers)
 
     return manager, mcp_manager, registry
 
@@ -1088,7 +1091,7 @@ class TestInitializeMcpServersCallbacks:
             return_value=mcp_manager,
         ):
             with patch("codelab.server.protocol.mcp_session_manager.logger") as mock_logger:
-                await manager._initialize_mcp_servers(session, raw_configs)
+                await manager._initialize_mcp_servers(SessionMapper.to_domain(session), raw_configs)
 
         assert mock_logger.warning.call_count == 3
         mcp_manager.add_server.assert_not_awaited()
@@ -1124,13 +1127,18 @@ class TestRegisterMcpPromptsFromList:
             "codelab.server.protocol.mcp_session_manager.mcp_prompts_to_available_commands",
             return_value=[{"name": "greet"}],
         ):
+            domain_session = SessionMapper.to_domain(session)
+            handlers: dict[str, Any] = {}
             manager._register_mcp_prompts_from_list(
-                session,
+                domain_session,
                 mcp_manager,
                 "srv",
                 [prompt_def],
+                handlers,
             )
 
-        handler = session.mcp_prompt_handlers["greet"]
+        # Обработчики уходят в переданный приёмник (реестр рантайма), а не в
+        # документ сессии — transient-буфера в DTO больше нет (ADR-006, D5).
+        handler = handlers["greet"]
         assert handler._arguments_hint == "<name> [tone]"
-        assert len(session.available_commands) == 1
+        assert len(domain_session.available_commands) == 1

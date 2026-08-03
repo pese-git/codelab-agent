@@ -198,9 +198,6 @@ class SessionState(BaseModel):
     # История событий: session/update, permission requests и т.д.
     # Используется для полного восстановления истории при перезагрузке сессии.
     events_history: list[dict[str, Any]] = Field(default_factory=list)
-    # Обработчики MCP prompts для slash-команд (per-session).
-    # Мапа: имя команды -> MCPPromptCommandHandler (не сериализуется).
-    mcp_prompt_handlers: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     # Multi-agent поддержка (spec: agent-config/spec.md)
     # Текущая активная стратегия выполнения сессии

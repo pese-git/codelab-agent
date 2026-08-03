@@ -16,7 +16,7 @@ from ...messages import ACPMessage
 from ...storage import SessionRepository
 from ..handlers import session
 from ..pending_registry import PendingRequestRegistry
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome, SessionState
+from ..state import ClientRuntimeCapabilities, ProtocolOutcome
 
 logger = structlog.get_logger()
 
@@ -45,7 +45,7 @@ class SessionLoadCommandHandler:
         authenticated: bool,
         runtime_capabilities: ClientRuntimeCapabilities | None = None,
         pending_registry: PendingRequestRegistry | None = None,
-        on_session_loaded: Callable[[SessionState, dict[str, Any]], Awaitable[None]] | None = None,
+        on_session_loaded: Callable[[DomainSession, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         """Инициализирует обработчик.
 
@@ -92,17 +92,10 @@ class SessionLoadCommandHandler:
                     runtime_capabilities=SessionMapper.capabilities_to_domain(self._runtime_capabilities),
                 )
 
-                # MCP-setup всё ещё типизирован wire-DTO (transient
-                # `mcp_prompt_handlers` в домен не переехал), поэтому на границе
-                # строится проекция. Она не read-only: setup правит
-                # `available_commands`, и это решение возвращается в агрегат —
-                # иначе клиент увидит список команд, которого на диске нет.
+                # Side effects (MCP-setup) работают тем же агрегатом: их правки
+                # `available_commands` уезжают на диск вместе с ним.
                 if self._on_session_loaded:
-                    mcp_projection = SessionMapper.to_protocol(session_obj)
-                    await self._on_session_loaded(mcp_projection, params)
-                    session_obj.set_available_commands(
-                        SessionMapper.normalize_commands(mcp_projection.available_commands)
-                    )
+                    await self._on_session_loaded(session_obj, params)
 
                 # Обработка orphaned permission requests
                 if session_obj.active_turn and session_obj.active_turn.permission_request_id:

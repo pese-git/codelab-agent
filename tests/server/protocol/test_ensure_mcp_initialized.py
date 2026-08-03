@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codelab.server.protocol.mcp_session_manager import MCPSessionManager
-from codelab.server.protocol.state import SessionState
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ async def test_ensure_mcp_returns_existing_manager(
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Возвращает существующий mcp_manager без переинициализации."""
-    session = SessionState(session_id="test_session", cwd="/tmp", mcp_servers=[])
+    session = make_domain_session(session_id="test_session", cwd="/tmp")
     mock_manager = MagicMock()
 
     mock_runtime = MagicMock()
@@ -59,7 +59,7 @@ async def test_ensure_mcp_reinitializes_when_missing(
 ) -> None:
     """Переинициализирует MCP если mcp_manager отсутствует но есть mcp_servers."""
     mcp_servers = [{"name": "test", "command": "test-cmd", "args": [], "env": []}]
-    session = SessionState(
+    session = make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=mcp_servers,
@@ -88,7 +88,7 @@ async def test_ensure_mcp_returns_none_when_no_config(
     mock_runtime_registry: AsyncMock,
 ) -> None:
     """Возвращает None если нет ни mcp_manager ни mcp_servers."""
-    session = SessionState(session_id="test_session", cwd="/tmp", mcp_servers=[])
+    session = make_domain_session(session_id="test_session", cwd="/tmp")
 
     mock_runtime_registry.get = AsyncMock(return_value=None)
 
@@ -108,7 +108,7 @@ async def test_ensure_mcp_reinit_calls_initialize(
 ) -> None:
     """Вызывает _initialize_mcp_servers при переинициализации."""
     mcp_servers = [{"name": "test", "command": "test-cmd", "args": [], "env": []}]
-    session = SessionState(
+    session = make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=mcp_servers,
