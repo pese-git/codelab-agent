@@ -16,9 +16,7 @@ import structlog
 from ..messages import ACPMessage
 from ..storage import SessionRepository, SessionStorage
 from .pending_registry import PendingRequestRegistry
-from .state import (
-    ProtocolOutcome,
-)
+from .state import ProtocolOutcome
 
 if TYPE_CHECKING:
     from ..agent.llm_adapter import LLMAdapter

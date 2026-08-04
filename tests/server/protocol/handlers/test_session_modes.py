@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
+from codelab.server.domain.mode import DEFAULT_MODE, MODE_DESCRIPTIONS, VALID_MODES
 from codelab.server.protocol.handlers.session import build_modes_state
-from codelab.server.protocol.mode import DEFAULT_MODE, MODE_DESCRIPTIONS, VALID_MODES
 
 
 def _make_config_specs() -> dict[str, dict[str, str]]:

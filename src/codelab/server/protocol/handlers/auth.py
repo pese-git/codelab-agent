@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from codelab.server.storage.document import ClientRuntimeCapabilities
+
 from ...messages import ACPMessage, JsonRpcId
-from ..state import ClientRuntimeCapabilities
 
 
 @dataclass(frozen=True)

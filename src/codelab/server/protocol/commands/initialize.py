@@ -11,9 +11,11 @@ from typing import Any
 
 import structlog
 
+from codelab.server.storage.document import ClientRuntimeCapabilities
+
 from ...messages import ACPMessage
 from ..handlers import auth
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome
+from ..state import ProtocolOutcome
 
 logger = structlog.get_logger()
 

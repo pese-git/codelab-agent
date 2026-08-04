@@ -5,7 +5,7 @@ import pytest
 from codelab.server.domain.tool_call import ToolCall, ToolResult
 from codelab.server.domain.value_objects import FileLocation, ToolCallStatus
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
-from codelab.server.protocol.state import ToolCallState
+from codelab.server.storage.document import ToolCallState
 
 
 class TestToolCallMapperToProtocol:

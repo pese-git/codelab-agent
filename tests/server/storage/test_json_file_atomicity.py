@@ -17,12 +17,12 @@ from unittest.mock import patch
 import pytest
 
 from codelab.server.exceptions import StorageError
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import JsonFileStorage
+from codelab.server.storage.document import SessionDocument
 
 
-def _session(cwd: str = "/first") -> SessionState:
-    return SessionState(session_id="sess_x", cwd=cwd, mcp_servers=[])
+def _session(cwd: str = "/first") -> SessionDocument:
+    return SessionDocument(session_id="sess_x", cwd=cwd, mcp_servers=[])
 
 
 class TestSaveIsAtomic:

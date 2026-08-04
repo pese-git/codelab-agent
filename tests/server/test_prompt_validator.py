@@ -8,7 +8,7 @@ import pytest
 
 from codelab.server.exceptions import InvalidStateError, ValidationError
 from codelab.server.protocol.prompt_handlers import PromptValidator
-from codelab.server.protocol.state import ActiveTurnState, SessionState
+from codelab.server.storage.document import ActiveTurnState, SessionDocument
 
 
 class TestPromptValidatorValidateRequest:
@@ -120,7 +120,7 @@ class TestPromptValidatorValidateSessionState:
 
     def test_validate_session_state_without_active_turn(self) -> None:
         """Тест валидации сессии без активного turn."""
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -135,7 +135,7 @@ class TestPromptValidatorValidateSessionState:
             prompt_request_id="req_1",
             session_id="sess_1",
         )
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -156,7 +156,7 @@ class TestPromptValidatorValidateSessionState:
             prompt_request_id="req_1",
             session_id=session_id,
         )
-        session = SessionState(
+        session = SessionDocument(
             session_id=session_id,
             cwd="/tmp",
             mcp_servers=[],

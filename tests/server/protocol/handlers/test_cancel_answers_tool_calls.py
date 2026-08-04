@@ -23,12 +23,12 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 from tests.server._domain_sessions import make_domain_session
 
 
-def _session_with_pending_call(status: str = "pending") -> SessionState:
-    session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+def _session_with_pending_call(status: str = "pending") -> SessionDocument:
+    session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
     session.tool_calls["call_001"] = ToolCallState(
         tool_call_id="call_001",
         title="terminal/create",
@@ -141,7 +141,7 @@ class TestHistorySeamParityForToolResult:
         from codelab.server.domain.value_objects import SessionId
         from codelab.server.mapping.history_mapper import HistoryMapper
 
-        wire = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        wire = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         wire.add_tool_result("llm_1", "результат")
 
         domain = Session(id=SessionId("s"), config=SessionConfig(cwd="/tmp"))
@@ -247,8 +247,8 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
 class TestRealPathsAnswerDeferredBatch:
     """Проверка, что настоящие пути обрыва зовут ответ на хвост, а не только хелпер."""
 
-    def _session_with_deferred_batch(self, tool_call_id: str = "call_001") -> SessionState:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+    def _session_with_deferred_batch(self, tool_call_id: str = "call_001") -> SessionDocument:
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_config_value("mode", "standard")
         session.active_turn = ActiveTurnState(
             prompt_request_id="req_1",

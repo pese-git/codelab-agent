@@ -24,12 +24,12 @@ from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.protocol.response_router import ResponseRouter
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.storage import JsonFileStorage, SessionRepository
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 
 
-def _session_awaiting_permission() -> SessionState:
-    session = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
+def _session_awaiting_permission() -> SessionDocument:
+    session = SessionDocument(session_id="sess_x", cwd="/w", mcp_servers=[])
     session.tool_calls["call_001"] = ToolCallState(
         tool_call_id="call_001",
         title="fs/read_text_file",

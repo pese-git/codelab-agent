@@ -12,13 +12,15 @@ from typing import Any, cast
 
 import structlog
 
+from codelab.server.storage.document import ClientRuntimeCapabilities
+
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import ToolCallStatus
 from ...messages import ACPMessage, JsonRpcId
 from ...process_identity import PROCESS_TOKEN
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome
+from ..state import ProtocolOutcome
 from .event_history_writer import EventHistoryWriter
 from .session_replayer import SessionReplayer
 
@@ -563,7 +565,7 @@ def build_modes_state(
     Пример использования:
         modes = build_modes_state({"mode": "standard", "model": "baseline"}, specs)
     """
-    from ..mode import DEFAULT_MODE, MODE_DESCRIPTIONS, VALID_MODES
+    from ...domain.mode import DEFAULT_MODE, MODE_DESCRIPTIONS, VALID_MODES
 
     available_modes = [
         {

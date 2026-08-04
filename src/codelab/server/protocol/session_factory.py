@@ -9,11 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from codelab.server.storage.document import SessionDocument
+
 from ..exceptions import ValidationError
-from .state import SessionState
 
 if TYPE_CHECKING:
-    from .state import ClientRuntimeCapabilities
+    from codelab.server.storage.document import ClientRuntimeCapabilities
 
 
 class SessionFactory:
@@ -27,7 +28,7 @@ class SessionFactory:
         available_commands: list[Any] | None = None,
         runtime_capabilities: ClientRuntimeCapabilities | None = None,
         session_id: str | None = None,
-    ) -> SessionState:
+    ) -> SessionDocument:
         """Создает новую сессию с заданными параметрами.
 
         Args:
@@ -40,7 +41,7 @@ class SessionFactory:
             session_id: ID сессии (генерируется автоматически, если не указан)
 
         Returns:
-            SessionState: Новая сессия
+            SessionDocument: Новая сессия
 
         Raises:
             ValidationError: Если параметры некорректны
@@ -67,7 +68,7 @@ class SessionFactory:
         filtered_mcp_servers = [srv for srv in mcp_servers if isinstance(srv, dict)]
 
         # Создание сессии
-        return SessionState(
+        return SessionDocument(
             session_id=session_id,
             cwd=cwd,
             mcp_servers=filtered_mcp_servers,

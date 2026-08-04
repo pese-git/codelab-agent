@@ -193,7 +193,7 @@ async def session_set_mode(
             config_specs,
         )
     """
-    from ..mode import VALID_MODES, normalize_mode
+    from ...domain.mode import VALID_MODES, normalize_mode
 
     session_id = params.get("sessionId")
     mode_id = params.get("modeId")

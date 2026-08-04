@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> SessionDocument:
     """Создает тестовую сессию."""
-    return SessionState(
+    return SessionDocument(
         session_id="sess_test_001",
         cwd="/tmp/test",
         mcp_servers=[],
@@ -34,7 +34,7 @@ class TestSaveAgentMessageChunk:
     def test_saves_agent_response(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение ответа агента."""
         content = {"type": "text", "text": "Agent response"}
@@ -53,7 +53,7 @@ class TestSaveToolCall:
     def test_saves_tool_call(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение tool_call события."""
         history_writer.save_tool_call(
@@ -75,7 +75,7 @@ class TestSaveToolCall:
     def test_saves_tool_call_with_content(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение tool_call с контентом."""
         content = [{"type": "text", "text": "Initial content"}]
@@ -99,7 +99,7 @@ class TestSaveToolCallUpdate:
     def test_saves_in_progress_update(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение in_progress обновления."""
         history_writer.save_tool_call_update(
@@ -116,7 +116,7 @@ class TestSaveToolCallUpdate:
     def test_saves_completed_update_with_content(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение completed обновления с контентом."""
         content = [{"type": "content", "content": {"type": "text", "text": "Result"}}]
@@ -139,7 +139,7 @@ class TestSavePlan:
     def test_saves_plan_entries(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет сохранение плана."""
         entries = [
@@ -160,7 +160,7 @@ class TestSaveUserMessageChunk:
     def test_saves_one_event_per_block(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Каждый блок промпта — отдельное событие в исходном порядке.
 
@@ -191,7 +191,7 @@ class TestSaveSessionInfoUpdate:
     def test_saves_acp_shape(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Форма ACP: title + updatedAt (camelCase, `04-Session List.md`)."""
         history_writer.save_session_info_update(
@@ -208,7 +208,7 @@ class TestSaveSessionInfoUpdate:
     def test_accepts_null_fields(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """`null` — валидное значение по ACP (очистка поля)."""
         history_writer.save_session_info_update(session, title=None, updated_at=None)
@@ -229,7 +229,7 @@ class TestDomainJournalCarrier:
     def test_domain_and_wire_records_are_equivalent(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         from codelab.server.mapping.session_mapper import SessionMapper
 
@@ -246,7 +246,7 @@ class TestDomainJournalCarrier:
     def test_content_is_carried(
         self,
         history_writer: EventHistoryWriter,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         from codelab.server.mapping.session_mapper import SessionMapper
 

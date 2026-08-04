@@ -1,7 +1,7 @@
-"""Mapper между domain Session и protocol SessionState.
+"""Mapper между domain Session и protocol SessionDocument.
 
 Обеспечивает конвертацию между domain моделью Session (aggregate root)
-и protocol моделью SessionState (Pydantic BaseModel для сериализации).
+и protocol моделью SessionDocument (Pydantic BaseModel для сериализации).
 """
 
 from dataclasses import asdict
@@ -25,27 +25,27 @@ from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
 from codelab.server.models import HistoryMessage, PlanStep
-from codelab.server.protocol.state import (
+from codelab.server.storage.document import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
     PendingClientRequestState,
-    SessionState,
+    SessionDocument,
 )
 from codelab.shared.capabilities import ClientCapabilities
 
 
 class SessionMapper:
-    """Конвертер между domain Session и protocol SessionState."""
+    """Конвертер между domain Session и protocol SessionDocument."""
 
     @staticmethod
-    def to_protocol(session: Session) -> SessionState:
-        """Конвертировать domain Session в protocol SessionState.
+    def to_protocol(session: Session) -> SessionDocument:
+        """Конвертировать domain Session в protocol SessionDocument.
 
         Args:
             session: Domain Session aggregate
 
         Returns:
-            Protocol SessionState для сериализации
+            Protocol SessionDocument для сериализации
         """
         # История сообщений: делегируем в lossless HistoryMapper (единый путь
         # сериализации истории — write-фаза D2-b, ADR-006). Тело сообщения (блочный
@@ -64,8 +64,8 @@ class SessionMapper:
             "list[PlanStep | dict[str, Any]]", PlanMapper.to_acp(session.plan.get_steps())
         )
 
-        # Создаем SessionState
-        state = SessionState(
+        # Создаем SessionDocument
+        state = SessionDocument(
             session_id=session.id,
             schema_version=session.schema_version,
             revision=session.revision,
@@ -105,7 +105,7 @@ class SessionMapper:
         if session.active_turn is not None:
             state.active_turn = SessionMapper._turn_to_protocol(session.active_turn)
 
-        # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionState)
+        # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionDocument)
         runtime = session.runtime
         state.terminals = dict(runtime.terminals)
         state.terminals_owner = runtime.terminals_owner
@@ -143,11 +143,11 @@ class SessionMapper:
         )
 
     @staticmethod
-    def to_domain(state: SessionState) -> Session:
-        """Конвертировать protocol SessionState в domain Session.
+    def to_domain(state: SessionDocument) -> Session:
+        """Конвертировать protocol SessionDocument в domain Session.
 
         Args:
-            state: Protocol SessionState из хранилища
+            state: Protocol SessionDocument из хранилища
 
         Returns:
             Domain Session aggregate
@@ -220,7 +220,7 @@ class SessionMapper:
         return result
 
     @staticmethod
-    def _build_turn(state: SessionState) -> TurnState | None:
+    def _build_turn(state: SessionDocument) -> TurnState | None:
         """Собирает доменный TurnState VO из wire-DTO ActiveTurnState."""
         at = state.active_turn
         if at is None:
@@ -242,8 +242,8 @@ class SessionMapper:
         )
 
     @staticmethod
-    def _build_runtime(state: SessionState) -> SessionRuntime:
-        """Собирает доменный SessionRuntime VO из плоских runtime-полей SessionState."""
+    def _build_runtime(state: SessionDocument) -> SessionRuntime:
+        """Собирает доменный SessionRuntime VO из плоских runtime-полей SessionDocument."""
         return SessionRuntime(
             terminals=dict(state.terminals),
             terminals_owner=state.terminals_owner,
@@ -280,11 +280,11 @@ class SessionMapper:
         )
 
     @staticmethod
-    def _build_history(state: SessionState) -> ConversationHistory:
+    def _build_history(state: SessionDocument) -> ConversationHistory:
         """Собирает ConversationHistory из protocol-history, делегируя в lossless HistoryMapper.
 
         Единый путь десериализации истории (write-фаза D2-b, ADR-006). Форма записи
-        одна: `SessionState.history` типизирована `HistoryMessage`, а документы
+        одна: `SessionDocument.history` типизирована `HistoryMessage`, а документы
         прошлых версий приводятся к ней валидацией при загрузке.
         """
         history = ConversationHistory()
@@ -293,7 +293,7 @@ class SessionMapper:
         return history
 
     @staticmethod
-    def _build_tool_calls(state: SessionState) -> ToolCallRegistry:
+    def _build_tool_calls(state: SessionDocument) -> ToolCallRegistry:
         """Собирает ToolCallRegistry из protocol tool_calls (делегируя ToolCallMapper)."""
         tool_calls = ToolCallRegistry()
         tool_calls.counter = state.tool_call_counter
@@ -302,7 +302,7 @@ class SessionMapper:
         return tool_calls
 
     @staticmethod
-    def _build_plan(state: SessionState) -> AgentPlan:
+    def _build_plan(state: SessionDocument) -> AgentPlan:
         """Собирает AgentPlan из protocol latest_plan (делегируя PlanMapper).
 
         `entries_to_acp` покрывает и pre-P2-26 записи (`PlanStep`), которые

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 class SessionStorage(ABC):
@@ -20,14 +20,14 @@ class SessionStorage(ABC):
 
     Пример использования:
         >>> storage = InMemoryStorage()  # конкретная реализация
-        >>> session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        >>> session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         >>> await storage.save_session(session)
         >>> loaded = await storage.load_session("sess_1")
         >>> assert loaded.session_id == "sess_1"
     """
 
     @abstractmethod
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         """Сохраняет или обновляет сессию в хранилище.
 
         Если сессия с таким ID уже существует, она будет обновлена.
@@ -40,20 +40,20 @@ class SessionStorage(ABC):
             StorageError: При ошибке сохранения.
 
         Пример:
-            >>> session = SessionState(session_id="sess_1", cwd="/work", mcp_servers=[])
+            >>> session = SessionDocument(session_id="sess_1", cwd="/work", mcp_servers=[])
             >>> await storage.save_session(session)
         """
         pass
 
     @abstractmethod
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         """Загружает сессию из хранилища по ID.
 
         Args:
             session_id: Идентификатор сессии.
 
         Returns:
-            SessionState если найдена, None если не существует.
+            SessionDocument если найдена, None если не существует.
 
         Raises:
             StorageError: При ошибке загрузки.
@@ -90,7 +90,7 @@ class SessionStorage(ABC):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         """Возвращает список сессий с пагинацией.
 
         Позволяет получать сессии постранично и фильтровать по рабочей директории.

@@ -24,7 +24,7 @@ from codelab.server.client_rpc.exceptions import (
 )
 from codelab.server.client_rpc.service import ClientRPCService
 from codelab.server.domain.session import Session as DomainSession
-from codelab.server.protocol.state import ClientRuntimeCapabilities
+from codelab.server.storage.document import ClientRuntimeCapabilities
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from tests.server._domain_sessions import make_domain_session
 

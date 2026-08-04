@@ -1,4 +1,9 @@
-"""Константы и утилиты для ACP Protocol mode.
+"""Словарь режимов сессии: значения, миграция старых имён, политика по kind.
+
+Дом — домен, а не протокол: режим описывает поведение агента в сессии, а не
+ACP-обмен, и его нормализация нужна миграции документа сессии в хранилище
+(ADR-006, фаза D шаг 5). Пока модуль лежал в `protocol/`, документ тянул за
+собой протокол — протечка, которую держал `ignore_imports`.
 
 Mode определяет уровень разрешений и степень автономности агента:
 - plan: Read-only, write/execute инструменты заблокированы
@@ -8,9 +13,9 @@ Mode определяет уровень разрешений и степень 
 
 from __future__ import annotations
 
-import logging
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # Допустимые значения mode
 MODE_PLAN = "plan"
@@ -76,18 +81,17 @@ def normalize_mode(mode: str) -> str:
     if mode in OLD_TO_NEW_MODE:
         new_mode = OLD_TO_NEW_MODE[mode]
         logger.warning(
-            "Deprecated mode '%s' automatically migrated to '%s'. "
-            "Update your configuration to use the new value.",
-            mode,
-            new_mode,
+            "session_mode_migrated_from_deprecated",
+            old_mode=mode,
+            new_mode=new_mode,
         )
         return new_mode
 
     # Unknown → default
     logger.warning(
-        "Unknown mode '%s', falling back to default '%s'",
-        mode,
-        DEFAULT_MODE,
+        "session_mode_unknown_fallback_to_default",
+        requested_mode=mode,
+        default_mode=DEFAULT_MODE,
     )
     return DEFAULT_MODE
 

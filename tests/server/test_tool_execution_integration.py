@@ -1,4 +1,4 @@
-"""Интеграционные тесты: LLMAdapter + SessionState через call().
+"""Интеграционные тесты: LLMAdapter + SessionDocument через call().
 
 Тестируют работу LLMAdapter с MockLLMProvider.
 """
@@ -8,7 +8,7 @@ import pytest
 from codelab.server.agent.llm_adapter import LLMAdapter
 from codelab.server.llm.base import LLMMessage, LLMToolCall
 from codelab.server.llm.mock_provider import MockLLMProvider
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.registry import SimpleToolRegistry
 
 
@@ -30,8 +30,8 @@ def tool_registry() -> SimpleToolRegistry:
 
 
 @pytest.fixture
-def session_state() -> SessionState:
-    return SessionState(
+def session_state() -> SessionDocument:
+    return SessionDocument(
         session_id="integration-test-session",
         cwd="/tmp",
         mcp_servers=[],
@@ -42,7 +42,7 @@ def session_state() -> SessionState:
 @pytest.mark.asyncio
 async def test_llm_adapter_call_with_tool_calls(
     tool_registry: SimpleToolRegistry,
-    session_state: SessionState,
+    session_state: SessionDocument,
 ) -> None:
     """call() возвращает tool_calls из MockLLMProvider."""
     tool_call = LLMToolCall(id="call_1", name="echo", arguments={"text": "Hello"})
@@ -66,7 +66,7 @@ async def test_llm_adapter_call_with_tool_calls(
 @pytest.mark.asyncio
 async def test_llm_adapter_call_without_tool_calls(
     tool_registry: SimpleToolRegistry,
-    session_state: SessionState,
+    session_state: SessionDocument,
 ) -> None:
     """call() без tool_calls возвращает финальный текст."""
     adapter = LLMAdapter(
@@ -95,7 +95,7 @@ async def test_llm_adapter_call_without_tool_calls(
 @pytest.mark.asyncio
 async def test_multiple_tool_calls_in_call(
     tool_registry: SimpleToolRegistry,
-    session_state: SessionState,
+    session_state: SessionDocument,
 ) -> None:
     """call() возвращает несколько tool_calls."""
     tool_calls = [

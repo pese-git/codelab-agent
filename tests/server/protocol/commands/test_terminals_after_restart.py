@@ -20,8 +20,8 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.process_identity import PROCESS_TOKEN
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import JsonFileStorage, SessionRepository
+from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 from tests.server._domain_sessions import make_domain_session
 
@@ -48,9 +48,9 @@ async def _load(storage: JsonFileStorage) -> None:
     assert outcome.response.error is None
 
 
-def _session_with_terminals(owner: str | None) -> SessionState:
+def _session_with_terminals(owner: str | None) -> SessionDocument:
     """Документ сессии на диске: реестр терминалов переживает рестарт (P2-44)."""
-    session = SessionState(session_id="sess_x", cwd="/work", mcp_servers=[])
+    session = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
     session.terminals = {"term_1": "client-uuid-1", "term_2": "client-uuid-2"}
     session.terminal_counter = 2
     session.terminals_owner = owner

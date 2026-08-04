@@ -12,7 +12,7 @@ import structlog
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from codelab.server.protocol.state import ClientRuntimeCapabilities
+from codelab.server.storage.document import ClientRuntimeCapabilities
 from tests.server._domain_sessions import make_domain_session
 
 

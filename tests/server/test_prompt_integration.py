@@ -12,9 +12,7 @@ from factories import make_orchestrator
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-)
+from codelab.server.storage.document import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session
 
 

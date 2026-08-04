@@ -20,17 +20,18 @@ import pytest
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.protocol.response_router import ResponseRouter
-from codelab.server.protocol.state import (
+from codelab.server.storage import JsonFileStorage, SessionRepository
+from codelab.server.storage.document import (
     ActiveTurnState,
+    ClientRuntimeCapabilities,
     PendingClientRequestState,
-    SessionState,
+    SessionDocument,
     ToolCallState,
 )
-from codelab.server.storage import JsonFileStorage, SessionRepository
 
 
-def _session_awaiting(kind: str, **pending: Any) -> SessionState:
-    session = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
+def _session_awaiting(kind: str, **pending: Any) -> SessionDocument:
+    session = SessionDocument(session_id="sess_x", cwd="/w", mcp_servers=[])
     session.tool_calls["call_001"] = ToolCallState(
         tool_call_id="call_001",
         title="fs/read_text_file",
@@ -147,7 +148,7 @@ class TestClientRpcResponseReachesDisk:
         assert stored.updated_at == before.updated_at
 
 
-def _session_via_production_builder(kind: str) -> tuple[SessionState, list[Any]]:
+def _session_via_production_builder(kind: str) -> tuple[SessionDocument, list[Any]]:
     """Состояние готовит тот же код, что в проде, а не фикстура «как надо».
 
     Подготовка идёт доменным агрегатом — носителем turn-пути (ADR-006, фаза D шаг
@@ -157,9 +158,9 @@ def _session_via_production_builder(kind: str) -> tuple[SessionState, list[Any]]
     from codelab.server.domain.session import TurnState
     from codelab.server.mapping.session_mapper import SessionMapper
     from codelab.server.protocol.handlers.prompt import build_fs_client_request
-    from codelab.server.protocol.state import ClientRuntimeCapabilities, PromptDirectives
+    from codelab.server.protocol.state import PromptDirectives
 
-    state = SessionState(session_id="sess_x", cwd="/w", mcp_servers=[])
+    state = SessionDocument(session_id="sess_x", cwd="/w", mcp_servers=[])
     state.runtime_capabilities = ClientRuntimeCapabilities(
         fs_read=True, fs_write=True, terminal=True
     )

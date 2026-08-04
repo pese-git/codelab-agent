@@ -9,8 +9,8 @@ from abc import ABC
 import pytest
 
 from codelab.server.exceptions import StorageError
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage.base import SessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
 class TestSessionStorageAbstraction:
@@ -87,7 +87,7 @@ class TestSessionStorageAbstraction:
         class IncompleteStorage(SessionStorage):
             """Неполная реализация с одним методом."""
 
-            async def save_session(self, session: SessionState) -> None:
+            async def save_session(self, session: SessionDocument) -> None:
                 """Реализован только один метод."""
                 pass
 
@@ -106,10 +106,10 @@ class TestSessionStorageAbstraction:
         class CompleteStorage(SessionStorage):
             """Полная реализация хранилища."""
 
-            async def save_session(self, session: SessionState) -> None:
+            async def save_session(self, session: SessionDocument) -> None:
                 pass
 
-            async def load_session(self, session_id: str) -> SessionState | None:
+            async def load_session(self, session_id: str) -> SessionDocument | None:
                 return None
 
             async def delete_session(self, session_id: str) -> bool:
@@ -120,7 +120,7 @@ class TestSessionStorageAbstraction:
                 cwd: str | None = None,
                 cursor: str | None = None,
                 limit: int = 100,
-            ) -> tuple[list[SessionState], str | None]:
+            ) -> tuple[list[SessionDocument], str | None]:
                 return [], None
 
             async def session_exists(self, session_id: str) -> bool:

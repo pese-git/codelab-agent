@@ -1,6 +1,6 @@
 """FakeSessionView — реализация порта `SessionView` для тестов ядра.
 
-Обычный dataclass без Pydantic и без `protocol.state.SessionState`: даёт ядру
+Обычный dataclass без Pydantic и без `protocol.state.SessionDocument`: даёт ядру
 read-поверхность (session_id, cwd, config_values, runtime_capabilities, history)
 в тех же формах, что и живая сессия. Достаточно для юнит-тестов
 `ExecutionEngine`, `HistoryBuilder`, `SystemPromptBuilder`, `ToolFilter`.

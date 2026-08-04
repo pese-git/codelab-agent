@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from codelab.server.storage.document import SessionDocument
+
 from ..exceptions import SessionRevisionConflictError
-from ..protocol.state import SessionState
 from .base import SessionStorage
 
 
@@ -23,9 +24,9 @@ class InMemoryStorage(SessionStorage):
 
     def __init__(self) -> None:
         """Инициализирует пустое хранилище."""
-        self._sessions: dict[str, SessionState] = {}
+        self._sessions: dict[str, SessionDocument] = {}
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         """Сохраняет сессию в памяти.
 
         Обновляет временную метку updated_at при каждом сохранении.
@@ -52,14 +53,14 @@ class InMemoryStorage(SessionStorage):
         session.revision = session.revision + 1
         self._sessions[session.session_id] = session
 
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         """Загружает сессию из памяти.
 
         Args:
             session_id: Идентификатор сессии.
 
         Returns:
-            SessionState если найдена, None если не существует.
+            SessionDocument если найдена, None если не существует.
 
         Raises:
             StorageError: При ошибке загрузки (не должно происходить для памяти).
@@ -88,7 +89,7 @@ class InMemoryStorage(SessionStorage):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         """Возвращает список сессий с фильтрацией и пагинацией.
 
         Фильтрует по рабочей директории и поддерживает курсор-based пагинацию.

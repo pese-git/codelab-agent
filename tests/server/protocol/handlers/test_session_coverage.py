@@ -17,7 +17,7 @@ from codelab.server.protocol.handlers.session import (
     session_load,
     session_new,
 )
-from codelab.server.protocol.state import SessionState, ToolCallState
+from codelab.server.storage.document import SessionDocument, ToolCallState
 
 
 class TestSerializeAvailableCommands:
@@ -186,7 +186,7 @@ class TestSessionLoadEdgeCases:
         подтверждается поведенческая нейтральность при смене источника сессии
         (ADR-006, фаза D).
         """
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -239,7 +239,7 @@ class TestSessionLoadEdgeCases:
         pending, а состояние сессии будет cancelled — те же три расходящиеся
         стороны, что в 6b841b46 и b8054b3e.
         """
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         session.tool_calls["call_1"] = ToolCallState(
             tool_call_id="call_1",
             title="Run",
@@ -299,7 +299,7 @@ class TestSessionLoadEdgeCases:
 
     async def test_replays_tool_call_with_content(self) -> None:
         """При загрузке завершенного tool call с content отправляется tool_call_update."""
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -373,13 +373,13 @@ class TestSessionListEdgeCases:
 
     async def test_pagination_continues_to_next_page(self) -> None:
         """При наличии next_cursor storage запрашивается повторно."""
-        first = SessionState(
+        first = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
             updated_at="2026-01-02T00:00:00Z",
         )
-        second = SessionState(
+        second = SessionDocument(
             session_id="sess_2",
             cwd="/tmp",
             mcp_servers=[],

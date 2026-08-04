@@ -32,15 +32,9 @@ from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.response_router import ResponseRouter
 from codelab.server.protocol.session_factory import SessionFactory
 from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    LLMLoopResult,
-    PendingToolExecution,
-    ProtocolOutcome,
-    SessionState,
-    ToolCallState,
-)
+from codelab.server.protocol.state import LLMLoopResult, PendingToolExecution, ProtocolOutcome
 from codelab.server.storage import InMemoryStorage, SessionRepository
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 
 
 def _permission_response_handler() -> PermissionResponseCommandHandler:
@@ -64,7 +58,7 @@ def _make_background_executor(
     async def orchestrator_provider() -> Any:
         return orchestrator
 
-    async def mcp_provider(_session: SessionState) -> Any:
+    async def mcp_provider(_session: SessionDocument) -> Any:
         return mcp_manager
 
     return BackgroundExecutor(
@@ -418,7 +412,7 @@ class TestCancelActiveTurnsOnDisconnect:
 
         original_save = storage.save_session
 
-        async def flaky_save(session: SessionState) -> None:
+        async def flaky_save(session: SessionDocument) -> None:
             if session.session_id == session_bad.session_id:
                 raise RuntimeError("save failed")
             await original_save(session)
@@ -941,7 +935,7 @@ class TestExecutePendingTool:
 
 
 async def _init_with_mock_manager(
-    session: SessionState,
+    session: SessionDocument,
     mcp_servers: list[dict[str, Any]],
 ) -> tuple[MCPSessionManager, MagicMock, SessionRuntimeRegistry]:
     """Инициализирует MCP с замоканным менеджером, возвращает manager/mcp/registry."""

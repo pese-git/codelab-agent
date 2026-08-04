@@ -40,7 +40,7 @@ class HistoryBuilder:
         """Собрать LLMMessage из истории.
 
         Args:
-            history: Записи из SessionState.history.
+            history: Записи из SessionDocument.history.
             system_prompt: Системный промпт (добавляется первым сообщением).
 
         Returns:

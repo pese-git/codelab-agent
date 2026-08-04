@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from codelab.server.exceptions import StorageError
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.storage.json_file import JsonFileStorage
 
 
@@ -27,7 +27,7 @@ class TestJsonFileStorageSaveErrors:
         storage: JsonFileStorage,
     ) -> None:
         """Ошибка записи файла оборачивается в StorageError (строки 74-75)."""
-        session = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
 
         with patch(
             "codelab.server.storage.json_file.aiofiles.open",

@@ -17,10 +17,8 @@ from codelab.server.protocol.handlers.prompt import (
     build_terminal_client_request,
     resolve_pending_client_rpc_response_impl,
 )
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    PromptDirectives,
-)
+from codelab.server.protocol.state import PromptDirectives
+from codelab.server.storage.document import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session
 
 

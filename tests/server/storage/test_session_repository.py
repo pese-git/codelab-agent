@@ -14,12 +14,12 @@ from codelab.server.domain.conversation import (
 )
 from codelab.server.domain.session import Session, SessionConfig
 from codelab.server.domain.value_objects import MessageRole, SessionId
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage, SessionRepository
+from codelab.server.storage.document import SessionDocument
 
 
-def _state(session_id: str = "sess_1", cwd: str = "/tmp") -> SessionState:
-    return SessionState(session_id=session_id, cwd=cwd, mcp_servers=[])
+def _state(session_id: str = "sess_1", cwd: str = "/tmp") -> SessionDocument:
+    return SessionDocument(session_id=session_id, cwd=cwd, mcp_servers=[])
 
 
 class TestDomainTyping:
@@ -48,7 +48,7 @@ class TestDomainTyping:
         await repository.save_session(session)
 
         persisted = await backend.load_session("sess_1")
-        assert isinstance(persisted, SessionState)
+        assert isinstance(persisted, SessionDocument)
         assert persisted.cwd == "/work"
 
     async def test_roundtrip_preserves_rich_domain_state(self) -> None:
@@ -152,7 +152,7 @@ class TestReadModelProjection:
         sessions, cursor = await repository.list_sessions()
 
         assert cursor is None
-        assert all(isinstance(item, SessionState) for item in sessions)
+        assert all(isinstance(item, SessionDocument) for item in sessions)
         assert {item.session_id for item in sessions} == {"sess_a", "sess_b"}
 
 

@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class HistoryMessage(BaseModel):
     """ACP Protocol Model — контракт сообщения истории согласно ACP 05-Prompt Turn.
 
-    Wire format для хранения истории сообщений в SessionState.
+    Wire format для хранения истории сообщений в SessionDocument.
 
     НЕ является domain моделью. Для бизнес-логики использовать domain ConversationMessage.
     Конвертация через HistoryMapper.
@@ -79,7 +79,7 @@ class AvailableCommand(BaseModel):
 class PlanStep(BaseModel):
     """ACP Protocol Model — контракт шага плана согласно ACP 11-Agent Plan.
 
-    Wire format для хранения плана в SessionState и отправки в session/update.
+    Wire format для хранения плана в SessionDocument и отправки в session/update.
 
     НЕ является domain моделью. Для бизнес-логики использовать domain PlanEntry.
     Конвертация через PlanMapper.

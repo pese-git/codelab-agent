@@ -1,4 +1,4 @@
-"""Тесты миграции SessionState v1 → v4.
+"""Тесты миграции SessionDocument v1 → v4.
 
 Проверяют корректность миграции старых файлов сессий с добавлением
 multi-agent полей (active_strategy, active_agents, session_metrics и др.).
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.models import HistoryMessage
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 class TestSessionStateMigrationV1toV4:
@@ -27,7 +27,7 @@ class TestSessionStateMigrationV1toV4:
             "config_values": {},
         }
 
-        session = SessionState(**old_data)
+        session = SessionDocument(**old_data)
 
         assert session.schema_version == 8
         assert session.active_strategy == "single"
@@ -47,7 +47,7 @@ class TestSessionStateMigrationV1toV4:
             "cwd": "/tmp",
         }
 
-        session = SessionState(**old_data)
+        session = SessionDocument(**old_data)
 
         assert session.schema_version == 8
         assert session.events_history == []
@@ -58,7 +58,7 @@ class TestSessionStateMigrationV1toV4:
 
     def test_new_fields_have_correct_defaults(self) -> None:
         """Новые поля имеют правильные значения по умолчанию."""
-        session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="test", cwd="/tmp", mcp_servers=[])
 
         assert session.schema_version == 8
         assert session.active_strategy == "single"
@@ -80,7 +80,7 @@ class TestSessionStateMigrationV1toV4:
             output_tokens=500,
         )
 
-        session = SessionState(
+        session = SessionDocument(
             session_id="test",
             cwd="/tmp",
             mcp_servers=[],
@@ -126,7 +126,7 @@ class TestSessionStateMigrationV1toV4:
             "events_history": [{"type": "session/update"}],
         }
 
-        session = SessionState(**old_session_data)
+        session = SessionDocument(**old_session_data)
 
         # Старые поля сохранены
         assert session.session_id == "old-session"
@@ -151,7 +151,7 @@ class TestSessionStateMigrationV1toV4:
         ]
 
         for strategy in valid_strategies:
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -174,7 +174,7 @@ class TestSessionStateMigrationV1toV4:
             "events_history": [{"event": "test"}],
         }
 
-        session = SessionState(**old_data)
+        session = SessionDocument(**old_data)
 
         # Проверяем что все старые данные сохранены
         assert session.session_id == "preserve-test"
@@ -191,7 +191,7 @@ class TestSessionStateMigrationV1toV4:
 
     def test_migration_v6_to_v7_adds_revision(self) -> None:
         """v6 → v7: документ получает ревизию для compare-and-set (ADR-007)."""
-        session = SessionState.model_validate(
+        session = SessionDocument.model_validate(
             {
                 "schema_version": 6,
                 "session_id": "sess_v6",
@@ -206,7 +206,7 @@ class TestSessionStateMigrationV1toV4:
 
     def test_migration_v7_to_v8_adds_terminals_owner(self) -> None:
         """v7 → v8: реестр терминалов получает владельца (P2-44)."""
-        session = SessionState.model_validate(
+        session = SessionDocument.model_validate(
             {
                 "schema_version": 7,
                 "session_id": "sess_v7",
@@ -224,11 +224,11 @@ class TestSessionStateMigrationV1toV4:
     def test_schema_version_updated_after_migration(self) -> None:
         """После миграции schema_version равен 8 (v8 — владелец реестра терминалов, P2-44)."""
         # v0
-        session_v0 = SessionState(session_id="test", cwd="/tmp")
+        session_v0 = SessionDocument(session_id="test", cwd="/tmp")
         assert session_v0.schema_version == 8
 
         # v1
-        session_v1 = SessionState(
+        session_v1 = SessionDocument(
             schema_version=1,
             session_id="test",
             cwd="/tmp",
@@ -237,7 +237,7 @@ class TestSessionStateMigrationV1toV4:
         assert session_v1.schema_version == 8
 
         # v3
-        session_v3 = SessionState(
+        session_v3 = SessionDocument(
             schema_version=3,
             session_id="test",
             cwd="/tmp",
@@ -246,7 +246,7 @@ class TestSessionStateMigrationV1toV4:
         assert session_v3.schema_version == 8
 
         # v4
-        session_v4 = SessionState(
+        session_v4 = SessionDocument(
             schema_version=4,
             session_id="test",
             cwd="/tmp",
@@ -255,7 +255,7 @@ class TestSessionStateMigrationV1toV4:
         assert session_v4.schema_version == 8
 
         # v5
-        session_v5 = SessionState(
+        session_v5 = SessionDocument(
             schema_version=5,
             session_id="test",
             cwd="/tmp",
@@ -264,7 +264,7 @@ class TestSessionStateMigrationV1toV4:
         assert session_v5.schema_version == 8
 
         # v6 (текущая)
-        session_v6 = SessionState(
+        session_v6 = SessionDocument(
             schema_version=6,
             session_id="test",
             cwd="/tmp",
@@ -281,7 +281,7 @@ class TestSessionStateMigrationV1toV4:
             "mcp_servers": [],
         }
 
-        session = SessionState(**old_data)
+        session = SessionDocument(**old_data)
 
         assert session.schema_version == 8
         assert session.terminals == {}
@@ -298,7 +298,7 @@ class TestSessionStateMigrationV1toV4:
             "terminal_counter": 1,
         }
 
-        session = SessionState(**data)
+        session = SessionDocument(**data)
 
         assert session.terminals == {"term_1": "client-uuid"}
         assert session.terminal_counter == 1
@@ -319,7 +319,7 @@ class TestSessionStateMigrationV1toV4:
             ],
         }
 
-        session = SessionState(**old_data)
+        session = SessionDocument(**old_data)
 
         assert session.schema_version == 8
         assert session.latest_plan == [
@@ -340,7 +340,7 @@ class TestSessionStateMigrationV1toV4:
             ],
         }
 
-        session = SessionState(**data)
+        session = SessionDocument(**data)
 
         assert session.latest_plan == [
             {"content": "Done step", "priority": "high", "status": "completed"},
@@ -355,26 +355,26 @@ class TestSessionStatePermissionSeam:
     """
 
     def test_set_permission_policy(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_permission_policy("read", "allow_always")
         assert session.permission_policy == {"read": "allow_always"}
 
     def test_get_permission_policy(self) -> None:
         """Read-seam (фаза B): одноимён с `domain.Session.get_permission_policy`."""
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         assert session.get_permission_policy("read") is None
         session.set_permission_policy("read", "allow_always")
         assert session.get_permission_policy("read") == "allow_always"
 
     def test_cancel_and_uncancel_permission_request(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.cancel_permission_request("req_1")
         assert "req_1" in session.cancelled_permission_requests
         session.uncancel_permission_request("req_1")
         assert "req_1" not in session.cancelled_permission_requests
 
     def test_uncancel_is_idempotent(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         # discard отсутствующего id не падает
         session.uncancel_permission_request("absent")
         assert "absent" not in session.cancelled_permission_requests
@@ -387,12 +387,12 @@ class TestSessionStateAvailableCommandsSeam:
     """
 
     def test_set_available_commands(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_available_commands([{"name": "plan"}])
         assert session.available_commands == [{"name": "plan"}]
 
     def test_extend_available_commands(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_available_commands([{"name": "plan"}])
         session.extend_available_commands([{"name": "mode"}])
         assert session.available_commands == [{"name": "plan"}, {"name": "mode"}]
@@ -405,20 +405,20 @@ class TestSessionStateConfigValueSeam:
     """
 
     def test_set_config_value(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_config_value("mode", "plan")
         assert session.config_values["mode"] == "plan"
 
     def test_get_config_value(self) -> None:
         """Read-seam (фаза B): одноимён с `domain.Session.get_config_value`."""
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         assert session.get_config_value("mode") is None
         assert session.get_config_value("mode", "standard") == "standard"
         session.set_config_value("mode", "plan")
         assert session.get_config_value("mode", "standard") == "plan"
 
     def test_set_config_value_overwrites(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_config_value("mode", "plan")
         session.set_config_value("mode", "code")
         assert session.config_values["mode"] == "code"
@@ -431,21 +431,21 @@ class TestSessionStateStorageMetaSeam:
     """
 
     def test_set_title(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.set_title("My session")
         assert session.title == "My session"
 
     def test_mark_updated_is_utc_iso(self) -> None:
         from datetime import UTC, datetime
 
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.mark_updated()
         parsed = datetime.fromisoformat(session.updated_at)
         assert parsed.tzinfo is not None
         assert parsed.utcoffset() == UTC.utcoffset(None)
 
     def test_mark_updated_advances(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.mark_updated()
         first = session.updated_at
         session.mark_updated()
@@ -476,10 +476,10 @@ class TestHistoryContentBlocksPreserved:
     ]
 
     def test_blocks_survive_storage_roundtrip(self) -> None:
-        session = SessionState(session_id="s", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s", cwd="/tmp", mcp_servers=[])
         session.history.append(HistoryMessage(role="user", content=self._BLOCKS))
 
-        restored = SessionState.model_validate(session.model_dump(mode="json"))
+        restored = SessionDocument.model_validate(session.model_dump(mode="json"))
 
         assert restored.model_dump(mode="json")["history"][0]["content"] == self._BLOCKS
 
@@ -501,7 +501,7 @@ class TestHistoryContentBlocksPreserved:
             ],
         }
 
-        restored = SessionState.model_validate(legacy)
+        restored = SessionDocument.model_validate(legacy)
 
         entry = restored.history[0]
         assert not isinstance(entry, dict)

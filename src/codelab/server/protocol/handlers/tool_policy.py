@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
-from ..mode import DEFAULT_MODE, MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
+from ...domain.mode import DEFAULT_MODE, MODE_BYPASS, MODE_PLAN, is_tool_blocked_in_plan_mode
 
 if TYPE_CHECKING:
     from codelab.server.domain.session import Session

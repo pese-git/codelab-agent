@@ -11,11 +11,11 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.protocol.handlers.config import session_set_mode
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage, SessionRepository
+from codelab.server.storage.document import SessionDocument
 
 
-async def _make_repository(session: SessionState | None = None) -> SessionRepository:
+async def _make_repository(session: SessionDocument | None = None) -> SessionRepository:
     """Репозиторий над реальным backend'ом с опционально засеянной сессией.
 
     Транзакция config работает доменным агрегатом (фаза D ADR-006), поэтому
@@ -66,7 +66,7 @@ class TestSessionSetModeValidModes:
 
     @pytest.mark.asyncio
     async def test_set_mode_plan(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -93,7 +93,7 @@ class TestSessionSetModeValidModes:
 
     @pytest.mark.asyncio
     async def test_set_mode_standard(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -107,7 +107,7 @@ class TestSessionSetModeValidModes:
 
     @pytest.mark.asyncio
     async def test_set_mode_bypass(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -125,7 +125,7 @@ class TestSessionSetModeOldModeNormalization:
 
     @pytest.mark.asyncio
     async def test_old_mode_ask_normalizes_to_standard(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -152,7 +152,7 @@ class TestSessionSetModeOldModeNormalization:
 
     @pytest.mark.asyncio
     async def test_old_mode_code_normalizes_to_bypass(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -166,7 +166,7 @@ class TestSessionSetModeOldModeNormalization:
 
     @pytest.mark.asyncio
     async def test_old_mode_architect_normalizes_to_plan(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -180,7 +180,7 @@ class TestSessionSetModeOldModeNormalization:
 
     @pytest.mark.asyncio
     async def test_old_mode_debug_normalizes_to_standard(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -198,7 +198,7 @@ class TestSessionSetModeInvalid:
 
     @pytest.mark.asyncio
     async def test_invalid_mode_id(self) -> None:
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
         repository = await _make_repository(session)
         outcome = await session_set_mode(
             "req_1",
@@ -264,7 +264,7 @@ class TestConfigObservability:
     async def test_successful_change_is_logged(self) -> None:
         import structlog
 
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

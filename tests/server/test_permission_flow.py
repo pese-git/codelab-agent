@@ -33,7 +33,7 @@ from codelab.server.protocol.handlers.slash_commands.builtin import (
 from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
-from codelab.server.protocol.state import SessionState, ToolCallState
+from codelab.server.storage.document import SessionDocument, ToolCallState
 from codelab.server.tools.registry import SimpleToolRegistry
 
 
@@ -46,9 +46,9 @@ class TestPermissionFlowBasics:
         return PermissionManager()
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> SessionDocument:
         """Создает тестовую сессию."""
-        return SessionState(
+        return SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -58,7 +58,7 @@ class TestPermissionFlowBasics:
     def test_should_request_permission_checks_policy(
         self,
         permission_manager: PermissionManager,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что should_request_permission корректно проверяет policy."""
         # По умолчанию нет policy, должно вернуть True
@@ -79,7 +79,7 @@ class TestPermissionFlowBasics:
     def test_get_remembered_permission_returns_decision(
         self,
         permission_manager: PermissionManager,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что get_remembered_permission возвращает correct decision."""
         # По умолчанию вернуть 'ask'
@@ -96,7 +96,7 @@ class TestPermissionFlowBasics:
     def test_build_permission_request_creates_valid_message(
         self,
         permission_manager: PermissionManager,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что build_permission_request создает valid ACP message."""
         msg = permission_manager.build_permission_request(
@@ -194,9 +194,9 @@ class TestPermissionFlowIntegration:
         )
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> SessionDocument:
         """Создает тестовую сессию в режиме ask."""
-        return SessionState(
+        return SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -206,7 +206,7 @@ class TestPermissionFlowIntegration:
     def test_permission_remembered_allow_always(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что сохраненное allow_always разрешение применяется."""
         # Устанавливаем policy
@@ -219,7 +219,7 @@ class TestPermissionFlowIntegration:
     def test_permission_remembered_reject_always(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что сохраненное reject_always разрешение применяется."""
         # Устанавливаем policy
@@ -232,7 +232,7 @@ class TestPermissionFlowIntegration:
     def test_build_permission_acceptance_updates(
         self,
         orchestrator: PromptOrchestrator,
-        session: SessionState,
+        session: SessionDocument,
     ) -> None:
         """Проверяет, что build_permission_acceptance_updates сохраняет policy."""
         # Добавляем tool call
@@ -287,16 +287,16 @@ class TestPermissionFlowModes:
     """Тесты для различных режимов работы permission flow."""
 
     @pytest.fixture
-    def session(self) -> SessionState:
+    def session(self) -> SessionDocument:
         """Создает тестовую сессию."""
-        return SessionState(
+        return SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
             config_values={},
         )
 
-    def test_ask_mode_requires_permission(self, session: SessionState) -> None:
+    def test_ask_mode_requires_permission(self, session: SessionDocument) -> None:
         """Проверяет, что режим ask требует разрешение."""
         session.config_values["mode"] = "ask"
 
@@ -305,7 +305,7 @@ class TestPermissionFlowModes:
         # Должно требовать разрешение по умолчанию
         assert permission_manager.should_request_permission(session, "read") is True
 
-    def test_code_mode_doesnt_require_permission(self, session: SessionState) -> None:
+    def test_code_mode_doesnt_require_permission(self, session: SessionDocument) -> None:
         """Проверяет, что режим code не требует разрешение для allow_always."""
         session.config_values["mode"] = "code"
 

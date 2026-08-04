@@ -35,7 +35,7 @@ class PlanMapper:
         """Привести смешанный план к ACP format.
 
         Принимает доменные `PlanEntry`, wire-модели (`PlanStep`) и сырые dict:
-        `SessionState.latest_plan` шире доменного типа, а на переключении
+        `SessionDocument.latest_plan` шире доменного типа, а на переключении
         резидента (фаза D) в тот же путь придут доменные записи.
         """
         acp_entries: list[dict[str, Any]] = []

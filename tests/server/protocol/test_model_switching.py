@@ -6,8 +6,8 @@ import pytest
 
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.session import build_config_options
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import SessionRepository
+from codelab.server.storage.document import SessionDocument
 from codelab.server.storage.memory import InMemoryStorage
 
 
@@ -15,7 +15,7 @@ from codelab.server.storage.memory import InMemoryStorage
 async def repository() -> SessionRepository:
     """Репозиторий с тестовой сессией (транзакция config доменная, фаза D ADR-006)."""
     backend = InMemoryStorage()
-    session = SessionState(
+    session = SessionDocument(
         session_id="test-session",
         cwd="/tmp/test",
         config_values={"mode": "ask", "model": "openai/gpt-4o"},

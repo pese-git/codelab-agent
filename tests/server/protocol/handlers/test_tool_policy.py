@@ -15,13 +15,13 @@ from codelab.server.protocol.handlers.tool_policy import (
     decide_tool_policy_async,
     describe_rejection,
 )
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> SessionDocument:
     """Фикстура для создания базовой сессии."""
-    return SessionState(
+    return SessionDocument(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -31,27 +31,27 @@ def session() -> SessionState:
 class TestDecideToolPolicyPlanMode:
     """Тесты decision chain в plan mode."""
 
-    def test_plan_mode_blocks_execute(self, session: SessionState) -> None:
+    def test_plan_mode_blocks_execute(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "execute") == "reject"
 
-    def test_plan_mode_blocks_edit(self, session: SessionState) -> None:
+    def test_plan_mode_blocks_edit(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "edit") == "reject"
 
-    def test_plan_mode_blocks_delete(self, session: SessionState) -> None:
+    def test_plan_mode_blocks_delete(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "delete") == "reject"
 
-    def test_plan_mode_blocks_bash(self, session: SessionState) -> None:
+    def test_plan_mode_blocks_bash(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "bash") == "reject"
 
-    def test_plan_mode_allows_read(self, session: SessionState) -> None:
+    def test_plan_mode_allows_read(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "read") == "allow"
 
-    def test_plan_mode_allows_search(self, session: SessionState) -> None:
+    def test_plan_mode_allows_search(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert decide_tool_policy(session, "search") == "allow"
 
@@ -59,15 +59,15 @@ class TestDecideToolPolicyPlanMode:
 class TestDecideToolPolicyBypassMode:
     """Тесты decision chain в bypass mode."""
 
-    def test_bypass_allows_execute(self, session: SessionState) -> None:
+    def test_bypass_allows_execute(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "bypass"
         assert decide_tool_policy(session, "execute") == "allow"
 
-    def test_bypass_allows_edit(self, session: SessionState) -> None:
+    def test_bypass_allows_edit(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "bypass"
         assert decide_tool_policy(session, "edit") == "allow"
 
-    def test_bypass_allows_read(self, session: SessionState) -> None:
+    def test_bypass_allows_read(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "bypass"
         assert decide_tool_policy(session, "read") == "allow"
 
@@ -75,22 +75,22 @@ class TestDecideToolPolicyBypassMode:
 class TestDecideToolPolicyStandardMode:
     """Тесты decision chain в standard mode."""
 
-    def test_standard_asks_by_default(self, session: SessionState) -> None:
+    def test_standard_asks_by_default(self, session: SessionDocument) -> None:
         assert decide_tool_policy(session, "execute") == "ask"
 
-    def test_standard_allow_always(self, session: SessionState) -> None:
+    def test_standard_allow_always(self, session: SessionDocument) -> None:
         session.permission_policy["execute"] = "allow_always"
         assert decide_tool_policy(session, "execute") == "allow"
 
-    def test_standard_reject_always(self, session: SessionState) -> None:
+    def test_standard_reject_always(self, session: SessionDocument) -> None:
         session.permission_policy["execute"] = "reject_always"
         assert decide_tool_policy(session, "execute") == "reject"
 
-    def test_standard_unknown_policy_asks(self, session: SessionState) -> None:
+    def test_standard_unknown_policy_asks(self, session: SessionDocument) -> None:
         session.permission_policy["execute"] = "unknown"
         assert decide_tool_policy(session, "execute") == "ask"
 
-    def test_standard_default_mode_is_standard(self, session: SessionState) -> None:
+    def test_standard_default_mode_is_standard(self, session: SessionDocument) -> None:
         """По умолчанию mode=standard, должен спрашивать."""
         assert "mode" not in session.config_values
         assert decide_tool_policy(session, "execute") == "ask"
@@ -100,45 +100,45 @@ class TestDecideToolPolicyStandardMode:
 class TestDecideToolPolicyAsync:
     """Тесты async версии с global policy."""
 
-    async def test_async_without_global_policy(self, session: SessionState) -> None:
+    async def test_async_without_global_policy(self, session: SessionDocument) -> None:
         result = await decide_tool_policy_async(session, "execute")
         assert result == "ask"
 
-    async def test_async_plan_mode_blocks(self, session: SessionState) -> None:
+    async def test_async_plan_mode_blocks(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         result = await decide_tool_policy_async(session, "execute")
         assert result == "reject"
 
-    async def test_async_bypass_mode_allows(self, session: SessionState) -> None:
+    async def test_async_bypass_mode_allows(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "bypass"
         result = await decide_tool_policy_async(session, "execute")
         assert result == "allow"
 
-    async def test_async_session_policy_allow(self, session: SessionState) -> None:
+    async def test_async_session_policy_allow(self, session: SessionDocument) -> None:
         session.permission_policy["execute"] = "allow_always"
         result = await decide_tool_policy_async(session, "execute")
         assert result == "allow"
 
-    async def test_async_global_policy_allow(self, session: SessionState) -> None:
+    async def test_async_global_policy_allow(self, session: SessionDocument) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = "allow_always"
         result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "allow"
 
-    async def test_async_global_policy_reject(self, session: SessionState) -> None:
+    async def test_async_global_policy_reject(self, session: SessionDocument) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = "reject_always"
         result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "reject"
 
-    async def test_async_global_policy_none_asks(self, session: SessionState) -> None:
+    async def test_async_global_policy_none_asks(self, session: SessionDocument) -> None:
         global_policy_manager = AsyncMock()
         global_policy_manager.get_global_policy.return_value = None
         result = await decide_tool_policy_async(session, "execute", global_policy_manager)
         assert result == "ask"
 
     async def test_async_session_policy_takes_precedence_over_global(
-        self, session: SessionState
+        self, session: SessionDocument
     ) -> None:
         """Session policy проверяется до global policy."""
         session.permission_policy["execute"] = "reject_always"
@@ -148,7 +148,7 @@ class TestDecideToolPolicyAsync:
         assert result == "reject"
 
     async def test_async_global_policy_not_called_for_plan_mode(
-        self, session: SessionState
+        self, session: SessionDocument
     ) -> None:
         """В plan mode global policy не проверяется."""
         session.config_values["mode"] = "plan"
@@ -158,7 +158,7 @@ class TestDecideToolPolicyAsync:
         global_policy_manager.get_global_policy.assert_not_called()
 
     async def test_async_global_policy_not_called_for_bypass_mode(
-        self, session: SessionState
+        self, session: SessionDocument
     ) -> None:
         """В bypass mode global policy не проверяется."""
         session.config_values["mode"] = "bypass"
@@ -176,7 +176,7 @@ class TestDescribeRejection:
     и работала с несуществующими терминалами до упора в лимит запросов.
     """
 
-    def test_plan_mode_names_mode_and_persistence(self, session: SessionState) -> None:
+    def test_plan_mode_names_mode_and_persistence(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
 
         reason = describe_rejection(session, "execute")
@@ -186,7 +186,7 @@ class TestDescribeRejection:
         # Модель должна понять, что повтор бесполезен
         assert "Повторный вызов даст тот же отказ" in reason
 
-    def test_session_reject_always_names_user_decision(self, session: SessionState) -> None:
+    def test_session_reject_always_names_user_decision(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "standard"
         session.set_permission_policy("execute", "reject_always")
 
@@ -195,7 +195,7 @@ class TestDescribeRejection:
         assert "запретил" in reason
         assert "сессию" in reason
 
-    def test_plan_mode_allowed_kind_falls_back_to_generic(self, session: SessionState) -> None:
+    def test_plan_mode_allowed_kind_falls_back_to_generic(self, session: SessionDocument) -> None:
         """Для не-блокируемого вида plan-режим не при чём — не врать про причину."""
         session.config_values["mode"] = "plan"
 
@@ -204,6 +204,6 @@ class TestDescribeRejection:
         assert "read-only" not in reason
         assert "отклонён политикой" in reason
 
-    def test_reason_mentions_tool_kind(self, session: SessionState) -> None:
+    def test_reason_mentions_tool_kind(self, session: SessionDocument) -> None:
         session.config_values["mode"] = "plan"
         assert "'execute'" in describe_rejection(session, "execute")

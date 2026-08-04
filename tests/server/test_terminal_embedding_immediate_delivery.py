@@ -25,7 +25,7 @@ def mock_strategy():
 
 @pytest.fixture
 def mock_session():
-    """Mock SessionState."""
+    """Mock SessionDocument."""
     session = MagicMock()
     session.session_id = "test_session"
     session.config_values = {}

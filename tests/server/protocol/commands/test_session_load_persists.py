@@ -19,11 +19,11 @@ import pytest
 from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.storage import JsonFileStorage, SessionRepository
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 
 
-def _tool_answers(session: SessionState) -> list[tuple[str, str]]:
+def _tool_answers(session: SessionDocument) -> list[tuple[str, str]]:
     """Ответы `role: tool` из истории.
     
     Форма одна: после снятия союза `HistoryMessage | dict` (ADR-006, фаза D
@@ -47,8 +47,8 @@ def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
     )
 
 
-def _session_with_interrupted_turn() -> SessionState:
-    session = SessionState(session_id="sess_x", cwd="/old", mcp_servers=[])
+def _session_with_interrupted_turn() -> SessionDocument:
+    session = SessionDocument(session_id="sess_x", cwd="/old", mcp_servers=[])
     session.active_turn = ActiveTurnState(prompt_request_id="req_1", session_id="sess_x")
     session.active_turn.pending_batch = [
         {"id": "llm_2", "name": "fs_read_text_file", "arguments": {"path": "B.md"}}
@@ -182,7 +182,7 @@ class TestDomainRoundTripDoesNotRewriteFormat:
     async def test_load_does_not_change_untouched_fields(self, tmp_path: Path) -> None:
 
         storage = JsonFileStorage(tmp_path)
-        session = SessionState(session_id="sess_x", cwd="/work", mcp_servers=[])
+        session = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
         session.title = "T"
         session.config_values = {"mode": "standard"}
         session.history = [
@@ -241,7 +241,7 @@ class TestDomainRoundTripDoesNotRewriteFormat:
         """
         from codelab.server.mapping.session_mapper import SessionMapper
 
-        state = SessionState(session_id="s", cwd="/w", mcp_servers=[])
+        state = SessionDocument(session_id="s", cwd="/w", mcp_servers=[])
         state.tool_calls["c1"] = ToolCallState(
             tool_call_id="c1",
             title="fs/read_text_file",
@@ -261,7 +261,7 @@ class TestDomainRoundTripDoesNotRewriteFormat:
         # собирается валидацией, а не присваиванием поля, — именно так его
         # получает загрузка с диска, и именно так сырая запись прошлых версий
         # приводится к `HistoryMessage` после снятия союза (ADR-006, D4).
-        loaded = SessionState.model_validate(
+        loaded = SessionDocument.model_validate(
             {
                 "session_id": "s",
                 "cwd": "/w",

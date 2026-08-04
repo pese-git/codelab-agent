@@ -94,7 +94,7 @@ class LLMAgent(ABC):
 
     НЕ является ответственностью агента:
       - Управление циклом tool-calling (это LLMLoopStage).
-      - Хранение истории сессии (это SessionState).
+      - Хранение истории сессии (это SessionDocument).
       - Выполнение инструментов (это LLMLoopStage + ToolRegistry).
     """
 

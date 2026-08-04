@@ -17,8 +17,9 @@ from aiohttp import WSMsgType
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.core import ACPProtocol
-from codelab.server.protocol.state import ProtocolOutcome, SessionState
+from codelab.server.protocol.state import ProtocolOutcome
 from codelab.server.rpc_holder import ClientRPCServiceHolder
+from codelab.server.storage.document import SessionDocument
 from codelab.server.transport.websocket import WebSocketTransport
 
 
@@ -537,7 +538,7 @@ class TestWebSocketTransportCompleteDeferredPrompt:
     ) -> None:
         """При отмене deferred task отправляется ответ из pending_prompt_response."""
         protocol = _make_protocol()
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             pending_prompt_response={

@@ -31,8 +31,8 @@ from codelab.server.llm.resolver import ModelResolver
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.config import session_set_config_option
 from codelab.server.protocol.handlers.config_option_builder import ConfigOptionBuilder
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import SessionRepository
+from codelab.server.storage.document import SessionDocument
 from codelab.server.storage.memory import InMemoryStorage
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -344,7 +344,7 @@ async def test_e2e_full_flow_with_model_config() -> None:
 
     # Создать storage с сессией
     storage = InMemoryStorage()
-    session = SessionState(
+    session = SessionDocument(
         session_id="e2e-session",
         cwd="/tmp/test",
         config_values={"model": "mock/model-v1"},
@@ -459,7 +459,7 @@ async def test_model_switching_mid_session() -> None:
     """Проверить переключение модели mid-session через set_config_option."""
     # Arrange — создать storage с сессией
     storage = InMemoryStorage()
-    session = SessionState(
+    session = SessionDocument(
         session_id="switch-session",
         cwd="/tmp/test",
         config_values={"model": "mock/model-v1"},
@@ -537,7 +537,7 @@ async def test_model_switching_mid_session() -> None:
 async def test_model_switching_invalid_model() -> None:
     """Проверить ошибку при переключении на несуществующую модель."""
     storage = InMemoryStorage()
-    session = SessionState(
+    session = SessionDocument(
         session_id="invalid-switch-session",
         cwd="/tmp/test",
         config_values={"model": "mock/model-v1"},

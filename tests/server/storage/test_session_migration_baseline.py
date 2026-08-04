@@ -1,7 +1,7 @@
 """Baseline чтения текущего формата сессии (write-фаза, гейт D0.3).
 
 Замороженная фикстура `session_v6.json` — снимок on-disk формата
-(`SessionState.model_dump(mode="json")`, schema_version=6) ДО write-фазы (ADR-006).
+(`SessionDocument.model_dump(mode="json")`, schema_version=6) ДО write-фазы (ADR-006).
 Фаза D2 введёт новый формат + upgrade; этот тест гарантирует, что старые сессии
 (v6) продолжают читаться без потерь. Ломается → миграция потеряла обратную совместимость.
 """
@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from codelab.server.mapping.session_mapper import SessionMapper
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 FIXTURE = Path(__file__).parent / "fixtures" / "session_v6.json"
 
@@ -26,7 +26,7 @@ class TestSessionV6Readable:
         assert _load_raw()["schema_version"] == 6
 
     def test_model_validate_parses(self) -> None:
-        state = SessionState.model_validate(_load_raw())
+        state = SessionDocument.model_validate(_load_raw())
         assert state.session_id == "sess_fixture_v6"
         assert state.cwd == "/tmp/proj"
         assert state.config_values == {"model": "openai/gpt-4o", "_agent": "universal"}
@@ -35,7 +35,7 @@ class TestSessionV6Readable:
         assert state.runtime_capabilities.terminal is True
 
     def test_maps_to_domain(self) -> None:
-        state = SessionState.model_validate(_load_raw())
+        state = SessionDocument.model_validate(_load_raw())
         session = SessionMapper.to_domain(state)
 
         assert str(session.id) == "sess_fixture_v6"

@@ -6,7 +6,7 @@ import pytest
 
 from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.llm.content_parts import ContentPart
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.base import ToolRegistry
 
 
@@ -18,8 +18,8 @@ class TestExecutionEngineMultimodal:
         tool_registry.get_available_tools.return_value = []
         return ExecutionEngine(tool_registry=tool_registry)
 
-    def _make_session(self) -> SessionState:
-        return SessionState(session_id="test-session", cwd="/tmp")
+    def _make_session(self) -> SessionDocument:
+        return SessionDocument(session_id="test-session", cwd="/tmp")
 
     @pytest.mark.asyncio
     async def test_build_context_with_content_parts(self) -> None:

@@ -14,8 +14,8 @@ from typing import Any
 from codelab.server.domain.session import Session
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.session_commands import SessionCommands
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage, SessionRepository, SessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
 def make_domain_session(
@@ -30,7 +30,7 @@ def make_domain_session(
     """
     fields.setdefault("mcp_servers", [])
     return SessionMapper.to_domain(
-        SessionState(session_id=session_id, cwd=cwd, **fields),
+        SessionDocument(session_id=session_id, cwd=cwd, **fields),
     )
 
 
@@ -42,7 +42,7 @@ class _SeededMemoryStorage(InMemoryStorage):
     теста». Дальше backend ведёт себя как обычный, включая compare-and-set.
     """
 
-    def __init__(self, state: SessionState) -> None:
+    def __init__(self, state: SessionDocument) -> None:
         super().__init__()
         self._sessions[state.session_id] = state
 

@@ -219,7 +219,7 @@ class TestSystemPromptBuilderFormatMCPInfo:
 
 
 def _mock_session(config_values: dict | None = None, cwd: str = "") -> MagicMock:
-    """Создать mock SessionState."""
+    """Создать mock SessionDocument."""
     session = MagicMock()
     session.config_values = config_values or {}
     session.cwd = cwd

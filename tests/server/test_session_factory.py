@@ -7,7 +7,7 @@ import pytest
 
 from codelab.server.exceptions import ValidationError
 from codelab.server.protocol.session_factory import SessionFactory
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 class TestSessionFactoryCreateSession:
@@ -22,7 +22,7 @@ class TestSessionFactoryCreateSession:
         session = SessionFactory.create_session(cwd=cwd)
 
         # Проверка
-        assert isinstance(session, SessionState)
+        assert isinstance(session, SessionDocument)
         assert session.cwd == cwd
         assert session.session_id is not None
         assert session.session_id.startswith("sess_")

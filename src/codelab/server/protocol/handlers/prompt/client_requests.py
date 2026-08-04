@@ -6,10 +6,7 @@ from pathlib import Path
 
 from ....domain.session import PendingExternalRequest, Session
 from ....messages import ACPMessage
-from ...state import (
-    PreparedFsClientRequest,
-    PromptDirectives,
-)
+from ...state import PreparedFsClientRequest, PromptDirectives
 from .tool_call_state import create_tool_call
 
 

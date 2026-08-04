@@ -16,12 +16,12 @@ from pathlib import Path
 import pytest
 
 from codelab.server.exceptions import SessionRevisionConflictError
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage, JsonFileStorage, SessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
-def _session(cwd: str = "/start") -> SessionState:
-    return SessionState(session_id="sess_x", cwd=cwd, mcp_servers=[])
+def _session(cwd: str = "/start") -> SessionDocument:
+    return SessionDocument(session_id="sess_x", cwd=cwd, mcp_servers=[])
 
 
 @pytest.fixture(params=["json", "memory"])

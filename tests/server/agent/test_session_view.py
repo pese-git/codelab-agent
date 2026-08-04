@@ -1,7 +1,7 @@
 """Тесты read-порта SessionView (ADR-005, Фаза 1).
 
 Проверяют, что ядро (`ExecutionEngine` + `HistoryBuilder` + `ToolFilter`)
-работает поверх порта `SessionView` без Pydantic `protocol.state.SessionState` —
+работает поверх порта `SessionView` без Pydantic `protocol.state.SessionDocument` —
 достаточно простого `FakeSessionView`. Это и есть смысл read-развязки: подать
 ядру не-ACP драйвер.
 """
@@ -36,7 +36,7 @@ def engine(tool_registry):
 
 
 class TestExecutionEngineOverPort:
-    """Ядро принимает произвольную реализацию SessionView (не SessionState)."""
+    """Ядро принимает произвольную реализацию SessionView (не SessionDocument)."""
 
     @pytest.mark.asyncio
     async def test_build_context_without_pydantic_session(self, engine):

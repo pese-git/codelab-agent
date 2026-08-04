@@ -4,7 +4,7 @@ import pytest
 
 from codelab.server.agent.core.agent_base import AgentContext, AgentResponse, LLMAgent
 from codelab.server.llm.base import LLMMessage, LLMProvider, LLMResponse, LLMToolCall
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.base import ToolDefinition, ToolRegistry
 
 
@@ -66,8 +66,8 @@ def test_tool_definition_creation() -> None:
 
 def test_agent_context_creation() -> None:
     """Проверить создание AgentContext."""
-    # Создать SessionState для контекста
-    session_state = SessionState(
+    # Создать SessionDocument для контекста
+    session_state = SessionDocument(
         session_id="test-session",
         cwd="/tmp",
         mcp_servers=[],

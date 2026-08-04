@@ -1,7 +1,7 @@
 """Реестр runtime-состояний сессий.
 
 Хранит in-memory объекты (MCP manager, кэши, handlers) отдельно от
-сериализуемого SessionState. REQUEST-scoped, живет в рамках
+сериализуемого SessionDocument. REQUEST-scoped, живет в рамках
 одного WebSocket соединения. Dishka cleanup при disconnect.
 """
 

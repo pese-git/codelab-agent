@@ -16,8 +16,8 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.commands.session_new import SessionNewCommandHandler
 from codelab.server.protocol.session_factory import SessionFactory
-from codelab.server.protocol.state import ClientRuntimeCapabilities
 from codelab.server.storage import InMemoryStorage, SessionRepository
+from codelab.server.storage.document import ClientRuntimeCapabilities
 
 
 def _config_specs() -> dict[str, dict[str, Any]]:

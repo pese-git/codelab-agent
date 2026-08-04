@@ -15,8 +15,9 @@ from uuid import uuid4
 import aiofiles
 from pydantic import ValidationError
 
+from codelab.server.storage.document import SessionDocument
+
 from ..exceptions import SessionRevisionConflictError, StorageError
-from ..protocol.state import SessionState
 from .base import SessionStorage
 
 
@@ -27,7 +28,7 @@ class JsonFileStorage(SessionStorage):
     {base_path}/{session_id}.json
 
     Использует Pydantic model_dump(mode="json") для сериализации
-    и SessionState.model_validate() для десериализации.
+    и SessionDocument.model_validate() для десериализации.
 
     Пример использования:
         storage = JsonFileStorage(Path.home() / ".acp" / "sessions")
@@ -67,7 +68,7 @@ class JsonFileStorage(SessionStorage):
         revision = data.get("revision") if isinstance(data, dict) else None
         return revision if isinstance(revision, int) else None
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         """Сохраняет сессию в JSON файл.
 
         Использует Pydantic model_dump(mode="json") для корректной
@@ -129,17 +130,17 @@ class JsonFileStorage(SessionStorage):
         except Exception as e:
             raise StorageError(f"Failed to save session {session.session_id}: {e}") from e
 
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         """Загружает сессию из JSON файла.
 
-        Использует SessionState.model_validate() для десериализации
+        Использует SessionDocument.model_validate() для десериализации
         с автоматической миграцией схемы через model_validator.
 
         Args:
             session_id: Идентификатор сессии.
 
         Returns:
-            SessionState если найдена, None если не существует.
+            SessionDocument если найдена, None если не существует.
 
         Raises:
             StorageError: При ошибке загрузки.
@@ -155,7 +156,7 @@ class JsonFileStorage(SessionStorage):
             data = json.loads(content)
 
             # model_validate автоматически применяет миграцию схемы
-            session = SessionState.model_validate(data)
+            session = SessionDocument.model_validate(data)
             return session
 
         except json.JSONDecodeError as e:
@@ -191,7 +192,7 @@ class JsonFileStorage(SessionStorage):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         """Возвращает список сессий из файлов.
 
         Args:
@@ -207,7 +208,7 @@ class JsonFileStorage(SessionStorage):
         """
         try:
             # Загрузить все сессии
-            sessions: list[SessionState] = []
+            sessions: list[SessionDocument] = []
             for file_path in self.base_path.glob("*.json"):
                 session_id = file_path.stem
                 session = await self.load_session(session_id)

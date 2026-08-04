@@ -30,14 +30,14 @@ from codelab.server.protocol.handlers.prompt import (
     update_tool_call_status,
     validate_prompt_content,
 )
-from codelab.server.protocol.state import (
+from codelab.server.protocol.state import PromptDirectives
+from codelab.server.storage import SessionRepository
+from codelab.server.storage.document import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
     PendingClientRequestState,
-    PromptDirectives,
-    SessionState,
+    SessionDocument,
 )
-from codelab.server.storage import SessionRepository
 from tests.server._domain_sessions import make_domain_session
 
 
@@ -611,7 +611,7 @@ class TestUpdateToolCallStatus:
 class TestFindSessionIdByPendingClientRequestId:
     """Тесты find_session_id_by_pending_client_request_id (доменный порт)."""
 
-    def _repository(self, session: SessionState) -> SessionRepository:
+    def _repository(self, session: SessionDocument) -> SessionRepository:
         """Репозиторий поверх backend'а с одним сохранённым документом сессии.
 
         Backend отдаёт wire-документы, а агрегаты собирает уже репозиторий, —
@@ -623,7 +623,7 @@ class TestFindSessionIdByPendingClientRequestId:
 
     async def test_finds_matching_session(self) -> None:
         """Находит сессию с совпадающим pending client request id."""
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -647,7 +647,7 @@ class TestFindSessionIdByPendingClientRequestId:
 
     async def test_returns_none_when_not_found(self) -> None:
         """Возвращает None если совпадения не найдено."""
-        session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
         found = await find_session_id_by_pending_client_request_id(
             "rpc_1", self._repository(session)

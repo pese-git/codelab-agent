@@ -23,7 +23,7 @@ from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.storage.memory import InMemoryStorage
 
 
@@ -42,7 +42,7 @@ def storage():
 @pytest.fixture
 def mock_session():
     """Мок сессии с реальными dataclass полями."""
-    return SessionState(
+    return SessionDocument(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -66,7 +66,7 @@ class TestStrategySelectionViaConfigOptions:
             dispatcher = await request_container.get(StrategyDispatcher)
 
             # Устанавливаем стратегию через config_values
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -90,7 +90,7 @@ class TestStrategySelectionViaConfigOptions:
         async with container() as request_container:
             dispatcher = await request_container.get(StrategyDispatcher)
 
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -121,7 +121,7 @@ class TestStrategySelectionViaSlashCommand:
         async with container() as request_container:
             dispatcher = await request_container.get(StrategyDispatcher)
 
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -147,7 +147,7 @@ class TestStrategySelectionViaSlashCommand:
         async with container() as request_container:
             dispatcher = await request_container.get(StrategyDispatcher)
 
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -235,7 +235,7 @@ class TestFallbackNotification:
             fallback_strategy="single",
         )
 
-        session = SessionState(
+        session = SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -273,7 +273,7 @@ class TestPriorityChain:
             dispatcher = await request_container.get(StrategyDispatcher)
 
             # Тест 1: Default (ничего не установлено)
-            session1 = SessionState(
+            session1 = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -288,7 +288,7 @@ class TestPriorityChain:
             assert strategy1 == "single"  # default из config
 
             # Тест 2: Config values
-            session2 = SessionState(
+            session2 = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -303,7 +303,7 @@ class TestPriorityChain:
             assert strategy2 == "single"
 
             # Тест 3: Slash command override
-            session3 = SessionState(
+            session3 = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],
@@ -343,7 +343,7 @@ class TestPriorityChain:
         )
 
         # Запрашиваем недоступную стратегию через config
-        session = SessionState(
+        session = SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -391,7 +391,7 @@ class TestDynamicStrategyListUpdates:
             assert "test_strategy" in available_names_after
 
             # Dispatcher использует обновлённый список
-            session = SessionState(
+            session = SessionDocument(
                 session_id="test_session",
                 cwd="/tmp",
                 mcp_servers=[],

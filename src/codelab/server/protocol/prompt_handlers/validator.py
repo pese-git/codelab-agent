@@ -10,7 +10,7 @@
 from typing import Any
 
 from codelab.server.exceptions import InvalidStateError, ValidationError
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 class PromptValidator:
@@ -52,7 +52,7 @@ class PromptValidator:
             raise ValidationError("content не может быть пустым списком")
 
     @staticmethod
-    def validate_session_state(session: SessionState) -> None:
+    def validate_session_state(session: SessionDocument) -> None:
         """
         Валидирует состояние сессии перед обработкой prompt.
 

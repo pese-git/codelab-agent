@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage.cached import CachedSessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.fixture
@@ -32,8 +32,8 @@ class TestCachedStoragePutUpdate:
         backend: AsyncMock,
     ) -> None:
         """Повторное сохранение той же сессии обновляет кэш (строки 55-56)."""
-        session1 = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
-        session2 = SessionState(session_id="s1", cwd="/work", mcp_servers=[])
+        session1 = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session2 = SessionDocument(session_id="s1", cwd="/work", mcp_servers=[])
 
         await storage.save_session(session1)
         await storage.save_session(session2)
@@ -53,7 +53,7 @@ class TestCachedStorageLoadFromBackend:
         backend: AsyncMock,
     ) -> None:
         """Загрузка из backend помещает сессию в кэш (строки 77-80)."""
-        session = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
         backend.load_session.return_value = session
 
         result = await storage.load_session("s1")
@@ -87,7 +87,7 @@ class TestCachedStorageSessionExists:
         backend: AsyncMock,
     ) -> None:
         """Сессия в кэше найдена без обращения к backend (строка 99)."""
-        session = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
         storage._cache["s1"] = session
 
         result = await storage.session_exists("s1")

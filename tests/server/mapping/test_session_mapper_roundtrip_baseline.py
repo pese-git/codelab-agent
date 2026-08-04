@@ -1,6 +1,6 @@
 """Round-trip baseline `SessionMapper` (write-фаза, гейт D0.2).
 
-Фиксирует ТЕКУЩЕЕ поведение round-trip `domain.Session → SessionState → domain.Session`
+Фиксирует ТЕКУЩЕЕ поведение round-trip `domain.Session → SessionDocument → domain.Session`
 ДО доменной миграции (ADR-006), включая известные ПОТЕРИ. Это baseline: фаза D1
 (SessionMapper без потерь) будет флипать помеченные `BASELINE LOSS` ассерты на
 сохранение. Пока они документируют, что именно теряется.
@@ -270,7 +270,7 @@ class TestRoundtripToolCallFields:
 
 
 class TestRoundtripPrepFields:
-    """D4-prep: поля punch-list на домене — round-trip domain→SessionState→domain (ADR-006)."""
+    """D4-prep: поля punch-list на домене — round-trip domain→SessionDocument→domain (ADR-006)."""
 
     def test_storage_meta_preserved(self) -> None:
         session = _rich_session()
@@ -327,18 +327,18 @@ class TestRoundtripPrepFields:
 
 
 class TestProtocolRoundtripLossless:
-    """Гейт D4-prep: `SessionState → domain → SessionState` без потерь по punch-list.
+    """Гейт D4-prep: `SessionDocument → domain → SessionDocument` без потерь по punch-list.
 
-    Критичное для D4-d направление: SessionState пересобирается из домена на границе.
+    Критичное для D4-d направление: SessionDocument пересобирается из домена на границе.
     Инвариант реальных данных: `raw_input == tool_arguments` (проверено на дампе сессии).
     """
 
     @staticmethod
     def _sample_state() -> "object":
         from codelab.server.models import HistoryMessage
-        from codelab.server.protocol.state import SessionState, ToolCallState
+        from codelab.server.storage.document import SessionDocument, ToolCallState
 
-        return SessionState(
+        return SessionDocument(
             session_id="sess_rt",
             schema_version=8,
             cwd="/tmp/proj",
@@ -398,9 +398,9 @@ class TestProtocolRoundtripLossless:
         tool (строковый `content`), user (блочный `content`, в т.ч. image).
         """
         from codelab.server.models import HistoryMessage
-        from codelab.server.protocol.state import SessionState
+        from codelab.server.storage.document import SessionDocument
 
-        state0 = SessionState(
+        state0 = SessionDocument(
             session_id="sess_hist",
             schema_version=8,
             cwd="/t",

@@ -16,14 +16,14 @@ import pytest
 from codelab.server.agent.core.strategies.dispatcher import StrategyDispatcher
 from codelab.server.agent.core.strategies.registry import StrategyRegistry
 from codelab.server.agent.event_bus.bus import AgentEventBus
+from codelab.server.domain.mode import MODE_BYPASS, MODE_PLAN, MODE_STANDARD
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
-from codelab.server.protocol.mode import MODE_BYPASS, MODE_PLAN, MODE_STANDARD
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
-def _make_session(mode: str = MODE_STANDARD) -> SessionState:
+def _make_session(mode: str = MODE_STANDARD) -> SessionDocument:
     """Создать сессию с указанным mode."""
-    return SessionState(
+    return SessionDocument(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],
@@ -315,7 +315,7 @@ class TestModeInheritancePreparation:
         parent = _make_session(mode=MODE_PLAN)
 
         # Создаём child session с наследованным mode
-        child = SessionState(
+        child = SessionDocument(
             session_id="child_1",
             cwd="/tmp",
             mcp_servers=[],

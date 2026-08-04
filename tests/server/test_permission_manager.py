@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument, ToolCallState
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ def manager() -> PermissionManager:
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> SessionDocument:
     """Фикстура для создания базовой сессии."""
-    return SessionState(
+    return SessionDocument(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
@@ -32,28 +32,28 @@ class TestPermissionManagerDecision:
     """Тесты определения необходимости permission request."""
 
     def test_should_request_for_default(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что по умолчанию нужен permission request."""
         # tool_kind не в policy
         assert manager.should_request_permission(session, "execute") is True
 
     def test_should_not_request_for_allow_always(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что permission request не нужен при allow_always."""
         session.permission_policy["execute"] = "allow_always"
         assert manager.should_request_permission(session, "execute") is False
 
     def test_should_not_request_for_reject_always(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что permission request не нужен при reject_always."""
         session.permission_policy["execute"] = "reject_always"
         assert manager.should_request_permission(session, "execute") is False
 
     def test_should_request_for_unknown_policy(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что permission request нужен для неизвестного policy."""
         session.permission_policy["execute"] = "unknown"
@@ -63,27 +63,31 @@ class TestPermissionManagerDecision:
 class TestPermissionManagerRemembered:
     """Тесты получения remembered permission."""
 
-    def test_get_remembered_allow(self, manager: PermissionManager, session: SessionState) -> None:
+    def test_get_remembered_allow(
+        self, manager: PermissionManager, session: SessionDocument
+    ) -> None:
         """Проверяет получение remembered allow решения."""
         session.permission_policy["execute"] = "allow_always"
         decision = manager.get_remembered_permission(session, "execute")
         assert decision == "allow"
 
-    def test_get_remembered_reject(self, manager: PermissionManager, session: SessionState) -> None:
+    def test_get_remembered_reject(
+        self, manager: PermissionManager, session: SessionDocument
+    ) -> None:
         """Проверяет получение remembered reject решения."""
         session.permission_policy["execute"] = "reject_always"
         decision = manager.get_remembered_permission(session, "execute")
         assert decision == "reject"
 
     def test_get_remembered_default_ask(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет получение default 'ask' решения."""
         decision = manager.get_remembered_permission(session, "execute")
         assert decision == "ask"
 
     def test_get_remembered_unknown_default_ask(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что неизвестный policy возвращает 'ask'."""
         session.permission_policy["execute"] = "unknown"
@@ -95,7 +99,7 @@ class TestPermissionManagerRequest:
     """Тесты построения permission request."""
 
     def test_build_permission_request_message(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет структуру permission request message."""
         msg = manager.build_permission_request(
@@ -132,10 +136,10 @@ class TestPermissionManagerRequest:
             assert "kind" in option
 
     def test_build_permission_request_sets_active_turn_ids(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что build_permission_request обновляет active_turn."""
-        from codelab.server.protocol.state import ActiveTurnState
+        from codelab.server.storage.document import ActiveTurnState
 
         session.active_turn = ActiveTurnState(
             prompt_request_id="req_1",
@@ -243,13 +247,11 @@ class TestPermissionManagerAcceptance:
     """Тесты обработки решения по разрешению."""
 
     def test_acceptance_allow_once_no_policy_save(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что allow_once не сохраняет policy."""
         tool_call_id = "call_001"
-        session.tool_calls[tool_call_id] = __import__(
-            "codelab.server.protocol.state", fromlist=["ToolCallState"]
-        ).ToolCallState(
+        session.tool_calls[tool_call_id] = ToolCallState(
             tool_call_id=tool_call_id,
             title="Test",
             kind="execute",
@@ -267,10 +269,10 @@ class TestPermissionManagerAcceptance:
         assert session.permission_policy.get("execute") is None
 
     def test_acceptance_allow_always_saves_policy(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что allow_always сохраняет policy."""
-        from codelab.server.protocol.state import ToolCallState
+        from codelab.server.storage.document import ToolCallState
 
         tool_call_id = "call_001"
         session.tool_calls[tool_call_id] = ToolCallState(
@@ -291,10 +293,10 @@ class TestPermissionManagerAcceptance:
         assert session.permission_policy.get("execute") == "allow_always"
 
     def test_acceptance_reject_always_saves_policy(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет, что reject_always сохраняет policy."""
-        from codelab.server.protocol.state import ToolCallState
+        from codelab.server.storage.document import ToolCallState
 
         tool_call_id = "call_001"
         session.tool_calls[tool_call_id] = ToolCallState(
@@ -315,7 +317,7 @@ class TestPermissionManagerAcceptance:
         assert session.permission_policy.get("read") == "reject_always"
 
     def test_acceptance_nonexistent_tool_call(
-        self, manager: PermissionManager, session: SessionState
+        self, manager: PermissionManager, session: SessionDocument
     ) -> None:
         """Проверяет обработку несуществующего tool call."""
         updates = manager.build_permission_acceptance_updates(

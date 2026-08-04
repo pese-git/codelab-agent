@@ -4,7 +4,7 @@
 - Регистрацию MCP prompts в runtime registry при инициализации
 - Маршрутизацию slash команд к MCP prompt handlers
 - Включение MCP prompts в available_commands_update
-- Хранение handlers в runtime registry (не в SessionState)
+- Хранение handlers в runtime registry (не в SessionDocument)
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from codelab.server.protocol.handlers.slash_commands.builtin.mcp_prompt import (
 )
 from codelab.server.protocol.mcp_session_manager import MCPSessionManager
 from codelab.server.protocol.session_runtime import SessionRuntimeState
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from tests.server._domain_sessions import make_domain_session
 
 
@@ -47,7 +47,7 @@ def manager(mock_runtime_registry: AsyncMock) -> MCPSessionManager:
 
 
 @pytest.fixture
-def session() -> SessionState:
+def session() -> SessionDocument:
     """Создаёт тестовую сессию."""
     return make_domain_session(
         session_id="test_session",

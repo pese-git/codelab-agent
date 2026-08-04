@@ -19,10 +19,8 @@ from codelab.server.protocol.handlers.pipeline.stages.directives import (
     DirectivesStage,
 )
 from codelab.server.protocol.handlers.tool_policy import decide_tool_policy
-from codelab.server.protocol.state import (
-    ClientRuntimeCapabilities,
-)
 from codelab.server.storage import InMemoryStorage, SessionRepository
+from codelab.server.storage.document import ClientRuntimeCapabilities
 from codelab.server.tools.registry import SimpleToolRegistry
 from tests.server._domain_sessions import make_commands, make_domain_session
 

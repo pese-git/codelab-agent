@@ -21,10 +21,10 @@ from codelab.server.protocol.commands.session_cancel import SessionCancelCommand
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.session_factory import SessionFactory
-from codelab.server.protocol.state import ActiveTurnState, SessionState, ToolCallState
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.storage.base import SessionStorage
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 
 
 class _CountingStorage(InMemoryStorage):
@@ -34,7 +34,7 @@ class _CountingStorage(InMemoryStorage):
         super().__init__()
         self.saves = 0
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         self.saves += 1
         await super().save_session(session)
 
@@ -72,7 +72,7 @@ def _handler(
     )
 
 
-def _session_in_turn(*, permission_request_id: str | None = None) -> SessionState:
+def _session_in_turn(*, permission_request_id: str | None = None) -> SessionDocument:
     session = SessionFactory.create_session(cwd="/tmp")
     session.tool_calls["call_001"] = ToolCallState(
         tool_call_id="call_001",

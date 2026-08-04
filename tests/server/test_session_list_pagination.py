@@ -21,8 +21,8 @@ from codelab.server.protocol.handlers.session import (
     decode_session_cursor,
     encode_session_cursor,
 )
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage
+from codelab.server.storage.document import SessionDocument
 
 # ============================================================================
 # Invalid cursor edge cases (через ACPProtocol)
@@ -292,7 +292,7 @@ async def test_storage_list_sessions_cursor_beyond_all_sessions() -> None:
     """Storage: cursor ссылается на несуществующий session_id — возвращает с начала."""
     storage = InMemoryStorage()
     for i in range(5):
-        session = SessionState(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
         await storage.save_session(session)
 
     page, next_cursor = await storage.list_sessions(cursor="nonexistent_session_id")
@@ -305,10 +305,10 @@ async def test_storage_list_sessions_cursor_on_last_session() -> None:
     """Storage: cursor — последняя сессия (по updated_at) — пустая страница."""
     storage = InMemoryStorage()
 
-    session_oldest = SessionState(session_id="sess_oldest", cwd="/tmp", mcp_servers=[])
+    session_oldest = SessionDocument(session_id="sess_oldest", cwd="/tmp", mcp_servers=[])
     await storage.save_session(session_oldest)
 
-    session_newest = SessionState(session_id="sess_newest", cwd="/tmp", mcp_servers=[])
+    session_newest = SessionDocument(session_id="sess_newest", cwd="/tmp", mcp_servers=[])
     await storage.save_session(session_newest)
 
     first_page, cursor1 = await storage.list_sessions(limit=1)
@@ -327,7 +327,7 @@ async def test_storage_list_sessions_empty_page_with_cursor() -> None:
     """Storage: pagination разбивает сессии на страницы корректно."""
     storage = InMemoryStorage()
     for i in range(3):
-        session = SessionState(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
         await storage.save_session(session)
 
     page1, cursor1 = await storage.list_sessions(limit=2)
@@ -344,7 +344,7 @@ async def test_storage_list_sessions_cursor_for_nonexistent_session() -> None:
     """Storage: cursor ссылается на несуществующий session_id — возвращает с начала."""
     storage = InMemoryStorage()
     for i in range(3):
-        session = SessionState(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
         await storage.save_session(session)
 
     page, next_cursor = await storage.list_sessions(cursor="nonexistent_session", limit=10)

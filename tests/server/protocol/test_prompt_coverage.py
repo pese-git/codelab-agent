@@ -21,7 +21,7 @@ from codelab.server.protocol.handlers.prompt import (
     resolve_prompt_directives,
     resolve_tool_title,
 )
-from codelab.server.protocol.state import ClientRuntimeCapabilities
+from codelab.server.storage.document import ClientRuntimeCapabilities
 from tests.server._domain_sessions import make_domain_session
 
 

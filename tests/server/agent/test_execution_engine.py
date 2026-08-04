@@ -11,7 +11,7 @@ import pytest
 from codelab.server.agent.context_compactor import ContextCompactor
 from codelab.server.agent.core.execution_engine import ExecutionEngine
 from codelab.server.llm.models import LLMMessage
-from codelab.server.protocol.state import ClientRuntimeCapabilities, SessionState
+from codelab.server.storage.document import ClientRuntimeCapabilities, SessionDocument
 from codelab.server.tools.base import ToolDefinition
 
 
@@ -37,7 +37,7 @@ def tool_registry():
 
 @pytest.fixture
 def session():
-    session = MagicMock(spec=SessionState)
+    session = MagicMock(spec=SessionDocument)
     session.session_id = "test_session"
     session.history = [
         {"role": "user", "text": "Hello"},

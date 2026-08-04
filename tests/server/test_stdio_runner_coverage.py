@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 _MAKE_CONTAINER_PATH = "codelab.server.transport.stdio_runner.make_container"
 _CLIENT_RPC_SERVICE_PATH = "codelab.server.client_rpc.service.ClientRPCService"
@@ -253,7 +253,7 @@ class TestStdioRunnerLoadPendingPromptResponse:
         """Callback корректно строит response из pending_prompt_response."""
         _, storage, callbacks = _setup
 
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -292,7 +292,7 @@ class TestStdioRunnerLoadPendingPromptResponse:
         """Ошибка сохранения сессии не мешает вернуть response."""
         _, storage, callbacks = _setup
 
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

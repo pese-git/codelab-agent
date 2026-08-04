@@ -325,7 +325,7 @@ class TurnState:
 class SessionRuntime:
     """Рантайм-состояние сессии как доменный VO (ADR-006, write-фаза).
 
-    Переезжает из плоских runtime-полей `protocol.state.SessionState`
+    Переезжает из плоских runtime-полей `protocol.state.SessionDocument`
     (`terminals`, `events_history`, ...). Персистируемо (часть агрегата), кроме
     чисто transient `mcp_prompt_handlers` (`exclude=True`), который в домен НЕ
     переезжает и восстанавливается в `SessionRuntime`-компаньоне протокола.
@@ -335,7 +335,7 @@ class SessionRuntime:
     """
 
     terminals: dict[str, str] = field(default_factory=dict)
-    # Владелец реестра терминалов (P2-44): парное поле к `SessionState.terminals_owner`.
+    # Владелец реестра терминалов (P2-44): парное поле к `SessionDocument.terminals_owner`.
     terminals_owner: str | None = None
     terminal_counter: int = 0
     events_history: list[dict[str, Any]] = field(default_factory=list)
@@ -364,11 +364,11 @@ class Session:
     runtime: SessionRuntime = field(default_factory=SessionRuntime)
     # Storage-мета. Несётся round-trip как есть; `updated_at` НЕ регенерируется
     # при пересборке (регенерация = ложная «last activity», см. ACP updatedAt).
-    # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionState.
+    # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionDocument.
     title: str | None = None
     updated_at: str | None = None
     schema_version: int = 8
-    # Ревизия документа (ADR-007): парное поле к `SessionState.revision`, несётся
+    # Ревизия документа (ADR-007): парное поле к `SessionDocument.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0
     available_commands: list[dict[str, Any]] = field(default_factory=list)
@@ -377,7 +377,7 @@ class Session:
         """Добавить сообщение в историю."""
         self.history.add(message)
 
-    # History-seam'ы (фаза B ADR-006). Одноимённы с `SessionState`: писатель зовёт
+    # History-seam'ы (фаза B ADR-006). Одноимённы с `SessionDocument`: писатель зовёт
     # `session.<метод>()` и при switch резидента не меняется. Форма записи истории
     # перестаёт быть известна вызывающему — раньше `StateManager` собирал сырой dict.
     def add_user_message(self, prompt: Sequence[Any]) -> None:
@@ -425,7 +425,7 @@ class Session:
         """Добавить ответ ассистента, несущий запрошенные им tool_calls.
 
         Парного wire-сейма нет: единственный писатель этой записи (turn-цикл)
-        собирает её сырым dict'ом мимо `SessionState.add_assistant_message`,
+        собирает её сырым dict'ом мимо `SessionDocument.add_assistant_message`,
         потому что тот не принимает tool_calls. Из-за этого история хранит одну и
         ту же запись в двух формах — плоским dict в текущем процессе и
         `HistoryMessage` после чтения с диска, — а сравнение форм ломалось на
@@ -611,7 +611,7 @@ class Session:
     def add_tool_result(self, tool_call_id: str, content: str) -> None:
         """Добавить результат инструмента как ответ модели.
 
-        Парный сейм к `SessionState.add_tool_result`: контракт LLM-API требует
+        Парный сейм к `SessionDocument.add_tool_result`: контракт LLM-API требует
         `role: tool` на каждый `tool_call_id` из assistant-сообщения. `timestamp`
         не синтезируется — у tool-ответа его нет и в wire-форме.
         """

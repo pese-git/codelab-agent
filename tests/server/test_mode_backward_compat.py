@@ -1,18 +1,16 @@
 """Integration-тесты backward compatibility для mode system.
 
 Тестирует:
-- SessionState migration с старыми mode значениями
+- SessionDocument migration с старыми mode значениями
 - normalize_mode для всех старых значений
 - Deprecation warnings при загрузке старых mode
 """
 
 from __future__ import annotations
 
-import logging
+import structlog
 
-import pytest
-
-from codelab.server.protocol.mode import (
+from codelab.server.domain.mode import (
     DEFAULT_MODE,
     MODE_BYPASS,
     MODE_PLAN,
@@ -21,7 +19,7 @@ from codelab.server.protocol.mode import (
     VALID_MODES,
     normalize_mode,
 )
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
 class TestNormalizeModeBackwardCompat:
@@ -60,11 +58,11 @@ class TestNormalizeModeBackwardCompat:
 
 
 class TestSessionStateMigration:
-    """Тесты миграции SessionState с старыми mode."""
+    """Тесты миграции SessionDocument с старыми mode."""
 
     def test_migrate_old_mode_code(self) -> None:
-        """SessionState с mode=code должен мигрировать на bypass."""
-        state = SessionState(
+        """SessionDocument с mode=code должен мигрировать на bypass."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -73,8 +71,8 @@ class TestSessionStateMigration:
         assert state.config_values.get("mode") == MODE_BYPASS
 
     def test_migrate_old_mode_ask(self) -> None:
-        """SessionState с mode=ask должен мигрировать на standard."""
-        state = SessionState(
+        """SessionDocument с mode=ask должен мигрировать на standard."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -83,8 +81,8 @@ class TestSessionStateMigration:
         assert state.config_values.get("mode") == MODE_STANDARD
 
     def test_migrate_old_mode_architect(self) -> None:
-        """SessionState с mode=architect должен мигрировать на plan."""
-        state = SessionState(
+        """SessionDocument с mode=architect должен мигрировать на plan."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -93,8 +91,8 @@ class TestSessionStateMigration:
         assert state.config_values.get("mode") == MODE_PLAN
 
     def test_migrate_old_mode_debug(self) -> None:
-        """SessionState с mode=debug должен мигрировать на standard."""
-        state = SessionState(
+        """SessionDocument с mode=debug должен мигрировать на standard."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -103,8 +101,8 @@ class TestSessionStateMigration:
         assert state.config_values.get("mode") == MODE_STANDARD
 
     def test_new_mode_unchanged(self) -> None:
-        """SessionState с новым mode должен остаться без изменений."""
-        state = SessionState(
+        """SessionDocument с новым mode должен остаться без изменений."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -113,8 +111,8 @@ class TestSessionStateMigration:
         assert state.config_values.get("mode") == MODE_BYPASS
 
     def test_no_mode_uses_default(self) -> None:
-        """SessionState без mode должен использовать default."""
-        state = SessionState(
+        """SessionDocument без mode должен использовать default."""
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -127,26 +125,35 @@ class TestSessionStateMigration:
 class TestDeprecationWarnings:
     """Тесты deprecation warnings."""
 
-    def test_warning_logged_for_old_mode(self, caplog: pytest.LogCaptureFixture) -> None:
-        """При миграции старого mode должен быть warning."""
-        with caplog.at_level(logging.WARNING):
-            SessionState(
+    def test_warning_logged_for_old_mode(self) -> None:
+        """При миграции старого mode должен быть warning.
+
+        Событие структурное (`structlog`, конвенция проекта), поэтому и
+        проверяется по имени события, а не по тексту сообщения.
+        """
+        with structlog.testing.capture_logs() as logs:
+            SessionDocument(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
                 config_values={"mode": "code"},
             )
 
-        assert any("Deprecated mode" in record.message for record in caplog.records)
+        migrated = [log for log in logs if log["event"] == "session_mode_migrated_from_deprecated"]
+        assert len(migrated) == 1
+        assert migrated[0]["old_mode"] == "code"
+        assert migrated[0]["new_mode"] == "bypass"
 
-    def test_no_warning_for_new_mode(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_no_warning_for_new_mode(self) -> None:
         """Для нового mode warning не должен логироваться."""
-        with caplog.at_level(logging.WARNING):
-            SessionState(
+        with structlog.testing.capture_logs() as logs:
+            SessionDocument(
                 session_id="sess_1",
                 cwd="/tmp",
                 mcp_servers=[],
                 config_values={"mode": "standard"},
             )
 
-        assert not any("Deprecated mode" in record.message for record in caplog.records)
+        assert not [
+            log for log in logs if log["event"] == "session_mode_migrated_from_deprecated"
+        ]

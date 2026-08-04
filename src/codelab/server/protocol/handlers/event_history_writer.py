@@ -17,8 +17,9 @@ from typing import Any
 
 import structlog
 
+from codelab.server.storage.document import SessionDocument
+
 from ...domain.session import Session as DomainSession
-from ..state import SessionState
 
 logger = structlog.get_logger()
 
@@ -106,7 +107,7 @@ class EventHistoryWriter:
 
     def save_tool_call_update(
         self,
-        session: SessionState | DomainSession,
+        session: SessionDocument | DomainSession,
         tool_call_id: str,
         status: str,
         *,
@@ -182,7 +183,7 @@ class EventHistoryWriter:
 
     def _append(
         self,
-        session: SessionState | DomainSession,
+        session: SessionDocument | DomainSession,
         update: dict[str, Any],
     ) -> None:
         """Добавляет `session/update` в events_history со временной меткой."""
@@ -202,15 +203,15 @@ class EventHistoryWriter:
 
 
 def _journal_of(
-    session: SessionState | DomainSession,
+    session: SessionDocument | DomainSession,
 ) -> tuple[list[dict[str, Any]], str]:
     """Журнал событий и id сессии — из wire-DTO либо доменного агрегата.
 
     Развилка носителя временна и живёт ровно до конца фазы D ADR-006: элементы
     `events_history` — опаковые ACP-нотификации, поэтому в обеих моделях это один
     и тот же список, а писатель владеет только формой записи. Снять развилку =
-    оставить доменную ветку, когда последний писатель уедет с `SessionState`.
+    оставить доменную ветку, когда последний писатель уедет с `SessionDocument`.
     """
-    if isinstance(session, SessionState):
+    if isinstance(session, SessionDocument):
         return session.events_history, session.session_id
     return session.runtime.events_history, str(session.id)

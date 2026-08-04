@@ -8,9 +8,7 @@ from codelab.server.domain.session import TurnState
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.protocol.handlers.session import _cleanup_session_state
-from codelab.server.protocol.state import (
-    PendingClientRequestState,
-)
+from codelab.server.storage.document import PendingClientRequestState
 from tests.server._domain_sessions import make_domain_session
 
 

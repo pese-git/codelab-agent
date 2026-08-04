@@ -13,8 +13,8 @@ from codelab.server.agent.context.models import ContextConfig, SubagentResult
 from codelab.server.agent.context.token_counter import ApproximateTokenCounter
 from codelab.server.llm.models import LLMMessage
 from codelab.server.protocol.session_factory import SessionFactory
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage.base import SessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
 class MockSessionFactory(SessionFactory):
@@ -26,8 +26,8 @@ class MockSessionFactory(SessionFactory):
         mcp_servers: list | None = None,
         session_id: str | None = None,
         **kwargs,
-    ) -> SessionState:
-        return SessionState(
+    ) -> SessionDocument:
+        return SessionDocument(
             session_id=session_id or "mock_session_id",
             cwd=cwd,
             mcp_servers=mcp_servers or [],
@@ -39,12 +39,12 @@ class MockSessionStorage(SessionStorage):
     """Mock SessionStorage для тестирования."""
 
     def __init__(self) -> None:
-        self.sessions: dict[str, SessionState] = {}
+        self.sessions: dict[str, SessionDocument] = {}
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         self.sessions[session.session_id] = session
 
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         return self.sessions.get(session_id)
 
     async def list_sessions(
@@ -52,7 +52,7 @@ class MockSessionStorage(SessionStorage):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         sessions = list(self.sessions.values())
         if cwd:
             sessions = [s for s in sessions if s.cwd == cwd]
@@ -119,7 +119,7 @@ class TestDefaultChildSessionManager:
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
         """Тест создания child-сессии."""
-        parent = SessionState(
+        parent = SessionDocument(
             session_id="parent_session",
             cwd="/test/project",
             mcp_servers=[],
@@ -138,7 +138,7 @@ class TestDefaultChildSessionManager:
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
         """Тест сбора summary из child-сессии с историей."""
-        child = SessionState(
+        child = SessionDocument(
             session_id="child_session",
             cwd="/test/project",
             mcp_servers=[],
@@ -161,7 +161,7 @@ class TestDefaultChildSessionManager:
         self, child_session_manager: DefaultChildSessionManager
     ) -> None:
         """Тест сбора summary из child-сессии без истории."""
-        child = SessionState(
+        child = SessionDocument(
             session_id="child_session",
             cwd="/test/project",
             mcp_servers=[],

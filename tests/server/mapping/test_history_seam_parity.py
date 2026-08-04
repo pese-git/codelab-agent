@@ -1,6 +1,6 @@
 """Эквивалентность history-seam'ов wire и домена (фаза B ADR-006).
 
-Сеймы одноимённы, но пишут в разных представлениях: `SessionState` — сырую
+Сеймы одноимённы, но пишут в разных представлениях: `SessionDocument` — сырую
 wire-запись, `domain.Session` — `ConversationMessage`. При switch резидента в
 фазе D сайт останется тем же, поэтому записи обязаны быть эквивалентны с
 точностью до маппера: иначе смена носителя молча изменит формат хранения.
@@ -14,11 +14,11 @@ from codelab.server.domain.session import Session, SessionConfig
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import SessionId
 from codelab.server.mapping.history_mapper import HistoryMapper
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 
 
-def _wire_session() -> SessionState:
-    return SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+def _wire_session() -> SessionDocument:
+    return SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
 
 def _domain_session() -> Session:

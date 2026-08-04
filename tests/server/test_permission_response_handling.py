@@ -16,12 +16,8 @@ from _protocol_factory import build_protocol
 
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol import ACPProtocol
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    ProtocolOutcome,
-    SessionState,
-    ToolCallState,
-)
+from codelab.server.protocol.state import ProtocolOutcome
+from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
 from codelab.server.storage.memory import InMemoryStorage
 
 
@@ -36,9 +32,9 @@ class TestPermissionResponseRouting:
         return protocol
 
     @pytest.fixture
-    def test_session(self) -> SessionState:
+    def test_session(self) -> SessionDocument:
         """Создает тестовую сессию с активным turn."""
-        session = SessionState(
+        session = SessionDocument(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
@@ -64,7 +60,7 @@ class TestPermissionResponseRouting:
     async def test_response_with_method_none_is_routed_to_handle_client_response(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет, что response с method=None маршрутизируется на handle_client_response.
 
@@ -98,7 +94,7 @@ class TestPermissionResponseRouting:
     async def test_permission_response_allows_tool_execution(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет, что разрешение permission позволяет выполнить tool call.
 
@@ -149,7 +145,7 @@ class TestPermissionResponseRouting:
     async def test_permission_response_contains_notifications(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет, что permission response отправляет notifications и завершает turn.
 
@@ -188,7 +184,7 @@ class TestPermissionResponseRouting:
     async def test_permission_response_with_reject_once(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет, что reject_once завершает turn с cancelled.
 
@@ -228,7 +224,7 @@ class TestPermissionResponseRouting:
     async def test_permission_response_with_allow_always_saves_policy(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет, что allow_always сохраняет policy для будущих tool calls."""
         await protocol._storage.save_session(test_session)
@@ -257,7 +253,7 @@ class TestPermissionResponseRouting:
     async def test_late_permission_response_is_handled_gracefully(
         self,
         protocol: ACPProtocol,
-        test_session: SessionState,
+        test_session: SessionDocument,
     ) -> None:
         """✅ Проверяет обработку late response (после отмены turn).
 
@@ -312,8 +308,8 @@ class TestCancelThenLateResponse:
         return build_protocol(storage=InMemoryStorage())
 
     @staticmethod
-    def _session_awaiting_permission() -> SessionState:
-        session = SessionState(
+    def _session_awaiting_permission() -> SessionDocument:
+        session = SessionDocument(
             session_id="sess_cancel",
             cwd="/tmp",
             mcp_servers=[],
@@ -389,7 +385,7 @@ class TestPermissionResponseIntegration:
         5. Turn завершается и отправляется followup response
         """
         # Этап 1: Инициализируем сессию
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -466,7 +462,7 @@ class TestPermissionResponseIntegration:
         Проверяет что responses на разные permission requests обрабатываются независимо.
         """
         # Создаём две сессии с разными permission requests
-        session1 = SessionState(
+        session1 = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -485,7 +481,7 @@ class TestPermissionResponseIntegration:
             status="pending",
         )
 
-        session2 = SessionState(
+        session2 = SessionDocument(
             session_id="sess_2",
             cwd="/tmp",
             mcp_servers=[],
@@ -587,7 +583,7 @@ class TestDeferredTurnScenarios:
         согласно протоколу ACP (doc/Agent Client Protocol/protocol/05-Prompt Turn.md).
         """
         # Arrange: создаем сессию с активным turn в фазе awaiting_permission
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -642,7 +638,7 @@ class TestDeferredTurnScenarios:
         обработки permission response в контексте prompt turn.
         """
         # Arrange: Этап 1 - создаём сессию с active turn в фазе awaiting_permission
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -721,7 +717,7 @@ class TestDeferredTurnScenarios:
         Это тест для базового сценария без permission flow.
         """
         # Arrange: создаём сессию БЕЗ active turn или с завершённым turn
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

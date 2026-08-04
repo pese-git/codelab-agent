@@ -15,9 +15,9 @@ from codelab.server.domain.value_objects import (
     ToolCallStatus,
 )
 from codelab.server.mapping.session_mapper import SessionMapper
-from codelab.server.protocol.state import (
+from codelab.server.storage.document import (
     ClientRuntimeCapabilities,
-    SessionState,
+    SessionDocument,
     ToolCallState,
 )
 
@@ -141,7 +141,7 @@ class TestSessionMapperToProtocol:
 class TestSessionMapperToDomain:
     def test_basic_session(self) -> None:
         """Тест конвертации базовой сессии."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
         )
@@ -156,7 +156,7 @@ class TestSessionMapperToDomain:
 
     def test_with_history(self) -> None:
         """Тест конвертации с историей сообщений."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             history=[{"role": "user", "content": "hello"}],
@@ -171,7 +171,7 @@ class TestSessionMapperToDomain:
 
     def test_with_tool_calls(self) -> None:
         """Тест конвертации с tool calls."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             tool_call_counter=1,
@@ -199,7 +199,7 @@ class TestSessionMapperToDomain:
 
     def test_with_permissions(self) -> None:
         """Тест конвертации с разрешениями."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             permission_policy={"read": "allow"},
@@ -214,7 +214,7 @@ class TestSessionMapperToDomain:
 
     def test_with_plan(self) -> None:
         """Тест конвертации с планом."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             latest_plan=[
@@ -236,7 +236,7 @@ class TestSessionMapperToDomain:
 
     def test_with_runtime_capabilities(self) -> None:
         """Тест конвертации с runtime capabilities."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             runtime_capabilities=ClientRuntimeCapabilities(
@@ -255,7 +255,7 @@ class TestSessionMapperToDomain:
 
     def test_with_multi_agent(self) -> None:
         """Тест конвертации с multi-agent состоянием."""
-        state = SessionState(
+        state = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             active_strategy="hierarchical",

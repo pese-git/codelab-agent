@@ -10,13 +10,15 @@ from typing import Any
 
 import structlog
 
+from codelab.server.storage.document import ClientRuntimeCapabilities
+
 from ...domain.session import Session as DomainSession
 from ...mapping.session_mapper import SessionMapper
 from ...messages import ACPMessage
 from ...storage import SessionRepository
 from ..handlers import session
 from ..session_factory import SessionFactory
-from ..state import ClientRuntimeCapabilities, ProtocolOutcome
+from ..state import ProtocolOutcome
 
 logger = structlog.get_logger()
 

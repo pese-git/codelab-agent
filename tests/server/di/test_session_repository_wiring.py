@@ -10,8 +10,8 @@ import pytest
 from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.domain.session import Session
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import SessionRepository, SessionStorage
+from codelab.server.storage.document import SessionDocument
 from codelab.server.storage.memory import InMemoryStorage
 
 
@@ -46,7 +46,7 @@ class TestSessionRepositoryWiring:
         self, config: AppConfig, storage: InMemoryStorage
     ) -> None:
         """Оба порта смотрят в один backend — записанное через один видно другому."""
-        await storage.save_session(SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
+        await storage.save_session(SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
 
         container = make_container(config, storage)
         async with container() as request_container:
@@ -60,7 +60,7 @@ class TestSessionRepositoryWiring:
     async def test_write_through_repository_visible_via_storage(
         self, config: AppConfig, storage: InMemoryStorage
     ) -> None:
-        await storage.save_session(SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
+        await storage.save_session(SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[]))
 
         container = make_container(config, storage)
         async with container() as request_container:

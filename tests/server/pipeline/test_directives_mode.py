@@ -15,9 +15,7 @@ from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline.context import PromptContext
 from codelab.server.protocol.handlers.pipeline.stages.directives import DirectivesStage
-from codelab.server.protocol.state import (
-    ClientRuntimeCapabilities,
-)
+from codelab.server.storage.document import ClientRuntimeCapabilities
 from codelab.server.tools.registry import SimpleToolRegistry
 from tests.server._domain_sessions import make_commands, make_domain_session
 

@@ -11,8 +11,8 @@ import pytest
 from _protocol_factory import build_protocol
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import CachedSessionStorage, InMemoryStorage
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.mark.asyncio
@@ -53,9 +53,9 @@ def test_lru_cache_eviction() -> None:
     cache = CachedSessionStorage(backend=backend, max_size=2)
 
     # Создаем сессии
-    s1 = SessionState(session_id="s1", cwd="/", mcp_servers=[])
-    s2 = SessionState(session_id="s2", cwd="/", mcp_servers=[])
-    s3 = SessionState(session_id="s3", cwd="/", mcp_servers=[])
+    s1 = SessionDocument(session_id="s1", cwd="/", mcp_servers=[])
+    s2 = SessionDocument(session_id="s2", cwd="/", mcp_servers=[])
+    s3 = SessionDocument(session_id="s3", cwd="/", mcp_servers=[])
 
     # Сохраняем первые две сессии
     asyncio.run(cache.save_session(s1))
@@ -76,7 +76,7 @@ async def test_cached_storage_delegates_to_backend() -> None:
     backend = InMemoryStorage()
     cache = CachedSessionStorage(backend=backend, max_size=10)
 
-    session = SessionState(session_id="test", cwd="/tmp", mcp_servers=[])
+    session = SessionDocument(session_id="test", cwd="/tmp", mcp_servers=[])
     await cache.save_session(session)
 
     # Загрузка из кэша
@@ -101,7 +101,7 @@ async def test_cached_storage_list_sessions_delegates_to_backend() -> None:
 
     # Создаем несколько сессий
     for i in range(5):
-        session = SessionState(session_id=f"s{i}", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id=f"s{i}", cwd="/tmp", mcp_servers=[])
         await cache.save_session(session)
 
     # list_sessions должен вернуть все сессии через backend

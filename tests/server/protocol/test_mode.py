@@ -1,6 +1,6 @@
 """Тесты для модуля mode (ACP Protocol mode constants и утилиты)."""
 
-from codelab.server.protocol.mode import (
+from codelab.server.domain.mode import (
     DEFAULT_MODE,
     MODE_BYPASS,
     MODE_PLAN,

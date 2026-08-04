@@ -2,15 +2,15 @@
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage import InMemoryStorage
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.mark.asyncio
 async def test_save_and_load_session() -> None:
     """Тест сохранения и загрузки сессии."""
     storage = InMemoryStorage()
-    session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
     await storage.save_session(session)
     loaded = await storage.load_session("sess_1")
@@ -32,7 +32,7 @@ async def test_load_nonexistent_session() -> None:
 async def test_delete_session() -> None:
     """Тест удаления сессии."""
     storage = InMemoryStorage()
-    session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
     await storage.save_session(session)
     deleted = await storage.delete_session("sess_1")
@@ -54,7 +54,7 @@ async def test_delete_nonexistent_session() -> None:
 async def test_session_exists() -> None:
     """Тест проверки существования сессии."""
     storage = InMemoryStorage()
-    session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
     assert not await storage.session_exists("sess_1")
     await storage.save_session(session)
@@ -75,8 +75,8 @@ async def test_list_sessions_empty() -> None:
 async def test_list_sessions() -> None:
     """Тест получения списка сессий."""
     storage = InMemoryStorage()
-    session1 = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-    session2 = SessionState(session_id="sess_2", cwd="/home", mcp_servers=[])
+    session1 = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session2 = SessionDocument(session_id="sess_2", cwd="/home", mcp_servers=[])
 
     await storage.save_session(session1)
     await storage.save_session(session2)
@@ -90,8 +90,8 @@ async def test_list_sessions() -> None:
 async def test_list_sessions_with_cwd_filter() -> None:
     """Тест фильтрации сессий по рабочей директории."""
     storage = InMemoryStorage()
-    session1 = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-    session2 = SessionState(session_id="sess_2", cwd="/home", mcp_servers=[])
+    session1 = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session2 = SessionDocument(session_id="sess_2", cwd="/home", mcp_servers=[])
 
     await storage.save_session(session1)
     await storage.save_session(session2)
@@ -108,7 +108,7 @@ async def test_list_sessions_pagination() -> None:
 
     # Создаем 5 сессий
     for i in range(5):
-        session = SessionState(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id=f"sess_{i}", cwd="/tmp", mcp_servers=[])
         await storage.save_session(session)
 
     # Получаем первую страницу с лимитом 2
@@ -131,11 +131,11 @@ async def test_list_sessions_pagination() -> None:
 async def test_list_sessions_sorted_by_updated_at() -> None:
     """Тест сортировки сессий по updated_at (новые первыми)."""
     storage = InMemoryStorage()
-    session1 = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session1 = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
 
     await storage.save_session(session1)
     # Сохраняем первую сессию, затем вторую - вторая должна быть "новее"
-    session2 = SessionState(session_id="sess_2", cwd="/tmp", mcp_servers=[])
+    session2 = SessionDocument(session_id="sess_2", cwd="/tmp", mcp_servers=[])
     await storage.save_session(session2)
 
     sessions, _ = await storage.list_sessions()
@@ -148,7 +148,7 @@ async def test_list_sessions_sorted_by_updated_at() -> None:
 async def test_update_session_updates_timestamp() -> None:
     """Тест обновления временной метки при сохранении."""
     storage = InMemoryStorage()
-    session = SessionState(session_id="sess_1", cwd="/tmp", mcp_servers=[])
+    session = SessionDocument(session_id="sess_1", cwd="/tmp", mcp_servers=[])
     original_time = session.updated_at
 
     await storage.save_session(session)

@@ -8,10 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from codelab.server.messages import ACPMessage
-from codelab.server.protocol.state import (
-    PendingToolExecution,
-    ProtocolOutcome,
-)
+from codelab.server.protocol.state import PendingToolExecution, ProtocolOutcome
 from codelab.server.transport.stdio import StdioServerTransport
 
 

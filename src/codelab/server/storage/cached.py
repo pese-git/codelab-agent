@@ -10,7 +10,8 @@ from collections import OrderedDict
 
 import structlog
 
-from ..protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
+
 from .base import SessionStorage
 
 logger = structlog.get_logger()
@@ -46,9 +47,9 @@ class CachedSessionStorage(SessionStorage):
         self._backend = backend
         self._max_size = max_size
         # OrderedDict работает как LRU: move_to_end при каждом обращении
-        self._cache: OrderedDict[str, SessionState] = OrderedDict()
+        self._cache: OrderedDict[str, SessionDocument] = OrderedDict()
 
-    def _put(self, session: SessionState) -> None:
+    def _put(self, session: SessionDocument) -> None:
         """Добавить в кэш, вытолкнув самую старую запись при переполнении."""
         session_id = session.session_id
         if session_id in self._cache:
@@ -64,12 +65,12 @@ class CachedSessionStorage(SessionStorage):
         """Удалить сессию из кэша."""
         self._cache.pop(session_id, None)
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         """Сохраняет сессию в backend и обновляет кэш."""
         await self._backend.save_session(session)
         self._put(session)
 
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         """Загружает сессию из кэша или backend."""
         if session_id in self._cache:
             self._cache.move_to_end(session_id)
@@ -89,7 +90,7 @@ class CachedSessionStorage(SessionStorage):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         """Возвращает список сессий через backend (без прогрева кэша)."""
         return await self._backend.list_sessions(cwd=cwd, cursor=cursor, limit=limit)
 

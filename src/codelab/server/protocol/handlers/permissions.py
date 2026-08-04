@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from codelab.server.storage.document import SessionDocument
+
 from ...domain.session import Session
 from ...messages import JsonRpcId
 from ...storage import SessionRepository, SessionStorage
-from ..state import SessionState
 
 if TYPE_CHECKING:
     from .global_policy_manager import GlobalPolicyManager
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 async def find_session_by_permission_request_id(
     permission_request_id: JsonRpcId,
     storage: SessionStorage,
-) -> SessionState | None:
+) -> SessionDocument | None:
     """Ищет сессию с активным turn, ожидающим ответ по permission-request.
 
     Пример использования:
@@ -139,7 +140,7 @@ def resolve_permission_option_kind(
 
 async def resolve_remembered_permission_decision(
     *,
-    session: SessionState,
+    session: SessionDocument,
     tool_kind: str,
     global_manager: GlobalPolicyManager | None = None,
 ) -> str:

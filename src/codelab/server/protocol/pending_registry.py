@@ -1,7 +1,7 @@
 """Реестр ожидающих asyncio.Future для permission requests.
 
 Хранит runtime-объекты, которые не могут быть сериализованы
-и не должны присутствовать в персистируемом SessionState.
+и не должны присутствовать в персистируемом SessionDocument.
 """
 
 from __future__ import annotations

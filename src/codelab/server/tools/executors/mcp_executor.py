@@ -260,7 +260,7 @@ class MCPToolExecutor(ToolExecutor):
         arguments: dict[str, Any],
         session: Session | None = None,
     ) -> ToolExecutionResult:
-        """Выполнить MCP инструмент напрямую (без SessionState).
+        """Выполнить MCP инструмент напрямую (без SessionDocument).
 
         Args:
             session_id: ID сессии (для логирования).

@@ -7,10 +7,8 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    PromptDirectives,
-)
+from codelab.server.protocol.state import PromptDirectives
+from codelab.server.storage.document import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session
 
 

@@ -1,8 +1,8 @@
 """Доменный порт хранилища сессий (каркас D4-d1, ADR-006).
 
 `SessionRepository` — единственный шов между доменным агрегатом `Session` и
-wire-DTO `SessionState`. После switch'а рабочей моделью прикладных путей
-становится домен, а `SessionState` живёт только внутри этого порта и на диске.
+wire-DTO `SessionDocument`. После switch'а рабочей моделью прикладных путей
+становится домен, а `SessionDocument` живёт только внутри этого порта и на диске.
 
 Асимметрия порта — CQRS-lite (решение D4-d, тезис 3):
 - `load_session`/`save_session` — доменные (write-model, богатый агрегат);
@@ -21,7 +21,7 @@ behavior-neutral, а резидентный кэш — отдельным осо
 
 НЕ наследует `SessionStorage`: имена методов совпадают намеренно (чтобы switch
 call-сайтов был механическим), но тип рабочей модели другой — доменный `Session`
-вместо wire `SessionState`, поэтому это не подтип и не взаимозаменяемо с backend.
+вместо wire `SessionDocument`, поэтому это не подтип и не взаимозаменяемо с backend.
 """
 
 from __future__ import annotations
@@ -32,9 +32,10 @@ from contextlib import asynccontextmanager
 
 import structlog
 
+from codelab.server.storage.document import SessionDocument
+
 from ..domain.session import Session
 from ..mapping.session_mapper import SessionMapper
-from ..protocol.state import SessionState
 from .base import SessionStorage
 
 logger = structlog.get_logger()
@@ -138,7 +139,7 @@ class SessionRepository:
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         """Возвращает wire-проекцию списка сессий (read-model, CQRS-lite).
 
         Для поиска сессии по вторичному ключу с последующей мутацией эта

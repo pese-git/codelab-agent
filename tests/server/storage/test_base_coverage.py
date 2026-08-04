@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from codelab.server.protocol.state import SessionState
 from codelab.server.storage.base import SessionStorage
+from codelab.server.storage.document import SessionDocument
 
 
 class ConcreteSessionStorage(SessionStorage):
     """Конкретная реализация для покрытия абстрактных методов."""
 
-    async def save_session(self, session: SessionState) -> None:
+    async def save_session(self, session: SessionDocument) -> None:
         await super().save_session(session)
 
-    async def load_session(self, session_id: str) -> SessionState | None:
+    async def load_session(self, session_id: str) -> SessionDocument | None:
         return await super().load_session(session_id)
 
     async def delete_session(self, session_id: str) -> bool:
@@ -23,7 +23,7 @@ class ConcreteSessionStorage(SessionStorage):
         cwd: str | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> tuple[list[SessionState], str | None]:
+    ) -> tuple[list[SessionDocument], str | None]:
         return await super().list_sessions(cwd=cwd, cursor=cursor, limit=limit)
 
     async def session_exists(self, session_id: str) -> bool:
@@ -36,7 +36,7 @@ class TestSessionStorageAbstractMethods:
     async def test_save_session_pass_executed(self) -> None:
         """Абстрактный save_session возвращает None через pass."""
         storage = ConcreteSessionStorage()
-        session = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
         result = await storage.save_session(session)
         assert result is None
 

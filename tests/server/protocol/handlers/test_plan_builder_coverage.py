@@ -19,7 +19,8 @@ from codelab.server.protocol.handlers.plan_builder import (
     _normalize_entry_fields,
     _validate_entry_structure,
 )
-from codelab.server.protocol.state import PromptDirectives, SessionState
+from codelab.server.protocol.state import PromptDirectives
+from codelab.server.storage.document import SessionDocument
 
 
 @pytest.fixture
@@ -29,9 +30,9 @@ def plan_builder() -> PlanBuilder:
 
 
 @pytest.fixture
-def session() -> SessionState:
-    """Создает экземпляр SessionState для тестов."""
-    return SessionState(
+def session() -> SessionDocument:
+    """Создает экземпляр SessionDocument для тестов."""
+    return SessionDocument(
         session_id="sess_1",
         cwd="/tmp",
         mcp_servers=[],

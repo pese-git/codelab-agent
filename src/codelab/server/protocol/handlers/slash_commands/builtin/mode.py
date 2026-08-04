@@ -7,13 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from codelab.server.models import AvailableCommand, AvailableCommandInput
-from codelab.server.protocol.mode import (
+from codelab.server.domain.mode import (
     DEFAULT_MODE,
     MODE_DESCRIPTIONS,
     VALID_MODES,
     normalize_mode,
 )
+from codelab.server.models import AvailableCommand, AvailableCommandInput
 
 from ..base import CommandHandler, CommandResult
 

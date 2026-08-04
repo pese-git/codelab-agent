@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import structlog
 
+from codelab.server.storage.document import SessionDocument
+
 from ....messages import ACPMessage
-from ...state import SessionState
 from .normalization import normalize_stop_reason
 
 logger = structlog.get_logger()
 
 
-def finalize_active_turn(session: SessionState, *, stop_reason: str) -> ACPMessage | None:
+def finalize_active_turn(session: SessionDocument, *, stop_reason: str) -> ACPMessage | None:
     """Финализирует текущий active turn и очищает его состояние.
 
     Пример использования:
@@ -35,7 +36,7 @@ def finalize_active_turn(session: SessionState, *, stop_reason: str) -> ACPMessa
 
 
 def complete_active_turn(
-    session: SessionState,
+    session: SessionDocument,
     *,
     stop_reason: str = "end_turn",
 ) -> ACPMessage | None:
@@ -53,7 +54,7 @@ def complete_active_turn(
 
 
 def should_auto_complete_active_turn(
-    session: SessionState,
+    session: SessionDocument,
 ) -> bool:
     """Возвращает `True`, если active turn можно безопасно автозавершить.
 

@@ -14,12 +14,9 @@ from codelab.server.messages import ACPMessage, JsonRpcId
 from codelab.server.protocol.handlers.prompt import (
     validate_prompt_content,
 )
-from codelab.server.protocol.state import (
-    ActiveTurnState,
-    ProtocolOutcome,
-    SessionState,
-)
+from codelab.server.protocol.state import ProtocolOutcome
 from codelab.server.storage import InMemoryStorage
+from codelab.server.storage.document import ActiveTurnState, SessionDocument
 from tests.server._domain_sessions import make_domain_session, wire_history
 
 
@@ -133,9 +130,9 @@ class TestSessionCancelStage5:
     """Тесты session_cancel с использованием PromptOrchestrator (Этап 5)."""
 
     @pytest.fixture
-    def sessions(self) -> dict[str, SessionState]:
+    def sessions(self) -> dict[str, SessionDocument]:
         """Создает тестовую сессию с активным turn."""
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -152,7 +149,7 @@ class TestSessionCancelStage5:
         return {"sess_1": session}
 
     @pytest_asyncio.fixture
-    async def storage(self, sessions: dict[str, SessionState]) -> InMemoryStorage:
+    async def storage(self, sessions: dict[str, SessionDocument]) -> InMemoryStorage:
         """Создает storage с тестовой сессией."""
         from codelab.server.storage import InMemoryStorage
 
@@ -196,7 +193,7 @@ class TestSessionCancelStage5:
     async def test_session_cancel_no_active_turn(self) -> None:
         """Обрабатывает cancel при отсутствии активного turn."""
         # Arrange
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -354,7 +351,7 @@ class TestSessionPromptIntegrationStage5:
     ) -> None:
         """Возвращает error при отсутствии сессии."""
         # Arrange
-        sessions: dict[str, SessionState] = {}
+        sessions: dict[str, SessionDocument] = {}
         params: dict[str, Any] = {
             "sessionId": "nonexistent",
             "prompt": [{"type": "text", "text": "hello"}],
@@ -464,7 +461,7 @@ class TestSessionPromptWithOrchestratorIntegration:
     async def test_session_prompt_returns_protocol_outcome(self) -> None:
         """Проверяет, что session/prompt возвращает ProtocolOutcome с notifications."""
         # Arrange
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -490,7 +487,7 @@ class TestSessionPromptWithOrchestratorIntegration:
     async def test_session_prompt_with_orchestrator_creates_notifications(self) -> None:
         """Проверяет, что orchestrator создает необходимые notifications."""
         # Arrange
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -519,7 +516,7 @@ class TestSessionPromptWithOrchestratorIntegration:
     async def test_session_prompt_validates_prompt_array(self) -> None:
         """Проверяет валидацию prompt как array."""
         # Arrange
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
@@ -563,7 +560,7 @@ class TestSessionPromptWithOrchestratorIntegration:
     async def test_session_prompt_updates_session_title(self) -> None:
         """Проверяет обновление заголовка сессии при первом prompt."""
         # Arrange
-        session = SessionState(
+        session = SessionDocument(
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],

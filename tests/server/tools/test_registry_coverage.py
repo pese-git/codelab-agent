@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from codelab.server.protocol.state import SessionState
+from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.registry import SimpleToolRegistry
 
@@ -79,7 +79,7 @@ class TestRegistryExecuteToolAsyncSession:
     ) -> None:
         """Async executor получает session, если принимает её (строка 235)."""
 
-        async def async_handler(session: SessionState, value: int) -> ToolExecutionResult:
+        async def async_handler(session: SessionDocument, value: int) -> ToolExecutionResult:
             return ToolExecutionResult(
                 success=True,
                 output=f"session={session.session_id} value={value}",
@@ -93,7 +93,7 @@ class TestRegistryExecuteToolAsyncSession:
             executor=async_handler,
         )
 
-        session = SessionState(session_id="s1", cwd="/tmp", mcp_servers=[])
+        session = SessionDocument(session_id="s1", cwd="/tmp", mcp_servers=[])
         result = await registry.execute_tool(
             "session",
             "async_with_session",
