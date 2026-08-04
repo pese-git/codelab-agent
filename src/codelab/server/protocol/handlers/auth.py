@@ -1,36 +1,24 @@
 """Обработчики методов аутентификации и handshake.
 
 Содержит логику обработки методов initialize, authenticate и related.
-Включает PromptCapabilityProfile — единый источник истины для объявления
-возможностей промпта (image, audio, embeddedContext) в handshake.
+Здесь же `_PROMPT_CAPABILITIES` — единый источник истины для объявления
+возможностей промпта (image, audio, embeddedContext) в handshake; сам тип —
+общий `codelab.shared.prompt_capabilities.PromptCapabilities`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from codelab.server.storage.document import ClientRuntimeCapabilities
+from codelab.shared.prompt_capabilities import PromptCapabilities
 
 from ...messages import ACPMessage, JsonRpcId
 
-
-@dataclass(frozen=True)
-class PromptCapabilityProfile:
-    """Профиль возможностей промпта, объявляемых в handshake.
-
-    Атрибуты:
-        image: Поддержка изображений.
-        audio: Поддержка аудио (отложена).
-        embedded_context: Поддержка встроенных ресурсов.
-    """
-
-    image: bool = False
-    audio: bool = False
-    embedded_context: bool = False
-
-
-_PROMPT_CAPABILITIES = PromptCapabilityProfile(
+# Возможности промпта, которые агент объявляет в handshake. Тип — общий с клиентом
+# (Shared Kernel): по ACP это `agentCapabilities.promptCapabilities`, и обе стороны
+# говорят об одном. Прежний локальный `PromptCapabilityProfile` был его дублем.
+_PROMPT_CAPABILITIES = PromptCapabilities(
     image=True,
     audio=True,
     embedded_context=True,
@@ -95,11 +83,8 @@ def initialize(
         "agentCapabilities": {
             "loadSession": True,
             "mcpCapabilities": {"http": mcp_http_enabled, "sse": mcp_sse_enabled},
-            "promptCapabilities": {
-                "image": _PROMPT_CAPABILITIES.image,
-                "audio": _PROMPT_CAPABILITIES.audio,
-                "embeddedContext": _PROMPT_CAPABILITIES.embedded_context,
-            },
+            # `to_dict()` даёт ровно wire-имена ACP, включая camelCase `embeddedContext`.
+            "promptCapabilities": _PROMPT_CAPABILITIES.to_dict(),
             "sessionCapabilities": {},
         },
         "agentInfo": {

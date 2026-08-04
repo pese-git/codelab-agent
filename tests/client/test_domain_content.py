@@ -206,9 +206,9 @@ class TestPromptCapabilities:
         assert caps.audio is False
         assert caps.embedded_context is False
 
-    def test_from_server_capabilities(self) -> None:
-        """from_server_capabilities извлекает promptCapabilities."""
-        caps = PromptCapabilities.from_server_capabilities(
+    def test_from_agent_capabilities(self) -> None:
+        """from_agent_capabilities извлекает promptCapabilities из agentCapabilities."""
+        caps = PromptCapabilities.from_agent_capabilities(
             {
                 "promptCapabilities": {
                     "image": True,

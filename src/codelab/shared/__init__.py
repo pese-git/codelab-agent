@@ -45,6 +45,7 @@ from codelab.shared.messages import (
     JsonRpcId,
     is_parse_error,
 )
+from codelab.shared.prompt_capabilities import PromptCapabilities
 
 __all__ = [
     # Messages
@@ -73,4 +74,5 @@ __all__ = [
     "ALLOWED_AUDIO_MIME_TYPES",
     # Capabilities
     "ClientCapabilities",
+    "PromptCapabilities",
 ]

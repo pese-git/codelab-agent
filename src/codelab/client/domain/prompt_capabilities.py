@@ -1,94 +1,16 @@
-"""Prompt Capabilities - domain модель для возможностей агента.
+"""Ошибка неподдерживаемого контента промпта.
 
-Инкапсулирует promptCapabilities агента, полученные при инициализации.
-Согласно ACP спецификации определяет, какие типы контента могут быть
-отправлены в промпте.
+Сам VO возможностей промпта живёт в `codelab.shared.prompt_capabilities`: по ACP это
+`agentCapabilities.promptCapabilities`, о которых говорят обе стороны, поэтому тип
+общий (Shared Kernel). Здесь остаётся клиентское исключение — оно про поведение
+клиента, а не про форму протокола.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from codelab.shared.prompt_capabilities import PromptCapabilities
 
-
-@dataclass(frozen=True)
-class PromptCapabilities:
-    """Возможности агента для обработки промптов.
-
-    Определяет, какие типы мультимодального контента поддерживаются агентом.
-    Согласно ACP спецификации (02-Initialization.md):
-    - text и resource_link поддерживаются всегда (baseline)
-    - image, audio, embeddedContext требуют явной поддержки
-
-    Attributes:
-        image: Поддержка изображений в промпте.
-        audio: Поддержка аудио в промпте.
-        embedded_context: Поддержка embedded resources в промпте.
-    """
-
-    image: bool = False
-    audio: bool = False
-    embedded_context: bool = False
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> PromptCapabilities:
-        """Создает PromptCapabilities из dict.
-
-        Args:
-            data: Dict с capabilities (promptCapabilities из agentCapabilities).
-
-        Returns:
-            PromptCapabilities instance.
-        """
-        if data is None:
-            return cls()
-        return cls(
-            image=bool(data.get("image", False)),
-            audio=bool(data.get("audio", False)),
-            embedded_context=bool(data.get("embeddedContext", False)),
-        )
-
-    @classmethod
-    def from_server_capabilities(
-        cls,
-        server_capabilities: dict[str, Any] | None,
-    ) -> PromptCapabilities:
-        """Извлекает PromptCapabilities из server_capabilities.
-
-        Args:
-            server_capabilities: Полные capabilities сервера из initialize response.
-
-        Returns:
-            PromptCapabilities instance.
-        """
-        if server_capabilities is None:
-            return cls()
-        prompt_caps = server_capabilities.get("promptCapabilities")
-        return cls.from_dict(prompt_caps)
-
-    def supports_image(self) -> bool:
-        """Проверяет поддержку изображений."""
-        return self.image
-
-    def supports_audio(self) -> bool:
-        """Проверяет поддержку аудио."""
-        return self.audio
-
-    def supports_embedded_context(self) -> bool:
-        """Проверяет поддержку embedded resources."""
-        return self.embedded_context
-
-    def supports_multimodal(self) -> bool:
-        """Проверяет поддержку любого мультимодального контента."""
-        return self.image or self.audio or self.embedded_context
-
-    def to_dict(self) -> dict[str, Any]:
-        """Сериализует в dict."""
-        return {
-            "image": self.image,
-            "audio": self.audio,
-            "embeddedContext": self.embedded_context,
-        }
+__all__ = ["PromptCapabilities", "UnsupportedContentError"]
 
 
 class UnsupportedContentError(Exception):

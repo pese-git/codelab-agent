@@ -11,8 +11,6 @@ class TestClientCapabilities:
         assert caps.fs_read is False
         assert caps.fs_write is False
         assert caps.terminal is False
-        assert caps.image_prompts is False
-        assert caps.embedded_context is False
 
     def test_supports_fs_false(self) -> None:
         caps = ClientCapabilities()
@@ -26,17 +24,17 @@ class TestClientCapabilities:
         caps = ClientCapabilities(fs_write=True)
         assert caps.supports_fs is True
 
-    def test_supports_multimodal_false(self) -> None:
+    def test_multimodal_not_a_client_capability(self) -> None:
+        """Мультимодальность здесь отсутствует намеренно.
+
+        По ACP `image`/`audio`/`embeddedContext` входят в
+        `agentCapabilities.promptCapabilities` — их носитель `PromptCapabilities`
+        (tech-debt P2-32: здесь они лежали дублем без потребителей).
+        """
         caps = ClientCapabilities()
-        assert caps.supports_multimodal is False
-
-    def test_supports_multimodal_images(self) -> None:
-        caps = ClientCapabilities(image_prompts=True)
-        assert caps.supports_multimodal is True
-
-    def test_supports_multimodal_embedded(self) -> None:
-        caps = ClientCapabilities(embedded_context=True)
-        assert caps.supports_multimodal is True
+        assert not hasattr(caps, "image_prompts")
+        assert not hasattr(caps, "embedded_context")
+        assert not hasattr(caps, "supports_multimodal")
 
     def test_can_read_files(self) -> None:
         caps = ClientCapabilities(fs_read=True)
@@ -71,15 +69,19 @@ class TestClientCapabilities:
                 "fs_read": True,
                 "fs_write": True,
                 "terminal": True,
-                "image_prompts": True,
-                "embedded_context": True,
             }
         )
         assert caps.fs_read is True
         assert caps.fs_write is True
         assert caps.terminal is True
-        assert caps.image_prompts is True
-        assert caps.embedded_context is True
+
+    def test_from_dict_ignores_unknown_keys(self) -> None:
+        """Незнакомые ключи не роняют разбор: словари приходят из внешнего обмена."""
+        caps = ClientCapabilities.from_dict(
+            {"fs_read": True, "image_prompts": True, "whatever": 1}
+        )
+        assert caps.fs_read is True
+        assert caps == ClientCapabilities(fs_read=True)
 
     def test_from_dict_partial(self) -> None:
         caps = ClientCapabilities.from_dict({"fs_read": True})

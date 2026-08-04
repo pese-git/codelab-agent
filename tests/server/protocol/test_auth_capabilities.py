@@ -1,25 +1,28 @@
-"""Тесты для PromptCapabilityProfile и capabilities в initialize."""
+"""Тесты объявляемых агентом возможностей промпта и capabilities в initialize."""
 
-from codelab.server.protocol.handlers.auth import (
-    _PROMPT_CAPABILITIES,
-    PromptCapabilityProfile,
-    initialize,
-)
+from codelab.server.protocol.handlers.auth import _PROMPT_CAPABILITIES, initialize
+from codelab.shared.prompt_capabilities import PromptCapabilities
 
 
-class TestPromptCapabilityProfile:
-    """Тесты PromptCapabilityProfile."""
+class TestAgentPromptCapabilities:
+    """Возможности промпта, объявляемые агентом в handshake."""
 
-    def test_default_values(self) -> None:
-        profile = PromptCapabilityProfile()
-        assert profile.image is False
-        assert profile.audio is False
-        assert profile.embedded_context is False
+    def test_uses_shared_type(self) -> None:
+        """Тип общий с клиентом: по ACP это `agentCapabilities.promptCapabilities`."""
+        assert isinstance(_PROMPT_CAPABILITIES, PromptCapabilities)
 
     def test_server_profile(self) -> None:
         assert _PROMPT_CAPABILITIES.image is True
         assert _PROMPT_CAPABILITIES.audio is True
         assert _PROMPT_CAPABILITIES.embedded_context is True
+
+    def test_wire_keys_unchanged(self) -> None:
+        """Wire-форма — ровно ACP-имена, включая camelCase `embeddedContext`."""
+        assert _PROMPT_CAPABILITIES.to_dict() == {
+            "image": True,
+            "audio": True,
+            "embeddedContext": True,
+        }
 
 
 class TestInitializeCapabilities:

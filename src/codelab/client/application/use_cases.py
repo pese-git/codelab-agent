@@ -561,8 +561,9 @@ class SendPromptUseCase(UseCase):
             msg = f"Session {request.session_id} not found"
             raise ValueError(msg)
 
-        # Извлекаем prompt capabilities из сессии (domain model)
-        capabilities = PromptCapabilities.from_server_capabilities(session.server_capabilities)
+        # Извлекаем возможности промпта из объявленных агентом (по ACP это
+        # `agentCapabilities`; на клиентской сущности поле называется server_capabilities).
+        capabilities = PromptCapabilities.from_agent_capabilities(session.server_capabilities)
 
         # Делегируем построение content blocks в domain service
         # ContentBuilder проверяет capabilities и формирует content blocks
