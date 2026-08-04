@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from codelab.shared.web_ui import WebUIManager
+
+
+@pytest.fixture(autouse=True)
+def isolated_codelab_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Изолировать CODELAB_HOME: запуск Web UI открывает файл лога подпроцесса."""
+    monkeypatch.setenv("CODELAB_HOME", str(tmp_path))
+    return tmp_path
 
 
 class TestValidateHost:
@@ -161,12 +169,19 @@ class TestStartWebUISubprocess:
 
     @patch("codelab.server.web_app.is_web_ui_available")
     @patch("codelab.shared.web_ui.subprocess.Popen")
-    def test_subprocess_uses_devnull_for_stdio(
+    def test_subprocess_stdio_is_never_inherited(
         self,
         mock_popen: MagicMock,
         mock_available: MagicMock,
+        isolated_codelab_home: Path,
     ) -> None:
-        """Subprocess должен использовать DEVNULL для stdout/stderr."""
+        """Подпроцесс не наследует stdio родителя.
+
+        Инвариант безопасности: сервер может работать поверх stdio, и вывод
+        ребёнка в общий поток испортил бы JSON-RPC обмен. Ребёнок получает
+        собственный файл лога (P2-53 — до этого был DEVNULL и ни одного канала
+        наблюдаемости), но никогда — потоки родителя.
+        """
         mock_available.return_value = True
         mock_process = MagicMock()
         mock_process.pid = 12345
@@ -176,6 +191,11 @@ class TestStartWebUISubprocess:
         manager.start_subprocess()
 
         call_kwargs = mock_popen.call_args[1]
-        assert call_kwargs["stdout"] == subprocess.DEVNULL
-        assert call_kwargs["stderr"] == subprocess.DEVNULL
+        child_stdout = call_kwargs["stdout"]
+        assert child_stdout is not None
+        assert child_stdout not in (sys.stdout, sys.stderr, 0, 1, 2)
+        assert child_stdout == subprocess.DEVNULL or Path(child_stdout.name).is_relative_to(
+            isolated_codelab_home
+        )
+        assert call_kwargs["stderr"] in (subprocess.DEVNULL, subprocess.STDOUT)
         assert call_kwargs["start_new_session"] is True

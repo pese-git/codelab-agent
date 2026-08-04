@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import signal
 import subprocess
 import sys
 from typing import TYPE_CHECKING
@@ -24,8 +25,10 @@ from typing import TYPE_CHECKING
 import structlog
 from aiohttp import web
 
+from codelab.shared.logging import get_logs_dir
+
 if TYPE_CHECKING:
-    pass
+    from typing import IO
 
 logger = structlog.get_logger()
 
@@ -95,13 +98,22 @@ class WebUIManager:
                 "CODELAB_WEB_UI_PORT": str(web_ui_port),
             }
 
+            # Ребёнок уходит в свою сессию, чтобы Ctrl-C в терминале не убивал Web UI.
+            # Ценой этого его не убивает и смерть родителя, поэтому он получает pid
+            # родителя и сам завершается, когда тот исчезает (P2-53).
+            child_env["CODELAB_PARENT_PID"] = str(os.getpid())
+
+            child_log = self._open_child_log()
+
             self._process = subprocess.Popen(
                 [sys.executable, "-m", "codelab.client.tui.serve_entry"],
                 env=child_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=child_log or subprocess.DEVNULL,
+                stderr=subprocess.STDOUT if child_log else subprocess.DEVNULL,
                 start_new_session=True,
             )
+            if child_log is not None:
+                child_log.close()
 
             self._web_ui_url = f"http://{validated_host}:{web_ui_port}/"
 
@@ -116,11 +128,28 @@ class WebUIManager:
             logger.warning("failed_to_start_web_ui_subprocess", error=str(e))
             return False
 
+    def _open_child_log(self) -> IO[bytes] | None:
+        """Открыть файл лога подпроцесса Web UI.
+
+        Без него вывод ребёнка уходил в ``DEVNULL``, и у него не было канала
+        наблюдаемости вообще: утечка подпроцессов жила сутки незамеченной,
+        потому что в логах её не было видно (P2-53).
+
+        Имя файла — по pid родителя, а не по времени: метки времени в именах
+        уже расходятся с UTC в строках логов (P2-47).
+        """
+        try:
+            log_path = get_logs_dir() / f"web_ui-{os.getpid()}.log"
+            return log_path.open("ab")
+        except OSError as e:
+            logger.warning("web_ui_child_log_unavailable", error=str(e))
+            return None
+
     def stop_subprocess(self) -> None:
         """Останавливает subprocess с Web UI."""
         if self._process is not None:
             try:
-                self._process.terminate()
+                self._terminate_process_tree()
                 self._process.wait(timeout=5)
                 logger.info("web_ui_subprocess_stopped")
             except Exception as e:
@@ -130,6 +159,26 @@ class WebUIManager:
             finally:
                 self._process = None
                 self._web_ui_url = None
+
+    def _terminate_process_tree(self) -> None:
+        """Послать SIGTERM всей группе подпроцесса, а не только ему самому.
+
+        `start_new_session=True` делает ребёнка лидером своей группы, а textual-serve
+        порождает в ней собственных детей (экземпляры TUI). `terminate()` по одному
+        pid оставил бы их сиротами — ровно тот класс, что и P2-53.
+        """
+        process = self._process
+        if process is None:
+            return
+
+        if hasattr(os, "killpg"):
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                return
+            except (OSError, AttributeError) as e:
+                logger.debug("web_ui_killpg_failed_falling_back", error=str(e))
+
+        process.terminate()
 
     def get_response(self) -> web.Response:
         """Возвращает HTML response в зависимости от состояния subprocess.

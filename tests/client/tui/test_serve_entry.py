@@ -8,7 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from codelab.client.tui.serve_entry import main
+from codelab.client.tui.serve_entry import (
+    _parent_alive,
+    _start_parent_watchdog,
+    _watch_parent,
+    main,
+)
 
 
 class TestServeEntry:
@@ -90,3 +95,83 @@ class TestServeEntry:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
+
+
+class TestParentAlive:
+    """Тесты признака «родитель ещё жив»."""
+
+    def test_alive_when_ppid_matches_and_pid_exists(self) -> None:
+        """Совпадающий ppid и доступный pid означают живого родителя."""
+        assert _parent_alive(os.getppid()) is True
+
+    def test_dead_when_reparented(self) -> None:
+        """Смена ppid означает, что родитель умер и нас репарентировали."""
+        with patch("os.getppid", return_value=1):
+            assert _parent_alive(4242) is False
+
+    def test_dead_when_pid_unreachable(self) -> None:
+        """Недоступный pid означает мёртвого родителя даже при совпавшем ppid."""
+        with patch("os.getppid", return_value=4242):
+            with patch("os.kill", side_effect=ProcessLookupError):
+                assert _parent_alive(4242) is False
+
+
+class TestWatchParent:
+    """Тесты сторожа за родительским процессом."""
+
+    def test_exits_process_when_parent_gone(self) -> None:
+        """Исчезновение родителя завершает процесс: иначе он остаётся сиротой (P2-53)."""
+        with patch("codelab.client.tui.serve_entry.time.sleep"):
+            with patch(
+                "codelab.client.tui.serve_entry._parent_alive",
+                return_value=False,
+            ):
+                with patch("os._exit", side_effect=RuntimeError("exited")) as os_exit:
+                    with pytest.raises(RuntimeError, match="exited"):
+                        _watch_parent(4242, poll_seconds=0)
+
+        os_exit.assert_called_once_with(0)
+
+    def test_keeps_waiting_while_parent_alive(self) -> None:
+        """Пока родитель жив, процесс не завершается."""
+        alive_then_gone = [True, True, False]
+
+        with patch("codelab.client.tui.serve_entry.time.sleep"):
+            with patch(
+                "codelab.client.tui.serve_entry._parent_alive",
+                side_effect=alive_then_gone,
+            ):
+                with patch("os._exit", side_effect=RuntimeError("exited")):
+                    with pytest.raises(RuntimeError, match="exited"):
+                        _watch_parent(4242, poll_seconds=0)
+
+
+class TestStartParentWatchdog:
+    """Тесты подъёма сторожа."""
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_not_started_without_parent_pid(self) -> None:
+        """Без pid родителя сторож не поднимается: ронять поток не на что."""
+        with patch("threading.Thread") as thread:
+            _start_parent_watchdog()
+
+        thread.assert_not_called()
+
+    @patch.dict(os.environ, {"CODELAB_PARENT_PID": "4242"})
+    def test_starts_daemon_thread_with_parent_pid(self) -> None:
+        """Сторож поднимается демоном, чтобы не держать выход процесса."""
+        with patch("threading.Thread") as thread:
+            _start_parent_watchdog()
+
+        thread.assert_called_once()
+        assert thread.call_args.kwargs["args"] == (4242,)
+        assert thread.call_args.kwargs["daemon"] is True
+        thread.return_value.start.assert_called_once()
+
+    @patch.dict(os.environ, {"CODELAB_PARENT_PID": "не число"})
+    def test_invalid_parent_pid_is_reported_not_raised(self) -> None:
+        """Некорректный pid не роняет запуск Web UI."""
+        with patch("threading.Thread") as thread:
+            _start_parent_watchdog()
+
+        thread.assert_not_called()

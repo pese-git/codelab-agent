@@ -134,21 +134,10 @@ class ACPHttpServer:
         # Запуск background services (observability flush)
         await self._app_container.get(ObservabilityFlushManager)
 
-        # Инициализация Web UI менеджера
+        # Менеджер создаётся до маршрутов (обработчик `/` на него ссылается), но
+        # подпроцесс не запускается: пока порт не занят, у ребёнка нет владельца.
         if self.enable_web:
             self._web_ui_manager = WebUIManager(self.host, self.port)
-            web_ui_started = self._web_ui_manager.start_subprocess()
-            if web_ui_started and self._web_ui_manager.web_ui_url:
-                logger.info(
-                    "web ui enabled with textual-web",
-                    main_url=f"http://{self.host}:{self.port}/",
-                    web_ui_url=self._web_ui_manager.web_ui_url,
-                )
-            else:
-                logger.info(
-                    "web ui enabled (fallback mode)",
-                    url=f"http://{self.host}:{self.port}/",
-                )
 
         app = web.Application()
         app.router.add_get("/acp/ws", self.handle_ws_request)
@@ -157,18 +146,23 @@ class ACPHttpServer:
             app.router.add_get("/", self.handle_web_ui_request)
 
         runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, host=self.host, port=self.port)
-        await site.start()
-
-        logger.info(
-            "server started",
-            host=self.host,
-            port=self.port,
-            endpoint="/acp/ws",
-        )
-
         try:
+            await runner.setup()
+            site = web.TCPSite(runner, host=self.host, port=self.port)
+            await site.start()
+
+            logger.info(
+                "server started",
+                host=self.host,
+                port=self.port,
+                endpoint="/acp/ws",
+            )
+
+            # Web UI спавнится только после успешного bind'а. Раньше спавн стоял до
+            # него, а `finally` с остановкой открывался после: занятый порт оставлял
+            # подпроцесс без владельца навсегда (P2-53).
+            self._start_web_ui()
+
             while True:
                 await asyncio.sleep(3600)
         finally:
@@ -178,6 +172,23 @@ class ACPHttpServer:
             await runner.cleanup()
             if self._app_container is not None:
                 await self._app_container.close()
+
+    def _start_web_ui(self) -> None:
+        """Запустить подпроцесс Web UI, если он включён."""
+        if self._web_ui_manager is None:
+            return
+
+        if self._web_ui_manager.start_subprocess() and self._web_ui_manager.web_ui_url:
+            logger.info(
+                "web ui enabled with textual-web",
+                main_url=f"http://{self.host}:{self.port}/",
+                web_ui_url=self._web_ui_manager.web_ui_url,
+            )
+        else:
+            logger.info(
+                "web ui enabled (fallback mode)",
+                url=f"http://{self.host}:{self.port}/",
+            )
 
     async def handle_web_ui_request(self, request: web.Request) -> web.Response:
         """Обрабатывает запрос на Web UI.

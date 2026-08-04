@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from codelab.server.config import AppConfig
 from codelab.server.http_server import ACPHttpServer
@@ -113,3 +116,87 @@ class TestHandleWSRequest:
 
         ws.close.assert_called_once_with(code=1011, message=b"Server not initialized")
         assert result is ws
+
+
+class TestRunWebUiOwnership:
+    """Порядок спавна Web UI относительно bind'а (P2-53)."""
+
+    @staticmethod
+    def _patched_run(server: ACPHttpServer, site: MagicMock):
+        """Собрать окружение для run(): DI, runner и site — заглушки."""
+        container = MagicMock()
+        container.get = AsyncMock()
+        container.close = AsyncMock()
+
+        runner = MagicMock()
+        runner.setup = AsyncMock()
+        runner.cleanup = AsyncMock()
+
+        return (
+            patch("codelab.server.http_server.make_container", return_value=container),
+            patch("codelab.server.http_server.web.AppRunner", return_value=runner),
+            patch("codelab.server.http_server.web.TCPSite", return_value=site),
+        )
+
+    async def test_no_child_spawned_when_bind_fails(self) -> None:
+        """Занятый порт не должен оставлять подпроцесс Web UI без владельца."""
+        server = ACPHttpServer(enable_web=True)
+        manager = MagicMock()
+        site = MagicMock()
+        site.start = AsyncMock(side_effect=OSError("address already in use"))
+
+        patch_container, patch_runner, patch_site = self._patched_run(server, site)
+        with patch_container, patch_runner, patch_site:
+            with patch("codelab.server.http_server.WebUIManager", return_value=manager):
+                with pytest.raises(OSError, match="address already in use"):
+                    await server.run()
+
+        manager.start_subprocess.assert_not_called()
+        manager.stop_subprocess.assert_called_once()
+
+    async def test_child_spawned_only_after_successful_bind(self) -> None:
+        """Подпроцесс запускается после site.start(), а не до него."""
+        server = ACPHttpServer(enable_web=True)
+        order: list[str] = []
+
+        manager = MagicMock()
+        manager.start_subprocess.side_effect = lambda: order.append("spawn") or True
+        manager.web_ui_url = "http://127.0.0.1:9080/"
+
+        site = MagicMock()
+
+        async def _start() -> None:
+            order.append("bind")
+
+        site.start = AsyncMock(side_effect=_start)
+
+        patch_container, patch_runner, patch_site = self._patched_run(server, site)
+        with patch_container, patch_runner, patch_site:
+            with patch("codelab.server.http_server.WebUIManager", return_value=manager):
+                with patch(
+                    "codelab.server.http_server.asyncio.sleep",
+                    side_effect=asyncio.CancelledError,
+                ):
+                    with pytest.raises(asyncio.CancelledError):
+                        await server.run()
+
+        assert order == ["bind", "spawn"]
+        manager.stop_subprocess.assert_called_once()
+
+    async def test_web_disabled_spawns_nothing(self) -> None:
+        """С выключенным Web UI менеджер не создаётся вовсе."""
+        server = ACPHttpServer(enable_web=False)
+        site = MagicMock()
+        site.start = AsyncMock()
+
+        patch_container, patch_runner, patch_site = self._patched_run(server, site)
+        with patch_container, patch_runner, patch_site:
+            with patch("codelab.server.http_server.WebUIManager") as manager_cls:
+                with patch(
+                    "codelab.server.http_server.asyncio.sleep",
+                    side_effect=asyncio.CancelledError,
+                ):
+                    with pytest.raises(asyncio.CancelledError):
+                        await server.run()
+
+        manager_cls.assert_not_called()

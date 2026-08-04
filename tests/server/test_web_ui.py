@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from codelab.shared.web_ui import WebUIManager
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def isolated_codelab_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Изолировать CODELAB_HOME: запуск Web UI открывает файл лога подпроцесса."""
+    monkeypatch.setenv("CODELAB_HOME", str(tmp_path))
+    return tmp_path
 
 
 class TestWebUIManagerInit:
@@ -95,33 +108,64 @@ class TestStopSubprocess:
         assert manager._process is None
 
     def test_terminate_success(self) -> None:
-        """При успешном terminate+wait процесс сбрасывается в None."""
+        """При успешной остановке группы и wait процесс сбрасывается в None."""
         manager = WebUIManager(host="127.0.0.1", port=8080)
         process = MagicMock()
-        process.terminate = MagicMock()
+        process.pid = 12345
         process.wait = MagicMock()
         manager._process = process
 
-        manager.stop_subprocess()
+        with patch("os.getpgid", return_value=12345) as getpgid:
+            with patch("os.killpg") as killpg:
+                manager.stop_subprocess()
+
+        getpgid.assert_called_once_with(12345)
+        killpg.assert_called_once_with(12345, signal.SIGTERM)
+        process.wait.assert_called_once_with(timeout=5)
+        assert manager._process is None
+
+    def test_terminates_whole_process_group_not_only_child(self) -> None:
+        """Сигнал идёт группе: textual-serve порождает в ней своих детей (P2-53)."""
+        manager = WebUIManager(host="127.0.0.1", port=8080)
+        process = MagicMock()
+        process.pid = 4242
+        manager._process = process
+
+        with patch("os.getpgid", return_value=4242):
+            with patch("os.killpg") as killpg:
+                manager.stop_subprocess()
+
+        killpg.assert_called_once_with(4242, signal.SIGTERM)
+        process.terminate.assert_not_called()
+
+    def test_falls_back_to_terminate_when_killpg_fails(self) -> None:
+        """Если группу погасить нельзя, остаётся обычный terminate по pid."""
+        manager = WebUIManager(host="127.0.0.1", port=8080)
+        process = MagicMock()
+        process.pid = 777
+        manager._process = process
+
+        with patch("os.getpgid", side_effect=OSError("no such process group")):
+            manager.stop_subprocess()
 
         process.terminate.assert_called_once()
-        process.wait.assert_called_once_with(timeout=5)
         assert manager._process is None
 
     def test_terminate_timeout_then_kill(self) -> None:
         """При TimeoutExpired должен вызываться kill, процесс обнулён."""
         manager = WebUIManager(host="127.0.0.1", port=8080)
         process = MagicMock()
-        process.terminate = MagicMock()
+        process.pid = 12345
         process.wait = MagicMock(
             side_effect=subprocess.TimeoutExpired(cmd="cmd", timeout=5),
         )
         process.kill = MagicMock()
         manager._process = process
 
-        manager.stop_subprocess()
+        with patch("os.getpgid", return_value=12345):
+            with patch("os.killpg"):
+                manager.stop_subprocess()
 
-        process.terminate.assert_called_once()
         process.wait.assert_called_once_with(timeout=5)
         process.kill.assert_called_once()
         assert manager._process is None
@@ -130,11 +174,13 @@ class TestStopSubprocess:
         """Даже если и terminate, и kill падают, процесс сбрасывается в None."""
         manager = WebUIManager(host="127.0.0.1", port=8080)
         process = MagicMock()
+        process.pid = 999
         process.terminate = MagicMock(side_effect=ProcessLookupError("no process"))
         process.kill = MagicMock(side_effect=OSError("kill failed"))
         manager._process = process
 
-        manager.stop_subprocess()
+        with patch("os.getpgid", side_effect=OSError("gone")):
+            manager.stop_subprocess()
 
         assert manager._process is None
 
@@ -244,6 +290,45 @@ class TestStartSubprocess:
         assert result is True
         assert manager._process is mock_process
         assert manager._web_ui_url == "http://127.0.0.1:9080/"
+
+    def test_passes_parent_pid_to_child(self) -> None:
+        """Ребёнок получает pid родителя — иначе он не узнает о его смерти (P2-53)."""
+        manager = WebUIManager(host="127.0.0.1", port=8080)
+
+        with patch("codelab.server.web_app.is_web_ui_available", return_value=True):
+            with patch("subprocess.Popen", return_value=MagicMock()) as popen:
+                manager.start_subprocess()
+
+        child_env = popen.call_args.kwargs["env"]
+        assert child_env["CODELAB_PARENT_PID"] == str(os.getpid())
+
+    def test_child_output_goes_to_log_not_devnull(self, isolated_codelab_home: Path) -> None:
+        """У подпроцесса есть канал наблюдаемости: вывод пишется в файл лога."""
+        manager = WebUIManager(host="127.0.0.1", port=8080)
+
+        with patch("codelab.server.web_app.is_web_ui_available", return_value=True):
+            with patch("subprocess.Popen", return_value=MagicMock()) as popen:
+                manager.start_subprocess()
+
+        assert popen.call_args.kwargs["stdout"] is not subprocess.DEVNULL
+        assert popen.call_args.kwargs["stderr"] == subprocess.STDOUT
+        assert (isolated_codelab_home / "logs" / f"web_ui-{os.getpid()}.log").exists()
+
+    def test_unwritable_log_falls_back_to_devnull(self) -> None:
+        """Недоступный файл лога не мешает запуску Web UI."""
+        manager = WebUIManager(host="127.0.0.1", port=8080)
+
+        with patch("codelab.server.web_app.is_web_ui_available", return_value=True):
+            with patch(
+                "codelab.shared.web_ui.get_logs_dir",
+                side_effect=OSError("read-only fs"),
+            ):
+                with patch("subprocess.Popen", return_value=MagicMock()) as popen:
+                    result = manager.start_subprocess()
+
+        assert result is True
+        assert popen.call_args.kwargs["stdout"] is subprocess.DEVNULL
+        assert popen.call_args.kwargs["stderr"] is subprocess.DEVNULL
 
     def test_exception_returns_false(self) -> None:
         """При исключении возвращает False."""
