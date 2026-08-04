@@ -68,8 +68,13 @@
 **Workstream C (отложено — с прод-loop):**
 - [~] 4.3 Turn-loop через `AgentRunner` — согласовать с pause/resume автоматом `ActiveTurn`; вместе с B (эмиссия). Высокий риск, требует golden wire
 
-**Workstream D (write-фаза ADR-003 — отдельный эпик):**
-- [~] 4.6 «Server layers без исключений для agent» **недостижимо в этом change**: остаток (`file_cache_decorator`, `storage.base`, `tools.executors.decorators.base` → `protocol.state`) требует развязки storage/tools от `SessionState` = write-фаза (`domain.Session` + маппинг + миграция формата). Вынесено в эпик write-фазы. Ядро (`agent.core.*`) — уже **ноль** рёбер к `protocol`
+**Workstream D (write-фаза ADR-003 — выполнено отдельным эпиком):**
+- [x] 4.6 «Server layers без исключений для agent» — **признак снят** (2026-08-04). Пункт был помечен как недостижимый в этом change: остаток (`file_cache_decorator`, `storage.base`, `tools.executors.decorators.base` → `protocol.state`) требовал развязки storage/tools от `SessionState`, то есть write-фазы. Эта write-фаза выполнена **фазой D ADR-006** (коммит `03e72d08`): носителем состояния стал доменный `Session`, документ сессии переехал в `storage/document.py` как `SessionDocument`. Текущее состояние, проверенное по коду, а не по галочкам:
+  - контракт «Server layers» — `ignore_imports` **пуст**; `lint-imports`: 4 контракта kept, 0 broken;
+  - `grep` импортов `protocol` внутри `server/agent/` — **ноль совпадений**;
+  - `file_cache_decorator` (отложенный в 1.5) типизирован против `domain.session.Session`.
+
+  **Долга ADR-003 больше нет — искать его не нужно.** Гейт этого change (см. «Совместимость» в `proposal.md`) выполнен: пустой `ignore_imports` в контракте «Server layers» и есть признак чистоты слоя. Строку в `pyproject.toml` про это не добавлять: новая протечка — чинить протечку, а не заводить исключение.
 
 ## Документация
 

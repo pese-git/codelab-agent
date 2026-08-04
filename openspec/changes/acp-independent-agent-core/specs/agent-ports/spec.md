@@ -23,7 +23,8 @@
 
 #### Scenario: import-linter не видит ребра agent → protocol.state
 - **WHEN** запускается контракт «Server layers»
-- **THEN** для модулей, переведённых на `SessionView`, строки `ignore_imports` отсутствуют, контракт зелёный
+- **THEN** `ignore_imports` контракта **пуст целиком** (не только для переведённых модулей), контракт зелёный, а импортов `protocol` внутри `server/agent/` нет
+- **Примечание:** ослабленная формулировка «для модулей, переведённых на `SessionView`» была нужна, пока остаток (`storage`, цепочка `tools/`, `file_cache_decorator`) ждал write-фазы. Write-фаза выполнена фазой D ADR-006, поэтому признак усилен до пустого списка исключений
 
 ### Requirement: Порт ContentCodec
 Ядро MUST декодировать входной контент через порт `ContentCodec`, а ACP-специфичный
