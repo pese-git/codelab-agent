@@ -1,19 +1,36 @@
 # ADR-005: ACP-независимое ядро агента (hexagonal driven-ports)
 
 **Дата:** 22 июля 2026
-**Статус:** Предложено
+**Статус:** Принято, реализовано (остаток вынесен в отдельный change)
 **Контекст:** Связь ядра агента (`server/agent/`) с ACP-обвязкой (`server/protocol/`)
 **Авторы:** —
 **Связанные документы:**
 - `openspec/changes/acp-independent-agent-core/` — спецификация OpenSpec (proposal/design/tasks + spec-дельты)
 - ADR-003 — миграция `SessionState` в domain (вариант B, read-фаза = порт `SessionView`)
-- ADR-006 — write-фаза варианта B (разблокирует Workstream C/B: прод turn-loop через `AgentRunner`, доменная эмиссия `UpdateSink`)
+- ADR-006 — write-фаза варианта B (**выполнена** 2026-08-03: сняла остаток протечек, закрыла долг ADR-003)
+- `openspec/changes/agent-domain-emission/` — вынесенный остаток: доменная эмиссия `UpdateSink`, прод turn-loop через `AgentRunner`, P1-4
 - ADR-001 — `LLMAdapter` single-call (уже существующая граница LLM)
 - `src/codelab/server/agent/` — ядро: `ExecutionEngine`, `strategies`, `system_prompt_builder`, `history_builder`, `context/`
-- `src/codelab/server/agent/acp_content_mapper.py` — `ACPContentMapper` (ACP-форма контента внутри ядра)
+- `src/codelab/server/agent/contracts/ports.py` — объявленные порты ядра
+- `src/codelab/server/protocol/content/acp_codec.py` — `ACPContentCodec` (сюда уехал `ACPContentMapper` из ядра; исходного файла в `agent/` больше нет)
 - `src/codelab/server/protocol/handlers/pipeline/stages/agent_loop/` — turn-loop (driving-адаптер)
 - `pyproject.toml` — `[tool.importlinter]`, контракт «Server layers»
 - tech-debt P2-32 (дублирование capabilities), P1-33 (конфиг)
+
+> **Статус реализации на 2026-08-04.** Решение принято и выполнено в объёме, который делает ядро
+> драйвер-независимым: порты объявлены в `agent/contracts/ports.py`, ACP-специфика контента уехала
+> в `protocol/content/acp_codec.py`, ядро **не импортирует `protocol`** (проверено `grep`), а
+> `ignore_imports` контракта «Server layers» **пуст** — долг ADR-003 закрыт фазой D ADR-006.
+> Драйвер-независимость доказана приёмочно: `tests/server/agent/test_agent_runner_smoke.py`
+> прогоняет turn на фейковых портах без `protocol/`.
+>
+> **Что осталось и почему это отдельный change.** Доменная эмиссия (`UpdateSink.emit_plan` /
+> `emit_tool_call` / `emit_tool_update`), унификация success/exception буферизации (P1-4) и
+> прод-вход turn-loop через `AgentRunner` вынесены в `openspec/changes/agent-domain-emission/` и
+> **заблокированы до появления потребителя**: форму доменных `emit_*` должен диктовать вызывающий,
+> иначе это спекулятивная абстракция на горячем пути с риском для байт-идентичности
+> `session/update`. Turn-loop сам является ACP-адаптером, поэтому то, что он строит wire, границу
+> гексагона не нарушает — отложенность здесь архитектурная, а не долговая.
 
 ---
 
@@ -154,12 +171,14 @@ flowchart TB
 
 | Порт (владеет agent/domain) | Заменяет | Статус |
 |---|---|---|
-| `SessionView` (read-only, домен) | `SessionState` | спроектирован в ADR-003 (вариант B, read-фаза) |
-| `ContentCodec` (домен ↔ LLM parts) | `ACPContentMapper` внутри agent | **новый шов — главная работа** |
-| `ToolGateway` | `ToolRegistry` | уже фактически порт |
-| `UpdateSink` | `SessionUpdateSink` | эмиссия обновлений за портом |
-| `LLMPort` | `LLMAdapter` | уже порт (ADR-001) |
-| `AgentRunner` (driving) | точка входа turn-а | turn-loop становится адаптером |
+| `SessionView` (read-only, структурный) | чтение `SessionState` из ядра | ✅ объявлен и внедрён; конверсии нет — живой носитель удовлетворяет порт структурно |
+| `ClientCapabilitiesView` | `ClientRuntimeCapabilities` в ядре | ✅ объявлен; удовлетворяют обе модели без конверсии (дубль снят **на стороне ядра**, см. P2-32) |
+| `ContentCodec` (домен ↔ LLM parts) | `ACPContentMapper` внутри agent | ✅ вынесен в `protocol/content/acp_codec.py`; канон контента — `llm.ContentPart` |
+| `ToolGateway` | `ToolRegistry` | ✅ объявлен (сужение существующего) |
+| `UpdateSink` | `SessionUpdateSink` | 🟡 объявлен минимально (`emit_agent_message`/`emit_streaming_delta`); доменные `emit_plan`/`emit_tool_call`/`emit_tool_update` — в `agent-domain-emission` |
+| `LLMPort` | `LLMAdapter` | ✅ зафиксирован (ADR-001) |
+| `ChildSessionFactory` | `protocol.session_factory.SessionFactory` | ✅ объявлен; ACP-реализация удовлетворяет структурно |
+| `AgentRunner` (driving) | точка входа turn-а | 🟡 объявлен, `CoreAgentRunner` доказан fake-драйвером; **прод-loop не переведён** — в `agent-domain-emission` |
 
 ## Последствия
 

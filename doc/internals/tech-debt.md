@@ -1639,28 +1639,53 @@ wire-форма).
 
 ---
 
-### 32. Тройное представление «capabilities» — риск рассинхрона и потеря полей — ⬜ ОТКРЫТО (обнаружено 2026-07-22, связано с ADR-003)
+### 32. Несколько представлений «capabilities» — 🟡 ЧАСТИЧНО (ядро развязано change'ем `acp-independent-agent-core`; свод представлений не сделан)
 
-> Одна ACP-концепция «client capabilities» живёт в трёх типах; `SessionMapper` вручную
-> перекладывает поля между двумя из них, **теряя `image_prompts`/`embedded_context`** при
-> round-trip. Смежный след доменной миграции — уже отмечен в ADR-003.
+> **Переформулировано 2026-08-04 по факту кода.** Прежняя запись утверждала две вещи, которые
+> проверку не прошли: что представлений «три» и что round-trip **теряет** `image_prompts` /
+> `embedded_context`. Ниже — то, что есть на самом деле.
 
-**Находки:**
-- `server/protocol/state.py:332` — `ClientRuntimeCapabilities(BaseModel)`: `fs_read/fs_write/terminal`.
-- `shared/capabilities.py:16` — `ClientCapabilities` (frozen dataclass): те же 3 поля +
-  `image_prompts/embedded_context`.
-- `server/mcp/models.py:870` — `MCPClientCapabilities`: третье представление (MCP-хендшейк).
-- `mapping/session_mapper.py:103-131` — ручной маппинг protocol↔shared с потерей 2 полей.
+**Что сделано (change `acp-independent-agent-core`, Фаза 1).** Ядро больше не зависит **ни от
+одной** конкретной модели capabilities: `tool_filter` типизирован против структурного порта
+`ClientCapabilitiesView` (`agent/contracts/ports.py:27`, три свойства-феатургейта), который
+удовлетворяют и wire-DTO, и доменный VO без конверсии. Это снимает дубль **на стороне ядра** —
+и только там.
 
-**Задачи:**
-- [ ] Свести client-capabilities к единому доменному VO (`shared.ClientCapabilities`); protocol-модель — только сериализация на границе
-- [ ] Убедиться, что `image_prompts`/`embedded_context` не теряются в round-trip (регресс-тест)
-- [ ] Оценить, отделима ли `MCPClientCapabilities` (MCP-протокол) или сводима к тому же VO
+**Что осталось — представления по-прежнему не сведены:**
+- `storage/document.py:219` — `ClientRuntimeCapabilities(BaseModel)`: `fs_read/fs_write/terminal`.
+  Персистентный wire-DTO. *(Прежний адрес `protocol/state.py:332` устарел: документ сессии переехал
+  в хранилище фазой D ADR-006.)*
+- `shared/capabilities.py:16` — `ClientCapabilities` (frozen dataclass): те же три поля **плюс**
+  `image_prompts` / `embedded_context`.
+- `server/mcp/models.py:870` — `MCPClientCapabilities`: хендшейк MCP, другая протокольная
+  концепция.
 
-**Оценка:** входит в эпик B (ADR-003, унификация session/capabilities представлений).
-**Критерий приемки:** одно представление client-capabilities в ядре; round-trip без потери полей.
-**Связано:** `doc/internals/architecture/adr/ADR-003-sessionstate-domain-migration.md` (вариант B);
-`ADR-005-acp-independent-agent-core.md` (тот же класс дублирования — content ↔ capabilities).
+**Про «потерю двух полей» — это не дефект, а мёртвые поля.** `SessionMapper` действительно не
+переносит `image_prompts` / `embedded_context` (`session_mapper.py:98`, `:265`), потому что в
+wire-DTO их нет. Но **потребителей у них на сервере нет ни одного**: `grep` показывает только
+объявление в `shared/capabilities.py`. Настоящие prompt-возможности живут в двух других местах и
+к этому VO не относятся — `handlers/auth.py:30-36` (`_PROMPT_CAPABILITIES`, то, что **агент
+объявляет о себе** в `initialize`) и `client/domain/prompt_capabilities.py` (клиентская модель).
+То есть терять нечего: два поля в доменном VO — заготовка без пользователей, и именно она создаёт
+видимость лоссового маппинга.
+
+**Задачи (в порядке честности, а не объёма):**
+- [ ] Решить судьбу `image_prompts` / `embedded_context` в `shared.ClientCapabilities`: либо удалить
+      (тогда маппинг лосслесс **по построению**, и «потеря полей» перестаёт существовать как
+      формулировка), либо дать им потребителя и место в wire-DTO. Сегодня они не значат ничего
+- [ ] Свести wire-DTO и доменный VO к одной модели с маппингом только на границе сериализации —
+      это и есть остаток пункта
+- [ ] `MCPClientCapabilities` не сводить: другой протокол, другой смысл. Зафиксировать это решением,
+      а не оставлять как «оценить»
+
+**Критерий приёмки:** в ядре — ноль зависимостей от конкретной модели capabilities (**выполнено**);
+на сервере — одна модель client-capabilities плюс маппинг на границе; в доменном VO нет полей без
+потребителей.
+
+**Связано:** ADR-003 (закрыт фазой D ADR-006), `ADR-005` (порт `ClientCapabilitiesView` — то, чем
+развязано ядро), `openspec/changes/acp-independent-agent-core/specs/client-capabilities/spec.md`
+(delta-спека: её формулировку «ядро оперирует `shared.ClientCapabilities`» реализация уточнила до
+структурного порта).
 
 ---
 

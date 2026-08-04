@@ -6,16 +6,17 @@
 2. [Обзор системы](#обзор-системы)
 3. [Архитектура на уровне компонентов](#архитектура-на-уровне-компонентов)
 4. [Domain и Mapping слои в codelab.server](#domain-и-mapping-слои)
-5. [Потоки данных](#потоки-данных)
-6. [Транспортный слой](#транспортный-слой)
-7. [Двухуровневая история в codelab.server](#двухуровневая-история)
-8. [Background Receive Loop в codelab.client](#background-receive-loop)
-9. [MCP Integration](#mcp-integration)
-10. [Observability Layer](#observability-layer)
-11. [LLM Call Strategies](#llm-call-strategies)
-12. [Context Manager](#context-manager--интеллектуальный-сбор-контекста)
-13. [Критические архитектурные решения](#критические-архитектурные-решения)
-14. [Расширение и интеграция](#расширение-и-интеграция)
+5. [Порты ядра агента](#порты-ядра-агента)
+6. [Потоки данных](#потоки-данных)
+7. [Транспортный слой](#транспортный-слой)
+8. [Двухуровневая история в codelab.server](#двухуровневая-история)
+9. [Background Receive Loop в codelab.client](#background-receive-loop)
+10. [MCP Integration](#mcp-integration)
+11. [Observability Layer](#observability-layer)
+12. [LLM Call Strategies](#llm-call-strategies)
+13. [Context Manager](#context-manager--интеллектуальный-сбор-контекста)
+14. [Критические архитектурные решения](#критические-архитектурные-решения)
+15. [Расширение и интеграция](#расширение-и-интеграция)
 
 ---
 
@@ -327,6 +328,95 @@ sequenceDiagram
 - `FileOpener` Protocol — абстракция для открытия файлов в IDE
 - `StubFileOpener` — реализация для тестов
 - Feature flag не нужен — если locations пуст, follow-along не срабатывает
+
+---
+
+## Порты ядра агента
+
+Ядро агента (`server/agent/core/`) не зависит от ACP: оно объявляет порты, а ACP-обвязка
+(`server/protocol/`) их реализует. ACP — **один из** driving-адаптеров; рядом подключается
+не-ACP драйвер без изменения ядра (ADR-005). Признак, который это гарантирует: в `server/agent/`
+нет ни одного импорта `server.protocol`, а `ignore_imports` контракта «Server layers» пуст.
+
+```mermaid
+flowchart TB
+    subgraph drivers["driving-адаптеры"]
+        ACP["ACP: agent_loop (turn-loop)"]
+        FAKE["тест-харнесс на фейках<br/>(без protocol/)"]
+    end
+
+    subgraph driving["driving-порт"]
+        RUN["AgentRunner<br/>run_turn · continue_turn"]
+    end
+
+    subgraph core["server/agent/core (ядро)"]
+        EE["ExecutionEngine · strategies<br/>SystemPromptBuilder · HistoryBuilder"]
+    end
+
+    subgraph driven["driven-порты (contracts/ports.py)"]
+        SV["SessionView"]
+        CCV["ClientCapabilitiesView"]
+        CC["ContentCodec"]
+        TG["ToolGateway"]
+        US["UpdateSink"]
+        LP["LLMPort"]
+        CSF["ChildSessionFactory"]
+    end
+
+    subgraph impl["реализации"]
+        DOM["domain.Session<br/>(структурно)"]
+        CAPS["ClientRuntimeCapabilities /<br/>shared.ClientCapabilities"]
+        CODEC["protocol/content/acp_codec.py"]
+        TOOLS["tools.ToolRegistry"]
+        SINK["SessionUpdateSink (ACP wire)"]
+        LLM["LLMAdapter (ADR-001)"]
+        SF["protocol.SessionFactory"]
+    end
+
+    ACP --> RUN
+    FAKE --> RUN
+    RUN --> EE
+    EE --> SV & CCV & CC & TG & US & LP & CSF
+
+    SV -.реализует.-> DOM
+    CCV -.реализует.-> CAPS
+    CC -.реализует.-> CODEC
+    TG -.реализует.-> TOOLS
+    US -.реализует.-> SINK
+    LP -.реализует.-> LLM
+    CSF -.реализует.-> SF
+
+    classDef core fill:#e0f0ff,stroke:#06c,stroke-width:2px;
+    classDef port fill:#e6ffe6,stroke:#0a0;
+    classDef adapter fill:#fff3d0,stroke:#c90;
+    class EE core;
+    class SV,CCV,CC,TG,US,LP,CSF,RUN port;
+    class DOM,CAPS,CODEC,TOOLS,SINK,LLM,SF,ACP,FAKE adapter;
+```
+
+| Порт | Назначение | Реализация | Состояние |
+|---|---|---|---|
+| `SessionView` | read-only доступ к сессии из ядра | доменный `Session` — **структурно**, без адаптера и конверсии | полный |
+| `ClientCapabilitiesView` | feature-gate по возможностям клиента | обе модели capabilities удовлетворяют без конверсии | полный |
+| `ContentCodec` | декодирование входного контента | `ACPContentCodec` в `protocol/content/` | полный |
+| `ToolGateway` | исполнение инструментов | `tools.base.ToolRegistry` (сужение) | полный |
+| `LLMPort` | вызов модели | `LLMAdapter` (ADR-001) | полный |
+| `ChildSessionFactory` | дочерние сессии субагентов | `protocol.SessionFactory` — структурно | полный |
+| `UpdateSink` | эмиссия прогресса turn-а | `SessionUpdateSink` | **частичный**: `emit_agent_message` / `emit_streaming_delta`; план и вызовы инструментов turn-loop эмитит сам |
+| `AgentRunner` | вход turn-а | `CoreAgentRunner` | **частичный**: доказан fake-драйвером, прод-loop не переведён |
+
+**Почему два порта частичные — это решение, а не долг.** Форму доменных `emit_plan` /
+`emit_tool_call` / `emit_tool_update` должен диктовать их потребитель, а прод turn-loop сегодня
+входит в ядро напрямую. Пока потребителя нет, доменная эмиссия была бы абстракцией, выбранной
+из головы, на горячем пути, где ACP wire обязан остаться байт-в-байт. Turn-loop при этом **сам
+является** ACP-адаптером, поэтому то, что он строит wire, границу гексагона не нарушает.
+Остаток вынесен в `openspec/changes/agent-domain-emission/` и ждёт второго драйвера.
+
+**Правила при работе с ядром:**
+- новая зависимость ядра от `protocol` — не исключение в `import-linter`, а повод объявить порт;
+- порты живут в `agent/contracts/ports.py`; фейки для них — в `tests/server/agent/fakes/`;
+- приёмочный признак драйвер-независимости — `tests/server/agent/test_agent_runner_smoke.py`:
+  turn проходит на фейковых портах без импорта `protocol/`.
 
 ---
 

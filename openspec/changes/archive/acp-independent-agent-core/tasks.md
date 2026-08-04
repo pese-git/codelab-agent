@@ -40,23 +40,25 @@
 > **Решение (архитектурное, не по ROI):** сделан scoped-срез. Единственная граница
 > ядро↔адаптер, которую нарушал Phase 3 — конструкция `ACPMessage` в ядре; она снята
 > (3.6). Порты объявлены как контракты (3.1/3.2). Полная 3.3 (переписывание ~10 точек
-> эмиссии на доменные аргументы) перенесена в **Фазу 4**: форму доменного `UpdateSink`
-> должен диктовать его потребитель (`AgentRunner`), иначе это спекулятивная абстракция
-> + риск байт-идентичности горячего пути без бенефициара. Turn-loop = ACP-адаптер,
-> ему строить wire — норма (границу не нарушает).
+> эмиссии на доменные аргументы) **вынесена в change `agent-domain-emission`**: форму
+> доменного `UpdateSink` должен диктовать его потребитель (`AgentRunner`), иначе это
+> спекулятивная абстракция + риск байт-идентичности горячего пути без бенефициара.
+> Turn-loop = ACP-адаптер, ему строить wire — норма (границу не нарушает).
 
 - [x] 3.1 `ToolGateway(Protocol)` в `ports.py` (`get_available_tools`/`to_llm_tools`/`execute_tool`); `ExecutionEngine.tool_registry: ToolGateway` (сужение существующего `ToolRegistry`)
 - [x] 3.2 `UpdateSink(Protocol)` в `ports.py` — минимально-честно (`emit_agent_message`/`emit_streaming_delta`, что уже есть у `SessionUpdateSink`). Доменные `emit_plan`/`emit_tool_call`/`emit_tool_update` НЕ вводились: их форму продиктует `AgentRunner` (Фаза 4), consumer-driven
-- [~] 3.3 → **Фаза 4**: переписывание точек эмиссии на доменные аргументы + маппинг домен→ACP внутри адаптера — вместе с `AgentRunner` (потребитель порта)
-- [~] 3.4 → **Фаза 4**: унификация success/exception буферизации (P1-4) — вместе с 3.3
+- [→] 3.3 **Вынесено в change `agent-domain-emission`**: переписывание точек эмиссии на доменные аргументы + маппинг домен→ACP внутри адаптера. Потребителя формы (`AgentRunner` в проде) нет, поэтому доменные `emit_*` были бы спекулятивной абстракцией на горячем пути
+- [→] 3.4 **Вынесено в change `agent-domain-emission`**: унификация success/exception буферизации (P1-4) — вскрывается вместе с 3.3
 - [x] 3.5 Golden-тест wire: `SessionUpdateSink.build_agent_message_chunk` даёт прежний `agent_message_chunk` (в `test_strategy_integration`); полный wire-golden — с 3.3 в Фазе 4
 - [x] 3.6 Ядро не конструирует `ACPMessage`: `build_fallback_notification`→`build_fallback_text` (домен-текст), ACP-wire строит `llm_loop` через `SessionUpdateSink`. **Бонус:** fallback теперь доставляется НЕМЕДЛЕННО через callback (не в буфер) — принцип immediate-delivery. `make check` зелёный (7336 passed)
 
 ## Фаза 4: `AgentRunner` + `ChildSessionFactory`
 
-> **Полный объём одобрен** (гейты: fake driver, смена формата сессий с миграцией,
-> golden wire-тесты — все закрыты). Идёт по потокам A→D→B→C→E (см. ADR-005 / эпик
-> write-фазы). **Workstream A выполнен** (безопасный капстоун); B–E — планируемый эпик.
+> **Итог по фазе.** Workstream A выполнен (порты + `CoreAgentRunner` + fake-драйвер),
+> Workstream D закрыт фазой D ADR-006 (см. 4.6). Workstreams B и C — доменная эмиссия и
+> прод-вход через `AgentRunner` — **вынесены в change `agent-domain-emission`** и
+> заблокированы до появления потребителя (второй драйвер либо решение переводить
+> прод-loop ради самого turn-а). Этот change на них больше не ждёт.
 
 **Workstream A (выполнено):**
 - [x] 4.1 `AgentRunner(Protocol)` в `ports.py` (`run_turn`/`continue_turn`) + `LLMPort(Protocol)` (фиксация `LLMAdapter`, ADR-001)
@@ -65,8 +67,8 @@
 - [x] 4.5 Снята строка `ignore_imports` `child_session → session_factory`
 - [x] 4.7 Smoke `test_agent_runner_smoke.py`: не-ACP fake-драйвер (`FakeSessionView`/`FakeContentCodec`/`FakeToolGateway`/`FakeLLM`) прогоняет `run_turn`/`continue_turn` без `protocol/`. **Приёмочный пруф driver-независимости ядра**
 
-**Workstream C (отложено — с прод-loop):**
-- [~] 4.3 Turn-loop через `AgentRunner` — согласовать с pause/resume автоматом `ActiveTurn`; вместе с B (эмиссия). Высокий риск, требует golden wire
+**Workstream C (вынесено в отдельный change):**
+- [→] 4.3 **Вынесено в change `agent-domain-emission`**: turn-loop через `AgentRunner` + согласование с pause/resume автоматом `ActiveTurn`. Высокий риск, требует golden wire как предусловия. `CoreAgentRunner` существует и доказан fake-драйвером (4.7), но в проде не используется
 
 **Workstream D (write-фаза ADR-003 — выполнено отдельным эпиком):**
 - [x] 4.6 «Server layers без исключений для agent» — **признак снят** (2026-08-04). Пункт был помечен как недостижимый в этом change: остаток (`file_cache_decorator`, `storage.base`, `tools.executors.decorators.base` → `protocol.state`) требовал развязки storage/tools от `SessionState`, то есть write-фазы. Эта write-фаза выполнена **фазой D ADR-006** (коммит `03e72d08`): носителем состояния стал доменный `Session`, документ сессии переехал в `storage/document.py` как `SessionDocument`. Текущее состояние, проверенное по коду, а не по галочкам:
@@ -78,7 +80,7 @@
 
 ## Документация
 
-- [ ] D.1 Обновить `ADR-003` (read-фаза выполнена), `ADR-005` (статус)
-- [ ] D.2 Обновить `tech-debt.md`: закрыть строки ADR-003, P2-32 по мере фаз
-- [ ] D.3 Обновить `ARCHITECTURE.md` (порты ядра); синхронизировать Mermaid
-- [ ] D.4 Обновить `openspec/specs/` (session-state, client-capabilities, новая agent-ports) при архивации change
+- [x] D.1 `ADR-003` — закрыт баннером «снят фазой D ADR-006»; `ADR-005` — статус «Принято, реализовано (остаток вынесен в отдельный change)», таблица портов приведена к фактическому состоянию, ссылка на удалённый `agent/acp_content_mapper.py` заменена на `protocol/content/acp_codec.py`
+- [x] D.2 `tech-debt.md` — строки ADR-003 закрыты; **P2-32 переформулирован по факту кода**: ядро развязано структурным портом (сделано), свод представлений не сделан (остаток), а «потеря `image_prompts`/`embedded_context`» оказалась не дефектом, а полями без потребителей
+- [x] D.3 `ARCHITECTURE.md` — раздел «Порты ядра агента»: Mermaid гексагона, таблица восьми портов с состоянием, правило «новая зависимость от `protocol` = новый порт, а не строка в `ignore_imports`»
+- [x] D.4 `openspec/specs/agent-ports/` создана; MODIFIED-дельты применены к `session-state` и `client-capabilities` — с уточнениями там, где реализация разошлась с дельтой (структурный порт вместо доменного VO; `SessionDocument` вместо `protocol.state.SessionState`)
