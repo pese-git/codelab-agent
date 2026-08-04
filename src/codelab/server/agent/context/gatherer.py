@@ -519,6 +519,7 @@ class ACPContextGatherer(ContextGatherer):
         Returns:
             Список отфильтрованных путей к файлам проекта
         """
+        terminal_id = ""
         try:
             create_result = await self._tool_registry.execute_tool(
                 self._session_id,
@@ -534,7 +535,6 @@ class ACPContextGatherer(ContextGatherer):
                 )
                 return []
 
-            terminal_id = ""
             if create_result.metadata:
                 terminal_id = create_result.metadata.get("terminal_id", "")
             if not terminal_id and create_result.raw_output:
@@ -592,6 +592,40 @@ class ACPContextGatherer(ContextGatherer):
                 session_id=self._session_id,
             )
             return []
+        finally:
+            # Терминал освобождает тот, кто его создал. Без этого реестр alias'ов
+            # растёт на каждый bootstrap и целиком уезжает на диск в каждой ревизии
+            # документа сессии, а модель видит в нём терминалы, которых не просила
+            # (P2-58: за прогон 11 `terminal/create` и 0 `terminal/release`).
+            if terminal_id:
+                await self._release_terminal(terminal_id, session)
+
+    async def _release_terminal(self, terminal_id: str, session: Any) -> None:
+        """Освободить терминал bootstrap'а, не роняя сбор контекста.
+
+        Сбор — горячий путь с graceful degradation: неудачное освобождение хуже
+        утечки alias'а, но не настолько, чтобы терять уже собранную структуру.
+        """
+        try:
+            result = await self._tool_registry.execute_tool(
+                self._session_id,
+                "terminal/release",
+                {"terminal_id": terminal_id},
+                session=session,
+            )
+            if not result.success:
+                logger.debug(
+                    "context.gather.bootstrap.terminal_release_failed",
+                    session_id=self._session_id,
+                    terminal_id=terminal_id,
+                    error=result.error,
+                )
+        except Exception:
+            logger.exception(
+                "context.gather.bootstrap.terminal_release_error",
+                session_id=self._session_id,
+                terminal_id=terminal_id,
+            )
 
     async def _search_in_files(
         self, term: str, project_files: list[str], session: Any
