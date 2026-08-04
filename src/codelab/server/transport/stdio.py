@@ -25,6 +25,7 @@ execute синхронно ожидает client RPC response внутри об�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import sys
 from collections.abc import Awaitable, Callable
@@ -115,6 +116,11 @@ class StdioServerTransport:
         self._prompt_tasks: set[asyncio.Task[None]] = set()
         self._deferred_prompt_tasks: dict[str, asyncio.Task[None]] = {}
 
+        # Текущее чтение stdin. Сигнал завершения обязан его отменить: цикл
+        # проверяет `_closed` только после возврата из readline(), а при
+        # молчащем клиенте возврата не происходит никогда.
+        self._read_task: asyncio.Task[bytes] | None = None
+
     async def _decode_request(self, line: bytes) -> ACPMessage | None:
         """Декодирует строку stdin в ACPMessage.
 
@@ -172,28 +178,8 @@ class StdioServerTransport:
 
         try:
             while not self._closed:
-                try:
-                    line = await self._stdin_reader.readline()
-                except ValueError as exc:
-                    # StreamReader.readline() raises ValueError when the line
-                    # exceeds the buffer limit (MAX_STDIO_MESSAGE_SIZE).
-                    logger.error(
-                        "stdin message too large",
-                        max_size_bytes=MAX_STDIO_MESSAGE_SIZE,
-                        error=str(exc),
-                    )
-                    error_response = ACPMessage.error_response(
-                        None,
-                        code=-32700,
-                        message="Message too large",
-                        data=f"Message exceeds maximum size of {MAX_STDIO_MESSAGE_SIZE} bytes",
-                    )
-                    await self.send(error_response)
-                    break
-
-                if not line:
-                    # EOF — stdin закрыт
-                    logger.info("stdin EOF, shutting down")
+                line = await self._next_line()
+                if line is None:
                     break
 
                 # Декодируем и парсим JSON-RPC сообщение (None — пустая строка/parse error)
@@ -510,24 +496,114 @@ class StdioServerTransport:
             await asyncio.gather(*tasks, return_exceptions=True)
             self._deferred_prompt_tasks.clear()
 
-    def _setup_signal_handlers(self) -> None:
-        """Register signal handlers для graceful shutdown."""
+    async def _next_line(self) -> bytes | None:
+        """Прочитать следующую строку stdin или вернуть None, если пора остановиться.
 
-        def _signal_handler(signum: int, frame: Any) -> None:
-            logger.info("signal received", signal=signum)
-            self._closed = True
-
+        None означает исчерпание входа в любой форме: EOF, отмена чтения
+        сигналом завершения, слишком большое сообщение (после ответа клиенту).
+        """
         try:
-            signal.signal(signal.SIGTERM, _signal_handler)
-            signal.signal(signal.SIGINT, _signal_handler)
-        except (ValueError, OSError):
-            # Signal handlers can only be set from main thread
-            logger.debug("signal handlers not set (not main thread)")
+            line = await self._read_line()
+        except asyncio.CancelledError:
+            # Отмена чтения — это сигнал завершения (см. _request_stop). Внешняя
+            # отмена цикла приходит с ещё не выставленным `_closed`, и её нужно
+            # пробросить как отмену задачи, а не гасить.
+            if not self._closed:
+                raise
+            logger.info("stdin read cancelled by shutdown signal")
+            return None
+        except ValueError as exc:
+            # StreamReader.readline() raises ValueError when the line
+            # exceeds the buffer limit (MAX_STDIO_MESSAGE_SIZE).
+            logger.error(
+                "stdin message too large",
+                max_size_bytes=MAX_STDIO_MESSAGE_SIZE,
+                error=str(exc),
+            )
+            await self.send(
+                ACPMessage.error_response(
+                    None,
+                    code=-32700,
+                    message="Message too large",
+                    data=f"Message exceeds maximum size of {MAX_STDIO_MESSAGE_SIZE} bytes",
+                )
+            )
+            return None
+
+        if not line:
+            logger.info("stdin EOF, shutting down")
+            return None
+
+        return line
+
+    async def _read_line(self) -> bytes:
+        """Прочитать строку из stdin отменяемым образом.
+
+        Чтение живёт в отдельной задаче, чтобы обработчик сигнала мог его
+        отменить. Без этого `_closed = True` не наблюдается: цикл сверяет флаг
+        только после возврата из чтения, а молчащий клиент возврата не даёт.
+        """
+        assert self._stdin_reader is not None
+
+        self._read_task = asyncio.ensure_future(self._stdin_reader.readline())
+        try:
+            return await self._read_task
+        finally:
+            self._read_task = None
+
+    def _request_stop(self, signum: int) -> None:
+        """Пометить завершение и разбудить цикл чтения."""
+        logger.info("signal received", signal=signum)
+        self._closed = True
+        if self._read_task is not None and not self._read_task.done():
+            self._read_task.cancel()
+
+    def _setup_signal_handlers(self) -> None:
+        """Register signal handlers для graceful shutdown.
+
+        Обработчики ставятся через event loop: только так они исполняются в
+        контексте loop'а и могут отменить текущее чтение. Синхронный
+        `signal.signal` этого не умеет — он выставлял флаг, который цикл,
+        припаркованный в чтении stdin, никогда не проверял, и процесс
+        игнорировал SIGTERM (подтверждено живьём: `signal received signal=15`
+        в логе процесса, прожившего после этого 17 минут).
+        """
+        try:
+            loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            if loop is not None:
+                try:
+                    loop.add_signal_handler(sig, self._request_stop, sig)
+                    continue
+                except (NotImplementedError, RuntimeError, ValueError, OSError) as exc:
+                    logger.debug("loop signal handler unavailable", signal=sig, error=str(exc))
+
+            # Откат на синхронный обработчик (нет loop'а, не главный поток, не
+            # Unix). Он хуже: разбудить чтение из него нельзя, но флаг выставит.
+            try:
+                signal.signal(sig, lambda signum, _frame: self._request_stop(signum))
+            except (ValueError, OSError) as exc:
+                logger.debug("signal handler not set", signal=sig, error=str(exc))
 
     def _restore_signal_handlers(self) -> None:
-        """Restore default signal handlers."""
+        """Restore default signal handlers.
+
+        Снимаются оба вида обработчиков: поставленный на loop'е и синхронный
+        откат — какой именно сработал при установке, здесь уже неизвестно.
+        """
         try:
-            signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
-        except (ValueError, OSError):
-            pass
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            if loop is not None:
+                with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+                    loop.remove_signal_handler(sig)
+            try:
+                signal.signal(sig, signal.SIG_DFL)
+            except (ValueError, OSError) as exc:
+                logger.debug("signal handler not restored", signal=sig, error=str(exc))

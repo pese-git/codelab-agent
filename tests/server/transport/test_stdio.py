@@ -206,24 +206,38 @@ class TestStdioServerTransportSendOutcome:
 class TestStdioServerTransportSignalHandlers:
     """Тесты для signal handlers."""
 
-    def test_setup_signal_handlers(self) -> None:
-        """Signal handlers устанавливаются."""
+    async def test_setup_signal_handlers_uses_event_loop(self) -> None:
+        """Обработчики ставятся на loop: только так они могут отменить чтение."""
+        transport = StdioServerTransport()
+        loop = asyncio.get_running_loop()
+
+        with patch.object(loop, "add_signal_handler") as mock_add:
+            transport._setup_signal_handlers()
+
+        assert mock_add.call_count == 2
+        assert {call.args[0] for call in mock_add.call_args_list} == {
+            signal.SIGTERM,
+            signal.SIGINT,
+        }
+
+    def test_setup_signal_handlers_falls_back_without_loop(self) -> None:
+        """Без запущенного loop'а остаётся синхронный обработчик."""
         transport = StdioServerTransport()
 
         with patch("codelab.server.transport.stdio.signal.signal") as mock_signal:
             transport._setup_signal_handlers()
 
-            assert mock_signal.call_count == 2
+        assert mock_signal.call_count == 2
 
     def test_setup_signal_handlers_not_main_thread(self) -> None:
-        """Signal handlers не устанавливаются не в main thread."""
+        """Недоступность обоих способов не роняет запуск транспорта."""
         transport = StdioServerTransport()
 
         with patch("codelab.server.transport.stdio.signal.signal", side_effect=ValueError):
             transport._setup_signal_handlers()
 
     def test_signal_handler_sets_closed(self) -> None:
-        """Signal handler устанавливает _closed=True."""
+        """Обработчик сигнала выставляет _closed=True."""
         transport = StdioServerTransport()
 
         captured_handlers = {}
@@ -240,6 +254,59 @@ class TestStdioServerTransportSignalHandlers:
         handler(15, None)
 
         assert transport._closed is True
+
+    async def test_signal_cancels_pending_stdin_read(self) -> None:
+        """Сигнал отменяет чтение stdin.
+
+        Гейт на дефект: цикл сверяет `_closed` только после возврата из чтения,
+        поэтому у молчащего клиента флаг сам по себе ничего не завершает —
+        процесс жил бесконечно, игнорируя SIGTERM.
+        """
+        transport = StdioServerTransport()
+        transport._stdin_reader = asyncio.StreamReader()
+
+        read = asyncio.ensure_future(transport._read_line())
+        await asyncio.sleep(0)  # дать чтению припарковаться на пустом stdin
+        assert not read.done()
+
+        transport._request_stop(signal.SIGTERM)
+
+        with pytest.raises(asyncio.CancelledError):
+            await read
+        assert transport._closed is True
+
+    async def test_request_stop_without_pending_read_is_safe(self) -> None:
+        """Сигнал без активного чтения только выставляет флаг."""
+        transport = StdioServerTransport()
+
+        transport._request_stop(signal.SIGINT)
+
+        assert transport._closed is True
+        assert transport._read_task is None
+
+    async def test_next_line_returns_none_when_cancelled_by_signal(self) -> None:
+        """Отмена чтения сигналом останавливает цикл, а не всплывает наружу."""
+        transport = StdioServerTransport()
+        transport._stdin_reader = asyncio.StreamReader()
+
+        pending = asyncio.ensure_future(transport._next_line())
+        await asyncio.sleep(0)
+        transport._request_stop(signal.SIGTERM)
+
+        assert await pending is None
+
+    async def test_next_line_propagates_external_cancellation(self) -> None:
+        """Внешняя отмена цикла остаётся отменой, а не выглядит как EOF."""
+        transport = StdioServerTransport()
+        transport._stdin_reader = asyncio.StreamReader()
+
+        pending = asyncio.ensure_future(transport._next_line())
+        await asyncio.sleep(0)
+        pending.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert transport._closed is False
 
     def test_restore_signal_handlers(self) -> None:
         """Signal handlers восстанавливаются."""
