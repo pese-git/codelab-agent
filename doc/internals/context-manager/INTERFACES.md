@@ -10,7 +10,9 @@
 Базовые типы берутся из существующего кода:
 - `LLMMessage`, `LLMToolCall`, `ToolDefinition` — `codelab.server.agent.*` (как в `base.py`/`context_compactor.py`)
 - `AgentContext`, `ContinuationContext`, `AgentResponse` — `codelab.server.agent.base`
-- `SessionState` — `codelab.server.protocol.state`
+- `SessionDocument` — `codelab.server.storage.document` (бывший `protocol.state.SessionState`;
+  переехал в хранилище фазой D ADR-006). Сам Context Manager работает доменным `Session`
+  и его read-проекцией `SessionView`.
 
 > Эти типы существуют в коде сегодня и НЕ переопределяются в `context.models` —
 > интерфейсы импортируют их как есть.

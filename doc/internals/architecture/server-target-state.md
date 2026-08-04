@@ -234,18 +234,20 @@ flowchart LR
     APP -. НЕ зависит .-x INF
 ```
 
-**Инвариант:** `agent.core` → **0 рёбер** к `protocol`; `ignore_imports` **пуст** (сняты
-`file_cache_decorator`, `storage.base`, `tools.executors.decorators.base` → `protocol.state`).
-`SessionState` живёт только в `protocol` как wire-DTO.
+**Инвариант достигнут (2026-08-03, ADR-006 фаза D):** `agent.core` → **0 рёбер** к `protocol`;
+`ignore_imports` **пуст** (сняты `file_cache_decorator`, `tools.executors.decorators.base` и
+`storage.base` → `protocol.state`). Документ сессии живёт не в `protocol`, а в
+`storage/document.py` под именем `SessionDocument`: «состояние сессии» — это доменный `Session`,
+а на диске лежит документ.
 
 ## 3. Ключевые сдвиги относительно as-is
 
 | Аспект | Было (as-is) | Стало (target) |
 |---|---|---|
 | Рабочая модель turn'а | `protocol.SessionState` (Pydantic, мутируется по стадиям) | `domain.Session` (агрегат, доменные операции) |
-| `SessionState` | source-of-truth + сериализация | **тонкий wire-DTO** на границе (replay/init) |
+| Документ сессии | source-of-truth + сериализация под именем `SessionState` | **`SessionDocument`** в `storage/`, только сериализация |
 | Точка конвертации | размазана | единственная — `SessionMapper` |
-| `storage` типизирован на | `SessionState` (рантайм-импорт) | `domain.Session` |
+| `storage` типизирован на | `SessionState` (рантайм-импорт из `protocol`) | `domain.Session` на порту, `SessionDocument` внутри |
 | Executor'ы получают | `SessionState` | доменный `ToolContext` (проекция) |
 | `agent.core → protocol` | остаточные рёбра в `ignore_imports` | **0 рёбер**, `ignore_imports` пуст |
 | turn-loop | внутри protocol-пайплайна | прод-loop через `AgentRunner` (ⓒ) |
