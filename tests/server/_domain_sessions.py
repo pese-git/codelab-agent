@@ -34,6 +34,26 @@ def make_domain_session(
     )
 
 
+def preregister_terminal_aliases(
+    executor: Any,
+    session: Session,
+    mapping: dict[str, str],
+) -> None:
+    """Посеять связки alias → client terminalId в реестре исполнителя.
+
+    С ADR-007 (шаг A) связка живёт в процессном `TerminalAliasRegistry`, а не в
+    документе сессии, поэтому тесты dispatch'а больше не могут подать её полем
+    wire-формы (`terminals=...`) — этого поля нет.
+
+    Посев идёт во внутренний словарь реестра сознательно: тождественные маппинги
+    вида `term_001 → term_001` через `register` не выражаются (он сам выдаёт
+    `term_<n>` по счётчику), а эти тесты проверяют именно dispatch и flow, а не
+    выдачу alias'ов. Публичного метода «привязать конкретный alias» в проде нет и
+    быть не должно — иначе появился бы путь выдать alias в обход счётчика.
+    """
+    executor._aliases._by_session.setdefault(str(session.id), {}).update(mapping)
+
+
 class _SeededMemoryStorage(InMemoryStorage):
     """In-memory backend с уже посеянной сессией.
 

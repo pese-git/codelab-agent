@@ -12,31 +12,33 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, preregister_terminal_aliases
 
 
 @pytest.fixture
 def session() -> DomainSession:
-    """Тестовая сессия.
-
-    ``term_1`` предрегистрирован тождественным маппингом: wait/release-тесты
-    проверяют dispatch, а не выдачу alias (см. TerminalAliasRegistry, #18).
-    """
+    """Тестовая сессия."""
     return make_domain_session(
         session_id="test_session",
         cwd="/tmp",
         mcp_servers=[],
         config_values={},
-        terminals={"term_1": "term_1"},
     )
 
 
 @pytest.fixture
-def executor() -> TerminalToolExecutor:
-    """Executor с mock bridge."""
+def executor(session: DomainSession) -> TerminalToolExecutor:
+    """Executor с mock bridge.
+
+    ``term_1`` предрегистрирован тождественным маппингом: wait/release-тесты
+    проверяют dispatch, а не выдачу alias (см. TerminalAliasRegistry, #18). Связка
+    живёт в реестре исполнителя, а не в документе сессии (ADR-007, шаг A).
+    """
     bridge = MagicMock()
     checker = MagicMock()
-    return TerminalToolExecutor(bridge, checker)
+    executor = TerminalToolExecutor(bridge, checker)
+    preregister_terminal_aliases(executor, session, {"term_1": "term_1"})
+    return executor
 
 
 class TestTerminalExecutorDispatch:

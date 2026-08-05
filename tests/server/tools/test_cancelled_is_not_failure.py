@@ -20,13 +20,12 @@ from codelab.server.client_rpc import ClientRPCCancelledError
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, preregister_terminal_aliases
 
 
 @pytest.fixture
 def session() -> DomainSession:
     session = make_domain_session(session_id="sess_1", cwd="/tmp", mcp_servers=[])
-    session.runtime.terminals = {"term_1": "client-term-1"}
     session.runtime.terminal_counter = 1
     return session
 
@@ -39,9 +38,15 @@ def _bridge(**side_effects: BaseException) -> ClientRPCBridge:
     return ClientRPCBridge(service)
 
 
-def _executor(bridge: ClientRPCBridge) -> TerminalToolExecutor:
+def _executor(bridge: ClientRPCBridge, session: DomainSession) -> TerminalToolExecutor:
+    """Исполнитель с предрегистрированным `term_1`.
+
+    Связка живёт в реестре исполнителя, а не в документе сессии (ADR-007, шаг A).
+    """
     checker = MagicMock()
-    return TerminalToolExecutor(client_rpc_bridge=bridge, permission_checker=checker)
+    executor = TerminalToolExecutor(client_rpc_bridge=bridge, permission_checker=checker)
+    preregister_terminal_aliases(executor, session, {"term_1": "client-term-1"})
+    return executor
 
 
 @pytest.mark.asyncio
@@ -53,7 +58,7 @@ class TestCancelledResultIsMarkedCancelled:
             wait_for_exit=ClientRPCCancelledError("RPC вызов terminal/wait_for_exit был отменён"),
         )
 
-        result = await _executor(bridge).execute_wait_for_exit(session, "term_1")
+        result = await _executor(bridge, session).execute_wait_for_exit(session, "term_1")
 
         assert result.cancelled is True
         assert result.success is False
@@ -66,7 +71,7 @@ class TestCancelledResultIsMarkedCancelled:
             create_terminal=ClientRPCCancelledError("RPC вызов terminal/create был отменён")
         )
 
-        result = await _executor(bridge).execute_create(session, "sleep 30")
+        result = await _executor(bridge, session).execute_create(session, "sleep 30")
 
         assert result.cancelled is True
         assert result.error is not None
@@ -76,7 +81,7 @@ class TestCancelledResultIsMarkedCancelled:
         """Сбой обязан остаться сбоем: признак отмены не должен его поглотить."""
         bridge = _bridge(wait_for_exit=RuntimeError("клиент отвалился"))
 
-        result = await _executor(bridge).execute_wait_for_exit(session, "term_1")
+        result = await _executor(bridge, session).execute_wait_for_exit(session, "term_1")
 
         assert result.cancelled is False
         assert result.success is False

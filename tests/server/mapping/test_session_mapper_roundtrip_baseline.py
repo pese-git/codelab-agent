@@ -215,7 +215,6 @@ class TestRoundtripTurnAndRuntime:
     def test_runtime_preserved(self) -> None:
         session = _rich_session()
         session.runtime = SessionRuntime(
-            terminals={"term_1": "client_term_a"},
             terminal_counter=3,
             events_history=[{"type": "session_update", "n": 1}],
             cancelled_client_rpc_requests={"rpc_1", 42},
@@ -223,7 +222,6 @@ class TestRoundtripTurnAndRuntime:
             correlation_id="corr_1",
         )
         rt = _roundtrip(session)
-        assert rt.runtime.terminals == {"term_1": "client_term_a"}
         assert rt.runtime.terminal_counter == 3
         assert rt.runtime.events_history == [{"type": "session_update", "n": 1}]
         assert rt.runtime.cancelled_client_rpc_requests == {"rpc_1", 42}
@@ -276,14 +274,26 @@ class TestRoundtripPrepFields:
         session = _rich_session()
         object.__setattr__(session, "title", "My session")
         object.__setattr__(session, "updated_at", "2026-07-24T09:22:50.227038+00:00")
-        object.__setattr__(session, "schema_version", 8)
+        object.__setattr__(session, "schema_version", 9)
         rt = _roundtrip(session)
         assert rt.title == "My session"
         assert rt.updated_at == "2026-07-24T09:22:50.227038+00:00"
-        assert rt.schema_version == 8
+        assert rt.schema_version == 9
         # Ревизия документа несётся round-trip как есть: её инкрементирует хранилище
         # при записи, маппер не должен её ни терять, ни менять (ADR-007)
         assert rt.revision == session.revision
+
+    def test_older_schema_version_is_migrated_not_carried(self) -> None:
+        """Версия схемы — не «мета как есть»: устаревшая поднимается миграцией.
+
+        Отличие от `title`/`updated_at` намеренное: они несутся round-trip без правок,
+        а `schema_version` описывает форму документа, и round-trip через
+        `SessionDocument` эту форму приводит к текущей.
+        """
+        session = _rich_session()
+        object.__setattr__(session, "schema_version", 8)
+
+        assert _roundtrip(session).schema_version == 9
 
     def test_updated_at_not_regenerated(self) -> None:
         """`updated_at` несётся как есть, не подменяется свежим временем."""

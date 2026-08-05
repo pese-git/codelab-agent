@@ -26,6 +26,14 @@ class TerminalToolExecutor(ToolExecutor):
     - terminal/release (освобождение терминала)
 
     Интегрирует проверку разрешений, логирование и lifecycle management.
+
+    **Экземпляр обязан быть один на процесс.** С ADR-007 (шаг A) он владеет реестром
+    alias'ов терминалов, а тот больше не персистится: второй экземпляр означал бы
+    второй реестр, и alias, выданный одним, не разрешался бы другим. Сегодня это
+    обеспечено конструктивно — единственная точка создания
+    (`PromptOrchestrator._register_tool_executors`) сама живёт в `Scope.APP` и
+    защищена флагом `_tools_registered`. Если точек станет больше, реестр надо
+    поднять в DI-провайдер `Scope.APP`, как `TurnCancellationRegistry`.
     """
 
     def __init__(
@@ -60,7 +68,7 @@ class TerminalToolExecutor(ToolExecutor):
         if client_terminal_id is not None:
             return client_terminal_id, None
 
-        known = sorted(session.runtime.terminals)
+        known = self._aliases.known_aliases(session)
         # warning, а не error: промах по alias — галлюцинация модели, сервер отработал
         # верно и вернул модели список доступных терминалов. Уровень error здесь ломал
         # критерий «0 ошибок за прогон» (tech-debt P2-37).

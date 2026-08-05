@@ -1,24 +1,34 @@
-"""Терминалы из прошлого процесса не переживают загрузку сессии (P2-44).
+"""Терминалы прошлого процесса невозможны по построению (ADR-007, шаг A; P2-58).
 
-Живьём (`sess_b959781bd8bf`): три ошибки уровня `error` подряд по одному терминалу
-— `output`, `wait_for_exit`, `release`, все с `RPC Error -32603` от клиента. Терминал
-был создан предыдущим процессом; сервер перезапустили, сессия загрузилась вместе с
-реестром alias'ов, и модель по восстановленной истории обратилась к дескриптору,
-которого уже нет.
+История дефекта. Живьём (`sess_b959781bd8bf`) — три ошибки уровня `error` подряд по
+одному терминалу: `output`, `wait_for_exit`, `release`, все с `RPC Error -32603` от
+клиента. Терминал создал предыдущий процесс; сервер перезапустили, сессия загрузилась
+вместе с реестром alias'ов, и модель по восстановленной истории обратилась к
+дескриптору, которого уже нет.
 
-Реестр персистится (схема v5), а сами терминалы живут у клиента. Отметка владельца
-отличает «загрузил тот же процесс» от «загрузил другой».
+Первым ответом (P2-44, схема v5→v8) была компенсация: отметка владельца плюс чистка
+реестра на загрузке. Она лечила следствие — реестр всё равно персистился, и
+пользоваться им можно было только доказав, что он ещё действителен.
+
+Теперь причина снята: связка alias → client terminalId живёт в процессном
+`TerminalAliasRegistry` и на диск не попадает вовсе, поэтому чистить нечего.
+Проверяется именно это, а не поведение чистки.
+
+Счётчик alias'ов при этом **обязан** переживать рестарт: при сбросе `term_1` из
+восстановленной истории разрешился бы в терминал нового процесса, и модель получила бы
+чужой вывод вместо внятного «неизвестный терминал». Гейт на это — ниже.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
-from codelab.server.process_identity import PROCESS_TOKEN
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.storage import JsonFileStorage, SessionRepository
 from codelab.server.storage.document import SessionDocument
@@ -48,88 +58,154 @@ async def _load(storage: JsonFileStorage) -> None:
     assert outcome.response.error is None
 
 
-def _session_with_terminals(owner: str | None) -> SessionDocument:
-    """Документ сессии на диске: реестр терминалов переживает рестарт (P2-44)."""
-    session = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
-    session.terminals = {"term_1": "client-uuid-1", "term_2": "client-uuid-2"}
-    session.terminal_counter = 2
-    session.terminals_owner = owner
-    return session
+def _write_v8_document(base_path: Path, *, owner: str | None) -> None:
+    """Кладёт на диск **настоящий** документ схемы v8 — с реестром терминалов.
+
+    Именно так выглядят файлы, записанные до этого шага, поэтому миграция проверяется
+    на реальной форме, а не на синтетической: v6→v7 в своё время живьём так и не
+    проверили, и повторять это не стоит.
+    """
+    document: dict[str, Any] = {
+        "schema_version": 8,
+        "revision": 3,
+        "session_id": "sess_x",
+        "cwd": "/work",
+        "mcp_servers": [],
+        "terminals": {"term_1": "client-uuid-1", "term_2": "client-uuid-2"},
+        "terminals_owner": owner,
+        "terminal_counter": 2,
+    }
+    (base_path / "sess_x.json").write_text(json.dumps(document), encoding="utf-8")
 
 
-class TestTerminalsFromPreviousProcess:
+class TestMigrationFromV8:
+    """Документ v8 читается, реестр отбрасывается, счётчик остаётся."""
+
     @pytest.mark.asyncio
-    async def test_terminals_of_another_process_are_dropped(self, tmp_path: Path) -> None:
-        storage = JsonFileStorage(tmp_path)
-        await storage.save_session(_session_with_terminals(owner="другой-процесс"))
-
-        await _load(storage)
+    async def test_v8_document_loads(self, tmp_path: Path) -> None:
+        _write_v8_document(tmp_path, owner="другой-процесс")
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+
         assert on_disk is not None
-        assert on_disk.terminals == {}, "мёртвые дескрипторы не должны пережить загрузку"
-        assert on_disk.terminals_owner is None
+        assert on_disk.schema_version == 9
 
     @pytest.mark.asyncio
-    async def test_terminals_of_same_process_are_kept(self, tmp_path: Path) -> None:
-        """Тот же процесс — терминалы ещё живы, трогать нельзя."""
-        storage = JsonFileStorage(tmp_path)
-        await storage.save_session(_session_with_terminals(owner=PROCESS_TOKEN))
-
-        await _load(storage)
+    async def test_alias_bindings_are_dropped(self, tmp_path: Path) -> None:
+        """Связка не переносится в v9 ни при каком владельце: она мертва по смыслу."""
+        _write_v8_document(tmp_path, owner="другой-процесс")
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+
         assert on_disk is not None
-        assert on_disk.terminals == {"term_1": "client-uuid-1", "term_2": "client-uuid-2"}
+        assert not hasattr(on_disk, "terminals")
+        assert not hasattr(on_disk, "terminals_owner")
 
     @pytest.mark.asyncio
-    async def test_unknown_owner_is_treated_as_another_process(self, tmp_path: Path) -> None:
-        """Сессия записана до появления отметки — значит точно другим процессом."""
-        storage = JsonFileStorage(tmp_path)
-        await storage.save_session(_session_with_terminals(owner=None))
-
-        await _load(storage)
+    async def test_counter_survives_migration(self, tmp_path: Path) -> None:
+        """Счётчик — распределитель id сессии, а не состояние процесса."""
+        _write_v8_document(tmp_path, owner="другой-процесс")
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
-        assert on_disk is not None
-        assert on_disk.terminals == {}
 
-    @pytest.mark.asyncio
-    async def test_counter_is_not_reset(self, tmp_path: Path) -> None:
-        """Счётчик сохраняется: новый терминал не должен получить занятый в истории alias."""
-        storage = JsonFileStorage(tmp_path)
-        await storage.save_session(_session_with_terminals(owner="другой-процесс"))
-
-        await _load(storage)
-
-        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
         assert on_disk.terminal_counter == 2
-        # Реестр — адаптер над агрегатом, поэтому проверка идёт на нём же
+
+    @pytest.mark.asyncio
+    async def test_revision_survives_migration(self, tmp_path: Path) -> None:
+        """Ревизия не сбрасывается: иначе следующая запись прошла бы CAS вслепую."""
+        _write_v8_document(tmp_path, owner="другой-процесс")
+
+        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+
+        assert on_disk is not None
+        assert on_disk.revision == 3
+
+
+class TestAliasesNeverReachDisk:
+    @pytest.mark.asyncio
+    async def test_registered_alias_is_absent_from_saved_document(self, tmp_path: Path) -> None:
+        """Главный гейт шага: регистрация терминала не меняет документ, кроме счётчика.
+
+        Гейт стоит на `JsonFileStorage`, а не на памяти: in-memory backend отдаёт сам
+        хранимый объект и скрыл бы «связка всё ещё в агрегате».
+        """
+        storage = JsonFileStorage(tmp_path)
+        session = make_domain_session(session_id="sess_x", cwd="/work", mcp_servers=[])
+        registry = TerminalAliasRegistry()
+
+        alias = registry.register(session, "client-uuid-1")
+        await storage.save_session(SessionMapper.to_protocol(session))
+
+        raw = json.loads((tmp_path / "sess_x.json").read_text(encoding="utf-8"))
+        assert "terminals" not in raw
+        assert "terminals_owner" not in raw
+        assert "client-uuid-1" not in json.dumps(raw), "client terminalId не должен попасть на диск"
+        assert raw["terminal_counter"] == 1, "счётчик персистится — он выдаёт alias'ы"
+        assert alias == "term_1"
+
+
+class TestFreshProcessStartsEmpty:
+    @pytest.mark.asyncio
+    async def test_alias_from_previous_process_resolves_to_none(self, tmp_path: Path) -> None:
+        """После рестарта alias не разрешается — это путь «неизвестный терминал».
+
+        Новый процесс = новый реестр, поэтому доказывать актуальность связки больше не
+        нужно: её просто нет.
+        """
+        _write_v8_document(tmp_path, owner="другой-процесс")
+        await _load(JsonFileStorage(tmp_path))
+
+        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+        assert on_disk is not None
+        domain_session = SessionMapper.to_domain(on_disk)
+        fresh_process_registry = TerminalAliasRegistry()
+
+        assert fresh_process_registry.resolve(domain_session, "term_1") is None
+        assert fresh_process_registry.known_aliases(domain_session) == []
+
+    @pytest.mark.asyncio
+    async def test_new_alias_does_not_collide_with_history(self, tmp_path: Path) -> None:
+        """Ради этого счётчик и персистится: `term_1` из истории не выдаётся заново.
+
+        Иначе обращение к `term_1` из восстановленной истории разрешилось бы в
+        терминал нового процесса — модель получила бы чужой вывод вместо ошибки.
+        """
+        _write_v8_document(tmp_path, owner="другой-процесс")
+        await _load(JsonFileStorage(tmp_path))
+
+        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+        assert on_disk is not None
+
         assert TerminalAliasRegistry().register(SessionMapper.to_domain(on_disk), "новый") == (
             "term_3"
         )
 
-    @pytest.mark.asyncio
-    async def test_dropped_terminal_resolves_to_none(self, tmp_path: Path) -> None:
-        """Обращение к старому alias'у идёт по пути «неизвестный терминал».
 
-        Это и есть цель: модель получает внятный ответ вместо RPC Error -32603.
-        """
-        storage = JsonFileStorage(tmp_path)
-        await storage.save_session(_session_with_terminals(owner="другой-процесс"))
+class TestRegistryIsolatesSessions:
+    def test_alias_of_one_session_is_invisible_to_another(self) -> None:
+        """Реестр процессный, поэтому адресация по `session_id` обязательна."""
+        registry = TerminalAliasRegistry()
+        first = make_domain_session(session_id="sess_a", cwd="/work", mcp_servers=[])
+        second = make_domain_session(session_id="sess_b", cwd="/work", mcp_servers=[])
 
-        await _load(storage)
+        alias = registry.register(first, "client-uuid-1")
 
-        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
-        assert on_disk is not None
-        assert TerminalAliasRegistry().resolve(SessionMapper.to_domain(on_disk), "term_1") is None
+        assert registry.resolve(first, alias) == "client-uuid-1"
+        assert registry.resolve(second, alias) is None
+
+    def test_release_removes_binding(self) -> None:
+        registry = TerminalAliasRegistry()
+        session = make_domain_session(session_id="sess_a", cwd="/work", mcp_servers=[])
+        alias = registry.register(session, "client-uuid-1")
+
+        assert registry.release(session, alias) == "client-uuid-1"
+        assert registry.resolve(session, alias) is None
+        assert registry.release(session, alias) is None, "повторное освобождение идемпотентно"
 
 
-class TestRegistryStampsOwner:
-    def test_register_marks_current_process(self) -> None:
-        session = make_domain_session(session_id="sess_x", cwd="/work", mcp_servers=[])
+class TestDocumentSchema:
+    def test_new_document_declares_v9(self) -> None:
+        document = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
 
-        TerminalAliasRegistry().register(session, "client-uuid")
-
-        assert session.runtime.terminals_owner == PROCESS_TOKEN
+        assert document.schema_version == 9

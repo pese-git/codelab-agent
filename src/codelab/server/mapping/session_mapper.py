@@ -107,8 +107,6 @@ class SessionMapper:
 
         # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionDocument)
         runtime = session.runtime
-        state.terminals = dict(runtime.terminals)
-        state.terminals_owner = runtime.terminals_owner
         state.terminal_counter = runtime.terminal_counter
         state.events_history = [dict(e) for e in runtime.events_history]
         state.cancelled_client_rpc_requests = set(runtime.cancelled_client_rpc_requests)  # type: ignore[arg-type]
@@ -245,8 +243,6 @@ class SessionMapper:
     def _build_runtime(state: SessionDocument) -> SessionRuntime:
         """Собирает доменный SessionRuntime VO из плоских runtime-полей SessionDocument."""
         return SessionRuntime(
-            terminals=dict(state.terminals),
-            terminals_owner=state.terminals_owner,
             terminal_counter=state.terminal_counter,
             events_history=[dict(e) for e in state.events_history],
             cancelled_client_rpc_requests=set(state.cancelled_client_rpc_requests),

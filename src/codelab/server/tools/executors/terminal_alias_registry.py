@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from codelab.server.domain.session import Session
-from codelab.server.process_identity import PROCESS_TOKEN
 
 
 class TerminalAliasRegistry:
@@ -15,28 +14,54 @@ class TerminalAliasRegistry:
     детерминированный alias (``term_<n>``) устраняет саму поверхность ошибки, а
     клиент по-прежнему адресуется своим родным id — ACP-контракт не нарушается.
 
-    Состояние живёт в доменном агрегате сессии (``runtime.terminals`` +
-    ``runtime.terminal_counter``), чтобы переживать tool-call'ы turn'а и
-    персиститься вместе с сессией. Поведение над этим состоянием принадлежит
-    агрегату (сеймы ``register_terminal``/``resolve_terminal``/
-    ``release_terminal``, шаг 2 фазы D ADR-006); класс остаётся адаптером
-    executor'а и сам состояния не хранит — потокобезопасно переиспользуется
-    как singleton.
+    **Носитель связки — процесс, не документ сессии (ADR-007, шаг A).** Связка
+    alias → client terminalId осмысленна только внутри процесса, который её создал:
+    сами терминалы живут у клиента и рестарт сервера не переживают. Пока связка
+    персистилась, следующий процесс принимал мёртвые дескрипторы за живые, и это
+    приходилось компенсировать отметкой владельца и чисткой на загрузке (P2-44,
+    P2-58). После переноса мёртвых alias'ов не существует по построению: новый
+    процесс начинает с пустым реестром.
+
+    **Что осталось в документе и почему — счётчик alias'ов.** ``terminal_counter``
+    не состояние процесса, а распределитель идентификаторов сессии (как
+    ``tool_call_counter``), и он обязан быть монотонным **через рестарт**: иначе
+    ``term_1`` из восстановленной истории разрешился бы в терминал нового процесса —
+    вместо внятного «неизвестный терминал» модель получила бы чужой вывод. Поэтому
+    alias выдаёт агрегат (``Session.allocate_terminal_alias``), а связывает — реестр.
+
+    Реестр адресуется ``session_id`` и живёт как singleton процесса (``Scope.APP``):
+    от числа копий сессии, которые отдаёт хранилище, он не зависит. Тот же приём —
+    ``TurnCancellationRegistry`` и ``SessionFileCacheRegistry``.
+
+    **Граница роста названа явно.** Записи снимает ``release``, но сессия, от которой
+    ушли не освободив терминалы, оставляет свои связки до конца процесса. Метода
+    «забыть сессию» здесь нет намеренно: серверного удаления сессии не существует, а
+    единственный кандидат на такой вызов — переключение сессии — был бы неверным
+    (терминалы прошлой сессии живы у клиента, к ней можно вернуться). Цена —
+    несколько коротких строк на сессию за время жизни процесса.
     """
+
+    def __init__(self) -> None:
+        self._by_session: dict[str, dict[str, str]] = {}
 
     def register(self, session: Session, client_terminal_id: str) -> str:
         """Регистрирует client terminalId и возвращает новый короткий alias.
 
-        Владелец передаётся отсюда: домен не знает про процесс, в котором
-        исполняется, а отметка обязательна — терминалы живут у клиента и рестарт
-        не переживают, тогда как реестр персистится (P2-44).
+        Alias выдаёт агрегат: счётчик обязан переживать рестарт, чтобы alias'ы не
+        переиспользовались (см. docstring класса). Связку хранит реестр.
         """
-        return session.register_terminal(client_terminal_id, owner=PROCESS_TOKEN)
+        alias = session.allocate_terminal_alias()
+        self._by_session.setdefault(str(session.id), {})[alias] = client_terminal_id
+        return alias
 
     def resolve(self, session: Session, alias: str) -> str | None:
         """Возвращает client terminalId по alias или ``None``, если alias неизвестен."""
-        return session.resolve_terminal(alias)
+        return self._by_session.get(str(session.id), {}).get(alias)
 
     def release(self, session: Session, alias: str) -> str | None:
         """Удаляет alias из реестра, возвращает освобождённый client terminalId (или None)."""
-        return session.release_terminal(alias)
+        return self._by_session.get(str(session.id), {}).pop(alias, None)
+
+    def known_aliases(self, session: Session) -> list[str]:
+        """Живые alias'ы сессии — для сообщения модели о неизвестном терминале."""
+        return sorted(self._by_session.get(str(session.id), {}))

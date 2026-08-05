@@ -17,7 +17,6 @@ from codelab.server.storage.document import ClientRuntimeCapabilities
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import ToolCallStatus
 from ...messages import ACPMessage, JsonRpcId
-from ...process_identity import PROCESS_TOKEN
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
 from ..state import ProtocolOutcome
@@ -259,36 +258,6 @@ def _replay_tool_calls_fallback(session: DomainSession, session_id: str) -> list
     return notifications
 
 
-def _drop_terminals_from_previous_process(session: DomainSession, session_id: str) -> None:
-    """Убрать из реестра терминалы, оставшиеся от другого процесса (P2-44).
-
-    Реестр alias'ов персистится вместе с сессией, а сами терминалы живут у клиента и
-    рестарт сервера не переживают. Без очистки модель по восстановленной истории
-    обращается к мёртвому дескриптору и получает `RPC Error -32603` — на живом
-    прогоне это три ошибки подряд по одному терминалу.
-
-    Отметка владельца отличает загрузку тем же процессом (терминалы ещё живы, трогать
-    нельзя) от загрузки другим (мертвы). Неизвестный владелец — сессия записана до
-    появления отметки, то есть точно другим процессом.
-
-    После очистки обращение к старому alias'у идёт по существующему пути «неизвестный
-    терминал» и модель получает внятный ответ вместо внутренней ошибки.
-    """
-    if not session.runtime.terminals:
-        return
-    if session.runtime.terminals_owner == PROCESS_TOKEN:
-        return
-
-    dropped = len(session.runtime.terminals)
-    session.runtime.terminals = {}
-    session.runtime.terminals_owner = None
-    logger.info(
-        "terminals_dropped_from_previous_process",
-        session_id=session_id,
-        dropped=dropped,
-    )
-
-
 async def session_load(
     request_id: JsonRpcId | None,
     params: dict[str, Any],
@@ -376,8 +345,6 @@ async def session_load(
     plan_notification = replayer.replay_latest_plan(session)
     if plan_notification:
         notifications.append(plan_notification)
-
-    _drop_terminals_from_previous_process(session, session_id)
 
     fallback_notifications = _replay_tool_calls_fallback(session, session_id)
     notifications.extend(fallback_notifications)

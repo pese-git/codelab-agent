@@ -103,10 +103,27 @@ def _migrate_to_v7(data: dict[str, Any]) -> None:
 def _migrate_to_v8(data: dict[str, Any]) -> None:
     """v7 → v8: владелец реестра терминалов (P2-44).
 
-    Для старых сессий владелец неизвестен — значит это точно не текущий процесс, и
-    реестр будет очищен при загрузке.
+    Поле удалено в v9 — шаг оставлен как есть, чтобы цепочка миграций читалась
+    подряд; выставленный ключ отбрасывается моделью как лишний.
     """
     data.setdefault("terminals_owner", None)
+
+
+def _migrate_to_v9(data: dict[str, Any]) -> None:
+    """v8 → v9: связка alias'ов терминалов уезжает в процессный реестр (ADR-007, шаг A).
+
+    Структура не меняется — шаг удаляет то, чего не должно было persist'иться.
+    `terminals` и `terminals_owner` отбрасываются: связка осмысленна только внутри
+    процесса, который её создал, а сами терминалы живут у клиента. Явный `pop`, а не
+    опора на «лишние ключи игнорируются»: удаление данных должно быть видно в
+    цепочке миграций, а не быть побочным эффектом настроек модели.
+
+    `terminal_counter` **остаётся**: это распределитель идентификаторов сессии, и он
+    обязан быть монотонным через рестарт, иначе alias из восстановленной истории
+    разрешился бы в терминал нового процесса (P2-58).
+    """
+    data.pop("terminals", None)
+    data.pop("terminals_owner", None)
 
 
 # Порядок обязателен: шаги применяются подряд от текущей версии документа.
@@ -118,6 +135,7 @@ _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (6, _migrate_to_v6),
     (7, _migrate_to_v7),
     (8, _migrate_to_v8),
+    (9, _migrate_to_v9),
 ]
 
 
@@ -246,7 +264,7 @@ class SessionDocument(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=8)
+    schema_version: int = Field(default=9)
     # Ревизия документа: счётчик записей, растёт на каждое сохранение. Нужна для
     # compare-and-set: копия сессии живёт через `await` (фоновое исполнение turn'а),
     # и без сверки её запись молча затирала бы решения, принятые тем временем другим
@@ -281,16 +299,11 @@ class SessionDocument(BaseModel):
     tool_call_counter: int = 0
     # Реестр созданных tool calls и их состояний.
     tool_calls: dict[str, ToolCallState] = Field(default_factory=dict)
-    # Маппинг короткого alias, выдаваемого LLM, → настоящий client-side terminalId.
-    # LLM теряет символы при дословной ретрансляции длинного UUID, поэтому наружу
-    # отдаётся короткий alias, а клиент по-прежнему адресуется своим родным id
-    # (см. tech-debt #18, TerminalAliasRegistry).
-    terminals: dict[str, str] = Field(default_factory=dict)
-    # Токен процесса, зарегистрировавшего терминалы. Сами терминалы живут у клиента и
-    # рестарт не переживают, а реестр персистится — без отметки владельца после
-    # перезапуска модель обращается к мёртвым дескрипторам (P2-44).
-    terminals_owner: str | None = None
-    # Монотонный счётчик для детерминированной генерации terminal alias.
+    # Монотонный счётчик для детерминированной генерации terminal alias. Сама связка
+    # alias → client terminalId в документе НЕ лежит: она не переживает рестарт по
+    # смыслу и живёт в процессном `TerminalAliasRegistry` (ADR-007, шаг A). Счётчик
+    # остаётся здесь именно потому, что обязан переживать рестарт — иначе alias из
+    # восстановленной истории разрешился бы в терминал нового процесса (P2-58).
     terminal_counter: int = 0
     # Набор доступных slash-команд для `available_commands_update`.
     available_commands: list[AvailableCommand | dict[str, Any]] = Field(default_factory=list)

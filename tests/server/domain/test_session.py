@@ -502,66 +502,38 @@ class TestSession:
         assert parsed.utcoffset() == UTC.utcoffset(None)
 
 
-class TestSessionTerminalSeams:
-    """Реестр терминалов на агрегате (шаг 2 фазы D ADR-006).
+class TestSessionTerminalAliasAllocation:
+    """Выдача alias'ов терминалов на агрегате (ADR-007, шаг A).
 
-    Сеймы одноимённы с `TerminalAliasRegistry`, чей единственный носитель
-    состояния — сессия. Поведение обязано совпадать до символа: alias уезжает на
-    диск и в историю, поэтому расхождение развело бы alias'ы старых сессий с новыми.
+    На агрегате остался только распределитель: сама связка alias → client
+    terminalId уехала в процессный `TerminalAliasRegistry`, потому что не переживает
+    рестарт по смыслу. Alias при этом уезжает на диск и в историю, поэтому счётчик
+    обязан оставаться монотонным — гейты на переиспользование ниже.
     """
 
     def _session(self) -> Session:
         return Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
 
-    def test_register_returns_sequential_aliases(self) -> None:
+    def test_allocate_returns_sequential_aliases(self) -> None:
         session = self._session()
 
-        first = session.register_terminal("uuid-a", owner="proc-1")
-        second = session.register_terminal("uuid-b", owner="proc-1")
+        first = session.allocate_terminal_alias()
+        second = session.allocate_terminal_alias()
 
         assert (first, second) == ("term_1", "term_2")
         assert session.runtime.terminal_counter == 2
 
-    def test_register_marks_owner(self) -> None:
-        """Отметка владельца обязательна: реестр персистится, терминалы нет (P2-44)."""
+    def test_counter_is_the_only_terminal_state_on_aggregate(self) -> None:
+        """Связки на агрегате быть не должно — иначе она снова уедет на диск."""
         session = self._session()
 
-        session.register_terminal("uuid-a", owner="proc-1")
+        session.allocate_terminal_alias()
 
-        assert session.runtime.terminals_owner == "proc-1"
+        assert not hasattr(session.runtime, "terminals")
+        assert not hasattr(session.runtime, "terminals_owner")
 
-    def test_resolve_and_release(self) -> None:
-        session = self._session()
-        alias = session.register_terminal("uuid-a", owner="proc-1")
-
-        assert session.resolve_terminal(alias) == "uuid-a"
-        assert session.release_terminal(alias) == "uuid-a"
-        assert session.resolve_terminal(alias) is None
-
-    def test_unknown_alias_is_none_not_error(self) -> None:
-        """Неизвестный alias — не исключение: сегодня вызывающий логирует warning."""
-        session = self._session()
-
-        assert session.resolve_terminal("term_9") is None
-        assert session.release_terminal("term_9") is None
-
-    def test_counter_not_reused_after_release(self) -> None:
-        """Освобождение не откатывает счётчик — иначе новый терминал занял бы чужой alias."""
-        session = self._session()
-        alias = session.register_terminal("uuid-a", owner="proc-1")
-        session.release_terminal(alias)
-
-        assert session.register_terminal("uuid-b", owner="proc-1") == "term_2"
-
-    def test_executor_adapter_delegates_to_seams(self) -> None:
-        """`TerminalAliasRegistry` — адаптер над сеймами и владельцем процесса.
-
-        Прежде здесь стоял паритет с wire-реестром: у него было своё состояние на
-        `SessionDocument`. С переездом turn-пути на агрегат (шаг 3 фазы D) состояние
-        одно, поэтому проверяется то, что осталось контрактом адаптера — alias'ы
-        те же, что у сеймов, и отметка владельца ставится (P2-44).
-        """
-        from codelab.server.process_identity import PROCESS_TOKEN
+    def test_registry_allocates_through_aggregate(self) -> None:
+        """`TerminalAliasRegistry` берёт alias у агрегата, а хранит связку у себя."""
         from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
         registry = TerminalAliasRegistry()
@@ -570,11 +542,31 @@ class TestSessionTerminalSeams:
         aliases = [registry.register(session, "uuid-a"), registry.register(session, "uuid-b")]
 
         assert aliases == ["term_1", "term_2"]
-        assert session.runtime.terminals == {"term_1": "uuid-a", "term_2": "uuid-b"}
-        assert session.runtime.terminals_owner == PROCESS_TOKEN
+        assert session.runtime.terminal_counter == 2
         assert registry.resolve(session, "term_2") == "uuid-b"
         assert registry.release(session, "term_1") == "uuid-a"
         assert registry.release(session, "term_1") is None
+
+    def test_counter_not_reused_after_release(self) -> None:
+        """Освобождение не откатывает счётчик — иначе новый терминал занял бы чужой alias."""
+        from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
+
+        registry = TerminalAliasRegistry()
+        session = self._session()
+        alias = registry.register(session, "uuid-a")
+        registry.release(session, alias)
+
+        assert registry.register(session, "uuid-b") == "term_2"
+
+    def test_unknown_alias_is_none_not_error(self) -> None:
+        """Неизвестный alias — не исключение: вызывающий логирует warning."""
+        from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
+
+        registry = TerminalAliasRegistry()
+        session = self._session()
+
+        assert registry.resolve(session, "term_9") is None
+        assert registry.release(session, "term_9") is None
 
 
 class TestToolCallCreateStatus:

@@ -201,7 +201,7 @@ class TestTerminalAliasRoundTrip:
 
         released = await executor.execute_release(session=session, terminal_id=alias)
         assert released.success is True
-        assert session.runtime.terminals == {}
+        assert executor._aliases.known_aliases(session) == []
 
         again = await executor.execute_release(session=session, terminal_id=alias)
         assert again.success is False
@@ -231,5 +231,5 @@ class TestTerminalAliasRoundTrip:
         # Client-facing terminal content-item сохраняет родной client terminalId.
         assert result.content is not None
         assert result.content[0]["terminalId"] == "term_full"
-        # Маппинг alias → client id зарегистрирован в сессии.
-        assert session.runtime.terminals == {"term_1": "term_full"}
+        # Связка alias → client id зарегистрирована в процессном реестре (ADR-007, шаг A).
+        assert executor._aliases.resolve(session, "term_1") == "term_full"

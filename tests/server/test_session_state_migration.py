@@ -29,7 +29,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -49,7 +49,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         assert session.events_history == []
         assert session.config_values == {}
         assert session.active_strategy == "single"
@@ -60,7 +60,7 @@ class TestSessionStateMigrationV1toV4:
         """Новые поля имеют правильные значения по умолчанию."""
         session = SessionDocument(session_id="test", cwd="/tmp", mcp_servers=[])
 
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -136,7 +136,7 @@ class TestSessionStateMigrationV1toV4:
         assert session.permission_policy == {"execute": "allow_always"}
 
         # Новые поля добавлены
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -200,12 +200,16 @@ class TestSessionStateMigrationV1toV4:
             }
         )
 
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         # Старые сессии начинают с нуля — первая запись поднимет до 1
         assert session.revision == 0
 
-    def test_migration_v7_to_v8_adds_terminals_owner(self) -> None:
-        """v7 → v8: реестр терминалов получает владельца (P2-44)."""
+    def test_migration_v8_to_v9_drops_terminal_bindings(self) -> None:
+        """v8 → v9: связка alias'ов уезжает в процессный реестр (ADR-007, шаг A).
+
+        Отметка владельца из v8 (P2-44) была компенсацией персистентности реестра;
+        вместе с самим реестром она перестаёт существовать.
+        """
         session = SessionDocument.model_validate(
             {
                 "schema_version": 7,
@@ -213,19 +217,21 @@ class TestSessionStateMigrationV1toV4:
                 "cwd": "/tmp",
                 "mcp_servers": [],
                 "terminals": {"term_1": "client-id"},
+                "terminal_counter": 1,
             }
         )
 
-        assert session.schema_version == 8
-        # Владелец неизвестен — значит это не текущий процесс, реестр будет очищен
-        assert session.terminals_owner is None
-        assert session.terminals == {"term_1": "client-id"}
+        assert session.schema_version == 9
+        assert not hasattr(session, "terminals")
+        assert not hasattr(session, "terminals_owner")
+        # Счётчик остаётся: он выдаёт alias'ы и обязан быть монотонным через рестарт
+        assert session.terminal_counter == 1
 
     def test_schema_version_updated_after_migration(self) -> None:
-        """После миграции schema_version равен 8 (v8 — владелец реестра терминалов, P2-44)."""
+        """После миграции schema_version равен 9 (v9 — связка терминалов в процессе, ADR-007)."""
         # v0
         session_v0 = SessionDocument(session_id="test", cwd="/tmp")
-        assert session_v0.schema_version == 8
+        assert session_v0.schema_version == 9
 
         # v1
         session_v1 = SessionDocument(
@@ -234,7 +240,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v1.schema_version == 8
+        assert session_v1.schema_version == 9
 
         # v3
         session_v3 = SessionDocument(
@@ -243,7 +249,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v3.schema_version == 8
+        assert session_v3.schema_version == 9
 
         # v4
         session_v4 = SessionDocument(
@@ -252,7 +258,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v4.schema_version == 8
+        assert session_v4.schema_version == 9
 
         # v5
         session_v5 = SessionDocument(
@@ -261,7 +267,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v5.schema_version == 8
+        assert session_v5.schema_version == 9
 
         # v6 (текущая)
         session_v6 = SessionDocument(
@@ -270,10 +276,13 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v6.schema_version == 8
+        assert session_v6.schema_version == 9
 
-    def test_migration_v4_to_v5_adds_terminal_registry(self) -> None:
-        """v4 → v5: добавляются поля terminal alias registry с defaults (#18)."""
+    def test_migration_v4_to_v5_adds_terminal_counter(self) -> None:
+        """v4 → v5: появляется счётчик alias'ов терминалов (#18).
+
+        Сам реестр, добавленный тем же шагом, удалён в v9 — от шага остался счётчик.
+        """
         old_data = {
             "schema_version": 4,
             "session_id": "test-session",
@@ -283,12 +292,11 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 8
-        assert session.terminals == {}
+        assert session.schema_version == 9
         assert session.terminal_counter == 0
 
-    def test_migration_v4_to_v5_preserves_existing_terminals(self) -> None:
-        """Существующий маппинг терминалов не затирается миграцией."""
+    def test_migration_preserves_existing_terminal_counter(self) -> None:
+        """Счётчик не затирается миграцией: alias'ы не должны переиспользоваться."""
         data = {
             "schema_version": 5,
             "session_id": "test-session",
@@ -300,7 +308,6 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**data)
 
-        assert session.terminals == {"term_1": "client-uuid"}
         assert session.terminal_counter == 1
 
     def test_migration_v5_to_v6_plan_legacy_to_acp(self) -> None:
@@ -321,7 +328,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 8
+        assert session.schema_version == 9
         assert session.latest_plan == [
             {"content": "Step 1", "priority": "medium", "status": "pending"},
             {"content": "Step 2", "priority": "medium", "status": "pending"},

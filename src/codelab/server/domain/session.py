@@ -326,17 +326,21 @@ class SessionRuntime:
     """Рантайм-состояние сессии как доменный VO (ADR-006, write-фаза).
 
     Переезжает из плоских runtime-полей `protocol.state.SessionDocument`
-    (`terminals`, `events_history`, ...). Персистируемо (часть агрегата), кроме
-    чисто transient `mcp_prompt_handlers` (`exclude=True`), который в домен НЕ
-    переезжает и восстанавливается в `SessionRuntime`-компаньоне протокола.
+    (`events_history`, ...). Персистируемо (часть агрегата), кроме чисто transient
+    `mcp_prompt_handlers` (`exclude=True`), который в домен НЕ переезжает и
+    восстанавливается в `SessionRuntime`-компаньоне протокола.
+
+    Не всё «рантайм» здесь: состояние, которое не переживает рестарт по смыслу
+    (связка alias'ов терминалов), живёт в процессных реестрах, а не в агрегате —
+    правило «сигнал против состояния» ADR-007.
 
     Опаковые снимки (`pending_prompt_response`, `session_metrics`) хранятся как
     plain dict — данные, не wire-семантика.
     """
 
-    terminals: dict[str, str] = field(default_factory=dict)
-    # Владелец реестра терминалов (P2-44): парное поле к `SessionDocument.terminals_owner`.
-    terminals_owner: str | None = None
+    # Распределитель alias'ов терминалов. Сама связка alias → client terminalId живёт
+    # в процессном `TerminalAliasRegistry` (ADR-007, шаг A), здесь только счётчик:
+    # он обязан переживать рестарт, иначе alias'ы переиспользуются.
     terminal_counter: int = 0
     events_history: list[dict[str, Any]] = field(default_factory=list)
     cancelled_client_rpc_requests: set[str | int] = field(default_factory=set)
@@ -367,7 +371,7 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionDocument.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 8
+    schema_version: int = 9
     # Ревизия документа (ADR-007): парное поле к `SessionDocument.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0
@@ -486,31 +490,20 @@ class Session:
         """Отмечен ли agent->client RPC отменённым."""
         return request_id in self.runtime.cancelled_client_rpc_requests
 
-    # Реестр терминалов. Сеймы одноимённы с `TerminalAliasRegistry`, чей единственный
-    # носитель состояния — сессия; поведение переезжает на агрегат, потому что
-    # `runtime.terminals` вложен, и вызывающий иначе обязан знать эту вложенность.
-    def register_terminal(self, client_terminal_id: str, *, owner: str) -> str:
-        """Зарегистрировать client terminalId и вернуть новый короткий alias.
+    # Выдача alias'ов терминалов. Связку alias → client terminalId держит
+    # `TerminalAliasRegistry` в процессе (ADR-007, шаг A): она не переживает рестарт,
+    # потому что сами терминалы живут у клиента. На агрегате остаётся распределитель
+    # идентификаторов — он обязан быть монотонным через рестарт.
+    def allocate_terminal_alias(self) -> str:
+        """Выдать следующий короткий alias терминала (`term_<n>`).
 
-        `owner` передаётся вызывающим, а не берётся из `process_identity`: домен не
-        знает про процесс, в котором исполняется. Отметка владельца обязательна —
-        терминалы живут у клиента и рестарт не переживают, а реестр персистится,
-        поэтому следующий процесс иначе принял бы мёртвые дескрипторы за живые
-        (tech-debt P2-44).
+        Счётчик персистится намеренно: alias из восстановленной истории не должен
+        разрешаться в терминал нового процесса. При сбросе счётчика `term_1` из
+        прошлого запуска указал бы на чужой терминал, и модель получила бы чужой
+        вывод вместо внятного «неизвестный терминал» (P2-58).
         """
         self.runtime.terminal_counter += 1
-        alias = f"{TERMINAL_ALIAS_PREFIX}{self.runtime.terminal_counter}"
-        self.runtime.terminals[alias] = client_terminal_id
-        self.runtime.terminals_owner = owner
-        return alias
-
-    def resolve_terminal(self, alias: str) -> str | None:
-        """Client terminalId по alias (None — alias неизвестен)."""
-        return self.runtime.terminals.get(alias)
-
-    def release_terminal(self, alias: str) -> str | None:
-        """Убрать alias из реестра, вернуть освобождённый client terminalId (или None)."""
-        return self.runtime.terminals.pop(alias, None)
+        return f"{TERMINAL_ALIAS_PREFIX}{self.runtime.terminal_counter}"
 
     # Жизненный цикл turn'а. Парные сеймы к `TurnLifecycleManager` (wire): дом
     # этих операций — агрегат, потому что они меняют только состояние turn'а.

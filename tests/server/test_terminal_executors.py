@@ -22,7 +22,7 @@ from codelab.server.domain.session import Session as DomainSession
 from codelab.server.tools.executors.terminal_executor import TerminalToolExecutor
 from codelab.server.tools.integrations.client_rpc_bridge import ClientRPCBridge
 from codelab.server.tools.integrations.permission_checker import PermissionChecker
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, preregister_terminal_aliases
 
 
 class TestTerminalExecutorInit:
@@ -52,26 +52,32 @@ class TestTerminalExecutorWaitForExitFlow:
 
     @pytest.fixture
     def session(self) -> DomainSession:
-        """Создает тестовую сессию.
-
-        Терминалы предрегистрированы тождественным alias→client-id маппингом:
-        эти тесты проверяют flow wait_for_exit, а не выдачу alias, поэтому bridge
-        по-прежнему адресуется тем же id (см. TerminalAliasRegistry, #18).
-        """
+        """Создает тестовую сессию."""
         return make_domain_session(
             session_id="test_session",
             cwd="/tmp",
             mcp_servers=[],
             config_values={},
-            terminals={"term_001": "term_001", "term_abc123": "term_abc123"},
         )
 
     @pytest.fixture
-    def executor(self) -> TerminalToolExecutor:
-        """Создает executor с mock зависимостями."""
+    def executor(self, session: DomainSession) -> TerminalToolExecutor:
+        """Создает executor с mock зависимостями.
+
+        Терминалы предрегистрированы тождественным alias→client-id маппингом:
+        эти тесты проверяют flow wait_for_exit, а не выдачу alias, поэтому bridge
+        по-прежнему адресуется тем же id (см. TerminalAliasRegistry, #18). Связка
+        живёт в реестре исполнителя, а не в документе сессии (ADR-007, шаг A).
+        """
         mock_bridge = MagicMock(spec=ClientRPCBridge)
         mock_checker = MagicMock(spec=PermissionChecker)
-        return TerminalToolExecutor(mock_bridge, mock_checker)
+        executor = TerminalToolExecutor(mock_bridge, mock_checker)
+        preregister_terminal_aliases(
+            executor,
+            session,
+            {"term_001": "term_001", "term_abc123": "term_abc123"},
+        )
+        return executor
 
     @pytest.mark.asyncio
     async def test_wait_for_exit_already_complete_skips_wait(
