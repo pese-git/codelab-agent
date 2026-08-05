@@ -86,8 +86,23 @@ class InitializeCommandHandler:
         client_capabilities = params.get("clientCapabilities")
         if isinstance(client_capabilities, dict):
             parsed_capabilities = auth.parse_client_runtime_capabilities(client_capabilities)
+            # Согласование логируется на `info`: это feature-gate, решающий, существуют
+            # ли для модели `fs/*` и `terminal/*` вообще (`ToolFilter`). Без записи смена
+            # набора у клиента выглядела бы как «модель перестала пользоваться
+            # инструментами», и разбор живого прогона не отличил бы одно от другого —
+            # за прогон на 800 строк про capabilities не было ни одной записи.
+            logger.info(
+                "client_capabilities_negotiated",
+                fs_read=parsed_capabilities.fs_read,
+                fs_write=parsed_capabilities.fs_write,
+                terminal=parsed_capabilities.terminal,
+            )
             if self._on_capabilities_negotiated:
                 self._on_capabilities_negotiated(parsed_capabilities)
+        else:
+            # Клиент не прислал `clientCapabilities` — tool-runtime недоступен целиком.
+            # Молчать здесь нельзя: наружу это выглядит как «инструменты не работают».
+            logger.warning("client_capabilities_absent")
 
         logger.debug(
             "initialize_handshake_completed",
