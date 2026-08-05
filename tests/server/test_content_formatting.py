@@ -1,562 +1,215 @@
-"""Тесты для content formatting для LLM провайдеров."""
+"""Рендер ACP-блоков результата инструмента в текст для модели.
 
-import pytest
+Файл переписан в такте 1 change'а `multimodal-tool-results`. Прежде он проверял
+`ContentFormatter.format_for_llm` — сборку сообщения под провайдера, — но эта поверхность была
+дублем: канон сообщения производит `HistoryBuilder`, а отклонения от канона живут каждое в своём
+адаптере провайдера (у Anthropic — `llm/providers/anthropic.py`). Возврат `format_for_llm` при этом
+никто не присваивал, то есть проверялся путь, которого в проде не существовало.
 
-from codelab.server.protocol.content.extractor import ExtractedContent
-from codelab.server.protocol.content.formatter import ContentFormatter
+Сам класс тоже удалён: после переноса рендера он был бы пустой прослойкой над одной функцией.
+Дом рендера — `shared/content/description.py`, потому что его зовут и turn-путь, и MCP-адаптер, а
+`mcp` не вправе зависеть от `protocol` (контракт `Server layers`).
+
+**Знание тестов сохранено, а не выброшено:** как именно описывается каждый тип блока
+(`text`/`diff`/`image`/`audio`/`embedded`/`resource_link`, ACP-конверт `content`, порядок,
+разделитель, спецсимволы, вложенность) — проверяется здесь, но против единственной оставшейся
+поверхности `render_as_text`.
+
+Описание — не данные: base64 в текст не попадает, доставка самих данных идёт в такте 2, за шагом C
+расщепления (ADR-007).
+"""
+
+from codelab.shared.content.description import describe_acp_content
 
 
-class TestContentFormatter:
-    """Тесты для ContentFormatter."""
+class TestTextBlocks:
+    def test_single_text_is_passed_through(self) -> None:
+        """Для текста описание и есть само содержимое — оно не переупаковывается."""
+        assert describe_acp_content([{"type": "text", "text": "готово"}]) == "готово"
 
-    @pytest.fixture
-    def formatter(self) -> ContentFormatter:
-        """Создать instance ContentFormatter."""
-        return ContentFormatter()
-
-    # OpenAI Formatting Tests
-    def test_format_text_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование text content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": "Hello, World!"}],
-            has_content=True,
+    def test_multiple_texts_joined_by_blank_line(self) -> None:
+        result = describe_acp_content(
+            [{"type": "text", "text": "первый"}, {"type": "text", "text": "второй"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "первый\n\nвторой"
 
-        assert result["role"] == "tool"
-        assert result["tool_call_id"] == "tc1"
-        assert "Hello, World!" in result["content"]
-
-    def test_format_multiple_text_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование нескольких text items для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc2",
-            content_items=[
-                {"type": "text", "text": "Line 1"},
-                {"type": "text", "text": "Line 2"},
-            ],
-            has_content=True,
+    def test_empty_text_is_skipped(self) -> None:
+        """Пустой блок не даёт пустого абзаца в разделителе."""
+        result = describe_acp_content(
+            [{"type": "text", "text": ""}, {"type": "text", "text": "есть"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "есть"
 
-        assert result["role"] == "tool"
-        assert "Line 1" in result["content"]
-        assert "Line 2" in result["content"]
+    def test_special_characters_are_not_escaped(self) -> None:
+        text = 'кавычки "" и \\ и \n перевод'
 
-    def test_format_diff_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование diff content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc3",
-            content_items=[
+        assert describe_acp_content([{"type": "text", "text": text}]) == text
+
+
+class TestAcpContentEnvelope:
+    def test_envelope_is_unwrapped(self) -> None:
+        """ACP `ToolCallContent` оборачивает блок в `{"type": "content", "content": {...}}`.
+
+        Без разворачивания конверт пропускался целиком, и терминальный результат описывался
+        пустой строкой.
+        """
+        result = describe_acp_content(
+            [{"type": "content", "content": {"type": "text", "text": "вывод команды"}}]
+        )
+
+        assert result == "вывод команды"
+
+    def test_envelope_around_image(self) -> None:
+        result = describe_acp_content(
+            [
                 {
-                    "type": "diff",
-                    "path": "file.py",
-                    "oldText": "old line",
-                    "newText": "new line",
+                    "type": "content",
+                    "content": {"type": "image", "data": "BASE64", "mimeType": "image/png"},
                 }
-            ],
-            has_content=True,
+            ]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Image: image/png]"
 
-        assert result["role"] == "tool"
-        assert "file.py" in result["content"]
-        assert "old line" in result["content"]
-        assert "new line" in result["content"]
+    def test_malformed_envelope_is_skipped(self) -> None:
+        assert describe_acp_content([{"type": "content", "content": "не блок"}]) == ""
 
-    def test_format_image_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование image content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc4",
-            content_items=[
+
+class TestMediaBlocks:
+    """Медиа описывается по настоящим полям ACP: `mimeType`, необязательный `uri`."""
+
+    def test_image_by_mime_type(self) -> None:
+        result = describe_acp_content(
+            [{"type": "image", "data": "BASE64", "mimeType": "image/png"}]
+        )
+
+        assert result == "[Image: image/png]"
+
+    def test_image_data_never_leaks_into_text(self) -> None:
+        """Главный инвариант: base64 не место в тексте для модели."""
+        result = describe_acp_content(
+            [{"type": "image", "data": "СЕКРЕТНЫЙ_BASE64", "mimeType": "image/png"}]
+        )
+
+        assert "СЕКРЕТНЫЙ_BASE64" not in result
+
+    def test_image_uri_is_named(self) -> None:
+        """`uri` — единственная ссылка на данные, которую можно назвать без самих данных."""
+        result = describe_acp_content(
+            [
                 {
                     "type": "image",
-                    "data": "base64encodeddata",
-                    "format": "png",
-                    "alt_text": "A screenshot",
+                    "data": "BASE64",
+                    "mimeType": "image/png",
+                    "uri": "file:///tmp/a.png",
                 }
-            ],
-            has_content=True,
+            ]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Image: image/png, file:///tmp/a.png]"
 
-        assert result["role"] == "tool"
-        assert "[Image:" in result["content"]
-        assert "A screenshot" in result["content"]
-        assert "png" in result["content"]
-
-    def test_format_audio_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование audio content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc5",
-            content_items=[
-                {
-                    "type": "audio",
-                    "data": "audiodata",
-                    "format": "mp3",
-                }
-            ],
-            has_content=True,
+    def test_audio_by_mime_type(self) -> None:
+        result = describe_acp_content(
+            [{"type": "audio", "data": "BASE64", "mimeType": "audio/wav"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Audio: audio/wav]"
 
-        assert result["role"] == "tool"
-        assert "[Audio file" in result["content"]
-        assert "mp3" in result["content"]
-
-    def test_format_resource_link_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование resource_link content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc6",
-            content_items=[
-                {
-                    "type": "resource_link",
-                    "uri": "https://example.com/resource",
-                }
-            ],
-            has_content=True,
+    def test_legacy_field_names_still_work(self) -> None:
+        """`alt_text`/`format` приняты как запасные ключи — их могут прислать свои производители."""
+        result = describe_acp_content(
+            [{"type": "image", "format": "png", "alt_text": "график"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Image: png, график]"
 
-        assert result["role"] == "tool"
-        assert "[Resource:" in result["content"]
-        assert "https://example.com/resource" in result["content"]
+    def test_unknown_mime_type_is_named_unknown(self) -> None:
+        assert describe_acp_content([{"type": "image", "data": "X"}]) == "[Image: unknown]"
 
-    def test_format_embedded_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование embedded content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc7",
-            content_items=[
-                {
-                    "type": "embedded",
-                    "content": [{"type": "text", "text": "Embedded text"}],
-                }
-            ],
-            has_content=True,
+
+class TestDiffBlock:
+    def test_diff_shows_both_sides(self) -> None:
+        result = describe_acp_content(
+            [{"type": "diff", "path": "/a.py", "oldText": "было", "newText": "стало"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "File: /a.py\n\nOld:\n```\nбыло\n```\n\nNew:\n```\nстало\n```"
 
-        assert result["role"] == "tool"
-        assert "[Embedded content]" in result["content"]
-        assert "Embedded text" in result["content"]
-
-    # Anthropic Formatting Tests
-    def test_format_text_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование text content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": "Hello, Claude!"}],
-            has_content=True,
+    def test_diff_with_missing_old_text(self) -> None:
+        """Новый файл: `oldText` отсутствует — блок всё равно описывается, а не пропускается."""
+        result = describe_acp_content(
+            [{"type": "diff", "path": "/new.py", "newText": "содержимое"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="anthropic")
+        assert "File: /new.py" in result
+        assert "содержимое" in result
 
-        assert result["role"] == "user"
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) == 1
-        assert result["content"][0]["type"] == "tool_result"
-        assert result["content"][0]["tool_use_id"] == "tc1"
-        assert "Hello, Claude!" in result["content"][0]["content"]
 
-    def test_format_multiple_text_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование нескольких text items для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc2",
-            content_items=[
-                {"type": "text", "text": "First"},
-                {"type": "text", "text": "Second"},
-            ],
-            has_content=True,
+class TestResourceBlocks:
+    def test_resource_link_names_uri(self) -> None:
+        result = describe_acp_content(
+            [{"type": "resource_link", "uri": "https://example.com/doc"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="anthropic")
+        assert result == "[Resource: https://example.com/doc]"
 
-        assert result["role"] == "user"
-        assert isinstance(result["content"], list)
-        assert result["content"][0]["type"] == "tool_result"
-        content_text = result["content"][0]["content"]
-        assert "First" in content_text
-        assert "Second" in content_text
-
-    def test_format_diff_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование diff content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc3",
-            content_items=[
-                {
-                    "type": "diff",
-                    "path": "main.py",
-                    "oldText": "print('old')",
-                    "newText": "print('new')",
-                }
-            ],
-            has_content=True,
+    def test_embedded_content_is_rendered_recursively(self) -> None:
+        result = describe_acp_content(
+            [{"type": "embedded", "content": [{"type": "text", "text": "внутри"}]}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="anthropic")
+        assert result == "[Embedded content]\nвнутри"
 
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "main.py" in content_text
-        assert "print('old')" in content_text
-        assert "print('new')" in content_text
-
-    def test_format_image_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование image content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc4",
-            content_items=[
-                {
-                    "type": "image",
-                    "data": "imagedata",
-                    "format": "jpg",
-                    "alt_text": "A photo",
-                }
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "[Image:" in content_text
-        assert "A photo" in content_text
-
-    def test_format_audio_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование audio content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc5",
-            content_items=[
-                {
-                    "type": "audio",
-                    "data": "audiodata",
-                    "format": "wav",
-                }
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "[Audio file" in content_text
-
-    def test_format_resource_link_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование resource_link content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc6",
-            content_items=[
-                {
-                    "type": "resource_link",
-                    "uri": "https://docs.example.com",
-                }
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "[Resource:" in content_text
-
-    def test_format_embedded_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование embedded content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc7",
-            content_items=[
-                {
-                    "type": "embedded",
-                    "content": [{"type": "text", "text": "Nested content"}],
-                }
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "[Embedded content]" in content_text
-
-    # Mixed Content Tests
-    def test_format_mixed_content_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование смешанного content для OpenAI."""
-        extracted = ExtractedContent(
-            tool_call_id="tc_mixed",
-            content_items=[
-                {"type": "text", "text": "Start"},
-                {
-                    "type": "diff",
-                    "path": "file.txt",
-                    "oldText": "old",
-                    "newText": "new",
-                },
-                {"type": "text", "text": "End"},
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="openai")
-
-        assert result["role"] == "tool"
-        content = result["content"]
-        assert "Start" in content
-        assert "End" in content
-        assert "file.txt" in content
-
-    def test_format_mixed_content_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование смешанного content для Anthropic."""
-        extracted = ExtractedContent(
-            tool_call_id="tc_mixed",
-            content_items=[
-                {"type": "text", "text": "Description"},
-                {
-                    "type": "image",
-                    "data": "data",
-                    "format": "png",
-                    "alt_text": "Screenshot",
-                },
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        assert result["role"] == "user"
-        content_text = result["content"][0]["content"]
-        assert "Description" in content_text
-        assert "Screenshot" in content_text
-
-    # Batch Formatting Tests
-    def test_format_batch_for_openai(self, formatter: ContentFormatter) -> None:
-        """Форматирование batch content для OpenAI."""
-        contents = [
-            ExtractedContent(
-                tool_call_id="tc1",
-                content_items=[{"type": "text", "text": "Result 1"}],
-                has_content=True,
-            ),
-            ExtractedContent(
-                tool_call_id="tc2",
-                content_items=[{"type": "text", "text": "Result 2"}],
-                has_content=True,
-            ),
-        ]
-
-        results = formatter.format_batch_for_llm(contents, provider="openai")
-
-        assert len(results) == 2
-        assert results[0]["tool_call_id"] == "tc1"
-        assert results[1]["tool_call_id"] == "tc2"
-        assert all(r["role"] == "tool" for r in results)
-
-    def test_format_batch_for_anthropic(self, formatter: ContentFormatter) -> None:
-        """Форматирование batch content для Anthropic."""
-        contents = [
-            ExtractedContent(
-                tool_call_id="tc1",
-                content_items=[{"type": "text", "text": "Response 1"}],
-                has_content=True,
-            ),
-            ExtractedContent(
-                tool_call_id="tc2",
-                content_items=[{"type": "text", "text": "Response 2"}],
-                has_content=True,
-            ),
-        ]
-
-        results = formatter.format_batch_for_llm(contents, provider="anthropic")
-
-        assert len(results) == 2
-        assert all(r["role"] == "user" for r in results)
-        assert results[0]["content"][0]["tool_use_id"] == "tc1"
-        assert results[1]["content"][0]["tool_use_id"] == "tc2"
-
-    def test_format_empty_batch(self, formatter: ContentFormatter) -> None:
-        """Форматирование пустого batch."""
-        results = formatter.format_batch_for_llm([], provider="openai")
-        assert results == []
-
-    # Error Tests
-    def test_format_unsupported_provider(self, formatter: ContentFormatter) -> None:
-        """Попытка форматирования для неподдерживаемого провайдера."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": "Test"}],
-            has_content=True,
-        )
-
-        with pytest.raises(ValueError, match="Unsupported provider"):
-            formatter.format_for_llm(extracted, provider="invalid")  # type: ignore
-
-    # Edge Cases
-    def test_format_empty_text_content(self, formatter: ContentFormatter) -> None:
-        """Форматирование пустого text content."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": ""}],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="openai")
-
-        assert result["role"] == "tool"
-        assert result["content"] == ""
-
-    def test_format_content_with_special_characters(self, formatter: ContentFormatter) -> None:
-        """Форматирование content со спецсимволами."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": 'Text with "quotes" and \\backslashes\\'}],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="openai")
-
-        assert '"quotes"' in result["content"]
-        assert "\\backslashes\\" in result["content"]
-
-    def test_format_deeply_nested_embedded(self, formatter: ContentFormatter) -> None:
-        """Форматирование глубоко вложенного embedded content."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[
+    def test_deeply_nested_embedded(self) -> None:
+        result = describe_acp_content(
+            [
                 {
                     "type": "embedded",
                     "content": [
                         {
                             "type": "embedded",
-                            "content": [{"type": "text", "text": "Deep content"}],
+                            "content": [{"type": "text", "text": "глубоко"}],
                         }
                     ],
                 }
-            ],
-            has_content=True,
+            ]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Embedded content]\n[Embedded content]\nглубоко"
 
-        assert "Deep content" in result["content"]
-        assert "[Embedded content]" in result["content"]
+    def test_embedded_with_non_list_content_is_skipped(self) -> None:
+        assert describe_acp_content([{"type": "embedded", "content": "строка"}]) == ""
 
-    def test_format_image_without_alt_text(self, formatter: ContentFormatter) -> None:
-        """Форматирование image без alt_text."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[
-                {
-                    "type": "image",
-                    "data": "data",
-                    "format": "png",
-                }
-            ],
-            has_content=True,
+
+class TestOrderAndRobustness:
+    def test_order_is_preserved(self) -> None:
+        """Порядок блоков — часть содержимого, а не деталь представления."""
+        result = describe_acp_content(
+            [
+                {"type": "image", "data": "X", "mimeType": "image/png"},
+                {"type": "text", "text": "подпись под картинкой"},
+            ]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "[Image: image/png]\n\nподпись под картинкой"
 
-        assert "[Image:" in result["content"]
-        assert "Image" in result["content"]
-
-    def test_format_resource_link_without_uri(self, formatter: ContentFormatter) -> None:
-        """Форматирование resource_link без uri."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[
-                {
-                    "type": "resource_link",
-                }
-            ],
-            has_content=True,
+    def test_unknown_block_type_is_skipped_not_raised(self) -> None:
+        """Расширение протокола не должно ронять путь результата инструмента."""
+        result = describe_acp_content(
+            [{"type": "видео-из-будущего"}, {"type": "text", "text": "есть"}]
         )
 
-        result = formatter.format_for_llm(extracted, provider="openai")
+        assert result == "есть"
 
-        assert "[Resource:" in result["content"]
+    def test_terminal_block_is_not_described(self) -> None:
+        """`terminal` — клиентский дескриптор; модели он ничего не говорит.
 
-    def test_format_large_diff_content(self, formatter: ContentFormatter) -> None:
-        """Форматирование большого diff."""
-        large_old = "\n".join([f"line {i}" for i in range(100)])
-        large_new = "\n".join([f"line {i + 1}" for i in range(100)])
+        Alias терминала модель уже получает в `output` исполнителя, поэтому дублировать
+        дескриптор в описании незачем.
+        """
+        assert describe_acp_content([{"type": "terminal", "terminalId": "abc"}]) == ""
 
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[
-                {
-                    "type": "diff",
-                    "path": "large_file.py",
-                    "oldText": large_old,
-                    "newText": large_new,
-                }
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="openai")
-
-        assert "large_file.py" in result["content"]
-        assert "line 0" in result["content"]
-        assert "line 99" in result["content"]
-
-    def test_default_provider_is_openai(self, formatter: ContentFormatter) -> None:
-        """Проверка, что default провайдер - openai."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[{"type": "text", "text": "Test"}],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted)
-
-        assert result["role"] == "tool"
-
-    def test_format_anthropic_structure_correctness(self, formatter: ContentFormatter) -> None:
-        """Проверка корректности структуры Anthropic response."""
-        extracted = ExtractedContent(
-            tool_call_id="my_tool_call",
-            content_items=[{"type": "text", "text": "Anthropic test"}],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="anthropic")
-
-        # Validate Anthropic structure
-        assert "role" in result
-        assert "content" in result
-        assert result["role"] == "user"
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) == 1
-
-        tool_result = result["content"][0]
-        assert tool_result["type"] == "tool_result"
-        assert tool_result["tool_use_id"] == "my_tool_call"
-        assert isinstance(tool_result["content"], str)
-
-    def test_merge_content_items_separator(self, formatter: ContentFormatter) -> None:
-        """Проверка разделителя при объединении content items."""
-        extracted = ExtractedContent(
-            tool_call_id="tc1",
-            content_items=[
-                {"type": "text", "text": "First"},
-                {"type": "text", "text": "Second"},
-                {"type": "text", "text": "Third"},
-            ],
-            has_content=True,
-        )
-
-        result = formatter.format_for_llm(extracted, provider="openai")
-
-        # Проверить, что items объединены с двойным новой строкой
-        content = result["content"]
-        assert content == "First\n\nSecond\n\nThird"
+    def test_empty_list_gives_empty_string(self) -> None:
+        assert describe_acp_content([]) == ""

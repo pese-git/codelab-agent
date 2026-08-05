@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from codelab.shared.content.description import describe_acp_content
+
 from ..tools.base import ToolDefinition, ToolExecutionResult
 from .client import MCPClient, MCPToolCallError
-from .content_mapper import extract_text_from_acp_content, mcp_content_to_acp_list
+from .content_mapper import mcp_content_to_acp_list
 from .models import MCPTool
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,20 @@ _NAME_PREFIX_TO_KIND: list[tuple[str, str]] = [
     ("command", "execute"),
     ("terminal", "execute"),
 ]
+
+
+def _describe_acp_content(acp_content: list[dict[str, Any]]) -> str:
+    """Текст результата MCP-инструмента: текстовые блоки как есть, остальные — описанием.
+
+    Текстовая проекция (`extract_text_from_acp_content`) остаётся отдельной функцией: она нужна
+    там, где нужен именно текст без описаний. Здесь же собирается то, что увидит модель, поэтому
+    нетекстовый блок обязан оставить след — иначе он исчезает бесследно.
+
+    Рендер один на всех (`shared.content.describe_acp_content`), чтобы описание блока не разошлось
+    между путями. Дом рендера — `shared/content/`, а не `protocol/`: `mcp` лежит ниже `agent` по
+    контракту `Server layers`, поэтому импорт `protocol` отсюда был бы инверсией слоёв.
+    """
+    return describe_acp_content(acp_content)
 
 
 class MCPToolAdapter:
@@ -239,7 +255,13 @@ class MCPToolAdapter:
 
                 # Конвертируем MCP content → ACP content
                 acp_content = mcp_content_to_acp_list(result.content)
-                text_output = extract_text_from_acp_content(acp_content)
+                # Нетекстовые блоки описываются словами, а не отбрасываются:
+                # `extract_text_from_acp_content` берёт только `type == "text"`, поэтому
+                # инструмент, вернувший одно изображение, давал пустой `output` и модель
+                # получала `"Success"` (change `multimodal-tool-results`, такт 1).
+                # Данные (base64) сюда не попадают намеренно — их доставка идёт за шагом C
+                # расщепления (ADR-007), иначе один скриншот стоит сотни МБ записи.
+                text_output = _describe_acp_content(acp_content)
 
                 if result.is_error:
                     return ToolExecutionResult(

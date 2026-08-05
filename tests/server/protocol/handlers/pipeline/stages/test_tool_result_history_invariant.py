@@ -42,7 +42,6 @@ def _make_processor(
         permission_manager=MagicMock(),
         content_extractor=AsyncMock(),
         content_validator=MagicMock(),
-        content_formatter=MagicMock(),
         plan_builder=MagicMock(),
         global_policy_manager=MagicMock(),
         turn_cancellation=turn_cancellation,

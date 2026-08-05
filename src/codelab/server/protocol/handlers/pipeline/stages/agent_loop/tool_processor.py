@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -30,12 +30,12 @@ from codelab.server.protocol.state import ToolResult
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.executors.mcp_executor import MCPToolExecutor
 from codelab.server.tools.mapping import llm_name_to_acp_name
+from codelab.shared.content.description import describe_acp_content
 
 if TYPE_CHECKING:
     from codelab.server.domain.session import Session
     from codelab.server.mcp.manager import MCPManager
     from codelab.server.protocol.content.extractor import ContentExtractor, ExtractedContent
-    from codelab.server.protocol.content.formatter import ContentFormatter
     from codelab.server.protocol.content.validator import ContentValidator
     from codelab.server.protocol.handlers.global_policy_manager import GlobalPolicyManager
     from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -112,7 +112,6 @@ class ToolCallProcessor:
         permission_manager: PermissionManager,
         content_extractor: ContentExtractor,
         content_validator: ContentValidator,
-        content_formatter: ContentFormatter,
         plan_builder: PlanBuilder,
         global_policy_manager: GlobalPolicyManager | None = None,
         loop_guard_limit: int = 3,
@@ -123,7 +122,6 @@ class ToolCallProcessor:
         self._permission_manager = permission_manager
         self._content_extractor = content_extractor
         self._content_validator = content_validator
-        self._content_formatter = content_formatter
         self._plan_builder = plan_builder
         self._global_policy_manager = global_policy_manager
 
@@ -800,7 +798,6 @@ class ToolCallProcessor:
             # описывают один результат.
             def _commit_result(target: Session) -> None:
                 _carry_executor_changes(source=session, target=target)
-                self._format_for_llm(target, extracted_content)
                 self._tool_call_handler.update_tool_call_status(
                     target, tool_call_id, status, content=success_content
                 )
@@ -810,6 +807,7 @@ class ToolCallProcessor:
                     result.success,
                     result.output,
                     result.error,
+                    extracted_content=extracted_content,
                 )
 
             await commands.apply(_commit_result, name="tool_call_result")
@@ -1049,11 +1047,17 @@ class ToolCallProcessor:
 
         def _commit(target: Session) -> None:
             _carry_executor_changes(source=session, target=target)
-            self._format_for_llm(target, extracted_content)
             self._tool_call_handler.update_tool_call_status(
                 target, tool_call_id, status, content=content
             )
-            self._add_tool_result_to_history(target, answer_tool_call_id, success, output, error)
+            self._add_tool_result_to_history(
+                target,
+                answer_tool_call_id,
+                success,
+                output,
+                error,
+                extracted_content=extracted_content,
+            )
 
         await commands.apply(_commit, name="pending_tool_result")
 
@@ -1082,29 +1086,39 @@ class ToolCallProcessor:
         self._loop_detector.record_output(acp_tool_name, tool_arguments, result)
         return result
 
-    def _format_for_llm(
+    # Типы ACP-блоков, чьё содержимое **невозможно** передать текстом `output` исполнителя,
+    # поэтому о них модели надо сказать отдельно. Остальные исключены осознанно:
+    #   * `text` и ACP-конверт `content` — их текст уже в `output`;
+    #   * `terminal` — клиентский дескриптор, а alias для модели уже назван в `output`;
+    #   * `diff` — на путь `extracted_content` не приходит (его производит завершение
+    #     клиентского RPC), а дописывание полного diff'а раздуло бы payload.
+    _BLOCKS_ABSENT_FROM_OUTPUT = frozenset({"image", "audio", "embedded", "resource_link"})
+
+    def _describe_blocks_absent_from_output(
         self,
-        session: Session,
-        extracted_content: ExtractedContent,
-    ) -> None:
-        """Отформатировать content результата под провайдера LLM.
+        extracted_content: ExtractedContent | None,
+    ) -> str | None:
+        """Описание блоков, которых нет в текстовом `output` (`None` — таких блоков нет).
 
-        **Результат вызова отбрасывается, и это выглядит мёртвым кодом (найдено в ADR-007,
-        шаг B1).** Раньше метод делал два дела — писал `result_content` в `ToolResult` и
-        форматировал; запись удалена вместе с полем, у которого не было читателей. Осталось
-        форматирование, но `format_for_llm` — чистая функция, её возврат никто не
-        присваивает, а до модели результат вызова доходит через
-        `_add_tool_result_to_history`. То есть весь путь `ContentFormatter` в turn-е
-        вычисляет сообщение и выбрасывает его.
+        Закрывает тихую потерю: нетекстовый результат исчезал бесследно, и модель получала
+        `"Success"` (change `multimodal-tool-results`, такт 1). Описание — не данные;
+        доставка данных идёт за шагом C расщепления.
 
-        Оставлено намеренно и помечено как находка: удаление `ContentFormatter` вместе с его
-        инъекцией через `AgentLoop`/`LLMLoopStage` — отдельное решение об удалении
-        функциональности, а не побочный эффект правки поля. Единственное наблюдаемое
-        следствие вызова сегодня — `ValueError` на неизвестном `llm_provider`.
+        Порядок блоков сохраняется: он часть содержимого.
         """
-        provider_raw = session.config.config_values.get("llm_provider", "openai")
-        provider = cast(Literal["openai", "anthropic"], provider_raw)
-        self._content_formatter.format_for_llm(extracted_content, provider=provider)
+        if extracted_content is None:
+            return None
+
+        untold = [
+            item
+            for item in extracted_content.content_items
+            if isinstance(item, dict) and item.get("type") in self._BLOCKS_ABSENT_FROM_OUTPUT
+        ]
+        if not untold:
+            return None
+
+        described = describe_acp_content(untold)
+        return described or None
 
     @staticmethod
     def _build_notification_content(extracted_content, result) -> list | None:
@@ -1151,6 +1165,7 @@ class ToolCallProcessor:
         success: bool,
         output: str | None,
         error: str | None,
+        extracted_content: ExtractedContent | None = None,
     ) -> None:
         """Добавить результат выполнения tool в историю сессии.
 
@@ -1173,6 +1188,14 @@ class ToolCallProcessor:
             # его видеть, иначе не сможет исправить и будет повторять вызов.
             parts = [p for p in (output, error) if p]
             content = "\n".join(parts) if parts else "Tool execution failed"
+
+        # Блоки, которых нет в текстовом `output`, дописываются описанием: иначе нетекстовый
+        # результат исчезает бесследно и модель получает `"Success"` (такт 1
+        # `multimodal-tool-results`). Текстовый результат этой ветки не касается — payload
+        # остаётся байт-идентичным (гейт `test_tool_result_payload_golden`).
+        untold = self._describe_blocks_absent_from_output(extracted_content)
+        if untold:
+            content = f"{content}\n\n{untold}" if content else untold
 
         final_content = content or ""
         # Форма записи принадлежит носителю состояния (history-seam, фаза B ADR-006):

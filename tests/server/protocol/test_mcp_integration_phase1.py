@@ -15,7 +15,6 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.content.extractor import ContentExtractor
-from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -88,7 +87,6 @@ def agent_loop(
         state_manager=state_manager,
         content_extractor=ContentExtractor(),
         content_validator=ContentValidator(),
-        content_formatter=ContentFormatter(),
         history_writer=EventHistoryWriter(),
         plan_builder=plan_builder,
         system_prompt_builder=SystemPromptBuilder(global_prompt=""),

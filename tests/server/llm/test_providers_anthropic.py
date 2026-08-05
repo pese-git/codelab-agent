@@ -184,7 +184,11 @@ class TestAnthropicProviderConvertFormat:
         assert result[0]["role"] == "user"
 
     def test_convert_tool_message(self, provider: AnthropicProvider) -> None:
-        """Конвертация tool message."""
+        """Конвертация tool message: роль `user`, как требует Anthropic Messages API.
+
+        Раньше здесь оставалась роль канона (`tool`) — недопустимая в этом API, то есть
+        Anthropic с инструментами не работал вовсе (change `multimodal-tool-results`, такт 1).
+        """
         messages = [
             LLMMessage(
                 role="tool",
@@ -195,7 +199,7 @@ class TestAnthropicProviderConvertFormat:
         result = provider._convert_to_anthropic_format(messages)
 
         assert len(result) == 1
-        assert result[0]["role"] == "tool"
+        assert result[0]["role"] == "user"
         assert result[0]["content"] == [
             {
                 "type": "tool_result",

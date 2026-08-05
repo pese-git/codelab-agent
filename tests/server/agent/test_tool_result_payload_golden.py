@@ -13,12 +13,13 @@ cache (правило детерминизма проекта).
   внутренним каноном `LLMMessage`;
 * Anthropic — `tool_result`-блок в списке `content`.
 
-**Гейт фиксирует текущую форму, включая её дефект.** Anthropic Messages API допускает у сообщения
-только роли `user` и `assistant`, а `tool_result`-блоки кладутся в сообщение с ролью `user`. Наш
-адаптер оставляет `role: "tool"` (`anthropic.py:207` копирует роль канона), то есть отдал бы в API
-недопустимую роль. Дефект латентный: живой путь владельца — OpenAI-совместимая семья через litellm,
-поэтому эта ветка в поле не исполняется. Тест закрепляет форму **как есть**, чтобы правка ветки была
-видимой и намеренной, а не побочной.
+**Гейт нашёл два дефекта Anthropic-ветки, оба закрыты в такте 1.** Anthropic Messages API допускает
+у сообщения только роли `user` и `assistant`, а `tool_result`-блоки кладутся в сообщение с ролью
+`user`. Адаптер копировал роль канона (`tool`), то есть отдавал невалидный запрос — Anthropic с
+инструментами не работал вовсе. Вторым дефектом та же ветка не конвертировала
+`list[ContentPart]` и уехала бы в API объектами. Дефекты были латентными: живой путь владельца —
+OpenAI-совместимая семья через litellm, поэтому ветка в поле не исполняется, и подтверждение здесь
+тестом, а не прогоном.
 """
 
 from __future__ import annotations
@@ -71,8 +72,8 @@ class TestCanonicalForm:
 class TestAnthropicForm:
     """Единственный провайдер, переписывающий форму tool-ответа."""
 
-    def test_tool_result_wire_form_as_is(self) -> None:
-        """Форма как есть, вместе с недопустимой ролью — см. примечание в docstring модуля."""
+    def test_tool_result_wire_form(self) -> None:
+        """Роль `user` — требование Anthropic Messages API для `tool_result`."""
         messages = HistoryBuilder(ACPContentCodec()).build(_history_with_tool_result())
 
         converted = AnthropicProvider()._convert_to_anthropic_format(messages)
@@ -87,10 +88,8 @@ class TestAnthropicForm:
             )
         ]
         assert len(tool_messages) == 1
-        # `role: "tool"` недопустима в Anthropic Messages API (только user/assistant) —
-        # закреплено как текущее поведение, а не как правильное.
         assert tool_messages[0] == {
-            "role": "tool",
+            "role": "user",
             "content": [
                 {
                     "type": "tool_result",
@@ -100,13 +99,11 @@ class TestAnthropicForm:
             ],
         }
 
-    def test_tool_result_content_is_not_converted(self) -> None:
-        """Второй латентный дефект той же ветки: `ContentPart` уехал бы в API объектом.
+    def test_tool_result_content_is_converted(self) -> None:
+        """Блоки внутри `tool_result` конвертируются, а не уезжают объектами `ContentPart`.
 
-        `LLMMessage.content` объявлен `str | list[ContentPart]`, но tool-ветка адаптера кладёт
-        `msg.content` в `tool_result.content` как есть, не вызывая
-        `_convert_content_parts_to_anthropic` — единственная ветка без конвертации. Пока канон для
-        роли `tool` всегда строка, дефект не проявляется; такт 2 его бы разбудил.
+        Anthropic допускает блоки внутри `tool_result`, поэтому конвертация идёт тем же путём,
+        что у user/assistant. Такт 2 (данные доходят до модели) на это опирается.
         """
         from codelab.server.llm.content_parts import ContentPart
         from codelab.server.llm.models import LLMMessage
@@ -123,7 +120,11 @@ class TestAnthropicForm:
         converted = AnthropicProvider()._convert_to_anthropic_format([message])
 
         payload = converted[0]["content"][0]["content"]
-        assert isinstance(payload, list)
-        assert all(isinstance(part, ContentPart) for part in payload), (
-            "сегодня в API уехали бы объекты ContentPart, а не Anthropic-блоки"
-        )
+        assert payload == [
+            {"type": "text", "text": "описание"},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "BASE64"},
+            },
+        ]
+        assert not any(isinstance(part, ContentPart) for part in payload)

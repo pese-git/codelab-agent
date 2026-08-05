@@ -226,11 +226,26 @@ class AnthropicProvider(LLMProvider):
 
                 anthropic_msg["content"] = content
             elif msg.role == "tool":
+                # Anthropic Messages API допускает только роли `user` и `assistant`, а
+                # `tool_result`-блоки кладутся в сообщение с ролью `user`. Раньше здесь
+                # оставалась роль канона (`tool`), то есть запрос был невалиден и Anthropic с
+                # инструментами не работал вовсе (найдено golden-гейтом такта 1
+                # `multimodal-tool-results`).
+                anthropic_msg["role"] = "user"
+                # Единственная ветка адаптера, которая не конвертировала содержимое:
+                # `LLMMessage.content` объявлен `str | list[ContentPart]`, поэтому список
+                # уезжал в API объектами `ContentPart`. Блоки допустимы внутри `tool_result`,
+                # поэтому конвертируем тем же путём, что user/assistant.
+                tool_content: str | list[dict[str, Any]]
+                if isinstance(msg.content, list):
+                    tool_content = self._convert_content_parts_to_anthropic(msg.content)
+                else:
+                    tool_content = msg.content or ""
                 anthropic_msg["content"] = [
                     {
                         "type": "tool_result",
                         "tool_use_id": msg.tool_call_id or "",
-                        "content": msg.content or "",
+                        "content": tool_content,
                     }
                 ]
             else:

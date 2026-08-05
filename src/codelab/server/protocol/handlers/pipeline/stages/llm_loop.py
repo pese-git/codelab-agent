@@ -25,7 +25,6 @@ import structlog
 from codelab.server.mapping.session_view import DomainSessionView
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
-from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
@@ -115,7 +114,6 @@ class LLMLoopStage(PromptStage):
         # Компоненты для AgentLoop
         self._content_extractor = ContentExtractor()
         self._content_validator = ContentValidator()
-        self._content_formatter = ContentFormatter()
         self._history_writer = EventHistoryWriter()
 
         # Лениво создаваемый AgentLoop
@@ -222,7 +220,6 @@ class LLMLoopStage(PromptStage):
             state_manager=self._state_manager,
             content_extractor=self._content_extractor,
             content_validator=self._content_validator,
-            content_formatter=self._content_formatter,
             history_writer=self._history_writer,
             plan_builder=self._plan_builder,
             system_prompt_builder=self._system_prompt_builder,

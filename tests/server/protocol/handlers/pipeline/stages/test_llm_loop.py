@@ -61,7 +61,6 @@ class TestLLMLoopStageNotificationCallback:
             state_manager=mock_dependencies["state_manager"],
             content_extractor=MagicMock(),
             content_validator=MagicMock(),
-            content_formatter=MagicMock(),
             history_writer=MagicMock(),
             plan_builder=mock_dependencies["plan_builder"],
             system_prompt_builder=mock_dependencies["system_prompt_builder"],

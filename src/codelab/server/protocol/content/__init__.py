@@ -17,7 +17,6 @@ from codelab.shared.content import (
 
 # Специфичные для сервера утилиты остаются здесь:
 from .extractor import ContentExtractor, ExtractedContent
-from .formatter import ContentFormatter
 from .validator import ContentValidator
 
 __all__ = [
@@ -33,5 +32,4 @@ __all__ = [
     "ContentExtractor",
     "ExtractedContent",
     "ContentValidator",
-    "ContentFormatter",
 ]

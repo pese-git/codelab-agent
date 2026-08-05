@@ -51,7 +51,6 @@ def mock_dependencies():
         "state_manager": MagicMock(),
         "content_extractor": AsyncMock(),
         "content_validator": MagicMock(),
-        "content_formatter": MagicMock(),
         "history_writer": MagicMock(),
         "plan_builder": MagicMock(),
         "system_prompt_builder": mock_spb,
@@ -501,6 +500,114 @@ class TestAgentLoop:
             "tool_call_id": "tc_1",
             "content": "Something failed",
         }
+
+    def test_history_gains_description_of_non_text_blocks(
+        self, mock_strategy, session, mock_dependencies
+    ):
+        """Нетекстовый блок оставляет след в истории (такт 1 `multimodal-tool-results`).
+
+        До правки такой блок исчезал бесследно: модель получала только `output` исполнителя, а
+        изображение не упоминалось нигде. Описание дописывается к тексту, а не заменяет его.
+        """
+        from codelab.server.protocol.content.extractor import ExtractedContent
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        extracted = ExtractedContent(
+            tool_call_id="tc_1",
+            content_items=[
+                {"type": "text", "text": "график построен"},
+                {"type": "image", "data": "BASE64", "mimeType": "image/png"},
+            ],
+            has_content=True,
+        )
+
+        loop._tool_processor._add_tool_result_to_history(
+            session,
+            "tc_1",
+            success=True,
+            output="график построен",
+            error=None,
+            extracted_content=extracted,
+        )
+
+        assert wire_history(session)[0]["content"] == "график построен\n\n[Image: image/png]"
+
+    def test_history_never_gains_base64(self, mock_strategy, session, mock_dependencies):
+        """Инвариант такта 1: данные не попадают в документ сессии.
+
+        Гейт стоит на wire-форме истории — именно она уезжает на диск, и именно её рост цена
+        решения Р2 отложила до шага C расщепления.
+        """
+        from codelab.server.protocol.content.extractor import ExtractedContent
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        extracted = ExtractedContent(
+            tool_call_id="tc_1",
+            content_items=[
+                {"type": "image", "data": "СЕКРЕТНЫЙ_BASE64", "mimeType": "image/png"}
+            ],
+            has_content=True,
+        )
+
+        loop._tool_processor._add_tool_result_to_history(
+            session, "tc_1", success=True, output=None, error=None, extracted_content=extracted
+        )
+
+        assert "СЕКРЕТНЫЙ_BASE64" not in str(wire_history(session))
+        assert wire_history(session)[0]["content"] == "Success\n\n[Image: image/png]"
+
+    def test_text_only_result_is_untouched_by_the_describer(
+        self, mock_strategy, session, mock_dependencies
+    ):
+        """Опорная точка: текстовый результат такт 1 менять не должен.
+
+        `output` исполнителя остаётся единственным содержимым — строка не переупаковывается через
+        рендер, иначе поехал бы payload и с ним prompt cache.
+        """
+        from codelab.server.protocol.content.extractor import ExtractedContent
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        extracted = ExtractedContent(
+            tool_call_id="tc_1",
+            content_items=[{"type": "text", "text": "иной текст, чем в output"}],
+            has_content=True,
+        )
+
+        loop._tool_processor._add_tool_result_to_history(
+            session,
+            "tc_1",
+            success=True,
+            output="текст исполнителя",
+            error=None,
+            extracted_content=extracted,
+        )
+
+        assert wire_history(session)[0]["content"] == "текст исполнителя"
+
+    def test_terminal_block_adds_nothing(self, mock_strategy, session, mock_dependencies):
+        """`terminal` — клиентский дескриптор: alias модель уже получила в `output`."""
+        from codelab.server.protocol.content.extractor import ExtractedContent
+
+        loop = AgentLoop(strategy=mock_strategy, **mock_dependencies)
+        extracted = ExtractedContent(
+            tool_call_id="tc_1",
+            content_items=[
+                {"type": "terminal", "terminalId": "client-uuid"},
+                {"type": "content", "content": {"type": "text", "text": "Terminal term_1 created"}},
+            ],
+            has_content=True,
+        )
+
+        loop._tool_processor._add_tool_result_to_history(
+            session,
+            "tc_1",
+            success=True,
+            output="Терминал создан с ID: term_1",
+            error=None,
+            extracted_content=extracted,
+        )
+
+        assert wire_history(session)[0]["content"] == "Терминал создан с ID: term_1"
 
     def test_add_tool_result_to_history_failure_no_error(
         self, mock_strategy, session, mock_dependencies

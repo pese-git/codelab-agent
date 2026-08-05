@@ -23,7 +23,6 @@ import structlog
 from codelab.server.domain.tool_call import ToolCall as DomainToolCall
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
-from codelab.server.protocol.content.formatter import ContentFormatter
 from codelab.server.protocol.content.validator import ContentValidator
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
@@ -135,7 +134,6 @@ class AgentLoop:
         state_manager: StateManager,
         content_extractor: ContentExtractor,
         content_validator: ContentValidator,
-        content_formatter: ContentFormatter,
         history_writer: EventHistoryWriter,
         plan_builder: PlanBuilder,
         system_prompt_builder: SystemPromptBuilder,
@@ -156,7 +154,6 @@ class AgentLoop:
             state_manager: Менеджер состояния сессии.
             content_extractor: Извлекатель контента из результатов tools.
             content_validator: Валидатор контента.
-            content_formatter: Форматировщик контента для LLM.
             history_writer: Писатель events_history.
             plan_builder: Построитель планов выполнения.
             system_prompt_builder: Билдер system prompt (config + MCP info).
@@ -180,7 +177,6 @@ class AgentLoop:
             permission_manager=permission_manager,
             content_extractor=content_extractor,
             content_validator=content_validator,
-            content_formatter=content_formatter,
             plan_builder=plan_builder,
             global_policy_manager=global_policy_manager,
             loop_guard_limit=loop_guard_limit,
