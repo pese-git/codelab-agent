@@ -249,7 +249,6 @@ class TestRoundtripToolCallFields:
                 locations=[FileLocation(path="/a.py", line=10)],
                 raw_output={"bytes": 42},
                 content=[{"type": "text", "text": "file body"}],
-                result_content=[{"type": "text", "text": "extracted"}],
             ),
         )
         rt = _roundtrip(session)
@@ -262,7 +261,6 @@ class TestRoundtripToolCallFields:
         assert tc.arguments == {"path": "/a.py"}
         assert tc.result is not None
         assert tc.result.content == [{"type": "text", "text": "file body"}]
-        assert tc.result.result_content == [{"type": "text", "text": "extracted"}]
         assert tc.result.raw_output == {"bytes": 42}
         assert [(loc.path, loc.line) for loc in tc.result.locations] == [("/a.py", 10)]
 
@@ -278,7 +276,7 @@ class TestRoundtripPrepFields:
         rt = _roundtrip(session)
         assert rt.title == "My session"
         assert rt.updated_at == "2026-07-24T09:22:50.227038+00:00"
-        assert rt.schema_version == 9
+        assert rt.schema_version == 10
         # Ревизия документа несётся round-trip как есть: её инкрементирует хранилище
         # при записи, маппер не должен её ни терять, ни менять (ADR-007)
         assert rt.revision == session.revision
@@ -293,7 +291,7 @@ class TestRoundtripPrepFields:
         session = _rich_session()
         object.__setattr__(session, "schema_version", 8)
 
-        assert _roundtrip(session).schema_version == 9
+        assert _roundtrip(session).schema_version == 10
 
     def test_updated_at_not_regenerated(self) -> None:
         """`updated_at` несётся как есть, не подменяется свежим временем."""

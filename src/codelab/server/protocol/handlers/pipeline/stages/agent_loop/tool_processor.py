@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
 
-from codelab.server.domain.tool_call import ToolResult as DomainToolResult
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
     ToolLoopDetector,
 )
@@ -801,7 +800,7 @@ class ToolCallProcessor:
             # описывают один результат.
             def _commit_result(target: Session) -> None:
                 _carry_executor_changes(source=session, target=target)
-                self._store_and_format(target, tool_call_id, extracted_content)
+                self._format_for_llm(target, extracted_content)
                 self._tool_call_handler.update_tool_call_status(
                     target, tool_call_id, status, content=success_content
                 )
@@ -1050,7 +1049,7 @@ class ToolCallProcessor:
 
         def _commit(target: Session) -> None:
             _carry_executor_changes(source=session, target=target)
-            self._store_and_format(target, tool_call_id, extracted_content)
+            self._format_for_llm(target, extracted_content)
             self._tool_call_handler.update_tool_call_status(
                 target, tool_call_id, status, content=content
             )
@@ -1083,24 +1082,26 @@ class ToolCallProcessor:
         self._loop_detector.record_output(acp_tool_name, tool_arguments, result)
         return result
 
-    def _store_and_format(
+    def _format_for_llm(
         self,
         session: Session,
-        tool_call_id: str,
         extracted_content: ExtractedContent,
     ) -> None:
-        """Сохранить extracted content в tool_call_state и отформатировать для LLM."""
-        tool_call = session.tool_calls.get(tool_call_id)
-        if tool_call is not None:
-            # Извлечённый контент живёт в `ToolResult` вызова: писать его отдельным
-            # полем нельзя, не потеряв остальные поля результата.
-            previous = tool_call.result
-            tool_call.result = DomainToolResult(
-                locations=previous.locations if previous else list(tool_call.locations),
-                raw_output=previous.raw_output if previous else dict(tool_call.raw_output),
-                content=previous.content if previous else [],
-                result_content=list(extracted_content.content_items),
-            )
+        """Отформатировать content результата под провайдера LLM.
+
+        **Результат вызова отбрасывается, и это выглядит мёртвым кодом (найдено в ADR-007,
+        шаг B1).** Раньше метод делал два дела — писал `result_content` в `ToolResult` и
+        форматировал; запись удалена вместе с полем, у которого не было читателей. Осталось
+        форматирование, но `format_for_llm` — чистая функция, её возврат никто не
+        присваивает, а до модели результат вызова доходит через
+        `_add_tool_result_to_history`. То есть весь путь `ContentFormatter` в turn-е
+        вычисляет сообщение и выбрасывает его.
+
+        Оставлено намеренно и помечено как находка: удаление `ContentFormatter` вместе с его
+        инъекцией через `AgentLoop`/`LLMLoopStage` — отдельное решение об удалении
+        функциональности, а не побочный эффект правки поля. Единственное наблюдаемое
+        следствие вызова сегодня — `ValueError` на неизвестном `llm_provider`.
+        """
         provider_raw = session.config.config_values.get("llm_provider", "openai")
         provider = cast(Literal["openai", "anthropic"], provider_raw)
         self._content_formatter.format_for_llm(extracted_content, provider=provider)

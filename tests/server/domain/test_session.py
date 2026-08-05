@@ -236,7 +236,6 @@ class TestToolCallStatusTransitions:
         tc.result = ToolResult(
             locations=[FileLocation(path="/tmp/a.py")],
             raw_output={"ok": True},
-            result_content=[{"type": "text", "text": "исходный"}],
         )
         registry.update_status(tc.id, ToolCallStatus.IN_PROGRESS)
 
@@ -249,7 +248,6 @@ class TestToolCallStatusTransitions:
         assert tc.result is not None
         assert tc.result.content == [{"type": "text", "text": "готово"}]
         assert tc.result.raw_output == {"ok": True}
-        assert tc.result.result_content == [{"type": "text", "text": "исходный"}]
         assert [loc.path for loc in tc.result.locations] == ["/tmp/a.py"]
 
     def test_is_terminal_follows_matrix(self) -> None:

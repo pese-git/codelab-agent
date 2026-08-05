@@ -175,7 +175,6 @@ class ToolCallRegistry:
                 locations=previous.locations if previous else list(tool_call.locations),
                 raw_output=previous.raw_output if previous else dict(tool_call.raw_output),
                 content=[dict(item) for item in content],
-                result_content=previous.result_content if previous else [],
             )
         return True
 
@@ -371,7 +370,7 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionDocument.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 9
+    schema_version: int = 10
     # Ревизия документа (ADR-007): парное поле к `SessionDocument.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0

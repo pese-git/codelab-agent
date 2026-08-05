@@ -845,10 +845,10 @@ class TestToolCallStateSerialization:
             "kind": "other",
             "status": "pending",
             "tool_call_id_from_llm": "toolu_xyz",
-            "result_content": [],
+            "content": [],
         }
 
         tool_call = ToolCallState(**data)
 
         assert tool_call.tool_call_id_from_llm == "toolu_xyz"
-        assert tool_call.result_content == []
+        assert tool_call.content == []

@@ -29,7 +29,6 @@ class ToolCallMapper:
             tool_arguments=domain.arguments,
             tool_call_id_from_llm=domain.tool_call_id_from_llm,
             content=result.content if result else [],
-            result_content=result.result_content if result else [],
         )
 
     @staticmethod
@@ -42,12 +41,11 @@ class ToolCallMapper:
         ]
         status = _parse_status(protocol.status)
         result = None
-        if protocol.raw_output or locations or protocol.content or protocol.result_content:
+        if protocol.raw_output or locations or protocol.content:
             result = ToolResult(
                 locations=locations,
                 raw_output=dict(protocol.raw_output),
                 content=[dict(c) for c in protocol.content],
-                result_content=[dict(c) for c in protocol.result_content],
             )
         return ToolCall(
             id=protocol.tool_call_id,

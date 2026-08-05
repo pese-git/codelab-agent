@@ -72,7 +72,7 @@ class TestRevisionAdvances:
 
         assert loaded is not None
         assert loaded.revision == 0
-        assert loaded.schema_version == 9
+        assert loaded.schema_version == 10
 
 
 class TestStaleCopyIsRejected:

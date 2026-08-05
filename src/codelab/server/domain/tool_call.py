@@ -14,10 +14,10 @@ class ToolResult:
 
     locations: list[FileLocation] = field(default_factory=list)
     raw_output: dict[str, Any] = field(default_factory=dict)
-    # Контент результата для wire (write-фаза D4-b/b3, ADR-006):
-    # `content` — payload tool_call_update; `result_content` — извлечённый контент для клиента.
+    # `content` — payload `tool_call_update`, отправленного клиенту (write-фаза D4-b/b3, ADR-006).
+    # Парное поле `result_content` удалено в ADR-007 (шаг B1): его писал только turn-путь и не
+    # читал никто — 21% документа сессии уходил на диск без потребителя.
     content: list[dict[str, Any]] = field(default_factory=list)
-    result_content: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

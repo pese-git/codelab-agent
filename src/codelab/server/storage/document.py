@@ -126,6 +126,20 @@ def _migrate_to_v9(data: dict[str, Any]) -> None:
     data.pop("terminals_owner", None)
 
 
+def _migrate_to_v10(data: dict[str, Any]) -> None:
+    """v9 → v10: `result_content` вызовов удалён как поле без потребителя (ADR-007, шаг B1).
+
+    Его писал только turn-путь (`_store_and_format`), а читал — никто: реплей и нотификации
+    строятся из `content`, наружу в wire поле не уходило, клиент его не знает. На замеренном
+    документе это 142 099 байт, 21% объёма, уезжавших на диск без пользы.
+
+    Как и в v9, отбрасывание явное: удаление данных должно быть видно в цепочке миграций.
+    """
+    for call in data.get("tool_calls", {}).values():
+        if isinstance(call, dict):
+            call.pop("result_content", None)
+
+
 # Порядок обязателен: шаги применяются подряд от текущей версии документа.
 _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (1, _migrate_to_v1),
@@ -136,6 +150,7 @@ _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (7, _migrate_to_v7),
     (8, _migrate_to_v8),
     (9, _migrate_to_v9),
+    (10, _migrate_to_v10),
 ]
 
 
@@ -162,8 +177,6 @@ class ToolCallState(BaseModel):
     status: str
     # Контент, возвращенный при завершении (если есть).
     content: list[dict[str, Any]] = Field(default_factory=list)
-    # Извлеченный content из result tool execution для отправки клиенту.
-    result_content: list[dict[str, Any]] = Field(default_factory=list)
     # Имя инструмента для выполнения (соответствует tool_name в registry).
     tool_name: str | None = None
     # Аргументы для выполнения инструмента (для отложенного выполнения после permission).
@@ -264,7 +277,7 @@ class SessionDocument(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=9)
+    schema_version: int = Field(default=10)
     # Ревизия документа: счётчик записей, растёт на каждое сохранение. Нужна для
     # compare-and-set: копия сессии живёт через `await` (фоновое исполнение turn'а),
     # и без сверки её запись молча затирала бы решения, принятые тем временем другим

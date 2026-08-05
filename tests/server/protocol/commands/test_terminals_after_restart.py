@@ -88,7 +88,7 @@ class TestMigrationFromV8:
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
 
         assert on_disk is not None
-        assert on_disk.schema_version == 9
+        assert on_disk.schema_version == 10
 
     @pytest.mark.asyncio
     async def test_alias_bindings_are_dropped(self, tmp_path: Path) -> None:
@@ -208,4 +208,4 @@ class TestDocumentSchema:
     def test_new_document_declares_v9(self) -> None:
         document = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
 
-        assert document.schema_version == 9
+        assert document.schema_version == 10
