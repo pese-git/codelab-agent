@@ -86,6 +86,14 @@ class SessionCancelCommandHandler:
                     notifications=[],
                 )
 
+            # Снимается ДО обработки: отмена снимает active turn, и после неё фазу уже
+            # не прочитать.
+            turn_on_cancel = session.active_turn
+            phase_on_cancel = turn_on_cancel.phase.wire_name if turn_on_cancel else "no_turn"
+            permission_id_on_cancel = (
+                turn_on_cancel.permission_request_id if turn_on_cancel else None
+            )
+
             outcome = orchestrator.handle_cancel(
                 request_id=message.id,
                 params=params,
@@ -126,6 +134,13 @@ class SessionCancelCommandHandler:
                 followup_count=len(followup),
                 deferred_prompt_answered=pending is not None,
                 active_turn_cleared=session.active_turn is None,
+                # Фаза turn'а на входе отмены. Без неё по логу не отличить «отмена
+                # пришла, когда разрешения никто не ждал» от «пауза не доехала до
+                # диска, поэтому tombstone не записан»: прогон 2026-08-06 дал
+                # `cancelled_permission_requests: []` при отмене ровно в момент
+                # ожидания, и различить причины было нечем.
+                phase_on_cancel=phase_on_cancel,
+                permission_tombstone_written=permission_id_on_cancel is not None,
             )
 
         return ProtocolOutcome(
