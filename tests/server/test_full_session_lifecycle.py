@@ -78,16 +78,14 @@ class TestFullSessionLifecycle:
         user_events = [
             e
             for e in session.runtime.events_history
-            if e.get("type") == "session_update"
-            and e.get("update", {}).get("sessionUpdate") == "user_message_chunk"
+            if e.get("event") == "user_message_recorded"
         ]
         assert len(user_events) == 1
 
         agent_events = [
             e
             for e in session.runtime.events_history
-            if e.get("type") == "session_update"
-            and e.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
+            if e.get("event") == "agent_message_recorded"
         ]
         assert len(agent_events) == 1
 

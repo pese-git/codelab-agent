@@ -14,8 +14,10 @@ import structlog
 
 from codelab.server.storage.document import ClientRuntimeCapabilities
 
+from ...domain.journal import ToolCallStarted
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import ToolCallStatus, TurnCancelled
+from ...mapping.journal_mapper import JournalMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
@@ -220,10 +222,14 @@ def _replay_tool_calls_fallback(session: DomainSession, session_id: str) -> list
     `tool_call_update`. Это второй источник расхождения wire↔состояние; выправляется
     отдельным шагом, здесь поведение сохранено как было.
     """
+    # Наличие вызовов в журнале определяется по доменному событию, а не по строке
+    # `sessionUpdate`: в документе v11 этой строки нет вовсе (шаг 3b ADR-008), и
+    # проверка по ней тихо решила бы, что вызовов в журнале не было, — клиент
+    # получил бы их дважды, обычным реплеем и этой веткой.
     has_tool_call_events = any(
-        event.get("type") == "session_update"
-        and event.get("update", {}).get("sessionUpdate") == "tool_call"
-        for event in session.runtime.events_history
+        isinstance(entry.event, ToolCallStarted)
+        for entry in (JournalMapper.from_wire(record) for record in session.runtime.events_history)
+        if entry is not None
     )
     if has_tool_call_events or not session.tool_calls.get_all():
         return []

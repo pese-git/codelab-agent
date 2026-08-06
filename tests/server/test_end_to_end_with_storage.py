@@ -63,12 +63,15 @@ class TestEndToEndWithStorage:
         assert len(session.runtime.events_history) == 1
         event = session.runtime.events_history[0]
 
-        # Проверяем что используется новый формат "update" вместо "event"
-        assert "update" in event, "Event должен иметь поле 'update'"
-        assert "event" not in event, "Event НЕ должен иметь поле 'event'"
+        # Запись журнала v11: доменный вид + полезная нагрузка (шаг 3b ADR-008).
+        # Прежнее утверждение «поля `event` быть не должно» снято осознанно: оно
+        # запрещало легаси-форму, в которой `event` несла тип ACP-нотификации.
+        # В v11 это имя занято видом доменного события, а ACP-имён на диске нет
+        # вовсе — что и проверяется вместо запрета.
+        assert event["event"] == "user_message_recorded"
+        assert "sessionUpdate" not in event["data"]
 
-        update = event["update"]
-        assert update["sessionUpdate"] == "user_message_chunk"
+        update = event["data"]
         assert update["content"]["text"] == "Hello!"
 
     def test_agent_message_event_format(
@@ -98,9 +101,8 @@ class TestEndToEndWithStorage:
         # Assert - Проверяем структуру
         event = session.runtime.events_history[0]
 
-        assert "update" in event
-        update = event["update"]
-        assert update["sessionUpdate"] == "agent_message_chunk"
+        assert event["event"] == "agent_message_recorded"
+        update = event["data"]
 
         # Проверяем ContentBlock структуру
         content = update["content"]
@@ -142,9 +144,8 @@ class TestEndToEndWithStorage:
 
         # Assert - Проверяем что формат сохранен
         event = deserialized["events_history"][0]
-        assert "update" in event
-        assert event["update"]["sessionUpdate"] == "user_message_chunk"
-        assert event["update"]["content"]["text"] == "Test message"
+        assert event["event"] == "user_message_recorded"
+        assert event["data"]["content"]["text"] == "Test message"
 
     @pytest.mark.asyncio
     async def test_session_load_works_with_new_format_events(

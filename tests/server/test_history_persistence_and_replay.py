@@ -68,14 +68,13 @@ class TestUserMessageChunkPersistence:
         user_message_events = [
             e
             for e in session.runtime.events_history
-            if e.get("type") == "session_update"
-            and e.get("update", {}).get("sessionUpdate") == "user_message_chunk"
+            if e.get("event") == "user_message_recorded"
         ]
         assert len(user_message_events) == 2
 
         # Проверяем содержимое
-        assert user_message_events[0]["update"]["content"]["text"] == "Hello, assistant!"
-        assert user_message_events[1]["update"]["content"]["text"] == "How are you?"
+        assert user_message_events[0]["data"]["content"]["text"] == "Hello, assistant!"
+        assert user_message_events[1]["data"]["content"]["text"] == "How are you?"
 
 
 class TestAgentMessageChunkFormat:
@@ -121,10 +120,9 @@ class TestAgentMessageChunkFormat:
         assert len(session.runtime.events_history) > 0
 
         agent_event = session.runtime.events_history[-1]
-        assert agent_event["type"] == "session_update"
+        assert agent_event["event"] == "agent_message_recorded"
 
-        update = agent_event["update"]
-        assert update["sessionUpdate"] == "agent_message_chunk"
+        update = agent_event["data"]
 
         # Проверяем ContentBlock структуру
         content = update["content"]
@@ -148,8 +146,8 @@ class TestAgentMessageChunkFormat:
 
         # Assert
         event = session.runtime.events_history[-1]
-        assert "timestamp" in event
-        assert isinstance(event["timestamp"], str)
+        assert "at" in event
+        assert isinstance(event["at"], str)
 
 
 class TestSessionLoadReplay:

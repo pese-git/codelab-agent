@@ -411,7 +411,7 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionDocument.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 10
+    schema_version: int = 11
     # Ревизия документа (ADR-007): парное поле к `SessionDocument.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0

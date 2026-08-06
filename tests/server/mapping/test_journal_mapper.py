@@ -100,33 +100,71 @@ class TestRoundTrip:
         assert entry is not None
         assert not isinstance(entry.event, UnknownUpdateRecorded)
 
-    def test_timestamp_is_read_and_written_back(self) -> None:
-        wire = {"type": "session_update", "update": RECORDED_UPDATES[0], "timestamp": TS}
-
-        entry = JournalMapper.from_wire(wire)
+    def test_timestamp_survives_v10_read(self) -> None:
+        entry = JournalMapper.from_wire(
+            {"type": "session_update", "update": RECORDED_UPDATES[0], "timestamp": TS}
+        )
 
         assert entry is not None
         assert entry.timestamp == datetime(2026, 8, 6, 12, 0, tzinfo=UTC)
-        assert JournalMapper.to_wire(entry) == wire
+
+    @pytest.mark.parametrize("update", RECORDED_UPDATES, ids=lambda u: u["sessionUpdate"])
+    def test_v11_record_survives_round_trip(self, update: dict[str, Any]) -> None:
+        """Запись v11 → событие → запись v11 — тождество.
+
+        Это инвариант миграции: она читает запись и пишет её обратно, поэтому
+        повторный проход по уже миграированному документу обязан ничего не менять.
+        """
+        v10 = {"type": "session_update", "update": update, "timestamp": TS}
+        v11 = JournalMapper.to_wire(JournalMapper.from_wire(v10))
+
+        again = JournalMapper.from_wire(v11)
+
+        assert again is not None
+        assert JournalMapper.to_wire(again) == v11
+        assert JournalMapper.to_acp_update(again.event) == update
 
 
 class TestWireForm:
-    """Форма записи документа шагом 3a не изменилась."""
+    """Форма записи документа v11: `{event, at, data}` (шаг 3b)."""
 
-    def test_entry_shape_matches_previous_writer(self) -> None:
+    def test_entry_shape_is_domain_envelope(self) -> None:
         entry = JournalEntry(
             event=UserMessageRecorded(content={"type": "text", "text": "привет"}),
             timestamp=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
         )
 
         assert JournalMapper.to_wire(entry) == {
-            "type": "session_update",
-            "update": {
-                "sessionUpdate": "user_message_chunk",
-                "content": {"type": "text", "text": "привет"},
-            },
-            "timestamp": TS,
+            "event": "user_message_recorded",
+            "at": TS,
+            "data": {"content": {"type": "text", "text": "привет"}},
         }
+
+    def test_tool_call_kind_does_not_collide_with_record_kind(self) -> None:
+        """Ровно то, из-за чего выбран конверт: `kind` вызова и вид записи — разные поля."""
+        entry = JournalEntry(
+            event=ToolCallStarted(
+                tool_call_id="call_001", title="terminal/create", kind="execute", status="pending"
+            )
+        )
+
+        wire = JournalMapper.to_wire(entry)
+
+        assert wire["event"] == "tool_call_started"
+        assert wire["data"]["kind"] == "execute"
+        assert "at" not in wire
+
+    def test_no_acp_names_leak_into_storage(self) -> None:
+        """В записи v11 не должно остаться ни camelCase, ни имён ACP-обновлений."""
+        for update in RECORDED_UPDATES:
+            entry = JournalMapper.from_wire(
+                {"type": "session_update", "update": update, "timestamp": TS}
+            )
+            assert entry is not None
+            wire = JournalMapper.to_wire(entry)
+            assert "sessionUpdate" not in wire["data"]
+            assert "toolCallId" not in wire["data"]
+            assert "updatedAt" not in wire["data"]
 
     @pytest.mark.parametrize(
         "event",
@@ -220,6 +258,31 @@ class TestToleranceToRecordedSessions:
         assert entry is not None
         assert entry.timestamp is None
         assert isinstance(entry.event, UserMessageRecorded)
+
+    def test_verbatim_record_keeps_its_fields_through_v11(self) -> None:
+        """Дословная запись переживает миграцию: вид `acp_update_verbatim` несёт исходник."""
+        update = {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_001",
+            "title": "t",
+            "kind": "read",
+            "status": "pending",
+            "locations": [{"path": "/tmp/a"}],
+        }
+
+        v11 = JournalMapper.to_wire(
+            JournalMapper.from_wire({"type": "session_update", "update": update})
+        )
+
+        assert v11["event"] == "acp_update_verbatim"
+        assert v11["data"]["update"] == update
+        again = JournalMapper.from_wire(v11)
+        assert again is not None
+        assert JournalMapper.to_replay_update(again.event) == update
+
+    def test_unknown_v11_record_kind_is_skipped_not_fatal(self) -> None:
+        """Документ мог записать более новая версия: теряем запись, а не сессию."""
+        assert JournalMapper.from_wire({"event": "нечто_из_будущего", "data": {}}) is None
 
     def test_empty_content_list_is_not_modelled(self) -> None:
         """`"content": []` необратим: проекция пустой контент опускает.

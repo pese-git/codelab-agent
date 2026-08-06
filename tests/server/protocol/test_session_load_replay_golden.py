@@ -37,6 +37,7 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.protocol.handlers.session import _replay_tool_calls_fallback
 from codelab.server.protocol.handlers.session_replayer import SessionReplayer
 from tests.server._domain_sessions import make_domain_session
@@ -223,6 +224,30 @@ class TestReplayHistoryGolden:
         assert notifications[0].params["update"]["sessionUpdate"] == "agent_message_chunk"
 
 
+class TestReplayHistoryFromV11Golden:
+    """Тот же поток, но журнал хранится в доменной форме (v11, шаг 3b).
+
+    Смысл гейта: смена формата хранения не должна менять ни один байт того, что
+    видит клиент. Поток сравнивается не с константой, а с потоком из документа
+    v10 — так проверяется именно эквивалентность носителей, и константу нельзя
+    подогнать под новую реализацию.
+    """
+
+    def test_stream_is_identical_to_v10(self, replayer: SessionReplayer) -> None:
+        v10_session = _session_with_all_event_kinds()
+        v11_session = _session_with_all_event_kinds()
+        v11_session.runtime.events_history = [
+            JournalMapper.to_wire(JournalMapper.from_wire(record))
+            for record in v11_session.runtime.events_history
+        ]
+
+        from_v10 = [msg.params for msg in replayer.replay_history(v10_session)]
+        from_v11 = [msg.params for msg in replayer.replay_history(v11_session)]
+
+        assert from_v11 == from_v10
+        assert len(from_v11) == 6
+
+
 class TestReplayLatestPlanGolden:
     """План живёт отдельно от журнала — значит и в проекции останется отдельным источником."""
 
@@ -254,6 +279,28 @@ class TestToolCallFallbackGolden:
     def test_silent_when_journal_has_tool_call_events(self) -> None:
         """Есть события — ветка не работает: иначе клиент получил бы вызовы дважды."""
         session = _session_with_all_event_kinds()
+
+        assert _replay_tool_calls_fallback(session, SESSION_ID) == []
+
+    def test_silent_for_v11_journal_too(self) -> None:
+        """То же для документа v11, где строки `sessionUpdate` в журнале нет вовсе.
+
+        Ветка решает «есть ли в журнале вызовы» и до шага 3b судила об этом по
+        camelCase-строке записи. В v11 такой строки нет, поэтому проверка по ней
+        молча решила бы, что вызовов не было, и досылала бы их **вдобавок** к
+        обычному реплею — клиент увидел бы каждый вызов дважды. Случая v11 в гейте
+        не было, поэтому поломку он бы не поймал; добавлен вместе с 3b.
+        """
+        session = _session_with_all_event_kinds()
+        session.runtime.events_history = [
+            JournalMapper.to_wire(JournalMapper.from_wire(record))
+            for record in session.runtime.events_history
+        ]
+        assert all("event" in record for record in session.runtime.events_history)
+        call = session.tool_calls.create(
+            "terminal/create", {"command": "ls"}, title="terminal/create", kind="execute"
+        )
+        assert call is not None
 
         assert _replay_tool_calls_fallback(session, SESSION_ID) == []
 

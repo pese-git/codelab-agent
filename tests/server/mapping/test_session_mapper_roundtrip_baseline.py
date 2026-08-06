@@ -32,6 +32,7 @@ from codelab.server.domain.value_objects import (
     SessionId,
 )
 from codelab.server.mapping.session_mapper import SessionMapper
+from codelab.server.storage.document import CURRENT_SCHEMA_VERSION
 
 
 def _rich_session() -> Session:
@@ -280,7 +281,7 @@ class TestRoundtripPrepFields:
         rt = _roundtrip(session)
         assert rt.title == "My session"
         assert rt.updated_at == "2026-07-24T09:22:50.227038+00:00"
-        assert rt.schema_version == 10
+        assert rt.schema_version == CURRENT_SCHEMA_VERSION
         # Ревизия документа несётся round-trip как есть: её инкрементирует хранилище
         # при записи, маппер не должен её ни терять, ни менять (ADR-007)
         assert rt.revision == session.revision
@@ -295,7 +296,7 @@ class TestRoundtripPrepFields:
         session = _rich_session()
         object.__setattr__(session, "schema_version", 8)
 
-        assert _roundtrip(session).schema_version == 10
+        assert _roundtrip(session).schema_version == CURRENT_SCHEMA_VERSION
 
     def test_updated_at_not_regenerated(self) -> None:
         """`updated_at` несётся как есть, не подменяется свежим временем."""
@@ -348,7 +349,10 @@ class TestProtocolRoundtripLossless:
     @staticmethod
     def _sample_state() -> "object":
         from codelab.server.models import HistoryMessage
-        from codelab.server.storage.document import SessionDocument, ToolCallState
+        from codelab.server.storage.document import (
+            SessionDocument,
+            ToolCallState,
+        )
 
         return SessionDocument(
             session_id="sess_rt",

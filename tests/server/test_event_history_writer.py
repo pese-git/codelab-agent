@@ -43,8 +43,8 @@ class TestSaveAgentMessageChunk:
 
         assert len(session.events_history) == 1
         event = session.events_history[0]
-        assert event["update"]["sessionUpdate"] == "agent_message_chunk"
-        assert event["update"]["content"] == content
+        assert event["event"] == "agent_message_recorded"
+        assert event["data"]["content"] == content
 
 
 class TestSaveToolCall:
@@ -66,11 +66,11 @@ class TestSaveToolCall:
 
         assert len(session.events_history) == 1
         event = session.events_history[0]
-        assert event["update"]["sessionUpdate"] == "tool_call"
-        assert event["update"]["toolCallId"] == "call_001"
-        assert event["update"]["title"] == "fs/read_text_file"
-        assert event["update"]["kind"] == "read"
-        assert event["update"]["status"] == "pending"
+        assert event["event"] == "tool_call_started"
+        assert event["data"]["tool_call_id"] == "call_001"
+        assert event["data"]["title"] == "fs/read_text_file"
+        assert event["data"]["kind"] == "read"
+        assert event["data"]["status"] == "pending"
 
     def test_saves_tool_call_with_content(
         self,
@@ -90,7 +90,7 @@ class TestSaveToolCall:
         )
 
         event = session.events_history[0]
-        assert event["update"]["content"] == content
+        assert event["data"]["content"] == content
 
 
 class TestSaveToolCallUpdate:
@@ -109,9 +109,9 @@ class TestSaveToolCallUpdate:
         )
 
         event = session.events_history[0]
-        assert event["update"]["sessionUpdate"] == "tool_call_update"
-        assert event["update"]["toolCallId"] == "call_001"
-        assert event["update"]["status"] == "in_progress"
+        assert event["event"] == "tool_call_status_changed"
+        assert event["data"]["tool_call_id"] == "call_001"
+        assert event["data"]["status"] == "in_progress"
 
     def test_saves_completed_update_with_content(
         self,
@@ -129,8 +129,8 @@ class TestSaveToolCallUpdate:
         )
 
         event = session.events_history[0]
-        assert event["update"]["status"] == "completed"
-        assert event["update"]["content"] == content
+        assert event["data"]["status"] == "completed"
+        assert event["data"]["content"] == content
 
 
 class TestSavePlan:
@@ -150,8 +150,8 @@ class TestSavePlan:
         history_writer.save_plan(session, entries)
 
         event = session.events_history[0]
-        assert event["update"]["sessionUpdate"] == "plan"
-        assert event["update"]["entries"] == entries
+        assert event["event"] == "plan_recorded"
+        assert event["data"]["entries"] == entries
 
 
 class TestSaveUserMessageChunk:
@@ -175,14 +175,14 @@ class TestSaveUserMessageChunk:
         for block in prompt:
             history_writer.save_user_message_chunk(session, block)
 
-        assert [e["update"]["content"]["type"] for e in session.events_history] == [
+        assert [e["data"]["content"]["type"] for e in session.events_history] == [
             "resource",
             "text",
         ]
         assert all(
-            e["update"]["sessionUpdate"] == "user_message_chunk" for e in session.events_history
+            e["event"] == "user_message_recorded" for e in session.events_history
         )
-        assert all("timestamp" in e for e in session.events_history)
+        assert all("at" in e for e in session.events_history)
 
 
 class TestSaveSessionInfoUpdate:
@@ -193,16 +193,21 @@ class TestSaveSessionInfoUpdate:
         history_writer: EventHistoryWriter,
         session: SessionDocument,
     ) -> None:
-        """Форма ACP: title + updatedAt (camelCase, `04-Session List.md`)."""
+        """Доменная форма записи: `title` + `updated_at` (v11, шаг 3b ADR-008).
+
+        camelCase `updatedAt` остаётся в ACP-нотификации, но на диск больше не
+        уезжает: формат хранения перестал задаваться внешним протоколом. Что
+        нотификация сохранила прежнюю форму — гейт `JournalMapper.to_acp_update`.
+        """
         history_writer.save_session_info_update(
             session, title="Сессия", updated_at="2026-07-29T00:00:00Z"
         )
 
-        update = session.events_history[0]["update"]
-        assert update == {
-            "sessionUpdate": "session_info_update",
+        record = session.events_history[0]
+        assert record["event"] == "session_info_recorded"
+        assert record["data"] == {
             "title": "Сессия",
-            "updatedAt": "2026-07-29T00:00:00Z",
+            "updated_at": "2026-07-29T00:00:00Z",
         }
 
     def test_accepts_null_fields(
@@ -213,17 +218,18 @@ class TestSaveSessionInfoUpdate:
         """`null` — валидное значение по ACP (очистка поля)."""
         history_writer.save_session_info_update(session, title=None, updated_at=None)
 
-        update = session.events_history[0]["update"]
-        assert update["title"] is None
-        assert update["updatedAt"] is None
+        data = session.events_history[0]["data"]
+        assert data["title"] is None
+        assert data["updated_at"] is None
 
 
 class TestDomainJournalCarrier:
     """Журнал доступен и на доменном агрегате (транзакция `session/cancel`).
 
-    Элементы `events_history` — опаковые ACP-нотификации, поэтому форма записи
-    обязана совпадать байт-в-байт независимо от носителя. Развилка носителя
-    временна и снимается вместе с последним wire-писателем (фаза D ADR-006).
+    Форма записи обязана совпадать байт-в-байт независимо от носителя: пишет её
+    одна проекция, а `SessionDocument` и доменный агрегат несут один и тот же
+    список. Развилка носителя временна и снимается вместе с последним
+    wire-писателем (фаза D ADR-006).
     """
 
     def test_domain_and_wire_records_are_equivalent(
@@ -240,8 +246,8 @@ class TestDomainJournalCarrier:
 
         wire_entry = session.events_history[0]
         domain_entry = domain.runtime.events_history[0]
-        assert domain_entry["update"] == wire_entry["update"]
-        assert domain_entry["type"] == wire_entry["type"]
+        assert domain_entry["data"] == wire_entry["data"]
+        assert domain_entry["event"] == wire_entry["event"]
 
     def test_content_is_carried(
         self,
@@ -257,4 +263,4 @@ class TestDomainJournalCarrier:
             domain, tool_call_id="call_001", status="completed", content=content
         )
 
-        assert domain.runtime.events_history[0]["update"]["content"] == content
+        assert domain.runtime.events_history[0]["data"]["content"] == content

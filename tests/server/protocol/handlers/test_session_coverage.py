@@ -281,12 +281,12 @@ class TestSessionLoadEdgeCases:
         # В историю запись легла — значит любое последующее сохранение сессии
         # оставит историю и состояние согласованными.
         recorded = [
-            event["update"]
+            event["data"]
             for event in domain_session.runtime.events_history
-            if event.get("update", {}).get("sessionUpdate") == "tool_call_update"
+            if event.get("event") == "tool_call_status_changed"
         ]
         assert [u["status"] for u in recorded] == ["cancelled"]
-        assert recorded[0]["toolCallId"] == "call_1"
+        assert recorded[0]["tool_call_id"] == "call_1"
 
         # И тот же факт ушёл клиенту в реплее — после события создания.
         statuses = [

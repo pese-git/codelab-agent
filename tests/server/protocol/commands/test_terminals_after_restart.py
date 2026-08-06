@@ -31,7 +31,7 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.storage import JsonFileStorage, SessionRepository
-from codelab.server.storage.document import SessionDocument
+from codelab.server.storage.document import CURRENT_SCHEMA_VERSION, SessionDocument
 from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 from tests.server._domain_sessions import make_domain_session
 
@@ -88,7 +88,7 @@ class TestMigrationFromV8:
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
 
         assert on_disk is not None
-        assert on_disk.schema_version == 10
+        assert on_disk.schema_version == CURRENT_SCHEMA_VERSION
 
     @pytest.mark.asyncio
     async def test_alias_bindings_are_dropped(self, tmp_path: Path) -> None:
@@ -205,7 +205,7 @@ class TestRegistryIsolatesSessions:
 
 
 class TestDocumentSchema:
-    def test_new_document_declares_v9(self) -> None:
+    def test_new_document_declares_current_version(self) -> None:
         document = SessionDocument(session_id="sess_x", cwd="/work", mcp_servers=[])
 
-        assert document.schema_version == 10
+        assert document.schema_version == CURRENT_SCHEMA_VERSION

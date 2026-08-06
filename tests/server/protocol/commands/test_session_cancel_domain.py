@@ -126,9 +126,9 @@ class TestCancelTransaction:
         replayed = [
             e
             for e in stored.events_history
-            if (e.get("update") or {}).get("sessionUpdate") == "tool_call_update"
+            if e.get("event") == "tool_call_status_changed"
         ]
-        assert [e["update"]["status"] for e in replayed] == ["cancelled"]
+        assert [e["data"]["status"] for e in replayed] == ["cancelled"]
         # Ответ на отложенный `session/prompt` отдан клиенту и снят с состояния
         assert [m.id for m in outcome.followup_responses] == ["prompt_req"]
         assert stored.pending_prompt_response is None

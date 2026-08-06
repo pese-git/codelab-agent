@@ -65,12 +65,12 @@ class TestAgentMessageChunkPreservation:
         agent_chunks = [
             event
             for event in session.runtime.events_history
-            if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
+            if event.get("event") == "agent_message_recorded"
         ]
         assert len(agent_chunks) > 0
 
         # Проверяем содержимое
-        chunk_content = agent_chunks[0]["update"]["content"]
+        chunk_content = agent_chunks[0]["data"]["content"]
         assert chunk_content["type"] == "text"
         assert chunk_content["text"] == "Hello from agent!"
 
@@ -137,13 +137,13 @@ class TestAgentMessageChunkPreservation:
         agent_chunks = [
             event
             for event in session.runtime.events_history
-            if event.get("update", {}).get("sessionUpdate") == "agent_message_chunk"
+            if event.get("event") == "agent_message_recorded"
         ]
 
         # Должно быть 2 chunk (по одному на каждый response)
         assert len(agent_chunks) == 2
 
         # Проверяем порядок
-        texts = [chunk["update"]["content"]["text"] for chunk in agent_chunks]
+        texts = [chunk["data"]["content"]["text"] for chunk in agent_chunks]
         assert texts[0] == "First response"
         assert texts[1] == "Second response"

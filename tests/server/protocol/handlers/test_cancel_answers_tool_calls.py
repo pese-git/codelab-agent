@@ -126,10 +126,10 @@ class TestSessionSwitchAnswersToolCalls:
         replayed = [
             e
             for e in session.runtime.events_history
-            if (e.get("update") or {}).get("sessionUpdate") == "tool_call_update"
+            if e.get("event") == "tool_call_status_changed"
         ]
         assert len(replayed) == 1
-        assert replayed[0]["update"]["status"] == "cancelled"
+        assert replayed[0]["data"]["status"] == "cancelled"
         assert len(_answers(session)) == 1
 
 

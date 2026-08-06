@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.models import HistoryMessage
-from codelab.server.storage.document import SessionDocument
+from codelab.server.storage.document import CURRENT_SCHEMA_VERSION, SessionDocument
 
 
 class TestSessionStateMigrationV1toV4:
@@ -29,7 +29,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -49,7 +49,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.events_history == []
         assert session.config_values == {}
         assert session.active_strategy == "single"
@@ -60,7 +60,7 @@ class TestSessionStateMigrationV1toV4:
         """Новые поля имеют правильные значения по умолчанию."""
         session = SessionDocument(session_id="test", cwd="/tmp", mcp_servers=[])
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -136,7 +136,7 @@ class TestSessionStateMigrationV1toV4:
         assert session.permission_policy == {"execute": "allow_always"}
 
         # Новые поля добавлены
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.active_strategy == "single"
         assert session.active_agents == []
         assert session.session_metrics is None
@@ -200,7 +200,7 @@ class TestSessionStateMigrationV1toV4:
             }
         )
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         # Старые сессии начинают с нуля — первая запись поднимет до 1
         assert session.revision == 0
 
@@ -221,7 +221,7 @@ class TestSessionStateMigrationV1toV4:
             }
         )
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert not hasattr(session, "terminals")
         assert not hasattr(session, "terminals_owner")
         # Счётчик остаётся: он выдаёт alias'ы и обязан быть монотонным через рестарт
@@ -252,7 +252,7 @@ class TestSessionStateMigrationV1toV4:
             }
         )
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         call = session.tool_calls["call_001"]
         assert not hasattr(call, "result_content")
         # `content` — payload отправленной клиенту нотификации, он остаётся
@@ -274,13 +274,13 @@ class TestSessionStateMigrationV1toV4:
             }
         )
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
 
     def test_schema_version_updated_after_migration(self) -> None:
-        """После миграции schema_version равен 10 (v10 — `result_content` удалён, ADR-007)."""
+        """После миграции schema_version равен актуальному (v11 — доменный журнал, ADR-008)."""
         # v0
         session_v0 = SessionDocument(session_id="test", cwd="/tmp")
-        assert session_v0.schema_version == 10
+        assert session_v0.schema_version == CURRENT_SCHEMA_VERSION
 
         # v1
         session_v1 = SessionDocument(
@@ -289,7 +289,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v1.schema_version == 10
+        assert session_v1.schema_version == CURRENT_SCHEMA_VERSION
 
         # v3
         session_v3 = SessionDocument(
@@ -298,7 +298,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v3.schema_version == 10
+        assert session_v3.schema_version == CURRENT_SCHEMA_VERSION
 
         # v4
         session_v4 = SessionDocument(
@@ -307,7 +307,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v4.schema_version == 10
+        assert session_v4.schema_version == CURRENT_SCHEMA_VERSION
 
         # v5
         session_v5 = SessionDocument(
@@ -316,7 +316,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v5.schema_version == 10
+        assert session_v5.schema_version == CURRENT_SCHEMA_VERSION
 
         # v6 (текущая)
         session_v6 = SessionDocument(
@@ -325,7 +325,7 @@ class TestSessionStateMigrationV1toV4:
             cwd="/tmp",
             mcp_servers=[],
         )
-        assert session_v6.schema_version == 10
+        assert session_v6.schema_version == CURRENT_SCHEMA_VERSION
 
     def test_migration_v4_to_v5_adds_terminal_counter(self) -> None:
         """v4 → v5: появляется счётчик alias'ов терминалов (#18).
@@ -341,7 +341,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.terminal_counter == 0
 
     def test_migration_preserves_existing_terminal_counter(self) -> None:
@@ -377,7 +377,7 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**old_data)
 
-        assert session.schema_version == 10
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
         assert session.latest_plan == [
             {"content": "Step 1", "priority": "medium", "status": "pending"},
             {"content": "Step 2", "priority": "medium", "status": "pending"},

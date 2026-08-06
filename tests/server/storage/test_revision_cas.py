@@ -17,7 +17,7 @@ import pytest
 
 from codelab.server.exceptions import SessionRevisionConflictError
 from codelab.server.storage import InMemoryStorage, JsonFileStorage, SessionStorage
-from codelab.server.storage.document import SessionDocument
+from codelab.server.storage.document import CURRENT_SCHEMA_VERSION, SessionDocument
 
 
 def _session(cwd: str = "/start") -> SessionDocument:
@@ -72,7 +72,7 @@ class TestRevisionAdvances:
 
         assert loaded is not None
         assert loaded.revision == 0
-        assert loaded.schema_version == 10
+        assert loaded.schema_version == CURRENT_SCHEMA_VERSION
 
 
 class TestStaleCopyIsRejected:

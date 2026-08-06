@@ -7,13 +7,20 @@
 видел в turn-е, и тем, что он получает на `session/load`, перестаёт быть
 выразимым.
 
-Формат документа шагом 3a не меняется: `to_wire` отдаёт ту же запись, что
-писалась раньше. Смена формата на доменный — шаг 3b (`schema_version` 10→11).
+Шаг 3b сделал доменным и **формат хранения**: запись документа v11 —
+`{event, at, data}` с доменным именем вида и `snake_case`-полями, вместо прежней
+готовой ACP-нотификации. Поток `session/load` при этом не изменился: он строится
+проекцией из события, а не переписыванием записи.
+
+Читаются **оба** формата. v10 поднимает миграция документа (`_migrate_to_v11` в
+`storage/document.py`), но ветка v10 в `from_wire` нужна и помимо неё — доменные
+сессии собираются в обход хранилища, и разбор обязан быть идемпотентным.
 
 Терпимость к записанному: `from_wire` возвращает `UnknownUpdateRecorded` для
 всего, чего модель не описывает **точно** — включая знакомый `sessionUpdate` с
-незнакомым набором полей. Дословный проход такой записи сохраняет поток загрузки
-сессий, записанных прежними версиями.
+незнакомым набором полей. Такая запись хранится дословно (вид
+`acp_update_verbatim`) и дословно же уходит в реплей, поэтому загрузка сессий от
+прежних версий ничего не теряет.
 """
 
 from __future__ import annotations
@@ -35,25 +42,42 @@ from codelab.server.domain.journal import (
 
 _ENTRY_TYPE = "session_update"
 
+# Имена видов записи в документе v11. Держатся отдельной таблицей, а не
+# выводятся из имён классов: имя класса — деталь реализации, а это формат на
+# диске, и переименование класса не должно ломать чтение записанного.
+_EVENT_NAMES: dict[type, str] = {
+    UserMessageRecorded: "user_message_recorded",
+    AgentMessageRecorded: "agent_message_recorded",
+    ToolCallStarted: "tool_call_started",
+    ToolCallStatusChanged: "tool_call_status_changed",
+    PlanRecorded: "plan_recorded",
+    SessionInfoRecorded: "session_info_recorded",
+    UnknownUpdateRecorded: "acp_update_verbatim",
+}
+
 
 class JournalMapper:
-    """Журнал ↔ ACP: запись в документ, разбор документа, поток реплея.
+    """Журнал ↔ документ и журнал ↔ ACP: запись, разбор, поток реплея.
 
     Пример использования:
         >>> entry = JournalEntry(UserMessageRecorded({"type": "text", "text": "привет"}))
-        >>> JournalMapper.to_wire(entry)["update"]["sessionUpdate"]
-        'user_message_chunk'
+        >>> JournalMapper.to_wire(entry)["event"]
+        'user_message_recorded'
     """
 
     @staticmethod
     def to_wire(entry: JournalEntry) -> dict[str, Any]:
-        """Запись журнала в форме документа сессии (нынешний формат, v10)."""
-        wire: dict[str, Any] = {
-            "type": _ENTRY_TYPE,
-            "update": JournalMapper.to_acp_update(entry.event),
-        }
+        """Запись журнала в форме документа v11: `{event, at, data}`.
+
+        Оболочка журнала отделена от полей события намеренно: `kind` вызова
+        инструмента и вид записи иначе делили бы одно пространство имён, а
+        добавление поля журнала (`seq` в шаге 6) рисковало бы столкнуться с полем
+        события.
+        """
+        wire: dict[str, Any] = {"event": _EVENT_NAMES[type(entry.event)]}
         if entry.timestamp is not None:
-            wire["timestamp"] = entry.timestamp.isoformat()
+            wire["at"] = entry.timestamp.isoformat()
+        wire["data"] = _data_of(entry.event)
         return wire
 
     @staticmethod
@@ -122,7 +146,17 @@ class JournalMapper:
 
     @staticmethod
     def from_wire(wire: dict[str, Any]) -> JournalEntry | None:
-        """Запись документа как событие журнала; `None` — это не запись журнала."""
+        """Запись документа как событие журнала; `None` — это не запись журнала.
+
+        Читает **оба** формата: v11 (`{event, at, data}`) и v10
+        (`{type: session_update, update, timestamp}`). Ветка v10 нужна не только
+        документам с диска — их поднимает миграция, — а доменным сессиям, которые
+        собираются в обход хранилища (тесты, дочерние сессии), и делает разбор
+        идемпотентным.
+        """
+        if isinstance(wire.get("event"), str):
+            return _entry_from_v11(wire)
+
         if wire.get("type") != _ENTRY_TYPE:
             return None
 
@@ -154,6 +188,94 @@ _TOOL_CALL_KEYS: frozenset[str] = frozenset(
     {"sessionUpdate", "toolCallId", "title", "kind", "status"}
 )
 _TOOL_CALL_UPDATE_KEYS: frozenset[str] = frozenset({"sessionUpdate", "toolCallId", "status"})
+
+
+def _data_of(event: SessionEvent) -> dict[str, Any]:
+    """Полезная нагрузка события в форме v11 — доменные имена, `snake_case`.
+
+    Блоки контента остаются как есть: их форма принадлежит ACP Content Types, и
+    домен их не переписывает (см. `domain/journal.py`).
+    """
+    match event:
+        case UserMessageRecorded(content=content) | AgentMessageRecorded(content=content):
+            return {"content": content}
+        case ToolCallStarted(
+            tool_call_id=tool_call_id, title=title, kind=kind, status=status, content=content
+        ):
+            data: dict[str, Any] = {
+                "tool_call_id": tool_call_id,
+                "title": title,
+                "kind": kind,
+                "status": status,
+            }
+            if content:
+                data["content"] = content
+            return data
+        case ToolCallStatusChanged(tool_call_id=tool_call_id, status=status, content=content):
+            changed: dict[str, Any] = {"tool_call_id": tool_call_id, "status": status}
+            if content:
+                changed["content"] = content
+            return changed
+        case PlanRecorded(entries=entries):
+            return {"entries": entries}
+        case SessionInfoRecorded(title=title, updated_at=updated_at):
+            return {"title": title, "updated_at": updated_at}
+        case UnknownUpdateRecorded(update=raw):
+            return {"update": raw}
+
+
+def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
+    """Разбор записи v11; `None` — вид записи неизвестен.
+
+    Неизвестный вид пропускается, а не роняет загрузку: документ мог быть записан
+    более новой версией, и потерять на этом всю сессию было бы хуже, чем потерять
+    одну запись. Форма самой записи при этом сохраняется в документе — реплей её
+    просто не отдаёт.
+    """
+    data = wire.get("data")
+    if not isinstance(data, dict):
+        return None
+
+    timestamp = _timestamp_from_wire(wire.get("at"))
+    content = data.get("content")
+    entries = data.get("entries")
+
+    match wire["event"]:
+        case "user_message_recorded" if isinstance(content, dict):
+            return JournalEntry(UserMessageRecorded(content=content), timestamp)
+        case "agent_message_recorded" if isinstance(content, dict):
+            return JournalEntry(AgentMessageRecorded(content=content), timestamp)
+        case "tool_call_started" if _strings(data, "tool_call_id", "title", "kind", "status"):
+            return JournalEntry(
+                ToolCallStarted(
+                    tool_call_id=data["tool_call_id"],
+                    title=data["title"],
+                    kind=data["kind"],
+                    status=data["status"],
+                    content=data.get("content"),
+                ),
+                timestamp,
+            )
+        case "tool_call_status_changed" if _strings(data, "tool_call_id", "status"):
+            return JournalEntry(
+                ToolCallStatusChanged(
+                    tool_call_id=data["tool_call_id"],
+                    status=data["status"],
+                    content=data.get("content"),
+                ),
+                timestamp,
+            )
+        case "plan_recorded" if isinstance(entries, list):
+            return JournalEntry(PlanRecorded(entries=entries), timestamp)
+        case "session_info_recorded":
+            return JournalEntry(
+                SessionInfoRecorded(title=data.get("title"), updated_at=data.get("updated_at")),
+                timestamp,
+            )
+        case "acp_update_verbatim" if isinstance(data.get("update"), dict):
+            return JournalEntry(UnknownUpdateRecorded(update=data["update"]), timestamp)
+
+    return None
 
 
 def _strings(update: dict[str, Any], *names: str) -> bool:

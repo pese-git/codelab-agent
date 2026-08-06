@@ -140,6 +140,41 @@ def _migrate_to_v10(data: dict[str, Any]) -> None:
             call.pop("result_content", None)
 
 
+def _migrate_to_v11(data: dict[str, Any]) -> None:
+    """v10 → v11: журнал хранится доменными событиями, а не ACP-нотификациями (шаг 3b ADR-008).
+
+    До v11 элемент `events_history` был готовой нотификацией `session/update` в
+    camelCase, то есть формат хранения задавался внешним протоколом. Теперь запись
+    имеет вид `{event, at, data}` с доменным именем вида, а ACP-поток строится
+    проекцией при загрузке.
+
+    Миграция **ничего не теряет**: то, что модель не описывает точно, переносится
+    видом `acp_update_verbatim` с исходным обновлением внутри и дословно уходит в
+    реплей. Записи, которые журналом не являются вовсе (`type` не
+    `session_update`), остаются как были — журнал ими не владеет, и реплей их не
+    отдавал и раньше.
+    """
+    from ..mapping.journal_mapper import JournalMapper
+
+    journal = data.get("events_history")
+    if not isinstance(journal, list):
+        return
+
+    migrated: list[Any] = []
+    for record in journal:
+        if not isinstance(record, dict):
+            migrated.append(record)
+            continue
+        entry = JournalMapper.from_wire(record)
+        migrated.append(JournalMapper.to_wire(entry) if entry is not None else record)
+    data["events_history"] = migrated
+
+
+# Актуальная версия формата документа. Названа константой, потому что число
+# встречается и в модели, и в тестах миграций: раньше при поднятии версии его
+# приходилось искать по литералам, и тесты падали пачкой, не объясняя причину.
+CURRENT_SCHEMA_VERSION = 11
+
 # Порядок обязателен: шаги применяются подряд от текущей версии документа.
 _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (1, _migrate_to_v1),
@@ -151,6 +186,7 @@ _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (8, _migrate_to_v8),
     (9, _migrate_to_v9),
     (10, _migrate_to_v10),
+    (11, _migrate_to_v11),
 ]
 
 
@@ -277,7 +313,7 @@ class SessionDocument(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Версия схемы для миграций
-    schema_version: int = Field(default=10)
+    schema_version: int = Field(default=CURRENT_SCHEMA_VERSION)
     # Ревизия документа: счётчик записей, растёт на каждое сохранение. Нужна для
     # compare-and-set: копия сессии живёт через `await` (фоновое исполнение turn'а),
     # и без сверки её запись молча затирала бы решения, принятые тем временем другим

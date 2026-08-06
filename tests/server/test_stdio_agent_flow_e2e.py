@@ -16,6 +16,9 @@ from pathlib import Path
 import agent_flow_harness as h
 import pytest
 
+from codelab.server.domain.journal import ToolCallStarted, ToolCallStatusChanged
+from codelab.server.mapping.journal_mapper import JournalMapper
+
 # stdio-транспорт и запуск сервера вынесены в agent_flow_harness (h.StdioServer).
 _server = h.StdioServer
 
@@ -365,14 +368,24 @@ def _stored_session(tmp_cwd: Path, session_id: str) -> dict:
 
 
 def _last_wire_status(stored: dict, tool_call_id: str) -> str | None:
-    """Последний статус tool call, который ушёл клиенту и лёг в events_history."""
+    """Последний статус tool call, который ушёл клиенту и лёг в журнал.
+
+    Читается через проекцию, а не по полям записи: с v11 журнал хранит доменные
+    события (шаг 3b ADR-008), и сверка «состояние ↔ то, что видел клиент» не
+    должна зависеть от формата носителя — иначе она молча перестанет что-либо
+    проверять при следующей смене формата.
+    """
     status = None
-    for event in stored["events_history"]:
-        update = event.get("update", {})
-        if update.get("toolCallId") != tool_call_id:
+    for record in stored["events_history"]:
+        entry = JournalMapper.from_wire(record)
+        if entry is None:
             continue
-        if update.get("sessionUpdate") in ("tool_call", "tool_call_update"):
-            status = update.get("status", status)
+        event = entry.event
+        if not isinstance(event, ToolCallStarted | ToolCallStatusChanged):
+            continue
+        if event.tool_call_id != tool_call_id:
+            continue
+        status = event.status
     return status
 
 

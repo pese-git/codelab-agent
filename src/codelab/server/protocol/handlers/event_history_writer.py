@@ -191,7 +191,7 @@ class EventHistoryWriter:
             "event appended to session journal",
             session_id=session_id,
             event_type=type(event).__name__,
-            update_type=wire["update"].get("sessionUpdate"),
+            record_kind=wire["event"],
         )
 
 
