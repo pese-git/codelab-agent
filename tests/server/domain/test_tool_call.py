@@ -2,7 +2,7 @@
 
 import pytest
 
-from codelab.server.domain.tool_call import ToolCall, ToolResult
+from codelab.server.domain.tool_call import ToolCall, ToolResult, answer_tool_call_id
 from codelab.server.domain.value_objects import FileLocation, ToolCallStatus
 
 
@@ -90,3 +90,38 @@ class TestToolCall:
         a = ToolCall(id="call_1", tool_name="read_file")
         b = ToolCall(id="call_1", tool_name="read_file")
         assert a == b
+
+
+class TestAnswerToolCallId:
+    """Правило перевода «внутренняя идентичность → идентичность для модели».
+
+    Шаг 1 ADR-008: до него правило было продублировано десятью выражениями
+    `tool_call_id_from_llm or tool_call_id` в четырёх модулях.
+    """
+
+    def test_prefers_llm_id(self) -> None:
+        assert answer_tool_call_id("chatcmpl-tool-abc", "call_001") == "chatcmpl-tool-abc"
+
+    def test_falls_back_to_internal_id_when_llm_id_absent(self) -> None:
+        """Путь без LLM (client-RPC, отмена, служебный вызов) — рабочая ветка.
+
+        Ответ обязан быть отправлен и здесь: без него вызов остаётся без
+        `role: tool` и следующий запрос нарушает контракт LLM-API (P2-38).
+        """
+        assert answer_tool_call_id(None, "call_001") == "call_001"
+
+    def test_falls_back_on_empty_llm_id(self) -> None:
+        """Пустая строка — не идентификатор: под ней ответ модель не сопоставит."""
+        assert answer_tool_call_id("", "call_001") == "call_001"
+
+    def test_property_delegates_to_rule(self) -> None:
+        """Две точки входа, одно правило: объект и пара идентификаторов совпадают."""
+        tc = ToolCall(
+            id="call_001", tool_name="terminal/create", tool_call_id_from_llm="chatcmpl-tool-abc"
+        )
+        assert tc.answer_id == answer_tool_call_id(tc.tool_call_id_from_llm, tc.id)
+        assert tc.answer_id == "chatcmpl-tool-abc"
+
+    def test_property_without_llm_id(self) -> None:
+        tc = ToolCall(id="call_001", tool_name="fs/read_text_file")
+        assert tc.answer_id == "call_001"

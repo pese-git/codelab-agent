@@ -8,6 +8,24 @@ from typing import Any
 from .value_objects import TERMINAL_TOOL_CALL_STATUSES, FileLocation, ToolCallStatus
 
 
+def answer_tool_call_id(tool_call_id_from_llm: str | None, tool_call_id: str) -> str:
+    """Идентификатор, которым вызов адресуется **модели** (`role: tool`).
+
+    Единственный владелец правила перевода «внутренняя идентичность → идентичность
+    для модели» (шаг 1 ADR-008). Раньше правило было продублировано десятью
+    выражениями `tool_call_id_from_llm or tool_call_id` в четырёх модулях.
+
+    Внутренний `tool_call_id` (`call_NNN`) выдаёт агрегат и им ключуются состояние
+    и ACP-нотификации. Модель адресует свой вызов собственным идентификатором,
+    поэтому ответ обязан идти под ним. Fallback на внутренний — не подстраховка, а
+    рабочая ветка: у путей без LLM (client-RPC, отмена, служебные вызовы)
+    идентификатора модели не существует, и ответ всё равно обязан быть отправлен,
+    иначе вызов остаётся без `role: tool` и следующий запрос нарушает контракт
+    LLM-API (P2-38).
+    """
+    return tool_call_id_from_llm or tool_call_id
+
+
 @dataclass(frozen=True)
 class ToolResult:
     """Domain model для результата выполнения tool call."""
@@ -46,6 +64,16 @@ class ToolCall:
     kind: str = "other"
     title: str | None = None
     tool_call_id_from_llm: str | None = None
+
+    @property
+    def answer_id(self) -> str:
+        """Идентификатор, которым этот вызов адресуется модели.
+
+        Делегирует `answer_tool_call_id`: правило одно, точек входа две — для
+        вызывающих с объектом на руках и для тех, у кого есть только пара
+        идентификаторов.
+        """
+        return answer_tool_call_id(self.tool_call_id_from_llm, self.id)
 
     @property
     def is_terminal(self) -> bool:

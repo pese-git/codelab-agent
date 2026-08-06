@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.domain.tool_call import answer_tool_call_id
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
     ToolLoopDetector,
 )
@@ -563,7 +564,7 @@ class ToolCallProcessor:
         await self._fail_tool_call(
             commands,
             tool_call_id=tool_call_id,
-            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            answer_tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             message=rejection_msg,
         )
 
@@ -580,7 +581,7 @@ class ToolCallProcessor:
             content=rejection_content,
         )
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
             success=False,
             error=rejection_msg,
@@ -642,7 +643,7 @@ class ToolCallProcessor:
         await self._fail_tool_call(
             commands,
             tool_call_id=tool_call_id,
-            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            answer_tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             message=error_msg,
         )
         notification = self._tool_call_handler.build_tool_update_notification(
@@ -658,7 +659,7 @@ class ToolCallProcessor:
             content=error_content,
         )
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
             success=False,
             error=error_msg,
@@ -702,7 +703,7 @@ class ToolCallProcessor:
         await self._fail_tool_call(
             commands,
             tool_call_id=tool_call_id,
-            answer_tool_call_id=tool_call_id_from_llm or tool_call_id,
+            answer_tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             message=error_msg,
         )
         notification = self._tool_call_handler.build_tool_update_notification(
@@ -718,7 +719,7 @@ class ToolCallProcessor:
             content=error_content,
         )
         return ToolResult(
-            tool_call_id=tool_call_id_from_llm or tool_call_id,
+            tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
             success=False,
             error=error_msg,
@@ -746,7 +747,7 @@ class ToolCallProcessor:
             tool_name=acp_tool_name,
             is_mcp=is_mcp,
         )
-        effective_id = tool_call_id_from_llm or tool_call_id
+        effective_id = answer_tool_call_id(tool_call_id_from_llm, tool_call_id)
         try:
             await commands.apply(
                 lambda target: self._tool_call_handler.update_tool_call_status(
@@ -918,7 +919,7 @@ class ToolCallProcessor:
             tool_name=tool_name,
         )
 
-        effective_id = tool_call_id_from_llm or tool_call_id
+        effective_id = answer_tool_call_id(tool_call_id_from_llm, tool_call_id)
         # Матрица переходов допускает completed только из in_progress, поэтому
         # resume-путь обязан отметить запуск так же, как обычный (_execute_allowed_tool).
         # Без этого completed молча отбрасывается и состояние застревает в pending.
