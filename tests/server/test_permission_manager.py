@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.storage.document import SessionDocument, ToolCallState
 
@@ -136,28 +137,38 @@ class TestPermissionManagerRequest:
             assert "kind" in option
 
     def test_build_permission_request_sets_active_turn_ids(
-        self, manager: PermissionManager, session: SessionDocument
+        self, manager: PermissionManager
     ) -> None:
-        """Проверяет, что build_permission_request обновляет active_turn."""
-        from codelab.server.storage.document import ActiveTurnState
+        """Пауза turn'а — одно значение фазы, а не два поля по отдельности.
 
-        session.active_turn = ActiveTurnState(
+        Работает с доменным агрегатом, как и продакшен (`ToolCallProcessor` —
+        единственный вызывающий): до ADR-008 шага 2 тест подавал сюда документ, у
+        которого перехода фазы нет.
+        """
+        from codelab.server.domain.value_objects import AwaitingPermission
+        from tests.server._domain_sessions import make_domain_session
+
+        domain_session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        domain_session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
 
         msg = manager.build_permission_request(
-            session=session,
+            session=domain_session,
             session_id="sess_1",
             tool_call_id="call_001",
             tool_title="Test",
             tool_kind="execute",
         )
 
-        # Проверяем, что permission_request_id установлен
-        if msg.id is not None:
-            assert session.active_turn.permission_request_id == msg.id
-            assert session.active_turn.permission_tool_call_id == "call_001"
+        assert msg.id is not None
+        assert domain_session.active_turn.phase == AwaitingPermission(
+            request_id=msg.id, tool_call_id="call_001"
+        )
+        # Выводимые чтения остались прежними — их около пятнадцати в продакшене.
+        assert domain_session.active_turn.permission_request_id == msg.id
+        assert domain_session.active_turn.permission_tool_call_id == "call_001"
 
 
 class TestPermissionManagerExtraction:

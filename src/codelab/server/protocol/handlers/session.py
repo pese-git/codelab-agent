@@ -15,7 +15,7 @@ import structlog
 from codelab.server.storage.document import ClientRuntimeCapabilities
 
 from ...domain.session import Session as DomainSession
-from ...domain.value_objects import ToolCallStatus
+from ...domain.value_objects import ToolCallStatus, TurnCancelled
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
@@ -68,11 +68,16 @@ def _cleanup_session_state(session: DomainSession) -> None:
     # Завершить active turn
     if session.active_turn is not None:
         session.active_turn.cancel_requested = True
-        session.active_turn.phase = "cancelled"
+
+        # Идентификатор снимается вместе с фазой (ADR-008, шаг 2: он часть её значения),
+        # поэтому читается ДО перехода. Порядок значим: после перехода в `cancelled`
+        # ожидаемого разрешения уже не существует, и отменять было бы нечего.
+        pending_permission_id = session.active_turn.permission_request_id
+        session.active_turn.transition_to(TurnCancelled())
 
         # Если был permission request, отменить его
-        if session.active_turn.permission_request_id is not None:
-            session.cancel_permission_request(session.active_turn.permission_request_id)
+        if pending_permission_id is not None:
+            session.cancel_permission_request(pending_permission_id)
 
         # Если был pending client request, отменить его
         if session.active_turn.pending_external_request is not None:

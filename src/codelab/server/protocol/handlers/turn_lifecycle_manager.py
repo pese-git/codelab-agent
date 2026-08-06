@@ -8,6 +8,7 @@ from __future__ import annotations
 import structlog
 
 from codelab.server.domain.session import Session, TurnState
+from codelab.server.domain.value_objects import Running, TurnPhase
 
 from ...messages import ACPMessage, JsonRpcId
 from ..state import PromptDirectives
@@ -43,7 +44,7 @@ class TurnLifecycleManager:
         turn = TurnState(
             prompt_request_id=prompt_request_id,
             session_id=session_id,
-            phase="running",
+            phase=Running(),
         )
         logger.debug(
             "active turn created",
@@ -87,14 +88,18 @@ class TurnLifecycleManager:
     def set_turn_phase(
         self,
         session: Session,
-        phase: str,
+        phase: TurnPhase,
     ) -> None:
         """Переходит turn в новую фазу.
 
+        Проверка перехода принадлежит агрегату (`TurnState.transition_to`, ADR-008
+        шаг 2): раньше матрица жила здесь строками и **не применялась ни разу** —
+        у этого метода не было вызывающих в продакшене, а фазу писали прямыми
+        присваиваниями. Здесь остаётся wire-поверхность: проверка наличия turn'а.
+
         Args:
             session: Состояние сессии
-            phase: Новая фаза (running, awaiting_permission,
-                awaiting_client_rpc, completing)
+            phase: Новая фаза
         """
         if session.active_turn is None:
             logger.warning(
@@ -103,44 +108,29 @@ class TurnLifecycleManager:
             )
             return
 
-        allowed_phases = _get_allowed_phases()
-        if phase not in allowed_phases:
-            logger.warning(
-                "invalid turn phase",
-                phase=phase,
-                allowed=allowed_phases,
-            )
-            return
-
         current_phase = session.active_turn.phase
-        if not _validate_phase_transition(current_phase, phase):
-            logger.warning(
-                "invalid phase transition",
-                from_phase=current_phase,
-                to_phase=phase,
-            )
+        if not session.active_turn.transition_to(phase):
             return
 
-        session.active_turn.phase = phase
         logger.debug(
             "turn phase changed",
             session_id=str(session.id),
-            from_phase=current_phase,
-            to_phase=phase,
+            from_phase=current_phase.wire_name,
+            to_phase=phase.wire_name,
         )
 
     def get_turn_phase(self, session: Session) -> str:
-        """Возвращает текущую фазу turn.
+        """Возвращает имя текущей фазы turn.
 
         Args:
             session: Состояние сессии
 
         Returns:
-            Текущая фаза или 'unknown' если턴а нет
+            Имя фазы или 'unknown' если turn'а нет
         """
         if session.active_turn is None:
             return "unknown"
-        return session.active_turn.phase
+        return session.active_turn.phase.wire_name
 
     def resolve_stop_reason(
         self,
@@ -260,18 +250,6 @@ class TurnLifecycleManager:
         return session.active_turn.cancel_requested
 
 
-def _get_allowed_phases() -> set[str]:
-    """Матрица допустимых фаз жизненного цикла.
-
-    Returns:
-        Множество разрешенных фаз
-    """
-    return {
-        "running",
-        "awaiting_permission",
-        "awaiting_client_rpc",
-        "completing",
-    }
 
 
 def _get_supported_stop_reasons() -> set[str]:
@@ -315,39 +293,3 @@ def _normalize_stop_reason(
     return "end_turn"
 
 
-def _validate_phase_transition(
-    from_phase: str,
-    to_phase: str,
-) -> bool:
-    """Проверяет валидность перехода между фазами.
-
-    Допустимые переходы:
-    - running -> любая
-    - awaiting_permission -> running, completing
-    - awaiting_client_rpc -> running, completing
-    - completing -> (финальная)
-
-    Args:
-        from_phase: Текущая фаза
-        to_phase: Целевая фаза
-
-    Returns:
-        True если переход валиден
-    """
-    # От running можно перейти в любую фазу
-    if from_phase == "running":
-        return True
-
-    # От awaiting_permission можно вернуться в running или завершить
-    if from_phase == "awaiting_permission":
-        return to_phase in {"running", "completing"}
-
-    # От awaiting_client_rpc можно вернуться в running или завершить
-    if from_phase == "awaiting_client_rpc":
-        return to_phase in {"running", "completing"}
-
-    # completing - финальная фаза
-    if from_phase == "completing":
-        return to_phase == "completing"
-
-    return False

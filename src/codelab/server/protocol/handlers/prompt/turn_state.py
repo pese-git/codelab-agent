@@ -9,26 +9,36 @@ from __future__ import annotations
 
 import structlog
 
-from codelab.server.storage.document import SessionDocument
-
+from ....domain.session import Session as DomainSession
+from ....domain.value_objects import AwaitingPermission
 from ....messages import ACPMessage
 from .normalization import normalize_stop_reason
 
 logger = structlog.get_logger()
 
 
-def finalize_active_turn(session: SessionDocument, *, stop_reason: str) -> ACPMessage | None:
+def finalize_active_turn(session: DomainSession, *, stop_reason: str) -> ACPMessage | None:
     """Финализирует текущий active turn и очищает его состояние.
 
+    Работает с доменным агрегатом, а не с документом (ADR-008, шаг 2): фаза turn'а —
+    типизированный `TurnPhase`, и интерпретировать её должен домен, а не читатель
+    сериализованной формы.
+
+    ⚠️ **Очистка turn'а здесь на диск не попадает — так было и до перехода.**
+    Вызывающий (`BackgroundExecutor`) загружает сессию только для чтения и не
+    сохраняет её, а бэкенд отдаёт новый объект на каждую загрузку. Сделать очистку
+    настоящей записью — отдельное решение: это изменение поведения на пути завершения
+    turn'а, и оно требует своего живого прогона.
+
     Пример использования:
-        response = finalize_active_turn(state, stop_reason="cancelled")
+        response = finalize_active_turn(session, stop_reason="cancelled")
     """
 
     active_turn = session.active_turn
     if active_turn is None or active_turn.prompt_request_id is None:
         return None
 
-    session.active_turn = None
+    session.clear_active_turn()
     return ACPMessage.response(
         active_turn.prompt_request_id,
         {"stopReason": normalize_stop_reason(stop_reason)},
@@ -36,7 +46,7 @@ def finalize_active_turn(session: SessionDocument, *, stop_reason: str) -> ACPMe
 
 
 def complete_active_turn(
-    session: SessionDocument,
+    session: DomainSession,
     *,
     stop_reason: str = "end_turn",
 ) -> ACPMessage | None:
@@ -54,7 +64,7 @@ def complete_active_turn(
 
 
 def should_auto_complete_active_turn(
-    session: SessionDocument,
+    session: DomainSession,
 ) -> bool:
     """Возвращает `True`, если active turn можно безопасно автозавершить.
 
@@ -66,4 +76,7 @@ def should_auto_complete_active_turn(
     """
     if session.active_turn is None:
         return False
-    return session.active_turn.phase == "waiting_tool_completion"
+    # Признак читается из значения фазы, а не из её имени: до ADR-008 шага 2 те же две
+    # ветки одного состояния различались строкой `waiting_tool_completion`.
+    phase = session.active_turn.phase
+    return isinstance(phase, AwaitingPermission) and phase.keep_tool_pending

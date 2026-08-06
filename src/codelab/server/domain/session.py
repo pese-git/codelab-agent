@@ -27,12 +27,16 @@ from .plan import PlanEntry
 from .tool_call import ToolCall, ToolResult
 from .value_objects import (
     ALLOWED_TOOL_CALL_TRANSITIONS,
+    ALLOWED_TURN_PHASE_TRANSITIONS,
     TERMINAL_ALIAS_PREFIX,
+    AwaitingPermission,
     FileLocation,
     MessageRole,
     PlanStatus,
+    Running,
     SessionId,
     ToolCallStatus,
+    TurnPhase,
 )
 
 logger = structlog.get_logger()
@@ -303,21 +307,58 @@ class TurnState:
     Значение должно совпадать с `Session.id` владельца — маппер отдаёт его в wire
     как есть, поэтому рассинхрон был бы виден снаружи.
 
-    `phase` пока `str` (значения: running/waiting_permission/awaiting_permission/
-    waiting_client_rpc/waiting_tool_completion/cancelled). Типизированный `TurnPhase`
-    вводится на стадии b4/b8 (там же устраняется рассинхрон
-    `waiting_permission`/`awaiting_permission`).
+    `phase` — типизированный `TurnPhase` (ADR-008, шаг 2; ранее числился как стадия
+    b4/b8). Рассинхрон `waiting_permission`/`awaiting_permission` устранён вместе с
+    третьим написанием `waiting_tool_completion`: это две ветки одного состояния,
+    различаемые полем `keep_tool_pending`, а не именем.
+
+    `permission_request_id` и `permission_tool_call_id` — **выводимые** из фазы, а не
+    отдельные поля. Пока они лежали рядом с фазой, было выразимо состояние «жду
+    разрешения, но не знаю какого», и оно наблюдалось живьём. Чтения остались
+    прежними (их около пятнадцати, включая поиск сессии по `permission_request_id`),
+    запись идёт только через переход фазы.
     """
 
     session_id: str
     prompt_request_id: str | int | None = None
     cancel_requested: bool = False
-    permission_request_id: str | int | None = None
-    permission_tool_call_id: str | None = None
-    phase: str = "running"
+    phase: TurnPhase = field(default_factory=Running)
     pending_external_request: PendingExternalRequest | None = None
     # Остаток батча tool_calls, ожидающий возобновления после permission (P2-40).
     pending_batch: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def permission_request_id(self) -> str | int | None:
+        """Идентификатор ожидаемого permission-запроса, если turn его ждёт."""
+        return self.phase.request_id if isinstance(self.phase, AwaitingPermission) else None
+
+    @property
+    def permission_tool_call_id(self) -> str | None:
+        """Вызов, ожидающий решения пользователя, если turn его ждёт."""
+        return self.phase.tool_call_id if isinstance(self.phase, AwaitingPermission) else None
+
+    def transition_to(self, phase: TurnPhase) -> bool:
+        """Сменить фазу по матрице переходов — единственный путь записи.
+
+        Матрица существовала и раньше, но не применялась: её единственный вход
+        `TurnLifecycleManager.set_turn_phase` не имел вызывающих в продакшене, а фазу
+        писали пятью прямыми присваиваниями. Отказ логируется, а не пропускается
+        молча — тот же приём, что у `ToolCallRegistry.update_status`.
+
+        Returns:
+            True, если фаза изменена (или уже равна запрошенной).
+        """
+        allowed = ALLOWED_TURN_PHASE_TRANSITIONS.get(type(self.phase), frozenset())
+        if type(phase) not in allowed:
+            logger.warning(
+                "turn_phase_transition_rejected",
+                session_id=self.session_id,
+                from_phase=self.phase.wire_name,
+                to_phase=phase.wire_name,
+            )
+            return False
+        self.phase = phase
+        return True
 
 
 @dataclass

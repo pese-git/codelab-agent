@@ -25,6 +25,7 @@ from codelab.server.domain.session import (
     TurnState,
 )
 from codelab.server.domain.value_objects import (
+    AwaitingPermission,
     MessageRole,
     PlanPriority,
     PlanStatus,
@@ -161,9 +162,7 @@ class TestRoundtripTurnAndRuntime:
             session_id="sess_rt",
             prompt_request_id="req_1",
             cancel_requested=True,
-            permission_request_id=7,
-            permission_tool_call_id="call_001",
-            phase="waiting_permission",
+            phase=AwaitingPermission(request_id=7, tool_call_id="call_001"),
             pending_external_request=PendingExternalRequest(
                 request_id="rpc_1",
                 kind="fs_read",
@@ -176,9 +175,14 @@ class TestRoundtripTurnAndRuntime:
         assert rt.active_turn.session_id == "sess_rt"
         assert rt.active_turn.prompt_request_id == "req_1"
         assert rt.active_turn.cancel_requested is True
+        # Идентификаторы — выводимые из фазы (ADR-008, шаг 2), поэтому round-trip
+        # обязан сохранить именно значение фазы, а не три плоских поля.
         assert rt.active_turn.permission_request_id == 7
         assert rt.active_turn.permission_tool_call_id == "call_001"
-        assert rt.active_turn.phase == "waiting_permission"
+        assert rt.active_turn.phase == AwaitingPermission(request_id=7, tool_call_id="call_001")
+        # Прежнее имя `waiting_permission` читается, но перезаписывается каноничным
+        # `awaiting_permission`: одно состояние больше не имеет трёх написаний.
+        assert rt.active_turn.phase.wire_name == "awaiting_permission"
         assert rt.active_turn.pending_external_request is not None
         assert rt.active_turn.pending_external_request.path == "/tmp/README.md"
 

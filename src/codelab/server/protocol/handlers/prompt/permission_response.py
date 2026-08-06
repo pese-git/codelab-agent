@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from ....domain.session import Session as DomainSession
-from ....domain.value_objects import ToolCallStatus
+from ....domain.value_objects import Running, ToolCallStatus
 from ....messages import ACPMessage, JsonRpcId
 from ...state import PendingToolExecution, ProtocolOutcome
 from ..permissions import build_permission_options
@@ -59,8 +59,12 @@ def resolve_permission_response_impl(
         selected_option_id, build_permission_options()
     )
 
-    session.active_turn.permission_request_id = None
-    session.active_turn.permission_tool_call_id = None
+    # Снятие идентификаторов ЕСТЬ возврат в `running` (ADR-008, шаг 2): они часть
+    # значения фазы, поэтому «снял, но забыл вернуть фазу» больше не выразимо. До этого
+    # фаза оставалась `awaiting_permission` до конца turn'а при обоих идентификаторах
+    # `null` — наблюдалось живьём (прогон 2026-08-06) и мешало различить «процесс умер на
+    # настоящей паузе» от «идентификатор не сняли» (P2-46).
+    session.active_turn.transition_to(Running())
 
     tool_call = session.tool_calls.get(tool_call_id)
     tool_kind = tool_call.kind if tool_call is not None else None

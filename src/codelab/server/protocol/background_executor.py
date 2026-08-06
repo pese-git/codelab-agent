@@ -208,7 +208,10 @@ class BackgroundExecutor:
         Returns:
             ACPMessage с финальным response или None.
         """
-        session = await self._storage.load_session(session_id)
+        # Доменный порт, а не бэкенд: фаза turn'а — типизированный `TurnPhase`, и
+        # интерпретирует её домен (ADR-008, шаг 2). Запись как и раньше не делается —
+        # очистка turn'а здесь на диск не попадает, см. `finalize_active_turn`.
+        session = await self._repository.load_session(session_id)
         if session is None:
             return None
         return prompt.complete_active_turn(
@@ -227,7 +230,7 @@ class BackgroundExecutor:
         Returns:
             True если можно автозавершить.
         """
-        session = await self._storage.load_session(session_id)
+        session = await self._repository.load_session(session_id)
         if session is None or session.active_turn is None:
             return False
         return prompt.should_auto_complete_active_turn(session)

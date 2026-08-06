@@ -500,7 +500,9 @@ class ToolCallProcessor:
         if tool_call_state is not None:
             # Заведение запроса разрешения и пауза turn'а — одна команда: ответ на
             # разрешение придёт отдельным запросом и найдёт сессию по
-            # `permission_request_id`, поэтому оба поля обязаны лечь на диск вместе.
+            # `permission_request_id`. Пауза выставляется внутри
+            # `build_permission_request`: фаза несёт оба идентификатора одним значением
+            # (ADR-008, шаг 2), поэтому здесь их больше не досоставляют по частям.
             def _pause(target: Session) -> None:
                 permission_msg = self._permission_manager.build_permission_request(
                     target,
@@ -513,9 +515,6 @@ class ToolCallProcessor:
                 # НЕ отправляем permission request через immediate callback.
                 # Он будет отправлен через стандартный механизм outcome.notifications
                 # чтобы избежать дублирования и корректной обработки ответа.
-                if target.active_turn:
-                    target.active_turn.phase = "awaiting_permission"
-                    target.active_turn.permission_tool_call_id = tool_call_id
 
             await commands.require_active_turn(_pause, name="permission_requested")
 

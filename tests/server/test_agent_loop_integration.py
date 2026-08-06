@@ -20,7 +20,7 @@ from codelab.server.config import AppConfig
 from codelab.server.di import make_container
 from codelab.server.domain.session import TurnState
 from codelab.server.domain.tool_call import ToolCall
-from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.domain.value_objects import Running, ToolCallStatus
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 from codelab.server.protocol.stop_reasons import StopReason
@@ -133,8 +133,7 @@ class TestAgentLoopEventBusPath:
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
-            phase="running",
-            permission_tool_call_id=None,
+            phase=Running(),
         )
 
         loop = AgentLoop(
@@ -226,8 +225,7 @@ class TestAgentLoopPermissionFlow:
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
-            phase="running",
-            permission_tool_call_id=None,
+            phase=Running(),
         )
 
         # Вызов для resume — доменный: носитель turn-пути агрегат (ADR-006)
@@ -309,8 +307,7 @@ class TestAgentLoopCancellation:
             prompt_request_id="req_1",
             session_id="test_session",
             cancel_requested=False,
-            phase="running",
-            permission_tool_call_id=None,
+            phase=Running(),
         )
 
         loop = AgentLoop(

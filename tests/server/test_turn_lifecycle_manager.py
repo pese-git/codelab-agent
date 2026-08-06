@@ -6,6 +6,15 @@
 import pytest
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.domain.session import TurnState
+from codelab.server.domain.value_objects import (
+    AwaitingClientRpc,
+    AwaitingPermission,
+    Completing,
+    Running,
+    TurnCancelled,
+    TurnPhase,
+)
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.protocol.state import PromptDirectives
 from codelab.server.storage.document import ActiveTurnState
@@ -45,7 +54,7 @@ class TestTurnLifecycleCreation:
         turn = lifecycle_manager.create_active_turn("sess_1", "req_1")
         assert turn.session_id == "sess_1"
         assert turn.prompt_request_id == "req_1"
-        assert turn.phase == "running"
+        assert turn.phase == Running()
         assert turn.cancel_requested is False
 
     def test_create_active_turn_no_request_id(
@@ -55,7 +64,7 @@ class TestTurnLifecycleCreation:
         """Создает turn без request_id."""
         turn = lifecycle_manager.create_active_turn("sess_1", None)
         assert turn.prompt_request_id is None
-        assert turn.phase == "running"
+        assert turn.phase == Running()
 
 
 class TestTurnLifecycleCancel:
@@ -121,7 +130,19 @@ class TestTurnLifecycleCancel:
 
 
 class TestTurnLifecyclePhases:
-    """Тесты управления фазами."""
+    """Тесты управления фазами.
+
+    Фаза — типизированный `TurnPhase` (ADR-008, шаг 2), а проверка перехода живёт в
+    агрегате. Раньше эти тесты подавали wire-документ и строки, и сертифицировали
+    матрицу, которая в продакшене не применялась ни разу.
+    """
+
+    def _turn(self, phase: TurnPhase | None = None) -> TurnState:
+        return TurnState(
+            prompt_request_id="req_1",
+            session_id="sess_1",
+            phase=phase if phase is not None else Running(),
+        )
 
     def test_set_turn_phase_running(
         self,
@@ -129,40 +150,33 @@ class TestTurnLifecyclePhases:
         session: DomainSession,
     ) -> None:
         """Устанавливает фазу running."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-        )
-        lifecycle_manager.set_turn_phase(session, "running")
-        assert session.active_turn.phase == "running"
+        session.active_turn = self._turn()
+        lifecycle_manager.set_turn_phase(session, Running())
+        assert session.active_turn.phase == Running()
 
     def test_set_turn_phase_awaiting_permission(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """Переходит в фазу awaiting_permission."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="running",
-        )
-        lifecycle_manager.set_turn_phase(session, "awaiting_permission")
-        assert session.active_turn.phase == "awaiting_permission"
+        """Переходит в фазу ожидания разрешения вместе с её идентификаторами."""
+        session.active_turn = self._turn()
+        phase = AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        lifecycle_manager.set_turn_phase(session, phase)
+        assert session.active_turn.phase == phase
+        # Выводимые чтения — те же, что были у плоских полей.
+        assert session.active_turn.permission_request_id == "perm_1"
+        assert session.active_turn.permission_tool_call_id == "call_1"
 
     def test_set_turn_phase_awaiting_client_rpc(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """Переходит в фазу awaiting_client_rpc."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="running",
-        )
-        lifecycle_manager.set_turn_phase(session, "awaiting_client_rpc")
-        assert session.active_turn.phase == "awaiting_client_rpc"
+        """Переходит в фазу ожидания ответа клиента."""
+        session.active_turn = self._turn()
+        lifecycle_manager.set_turn_phase(session, AwaitingClientRpc())
+        assert session.active_turn.phase == AwaitingClientRpc()
 
     def test_set_turn_phase_completing(
         self,
@@ -170,38 +184,33 @@ class TestTurnLifecyclePhases:
         session: DomainSession,
     ) -> None:
         """Переходит в фазу completing."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="running",
-        )
-        lifecycle_manager.set_turn_phase(session, "completing")
-        assert session.active_turn.phase == "completing"
+        session.active_turn = self._turn()
+        lifecycle_manager.set_turn_phase(session, Completing())
+        assert session.active_turn.phase == Completing()
 
-    def test_set_turn_phase_invalid(
+    def test_set_turn_phase_rejected_transition_keeps_phase(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """Не устанавливает невалидную фазу."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="running",
-        )
-        lifecycle_manager.set_turn_phase(session, "invalid_phase")
-        assert session.active_turn.phase == "running"
+        """Недопустимый переход не меняет фазу.
+
+        Заменяет прежний тест «невалидная строка фазы»: набор фаз теперь закрыт
+        типом, поэтому проверять нечего — невыразимо. Проверяемое осталось: отказ
+        матрицы оставляет состояние как было. `cancelled` — терминальная фаза.
+        """
+        session.active_turn = self._turn(TurnCancelled())
+        lifecycle_manager.set_turn_phase(session, Running())
+        assert session.active_turn.phase == TurnCancelled()
 
     def test_get_turn_phase(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """Возвращает текущую фазу."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="awaiting_permission",
+        """Возвращает имя текущей фазы."""
+        session.active_turn = self._turn(
+            AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
         )
         assert lifecycle_manager.get_turn_phase(session) == "awaiting_permission"
 
@@ -221,7 +230,7 @@ class TestTurnLifecyclePhases:
     ) -> None:
         """Не падает если нет active turn."""
         session.active_turn = None
-        lifecycle_manager.set_turn_phase(session, "running")
+        lifecycle_manager.set_turn_phase(session, Running())
         assert session.active_turn is None
 
 
@@ -408,7 +417,14 @@ class TestTurnLifecycleShouldHandleCancel:
 
 
 class TestTurnLifecyclePhaseTransitions:
-    """Тесты валидности переходов между фазами."""
+    """Тесты валидности переходов между фазами.
+
+    Правила сохранены от строковой матрицы и дополнены `TurnCancelled`: его писали,
+    но в матрице не перечисляли (ADR-008, шаг 2).
+    """
+
+    def _turn(self, phase: TurnPhase) -> TurnState:
+        return TurnState(prompt_request_id="req_1", session_id="sess_1", phase=phase)
 
     def test_running_to_any_phase(
         self,
@@ -416,59 +432,53 @@ class TestTurnLifecyclePhaseTransitions:
         session: DomainSession,
     ) -> None:
         """От running можно перейти в любую фазу."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="running",
-        )
-        for target_phase in [
-            "awaiting_permission",
-            "awaiting_client_rpc",
-            "completing",
-        ]:
-            lifecycle_manager.set_turn_phase(session, target_phase)
-            assert session.active_turn.phase == target_phase
-            # Вернуть в running для следующей итерации
-            session.active_turn.phase = "running"
+        for target in (
+            AwaitingPermission(request_id="perm_1", tool_call_id="call_1"),
+            AwaitingClientRpc(),
+            TurnCancelled(),
+            Completing(),
+        ):
+            session.active_turn = self._turn(Running())
+            lifecycle_manager.set_turn_phase(session, target)
+            assert session.active_turn.phase == target
 
     def test_awaiting_permission_to_valid_phases(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """От awaiting_permission можно перейти только в running или completing."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="awaiting_permission",
-        )
-        # running - OK
-        lifecycle_manager.set_turn_phase(session, "running")
-        assert session.active_turn.phase == "running"
+        """От ожидания разрешения — только running, cancelled или completing."""
+        awaiting = AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        for target in (Running(), TurnCancelled(), Completing()):
+            session.active_turn = self._turn(awaiting)
+            lifecycle_manager.set_turn_phase(session, target)
+            assert session.active_turn.phase == target
 
-        # Вернуть в awaiting_permission
-        session.active_turn.phase = "awaiting_permission"
-        # completing - OK
-        lifecycle_manager.set_turn_phase(session, "completing")
-        assert session.active_turn.phase == "completing"
+        # Повторное ожидание из ожидания запрещено: сначала ответ, потом новый запрос.
+        session.active_turn = self._turn(awaiting)
+        lifecycle_manager.set_turn_phase(
+            session, AwaitingPermission(request_id="perm_2", tool_call_id="call_2")
+        )
+        assert session.active_turn.phase == awaiting
 
     def test_awaiting_client_rpc_to_valid_phases(
         self,
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """От awaiting_client_rpc можно перейти в running или completing."""
-        session.active_turn = ActiveTurnState(
-            prompt_request_id="req_1",
-            session_id="sess_1",
-            phase="awaiting_client_rpc",
-        )
-        # running - OK
-        lifecycle_manager.set_turn_phase(session, "running")
-        assert session.active_turn.phase == "running"
+        """От ожидания ответа клиента — running, cancelled или completing."""
+        for target in (Running(), TurnCancelled(), Completing()):
+            session.active_turn = self._turn(AwaitingClientRpc())
+            lifecycle_manager.set_turn_phase(session, target)
+            assert session.active_turn.phase == target
 
-        # Вернуть в awaiting_client_rpc
-        session.active_turn.phase = "awaiting_client_rpc"
-        # completing - OK
-        lifecycle_manager.set_turn_phase(session, "completing")
-        assert session.active_turn.phase == "completing"
+    def test_terminal_phases_are_final(
+        self,
+        lifecycle_manager: TurnLifecycleManager,
+        session: DomainSession,
+    ) -> None:
+        """Из терминальных фаз выхода нет."""
+        for terminal in (TurnCancelled(), Completing()):
+            session.active_turn = self._turn(terminal)
+            lifecycle_manager.set_turn_phase(session, Running())
+            assert session.active_turn.phase == terminal

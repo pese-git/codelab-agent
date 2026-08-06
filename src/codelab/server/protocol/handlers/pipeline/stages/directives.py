@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codelab.server.domain.session import Session
+from codelab.server.domain.value_objects import AwaitingClientRpc, AwaitingPermission
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
@@ -55,7 +56,7 @@ async def _prepare_client_rpc(
             return None
         if session.active_turn is not None:
             session.active_turn.pending_external_request = prepared.pending_request
-            session.active_turn.phase = "waiting_client_rpc"
+            session.active_turn.transition_to(AwaitingClientRpc())
         return prepared
 
     return await context.commands.apply(_prepare, name=name)
@@ -314,14 +315,22 @@ class DirectivesStage(PromptStage):
         )
         # Идентификатор запроса и фаза turn'а — одна команда: ответ на разрешение
         # придёт отдельным запросом и ищет сессию именно по `permission_request_id`.
-        phase = "waiting_tool_completion" if directives.keep_tool_pending else "waiting_permission"
-
         def _await_permission(session: Session) -> None:
             if session.active_turn is None:
                 return
-            session.active_turn.permission_request_id = permission_request.id
-            session.active_turn.permission_tool_call_id = tool_call_id
-            session.active_turn.phase = phase
+            if permission_request.id is None:
+                return
+            # Раньше две ветки одного состояния различались **именем фазы**
+            # (`waiting_tool_completion` против `waiting_permission`), из-за чего
+            # ожидание разрешения писалось тремя строками из двух модулей. Теперь это
+            # поле значения (ADR-008, шаг 2).
+            session.active_turn.transition_to(
+                AwaitingPermission(
+                    request_id=permission_request.id,
+                    tool_call_id=tool_call_id,
+                    keep_tool_pending=directives.keep_tool_pending,
+                )
+            )
 
         await context.commands.require_active_turn(
             _await_permission, name="directive_permission_requested"

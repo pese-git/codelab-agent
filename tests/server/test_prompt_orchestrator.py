@@ -11,6 +11,7 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.session import TurnState
+from codelab.server.domain.value_objects import AwaitingPermission
 from codelab.server.llm.base import LLMToolCall
 from codelab.server.protocol.handlers.permission_manager import PermissionManager
 from codelab.server.protocol.handlers.pipeline import (
@@ -366,8 +367,7 @@ class TestPromptOrchestratorHandleCancel:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            permission_request_id="perm_1",
-            permission_tool_call_id="call_1",
+            phase=AwaitingPermission(request_id="perm_1", tool_call_id="call_1"),
         )
 
         orchestrator.handle_cancel(
@@ -601,7 +601,9 @@ class TestPromptOrchestratorToolCallFlow:
         assert permission_requests[0].id is not None
         # В новом flow turn остается активным в состоянии awaiting_permission
         assert session.active_turn is not None
-        assert session.active_turn.phase == "awaiting_permission"
+        assert session.active_turn.phase == AwaitingPermission(
+            request_id=permission_requests[0].id, tool_call_id="call_001"
+        )
 
         statuses: list[str | None] = []
         for notification in outcome.notifications:

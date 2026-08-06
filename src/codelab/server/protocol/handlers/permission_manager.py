@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...domain.session import Session
+from ...domain.value_objects import AwaitingPermission
 from ...messages import ACPMessage
 
 
@@ -152,10 +153,14 @@ class PermissionManager:
             },
         )
 
-        # Сохраняем ID permission request в active turn для корреляции response
+        # Фаза turn'а и оба идентификатора — одно значение (ADR-008, шаг 2): ответ на
+        # разрешение придёт отдельным запросом и найдёт сессию по `permission_request_id`,
+        # поэтому «жду разрешения» без идентификаторов не должно быть выразимо. Раньше
+        # идентификаторы писались здесь, а фаза — отдельно в `tool_processor`.
         if session.active_turn is not None and msg.id is not None:
-            session.active_turn.permission_request_id = msg.id
-            session.active_turn.permission_tool_call_id = tool_call_id
+            session.active_turn.transition_to(
+                AwaitingPermission(request_id=msg.id, tool_call_id=tool_call_id)
+            )
 
         return msg
 

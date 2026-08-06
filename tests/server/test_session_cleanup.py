@@ -6,7 +6,7 @@ race conditions, утечек памяти и зависающих операц�
 
 from codelab.server.domain.session import TurnState
 from codelab.server.domain.tool_call import ToolCall
-from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.domain.value_objects import AwaitingPermission, Running, ToolCallStatus
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.storage.document import PendingClientRequestState
 from tests.server._domain_sessions import make_domain_session
@@ -75,7 +75,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            permission_request_id="perm_req_1",
+            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_1"),
         )
 
         # Act
@@ -119,7 +119,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            permission_request_id="perm_req_1",
+            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_1"),
             pending_external_request=pending_request,
         )
 
@@ -145,8 +145,10 @@ class TestSessionCleanup:
         """Проверяет очистку active turn без permission request."""
         # Arrange
         session = make_domain_session(session_id="sess_1", cwd="/tmp")
+        # «Нет ожидаемого разрешения» — это фаза `Running`, а не отдельное поле `None`
+        # (ADR-008, шаг 2): идентификаторы выводятся из фазы.
         session.active_turn = TurnState(
-            prompt_request_id="req_1", session_id="sess_1", permission_request_id=None
+            prompt_request_id="req_1", session_id="sess_1", phase=Running()
         )
         initial_cancelled_perms = len(session.permissions.cancelled_requests)
 
@@ -167,7 +169,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            permission_request_id="new_perm_1",
+            phase=AwaitingPermission(request_id="new_perm_1", tool_call_id="call_1"),
         )
         pending_request = PendingClientRequestState(
             request_id="new_rpc_1",
@@ -217,9 +219,7 @@ class TestSessionCleanup:
             prompt_request_id="req_1",
             session_id="sess_1",
             cancel_requested=False,
-            permission_request_id="perm_req_1",
-            permission_tool_call_id="call_pending_1",
-            phase="running",
+            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_pending_1"),
             pending_external_request=pending_request,
         )
 

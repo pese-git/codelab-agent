@@ -20,7 +20,7 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
     TurnState,
 )
-from codelab.server.domain.value_objects import SessionId
+from codelab.server.domain.value_objects import SessionId, turn_phase_from_wire
 from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
@@ -133,9 +133,12 @@ class SessionMapper:
             prompt_request_id=turn.prompt_request_id,
             session_id=turn.session_id,
             cancel_requested=turn.cancel_requested,
+            # Фаза несёт свои идентификаторы (ADR-008, шаг 2), а документ хранит их
+            # тремя плоскими полями. Разложение — здесь: формат хранения шаг 2 не
+            # меняет, поэтому старые документы читаются, а новые остаются совместимыми.
             permission_request_id=turn.permission_request_id,
             permission_tool_call_id=turn.permission_tool_call_id,
-            phase=turn.phase,
+            phase=turn.phase.wire_name,
             pending_client_request=pending,
             pending_batch=[dict(call) for call in turn.pending_batch],
         )
@@ -232,9 +235,11 @@ class SessionMapper:
             session_id=at.session_id,
             prompt_request_id=at.prompt_request_id,
             cancel_requested=at.cancel_requested,
-            permission_request_id=at.permission_request_id,
-            permission_tool_call_id=at.permission_tool_call_id,
-            phase=at.phase,
+            phase=turn_phase_from_wire(
+                at.phase,
+                permission_request_id=at.permission_request_id,
+                permission_tool_call_id=at.permission_tool_call_id,
+            ),
             pending_external_request=pending,
             pending_batch=[dict(call) for call in at.pending_batch],
         )

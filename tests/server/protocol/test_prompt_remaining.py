@@ -93,9 +93,14 @@ class TestShouldAutoCompleteActiveTurn:
             session_id="sess_1",
             cwd="/tmp",
             mcp_servers=[],
+            # Подаётся wire-форма: `make_domain_session` собирает агрегат через
+            # маппер, тем же путём, что прод. Заодно проверяется чтение формата —
+            # `waiting_tool_completion` восстанавливается как `keep_tool_pending`.
             active_turn=ActiveTurnState(
                 prompt_request_id="req_1",
                 session_id="sess_1",
+                permission_request_id="perm_1",
+                permission_tool_call_id="call_1",
                 phase="waiting_tool_completion",
             ),
         )
