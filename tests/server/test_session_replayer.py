@@ -164,7 +164,7 @@ class TestReplayHistory:
         history_writer: EventHistoryWriter,
         session: DomainSession,
     ) -> None:
-        """Проверяет что события не из _REPLAYABLE_UPDATE_TYPES пропускаются."""
+        """Проверяет что запись без реплей-формы в поток не попадает."""
         # Добавляем событие напрямую в events_history с неизвестным типом
         session.runtime.events_history.append(
             {
@@ -354,7 +354,7 @@ class TestIntegrationWithSessionLoad:
 
         # Turn 1: user_message_chunk, tool_call, tool_call_update x2, agent_message_chunk (5)
         # Turn 2: user_message_chunk, tool_call, tool_call_update, agent_message_chunk (4)
-        # session_info_update не реплеится (см. _REPLAYABLE_UPDATE_TYPES)
+        # session_info_update не реплеится: у события нет реплей-формы (шаг 3a ADR-008)
         assert len(notifications) == 9
 
         # Проверяем что все sessionId корректны

@@ -1,13 +1,17 @@
-"""Запись `session/update` в `events_history` (write-половина turn-пути).
+"""Запись событий журнала сессии (write-половина turn-пути).
 
-Владеет ФОРМОЙ события истории: `{"type": "session_update", "update": {...},
-"timestamp": ...}`. Элементы `events_history` — готовые ACP-нотификации, поэтому
-модуль остаётся на wire-границе навсегда (постоянная wire-граница, ADR-006).
+Писатель принимает вызовы turn-пути и превращает их в **доменные события**
+(`domain/journal.py`); форму записи знает проекция (`mapping/journal_mapper.py`).
+Прежнее решение ADR-006 — «элементы `events_history` суть готовые ACP-нотификации,
+поэтому модуль навсегда остаётся wire-границей» — **отменено** шагом 3a ADR-008:
+журнал стал доменным, ACP — его проекцией. Wire-форма записи шагом 3a не
+изменилась, поэтому документ читается и пишется как раньше.
 
 Раньше запись и воспроизведение жили в одном `ReplayManager`, хотя наборы
 методов не пересекались: писатели обслуживают prompt-turn и resume,
 читатели — `session/load` (расщепление двуликих фасадов, фаза C ADR-006).
-Читающая половина — `SessionReplayer`.
+Читающая половина — `SessionReplayer`, и теперь обе половины ходят через одну
+проекцию.
 """
 
 from __future__ import annotations
@@ -17,8 +21,19 @@ from typing import Any
 
 import structlog
 
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.storage.document import SessionDocument
 
+from ...domain.journal import (
+    AgentMessageRecorded,
+    JournalEntry,
+    PlanRecorded,
+    SessionEvent,
+    SessionInfoRecorded,
+    ToolCallStarted,
+    ToolCallStatusChanged,
+    UserMessageRecorded,
+)
 from ...domain.session import Session as DomainSession
 
 logger = structlog.get_logger()
@@ -47,13 +62,7 @@ class EventHistoryWriter:
             session: Состояние сессии
             content: Content block промпта (text/resource/image)
         """
-        self._append(
-            session,
-            {
-                "sessionUpdate": "user_message_chunk",
-                "content": content,
-            },
-        )
+        self._append(session, UserMessageRecorded(content=content))
 
     def save_agent_message_chunk(
         self,
@@ -66,13 +75,7 @@ class EventHistoryWriter:
             session: Состояние сессии
             content: Content block (например, {"type": "text", "text": "..."})
         """
-        self._append(
-            session,
-            {
-                "sessionUpdate": "agent_message_chunk",
-                "content": content,
-            },
-        )
+        self._append(session, AgentMessageRecorded(content=content))
 
     def save_tool_call(
         self,
@@ -94,16 +97,16 @@ class EventHistoryWriter:
             status: Начальный статус (обычно "pending")
             content: Опциональный контент tool call
         """
-        update: dict[str, Any] = {
-            "sessionUpdate": "tool_call",
-            "toolCallId": tool_call_id,
-            "title": title,
-            "kind": kind,
-            "status": status,
-        }
-        if content:
-            update["content"] = content
-        self._append(session, update)
+        self._append(
+            session,
+            ToolCallStarted(
+                tool_call_id=tool_call_id,
+                title=title,
+                kind=kind,
+                status=status,
+                content=content,
+            ),
+        )
 
     def save_tool_call_update(
         self,
@@ -126,14 +129,14 @@ class EventHistoryWriter:
             status: Новый статус (in_progress, completed, failed, cancelled)
             content: Опциональный контент результата
         """
-        update: dict[str, Any] = {
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": tool_call_id,
-            "status": status,
-        }
-        if content:
-            update["content"] = content
-        self._append(session, update)
+        self._append(
+            session,
+            ToolCallStatusChanged(
+                tool_call_id=tool_call_id,
+                status=status,
+                content=content,
+            ),
+        )
 
     def save_plan(
         self,
@@ -146,13 +149,7 @@ class EventHistoryWriter:
             session: Состояние сессии
             entries: Список шагов плана
         """
-        self._append(
-            session,
-            {
-                "sessionUpdate": "plan",
-                "entries": entries,
-            },
-        )
+        self._append(session, PlanRecorded(entries=entries))
 
     def save_session_info_update(
         self,
@@ -163,42 +160,38 @@ class EventHistoryWriter:
     ) -> None:
         """Сохраняет session_info_update в events_history.
 
-        Единственное событие истории, которое НЕ реплеится (`SessionReplayer.
-        _REPLAYABLE_UPDATE_TYPES`): по ACP это патч-канал метаданных, а не
-        conversation. Хранится для полноты журнала turn'а.
+        Единственное событие журнала, которое НЕ реплеится: по ACP это патч-канал
+        метаданных, а не conversation. Хранится для полноты журнала turn'а.
+        Шагом 3a решение выражено конструкцией — у `SessionInfoRecorded` нет
+        реплей-формы, вместо прежнего перечисления видов в читателе.
 
         Args:
             session: Состояние сессии
             title: Заголовок сессии (None — очистка по ACP)
             updated_at: ISO 8601 метка последней активности
         """
-        self._append(
-            session,
-            {
-                "sessionUpdate": "session_info_update",
-                "title": title,
-                "updatedAt": updated_at,
-            },
-        )
+        self._append(session, SessionInfoRecorded(title=title, updated_at=updated_at))
 
     def _append(
         self,
         session: SessionDocument | DomainSession,
-        update: dict[str, Any],
+        event: SessionEvent,
     ) -> None:
-        """Добавляет `session/update` в events_history со временной меткой."""
-        event_entry = {
-            "type": "session_update",
-            "update": update,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
+        """Дописывает событие в журнал сессии, отметив время записи.
+
+        Метка времени — свойство записи журнала, не факта диалога, поэтому её
+        ставит писатель, а не вызывающий.
+        """
+        entry = JournalEntry(event=event, timestamp=datetime.now(UTC))
+        wire = JournalMapper.to_wire(entry)
         events, session_id = _journal_of(session)
-        events.append(event_entry)
+        events.append(wire)
 
         logger.debug(
-            "update saved to events_history",
+            "event appended to session journal",
             session_id=session_id,
-            update_type=update.get("sessionUpdate"),
+            event_type=type(event).__name__,
+            update_type=wire["update"].get("sessionUpdate"),
         )
 
 
@@ -207,10 +200,10 @@ def _journal_of(
 ) -> tuple[list[dict[str, Any]], str]:
     """Журнал событий и id сессии — из wire-DTO либо доменного агрегата.
 
-    Развилка носителя временна и живёт ровно до конца фазы D ADR-006: элементы
-    `events_history` — опаковые ACP-нотификации, поэтому в обеих моделях это один
-    и тот же список, а писатель владеет только формой записи. Снять развилку =
-    оставить доменную ветку, когда последний писатель уедет с `SessionDocument`.
+    Развилка носителя временна и живёт ровно до конца фазы D ADR-006: в обеих
+    моделях это один и тот же список записей журнала, а форму записи знает
+    проекция. Снять развилку = оставить доменную ветку, когда последний писатель
+    уедет с `SessionDocument`.
     """
     if isinstance(session, SessionDocument):
         return session.events_history, session.session_id

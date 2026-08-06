@@ -14,6 +14,7 @@ from __future__ import annotations
 import structlog
 
 from codelab.server.domain.session import Session as DomainSession
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.mapping.plan_mapper import PlanMapper
 
 from ...messages import ACPMessage
@@ -30,26 +31,6 @@ class SessionReplayer:
         >>> plan_notification = replayer.replay_latest_plan(session)
     """
 
-    # Типы updates, которые реплеятся в порядке их возникновения.
-    #
-    # `session_info_update` в набор НЕ входит намеренно: исторические метаданные
-    # устарели уже к моменту загрузки, а `session/load` в конце реплея сам
-    # эмитит свежий `session_info_update`. Отсюда постоянная разница между
-    # `events_history` и `history_notifications` в логе `session_loaded` —
-    # это ожидаемое поведение, а не потеря событий.
-    #
-    # Мёртвое значение `session_info` (в таком виде не пишет никто; единственным
-    # писателем был удалённый в фазе A `ReplayManager.save_session_info`) снято.
-    _REPLAYABLE_UPDATE_TYPES: frozenset[str] = frozenset(
-        {
-            "user_message_chunk",
-            "agent_message_chunk",
-            "tool_call",
-            "tool_call_update",
-            "plan",
-        }
-    )
-
     def replay_history(
         self,
         session: DomainSession,
@@ -57,8 +38,17 @@ class SessionReplayer:
         """Воспроизводит полную историю session/update уведомлений.
 
         Порядок replay:
-        1. Все события из events_history в хронологическом порядке
-        2. События фильтруются по _REPLAYABLE_UPDATE_TYPES
+        1. Записи журнала разбираются в доменные события в хронологическом порядке
+        2. В поток попадают те, у которых есть реплей-проекция
+
+        Прежний фильтр по набору строк `_REPLAYABLE_UPDATE_TYPES` снят: какие
+        события реплеятся, теперь решает наличие реплей-формы у события
+        (`JournalMapper.to_replay_update`) — то есть модель, а не список имён в
+        читателе. Единственное событие без такой формы — `SessionInfoRecorded`:
+        исторические метаданные устарели уже к моменту загрузки, а `session/load`
+        в конце реплея сам эмитит свежий `session_info_update`. Отсюда постоянная
+        разница между `events_history` и `history_notifications` в логе
+        `session_loaded` — ожидаемое поведение, а не потеря событий.
 
         Args:
             session: Состояние сессии
@@ -69,22 +59,21 @@ class SessionReplayer:
         notifications: list[ACPMessage] = []
         session_id = str(session.id)
 
-        # Replay из events_history - восстанавливаем полную историю
-        for event in session.runtime.events_history:
-            if event.get("type") != "session_update":
+        for wire in session.runtime.events_history:
+            entry = JournalMapper.from_wire(wire)
+            if entry is None:
                 continue
 
-            update_data = event.get("update", {})
-            if not update_data:
+            update_data = JournalMapper.to_replay_update(entry.event)
+            if update_data is None:
                 continue
 
-            if update_data.get("sessionUpdate") in self._REPLAYABLE_UPDATE_TYPES:
-                notifications.append(
-                    ACPMessage.notification(
-                        "session/update",
-                        {"sessionId": session_id, "update": update_data},
-                    )
+            notifications.append(
+                ACPMessage.notification(
+                    "session/update",
+                    {"sessionId": session_id, "update": update_data},
                 )
+            )
 
         logger.debug(
             "replay_history completed",
