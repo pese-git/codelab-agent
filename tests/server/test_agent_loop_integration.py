@@ -553,3 +553,117 @@ class TestLLMLoopStageStrategyReuse:
         assert stage._agent_loop._llm_caller._strategy is mock_dispatcher
         # Проверяем что select_strategy был вызван
         mock_dispatcher.select_strategy.assert_called_once()
+
+
+class TestAssistantHistorySingleWriter:
+    """Текст ассистента попадает в историю один раз (P1-60).
+
+    Раньше в цикле было два последовательных писателя: `add_assistant_message` и
+    `add_assistant_tool_call_message`. Когда модель возвращала текст вместе с вызовами,
+    текст сохранялся дважды, и модель видела своё сообщение два раза подряд. Замер на
+    живом документе: сумма текстов assistant вдвое больше суммы `agent_message_chunk`
+    журнала.
+    """
+
+    @staticmethod
+    def _loop(strategy: AsyncMock) -> AgentLoop:
+        tool_def = MagicMock()
+        tool_def.requires_permission = False
+        tool_def.kind = "other"
+        registry = MagicMock()
+        registry.get.return_value = tool_def
+        result = MagicMock()
+        result.success = True
+        result.output = "ok"
+        result.error = None
+        registry.execute_tool = AsyncMock(return_value=result)
+
+        extractor = AsyncMock()
+        extracted = MagicMock()
+        extracted.content_items = []
+        extractor.extract_from_result.return_value = extracted
+
+        handler = MagicMock()
+        handler.create_tool_call.return_value = "tc_1"
+        handler.build_tool_call_notification.return_value = MagicMock()
+        handler.build_tool_update_notification.return_value = MagicMock()
+
+        return AgentLoop(
+            strategy=strategy,
+            tool_registry=registry,
+            tool_call_handler=handler,
+            permission_manager=MagicMock(),
+            state_manager=MagicMock(),
+            content_extractor=extractor,
+            content_validator=MagicMock(),
+            history_writer=MagicMock(),
+            plan_builder=MagicMock(),
+            system_prompt_builder=MagicMock(),
+        )
+
+    @staticmethod
+    def _response(text: str, tool_calls: list) -> MagicMock:
+        response = MagicMock(spec=AgentResponse)
+        response.text = text
+        response.tool_calls = tool_calls
+        response.plan = None
+        return response
+
+    @staticmethod
+    def _assistant_texts(session) -> list[str]:
+        return [
+            (record.get("text") or "")
+            for record in wire_history(session)
+            if record.get("role") == "assistant"
+        ]
+
+    async def test_text_with_tool_calls_recorded_once(self, session) -> None:
+        """Текст и вызовы — одна запись, а не две с одинаковым текстом."""
+        call = MagicMock()
+        call.id = "chatcmpl-tool-1"
+        call.name = "test_tool"
+        call.arguments = {}
+
+        strategy = AsyncMock(spec=LLMCallStrategy)
+        strategy.execute.return_value = self._response("зову инструмент", [call])
+        strategy.continue_execution.return_value = self._response("готово", [])
+
+        session.active_turn = TurnState(
+            prompt_request_id="req_1", session_id="test_session", phase=Running()
+        )
+        await self._loop(strategy).run(make_commands(session), "test_session", "давай")
+
+        texts = self._assistant_texts(session)
+        assert texts == ["зову инструмент", "готово"]
+        assert len(texts) == len(set(texts)), "текст ассистента не должен дублироваться"
+
+        records = [r for r in wire_history(session) if r.get("role") == "assistant"]
+        # Уцелевшая запись несёт и текст, и вызовы — иначе связка с `role: tool` порвётся.
+        assert [len(r.get("tool_calls") or []) for r in records] == [1, 0]
+
+    async def test_text_without_tool_calls_keeps_its_shape(self, session) -> None:
+        """Turn без вызовов пишет ту же запись: пустой `tool_calls` в wire не попадает."""
+        strategy = AsyncMock(spec=LLMCallStrategy)
+        strategy.execute.return_value = self._response("просто ответ", [])
+
+        session.active_turn = TurnState(
+            prompt_request_id="req_1", session_id="test_session", phase=Running()
+        )
+        await self._loop(strategy).run(make_commands(session), "test_session", "привет")
+
+        records = [r for r in wire_history(session) if r.get("role") == "assistant"]
+        assert len(records) == 1
+        assert records[0].get("text") == "просто ответ"
+        assert "tool_calls" not in records[0]
+
+    async def test_no_text_and_no_calls_writes_nothing(self, session) -> None:
+        """Пустой ответ не создаёт пустой записи ассистента."""
+        strategy = AsyncMock(spec=LLMCallStrategy)
+        strategy.execute.return_value = self._response("", [])
+
+        session.active_turn = TurnState(
+            prompt_request_id="req_1", session_id="test_session", phase=Running()
+        )
+        await self._loop(strategy).run(make_commands(session), "test_session", "?")
+
+        assert [r for r in wire_history(session) if r.get("role") == "assistant"] == []

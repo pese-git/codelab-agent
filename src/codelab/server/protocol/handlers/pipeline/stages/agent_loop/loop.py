@@ -325,6 +325,25 @@ class AgentLoop:
 
         await self._emit_response_plan(session_id, response, sink)
 
+        # Единственный писатель истории в turn-цикле (P1-60). Стоит ДО раннего выхода,
+        # поэтому turn без вызовов получает ту же форму записи: пустой `tool_calls` маппер
+        # в wire не пишет (`history_mapper.py:41`), то есть запись байт-идентична прежней.
+        #
+        # Запись «ассистент + запрошенные им tool_calls» — доменный сейм. Раньше писалась
+        # сырым dict'ом мимо носителя, из-за чего одна и та же запись существовала в двух
+        # формах и сравнение по префиксу ломалось на первой же записи turn'а (корень P1-45).
+        requested_calls = [
+            DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
+            for tc in response.tool_calls
+        ]
+        if agent_text or requested_calls:
+            await commands.apply(
+                lambda target: target.add_assistant_tool_call_message(
+                    agent_text or "", requested_calls
+                ),
+                name="assistant_message",
+            )
+
         # Нет tool_calls → завершить
         if not has_tool_calls:
             logger.debug(
@@ -347,21 +366,6 @@ class AgentLoop:
             session_id=session_id,
             iteration=iteration,
             num_tool_calls=len(response.tool_calls),
-        )
-
-        # Запись «ассистент + запрошенные им tool_calls» — доменный сейм. Раньше
-        # писалась сырым dict'ом мимо носителя, из-за чего одна и та же запись
-        # существовала в двух формах и сравнение по префиксу ломалось на первой же
-        # записи turn'а (корень P1-45).
-        requested_calls = [
-            DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
-            for tc in response.tool_calls
-        ]
-        await commands.apply(
-            lambda target: target.add_assistant_tool_call_message(
-                agent_text or "", requested_calls
-            ),
-            name="assistant_tool_call_message",
         )
 
         # Обрабатываем tool_calls
@@ -460,11 +464,15 @@ class AgentLoop:
         sink: SessionUpdateSink,
         streamed: bool,
     ) -> None:
-        """Добавить текст ассистента в историю, эмитировать (если не стримился), в replay."""
-        await commands.apply(
-            lambda session: self._state_manager.add_assistant_message(session, agent_text),
-            name="assistant_message",
-        )
+        """Эмитировать текст ассистента (если не стримился) и записать его в журнал.
+
+        **Историю здесь не пишет.** У неё в turn-цикле один писатель —
+        `add_assistant_tool_call_message`, который несёт и текст, и `tool_calls`. Раньше
+        писали оба, последовательно, и когда модель возвращала текст вместе с вызовами,
+        текст попадал в историю дважды: модель видела своё сообщение два раза подряд
+        (P1-60; замер — сумма текстов assistant вдвое больше суммы `agent_message_chunk`
+        журнала). Согласовывать двух писателей флагом значило бы оставить сам механизм.
+        """
         # При стриминге текст уже доставлен дельтами через on_delta —
         # не эмитим полный текст повторно (иначе дубль). Но если дельт
         # не было (провайдер без стрима) — эмитим полный текст.
