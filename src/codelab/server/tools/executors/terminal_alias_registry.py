@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 
 from codelab.server.domain.session import Session
 from codelab.server.domain.value_objects import TERMINAL_ALIAS_PREFIX
+
+
+@dataclass
+class _TerminalRecord:
+    """Запись о живом терминале: связка с клиентским id и признак ожидания."""
+
+    client_terminal_id: str
+    waited: bool = False
 
 
 class TerminalAliasRegistry:
@@ -61,7 +70,7 @@ class TerminalAliasRegistry:
     """
 
     def __init__(self, epoch: str | None = None) -> None:
-        self._by_session: dict[str, dict[str, str]] = {}
+        self._by_session: dict[str, dict[str, _TerminalRecord]] = {}
         self._counters: dict[str, int] = {}
         # Эпоха задаётся аргументом ради тестов: alias уходит модели, и гейт на его
         # форму не должен зависеть от pid прогона.
@@ -77,17 +86,45 @@ class TerminalAliasRegistry:
         session_id = str(session.id)
         self._counters[session_id] = self._counters.get(session_id, 0) + 1
         alias = f"{TERMINAL_ALIAS_PREFIX}{self._epoch}_{self._counters[session_id]}"
-        self._by_session.setdefault(session_id, {})[alias] = client_terminal_id
+        self._by_session.setdefault(session_id, {})[alias] = _TerminalRecord(
+            client_terminal_id=client_terminal_id
+        )
         return alias
 
     def resolve(self, session: Session, alias: str) -> str | None:
         """Возвращает client terminalId по alias или ``None``, если alias неизвестен."""
-        return self._by_session.get(str(session.id), {}).get(alias)
+        record = self._by_session.get(str(session.id), {}).get(alias)
+        return record.client_terminal_id if record is not None else None
+
+    def mark_waited(self, session: Session, alias: str) -> None:
+        """Отмечает, что команда терминала дождана до завершения.
+
+        Отметка нужна замеру владения (P2-58, вторая половина): «живой alias, который
+        никто не дождался» — единственный признак, отличающий терминал с завершившейся
+        командой от терминала, чей процесс, возможно, ещё идёт. Без него вопрос
+        «убивать ли живую команду на границе turn'а» решался бы догадкой: случай не
+        наблюдался ни в одном прогоне.
+
+        Признак лежит **в самой записи alias'а**, а не отдельным множеством: иначе
+        освобождение обязано было бы согласовать два носителя, а согласование
+        ненаблюдаемо — alias'ы монотонны в пределах эпохи, поэтому осиротевшая отметка
+        не может совпасть ни с одним будущим alias'ом, и строка согласования оказалась
+        бы кодом без наблюдаемого следствия.
+        """
+        record = self._by_session.get(str(session.id), {}).get(alias)
+        if record is not None:
+            record.waited = True
 
     def release(self, session: Session, alias: str) -> str | None:
         """Удаляет alias из реестра, возвращает освобождённый client terminalId (или None)."""
-        return self._by_session.get(str(session.id), {}).pop(alias, None)
+        record = self._by_session.get(str(session.id), {}).pop(alias, None)
+        return record.client_terminal_id if record is not None else None
 
     def known_aliases(self, session: Session) -> list[str]:
         """Живые alias'ы сессии — для сообщения модели о неизвестном терминале."""
         return sorted(self._by_session.get(str(session.id), {}))
+
+    def unwaited_aliases(self, session: Session) -> list[str]:
+        """Живые alias'ы, для которых `wait_for_exit` не завершался."""
+        records = self._by_session.get(str(session.id), {})
+        return [alias for alias in sorted(records) if not records[alias].waited]

@@ -51,7 +51,14 @@ def preregister_terminal_aliases(
     выдачу alias'ов. Публичного метода «привязать конкретный alias» в проде нет и
     быть не должно — иначе появился бы путь выдать alias в обход счётчика.
     """
-    executor._aliases._by_session.setdefault(str(session.id), {}).update(mapping)
+    from codelab.server.tools.executors.terminal_alias_registry import _TerminalRecord
+
+    executor._aliases._by_session.setdefault(str(session.id), {}).update(
+        {
+            alias: _TerminalRecord(client_terminal_id=client_id)
+            for alias, client_id in mapping.items()
+        }
+    )
 
 
 class _SeededMemoryStorage(InMemoryStorage):

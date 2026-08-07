@@ -528,3 +528,102 @@ class TestTerminalExecutorWaitForExitFlow:
         assert result.success is False
         assert result.error is not None
         assert "bridge error" in result.error
+
+
+class TestTerminalOwnershipMeasurement:
+    """Гейт замера владения (P2-58, вторая половина).
+
+    Замер отвечает на вопрос «случается ли `create` без `wait_for_exit`»: от него
+    зависит, законно ли освобождать остаток на границе turn'а, где освобождение убивает
+    ещё идущую команду (`17-Schema.md:1060-1062`). Если executor не отметит ожидание,
+    замер объявит недожданными все терминалы и ответ будет ложно положительным.
+    """
+
+    @pytest.fixture
+    def session(self) -> DomainSession:
+        return make_domain_session(
+            session_id="test_session",
+            cwd="/tmp",
+            mcp_servers=[],
+            config_values={},
+        )
+
+    @pytest.fixture
+    def executor(self, session: DomainSession) -> TerminalToolExecutor:
+        executor = TerminalToolExecutor(
+            MagicMock(spec=ClientRPCBridge),
+            MagicMock(spec=PermissionChecker),
+        )
+        preregister_terminal_aliases(executor, session, {"term_001": "term_001"})
+        return executor
+
+    @pytest.mark.asyncio
+    async def test_wait_on_already_finished_terminal_marks_waited(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        """Ветка «терминал уже завершён» тоже есть ожидание, доведённое до конца."""
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={
+                "output": "done",
+                "is_complete": True,
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
+
+        await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert executor._aliases.unwaited_aliases(session) == []
+
+    @pytest.mark.asyncio
+    async def test_wait_through_client_marks_waited(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={"output": "", "is_complete": False, "exit_code": None, "signal": None}
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(  # type: ignore[method-assign]
+            return_value={"exit_code": 0, "signal": None}
+        )
+
+        await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert executor._aliases.unwaited_aliases(session) == []
+
+    @pytest.mark.asyncio
+    async def test_created_terminal_is_unwaited_until_waited(
+        self,
+        session: DomainSession,
+    ) -> None:
+        """Именно этот случай решает политику освобождения на границе turn'а."""
+        executor = TerminalToolExecutor(
+            MagicMock(spec=ClientRPCBridge),
+            MagicMock(spec=PermissionChecker),
+        )
+        executor._bridge.create_terminal = AsyncMock(return_value="client-uuid")  # type: ignore[method-assign]
+
+        result = await executor.execute_create(session=session, command="sleep 100")
+
+        alias = result.metadata["terminal_id"]
+        assert executor._aliases.unwaited_aliases(session) == [alias]
+
+    @pytest.mark.asyncio
+    async def test_failed_wait_does_not_count_as_waited(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        """Неудачное ожидание не даёт права считать команду завершённой."""
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={"output": "", "is_complete": False, "exit_code": None, "signal": None}
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        result = await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert result.success is False
+        assert executor._aliases.unwaited_aliases(session) == ["term_001"]

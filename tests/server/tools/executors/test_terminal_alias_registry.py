@@ -106,6 +106,76 @@ class TestTerminalAliasRegistry:
         assert registry.release(session, "term_404") is None
 
 
+class TestOwnershipMeasurement:
+    """Замер владения (P2-58, вторая половина).
+
+    Реестр отвечает на два вопроса замера: сколько терминалов осталось за сессией и
+    сколько из них никто не дождался. Второй и решает, законно ли освобождать остаток
+    на границе turn'а: освобождение убивает ещё идущую команду.
+    """
+
+    def test_unwaited_lists_live_aliases_without_completed_wait(self) -> None:
+        session = _session()
+        registry = TerminalAliasRegistry(epoch="7")
+        waited = registry.register(session, "uuid-a")
+        registry.register(session, "uuid-b")
+
+        registry.mark_waited(session, waited)
+
+        assert registry.unwaited_aliases(session) == ["term_7_2"]
+
+    def test_release_drops_alias_from_both_views(self) -> None:
+        """Освобождённый терминал не попадает ни в живые, ни в недожданные."""
+        session = _session()
+        registry = TerminalAliasRegistry(epoch="7")
+        alias = registry.register(session, "uuid-a")
+
+        registry.release(session, alias)
+
+        assert registry.known_aliases(session) == []
+        assert registry.unwaited_aliases(session) == []
+
+    def test_waited_then_released_does_not_resurface(self) -> None:
+        """Отметка уходит вместе с alias'ом — по построению, а не согласованием.
+
+        Признак лежит в записи alias'а, поэтому «отметка пережила освобождение»
+        невыразимо. Прежняя форма (отдельное множество) требовала строки согласования
+        в `release`, и **гейт её не поймал**: alias'ы монотонны в пределах эпохи, так
+        что осиротевшая отметка не совпадает ни с одним будущим alias'ом. Тест остался
+        как утверждение о состоянии после освобождения, а не о снятии отметки.
+        """
+        session = _session()
+        registry = TerminalAliasRegistry(epoch="7")
+        alias = registry.register(session, "uuid-a")
+        registry.mark_waited(session, alias)
+
+        registry.release(session, alias)
+        again = registry.register(session, "uuid-b")
+
+        assert registry.unwaited_aliases(session) == [again]
+
+    def test_measurement_is_per_session(self) -> None:
+        first = make_domain_session(session_id="s1", cwd="/tmp", mcp_servers=[])
+        second = make_domain_session(session_id="s2", cwd="/tmp", mcp_servers=[])
+        registry = TerminalAliasRegistry(epoch="7")
+        registry.register(first, "uuid-a")
+        alias_second = registry.register(second, "uuid-b")
+        registry.mark_waited(second, alias_second)
+
+        assert registry.unwaited_aliases(first) == ["term_7_1"]
+        assert registry.unwaited_aliases(second) == []
+
+    def test_mark_waited_on_unknown_alias_does_not_invent_a_terminal(self) -> None:
+        """Отметка не создаёт записи: живость определяет связка, а не отметка."""
+        session = _session()
+        registry = TerminalAliasRegistry(epoch="7")
+
+        registry.mark_waited(session, "term_7_404")
+
+        assert registry.known_aliases(session) == []
+        assert registry.unwaited_aliases(session) == []
+
+
 class TestEpochSeparatesProcesses:
     """Ради чего вводилась эпоха: alias прошлого процесса не занимает нынешний.
 

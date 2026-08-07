@@ -51,6 +51,32 @@ class TerminalToolExecutor(ToolExecutor):
         self._permission_checker = permission_checker
         self._aliases = TerminalAliasRegistry()
 
+    def _log_ownership(self, session: Session, *, operation: str, alias: str) -> None:
+        """Пишет остаток неосвобождённых терминалов после каждой смены владения.
+
+        Замер владения (P2-58, вторая половина). Счётчик на уже существующем событии —
+        та же техника, которой нашлась утечка реестра исходящих запросов: утечка видна
+        монотонным ростом `live`, а `unwaited` отвечает на вопрос, случается ли вообще
+        `create` без `wait_for_exit` — от этого зависит, законно ли освобождать терминал
+        на границе turn'а, где освобождение убивает ещё идущую команду
+        (`17-Schema.md:1060-1062`).
+
+        Освобождать остаток здесь **нельзя**: владелец терминала, созданного по просьбе
+        модели, — turn, а единственного шва его завершения сегодня нет (pipeline-close,
+        `BackgroundExecutor`, отмена и транспорты — четыре выхода). Шов создаёт
+        `TurnRuntime`, и освобождение — его первый потребитель.
+        """
+        unwaited = self._aliases.unwaited_aliases(session)
+        logger.info(
+            "terminal_ownership",
+            operation=operation,
+            session_id=str(session.id),
+            alias=alias,
+            live=len(self._aliases.known_aliases(session)),
+            unwaited=len(unwaited),
+            unwaited_aliases=unwaited,
+        )
+
     def _resolve_terminal(
         self,
         session: Session,
@@ -181,6 +207,7 @@ class TerminalToolExecutor(ToolExecutor):
             # LLM оперирует коротким alias (см. tech-debt #18), а клиент — своим
             # родным id. Регистрируем маппинг и отдаём наружу alias.
             alias = self._aliases.register(session, client_terminal_id)
+            self._log_ownership(session, operation="create", alias=alias)
 
             logger.debug(
                 "Терминал успешно создан",
@@ -300,6 +327,7 @@ class TerminalToolExecutor(ToolExecutor):
 
                 # Если терминал уже завершён — не нужно ждать
                 if is_complete and (exit_code is not None or signal is not None):
+                    self._aliases.mark_waited(session, terminal_id)
                     logger.debug(
                         "Терминал уже завершён (получено из terminal/output)",
                         extra={
@@ -347,6 +375,7 @@ class TerminalToolExecutor(ToolExecutor):
                 output = final_output_data.get("output", "")
 
             resolved_exit_code = exit_code if exit_code is not None else -1
+            self._aliases.mark_waited(session, terminal_id)
 
             logger.debug(
                 "Терминал завершен",
@@ -449,6 +478,7 @@ class TerminalToolExecutor(ToolExecutor):
             # Терминал освобождён — снимаем alias, чтобы повторные обращения
             # получали внятную ошибку контракта, а не промах по client id.
             self._aliases.release(session, terminal_id)
+            self._log_ownership(session, operation="release", alias=terminal_id)
 
             logger.debug(
                 "Терминал успешно освобожден",
