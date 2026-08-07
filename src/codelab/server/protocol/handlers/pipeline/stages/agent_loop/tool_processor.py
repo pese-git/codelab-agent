@@ -60,16 +60,15 @@ def _carry_executor_changes(*, source: Session, target: Session) -> None:
     менять для обоих. Пока их решения переносятся сюда явно: перечень конечный и
     виден целиком.
 
-    Связка alias → client terminalId здесь больше не переносится: она уехала в
-    процессный `TerminalAliasRegistry` (ADR-007, шаг A) и от копий сессии не
-    зависит. Остался счётчик — он персистится, поэтому шов ему всё ещё нужен.
+    Ничего связанного с терминалами здесь больше нет: и связка, и счётчик alias'ов
+    уехали в процессный `TerminalAliasRegistry` (ADR-007 шаг A, ADR-008 раздел 4).
+    Перенос счётчика был обязателен, пока тот жил в документе, — и именно на нём
+    терялся инкремент Context Manager'а, отчего один alias доставался двум
+    терминалам (P2-58).
 
     Уходит, когда исполнители получат собственные команды; до тех пор новая
     мутация в исполнителе, не перечисленная здесь, до диска не доедет.
     """
-    target.runtime.terminal_counter = max(
-        target.runtime.terminal_counter, source.runtime.terminal_counter
-    )
     target.config.config_values.update(source.config.config_values)
 
 

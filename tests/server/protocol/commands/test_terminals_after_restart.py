@@ -102,14 +102,22 @@ class TestMigrationFromV8:
         assert not hasattr(on_disk, "terminals_owner")
 
     @pytest.mark.asyncio
-    async def test_counter_survives_migration(self, tmp_path: Path) -> None:
-        """Счётчик — распределитель id сессии, а не состояние процесса."""
+    async def test_counter_is_dropped_by_v13(self, tmp_path: Path) -> None:
+        """Счётчик снят с документа: alias несёт эпоху процесса (ADR-008, раздел 4).
+
+        Прежде здесь проверялось обратное — что счётчик переживает миграцию, потому
+        что монотонность через рестарт держалась на нём. Гарантия была
+        дисциплинарной и однажды не сработала: инкремент терялся на пути Context
+        Manager'а, и один alias достался двум терминалам (P2-58).
+        """
         _write_v8_document(tmp_path, owner="другой-процесс")
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
 
         assert on_disk is not None
-        assert on_disk.terminal_counter == 2
+        assert not hasattr(on_disk, "terminal_counter")
+        raw = json.loads((tmp_path / "sess_x.json").read_text(encoding="utf-8"))
+        assert "terminal_counter" in raw, "на диске он ещё лежит — снимет первая же запись"
 
     @pytest.mark.asyncio
     async def test_revision_survives_migration(self, tmp_path: Path) -> None:
@@ -132,7 +140,7 @@ class TestAliasesNeverReachDisk:
         """
         storage = JsonFileStorage(tmp_path)
         session = make_domain_session(session_id="sess_x", cwd="/work", mcp_servers=[])
-        registry = TerminalAliasRegistry()
+        registry = TerminalAliasRegistry(epoch="7")
 
         alias = registry.register(session, "client-uuid-1")
         await storage.save_session(SessionMapper.to_protocol(session))
@@ -141,8 +149,10 @@ class TestAliasesNeverReachDisk:
         assert "terminals" not in raw
         assert "terminals_owner" not in raw
         assert "client-uuid-1" not in json.dumps(raw), "client terminalId не должен попасть на диск"
-        assert raw["terminal_counter"] == 1, "счётчик персистится — он выдаёт alias'ы"
-        assert alias == "term_1"
+        # С v13 регистрация не меняет документ **вовсе**: счётчик уехал в процесс
+        # вместе со связкой, и терять его инкремент стало негде.
+        assert "terminal_counter" not in raw
+        assert alias == "term_7_1"
 
 
 class TestFreshProcessStartsEmpty:
@@ -166,20 +176,24 @@ class TestFreshProcessStartsEmpty:
 
     @pytest.mark.asyncio
     async def test_new_alias_does_not_collide_with_history(self, tmp_path: Path) -> None:
-        """Ради этого счётчик и персистится: `term_1` из истории не выдаётся заново.
+        """`term_1` из восстановленной истории не выдаётся заново — теперь по построению.
 
-        Иначе обращение к `term_1` из восстановленной истории разрешилось бы в
-        терминал нового процесса — модель получила бы чужой вывод вместо ошибки.
+        Иначе обращение к нему разрешилось бы в терминал нового процесса, и модель
+        получила бы чужой вывод вместо ошибки. Прежде это держалось на персистируемом
+        счётчике (и однажды не сработало), теперь — на эпохе: alias нового процесса
+        отличается от любого alias'а прошлого, даже если нумерация началась заново.
         """
         _write_v8_document(tmp_path, owner="другой-процесс")
         await _load(JsonFileStorage(tmp_path))
 
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
+        session = SessionMapper.to_domain(on_disk)
 
-        assert TerminalAliasRegistry().register(SessionMapper.to_domain(on_disk), "новый") == (
-            "term_3"
-        )
+        issued = TerminalAliasRegistry(epoch="8").register(session, "новый")
+
+        assert issued == "term_8_1"
+        assert issued not in {"term_1", "term_2"}, "alias'ы прошлого процесса из истории"
 
 
 class TestRegistryIsolatesSessions:

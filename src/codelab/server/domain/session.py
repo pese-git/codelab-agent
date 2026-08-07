@@ -28,7 +28,6 @@ from .tool_call import ToolCall, ToolResult
 from .value_objects import (
     ALLOWED_TOOL_CALL_TRANSITIONS,
     ALLOWED_TURN_PHASE_TRANSITIONS,
-    TERMINAL_ALIAS_PREFIX,
     AwaitingPermission,
     FileLocation,
     MessageRole,
@@ -418,10 +417,6 @@ class SessionRuntime:
     plain dict — данные, не wire-семантика.
     """
 
-    # Распределитель alias'ов терминалов. Сама связка alias → client terminalId живёт
-    # в процессном `TerminalAliasRegistry` (ADR-007, шаг A), здесь только счётчик:
-    # он обязан переживать рестарт, иначе alias'ы переиспользуются.
-    terminal_counter: int = 0
     events_history: list[dict[str, Any]] = field(default_factory=list)
     cancelled_client_rpc_requests: set[str | int] = field(default_factory=set)
     pending_prompt_response: dict[str, Any] | None = None
@@ -451,7 +446,7 @@ class Session:
     # `available_commands` — wire-DTO, но нужен для lossless пересборки SessionDocument.
     title: str | None = None
     updated_at: str | None = None
-    schema_version: int = 12
+    schema_version: int = 13
     # Ревизия документа (ADR-007): парное поле к `SessionDocument.revision`, несётся
     # round-trip как есть — инкрементирует её хранилище при записи.
     revision: int = 0
@@ -569,21 +564,6 @@ class Session:
     def is_client_rpc_cancelled(self, request_id: str | int) -> bool:
         """Отмечен ли agent->client RPC отменённым."""
         return request_id in self.runtime.cancelled_client_rpc_requests
-
-    # Выдача alias'ов терминалов. Связку alias → client terminalId держит
-    # `TerminalAliasRegistry` в процессе (ADR-007, шаг A): она не переживает рестарт,
-    # потому что сами терминалы живут у клиента. На агрегате остаётся распределитель
-    # идентификаторов — он обязан быть монотонным через рестарт.
-    def allocate_terminal_alias(self) -> str:
-        """Выдать следующий короткий alias терминала (`term_<n>`).
-
-        Счётчик персистится намеренно: alias из восстановленной истории не должен
-        разрешаться в терминал нового процесса. При сбросе счётчика `term_1` из
-        прошлого запуска указал бы на чужой терминал, и модель получила бы чужой
-        вывод вместо внятного «неизвестный терминал» (P2-58).
-        """
-        self.runtime.terminal_counter += 1
-        return f"{TERMINAL_ALIAS_PREFIX}{self.runtime.terminal_counter}"
 
     # Жизненный цикл turn'а. Парные сеймы к `TurnLifecycleManager` (wire): дом
     # этих операций — агрегат, потому что они меняют только состояние turn'а.

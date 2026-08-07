@@ -220,14 +220,12 @@ class TestRoundtripTurnAndRuntime:
     def test_runtime_preserved(self) -> None:
         session = _rich_session()
         session.runtime = SessionRuntime(
-            terminal_counter=3,
             events_history=[{"type": "session_update", "n": 1}],
             cancelled_client_rpc_requests={"rpc_1", 42},
             pending_prompt_response={"request_id": "p1"},
             correlation_id="corr_1",
         )
         rt = _roundtrip(session)
-        assert rt.runtime.terminal_counter == 3
         assert rt.runtime.events_history == [{"type": "session_update", "n": 1}]
         assert rt.runtime.cancelled_client_rpc_requests == {"rpc_1", 42}
         assert rt.runtime.pending_prompt_response == {"request_id": "p1"}

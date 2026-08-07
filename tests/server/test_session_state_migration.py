@@ -217,7 +217,7 @@ class TestSessionStateMigrationV1toV4:
                 "cwd": "/tmp",
                 "mcp_servers": [],
                 "terminals": {"term_1": "client-id"},
-                "terminal_counter": 1,
+                "terminal_counter": 1,  # снят в v13
             }
         )
 
@@ -225,7 +225,7 @@ class TestSessionStateMigrationV1toV4:
         assert not hasattr(session, "terminals")
         assert not hasattr(session, "terminals_owner")
         # Счётчик остаётся: он выдаёт alias'ы и обязан быть монотонным через рестарт
-        assert session.terminal_counter == 1
+        assert not hasattr(session, "terminal_counter")
 
     def test_migration_v9_to_v10_drops_result_content(self) -> None:
         """v9 → v10: `result_content` вызовов удалён как поле без потребителя (ADR-007, шаг B1).
@@ -327,25 +327,13 @@ class TestSessionStateMigrationV1toV4:
         )
         assert session_v6.schema_version == CURRENT_SCHEMA_VERSION
 
-    def test_migration_v4_to_v5_adds_terminal_counter(self) -> None:
-        """v4 → v5: появляется счётчик alias'ов терминалов (#18).
+    def test_terminal_state_is_gone_by_the_end_of_the_chain(self) -> None:
+        """От «терминального» наследия v5 не осталось ничего: ни реестра, ни счётчика.
 
-        Сам реестр, добавленный тем же шагом, удалён в v9 — от шага остался счётчик.
+        Реестр удалён в v9 (связка мертва вне своего процесса), счётчик — в v13
+        (alias несёт эпоху процесса, персистировать распределитель незачем).
+        Проверяется на документе v5, где были оба.
         """
-        old_data = {
-            "schema_version": 4,
-            "session_id": "test-session",
-            "cwd": "/tmp",
-            "mcp_servers": [],
-        }
-
-        session = SessionDocument(**old_data)
-
-        assert session.schema_version == CURRENT_SCHEMA_VERSION
-        assert session.terminal_counter == 0
-
-    def test_migration_preserves_existing_terminal_counter(self) -> None:
-        """Счётчик не затирается миграцией: alias'ы не должны переиспользоваться."""
         data = {
             "schema_version": 5,
             "session_id": "test-session",
@@ -357,7 +345,9 @@ class TestSessionStateMigrationV1toV4:
 
         session = SessionDocument(**data)
 
-        assert session.terminal_counter == 1
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
+        assert not hasattr(session, "terminals")
+        assert not hasattr(session, "terminal_counter")
 
     def test_migration_v5_to_v6_plan_legacy_to_acp(self) -> None:
         """v5 → v6: legacy latest_plan {title,description} → ACP {content,priority,status}.

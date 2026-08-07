@@ -98,8 +98,9 @@ class TestTerminalExecutorCreateTerminalContent:
         assert text_item["type"] == "content"
         assert "content" in text_item
         assert text_item["content"]["type"] == "text"
-        # LLM видит короткий alias (term_1), а не сырой client terminalId (см. #18).
-        assert "Terminal term_1 created" in text_item["content"]["text"]
+        # LLM видит короткий alias (`term_<эпоха>_<n>`), а не сырой client terminalId (#18).
+        assert "Terminal term_" in text_item["content"]["text"]
+        assert "_1 created" in text_item["content"]["text"]
 
     @pytest.mark.asyncio
     async def test_execute_create_terminal_content_first(
@@ -156,7 +157,7 @@ class TestTerminalAliasRoundTrip:
 
         create = await executor.execute_create(session=session, command="ls")
         alias = create.metadata["terminal_id"]
-        assert alias == "term_1"
+        assert alias.startswith("term_") and alias.endswith("_1")
 
         result = await executor.execute_wait_for_exit(session=session, terminal_id=alias)
 
@@ -223,13 +224,17 @@ class TestTerminalAliasRoundTrip:
         assert result.success is True
         assert result.output is not None
         # Наружу (output/metadata/raw_output) идёт alias, а не сырой client id (см. #18).
-        assert "term_1" in result.output
+        # Значение alias'а не фиксируется: он несёт эпоху процесса (ADR-008, раздел 4),
+        # и гейт стоит на том, что наружу ушёл именно alias, а не client id.
         assert result.metadata is not None
-        assert result.metadata["terminal_id"] == "term_1"
+        alias = result.metadata["terminal_id"]
+        assert alias.startswith("term_") and alias.endswith("_1")
+        assert alias in result.output
+        assert "term_full" not in result.output
         assert result.metadata["command"] == "ls"
-        assert result.raw_output == {"terminal_id": "term_1"}
+        assert result.raw_output == {"terminal_id": alias}
         # Client-facing terminal content-item сохраняет родной client terminalId.
         assert result.content is not None
         assert result.content[0]["terminalId"] == "term_full"
         # Связка alias → client id зарегистрирована в процессном реестре (ADR-007, шаг A).
-        assert executor._aliases.resolve(session, "term_1") == "term_full"
+        assert executor._aliases.resolve(session, alias) == "term_full"
