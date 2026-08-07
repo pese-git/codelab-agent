@@ -161,7 +161,7 @@ class TestTurnLifecyclePhases:
     ) -> None:
         """Переходит в фазу ожидания разрешения вместе с её идентификаторами."""
         session.active_turn = self._turn()
-        phase = AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        phase = AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
         lifecycle_manager.set_turn_phase(session, phase)
         assert session.active_turn.phase == phase
         # Выводимые чтения — те же, что были у плоских полей.
@@ -210,7 +210,7 @@ class TestTurnLifecyclePhases:
     ) -> None:
         """Возвращает имя текущей фазы."""
         session.active_turn = self._turn(
-            AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+            AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
         )
         assert lifecycle_manager.get_turn_phase(session) == "awaiting_permission"
 
@@ -433,7 +433,7 @@ class TestTurnLifecyclePhaseTransitions:
     ) -> None:
         """От running можно перейти в любую фазу."""
         for target in (
-            AwaitingPermission(request_id="perm_1", tool_call_id="call_1"),
+            AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1"),
             AwaitingClientRpc(),
             TurnCancelled(),
             Completing(),
@@ -448,18 +448,20 @@ class TestTurnLifecyclePhaseTransitions:
         session: DomainSession,
     ) -> None:
         """От ожидания разрешения — только running, cancelled или completing."""
-        awaiting = AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        awaiting = AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
         for target in (Running(), TurnCancelled(), Completing()):
             session.active_turn = self._turn(awaiting)
             lifecycle_manager.set_turn_phase(session, target)
             assert session.active_turn.phase == target
 
-        # Повторное ожидание из ожидания запрещено: сначала ответ, потом новый запрос.
+        # Повторное ожидание из ожидания РАЗРЕШЕНО (P1-61): незакрытых разрешений может
+        # быть несколько, и спецификация этого прямо требует. Прежний запрет проверялся
+        # здесь же и был **неверным правилом**: второй запрос уходил клиенту, а его
+        # идентификатор терялся вместе с отклонённым переходом.
         session.active_turn = self._turn(awaiting)
-        lifecycle_manager.set_turn_phase(
-            session, AwaitingPermission(request_id="perm_2", tool_call_id="call_2")
-        )
-        assert session.active_turn.phase == awaiting
+        second = AwaitingPermission.of(request_id="perm_2", tool_call_id="call_2")
+        lifecycle_manager.set_turn_phase(session, second)
+        assert session.active_turn.phase == second
 
     def test_awaiting_client_rpc_to_valid_phases(
         self,

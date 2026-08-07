@@ -163,7 +163,7 @@ class TestPermissionManagerRequest:
         )
 
         assert msg.id is not None
-        assert domain_session.active_turn.phase == AwaitingPermission(
+        assert domain_session.active_turn.phase == AwaitingPermission.of(
             request_id=msg.id, tool_call_id="call_001"
         )
         # Выводимые чтения остались прежними — их около пятнадцати в продакшене.

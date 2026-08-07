@@ -367,7 +367,7 @@ class TestPromptOrchestratorHandleCancel:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            phase=AwaitingPermission(request_id="perm_1", tool_call_id="call_1"),
+            phase=AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1"),
         )
 
         orchestrator.handle_cancel(
@@ -601,7 +601,7 @@ class TestPromptOrchestratorToolCallFlow:
         assert permission_requests[0].id is not None
         # В новом flow turn остается активным в состоянии awaiting_permission
         assert session.active_turn is not None
-        assert session.active_turn.phase == AwaitingPermission(
+        assert session.active_turn.phase == AwaitingPermission.of(
             request_id=permission_requests[0].id, tool_call_id="call_001"
         )
 

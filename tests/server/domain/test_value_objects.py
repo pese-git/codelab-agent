@@ -123,7 +123,7 @@ class TestTurnPhaseFromWire:
             permission_request_id="perm_1",
             permission_tool_call_id="call_1",
         )
-        assert phase == AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
         assert phase.wire_name == "awaiting_permission"
 
     def test_keep_tool_pending_restored_from_name(self) -> None:
@@ -133,7 +133,7 @@ class TestTurnPhaseFromWire:
             permission_request_id="perm_1",
             permission_tool_call_id="call_1",
         )
-        assert phase == AwaitingPermission(
+        assert phase == AwaitingPermission.of(
             request_id="perm_1", tool_call_id="call_1", keep_tool_pending=True
         )
         assert phase.wire_name == "waiting_tool_completion"
@@ -151,7 +151,7 @@ class TestTurnPhaseFromWire:
             permission_request_id="perm_1",
             permission_tool_call_id="call_1",
         )
-        assert phase == AwaitingPermission(request_id="perm_1", tool_call_id="call_1")
+        assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
 
     def test_request_id_without_tool_call_id_survives(self) -> None:
         """Вторая найденная регрессия: без `tool_call_id` идентификатор всё равно нужен.
@@ -162,7 +162,7 @@ class TestTurnPhaseFromWire:
         phase = turn_phase_from_wire(
             "running", permission_request_id="perm_1", permission_tool_call_id=None
         )
-        assert phase == AwaitingPermission(request_id="perm_1", tool_call_id=None)
+        assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id=None)
 
     def test_awaiting_without_ids_degrades_to_running(self) -> None:
         """Наблюдавшееся живьём несогласованное состояние не восстанавливается как пауза."""
@@ -178,9 +178,7 @@ class TestTurnPhaseFromWire:
     def test_terminal_names(self) -> None:
         for name, expected in (("cancelled", TurnCancelled()), ("completing", Completing())):
             assert (
-                turn_phase_from_wire(
-                    name, permission_request_id=None, permission_tool_call_id=None
-                )
+                turn_phase_from_wire(name, permission_request_id=None, permission_tool_call_id=None)
                 == expected
             )
 
@@ -188,9 +186,7 @@ class TestTurnPhaseFromWire:
         """`awaiting_client_rpc` числился в матрице, но не писался никем; `waiting_` — писался."""
         for name in ("waiting_client_rpc", "awaiting_client_rpc"):
             assert (
-                turn_phase_from_wire(
-                    name, permission_request_id=None, permission_tool_call_id=None
-                )
+                turn_phase_from_wire(name, permission_request_id=None, permission_tool_call_id=None)
                 == AwaitingClientRpc()
             )
 

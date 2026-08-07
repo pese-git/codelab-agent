@@ -335,8 +335,13 @@ class PromptOrchestrator:
         # не дублировалось предикатом активности.
         _save_tool_updates_to_history(session, cancel_messages)
 
-        if session.active_turn.permission_request_id is not None:
-            session.cancel_permission_request(session.active_turn.permission_request_id)
+        # Надгробие пишется на **каждое** незакрытое ожидание: спецификация требует
+        # ответить на все незакрытые `session/request_permission` исходом `cancelled`
+        # (`05-Prompt Turn.md`), а поздний ответ на любой из них должен быть
+        # детерминированно проигнорирован. Пока закрывалось одно, остальные ответы
+        # приходили как «неизвестный запрос» (P1-61).
+        for wait in session.active_turn.outstanding_permissions:
+            session.cancel_permission_request(wait.request_id)
 
         if session.active_turn.pending_external_request is not None:
             session.cancel_client_rpc_request(

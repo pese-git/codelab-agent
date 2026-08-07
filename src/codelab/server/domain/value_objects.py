@@ -73,40 +73,90 @@ class Running:
 
 
 @dataclass(frozen=True)
-class AwaitingPermission:
-    """Turn приостановлен до решения пользователя по конкретному вызову.
-
-    Идентификаторы — часть значения фазы, а не соседние поля: пока они лежали
-    рядом, состояние «жду разрешения, но не знаю какого» было выразимо и
-    наблюдалось живьём (`phase = awaiting_permission` при обоих идентификаторах
-    `null`, прогон 2026-08-06). Ответ на разрешение снимает идентификаторы, и
-    снятие теперь **есть** переход в `Running` — забыть его нельзя.
+class PermissionWait:
+    """Одно незакрытое разрешение: запрос, вызов и ветка ожидания.
 
     Обязателен именно `request_id`: от него зависит **корреляция** — ответ клиента
-    ищет сессию по нему, и отмена пишет tombstone по нему же. Поэтому невыразимым
-    становится ровно наблюдавшийся дефект («жду разрешения» вообще без
-    идентификаторов), а не любая неполнота. `tool_call_id` может отсутствовать в
-    документах, записанных когда поля выставлялись по частям: без него нельзя
-    возобновить конкретный вызов, но отменить ожидание можно.
+    находится по нему, и отмена пишет tombstone по нему же. `tool_call_id` может
+    отсутствовать в документах, записанных когда поля выставлялись по частям: без
+    него нельзя возобновить конкретный вызов, но отменить ожидание можно.
 
-    `keep_tool_pending` различает две ветки одного состояния. Раньше их
-    различали **именем фазы** (`waiting_tool_completion` против
-    `waiting_permission`/`awaiting_permission`), из-за чего одно состояние
-    писалось тремя строками из двух модулей.
+    `keep_tool_pending` принадлежит **ожиданию**, а не turn'у: ветку задают
+    директивы конкретного запроса. Раньше две ветки одного состояния различали
+    **именем фазы** (`waiting_tool_completion` против `awaiting_permission`),
+    из-за чего одно состояние писалось тремя строками из двух модулей.
     """
 
     request_id: str | int
     tool_call_id: str | None = None
     keep_tool_pending: bool = False
 
+
+@dataclass(frozen=True)
+class AwaitingPermission:
+    """Turn приостановлен до решения пользователя по одному или нескольким вызовам.
+
+    Ожиданий может быть **несколько одновременно**, и это требование спецификации,
+    а не расширение на будущее (`05-Prompt Turn.md`): «The Client MUST respond to
+    **all pending** `session/request_permission` requests with the `cancelled`
+    outcome». Пока фаза несла одно ожидание, второй запрос уходил клиенту, а его
+    идентификатор не сохранялся — вызов оставался `pending` навсегда и без
+    `role: tool` (P1-61, измерено живьём 2026-08-07).
+
+    Ожидания — часть значения фазы, а не соседние поля: пока идентификаторы лежали
+    рядом, состояние «жду разрешения, но не знаю какого» было выразимо и
+    наблюдалось живьём (прогон 2026-08-06). Ответ на последнее ожидание **есть**
+    переход в `Running` — забыть его нельзя.
+
+    Инвариант: набор непуст. Пустое ожидание — это и есть `Running`, и хранить его
+    отдельным состоянием значило бы вернуть ровно тот невыразимый случай.
+    """
+
+    waits: tuple[PermissionWait, ...]
+
+    def __post_init__(self) -> None:
+        if not self.waits:
+            raise ValueError("AwaitingPermission requires at least one wait")
+
+    @classmethod
+    def of(
+        cls,
+        request_id: str | int,
+        tool_call_id: str | None = None,
+        *,
+        keep_tool_pending: bool = False,
+    ) -> AwaitingPermission:
+        """Ожидание одного разрешения — самый частый случай."""
+        return cls((PermissionWait(request_id, tool_call_id, keep_tool_pending),))
+
+    @property
+    def latest(self) -> PermissionWait:
+        """Последнее заведённое ожидание — то, на котором turn встал сейчас."""
+        return self.waits[-1]
+
+    def wait_for(self, request_id: str | int) -> PermissionWait | None:
+        """Ожидание по идентификатору запроса; `None` — такого не ждём."""
+        return next((w for w in self.waits if w.request_id == request_id), None)
+
+    def with_wait(self, wait: PermissionWait) -> AwaitingPermission:
+        """Добавить ожидание; повторный `request_id` заменяет прежнее значение."""
+        kept = tuple(w for w in self.waits if w.request_id != wait.request_id)
+        return AwaitingPermission((*kept, wait))
+
+    def without(self, request_id: str | int) -> AwaitingPermission | Running:
+        """Закрыть ожидание. Когда закрыто последнее — это `Running`."""
+        kept = tuple(w for w in self.waits if w.request_id != request_id)
+        return AwaitingPermission(kept) if kept else Running()
+
     @property
     def wire_name(self) -> str:
         """Имя фазы в документе сессии.
 
         Обратная совместимость: `waiting_tool_completion` читает
-        `should_auto_complete_active_turn`, поэтому имя сохраняется.
+        `should_auto_complete_active_turn`, поэтому имя сохраняется. Ветку задаёт
+        последнее ожидание — оно же и определяет, чего turn ждёт прямо сейчас.
         """
-        return "waiting_tool_completion" if self.keep_tool_pending else "awaiting_permission"
+        return "waiting_tool_completion" if self.latest.keep_tool_pending else "awaiting_permission"
 
 
 @dataclass(frozen=True)
@@ -143,7 +193,10 @@ type TurnPhase = Running | AwaitingPermission | AwaitingClientRpc | TurnCancelle
 # перечисляли (ADR-008, шаг 2).
 ALLOWED_TURN_PHASE_TRANSITIONS: Mapping[type, frozenset[type]] = {
     Running: frozenset({Running, AwaitingPermission, AwaitingClientRpc, TurnCancelled, Completing}),
-    AwaitingPermission: frozenset({Running, TurnCancelled, Completing}),
+    # Самопереход законен и обязателен: к ожиданию присоединяется ещё один запрос
+    # либо из него уходит закрытый. Пока его не было, второй одновременный запрос
+    # отклонялся, уходил клиенту и терялся (P1-61).
+    AwaitingPermission: frozenset({Running, AwaitingPermission, TurnCancelled, Completing}),
     AwaitingClientRpc: frozenset({Running, TurnCancelled, Completing}),
     TurnCancelled: frozenset({TurnCancelled}),
     Completing: frozenset({Completing}),
@@ -179,9 +232,9 @@ def turn_phase_from_wire(
     # идентификаторов сделала бы такое разрешение необрабатываемым — уже сохранённые
     # сессии перестали бы отвечать.
     if permission_request_id is not None:
-        return AwaitingPermission(
-            request_id=permission_request_id,
-            tool_call_id=permission_tool_call_id,
+        return AwaitingPermission.of(
+            permission_request_id,
+            permission_tool_call_id,
             keep_tool_pending=name == "waiting_tool_completion",
         )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...domain.session import Session
-from ...domain.value_objects import AwaitingPermission
+from ...domain.value_objects import PermissionWait
 from ...messages import ACPMessage
 
 
@@ -158,8 +158,13 @@ class PermissionManager:
         # поэтому «жду разрешения» без идентификаторов не должно быть выразимо. Раньше
         # идентификаторы писались здесь, а фаза — отдельно в `tool_processor`.
         if session.active_turn is not None and msg.id is not None:
-            session.active_turn.transition_to(
-                AwaitingPermission(request_id=msg.id, tool_call_id=tool_call_id)
+            # `await_permission` сохраняет уже заведённые ожидания. Раньше здесь
+            # строилась новая фаза, и матрица отклоняла переход
+            # `awaiting_permission → awaiting_permission`: запрос уходил клиенту, а
+            # его идентификатор сервер забывал — вызов оставался `pending` навсегда
+            # и без `role: tool` (P1-61, измерено живьём 2026-08-07).
+            session.active_turn.await_permission(
+                PermissionWait(request_id=msg.id, tool_call_id=tool_call_id)
             )
 
         return msg

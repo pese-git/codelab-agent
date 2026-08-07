@@ -163,7 +163,7 @@ class TestRoundtripTurnAndRuntime:
             session_id="sess_rt",
             prompt_request_id="req_1",
             cancel_requested=True,
-            phase=AwaitingPermission(request_id=7, tool_call_id="call_001"),
+            phase=AwaitingPermission.of(request_id=7, tool_call_id="call_001"),
             pending_external_request=PendingExternalRequest(
                 request_id="rpc_1",
                 kind="fs_read",
@@ -180,7 +180,7 @@ class TestRoundtripTurnAndRuntime:
         # обязан сохранить именно значение фазы, а не три плоских поля.
         assert rt.active_turn.permission_request_id == 7
         assert rt.active_turn.permission_tool_call_id == "call_001"
-        assert rt.active_turn.phase == AwaitingPermission(request_id=7, tool_call_id="call_001")
+        assert rt.active_turn.phase == AwaitingPermission.of(request_id=7, tool_call_id="call_001")
         # Прежнее имя `waiting_permission` читается, но перезаписывается каноничным
         # `awaiting_permission`: одно состояние больше не имеет трёх написаний.
         assert rt.active_turn.phase.wire_name == "awaiting_permission"
@@ -403,8 +403,8 @@ class TestProtocolRoundtripLossless:
             assert d0[field_name] == d1[field_name], field_name
 
         assert [m["timestamp"] for m in d0["history"]] == [m["timestamp"] for m in d1["history"]]
-        assert d0["tool_calls"]["call_001"]["raw_input"] == (
-            d1["tool_calls"]["call_001"]["raw_input"]
+        assert (
+            d0["tool_calls"]["call_001"]["raw_input"] == (d1["tool_calls"]["call_001"]["raw_input"])
         )
 
     def test_history_body_roundtrip_lossless(self) -> None:

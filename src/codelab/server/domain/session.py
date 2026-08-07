@@ -32,6 +32,7 @@ from .value_objects import (
     AwaitingPermission,
     FileLocation,
     MessageRole,
+    PermissionWait,
     PlanStatus,
     Running,
     SessionId,
@@ -328,14 +329,53 @@ class TurnState:
     pending_batch: list[dict[str, Any]] = field(default_factory=list)
 
     @property
+    def outstanding_permissions(self) -> tuple[PermissionWait, ...]:
+        """Все незакрытые ожидания разрешения — пусто, если turn ничего не ждёт.
+
+        Спецификация ACP требует ответить на **все** незакрытые запросы при
+        отмене, поэтому «все» — основной вопрос к фазе, а «какое именно» —
+        частный (`permission_wait_for`).
+        """
+        return self.phase.waits if isinstance(self.phase, AwaitingPermission) else ()
+
+    def permission_wait_for(self, request_id: str | int) -> PermissionWait | None:
+        """Ожидание по идентификатору запроса; `None` — такого turn не ждёт."""
+        phase = self.phase
+        return phase.wait_for(request_id) if isinstance(phase, AwaitingPermission) else None
+
+    @property
     def permission_request_id(self) -> str | int | None:
-        """Идентификатор ожидаемого permission-запроса, если turn его ждёт."""
-        return self.phase.request_id if isinstance(self.phase, AwaitingPermission) else None
+        """Идентификатор **последнего** заведённого ожидания, если оно есть.
+
+        Остался ради документа и диагностики: одно значение честно описывает
+        turn лишь пока ожидание одно. Решения принимать по нему нельзя —
+        для этого есть `outstanding_permissions` и `permission_wait_for`.
+        """
+        return self.phase.latest.request_id if isinstance(self.phase, AwaitingPermission) else None
 
     @property
     def permission_tool_call_id(self) -> str | None:
-        """Вызов, ожидающий решения пользователя, если turn его ждёт."""
-        return self.phase.tool_call_id if isinstance(self.phase, AwaitingPermission) else None
+        """Вызов последнего ожидания. Те же оговорки, что у `permission_request_id`."""
+        phase = self.phase
+        return phase.latest.tool_call_id if isinstance(phase, AwaitingPermission) else None
+
+    def await_permission(self, wait: PermissionWait) -> bool:
+        """Добавить ожидание разрешения, сохранив уже заведённые.
+
+        Единственный путь заведения: раньше каждый новый запрос строил фазу
+        заново и тем самым забывал предыдущую (P1-61).
+        """
+        phase = self.phase
+        if isinstance(phase, AwaitingPermission):
+            return self.transition_to(phase.with_wait(wait))
+        return self.transition_to(AwaitingPermission((wait,)))
+
+    def close_permission(self, request_id: str | int) -> bool:
+        """Закрыть ожидание; когда закрыто последнее — turn возвращается в `Running`."""
+        phase = self.phase
+        if not isinstance(phase, AwaitingPermission):
+            return False
+        return self.transition_to(phase.without(request_id))
 
     def transition_to(self, phase: TurnPhase) -> bool:
         """Сменить фазу по матрице переходов — единственный путь записи.

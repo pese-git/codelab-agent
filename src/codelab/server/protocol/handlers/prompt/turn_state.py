@@ -79,4 +79,9 @@ def should_auto_complete_active_turn(
     # Признак читается из значения фазы, а не из её имени: до ADR-008 шага 2 те же две
     # ветки одного состояния различались строкой `waiting_tool_completion`.
     phase = session.active_turn.phase
-    return isinstance(phase, AwaitingPermission) and phase.keep_tool_pending
+    if not isinstance(phase, AwaitingPermission):
+        return False
+    # `all`, а не «последнее ожидание»: незакрытых разрешений может быть несколько
+    # (P1-61), и достаточно одного, которое turn обязан дождаться, чтобы автозавершение
+    # было запрещено. Обратное дало бы завершение turn'а поверх живого ожидания.
+    return all(wait.keep_tool_pending for wait in phase.waits)

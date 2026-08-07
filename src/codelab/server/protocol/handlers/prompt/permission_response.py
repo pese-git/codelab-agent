@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from ....domain.session import Session as DomainSession
-from ....domain.value_objects import Running, ToolCallStatus
+from ....domain.value_objects import ToolCallStatus
 from ....messages import ACPMessage, JsonRpcId
 from ...state import PendingToolExecution, ProtocolOutcome
 from ..permissions import build_permission_options
@@ -46,9 +46,12 @@ def resolve_permission_response_impl(
 
     if session.active_turn is None:
         return None
-    tool_call_id = session.active_turn.permission_tool_call_id
-    if tool_call_id is None:
+    # Вызов берётся у ожидания **этого** запроса, а не «текущего» ожидания turn'а:
+    # незакрытых разрешений может быть несколько, и ответы приходят в любом порядке.
+    wait = session.active_turn.permission_wait_for(permission_request_id)
+    if wait is None or wait.tool_call_id is None:
         return None
+    tool_call_id = wait.tool_call_id
 
     session_id = str(session.id)
     notifications: list[ACPMessage] = []
@@ -59,12 +62,15 @@ def resolve_permission_response_impl(
         selected_option_id, build_permission_options()
     )
 
-    # Снятие идентификаторов ЕСТЬ возврат в `running` (ADR-008, шаг 2): они часть
-    # значения фазы, поэтому «снял, но забыл вернуть фазу» больше не выразимо. До этого
-    # фаза оставалась `awaiting_permission` до конца turn'а при обоих идентификаторах
+    # Снятие ожидания ЕСТЬ возврат в `running` (ADR-008, шаг 2): оно часть значения
+    # фазы, поэтому «снял, но забыл вернуть фазу» больше не выразимо. До этого фаза
+    # оставалась `awaiting_permission` до конца turn'а при обоих идентификаторах
     # `null` — наблюдалось живьём (прогон 2026-08-06) и мешало различить «процесс умер на
     # настоящей паузе» от «идентификатор не сняли» (P2-46).
-    session.active_turn.transition_to(Running())
+    #
+    # Закрывается ровно **это** ожидание: если turn ждёт ещё чьего-то решения, он
+    # обязан продолжать ждать, а не считать себя разбуженным чужим ответом (P1-61).
+    session.active_turn.close_permission(permission_request_id)
 
     tool_call = session.tool_calls.get(tool_call_id)
     tool_kind = tool_call.kind if tool_call is not None else None

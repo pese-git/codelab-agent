@@ -46,16 +46,28 @@ class TestSessionCleanup:
         # Arrange
         session = make_domain_session(session_id="sess_1", cwd="/tmp")
         session.tool_calls.calls["call_1"] = ToolCall(
-            id="call_1", tool_name="Task 1", arguments={}, title="Task 1",
-            kind="other", status=ToolCallStatus("pending")
+            id="call_1",
+            tool_name="Task 1",
+            arguments={},
+            title="Task 1",
+            kind="other",
+            status=ToolCallStatus("pending"),
         )
         session.tool_calls.calls["call_2"] = ToolCall(
-            id="call_2", tool_name="Task 2", arguments={}, title="Task 2",
-            kind="other", status=ToolCallStatus("in_progress")
+            id="call_2",
+            tool_name="Task 2",
+            arguments={},
+            title="Task 2",
+            kind="other",
+            status=ToolCallStatus("in_progress"),
         )
         session.tool_calls.calls["call_3"] = ToolCall(
-            id="call_3", tool_name="Task 3", arguments={}, title="Task 3",
-            kind="other", status=ToolCallStatus("completed")
+            id="call_3",
+            tool_name="Task 3",
+            arguments={},
+            title="Task 3",
+            kind="other",
+            status=ToolCallStatus("completed"),
         )
 
         # Act
@@ -75,7 +87,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_1"),
+            phase=AwaitingPermission.of(request_id="perm_req_1", tool_call_id="call_1"),
         )
 
         # Act
@@ -119,7 +131,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_1"),
+            phase=AwaitingPermission.of(request_id="perm_req_1", tool_call_id="call_1"),
             pending_external_request=pending_request,
         )
 
@@ -169,7 +181,7 @@ class TestSessionCleanup:
         session.active_turn = TurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
-            phase=AwaitingPermission(request_id="new_perm_1", tool_call_id="call_1"),
+            phase=AwaitingPermission.of(request_id="new_perm_1", tool_call_id="call_1"),
         )
         pending_request = PendingClientRequestState(
             request_id="new_rpc_1",
@@ -195,16 +207,28 @@ class TestSessionCleanup:
 
         # Добавляем несколько tool calls в разных состояниях
         session.tool_calls.calls["call_pending_1"] = ToolCall(
-            id="call_pending_1", tool_name="Pending Task", arguments={}, title="Pending Task",
-            kind="other", status=ToolCallStatus("pending")
+            id="call_pending_1",
+            tool_name="Pending Task",
+            arguments={},
+            title="Pending Task",
+            kind="other",
+            status=ToolCallStatus("pending"),
         )
         session.tool_calls.calls["call_pending_2"] = ToolCall(
-            id="call_pending_2", tool_name="Another Pending", arguments={}, title="Another Pending",
-            kind="execute", status=ToolCallStatus("pending")
+            id="call_pending_2",
+            tool_name="Another Pending",
+            arguments={},
+            title="Another Pending",
+            kind="execute",
+            status=ToolCallStatus("pending"),
         )
         session.tool_calls.calls["call_completed"] = ToolCall(
-            id="call_completed", tool_name="Completed Task", arguments={}, title="Completed Task",
-            kind="other", status=ToolCallStatus("completed")
+            id="call_completed",
+            tool_name="Completed Task",
+            arguments={},
+            title="Completed Task",
+            kind="other",
+            status=ToolCallStatus("completed"),
         )
 
         # Активный turn с permission и RPC requests
@@ -219,7 +243,7 @@ class TestSessionCleanup:
             prompt_request_id="req_1",
             session_id="sess_1",
             cancel_requested=False,
-            phase=AwaitingPermission(request_id="perm_req_1", tool_call_id="call_pending_1"),
+            phase=AwaitingPermission.of(request_id="perm_req_1", tool_call_id="call_pending_1"),
             pending_external_request=pending_request,
         )
 

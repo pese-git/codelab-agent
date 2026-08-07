@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codelab.server.domain.session import Session
-from codelab.server.domain.value_objects import AwaitingClientRpc, AwaitingPermission
+from codelab.server.domain.value_objects import AwaitingClientRpc, PermissionWait
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.handlers.prompt import (
     build_executor_tool_execution_updates,
@@ -324,8 +324,11 @@ class DirectivesStage(PromptStage):
             # (`waiting_tool_completion` против `waiting_permission`), из-за чего
             # ожидание разрешения писалось тремя строками из двух модулей. Теперь это
             # поле значения (ADR-008, шаг 2).
-            session.active_turn.transition_to(
-                AwaitingPermission(
+            #
+            # `await_permission`, а не построение фазы заново: одновременных ожиданий
+            # может быть несколько, и пересборка забывала бы предыдущие (P1-61).
+            session.active_turn.await_permission(
+                PermissionWait(
                     request_id=permission_request.id,
                     tool_call_id=tool_call_id,
                     keep_tool_pending=directives.keep_tool_pending,
