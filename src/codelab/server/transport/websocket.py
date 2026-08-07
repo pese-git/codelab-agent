@@ -153,6 +153,10 @@ class WebSocketTransport(AcpServerTransport):
 
             # Настраиваем send_callback для отправки сообщений из фоновых задач
             protocol._send_callback = self._send_protocol_message
+            # Транспорт — единственная точка, мимо которой не проходит ни один путь
+            # отправки, поэтому корреляция «исходящий запрос → сессия» заводится здесь
+            # (ADR-008, раздел 7). Ссылка нужна колбэкам, у которых нет `_WsRunState`.
+            self._protocol = protocol
             self._conn_logger.info(
                 "send_callback_configured",
                 callback_type="self._send_protocol_message",
@@ -448,6 +452,7 @@ class WebSocketTransport(AcpServerTransport):
         Args:
             message: ACPMessage для отправки (response, notification или RPC request).
         """
+        self._record_outgoing_request(message)
         async with self._connection_send_lock:
             if self._connection.closed:
                 return
@@ -481,6 +486,17 @@ class WebSocketTransport(AcpServerTransport):
             if not self._connection.closed:
                 await self._connection.send_json(request_dict)
 
+    def _record_outgoing_request(self, message: ACPMessage) -> None:
+        """Регистрирует исходящий запрос к клиенту, если это запрос.
+
+        Три точки отправки способны нести серверный запрос: `send`, доставка из
+        фоновых задач и нотификации из outcome. Остальные `send_str` отдают только
+        ответы, которые ответа не ждут. Сам разбор — в `ACPProtocol`.
+        """
+        protocol = getattr(self, "_protocol", None)
+        if protocol is not None:
+            protocol.record_outgoing_request(message)
+
     async def _send_protocol_message(self, message: ACPMessage) -> None:
         """Отправляет сообщение из фоновых задач протокола.
 
@@ -499,6 +515,7 @@ class WebSocketTransport(AcpServerTransport):
             payload=message_json,
         )
 
+        self._record_outgoing_request(message)
         async with self._connection_send_lock:
             if not self._connection.closed:
                 await self._connection.send_str(message_json)
@@ -546,6 +563,7 @@ class WebSocketTransport(AcpServerTransport):
 
             for idx, notification in enumerate(outcome.notifications):
                 notification_json = notification.to_json()
+                self._record_outgoing_request(notification)
                 await self._connection.send_str(notification_json)
                 self._conn_logger.info(
                     "notification_sent",

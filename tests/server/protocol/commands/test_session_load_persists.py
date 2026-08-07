@@ -20,7 +20,12 @@ from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
 from codelab.server.storage import JsonFileStorage, SessionRepository
-from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
+from codelab.server.storage.document import (
+    ActiveTurnState,
+    PermissionWaitState,
+    SessionDocument,
+    ToolCallState,
+)
 
 
 def _tool_answers(session: SessionDocument) -> list[tuple[str, str]]:
@@ -142,7 +147,9 @@ class TestSessionLoadPersistsDecisions:
         """Осиротевший permission-request не должен оставаться на диске."""
         storage = JsonFileStorage(tmp_path)
         session = _session_with_interrupted_turn()
-        session.active_turn.permission_request_id = "perm_1"
+        # Ожидание заводится списком (v12): плоское поле стало выводимым, потому что
+        # незакрытых разрешений может быть несколько (P1-61).
+        session.active_turn.permission_waits = [PermissionWaitState(request_id="perm_1")]
         await storage.save_session(session)
 
         await _load(storage)

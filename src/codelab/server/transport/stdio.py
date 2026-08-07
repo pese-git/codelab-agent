@@ -50,6 +50,9 @@ MAX_STDIO_MESSAGE_SIZE = 25 * 1024 * 1024
 ShouldAutoCompleteCallback = Callable[[str], Awaitable[bool]]
 CompleteActiveTurnCallback = Callable[[str, str], Awaitable[ACPMessage | None]]
 LoadPendingPromptResponseCallback = Callable[[str], Awaitable[ACPMessage | None]]
+# Регистрация исходящего запроса к клиенту: синхронная, потому что вызывается под
+# `_send_lock` прямо перед записью в stdout — await там задержал бы отправку.
+RecordOutgoingRequestCallback = Callable[[ACPMessage], None]
 
 
 class StdioServerTransport:
@@ -89,6 +92,7 @@ class StdioServerTransport:
         should_auto_complete: ShouldAutoCompleteCallback | None = None,
         complete_active_turn: CompleteActiveTurnCallback | None = None,
         load_pending_prompt_response: LoadPendingPromptResponseCallback | None = None,
+        record_outgoing_request: RecordOutgoingRequestCallback | None = None,
     ) -> None:
         """Инициализирует stdio транспорт.
 
@@ -101,6 +105,10 @@ class StdioServerTransport:
                 response при отмене deferred prompt task. Если None — на
                 ``session/cancel`` финальный response не отправляется через
                 этот путь (полагаемся на основной handler).
+            record_outgoing_request: Callback регистрации исходящего запроса к
+                клиенту. Транспорт — единственная точка, мимо которой не проходит
+                ни один путь отправки, поэтому корреляция «запрос → сессия»
+                заводится здесь (ADR-008, раздел 7).
         """
         self._stdin_reader: asyncio.StreamReader | None = None
         self._send_lock = asyncio.Lock()
@@ -111,6 +119,7 @@ class StdioServerTransport:
         self._should_auto_complete = should_auto_complete
         self._complete_active_turn = complete_active_turn
         self._load_pending_prompt_response = load_pending_prompt_response
+        self._record_outgoing_request = record_outgoing_request
 
         # Трекинг фоновых задач
         self._prompt_tasks: set[asyncio.Task[None]] = set()
@@ -264,6 +273,9 @@ class StdioServerTransport:
         async with self._send_lock:
             if self._closed:
                 return
+
+            if self._record_outgoing_request is not None:
+                self._record_outgoing_request(message)
 
             try:
                 data = message.to_json().encode("utf-8") + b"\n"

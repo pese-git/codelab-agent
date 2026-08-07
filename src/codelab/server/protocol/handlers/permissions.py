@@ -45,7 +45,9 @@ async def find_session_by_permission_request_id(
                 active_turn_perm_request_id=active_turn.permission_request_id,
                 looking_for=permission_request_id,
             )
-            if active_turn.permission_request_id == permission_request_id:
+            # Членство, а не сравнение с последним: незакрытых ожиданий может быть
+            # несколько, и ответ приходит на любое из них (P1-61).
+            if active_turn.awaits_permission_request(permission_request_id):
                 logger.debug(
                     "find_session_by_permission_request_id: found matching session",
                     session_id=session.session_id,
@@ -260,7 +262,7 @@ async def find_session_id_by_permission_request_id(
         active_turn = session.active_turn
         if active_turn is None:
             continue
-        if active_turn.permission_request_id == request_id:
+        if active_turn.permission_wait_for(request_id) is not None:
             return str(session.id)
     return None
 

@@ -67,7 +67,12 @@ class SessionLoadCommandHandler:
         self._require_auth = require_auth
         self._authenticated = authenticated
         self._runtime_capabilities = runtime_capabilities
-        self._pending_registry = pending_registry or PendingRequestRegistry()
+        # `is None`, а не `or`: у реестра есть `__len__`, поэтому пустой экземпляр
+        # ложен — идиома `x or Default()` молча подменяла переданный из DI реестр
+        # новым, и писатель с читателем работали бы с разными объектами.
+        self._pending_registry = (
+            pending_registry if pending_registry is not None else PendingRequestRegistry()
+        )
         self._on_session_loaded = on_session_loaded
 
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:

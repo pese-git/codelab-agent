@@ -20,7 +20,7 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
     TurnState,
 )
-from codelab.server.domain.value_objects import SessionId, turn_phase_from_wire
+from codelab.server.domain.value_objects import PermissionWait, SessionId, turn_phase_from_wire
 from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
@@ -29,6 +29,7 @@ from codelab.server.storage.document import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
     PendingClientRequestState,
+    PermissionWaitState,
     SessionDocument,
 )
 from codelab.shared.capabilities import ClientCapabilities
@@ -133,11 +134,17 @@ class SessionMapper:
             prompt_request_id=turn.prompt_request_id,
             session_id=turn.session_id,
             cancel_requested=turn.cancel_requested,
-            # Фаза несёт свои идентификаторы (ADR-008, шаг 2), а документ хранит их
-            # тремя плоскими полями. Разложение — здесь: формат хранения шаг 2 не
-            # меняет, поэтому старые документы читаются, а новые остаются совместимыми.
-            permission_request_id=turn.permission_request_id,
-            permission_tool_call_id=turn.permission_tool_call_id,
+            # Фаза несёт свои ожидания (ADR-008, шаги 2 и 5), документ хранит их
+            # списком (v12). Пока хранилась пара плоских полей, запись переживало
+            # только последнее ожидание, и ответ на любой другой был неприменим.
+            permission_waits=[
+                PermissionWaitState(
+                    request_id=wait.request_id,
+                    tool_call_id=wait.tool_call_id,
+                    keep_tool_pending=wait.keep_tool_pending,
+                )
+                for wait in turn.outstanding_permissions
+            ],
             phase=turn.phase.wire_name,
             pending_client_request=pending,
             pending_batch=[dict(call) for call in turn.pending_batch],
@@ -237,8 +244,14 @@ class SessionMapper:
             cancel_requested=at.cancel_requested,
             phase=turn_phase_from_wire(
                 at.phase,
-                permission_request_id=at.permission_request_id,
-                permission_tool_call_id=at.permission_tool_call_id,
+                waits=[
+                    PermissionWait(
+                        request_id=wait.request_id,
+                        tool_call_id=wait.tool_call_id,
+                        keep_tool_pending=wait.keep_tool_pending,
+                    )
+                    for wait in at.permission_waits
+                ],
             ),
             pending_external_request=pending,
             pending_batch=[dict(call) for call in at.pending_batch],

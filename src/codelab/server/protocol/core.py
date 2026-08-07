@@ -115,7 +115,12 @@ class ACPProtocol:
         self._method_registry = method_registry
         self._response_router = response_router
         self._background_executor = background_executor
-        self._pending_registry = pending_registry or PendingRequestRegistry()
+        # `is None`, а не `or`: у реестра есть `__len__`, поэтому пустой экземпляр
+        # ложен — идиома `x or Default()` молча подменяла переданный из DI реестр
+        # новым, и писатель с читателем работали бы с разными объектами.
+        self._pending_registry = (
+            pending_registry if pending_registry is not None else PendingRequestRegistry()
+        )
         self._runtime_registry = runtime_registry
         self._middleware = middleware or []
         self._send_callback = send_callback
@@ -255,6 +260,27 @@ class ACPProtocol:
         return await self._background_executor.complete_active_turn(
             session_id, stop_reason=stop_reason
         )
+
+    def record_outgoing_request(self, message: ACPMessage) -> None:
+        """Запомнить исходящий запрос к клиенту, чтобы найти сессию по ответу.
+
+        Вызывается транспортом в момент отправки — это единственная точка, мимо
+        которой не проходит ни один путь: и `outcome.notifications`, и шина
+        нотификаций фоновых задач ведут в один и тот же `send`. Регистрация в
+        месте создания запроса такой гарантии не давала бы: запрос строит
+        `PermissionManager` (APP-scope), а реестр живёт на соединение.
+
+        Записываются только **запросы** (есть и метод, и идентификатор): ответы и
+        нотификации ответа не ждут. Сессия берётся из самого сообщения —
+        `params.sessionId` есть у всех серверных запросов ACP, поэтому метод
+        ничего не знает про разрешения в частности.
+        """
+        if message.method is None or message.id is None:
+            return
+        params = message.params or {}
+        session_id = params.get("sessionId")
+        if isinstance(session_id, str) and session_id:
+            self._pending_registry.record_outgoing(message.id, session_id)
 
     async def should_auto_complete_active_turn(self, session_id: str) -> bool:
         """Возвращает `True`, если active turn можно безопасно автозавершить.

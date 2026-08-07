@@ -8,6 +8,7 @@ from codelab.server.domain.value_objects import (
     Completing,
     FileLocation,
     MessageRole,
+    PermissionWait,
     PlanPriority,
     PlanStatus,
     Running,
@@ -120,23 +121,36 @@ class TestTurnPhaseFromWire:
         """`waiting_permission` — прежнее имя того же состояния (его писал `directives`)."""
         phase = turn_phase_from_wire(
             "waiting_permission",
-            permission_request_id="perm_1",
-            permission_tool_call_id="call_1",
+            waits=[PermissionWait("perm_1", "call_1")],
         )
         assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
         assert phase.wire_name == "awaiting_permission"
 
-    def test_keep_tool_pending_restored_from_name(self) -> None:
-        """`waiting_tool_completion` — та же фаза с признаком, а не третье состояние."""
+    def test_keep_tool_pending_is_a_property_of_the_wait(self) -> None:
+        """`waiting_tool_completion` — та же фаза с признаком, а не третье состояние.
+
+        Признак пришёл из имени фазы и с v12 хранится у самого ожидания: их может
+        быть несколько, и ветка у каждого своя. Восстановление имени из документа
+        проверяется на уровне документа (`test_permission_waits_migration_v12`).
+        """
         phase = turn_phase_from_wire(
             "waiting_tool_completion",
-            permission_request_id="perm_1",
-            permission_tool_call_id="call_1",
+            waits=[PermissionWait("perm_1", "call_1", keep_tool_pending=True)],
         )
         assert phase == AwaitingPermission.of(
             request_id="perm_1", tool_call_id="call_1", keep_tool_pending=True
         )
         assert phase.wire_name == "waiting_tool_completion"
+
+    def test_every_wait_is_restored(self) -> None:
+        """Незакрытых ожиданий может быть несколько — все обязаны пережить чтение (P1-61)."""
+        phase = turn_phase_from_wire(
+            "awaiting_permission",
+            waits=[PermissionWait("perm_1", "call_1"), PermissionWait("perm_2", "call_2")],
+        )
+
+        assert isinstance(phase, AwaitingPermission)
+        assert [w.request_id for w in phase.waits] == ["perm_1", "perm_2"]
 
     def test_ids_win_over_phase_name(self) -> None:
         """`phase = running` при заполненном идентификаторе — ожидание, а не running.
@@ -146,11 +160,7 @@ class TestTurnPhaseFromWire:
         идентификатора делала бы разрешение необрабатываемым — ответ клиента ищет
         сессию именно по нему.
         """
-        phase = turn_phase_from_wire(
-            "running",
-            permission_request_id="perm_1",
-            permission_tool_call_id="call_1",
-        )
+        phase = turn_phase_from_wire("running", waits=[PermissionWait("perm_1", "call_1")])
         assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id="call_1")
 
     def test_request_id_without_tool_call_id_survives(self) -> None:
@@ -159,41 +169,21 @@ class TestTurnPhaseFromWire:
         Без него нельзя возобновить конкретный вызов, но отмена обязана записать
         tombstone по `request_id`, иначе поздний ответ даёт -32603.
         """
-        phase = turn_phase_from_wire(
-            "running", permission_request_id="perm_1", permission_tool_call_id=None
-        )
+        phase = turn_phase_from_wire("running", waits=[PermissionWait("perm_1", None)])
         assert phase == AwaitingPermission.of(request_id="perm_1", tool_call_id=None)
 
     def test_awaiting_without_ids_degrades_to_running(self) -> None:
         """Наблюдавшееся живьём несогласованное состояние не восстанавливается как пауза."""
-        assert (
-            turn_phase_from_wire(
-                "awaiting_permission",
-                permission_request_id=None,
-                permission_tool_call_id=None,
-            )
-            == Running()
-        )
+        assert turn_phase_from_wire("awaiting_permission", waits=[]) == Running()
 
     def test_terminal_names(self) -> None:
         for name, expected in (("cancelled", TurnCancelled()), ("completing", Completing())):
-            assert (
-                turn_phase_from_wire(name, permission_request_id=None, permission_tool_call_id=None)
-                == expected
-            )
+            assert turn_phase_from_wire(name, waits=[]) == expected
 
     def test_client_rpc_both_spellings(self) -> None:
         """`awaiting_client_rpc` числился в матрице, но не писался никем; `waiting_` — писался."""
         for name in ("waiting_client_rpc", "awaiting_client_rpc"):
-            assert (
-                turn_phase_from_wire(name, permission_request_id=None, permission_tool_call_id=None)
-                == AwaitingClientRpc()
-            )
+            assert turn_phase_from_wire(name, waits=[]) == AwaitingClientRpc()
 
     def test_unknown_name_degrades_to_running(self) -> None:
-        assert (
-            turn_phase_from_wire(
-                "who_knows", permission_request_id=None, permission_tool_call_id=None
-            )
-            == Running()
-        )
+        assert turn_phase_from_wire("who_knows", waits=[]) == Running()

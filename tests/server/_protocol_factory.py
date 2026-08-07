@@ -49,7 +49,12 @@ class _Assembler:
         self._storage = kw.get("storage") or InMemoryStorage()
         # Доменный порт над тем же backend — как в DI (write-фаза D4-d1, ADR-006).
         self._repository = SessionRepository(backend=self._storage)
-        self._pending_registry = kw.get("pending_registry") or PendingRequestRegistry()
+        # `is None`, а не `or`: пустой реестр ложен (у него есть `__len__`), и
+        # переданный тестом экземпляр молча подменялся бы новым.
+        passed_registry = kw.get("pending_registry")
+        self._pending_registry = (
+            passed_registry if passed_registry is not None else PendingRequestRegistry()
+        )
         self._runtime_registry = kw.get("runtime_registry") or SessionRuntimeRegistry()
         self._require_auth = kw.get("require_auth", False)
         self._auth_api_key = kw.get("auth_api_key")

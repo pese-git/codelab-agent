@@ -13,6 +13,7 @@ from codelab.server.storage import JsonFileStorage, StorageError
 from codelab.server.storage.document import (
     ActiveTurnState,
     ClientRuntimeCapabilities,
+    PermissionWaitState,
     SessionDocument,
     ToolCallState,
 )
@@ -320,7 +321,9 @@ async def test_active_turn_serialized_for_permission_matching(temp_storage_dir: 
         prompt_request_id="req_1",
         session_id="sess_active",
     )
-    session.active_turn.permission_request_id = "perm_1"
+    # Ожидание заводится списком (v12): плоское поле стало выводимым, потому что
+    # незакрытых разрешений может быть несколько (P1-61).
+    session.active_turn.permission_waits = [PermissionWaitState(request_id="perm_1")]
 
     await storage.save_session(session)
 
@@ -330,7 +333,11 @@ async def test_active_turn_serialized_for_permission_matching(temp_storage_dir: 
         data = json.load(f)
 
     assert "active_turn" in data, "active_turn должен сериализоваться в JSON"
-    assert data["active_turn"]["permission_request_id"] == "perm_1"
+    # Ожидание лежит списком (v12): плоского поля в документе больше нет — запись
+    # переживало только последнее, и ответ на любой другой запрос был неприменим (P1-61).
+    assert data["active_turn"]["permission_waits"] == [
+        {"request_id": "perm_1", "tool_call_id": None, "keep_tool_pending": False}
+    ]
 
     # При загрузке active_turn восстанавливается (для сопоставления ответов)
     loaded = await storage.load_session("sess_active")

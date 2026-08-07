@@ -170,10 +170,47 @@ def _migrate_to_v11(data: dict[str, Any]) -> None:
     data["events_history"] = migrated
 
 
+def _migrate_to_v12(data: dict[str, Any]) -> None:
+    """v11 → v12: незакрытые разрешения turn'а хранятся списком (шаг 5 ADR-008).
+
+    До v12 ожидание описывалось парой плоских полей, поэтому переживало запись
+    только последнее. Ответ на любой другой незакрытый запрос применить было не к
+    чему: фаза, восстановленная из документа, о нём уже не знала — вызов оставался
+    `pending` навсегда и без `role: tool` (P1-61, измерено живьём 2026-08-07).
+
+    Множественность требует спецификация (`05-Prompt Turn.md`): клиент обязан
+    ответить на **все** незакрытые `session/request_permission`.
+
+    Пара полей отбрасывается явно, как в v9 и v10: удаление данных должно быть
+    видно в цепочке миграций, а не быть побочным эффектом настроек модели.
+    """
+    turn = data.get("active_turn")
+    if not isinstance(turn, dict):
+        return
+
+    request_id = turn.pop("permission_request_id", None)
+    tool_call_id = turn.pop("permission_tool_call_id", None)
+    if turn.get("permission_waits"):
+        return
+    if request_id is None:
+        turn["permission_waits"] = []
+        return
+
+    turn["permission_waits"] = [
+        {
+            "request_id": request_id,
+            "tool_call_id": tool_call_id,
+            # Ветку хранило имя фазы — до типизации это было единственное место,
+            # где две ветки одного состояния различались (шаг 2).
+            "keep_tool_pending": turn.get("phase") == "waiting_tool_completion",
+        }
+    ]
+
+
 # Актуальная версия формата документа. Названа константой, потому что число
 # встречается и в модели, и в тестах миграций: раньше при поднятии версии его
 # приходилось искать по литералам, и тесты падали пачкой, не объясняя причину.
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 # Порядок обязателен: шаги применяются подряд от текущей версии документа.
 _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
@@ -187,6 +224,7 @@ _SCHEMA_MIGRATIONS: list[tuple[int, Callable[[dict[str, Any]], None]]] = [
     (9, _migrate_to_v9),
     (10, _migrate_to_v10),
     (11, _migrate_to_v11),
+    (12, _migrate_to_v12),
 ]
 
 
@@ -228,6 +266,21 @@ class ToolCallState(BaseModel):
     raw_output: dict[str, Any] = Field(default_factory=dict)
 
 
+class PermissionWaitState(BaseModel):
+    """Одно незакрытое разрешение в документе сессии (v12, шаг 5 ADR-008).
+
+    Документ — носитель состояния turn'а между запросом и ответом: разрешение
+    приходит следующим запросом, а тот получает свою копию сессии с диска (та же
+    причина, по которой здесь живёт `pending_batch`). Пока ожидание хранилось
+    двумя плоскими полями, переживало запись только последнее, и ответ на любой
+    другой запрос применить было не к чему (P1-61).
+    """
+
+    request_id: JsonRpcId
+    tool_call_id: str | None = None
+    keep_tool_pending: bool = False
+
+
 class ActiveTurnState(BaseModel):
     """Состояние текущего prompt-turn для корректной обработки cancel.
 
@@ -240,10 +293,12 @@ class ActiveTurnState(BaseModel):
     prompt_request_id: JsonRpcId | None
     session_id: str
     cancel_requested: bool = False
-    # Идентификатор исходящего permission-request при режиме `ask`.
-    permission_request_id: JsonRpcId | None = None
-    # Связанный tool call, ожидающий решения пользователя.
-    permission_tool_call_id: str | None = None
+    # Незакрытые разрешения. Список, а не пара полей: одновременных ожиданий может
+    # быть несколько, и спецификация этого прямо требует (`05-Prompt Turn.md` —
+    # ответить на **все** незакрытые запросы). Прежние `permission_request_id` и
+    # `permission_tool_call_id` остались как выводимые свойства: их читают около
+    # десятка мест, и смысл у них прежний, пока ожидание одно.
+    permission_waits: list[PermissionWaitState] = Field(default_factory=list)
     # Фаза жизненного цикла prompt-turn для детерминированного поведения.
     phase: str = "running"
     # Исходящий запрос к клиенту (fs/*), если turn ожидает его completion.
@@ -254,6 +309,60 @@ class ActiveTurnState(BaseModel):
     # Хранится в состоянии turn'а, потому что разрешение приходит следующим
     # запросом, а тот получает свою копию сессии с диска.
     pending_batch: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_legacy_permission_fields(cls, data: Any) -> Any:
+        """Принимает прежнюю пару полей как вход и сворачивает её в список.
+
+        Нужна не только документам с диска (их поднимает `_migrate_to_v12`), но и
+        конструированию в коде: `ActiveTurnState(permission_request_id=...)` —
+        привычная форма записи ожидания, и ломать её ради формата хранения значило
+        бы менять публичный контракт модели без нужды.
+        """
+        if not isinstance(data, dict):
+            return data
+        if data.get("permission_waits"):
+            data.pop("permission_request_id", None)
+            data.pop("permission_tool_call_id", None)
+            return data
+
+        request_id = data.pop("permission_request_id", None)
+        tool_call_id = data.pop("permission_tool_call_id", None)
+        if request_id is not None:
+            data["permission_waits"] = [
+                {
+                    "request_id": request_id,
+                    "tool_call_id": tool_call_id,
+                    "keep_tool_pending": data.get("phase") == "waiting_tool_completion",
+                }
+            ]
+        return data
+
+    @property
+    def permission_request_id(self) -> JsonRpcId | None:
+        """Идентификатор последнего заведённого ожидания, если оно есть.
+
+        Выводимое свойство, а не поле: единственным источником стал
+        `permission_waits`. Одно значение честно описывает turn лишь пока
+        ожидание одно, поэтому решения по нему принимать нельзя — для этого есть
+        сам список.
+        """
+        return self.permission_waits[-1].request_id if self.permission_waits else None
+
+    @property
+    def permission_tool_call_id(self) -> str | None:
+        """Вызов последнего ожидания. Те же оговорки, что у `permission_request_id`."""
+        return self.permission_waits[-1].tool_call_id if self.permission_waits else None
+
+    def awaits_permission_request(self, request_id: JsonRpcId) -> bool:
+        """Ждёт ли turn ответа именно на этот запрос.
+
+        Поиск сессии по ответу обязан спрашивать **это**, а не сравнивать с
+        последним идентификатором: иначе ответ на любой другой незакрытый запрос
+        сессию не находит (P1-61).
+        """
+        return any(wait.request_id == request_id for wait in self.permission_waits)
 
 
 class PendingClientRequestState(BaseModel):

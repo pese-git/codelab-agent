@@ -35,7 +35,7 @@ from codelab.server.domain.journal import (
     UserMessageRecorded,
 )
 from codelab.server.mapping.journal_mapper import JournalMapper
-from codelab.server.storage.document import SessionDocument
+from codelab.server.storage.document import CURRENT_SCHEMA_VERSION, SessionDocument
 
 TS = "2026-08-06T14:45:09.814987+00:00"
 
@@ -92,7 +92,7 @@ def _migrate(journal: list[Any] | None = None) -> SessionDocument:
 
 class TestVersionAndForm:
     def test_version_is_raised(self) -> None:
-        assert _migrate().schema_version == 11
+        assert _migrate().schema_version == CURRENT_SCHEMA_VERSION
 
     def test_every_record_becomes_domain_envelope(self) -> None:
         for record in _migrate().events_history:
@@ -163,7 +163,7 @@ class TestIdempotency:
         twice = SessionDocument.model_validate(once).model_dump(mode="json")
 
         assert twice["events_history"] == once["events_history"]
-        assert twice["schema_version"] == 11
+        assert twice["schema_version"] == CURRENT_SCHEMA_VERSION
 
     def test_already_v11_document_is_untouched(self) -> None:
         """Документ, записанный новым кодом, миграция не трогает вовсе."""

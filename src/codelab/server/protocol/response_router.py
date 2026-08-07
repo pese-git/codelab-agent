@@ -215,13 +215,21 @@ class ResponseRouter:
         Returns:
             ProtocolOutcome если обработано, иначе None.
         """
-        logger.debug(
-            "_resolve_permission_response: searching for session",
-            permission_request_id=permission_request_id,
-        )
-        session_id = await permissions.find_session_id_by_permission_request_id(
-            permission_request_id, self._repository
-        )
+        # Сначала — процессный реестр исходящих запросов: он знает сессию по
+        # идентификатору за O(1). Скан ниже сравнивает единственный
+        # `permission_request_id` из документа, поэтому для любого запроса, кроме
+        # последнего, сессию не находил — так терялся второй одновременный
+        # запрос (P1-61). Скан остаётся фолбэком: сессии, записанные до этой
+        # версии, реестру неизвестны.
+        session_id = self._pending_registry.session_for(permission_request_id)
+        if session_id is None:
+            logger.debug(
+                "_resolve_permission_response: not in outgoing registry, scanning",
+                permission_request_id=permission_request_id,
+            )
+            session_id = await permissions.find_session_id_by_permission_request_id(
+                permission_request_id, self._repository
+            )
         if session_id is None:
             logger.debug(
                 "_resolve_permission_response: session not found for permission_request_id",
@@ -260,6 +268,10 @@ class ResponseRouter:
                 permission_request_id=permission_request_id,
                 result=result,
             )
+            # Запрос закрыт — реестр обязан его забыть, иначе он рос бы на всю
+            # жизнь соединения, а `session/load` считал бы отвеченное разрешение
+            # живым и не чистил бы turn.
+            self._pending_registry.forget(permission_request_id)
             logger.info(
                 "permission_response_applied",
                 session_id=session_id,
@@ -267,5 +279,6 @@ class ResponseRouter:
                 applied=outcome is not None,
                 schedules_tool=outcome is not None and outcome.pending_tool_execution is not None,
                 remembered_policy=len(session.permissions.policy),
+                outstanding_requests=self._pending_registry.outstanding_outgoing,
             )
             return outcome

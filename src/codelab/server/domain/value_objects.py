@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import NewType
 
@@ -206,8 +206,7 @@ ALLOWED_TURN_PHASE_TRANSITIONS: Mapping[type, frozenset[type]] = {
 def turn_phase_from_wire(
     name: str,
     *,
-    permission_request_id: str | int | None,
-    permission_tool_call_id: str | None,
+    waits: Sequence[PermissionWait],
 ) -> TurnPhase:
     """Восстановить фазу из документа сессии, терпимо к прежним значениям.
 
@@ -225,18 +224,14 @@ def turn_phase_from_wire(
     if name == "completing":
         return Completing()
 
-    # Идентификаторы важнее имени фазы. На диске встречается `phase = running` при
+    # Ожидания важнее имени фазы. На диске встречается `phase = running` при
     # заполненных идентификаторах: до типизации их писал `permission_manager`, а фазу —
     # отдельно `tool_processor`, поэтому запись «по частям» могла остаться незавершённой.
-    # Ответ клиента ищет сессию именно по `permission_request_id`, так что потеря
-    # идентификаторов сделала бы такое разрешение необрабатываемым — уже сохранённые
+    # Ответ клиента ищет сессию именно по идентификатору запроса, так что потеря
+    # ожиданий сделала бы такое разрешение необрабатываемым — уже сохранённые
     # сессии перестали бы отвечать.
-    if permission_request_id is not None:
-        return AwaitingPermission.of(
-            permission_request_id,
-            permission_tool_call_id,
-            keep_tool_pending=name == "waiting_tool_completion",
-        )
+    if waits:
+        return AwaitingPermission(tuple(waits))
 
     if name in {"waiting_client_rpc", "awaiting_client_rpc"}:
         return AwaitingClientRpc()

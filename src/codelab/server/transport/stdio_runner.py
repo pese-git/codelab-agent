@@ -250,6 +250,7 @@ async def run_stdio_server(
                 load_pending_prompt_response=functools.partial(
                     _build_pending_prompt_response, protocol
                 ),
+                record_outgoing_request=protocol.record_outgoing_request,
             )
             transport_ref["transport"] = transport
 
