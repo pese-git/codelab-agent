@@ -106,17 +106,6 @@ class PendingRequestRegistry:
         """Забыть закрытый запрос. Возвращает True, если он был известен."""
         return self._outgoing.pop(request_id, None) is not None
 
-    def forget_session(self, session_id: str) -> int:
-        """Забыть все запросы сессии; возвращает их количество.
-
-        Нужна отмене и переключению сессии: спецификация требует закрыть **все**
-        незакрытые запросы, а не последний.
-        """
-        stale = [rid for rid, sid in self._outgoing.items() if sid == session_id]
-        for request_id in stale:
-            del self._outgoing[request_id]
-        return len(stale)
-
     def cancel_all(self) -> int:
         """Отменить все ожидающие futures. Возвращает количество отменённых."""
         count = 0

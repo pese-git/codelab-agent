@@ -74,6 +74,16 @@ class ResponseRouter:
             logger.debug("handle_client_response: ignoring message with no id")
             return ProtocolOutcome()
 
+        # Запрос закрыт — снимаем корреляцию здесь, а не в ветке разрешений: реестр
+        # заводится на **любой** исходящий запрос, а разрешаются они разными путями
+        # (`ClientRPCService` для fs/terminal, транзакция — для permission). Пока
+        # снималось только разрешение, записи клиентских RPC копились на всё
+        # соединение: 42 незакрытых за трёхминутный прогон при одном живом
+        # ожидании (замер 2026-08-07). Запись и снятие обязаны быть симметричны —
+        # отправили запрос, получили ответ.
+
+        self._pending_registry.forget(message.id)
+
         logger.debug(
             "handle_client_response: routing response",
             request_id=message.id,
@@ -268,10 +278,6 @@ class ResponseRouter:
                 permission_request_id=permission_request_id,
                 result=result,
             )
-            # Запрос закрыт — реестр обязан его забыть, иначе он рос бы на всю
-            # жизнь соединения, а `session/load` считал бы отвеченное разрешение
-            # живым и не чистил бы turn.
-            self._pending_registry.forget(permission_request_id)
             logger.info(
                 "permission_response_applied",
                 session_id=session_id,

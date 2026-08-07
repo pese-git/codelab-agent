@@ -88,16 +88,49 @@ class TestOutgoingCorrelation:
         assert registry.session_for("aaaa1111") == SESSION
         assert registry.outstanding_outgoing == 1
 
-    def test_session_can_be_forgotten_wholesale(self) -> None:
-        """Отмена закрывает все незакрытые запросы сессии, а не последний."""
-        registry = PendingRequestRegistry()
-        registry.record_outgoing("req_a", SESSION)
-        registry.record_outgoing("req_b", SESSION)
-        registry.record_outgoing("req_c", OTHER)
 
-        assert registry.forget_session(SESSION) == 2
-        assert registry.session_for("req_a") is None
-        assert registry.session_for("req_c") == OTHER
+class TestSymmetry:
+    """Запись и снятие обязаны быть симметричны: отправили запрос — получили ответ.
+
+    Найдено живым прогоном 2026-08-07: реестр заводится на **любой** исходящий
+    запрос, а снималось только разрешение. Клиентские RPC (`fs/*`, `terminal/*`)
+    разрешает `ClientRPCService`, минуя эту ветку, и записи копились на всё
+    соединение — 42 незакрытых за три минуты при одном живом ожидании.
+    """
+
+    @pytest.mark.asyncio
+    async def test_client_rpc_response_clears_its_record(self) -> None:
+        protocol = build_protocol()
+        protocol.record_outgoing_request(
+            ACPMessage(
+                id="rpc_1",
+                method="fs/read_text_file",
+                params={"sessionId": SESSION, "path": "/tmp/a"},
+            )
+        )
+        assert protocol._pending_registry.outstanding_outgoing == 1
+
+        await protocol.handle(ACPMessage(id="rpc_1", result={"content": "..."}))
+
+        assert protocol._pending_registry.outstanding_outgoing == 0
+
+    @pytest.mark.asyncio
+    async def test_registry_does_not_grow_across_many_calls(self) -> None:
+        """Замер утечки в миниатюре: столько же ответов, сколько запросов — ноль остатка."""
+        protocol = build_protocol()
+
+        for index in range(20):
+            request_id = f"rpc_{index}"
+            protocol.record_outgoing_request(
+                ACPMessage(
+                    id=request_id,
+                    method="fs/read_text_file",
+                    params={"sessionId": SESSION, "path": "/tmp/a"},
+                )
+            )
+            await protocol.handle(ACPMessage(id=request_id, result={}))
+
+        assert protocol._pending_registry.outstanding_outgoing == 0
 
 
 class TestOrphanCheck:
