@@ -37,10 +37,10 @@ def _permission_response(request_id: str) -> ACPMessage:
 
 @pytest_asyncio.fixture
 async def protocol_with_session() -> tuple[ACPProtocol, InMemoryStorage]:
-    """Сессия, где два вызова ждут разрешения, а документ помнит только последний.
+    """Сессия, где два вызова ждут разрешения одновременно.
 
-    Форма документа воспроизводит ровно то, что лежало на диске в прогоне: одно
-    поле `permission_request_id`, и в нём — идентификатор **второго** запроса.
+    Это состояние и было невыразимым до шага 5: документ хранил одно поле
+    `permission_request_id`, поэтому запись переживало только последнее ожидание.
     """
     storage = InMemoryStorage()
     protocol = build_protocol(storage=storage)
@@ -54,8 +54,11 @@ async def protocol_with_session() -> tuple[ACPProtocol, InMemoryStorage]:
     session.active_turn = ActiveTurnState(
         prompt_request_id="req_1",
         session_id=SESSION_ID,
-        permission_request_id=SECOND_REQUEST,
-        permission_tool_call_id="call_008",
+        phase="awaiting_permission",
+        permission_waits=[
+            {"request_id": FIRST_REQUEST, "tool_call_id": "call_007"},
+            {"request_id": SECOND_REQUEST, "tool_call_id": "call_008"},
+        ],
     )
     for tool_call_id in ("call_007", "call_008"):
         session.tool_calls[tool_call_id] = ToolCallState(
@@ -71,22 +74,69 @@ async def protocol_with_session() -> tuple[ACPProtocol, InMemoryStorage]:
 
 
 class TestAnswerToTheOlderRequest:
-    """Ответ приходит на первый запрос — тот, которого в документе нет."""
+    """Ответ приходит на первый запрос — не на тот, что заведён последним."""
+
+    @pytest.mark.asyncio
+    async def test_older_request_is_applied_and_resumes_its_own_call(
+        self, protocol_with_session: tuple[ACPProtocol, InMemoryStorage]
+    ) -> None:
+        """Главное утверждение: ответ **применяется** и возобновляет свой вызов.
+
+        Именно этого не хватало прежней версии гейта — она проверяла содержимое
+        реестра, а не то, что решение доходит до вызова. Ровно здесь и терялся
+        `call_008` живьём: сессия либо не находилась, либо находилась с фазой,
+        которая о старом запросе уже не знала.
+        """
+        protocol, _ = protocol_with_session
+
+        outcome = await protocol.handle(_permission_response(FIRST_REQUEST))
+
+        assert outcome.pending_tool_execution is not None
+        assert outcome.pending_tool_execution.tool_call_id == "call_007"
+
+    @pytest.mark.asyncio
+    async def test_the_other_wait_survives_the_answer(
+        self, protocol_with_session: tuple[ACPProtocol, InMemoryStorage]
+    ) -> None:
+        """Turn обязан продолжать ждать второе решение, а не считать себя разбуженным."""
+        protocol, storage = protocol_with_session
+
+        await protocol.handle(_permission_response(FIRST_REQUEST))
+
+        session = await storage.load_session(SESSION_ID)
+        assert session is not None
+        assert session.active_turn is not None
+        assert [w.request_id for w in session.active_turn.permission_waits] == [SECOND_REQUEST]
+
+    @pytest.mark.asyncio
+    async def test_both_answers_close_the_turn(
+        self, protocol_with_session: tuple[ACPProtocol, InMemoryStorage]
+    ) -> None:
+        """Оба вызова получают своё решение — ни один не остаётся `pending` навсегда."""
+        protocol, storage = protocol_with_session
+
+        first = await protocol.handle(_permission_response(FIRST_REQUEST))
+        second = await protocol.handle(_permission_response(SECOND_REQUEST))
+
+        assert first.pending_tool_execution is not None
+        assert second.pending_tool_execution is not None
+        assert {
+            first.pending_tool_execution.tool_call_id,
+            second.pending_tool_execution.tool_call_id,
+        } == {"call_007", "call_008"}
+
+        session = await storage.load_session(SESSION_ID)
+        assert session is not None
+        assert session.active_turn is not None
+        assert session.active_turn.permission_waits == []
+        assert session.active_turn.phase == "running"
 
     @pytest.mark.asyncio
     async def test_registry_makes_the_older_request_routable(
         self, protocol_with_session: tuple[ACPProtocol, InMemoryStorage]
     ) -> None:
-        """Без записи в реестре сессия не находится — с записью находится.
-
-        Первая половина утверждения важна не меньше второй: она показывает, что
-        скан по документу этот случай действительно не покрывает, и тест
-        проверяет не тавтологию.
-        """
+        """Корреляция заводится записью исходящего запроса, а не сканом документа."""
         protocol, _ = protocol_with_session
-
-        assert await protocol.handle(_permission_response(FIRST_REQUEST)) is not None
-        assert protocol._pending_registry.session_for(FIRST_REQUEST) is None
 
         protocol.record_outgoing_request(
             ACPMessage(
