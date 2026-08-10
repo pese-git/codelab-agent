@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from codelab.server.domain.tool_call import answer_tool_call_id
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.loop_detector import (
     ToolLoopDetector,
 )
@@ -1079,7 +1080,11 @@ class ToolCallProcessor:
             )
         else:
             result = await self._tool_registry.execute_tool(
-                session_id, acp_tool_name, tool_arguments, session=session
+                session_id,
+                acp_tool_name,
+                tool_arguments,
+                session=session,
+                subject=ToolInvocationSubject.MODEL,
             )
         # Запоминаем последний вывод команды — для подсказки при блокировке (#22).
         self._loop_detector.record_output(acp_tool_name, tool_arguments, result)

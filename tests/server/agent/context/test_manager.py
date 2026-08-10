@@ -4,6 +4,7 @@ import pytest
 
 from codelab.server.agent.context.manager import DefaultContextManager
 from codelab.server.agent.context.models import ContextConfig
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
 
@@ -17,7 +18,13 @@ class MockToolRegistry:
     def get_available_tools(self, session_id: str):
         return self.tools
 
-    async def execute_tool(self, session_id: str, tool_name: str, arguments: dict):
+    async def execute_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ):
         class Result:
             def __init__(self, success, result):
                 self.success = success

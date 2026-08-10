@@ -16,6 +16,7 @@ import pytest
 
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 from codelab.server.agent.context.gatherer import ACPContextGatherer
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolExecutionResult
 
 
@@ -31,7 +32,12 @@ class _RecordingRegistry:
         return []
 
     async def execute_tool(
-        self, session_id: str, tool_name: str, arguments: dict, session: Any = None
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         self.calls.append((tool_name, arguments))
 
@@ -115,8 +121,13 @@ class TestBootstrapReleasesTerminal:
 
         class _NoIdRegistry(_RecordingRegistry):
             async def execute_tool(
-                self, session_id: str, tool_name: str, arguments: dict, session: Any = None
-            ) -> ToolExecutionResult:
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ) -> ToolExecutionResult:
                 self.calls.append((tool_name, arguments))
                 if tool_name == "terminal/create":
                     return ToolExecutionResult(success=True, raw_output={}, metadata={})

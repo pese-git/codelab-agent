@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from codelab.server.domain.value_objects import FileLocation
+from codelab.server.domain.value_objects import FileLocation, ToolInvocationSubject
 
 
 @dataclass
@@ -124,6 +124,13 @@ class ToolRegistry(ABC):
         tool_name: str,
         arguments: dict[str, Any],
         session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
-        """Выполнить инструмент."""
+        """Выполнить инструмент от имени `subject`.
+
+        Субъект называется вызывающим: политика разрешений есть функция от него
+        (ADR-009). На шаге 0 он только измеряется и решений не меняет; умолчание
+        `UNKNOWN` существует, чтобы неназвавшийся путь был **виден в замере**, а
+        не чтобы его можно было не называть.
+        """
         pass

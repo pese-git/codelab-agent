@@ -40,6 +40,7 @@ from codelab.server.agent.context.models import (
     TaskProfile,
 )
 from codelab.server.agent.contracts.ports import writable_session
+from codelab.server.domain.value_objects import ToolInvocationSubject
 
 if TYPE_CHECKING:
     from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
@@ -411,6 +412,7 @@ class ACPContextGatherer(ContextGatherer):
                 "fs/read_text_file",
                 {"path": path},
                 session=session,
+                subject=ToolInvocationSubject.CONTEXT,
             )
 
             if result.success and result.output:
@@ -526,6 +528,7 @@ class ACPContextGatherer(ContextGatherer):
                 "terminal/create",
                 {"command": "find . -type f"},
                 session=session,
+                subject=ToolInvocationSubject.CONTEXT,
             )
 
             if not create_result.success:
@@ -552,6 +555,7 @@ class ACPContextGatherer(ContextGatherer):
                 "terminal/wait_for_exit",
                 {"terminal_id": terminal_id},
                 session=session,
+                subject=ToolInvocationSubject.CONTEXT,
             )
 
             if not wait_result.success or not wait_result.output:
@@ -612,6 +616,7 @@ class ACPContextGatherer(ContextGatherer):
                 "terminal/release",
                 {"terminal_id": terminal_id},
                 session=session,
+                subject=ToolInvocationSubject.CONTEXT,
             )
             if not result.success:
                 logger.debug(

@@ -19,6 +19,7 @@ from codelab.server.agent.context.registry import (
     ContextRegistryImpl,
     FileContextSource,
 )
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.llm.models import LLMMessage
 from codelab.server.tools.base import ToolExecutionResult
 
@@ -228,7 +229,12 @@ class _RecordingToolRegistry:
         return []
 
     async def execute_tool(
-        self, session_id, tool_name, arguments, session=None
+        self,
+        session_id,
+        tool_name,
+        arguments,
+        session=None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         self.calls.append((tool_name, arguments.get("path", "")))
         if tool_name == "fs/read_text_file":

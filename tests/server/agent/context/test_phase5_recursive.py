@@ -23,6 +23,7 @@ from codelab.server.agent.context.models import (
     TaskProfile,
     TaskType,
 )
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolExecutionResult
 
 
@@ -42,7 +43,12 @@ class MockToolRegistry:
         return [_FakeTool("fs/read_text_file")]
 
     async def execute_tool(
-        self, session_id: str, tool_name: str, arguments: dict, session: Any = None
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         if tool_name == "fs/read_text_file":
             path = arguments.get("path", "")

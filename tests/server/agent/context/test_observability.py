@@ -8,6 +8,7 @@ import pytest
 
 from codelab.server.agent.context.manager import DefaultContextManager
 from codelab.server.agent.context.models import ContextConfig
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.llm.models import CompletionResponse, StopReason
 from codelab.server.observability.metrics_tracker import MetricsTracker
 from codelab.server.observability.tracer import Tracer
@@ -22,7 +23,13 @@ class MockToolRegistry:
     def get_available_tools(self, session_id: str) -> list:
         return self.tools
 
-    async def execute_tool(self, session_id: str, tool_name: str, arguments: dict):
+    async def execute_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ):
         class Result:
             def __init__(self, success: bool, result: object) -> None:
                 self.success = success

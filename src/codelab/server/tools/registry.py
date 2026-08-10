@@ -2,16 +2,39 @@
 
 import inspect
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import structlog
 
 from codelab.server.agent.contracts.ports import writable_session
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name, llm_name_to_acp_name
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
+
+# Команда терминала — единственный аргумент, для которого граница пути неприменима:
+# она исполняется целиком. В замере ADR-009 её видно отдельно от файловых путей.
+_COMMAND_KEYS = ("command", "cmd")
+
+
+def _command_preview(arguments: dict[str, Any]) -> str | None:
+    """Начало команды терминала — чтобы в замере отличать `find` от произвольного."""
+    if not isinstance(arguments, dict):
+        return None
+    for key in _COMMAND_KEYS:
+        value = arguments.get(key)
+        if isinstance(value, str) and value:
+            return value[:120]
+    return None
+
+
+def session_id_of(session: Any) -> str | None:
+    """Идентификатор сессии, если он доступен: замер не вправе требовать сессию."""
+    session_id = getattr(session, "id", None)
+    return str(session_id) if session_id is not None else None
 
 
 class SimpleToolRegistry(ToolRegistry):
@@ -170,12 +193,60 @@ class SimpleToolRegistry(ToolRegistry):
             for tool in tools
         ]
 
+    def _probe_invocation(
+        self,
+        acp_tool_name: str,
+        arguments: dict[str, Any],
+        session: Any,
+        subject: ToolInvocationSubject,
+    ) -> None:
+        """Замер авторизации инвокации — шаг 0 ADR-009, решений не принимает.
+
+        Отвечает на вопрос, который нельзя снять задним числом: **что именно и от
+        чьего имени исполняется мимо гейта разрешений**. Пути в логах не
+        печатались вовсе, поэтому распределение по субъектам и по границе каталога
+        было невыводимо из прежних прогонов.
+
+        `gated=False` при `requires_permission=True` и субъекте, отличном от
+        `MODEL`, — это и есть P1-56 в одной строке: сегодня разрешение
+        спрашивает только turn-путь.
+
+        Замер обязан быть неломающим: горячий путь исполнения инструментов не
+        должен падать из-за наблюдаемости.
+        """
+        try:
+            definition = self._tools.get(acp_tool_name)
+            requires_permission = definition.requires_permission if definition else None
+
+            path = arguments.get("path") if isinstance(arguments, dict) else None
+            cwd = getattr(getattr(session, "config", None), "cwd", None)
+            inside_cwd: bool | None = None
+            if isinstance(path, str) and path and cwd:
+                inside_cwd = str(Path(path).resolve()).startswith(str(Path(cwd).resolve()))
+
+            logger.info(
+                "tool_invocation_probe",
+                session_id=session_id_of(session),
+                subject=subject.value,
+                acp_tool_name=acp_tool_name,
+                requires_permission=requires_permission,
+                # Спрашивает разрешение сегодня только turn-путь: остальные
+                # субъекты исполняют защищённый инструмент молча (P1-56).
+                gated=bool(requires_permission) and subject is ToolInvocationSubject.MODEL,
+                path=path if isinstance(path, str) else None,
+                inside_cwd=inside_cwd,
+                command_preview=_command_preview(arguments),
+            )
+        except Exception as error:  # noqa: BLE001 — замер не вправе ронять исполнение
+            logger.debug("tool_invocation_probe_failed", error=str(error))
+
     async def execute_tool(
         self,
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any],
         session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         """Выполнить инструмент асинхронно с поддержкой async executors.
 
@@ -208,6 +279,8 @@ class SimpleToolRegistry(ToolRegistry):
             arguments=arguments,
             has_session=session is not None,
         )
+
+        self._probe_invocation(acp_tool_name, arguments, session, subject)
 
         # Проверка существования инструмента (по ACP имени)
         if acp_tool_name not in self._tools:

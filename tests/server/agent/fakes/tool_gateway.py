@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 
@@ -32,5 +33,6 @@ class FakeToolGateway:
         tool_name: str,
         arguments: dict[str, Any],
         session: Any = None,
+    subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         return ToolExecutionResult(success=True, output=f"{tool_name}:ok")

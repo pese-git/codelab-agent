@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult, ToolRegistry
 
 
@@ -51,6 +52,7 @@ class ConcreteToolRegistry(ToolRegistry):
         tool_name: str,
         arguments: dict[str, Any],
         session: Any = None,
+    subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         return await super().execute_tool(session_id, tool_name, arguments, session)
 

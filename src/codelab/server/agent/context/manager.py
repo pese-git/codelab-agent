@@ -53,6 +53,7 @@ from codelab.server.agent.context.summarizer import LLMConversationSummarizer
 from codelab.server.agent.context.token_counter import create_token_counter
 from codelab.server.agent.core.history_builder import HistoryBuilder
 from codelab.server.agent.core.message_sanitizer import MessageSanitizer
+from codelab.server.domain.value_objects import ToolInvocationSubject
 
 if TYPE_CHECKING:
     from codelab.server.agent.contracts.ports import ContentCodec
@@ -204,6 +205,7 @@ class DefaultContextManager(ContextManager):
                 "fs/read_text_file",
                 {"path": path},
                 session=session,
+                subject=ToolInvocationSubject.CONTEXT,
             )
             if result.success and result.output:
                 return str(result.output)

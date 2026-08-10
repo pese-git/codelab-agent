@@ -34,6 +34,7 @@ from codelab.server.agent.context.models import (
     TaskProfile,
     TaskType,
 )
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.llm.base import LLMCapabilities
 from codelab.server.llm.models import CompletionResponse, StopReason
 from codelab.server.mapping.session_view import DomainSessionView
@@ -63,7 +64,12 @@ class MockToolRegistry:
         return [_FakeTool("fs/read_text_file")]
 
     async def execute_tool(
-        self, session_id: str, tool_name: str, arguments: dict, session: Any = None
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict,
+        session: Any = None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
         if tool_name == "fs/read_text_file":
             path = arguments.get("path", "")
@@ -712,7 +718,14 @@ class TestGatherBinarySkipBase:
                 super().__init__(files)
                 self.read_paths: list[str] = []
 
-            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+            async def execute_tool(
+        self,
+        session_id,
+        tool_name,
+        arguments,
+        session=None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ):
                 if tool_name == "fs/read_text_file":
                     self.read_paths.append(arguments.get("path", ""))
                 return await super().execute_tool(session_id, tool_name, arguments, session)
@@ -757,7 +770,14 @@ class TestBinaryFileFiltering:
         read_attempts = []
 
         class TrackingToolRegistry(MockToolRegistry):
-            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+            async def execute_tool(
+        self,
+        session_id,
+        tool_name,
+        arguments,
+        session=None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ):
                 if tool_name == "fs/read_text_file":
                     read_attempts.append(arguments.get("path", ""))
                 return await super().execute_tool(session_id, tool_name, arguments, session)
@@ -797,7 +817,14 @@ class TestBinaryFileFiltering:
         read_attempts = []
 
         class TrackingToolRegistry(MockToolRegistry):
-            async def execute_tool(self, session_id, tool_name, arguments, session=None):
+            async def execute_tool(
+        self,
+        session_id,
+        tool_name,
+        arguments,
+        session=None,
+        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
+    ):
                 if tool_name == "fs/read_text_file":
                     read_attempts.append(arguments.get("path", ""))
                 return await super().execute_tool(session_id, tool_name, arguments, session)
