@@ -202,6 +202,8 @@ class TestProbeChangesNothing:
         registry = _registry(requires_permission=True)
 
         for subject in ToolInvocationSubject:
+            if subject is ToolInvocationSubject.UNKNOWN:
+                continue  # неназвавшийся отклоняется PEP — отдельный гейт ниже
             result = await registry.execute_tool(
                 "s",
                 "fs/read_text_file",
@@ -216,7 +218,9 @@ class TestProbeChangesNothing:
         """Сессии может не быть вовсе — горячий путь не должен падать из-за замера."""
         registry = _registry()
 
-        result = await registry.execute_tool("s", "fs/read_text_file", {"path": "a.py"})
+        result = await registry.execute_tool(
+            "s", "fs/read_text_file", {"path": "a.py"}, subject=ToolInvocationSubject.CONTEXT
+        )
 
         assert result.success is True
 
@@ -277,3 +281,67 @@ class TestRealCallersNameTheirSubject:
         assert set(seen) == {ToolInvocationSubject.CONTEXT}, (
             f"Context Manager обязан называть себя, получено: {set(seen)}"
         )
+
+
+class TestEnforcementPoint:
+    """Точка применения (PEP) — ADR-009, шаг 1.
+
+    Шаг обязан быть **нулевым по поведению**: единственное, что PEP сегодня
+    отклоняет, — инвокация, не назвавшая субъект, а таких в поле нет (518
+    инвокаций прогона 2026-08-10, ни одной `unknown`). Смысл отклонения не в
+    самой проверке, а в том, что «шов нельзя обойти» перестаёт держаться на
+    памяти автора нового вызова.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unnamed_subject_is_rejected(self, tmp_path: Path) -> None:
+        registry = _registry()
+
+        result = await registry.execute_tool(
+            "s", "fs/read_text_file", {"path": "a.py"}, session=_session(str(tmp_path))
+        )
+
+        assert result.success is False
+        assert "subject" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_named_subjects_still_execute(self, tmp_path: Path) -> None:
+        """Политика для названных субъектов шагом 1 не меняется.
+
+        `context` по-прежнему исполняет всё, что исполнял: сужение — это шаг 2, и
+        смешивать его с переносом шва нельзя, иначе расхождение на живом прогоне
+        объяснялось бы и тем, и другим.
+        """
+        registry = _registry(requires_permission=True)
+
+        for subject in (
+            ToolInvocationSubject.MODEL,
+            ToolInvocationSubject.CONTEXT,
+            ToolInvocationSubject.CLIENT,
+            ToolInvocationSubject.SYSTEM,
+        ):
+            result = await registry.execute_tool(
+                "s",
+                "fs/read_text_file",
+                {"path": "a.py"},
+                session=_session(str(tmp_path)),
+                subject=subject,
+            )
+            assert result.success is True, f"шаг 1 изменил поведение для {subject}"
+
+    @pytest.mark.asyncio
+    async def test_probe_sees_invocation_before_rejection(
+        self, tmp_path: Path, probes: list[dict[str, Any]]
+    ) -> None:
+        """Замер идёт до применения: иначе отклонённое стало бы невидимым.
+
+        Порядок значим — по той же причине, по которой признак «в полёте»
+        снимается до смены статуса (P2-63).
+        """
+        registry = _registry()
+
+        await registry.execute_tool(
+            "s", "fs/read_text_file", {"path": "a.py"}, session=_session(str(tmp_path))
+        )
+
+        assert probes[0]["subject"] == "unknown"

@@ -145,26 +145,51 @@ async def decide_tool_policy_async(
     session: Session,
     tool_kind: str,
     global_policy_manager: GlobalPolicyManager | None = None,
+    *,
+    requires_permission: bool = True,
 ) -> PermissionDecision:
     """Определить политику выполнения (асинхронная версия).
 
     Цепочка решений:
+    0. инструмент не объявлял требования разрешения → allow
     1. mode=plan → reject для write/execute, allow для read
     2. mode=bypass → allow все инструменты
     3. mode=standard → session policy → global policy → ask
 
     С global policy — используется в AgentLoop.
 
+    Шаг 0 цепочки переехал сюда из вызывающего (ADR-009, шаг 1): решение о том,
+    нужно ли вообще спрашивать, — часть политики, а не подготовка к её вызову.
+    Пока проверка жила у `ToolCallProcessor`, у политики было два владельца, и
+    вызывающий без этой проверки её просто не делал — это и есть P1-56.
+
+    Порядок сохранён дословно: `requires_permission=False` даёт `allow`
+    **раньше** проверки режима, как и было в вызывающем. Иначе инструмент без
+    требования разрешения начал бы отклоняться в plan-режиме — изменение
+    поведения, которого шаг 1 не допускает.
+
     Args:
         session: Состояние сессии.
         tool_kind: Категория инструмента.
         global_policy_manager: Опциональный менеджер глобальных политик.
+        requires_permission: Объявляет ли инструмент требование разрешения.
+            MCP-инструменты передают `True` всегда — у них требование по
+            умолчанию (`tool_adapter.py`).
 
     Returns:
         "allow" — выполнить автоматически.
         "reject" — отклонить.
         "ask" — запросить разрешение у пользователя.
     """
+    if not requires_permission:
+        logger.debug(
+            "tool_policy_decision",
+            tool_kind=tool_kind,
+            decision="allow",
+            reason="tool_declares_no_permission",
+        )
+        return "allow"
+
     # Fast path: plan/bypass не требуют global policy
     mode = session.get_config_value("mode", "standard")
     if mode == MODE_PLAN:

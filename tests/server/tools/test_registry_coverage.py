@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.storage.document import SessionDocument
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.registry import SimpleToolRegistry
@@ -58,7 +59,9 @@ class TestRegistryExecuteToolNotFound:
     ) -> None:
         """Неизвестный инструмент логирует ошибку и возвращает результат (строки 201-207)."""
         with patch("codelab.server.tools.registry.logger") as mock_logger:
-            result = await registry.execute_tool("session", "unknown_tool", {})
+            result = await registry.execute_tool(
+                "session", "unknown_tool", {}, subject=ToolInvocationSubject.MODEL
+            )
 
         assert result.success is False
         assert result.error is not None
@@ -99,6 +102,7 @@ class TestRegistryExecuteToolAsyncSession:
             "async_with_session",
             {"value": 42},
             session=session,
+            subject=ToolInvocationSubject.MODEL,
         )
 
         assert result.success is True
@@ -127,7 +131,9 @@ class TestRegistryExecuteToolException:
         )
 
         with patch("codelab.server.tools.registry.logger") as mock_logger:
-            result = await registry.execute_tool("session", "failing", {})
+            result = await registry.execute_tool(
+                "session", "failing", {}, subject=ToolInvocationSubject.MODEL
+            )
 
         assert result.success is False
         assert result.error is not None

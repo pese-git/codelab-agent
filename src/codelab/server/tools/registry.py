@@ -282,6 +282,32 @@ class SimpleToolRegistry(ToolRegistry):
 
         self._probe_invocation(acp_tool_name, arguments, session, subject)
 
+        # Точка применения (PEP, ADR-009 шаг 1). Сегодня она отклоняет ровно один
+        # случай — инвокацию, не назвавшую субъект. Это нулевое изменение
+        # поведения: замер 2026-08-10 дал 518 инвокаций и **ни одной** `unknown`,
+        # то есть все шесть продакшн-вызывающих себя называют.
+        #
+        # Отклонение нужно не ради самой проверки, а ради того, чтобы «шов нельзя
+        # обойти» перестало держаться на памяти автора нового вызова: без него
+        # умолчание `UNKNOWN` тихо давало бы права, как их тихо давал
+        # `terminal_counter` (P2-58).
+        #
+        # Политику для остальных субъектов шаг 1 намеренно не меняет: `context`
+        # по-прежнему исполняет всё, что исполнял. Это шаг 2.
+        if subject is ToolInvocationSubject.UNKNOWN:
+            logger.warning(
+                "tool_invocation_subject_missing",
+                session_id=session_id_of(session),
+                acp_tool_name=acp_tool_name,
+            )
+            return ToolExecutionResult(
+                success=False,
+                error=(
+                    f"Инвокация инструмента '{acp_tool_name}' не назвала субъект: "
+                    f"вызывающий обязан передать `subject` (ADR-009)."
+                ),
+            )
+
         # Проверка существования инструмента (по ACP имени)
         if acp_tool_name not in self._tools:
             logger.error(

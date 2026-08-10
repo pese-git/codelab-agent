@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.mapping.session_view import DomainSessionView
 from codelab.server.tools.base import ToolExecutionResult
 from codelab.server.tools.registry import SimpleToolRegistry
@@ -54,6 +55,7 @@ async def test_view_is_unwrapped_to_the_aggregate() -> None:
         "fs/read_text_file",
         {"path": "A.md"},
         session=DomainSessionView(session),
+        subject=ToolInvocationSubject.MODEL,
     )
 
     assert result.success
@@ -67,7 +69,13 @@ async def test_aggregate_is_passed_through_unchanged() -> None:
     registry, seen = _registry_capturing_session()
     session = make_domain_session(session_id="sess_1", cwd="/work")
 
-    await registry.execute_tool("sess_1", "fs/read_text_file", {}, session=session)
+    await registry.execute_tool(
+        "sess_1",
+        "fs/read_text_file",
+        {},
+        session=session,
+        subject=ToolInvocationSubject.MODEL,
+    )
 
     assert seen == [session]
 
@@ -95,7 +103,11 @@ async def test_mutation_through_the_view_reaches_the_session() -> None:
     session = make_domain_session(session_id="sess_1", cwd="/work")
 
     await registry.execute_tool(
-        "sess_1", "terminal/create", {}, session=DomainSessionView(session)
+        "sess_1",
+        "terminal/create",
+        {},
+        session=DomainSessionView(session),
+        subject=ToolInvocationSubject.MODEL,
     )
 
     assert session.config.config_values["project_structure"] == "{}"

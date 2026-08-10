@@ -430,13 +430,17 @@ class ToolCallProcessor:
                 )
             )
 
-        # MCP инструменты всегда требуют разрешения (по умолчанию)
-        if is_mcp:
-            decision = await self._decide_tool_execution(session, tool_kind)
-        elif tool_definition is not None and not tool_definition.requires_permission:
-            decision = "allow"
-        else:
-            decision = await self._decide_tool_execution(session, tool_kind)
+        # Требование разрешения — вход политики, а не ветвление вызывающего
+        # (ADR-009, шаг 1). MCP-инструменты требуют разрешения всегда: их
+        # `ToolDefinition` строит адаптер, и он ставит флаг подряд.
+        requires_permission = (
+            True
+            if is_mcp
+            else (tool_definition.requires_permission if tool_definition is not None else True)
+        )
+        decision = await self._decide_tool_execution(
+            session, tool_kind, requires_permission=requires_permission
+        )
 
         logger.info(
             "tool_execution_decision",
@@ -1216,19 +1220,29 @@ class ToolCallProcessor:
             content_preview=preview,
         )
 
-    async def _decide_tool_execution(self, session: Session, tool_kind: str) -> str:
+    async def _decide_tool_execution(
+        self, session: Session, tool_kind: str, *, requires_permission: bool = True
+    ) -> str:
         """Определить решение о выполнении tool.
 
-        Делегирует единой логике в ToolPolicyDecider.
+        Делегирует единой логике в ToolPolicyDecider — включая шаг «инструмент не
+        объявлял требования разрешения», который раньше решался здесь ветвлением
+        (ADR-009, шаг 1).
 
         Args:
             session: Состояние сессии.
             tool_kind: Тип инструмента.
+            requires_permission: Объявляет ли инструмент требование разрешения.
 
         Returns:
             "allow", "reject" или "ask".
         """
-        return await decide_tool_policy_async(session, tool_kind, self._global_policy_manager)
+        return await decide_tool_policy_async(
+            session,
+            tool_kind,
+            self._global_policy_manager,
+            requires_permission=requires_permission,
+        )
 
     def _cancellation_generation(self, session_id: str) -> int:
         """Текущее поколение отмены сессии (0, если реестр не подключён)."""
