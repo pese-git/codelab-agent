@@ -78,8 +78,35 @@ class TestTurnCancelAnswersToolCalls:
         assert answers[0].tool_call_id == "chatcmpl-tool-abc"
         assert "отменён" in answers[0].content.text
 
-    def test_cancel_active_tools_answers_in_progress_call(self) -> None:
+    def test_in_flight_call_is_answered_by_its_executor_not_by_cancel(self) -> None:
+        """Вызов в полёте метёлка не отвечает — за него ответит исполнитель (P2-63).
+
+        Тест кодировал прежнее правило («отмена отвечает и за `in_progress`») и
+        заменён осознанно: на живом прогоне 2026-08-10 это правило давало **два**
+        `role: tool` на один `answer_id` — обобщённый текст метёлки и правдивый
+        текст исполнителя, который разворачивается штатно (отмена RPC
+        кооперативная). Побеждает первый ответ, поэтому промолчать здесь —
+        единственный способ пропустить вперёд правдивый.
+        """
         session = _domain_session_with_pending_call(status="in_progress")
+
+        notifications = ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert _domain_answers(session) == []
+        # Нотификация обязана остаться: пропускается только ответ модели, иначе
+        # клиент не узнал бы об отмене из ответа на `session/cancel`.
+        assert len(notifications) == 1
+        assert session.tool_calls.get("call_001").status.value == "cancelled"
+
+    def test_pending_call_is_still_answered_by_cancel(self) -> None:
+        """Приостановленный вызов отвечает метёлка: исполнителя у него нет.
+
+        Граница правила владения. Именно этот случай — вызов, вставший на запросе
+        разрешения, — и был дефектом P2-38, ради которого путь написан; он несёт
+        статус `pending`, а не `in_progress`, поэтому сужение предиката его не
+        задевает.
+        """
+        session = _domain_session_with_pending_call(status="pending")
 
         ToolCallHandler().cancel_active_tools(session, "s")
 
@@ -306,3 +333,62 @@ class TestRealPathsAnswerDeferredBatch:
         assert _domain_answers(session) == []
         assert session.active_turn is not None
         assert [c["id"] for c in session.active_turn.pending_batch] == ["llm_2"]
+
+
+class TestSingleAnswerPerToolCall:
+    """Контракт LLM-API: ровно один `role: tool` на `tool_call_id` (P2-63).
+
+    Найдено живьём (`sess_8dd8e1a96105`, 2026-08-10): вызов `terminal/wait_for_exit`
+    получил два ответа при одном объявлении в assistant-сообщении — метёлка отмены
+    ответила за вызов, который в этот момент исполнялся, а следом исполнитель
+    ответил за него сам. История с дублем ушла в модель следующим промптом.
+
+    Гарантия живёт в домене, а не в дисциплине шести писателей: сейм идемпотентен
+    по `tool_call_id`. Она работает потому, что писатели сериализованы —
+    `SessionCommands.apply` применяет команду к свежему агрегату под блокировкой
+    сессии, — а не потому, что они договорились.
+    """
+
+    def test_second_answer_to_same_call_is_suppressed(self) -> None:
+        session = _domain_session_with_pending_call()
+
+        session.add_tool_result("chatcmpl-tool-abc", "первый ответ")
+        session.add_tool_result("chatcmpl-tool-abc", "второй ответ")
+
+        answers = _domain_answers(session)
+        assert len(answers) == 1
+        # Побеждает первый: он уже мог уехать клиенту и в prompt cache.
+        assert answers[0].content.text == "первый ответ"
+
+    def test_different_calls_are_not_confused(self) -> None:
+        """Идемпотентность по id, а не «один ответ на сессию»."""
+        session = _domain_session_with_pending_call()
+
+        session.add_tool_result("chatcmpl-tool-abc", "ответ A")
+        session.add_tool_result("chatcmpl-tool-xyz", "ответ B")
+
+        assert [m.tool_call_id for m in _domain_answers(session)] == [
+            "chatcmpl-tool-abc",
+            "chatcmpl-tool-xyz",
+        ]
+
+    def test_cancel_then_executor_answer_yields_one_record(self) -> None:
+        """Сценарий прогона целиком: отмена вызова в полёте + ответ исполнителя.
+
+        Две меры проверяются вместе, потому что живьём они и встретились: метёлка
+        молчит (выбор текста), а идемпотентность страхует на случай, когда вызов
+        в полёте статуса `in_progress` не несёт — сегодня его выставляет только
+        `terminal/wait_for_exit`.
+        """
+        session = _domain_session_with_pending_call(status="in_progress")
+
+        ToolCallHandler().cancel_active_tools(session, "s")
+        # Исполнитель разворачивает своё ожидание и пишет правдивый текст.
+        session.add_tool_result(
+            "chatcmpl-tool-abc",
+            "Ожидание завершения терминала отменено пользователем: term_1",
+        )
+
+        answers = _domain_answers(session)
+        assert len(answers) == 1
+        assert "терминала" in answers[0].content.text

@@ -667,7 +667,32 @@ class Session:
         Парный сейм к `SessionDocument.add_tool_result`: контракт LLM-API требует
         `role: tool` на каждый `tool_call_id` из assistant-сообщения. `timestamp`
         не синтезируется — у tool-ответа его нет и в wire-форме.
+
+        Контракт требует **ровно одного** ответа, поэтому сейм идемпотентен по
+        `tool_call_id`: второй ответ отклоняется, а не дописывается. Это владелец
+        инварианта, а не подстраховка вызывающих — писателей ответа шесть, и
+        договориться дисциплиной они однажды уже не смогли: отмена turn'а
+        отвечала за вызов, который в этот момент исполнялся, и он получал два
+        ответа на один `answer_id` (P2-63, измерено живьём 2026-08-10;
+        тот же класс, что P2-45).
+
+        Гарантия структурная, а не удачное совпадение: писатели сериализованы —
+        `SessionCommands.apply` применяет команду к **свежему** агрегату под
+        блокировкой сессии (`SessionRepository.transaction`, ADR-007), поэтому
+        второй писатель видит запись первого, даже если пришёл из другого запроса.
+
+        Побеждает **первый** ответ: он уже мог уехать клиенту и в prompt cache,
+        и переписывание истории задним числом дороже, чем менее точный текст.
         """
+        for existing in self.history.get_messages():
+            if existing.role == MessageRole.TOOL and existing.tool_call_id == tool_call_id:
+                logger.warning(
+                    "tool_result_duplicate_suppressed",
+                    session_id=str(self.id),
+                    tool_call_id=tool_call_id,
+                )
+                return
+
         self.history.add(
             ConversationMessage(
                 role=MessageRole.TOOL,
