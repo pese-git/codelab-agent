@@ -104,18 +104,29 @@ class SessionLoadCommandHandler:
                 if self._on_session_loaded:
                     await self._on_session_loaded(session_obj, params)
 
-                # Обработка orphaned permission requests
-                if session_obj.active_turn and session_obj.active_turn.permission_request_id:
-                    perm_req_id = session_obj.active_turn.permission_request_id
-                    if not self._pending_registry.has(perm_req_id):
+                # Диагностика осиротевших разрешений — и только она. Судьбу turn'а
+                # здесь решать нечем: `session/load` отменяет активный turn целиком
+                # (`_cleanup_session_state`), и делает это правильнее — пишет
+                # надгробие каждому незакрытому ожиданию и отвечает отложенному
+                # хвосту батча. Прежний `clear_active_turn()` стоял до него и обе
+                # эти работы отменял: замер дал ноль надгробий вместо двух и
+                # потерянный ответ `role: tool` (P2-62). Спрашивается каждое
+                # ожидание, а не «последнее»: по `permission_request_id` домен
+                # решать запрещает, и для лога он тоже неполон (P1-61).
+                if session_obj.active_turn is not None:
+                    orphaned = [
+                        wait.request_id
+                        for wait in session_obj.active_turn.outstanding_permissions
+                        if not self._pending_registry.has(wait.request_id)
+                    ]
+                    if orphaned:
                         logger.warning(
                             "session_loaded_with_orphaned_permission_request",
                             session_id=session_id,
-                            permission_request_id=perm_req_id,
+                            permission_request_id=orphaned[-1],
+                            orphaned_request_ids=orphaned,
+                            outstanding_requests=len(session_obj.active_turn.outstanding_permissions),
                         )
-                        session_obj.clear_active_turn()
-                        # Отдельное сохранение здесь больше не нужно: транзакция
-                        # сохраняет объект целиком в конце (P2-42).
 
         outcome = await session.session_load(
             message.id,

@@ -19,6 +19,7 @@ import pytest
 from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
+from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.storage import JsonFileStorage, SessionRepository
 from codelab.server.storage.document import (
     ActiveTurnState,
@@ -41,7 +42,10 @@ def _tool_answers(session: SessionDocument) -> list[tuple[str, str]]:
     ]
 
 
-def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
+def _handler(
+    storage: JsonFileStorage,
+    pending_registry: PendingRequestRegistry | None = None,
+) -> SessionLoadCommandHandler:
     """Обработчик на доменном порту поверх файлового бэкенда (фаза D ADR-006)."""
     return SessionLoadCommandHandler(
         repository=SessionRepository(backend=storage),
@@ -49,6 +53,7 @@ def _handler(storage: JsonFileStorage) -> SessionLoadCommandHandler:
         auth_methods=[],
         require_auth=False,
         authenticated=True,
+        pending_registry=pending_registry,
     )
 
 
@@ -68,8 +73,12 @@ def _session_with_interrupted_turn() -> SessionDocument:
     return session
 
 
-async def _load(storage: JsonFileStorage, cwd: str = "/work") -> None:
-    outcome = await _handler(storage).handle(
+async def _load(
+    storage: JsonFileStorage,
+    cwd: str = "/work",
+    pending_registry: PendingRequestRegistry | None = None,
+) -> None:
+    outcome = await _handler(storage, pending_registry).handle(
         ACPMessage(
             id="req_2",
             method="session/load",
@@ -157,6 +166,39 @@ class TestSessionLoadPersistsDecisions:
         on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
         assert on_disk is not None
         assert on_disk.active_turn is None
+
+    @pytest.mark.asyncio
+    async def test_orphaned_permission_does_not_preempt_cleanup(self, tmp_path: Path) -> None:
+        """Сирота разрешения не отменяет отмену turn'а — она её делает (P2-62).
+
+        Прежняя ветка звала `clear_active_turn()` **до** `_cleanup_session_state`,
+        и тот не находил turn'а: замер дал ноль надгробий вместо двух и потерянный
+        ответ отложенному хвосту. Судьбу решала одна пара полей («последнее»
+        ожидание), про которую домен говорит, что решать по ней нельзя.
+        """
+        storage = JsonFileStorage(tmp_path)
+        session = _session_with_interrupted_turn()
+        session.active_turn.permission_waits = [
+            PermissionWaitState(request_id="perm_live", tool_call_id="call_001"),
+            PermissionWaitState(request_id="perm_orphan", tool_call_id="call_002"),
+        ]
+        await storage.save_session(session)
+
+        # В реестре живёт первое ожидание — то, которое «последним» не является.
+        registry = PendingRequestRegistry()
+        registry.record_outgoing("perm_live", "sess_x")
+
+        await _load(storage, pending_registry=registry)
+
+        on_disk = await JsonFileStorage(tmp_path).load_session("sess_x")
+        assert on_disk is not None
+        assert on_disk.active_turn is None
+        # Надгробие нужно **каждому** незакрытому ожиданию: поздний ответ без него
+        # уходит в «неизвестный запрос» (-32603).
+        assert set(on_disk.cancelled_permission_requests) == {"perm_live", "perm_orphan"}
+        # Хвост батча (P2-40) обязан получить `role: tool`, иначе модель повторит
+        # вызов (P2-38).
+        assert {tool_call_id for tool_call_id, _ in _tool_answers(on_disk)} == {"llm_1", "llm_2"}
 
     @pytest.mark.asyncio
     async def test_missing_session_is_not_saved(self, tmp_path: Path) -> None:
