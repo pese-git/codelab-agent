@@ -192,6 +192,10 @@ class TestCompleteActiveTurn:
         """Возвращает результат prompt.complete_active_turn."""
         storage = InMemoryStorage()
         session = SessionFactory.create_session(cwd="/tmp")
+        session.active_turn = ActiveTurnState(
+            prompt_request_id="req_1",
+            session_id=session.session_id,
+        )
         await storage.save_session(session)
         completion = ACPMessage.response("req_1", {"stopReason": "end_turn"})
         executor = _make_background_executor(storage)
@@ -203,6 +207,15 @@ class TestCompleteActiveTurn:
             result = await executor.complete_active_turn(session.session_id)
 
         assert result is completion
+
+    async def test_returns_none_without_active_turn(self) -> None:
+        """Холостой вызов не доходит до записи: его делают все три транспорта."""
+        storage = InMemoryStorage()
+        session = SessionFactory.create_session(cwd="/tmp")
+        await storage.save_session(session)
+        executor = _make_background_executor(storage)
+
+        assert await executor.complete_active_turn(session.session_id) is None
 
 
 class TestShouldAutoCompleteActiveTurn:

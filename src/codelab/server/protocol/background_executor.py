@@ -208,15 +208,30 @@ class BackgroundExecutor:
         Returns:
             ACPMessage с финальным response или None.
         """
-        # Доменный порт, а не бэкенд: фаза turn'а — типизированный `TurnPhase`, и
-        # интерпретирует её домен (ADR-008, шаг 2). Запись как и раньше не делается —
-        # очистка turn'а здесь на диск не попадает, см. `finalize_active_turn`.
+        # Снятие turn'а стало настоящей записью (P2-54). До этого оно жило только в
+        # памяти: сессия грузилась read-only и не сохранялась, поэтому на диске
+        # оставался `active_turn` с `phase: running` у давно закрытого turn'а —
+        # наблюдалось живьём 2026-08-11 (`sess_1fb7b8156367`, ревизия 336). Симптом
+        # гасился следующим промптом, снимавшим turn как устаревший, то есть враньё
+        # жило ровно до него — включая перезапуск процесса, где оно превращалось в
+        # «осиротевшее разрешение».
         session = await self._repository.load_session(session_id)
         if session is None:
             return None
-        return prompt.complete_active_turn(
-            session,
-            stop_reason=stop_reason,
+
+        # Холостой вызов записи не порождает: метод зовут все три транспорта, и без
+        # этой проверки каждое «а не пора ли закрыть turn?» штамповало бы ревизию.
+        # Транзакция сохраняет безусловно — dirty-трекинга у неё нет по замыслу.
+        if session.active_turn is None:
+            return None
+
+        # Снятие идёт командой над **свежей** копией, а не над этой: `apply`
+        # перезагружает сессию под блокировкой, и решение, принятое над копией из
+        # `load_session`, на диск бы не уехало — ровно дефект P2-42.
+        commands = SessionCommands(self._repository, session)
+        return await commands.apply(
+            lambda fresh: prompt.complete_active_turn(fresh, stop_reason=stop_reason),
+            name="turn_completed",
         )
 
     async def should_auto_complete_active_turn(self, session_id: str) -> bool:
