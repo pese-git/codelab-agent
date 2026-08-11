@@ -397,7 +397,6 @@ src/codelab/server/agent/context/
 
 src/codelab/server/tools/executors/decorators/
 ├── base.py                 # ToolExecutorDecorator (базовый класс)
-├── project_structure.py    # ProjectStructureDecorator (автоизвлечение структуры)
 ├── file_cache.py           # FileCacheDecorator (интеграция с FileContentCache)
 ├── metrics.py              # MetricsDecorator
 ├── tracing.py              # TracingDecorator

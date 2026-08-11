@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -39,7 +38,6 @@ from codelab.server.agent.context.models import (
     ContextType,
     TaskProfile,
 )
-from codelab.server.agent.contracts.ports import writable_session
 from codelab.server.domain.value_objects import ToolInvocationSubject
 
 if TYPE_CHECKING:
@@ -167,9 +165,9 @@ class ACPContextGatherer(ContextGatherer):
         return items
 
     async def _load_project_files(self, session: Any) -> list[str]:
-        """Стадия 0: структура проекта из кэша сессии (с bootstrap-fallback)."""
+        """Стадия 0: структура проекта из процессного кэша либо перечислением."""
         project_files_start = time.time()
-        project_files = self._list_project_files(session)
+        project_files = self._cached_project_files()
 
         if not project_files:
             project_files = await self._bootstrap_project_files(session)
@@ -455,59 +453,26 @@ class ACPContextGatherer(ContextGatherer):
 
         return sorted(dependents)
 
-    def _list_project_files(self, session: Any) -> list[str]:
-        """Получить список файлов проекта из кэша сессии.
+    def _cached_project_files(self) -> list[str] | None:
+        """Структура проекта из процессного кэша, если она уже перечислена.
 
-        Структура проекта предоставляется агентом через terminal/create
-        в рамках agent loop (где permission flow активен) и сохраняется
-        в session.config_values["project_structure"] как JSON-список путей.
-
-        Args:
-            session: Состояние сессии с config_values
-
-        Returns:
-            Список относительных путей к файлам проекта (может быть пустым)
+        Кэш — единственное место, где структура живёт между сборками (P2-66).
+        В документе сессии её больше нет: структура **производна** от файловой
+        системы и восстановима одной командой за ~150 мс, а производное,
+        записанное как факт, начинает лгать — так уже было с реестром alias'ов
+        (ADR-007, шаг A), счётчиком терминалов (P2-58) и фазой turn'а (ADR-008,
+        шаг 2). Здесь оно тоже успело солгать: 41 путь превращался в 5.
         """
         cached = self._dependency_graph.get_project_files()
-        if cached is not None:
-            logger.debug(
-                "context.gather.project_files.from_cache",
-                session_id=self._session_id,
-                count=len(cached),
-            )
-            return cached
-
-        config_values = getattr(session, "config_values", {}) or {}
-        structure_json = config_values.get("project_structure")
-        project_root = getattr(session, "cwd", None)
-
-        if structure_json:
-            try:
-                raw_files = json.loads(structure_json)
-                if isinstance(raw_files, list):
-                    # Нормализуем все пути относительно корня проекта
-                    normalized_files = [normalize_path(str(f), project_root) for f in raw_files]
-                    filtered = filter_paths(normalized_files)
-                    self._dependency_graph.set_project_files(filtered)
-                    logger.info(
-                        "context.gather.project_files.from_session",
-                        session_id=self._session_id,
-                        total_files=len(raw_files),
-                        filtered_files=len(filtered),
-                    )
-                    return filtered
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    "context.gather.project_files.invalid_json",
-                    session_id=self._session_id,
-                )
+        if cached is None:
+            return None
 
         logger.debug(
-            "context.gather.project_files.not_available",
+            "context.gather.project_files.from_cache",
             session_id=self._session_id,
-            hint="Agent has not yet saved project structure via session/set_config_option",
+            count=len(cached),
         )
-        return []
+        return cached
 
     async def _bootstrap_project_files(self, session: Any) -> list[str]:
         """Получить структуру проекта, если она отсутствует в сессии.
@@ -550,13 +515,12 @@ class ACPContextGatherer(ContextGatherer):
 
             if filtered:
                 self._dependency_graph.set_project_files(filtered)
-                # Пишем в носитель состояния через seam (ADR-006). Порт `SessionView`
-                # read-only, а сюда приходит именно он — поэтому носитель достаём
-                # `writable_session`: иначе запись падала бы, а Context Manager молча
-                # оставался без структуры проекта (найдено в проде после флипа).
-                writable_session(session).set_config_value(
-                    "project_structure", json.dumps(filtered)
-                )
+                # В документ сессии структура не пишется (P2-66): она производна от
+                # файловой системы, а не решение пользователя, и живёт в процессном
+                # кэше. Прежняя запись до диска и не доезжала — переноса рабочей
+                # копии у пути сборки контекста нет (`tool_processor.py:73` — только
+                # у вызовов модели), поэтому на диск попадало лишь то, что писал
+                # декоратор терминала, и попадало искажённым.
 
                 logger.info(
                     "context.gather.bootstrap.complete",

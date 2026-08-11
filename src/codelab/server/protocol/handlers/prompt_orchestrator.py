@@ -116,9 +116,6 @@ class PromptOrchestrator:
                 ProjectToolDefinitions,
                 TerminalToolDefinitions,
             )
-            from ...tools.executors.decorators.project_structure import (
-                ProjectStructureDecorator,
-            )
             from ...tools.executors.filesystem_executor import FileSystemToolExecutor
             from ...tools.executors.terminal_executor import TerminalToolExecutor
             from ...tools.integrations.client_rpc_bridge import ClientRPCBridge
@@ -139,17 +136,10 @@ class PromptOrchestrator:
 
             FileSystemToolDefinitions.register_all(self.tool_registry, fs_executor)
             terminal_executor = TerminalToolExecutor(bridge, checker)
-            # Декоратор извлекает структуру проекта из команд **модели** (`find`,
-            # `ls`) — для этого он и написан.
-            TerminalToolDefinitions.register_all(
-                self.tool_registry, ProjectStructureDecorator(terminal_executor)
-            )
-            # Возможность перечисления идёт мимо декоратора: у структуры проекта на
-            # этом пути уже есть владелец — `ContextGatherer`, который парсит вывод
-            # своим фильтром и сам пишет `project_structure`. С декоратором писателей
-            # было двое, с разными фильтрами (живьём: 48 файлов от декоратора, следом
-            # 41 от сборщика). Экземпляр executor'а тот же: реестр alias'ов терминалов
-            # один на процесс.
+            # У структуры проекта один писатель — `ContextGatherer` (P2-65). Оба
+            # набора инструментов обслуживает один экземпляр executor'а: реестр
+            # alias'ов терминалов один на процесс.
+            TerminalToolDefinitions.register_all(self.tool_registry, terminal_executor)
             ProjectToolDefinitions.register_all(self.tool_registry, terminal_executor)
             logger.debug(
                 "PromptOrchestrator_registered tool executors",

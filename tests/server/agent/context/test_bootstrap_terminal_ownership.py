@@ -13,9 +13,9 @@ test_project_list_files.py`.
 
 from __future__ import annotations
 
-import json
+from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 from codelab.server.agent.context.gatherer import ACPContextGatherer
@@ -120,28 +120,74 @@ class TestBootstrapUsesNarrowCapability:
         assert await gatherer._bootstrap_project_files(_make_session(tmp_path)) == []
 
 
-class TestBootstrapStructureStillSaved:
-    """Сужение полномочия не изменило основной результат bootstrap'а."""
+class TestStructureIsNotSessionState:
+    """Структура проекта не хранится в документе сессии (P2-65, P2-66).
 
-    async def test_structure_written_to_session(self, tmp_path) -> None:
-        """Структура проекта по-прежнему сохраняется в носитель состояния."""
+    Она производна от файловой системы и восстановима перечислением за ~150 мс,
+    поэтому живёт в процессном кэше графа зависимостей. Пока она лежала в
+    документе, у неё было двое писателей с разными фильтрами, и запись
+    деградировала: 41 путь превращался в 5 за один turn. Тот же приём, которым из
+    документа уехали реестр alias'ов (ADR-007), счётчик терминалов (P2-58) и фаза
+    turn'а (ADR-008).
+    """
+
+    def test_nobody_writes_structure_into_the_session(self) -> None:
+        """В исходниках не осталось ни одного писателя `project_structure`."""
+        # Вызов может быть многострочным (`set_config_value(\n "project_structure",
+        # ...)`), поэтому ищем по тексту файла, а не по строке.
+        writers = set()
+        for path in Path("src/codelab").rglob("*.py"):
+            text = path.read_text()
+            for position in range(len(text)):
+                if not text.startswith("set_config_value(", position):
+                    continue
+                if '"project_structure"' in text[position : position + 80]:
+                    writers.add(str(path))
+
+        assert writers == set(), (
+            f"структура проекта снова записывается в документ сессии: {sorted(writers)}"
+        )
+
+    async def test_bootstrap_runs_when_structure_is_absent(self, tmp_path) -> None:
+        """Потребитель не остался без структуры: нет структуры — есть перечисление."""
         registry = _RecordingRegistry()
         gatherer = _make_gatherer(registry)
         session = _make_session(tmp_path)
-        writable = MagicMock()
+        session.config_values = {}
 
-        # Запись идёт через сейм `writable_session` (ADR-006), а не напрямую в
-        # переданный порт — проверяем именно то, что действительно записывается.
-        with patch(
-            "codelab.server.agent.context.gatherer.writable_session",
-            return_value=writable,
-        ):
-            files = await gatherer._bootstrap_project_files(session)
+        files = await gatherer._bootstrap_project_files(session)
 
-        writable.set_config_value.assert_called_once()
-        config_id, raw_value = writable.set_config_value.call_args.args
-        assert config_id == "project_structure"
-        assert json.loads(raw_value) == files
+        assert files
+        assert registry.tool_names() == [LIST_FILES_TOOL]
+
+
+class TestBootstrapKeepsStructureInProcess:
+    """Результат перечисления живёт в кэше графа, а не в документе сессии."""
+
+    async def test_structure_is_not_written_to_session(self, tmp_path) -> None:
+        """Bootstrap не трогает состояние сессии — писать туда больше нечего."""
+        registry = _RecordingRegistry()
+        gatherer = _make_gatherer(registry)
+        session = _make_session(tmp_path)
+
+        files = await gatherer._bootstrap_project_files(session)
+
+        assert files
+        session.set_config_value.assert_not_called()
+
+    async def test_structure_reaches_the_process_cache(self, tmp_path) -> None:
+        """Перечисленное кладётся в граф: это единственное его местожительство."""
+        registry = _RecordingRegistry()
+        graph = RegexDependencyGraph()
+        gatherer = ACPContextGatherer(
+            tool_registry=registry,  # type: ignore[arg-type]
+            dependency_graph=graph,
+            session_id="sess_test",
+        )
+
+        files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
+
+        assert graph.get_project_files() == files
 
     async def test_output_parsed_as_before(self, tmp_path) -> None:
         """Формат вывода возможности — тот же, что давал `find`: пути с `./`."""

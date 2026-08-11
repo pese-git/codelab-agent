@@ -37,7 +37,6 @@ class MockToolRegistry:
 
     def __init__(self, files: dict[str, str] | None = None) -> None:
         self._files = files or {}
-        self._terminal_counter = 0
 
     def get_available_tools(self, session_id: str) -> list:
         return [_FakeTool("fs/read_text_file")]
@@ -57,21 +56,11 @@ class MockToolRegistry:
                 return ToolExecutionResult(success=True, output=content)
             return ToolExecutionResult(success=False, error="File not found")
 
-        if tool_name == "terminal/create":
-            self._terminal_counter += 1
-            terminal_id = f"mock-terminal-{self._terminal_counter}"
-            return ToolExecutionResult(
-                success=True,
-                raw_output={"terminal_id": terminal_id},
-                metadata={"terminal_id": terminal_id},
-            )
-
-        if tool_name == "terminal/wait_for_exit":
-            return ToolExecutionResult(
-                success=True,
-                raw_output={"output": ""},
-                output="",
-            )
+        if tool_name == "project/list_files":
+            # Структура приходит перечислением, а не из документа сессии (P2-66):
+            # производное от файловой системы там больше не хранится.
+            listing = "".join(f"./{path}\n" for path in self._files)
+            return ToolExecutionResult(success=True, output=listing)
 
         return ToolExecutionResult(success=False, error="Unknown tool")
 
@@ -80,7 +69,12 @@ def _make_session(
     session_id: str = "test_session",
     file_paths: list[str] | None = None,
 ) -> MagicMock:
-    """Создать mock session с project_structure в config_values."""
+    """Создать mock session.
+
+    `file_paths` больше не кладётся в `config_values`: структуру сборщик получает
+    перечислением через реестр (P2-66). Параметр сохранён, чтобы не переписывать
+    вызывающих, и задаёт только идентичность сессии.
+    """
     session = MagicMock()
     session.session_id = session_id
     session.config_values = {}

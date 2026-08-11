@@ -79,7 +79,11 @@ class MockToolRegistry:
             return ToolExecutionResult(success=False, error="File not found")
 
         if tool_name == "project/list_files":
-            output = self._listing_output or ""
+            # Без явного вывода перечисление отдаёт известные файлы: структура
+            # приходит только этим путём, в документе сессии её больше нет (P2-66).
+            output = self._listing_output
+            if output is None:
+                output = "".join(f"./{path}\n" for path in self._files)
             return ToolExecutionResult(
                 success=True,
                 raw_output={"output": output},
@@ -225,11 +229,11 @@ class TestContextGathererE2E:
 
     @pytest.mark.asyncio
     async def test_gather_without_project_structure(self):
-        """Без project_structure и без перечисления gatherer возвращает пустой результат."""
+        """Если перечисление ничего не вернуло, сбор даёт пустой результат."""
         files = {
             "src/auth.py": "def authenticate(): pass",
         }
-        tool_registry = MockToolRegistry(files)
+        tool_registry = MockToolRegistry(files, listing_output="")
         dep_graph = RegexDependencyGraph()
 
         gatherer = ACPContextGatherer(
@@ -286,14 +290,14 @@ class TestContextGathererE2E:
         assert any("auth" in p for p in paths)
 
     @pytest.mark.asyncio
-    async def test_bootstrap_writes_structure_through_read_only_view(self):
-        """Bootstrap пишет структуру в сессию, хотя ядру отдан read-порт.
+    async def test_bootstrap_does_not_touch_session_state(self):
+        """Bootstrap работает поверх read-порта и состояние сессии не меняет.
 
-        Ядро (и Context Manager внутри него) читает сессию через `SessionView`,
-        а bootstrap состояние **меняет**. На mock-сессии это незаметно: mock
-        отвечает на любой вызов. На настоящей проекции запись падала, и Context
-        Manager молча оставался без структуры проекта — так и было в проде после
-        флипа turn-пути на доменный агрегат (ADR-006, фаза D шаг 3).
+        Прежде он писал сюда структуру проекта, и тест закреплял, что запись
+        доходит до носителя через сейм. Правило снято осознанно (P2-66):
+        структура производна от файловой системы и живёт в процессном кэше, а
+        запись в документ до диска всё равно не доезжала — переноса рабочей копии
+        у пути сборки контекста нет.
         """
         listing_output = "./lib/main.dart\n./pubspec.yaml\n"
         tool_registry = MockToolRegistry(
@@ -316,9 +320,7 @@ class TestContextGathererE2E:
 
         await gatherer.gather(profile, DomainSessionView(session))
 
-        stored = session.config.config_values.get("project_structure")
-        assert stored is not None, "структура проекта обязана попасть в сессию"
-        assert "lib/main.dart" in json.loads(stored)
+        assert "project_structure" not in session.config.config_values
 
     @pytest.mark.asyncio
     async def test_gather_filters_ignored_dirs(self):
