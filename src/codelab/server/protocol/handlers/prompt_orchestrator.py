@@ -16,6 +16,7 @@ from ..content.acp_codec import ACPContentCodec
 from ..session_commands import SessionCommands
 from ..state import LLMLoopResult, ProtocolOutcome
 from ..turn_cancellation import TurnCancellationRegistry
+from ..turn_runtime import TurnEndCause, finish_turn
 from .event_history_writer import EventHistoryWriter
 from .permission_manager import PermissionManager
 from .pipeline import (
@@ -228,7 +229,7 @@ class PromptOrchestrator:
 
                 def _close_turn(target: DomainSession) -> None:
                     self.turn_lifecycle_manager.finalize_turn(target, "end_turn")
-                    self.turn_lifecycle_manager.clear_active_turn(target)
+                    finish_turn(target, cause=TurnEndCause.PIPELINE_ERROR)
 
                 await commands.require_active_turn(_close_turn, name="turn_closed_on_error")
             # Не отправляем notifications при ошибке валидации
@@ -373,7 +374,7 @@ class PromptOrchestrator:
                 "stop_reason": "cancelled",
             }
 
-        session.clear_active_turn()
+        finish_turn(session, cause=TurnEndCause.CANCELLED)
 
         logger.debug(
             "cancel request handled", session_id=session_id, notifications_count=len(notifications)

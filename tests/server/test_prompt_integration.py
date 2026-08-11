@@ -12,6 +12,7 @@ from factories import make_orchestrator
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestrator
+from codelab.server.protocol.turn_runtime import TurnEndCause, finish_turn
 from codelab.server.storage.document import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session
 
@@ -198,8 +199,12 @@ class TestSessionPromptComponentIntegration:
         request_id = session.active_turn.prompt_request_id
 
         # Act
-        final_message = orchestrator.turn_lifecycle_manager.finalize_active_turn(
-            session=session,
+        # Дубликат `finalize_active_turn` у менеджера был мёртвым кодом: в
+        # продакшене его не звал никто, только этот тест. Завершение turn'а
+        # принадлежит шву (ADR-008, шаг 5).
+        final_message = finish_turn(
+            session,
+            cause=TurnEndCause.COMPLETED,
             stop_reason="end_turn",
         )
 

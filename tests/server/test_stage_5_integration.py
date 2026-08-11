@@ -15,6 +15,7 @@ from codelab.server.protocol.handlers.prompt import (
     validate_prompt_content,
 )
 from codelab.server.protocol.state import ProtocolOutcome
+from codelab.server.protocol.turn_runtime import TurnEndCause, finish_turn
 from codelab.server.storage import InMemoryStorage
 from codelab.server.storage.document import ActiveTurnState, SessionDocument
 from tests.server._domain_sessions import make_domain_session, wire_history
@@ -411,8 +412,8 @@ class TestPromptOrchestratorIntegrationFullStack:
             "end_turn",
         )
 
-        # Act - очистка turn состояния
-        orchestrator.turn_lifecycle_manager.clear_active_turn(session)
+        # Act - снятие turn'а через шов (ADR-008, шаг 5)
+        finish_turn(session, cause=TurnEndCause.PIPELINE_CLOSED)
 
         # Assert - turn завершен
         assert session.active_turn is None

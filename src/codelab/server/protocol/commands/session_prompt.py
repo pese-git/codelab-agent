@@ -17,6 +17,7 @@ from ..handlers.prompt_orchestrator import PromptOrchestrator
 from ..session_commands import SessionCommands
 from ..session_runtime import SessionRuntimeRegistry
 from ..state import ProtocolOutcome
+from ..turn_runtime import TurnEndCause, finish_turn
 
 logger = structlog.get_logger()
 
@@ -127,7 +128,10 @@ class SessionPromptCommandHandler:
 
         # Stale active_turn снимается командой: это изменение состояния, и оно
         # обязано быть на диске до того, как turn начнёт писать своё.
-        await commands.apply(lambda s: s.clear_active_turn(), name="clear_stale_active_turn")
+        await commands.apply(
+            lambda s: finish_turn(s, cause=TurnEndCause.STALE),
+            name="clear_stale_active_turn",
+        )
 
         # Получить MCP prompt handlers из runtime registry
         runtime = await self._runtime_registry.get(session_id)

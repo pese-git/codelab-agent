@@ -25,6 +25,7 @@ from ...domain.value_objects import ToolCallStatus
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..state import ProtocolOutcome
+from ..turn_runtime import TurnEndCause, finish_turn
 from .prompt.tool_call_updates import tool_call_status_notification
 from .session import session_info_notification
 
@@ -94,12 +95,17 @@ def _finalize_turn(session: DomainSession, *, stop_reason: str = "end_turn") -> 
     Доменный аналог `prompt.turn_state.finalize_active_turn`: очистка turn'а —
     операция агрегата, а сборка JSON-RPC ответа остаётся wire.
     """
-    active_turn = session.active_turn
-    if active_turn is None or active_turn.prompt_request_id is None:
+    # Порядок сохранён дословно: turn без идентификатора исходного запроса прежний
+    # вызывающий **не снимал** — снятие здесь было бы изменением поведения, а шаг
+    # обязан быть нулевым. Асимметрия отмечена как хвост для шага 5.3.
+    if session.active_turn is not None and session.active_turn.prompt_request_id is None:
         return None
-    prompt_request_id = active_turn.prompt_request_id
-    session.clear_active_turn()
-    return ACPMessage.response(prompt_request_id, {"stopReason": stop_reason})
+
+    return finish_turn(
+        session,
+        cause=TurnEndCause.CLIENT_RPC_FINISHED,
+        stop_reason=stop_reason,
+    )
 
 
 async def find_session_id_by_pending_client_request_id(

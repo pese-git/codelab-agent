@@ -17,6 +17,7 @@ from codelab.server.domain.value_objects import (
 )
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.protocol.state import PromptDirectives
+from codelab.server.protocol.turn_runtime import TurnEndCause, finish_turn
 from codelab.server.storage.document import ActiveTurnState
 from tests.server._domain_sessions import make_domain_session
 
@@ -358,12 +359,12 @@ class TestTurnLifecycleClear:
         lifecycle_manager: TurnLifecycleManager,
         session: DomainSession,
     ) -> None:
-        """Очищает active turn."""
+        """Снимает turn — но владелец снятия теперь шов (ADR-008, шаг 5)."""
         session.active_turn = ActiveTurnState(
             prompt_request_id="req_1",
             session_id="sess_1",
         )
-        lifecycle_manager.clear_active_turn(session)
+        finish_turn(session, cause=TurnEndCause.PIPELINE_CLOSED)
         assert session.active_turn is None
 
     def test_clear_active_turn_already_none(
@@ -373,7 +374,7 @@ class TestTurnLifecycleClear:
     ) -> None:
         """Не падает если active_turn уже None."""
         session.active_turn = None
-        lifecycle_manager.clear_active_turn(session)
+        finish_turn(session, cause=TurnEndCause.PIPELINE_CLOSED)
         assert session.active_turn is None
 
 

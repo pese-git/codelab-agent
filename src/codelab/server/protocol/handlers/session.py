@@ -22,6 +22,7 @@ from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
 from ..state import ProtocolOutcome
+from ..turn_runtime import TurnEndCause, finish_turn
 from .event_history_writer import EventHistoryWriter
 from .session_replayer import SessionReplayer
 
@@ -91,7 +92,7 @@ def _cleanup_session_state(session: DomainSession) -> None:
         # Обязательно до очистки: `pending_batch` живёт в `active_turn`.
         session.answer_deferred_batch(reason="сессия была переключена")
 
-        session.clear_active_turn()
+        finish_turn(session, cause=TurnEndCause.SESSION_SWITCHED)
 
     # Отметить все pending tool calls как cancelled
     history_writer = EventHistoryWriter()

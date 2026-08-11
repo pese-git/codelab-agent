@@ -12,6 +12,7 @@ import structlog
 from ....domain.session import Session as DomainSession
 from ....domain.value_objects import AwaitingPermission
 from ....messages import ACPMessage
+from ...turn_runtime import TurnEndCause, finish_turn
 from .normalization import normalize_stop_reason
 
 logger = structlog.get_logger()
@@ -34,14 +35,16 @@ def finalize_active_turn(session: DomainSession, *, stop_reason: str) -> ACPMess
         response = finalize_active_turn(session, stop_reason="cancelled")
     """
 
-    active_turn = session.active_turn
-    if active_turn is None or active_turn.prompt_request_id is None:
+    # Порядок сохранён дословно: turn без идентификатора исходного запроса прежний
+    # вызывающий **не снимал** — снятие здесь было бы изменением поведения, а шаг
+    # обязан быть нулевым. Асимметрия отмечена как хвост для шага 5.3.
+    if session.active_turn is not None and session.active_turn.prompt_request_id is None:
         return None
 
-    session.clear_active_turn()
-    return ACPMessage.response(
-        active_turn.prompt_request_id,
-        {"stopReason": normalize_stop_reason(stop_reason)},
+    return finish_turn(
+        session,
+        cause=TurnEndCause.COMPLETED,
+        stop_reason=normalize_stop_reason(stop_reason),
     )
 
 

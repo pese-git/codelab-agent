@@ -10,7 +10,7 @@ import structlog
 from codelab.server.domain.session import Session, TurnState
 from codelab.server.domain.value_objects import Running, TurnPhase
 
-from ...messages import ACPMessage, JsonRpcId
+from ...messages import JsonRpcId
 from ..state import PromptDirectives
 
 # Используем structlog для структурированного логирования
@@ -202,42 +202,6 @@ class TurnLifecycleManager:
         )
 
         return normalized_reason
-
-    def finalize_active_turn(self, session: Session, *, stop_reason: str) -> ACPMessage | None:
-        """Финализирует текущий active turn и очищает его состояние.
-
-        Args:
-            session: Состояние сессии
-            stop_reason: Причина завершения (e.g., "end_turn", "cancelled")
-
-        Returns:
-            ACPMessage response для исходного `session/prompt` или None если нет active_turn
-        """
-        active_turn = session.active_turn
-        if active_turn is None or active_turn.prompt_request_id is None:
-            return None
-
-        session.clear_active_turn()
-        return ACPMessage.response(
-            active_turn.prompt_request_id,
-            {"stopReason": stop_reason},
-        )
-
-    def clear_active_turn(self, session: Session) -> None:
-        """Очищает active turn (устанавливает в None).
-
-        Args:
-            session: Состояние сессии
-        """
-        if session.active_turn is None:
-            return
-
-        session_id = str(session.id)
-        session.clear_active_turn()
-        logger.debug(
-            "active turn cleared",
-            session_id=session_id,
-        )
 
     def should_handle_cancel(self, session: Session) -> bool:
         """Проверяет, нужно ли обрабатывать cancel.

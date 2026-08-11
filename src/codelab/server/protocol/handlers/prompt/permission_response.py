@@ -10,6 +10,7 @@ from ....domain.session import Session as DomainSession
 from ....domain.value_objects import ToolCallStatus
 from ....messages import ACPMessage, JsonRpcId
 from ...state import PendingToolExecution, ProtocolOutcome
+from ...turn_runtime import TurnEndCause, finish_turn
 from ..permissions import build_permission_options
 from ..session import session_info_notification
 from .tool_call_updates import tool_call_status_notification
@@ -104,12 +105,10 @@ def resolve_permission_response_impl(
         # ответа его вызовы остались бы без `role: tool`.
         session.answer_deferred_batch(reason="в разрешении отказано")
 
-        prompt_request_id = session.active_turn.prompt_request_id
-        session.clear_active_turn()
-        cancelled = (
-            ACPMessage.response(prompt_request_id, {"stopReason": "cancelled"})
-            if prompt_request_id is not None
-            else None
+        cancelled = finish_turn(
+            session,
+            cause=TurnEndCause.PERMISSION_DENIED,
+            stop_reason="cancelled",
         )
         return ProtocolOutcome(
             notifications=notifications,

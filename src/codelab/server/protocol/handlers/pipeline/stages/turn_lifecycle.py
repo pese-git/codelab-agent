@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
+from codelab.server.protocol.turn_runtime import TurnEndCause, finish_turn
 
 from ..base import PromptStage
 from ..context import PromptContext
@@ -39,8 +40,11 @@ class TurnLifecycleStage(PromptStage):
         elif self._action == "close":
 
             def _close(session: DomainSession) -> None:
+                # `finalize_turn` только нормализует и логирует причину; снятие
+                # turn'а принадлежит шву (ADR-008, шаг 5). Ответ здесь не строится:
+                # его отправляет транспорт своим путём, как и прежде.
                 self._turn_manager.finalize_turn(session, context.stop_reason)
-                self._turn_manager.clear_active_turn(session)
+                finish_turn(session, cause=TurnEndCause.PIPELINE_CLOSED)
 
             await context.commands.apply(_close, name="turn_closed")
 
