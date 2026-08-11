@@ -5,53 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from codelab.server.domain.path_boundary import normalize_path as _normalize_path
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 
 if TYPE_CHECKING:
     from codelab.server.domain.session import Session
     from codelab.server.tools.base import ToolRegistry
     from codelab.server.tools.executors.decorators.base import ToolExecutorProtocol
-
-
-def _normalize_path(cwd: str, path: str) -> str:
-    """Нормализует путь относительно cwd.
-
-    Если путь уже абсолютный — возвращает как есть.
-    Если относительный — присоединяет к cwd.
-
-    Args:
-        cwd: Текущая рабочая директория сессии.
-        path: Путь к файлу (абсолютный или относительный).
-
-    Returns:
-        Нормализованный абсолютный путь.
-    """
-    p = Path(path)
-    if p.is_absolute():
-        return path
-    return str(Path(cwd) / p)
-
-
-def _validate_path_in_cwd(path: str, cwd: str) -> None:
-    """Проверяет что путь находится внутри cwd.
-
-    Args:
-        path: Абсолютный путь к файлу.
-        cwd: Текущая рабочая директория сессии.
-
-    Raises:
-        ValueError: Если путь находится вне cwd.
-    """
-    path_resolved = Path(path).resolve()
-    cwd_resolved = Path(cwd).resolve()
-
-    # Проверяем что путь начинается с cwd
-    # Используем str() для сравнения чтобы избежать проблем с symlink
-    if not str(path_resolved).startswith(str(cwd_resolved)):
-        raise ValueError(
-            f"Path '{path}' is outside working directory '{cwd}'. "
-            f"Use relative paths or terminal commands (ls, find) to discover files."
-        )
 
 
 class FileSystemToolDefinitions:
@@ -175,17 +135,11 @@ class FileSystemToolDefinitions:
                     ),
                 )
 
-            # Нормализовать путь относительно session.config.cwd
+            # Нормализация — подготовка аргумента для клиента; границу рабочего
+            # каталога проверяет шов исполнения (ADR-009, шаг 2б), а не обработчик:
+            # иначе её получал бы только тот инструмент, чей автор о ней вспомнил.
             if session.config.cwd:
                 arguments["path"] = _normalize_path(session.config.cwd, arguments["path"])
-                # Валидировать что путь внутри cwd
-                try:
-                    _validate_path_in_cwd(arguments["path"], session.config.cwd)
-                except ValueError as e:
-                    return ToolExecutionResult(
-                        success=False,
-                        error=str(e),
-                    )
 
             # Директория — не файл: отклоняем с понятным сообщением, а не сырым RPC-кодом.
             if Path(arguments["path"]).is_dir():
@@ -203,19 +157,9 @@ class FileSystemToolDefinitions:
             """Обработчик для fs/write_text_file."""
             # Добавить тип операции в аргументы
             arguments["operation"] = "write"
-            # Нормализовать путь относительно session.config.cwd
+            # Границу каталога проверяет шов исполнения (ADR-009, шаг 2б).
             if "path" in arguments and session.config.cwd:
                 arguments["path"] = _normalize_path(session.config.cwd, arguments["path"])
-                # Валидировать что путь внутри cwd
-                try:
-                    _validate_path_in_cwd(arguments["path"], session.config.cwd)
-                except ValueError as e:
-                    from codelab.server.tools.base import ToolExecutionResult
-
-                    return ToolExecutionResult(
-                        success=False,
-                        error=str(e),
-                    )
             return await executor.execute(session, arguments)
 
         # Зарегистрировать инструменты в реестре

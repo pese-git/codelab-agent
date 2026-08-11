@@ -4,11 +4,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult
 from codelab.server.tools.definitions.filesystem import (
     FileSystemToolDefinitions,
     _normalize_path,
 )
+from codelab.server.tools.registry import SimpleToolRegistry
 from tests.server._domain_sessions import make_domain_session
 
 
@@ -96,25 +98,30 @@ class TestReadHandlerNormalizesPath:
         assert arguments["path"] == "/workspace/file.txt"
 
     @pytest.mark.asyncio
-    async def test_read_handler_rejects_path_outside_cwd(self) -> None:
-        """Read handler должен отклонить путь вне cwd."""
+    async def test_read_outside_cwd_rejected_on_the_seam(self) -> None:
+        """Путь вне cwd отклоняется шва ради, а не обработчиком (ADR-009, шаг 2б).
+
+        Проверка идёт через реестр — то есть тем путём, которым инструмент
+        вызывается в действительности. Обработчик её больше не дублирует:
+        владелец правила один, иначе копии разойдутся.
+        """
         mock_executor = MagicMock()
         mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="content"))
         mock_executor.execute = mock_execute
 
-        FileSystemToolDefinitions.register_all(
-            tool_registry=FakeRegistry(),
-            executor=mock_executor,
+        registry = SimpleToolRegistry()
+        FileSystemToolDefinitions.register_all(tool_registry=registry, executor=mock_executor)
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
+
+        result = await registry.execute_tool(
+            "sess_1",
+            "fs/read_text_file",
+            {"path": "/tmp/file.txt"},
+            session=session,
+            subject=ToolInvocationSubject.MODEL,
         )
 
-        session = make_domain_session(session_id="sess_1", cwd="/workspace")
-        handler = FakeRegistry.read_handler
-
-        result = await handler(session=session, path="/tmp/file.txt")
-
-        # Executor не должен быть вызван
         mock_execute.assert_not_called()
-        # Должна вернуться ошибка
         assert result.success is False
         assert "outside working directory" in result.error
 
@@ -217,25 +224,25 @@ class TestWriteHandlerNormalizesPath:
         assert arguments["path"] == "/workspace/output.txt"
 
     @pytest.mark.asyncio
-    async def test_write_handler_rejects_path_outside_cwd(self) -> None:
-        """Write handler должен отклонить путь вне cwd."""
+    async def test_write_outside_cwd_rejected_on_the_seam(self) -> None:
+        """Запись вне cwd отклоняется на шве — тем же правилом, что и чтение."""
         mock_executor = MagicMock()
         mock_execute = AsyncMock(return_value=ToolExecutionResult(success=True, output="written"))
         mock_executor.execute = mock_execute
 
-        FileSystemToolDefinitions.register_all(
-            tool_registry=FakeRegistry(),
-            executor=mock_executor,
+        registry = SimpleToolRegistry()
+        FileSystemToolDefinitions.register_all(tool_registry=registry, executor=mock_executor)
+        session = make_domain_session(session_id="sess_1", cwd="/workspace")
+
+        result = await registry.execute_tool(
+            "sess_1",
+            "fs/write_text_file",
+            {"path": "/tmp/output.txt", "content": "hello"},
+            session=session,
+            subject=ToolInvocationSubject.MODEL,
         )
 
-        session = make_domain_session(session_id="sess_1", cwd="/workspace")
-        handler = FakeRegistry.write_handler
-
-        result = await handler(session=session, path="/tmp/output.txt", content="hello")
-
-        # Executor не должен быть вызван
         mock_execute.assert_not_called()
-        # Должна вернуться ошибка
         assert result.success is False
         assert "outside working directory" in result.error
 

@@ -2,12 +2,16 @@
 
 import inspect
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import structlog
 
 from codelab.server.agent.contracts.ports import writable_session
+from codelab.server.domain.path_boundary import (
+    is_inside_cwd,
+    normalize_path,
+    outside_cwd_error,
+)
 from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolDefinition, ToolExecutionResult, ToolRegistry
 from codelab.server.tools.mapping import acp_name_to_llm_name, llm_name_to_acp_name
@@ -223,7 +227,9 @@ class SimpleToolRegistry(ToolRegistry):
             cwd = getattr(getattr(session, "config", None), "cwd", None)
             inside_cwd: bool | None = None
             if isinstance(path, str) and path and cwd:
-                inside_cwd = str(Path(path).resolve()).startswith(str(Path(cwd).resolve()))
+                # Тем же правилом, каким принимается решение: замер, меряющий
+                # границу по-своему, отвечал бы не про ту границу.
+                inside_cwd = is_inside_cwd(normalize_path(cwd, path), cwd)
 
             logger.info(
                 "tool_invocation_probe",
@@ -240,6 +246,29 @@ class SimpleToolRegistry(ToolRegistry):
             )
         except Exception as error:  # noqa: BLE001 — замер не вправе ронять исполнение
             logger.debug("tool_invocation_probe_failed", error=str(error))
+
+    @staticmethod
+    def _path_boundary_violation(arguments: dict[str, Any], session: Any) -> str | None:
+        """Причина отказа, если путь инвокации выходит за рабочий каталог.
+
+        Условия те же, что были у обработчиков: правило действует, когда путь —
+        непустая строка, а рабочий каталог сессии известен. Проверяется
+        нормализованный путь, и текст отказа сохранён дословно — он уходит модели
+        в теле `role: tool`, и его изменение сдвинуло бы LLM-payload.
+        """
+        if not isinstance(arguments, dict):
+            return None
+        path = arguments.get("path")
+        if not isinstance(path, str) or not path.strip():
+            return None
+        cwd = getattr(getattr(session, "config", None), "cwd", None)
+        if not cwd:
+            return None
+
+        normalized = normalize_path(cwd, path)
+        if is_inside_cwd(normalized, cwd):
+            return None
+        return outside_cwd_error(normalized, cwd)
 
     async def execute_tool(
         self,
@@ -308,6 +337,21 @@ class SimpleToolRegistry(ToolRegistry):
                     f"вызывающий обязан передать `subject` (ADR-009)."
                 ),
             )
+
+        # Граница рабочего каталога — правило политики, применяемое на шве
+        # (ADR-009, шаг 2б). Раньше оно было написано руками в двух обработчиках
+        # `fs/*`; теперь его получает всякая инвокация с путём, включая будущие
+        # инструменты и всех вызывающих. Вне каталога — отказ обоим субъектам:
+        # для `context` `Ask` невыразим, а для модели отказ и был поведением.
+        boundary_error = self._path_boundary_violation(arguments, session)
+        if boundary_error is not None:
+            logger.info(
+                "tool_invocation_outside_cwd",
+                session_id=session_id_of(session),
+                subject=subject.value,
+                acp_tool_name=acp_tool_name,
+            )
+            return ToolExecutionResult(success=False, error=boundary_error)
 
         # Проверка существования инструмента (по ACP имени)
         if acp_tool_name not in self._tools:
