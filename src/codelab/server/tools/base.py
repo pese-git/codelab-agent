@@ -17,6 +17,11 @@ class ToolDefinition:
     parameters: dict[str, Any]  # JSON Schema
     kind: str  # "terminal", "filesystem", "other"
     requires_permission: bool = True
+    # Возможность существует для внутреннего потребителя (сборка контекста), а не
+    # для модели: в набор инструментов, отдаваемый LLM, она не попадает (ADR-009,
+    # раздел 6). Модели такой инструмент не нужен — у неё уже есть терминал, а
+    # лишняя запись в payload'е сбрасывала бы prompt cache без причины.
+    internal: bool = False
 
 
 @dataclass

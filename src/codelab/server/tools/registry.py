@@ -166,8 +166,9 @@ class SimpleToolRegistry(ToolRegistry):
 
         В упрощенной реализации возвращает все инструменты.
         """
-        # Для простого реестра - возвращаем все инструменты
-        tools = list(self._tools.values())
+        # Внутренние возможности модели не предъявляются: они существуют для
+        # сборки контекста (ADR-009, раздел 6).
+        tools = [t for t in self._tools.values() if not t.internal]
         if not include_permission_required:
             tools = [t for t in tools if not t.requires_permission]
         return tools

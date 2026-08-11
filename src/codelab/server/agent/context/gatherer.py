@@ -510,10 +510,12 @@ class ACPContextGatherer(ContextGatherer):
         return []
 
     async def _bootstrap_project_files(self, session: Any) -> list[str]:
-        """Получить структуру проекта через terminal, если она отсутствует.
+        """Получить структуру проекта, если она отсутствует в сессии.
 
-        Запускает `find . -type f` через terminal/create, ждёт завершения
-        через terminal/wait_for_exit, парсит вывод и сохраняет в сессию.
+        Перечисление запрашивается узкой возможностью `project/list_files`
+        (ADR-009, раздел 6): сборщику контекста нужно перечислить файлы, а не
+        исполнять команду, — поэтому команды он больше не формирует и права на
+        неё не имеет. Терминал остался деталью реализации возможности.
 
         Args:
             session: Состояние сессии с config_values
@@ -521,51 +523,26 @@ class ACPContextGatherer(ContextGatherer):
         Returns:
             Список отфильтрованных путей к файлам проекта
         """
-        terminal_id = ""
         try:
-            create_result = await self._tool_registry.execute_tool(
+            result = await self._tool_registry.execute_tool(
                 self._session_id,
-                "terminal/create",
-                {"command": "find . -type f"},
+                # Имя возможности литералом, как и остальные инструменты здесь:
+                # пакет контекста не зависит от `server.tools` (направление слоёв).
+                "project/list_files",
+                {},
                 session=session,
                 subject=ToolInvocationSubject.CONTEXT,
             )
 
-            if not create_result.success:
+            if not result.success or not result.output:
                 logger.debug(
-                    "context.gather.bootstrap.terminal_create_failed",
+                    "context.gather.bootstrap.list_files_failed",
                     session_id=self._session_id,
+                    error=result.error,
                 )
                 return []
 
-            if create_result.metadata:
-                terminal_id = create_result.metadata.get("terminal_id", "")
-            if not terminal_id and create_result.raw_output:
-                terminal_id = create_result.raw_output.get("terminal_id", "")
-
-            if not terminal_id:
-                logger.debug(
-                    "context.gather.bootstrap.no_terminal_id",
-                    session_id=self._session_id,
-                )
-                return []
-
-            wait_result = await self._tool_registry.execute_tool(
-                self._session_id,
-                "terminal/wait_for_exit",
-                {"terminal_id": terminal_id},
-                session=session,
-                subject=ToolInvocationSubject.CONTEXT,
-            )
-
-            if not wait_result.success or not wait_result.output:
-                logger.debug(
-                    "context.gather.bootstrap.terminal_wait_failed",
-                    session_id=self._session_id,
-                )
-                return []
-
-            raw_files = parse_find_output(wait_result.output)
+            raw_files = parse_find_output(result.output)
             project_root = getattr(session, "cwd", None)
             # Нормализуем пути относительно корня проекта
             normalized_files = [normalize_path(f, project_root) for f in raw_files]
@@ -596,41 +573,6 @@ class ACPContextGatherer(ContextGatherer):
                 session_id=self._session_id,
             )
             return []
-        finally:
-            # Терминал освобождает тот, кто его создал. Без этого реестр alias'ов
-            # растёт на каждый bootstrap и целиком уезжает на диск в каждой ревизии
-            # документа сессии, а модель видит в нём терминалы, которых не просила
-            # (P2-58: за прогон 11 `terminal/create` и 0 `terminal/release`).
-            if terminal_id:
-                await self._release_terminal(terminal_id, session)
-
-    async def _release_terminal(self, terminal_id: str, session: Any) -> None:
-        """Освободить терминал bootstrap'а, не роняя сбор контекста.
-
-        Сбор — горячий путь с graceful degradation: неудачное освобождение хуже
-        утечки alias'а, но не настолько, чтобы терять уже собранную структуру.
-        """
-        try:
-            result = await self._tool_registry.execute_tool(
-                self._session_id,
-                "terminal/release",
-                {"terminal_id": terminal_id},
-                session=session,
-                subject=ToolInvocationSubject.CONTEXT,
-            )
-            if not result.success:
-                logger.debug(
-                    "context.gather.bootstrap.terminal_release_failed",
-                    session_id=self._session_id,
-                    terminal_id=terminal_id,
-                    error=result.error,
-                )
-        except Exception:
-            logger.exception(
-                "context.gather.bootstrap.terminal_release_error",
-                session_id=self._session_id,
-                terminal_id=terminal_id,
-            )
 
     async def _search_in_files(
         self, term: str, project_files: list[str], session: Any

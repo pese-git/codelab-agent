@@ -1,9 +1,14 @@
-"""Владение терминалом bootstrap'а структуры проекта (P2-58).
+"""Полномочие сборщика контекста сужено до перечисления файлов (ADR-009, раздел 6).
 
-Терминал освобождает тот, кто его создал. Без этого реестр alias'ов растёт на
-каждый bootstrap, целиком уезжает на диск в каждой ревизии документа сессии, а
-модель видит в нём терминалы, которых не просила (за живой прогон наблюдалось
-11 `terminal/create` и 0 `terminal/release`).
+Прежде bootstrap структуры проекта делал три сырых вызова `terminal/*` с
+литеральной командой — то есть держал право исполнить произвольную команду ради
+нужды «перечислить файлы». Теперь он вызывает узкую возможность
+`project/list_files`, а владение терминалом (создать → дождаться → освободить,
+P2-58) переехало в её реализацию: `tests/server/tools/definitions/
+test_project_list_files.py`.
+
+Гейт возвратом дефекта: вернуть в `_bootstrap_project_files` вызов
+`terminal/create` — и `test_context_path_never_touches_terminal` падает.
 """
 
 from __future__ import annotations
@@ -12,21 +17,20 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from codelab.server.agent.context.dependency_graph import RegexDependencyGraph
 from codelab.server.agent.context.gatherer import ACPContextGatherer
 from codelab.server.domain.value_objects import ToolInvocationSubject
 from codelab.server.tools.base import ToolExecutionResult
+from codelab.server.tools.definitions.project import LIST_FILES_TOOL
 
 
 class _RecordingRegistry:
-    """Реестр инструментов, записывающий порядок вызовов."""
+    """Реестр инструментов, записывающий инвокации сборщика контекста."""
 
-    def __init__(self, *, wait_fails: bool = False, release_fails: bool = False) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self._wait_fails = wait_fails
-        self._release_fails = release_fails
+    def __init__(self, *, listing_fails: bool = False, output: str | None = None) -> None:
+        self.calls: list[tuple[str, dict[str, Any], ToolInvocationSubject]] = []
+        self._listing_fails = listing_fails
+        self._output = output if output is not None else "./lib/main.dart\n./pubspec.yaml\n"
 
     def get_available_tools(self, session_id: str) -> list:
         return []
@@ -39,27 +43,17 @@ class _RecordingRegistry:
         session: Any = None,
         subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
-        self.calls.append((tool_name, arguments))
+        self.calls.append((tool_name, arguments, subject))
 
-        if tool_name == "terminal/create":
-            return ToolExecutionResult(
-                success=True,
-                raw_output={"terminal_id": "term_1"},
-                metadata={"terminal_id": "term_1"},
-            )
-        if tool_name == "terminal/wait_for_exit":
-            if self._wait_fails:
-                return ToolExecutionResult(success=False, error="wait failed")
-            return ToolExecutionResult(success=True, output="./lib/main.dart\n./pubspec.yaml\n")
-        if tool_name == "terminal/release":
-            if self._release_fails:
-                return ToolExecutionResult(success=False, error="unknown terminal")
-            return ToolExecutionResult(success=True)
+        if tool_name == LIST_FILES_TOOL:
+            if self._listing_fails:
+                return ToolExecutionResult(success=False, error="listing failed")
+            return ToolExecutionResult(success=True, output=self._output)
 
         return ToolExecutionResult(success=False, error="Unknown tool")
 
     def tool_names(self) -> list[str]:
-        return [name for name, _ in self.calls]
+        return [name for name, _, _ in self.calls]
 
 
 def _make_gatherer(registry: _RecordingRegistry) -> ACPContextGatherer:
@@ -78,72 +72,56 @@ def _make_session(tmp_path) -> MagicMock:
     return session
 
 
-class TestBootstrapReleasesTerminal:
-    """Гейт: созданный для bootstrap'а терминал освобождается всегда."""
+class TestBootstrapUsesNarrowCapability:
+    """Сборщик просит перечисление, а не исполнение команды."""
 
-    async def test_releases_terminal_after_success(self, tmp_path) -> None:
-        """На успешном пути терминал освобождается после чтения вывода."""
+    async def test_single_listing_invocation(self, tmp_path) -> None:
+        """Один bootstrap — одна инвокация возможности, без аргумента-команды."""
         registry = _RecordingRegistry()
         gatherer = _make_gatherer(registry)
 
         files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
 
         assert files
-        assert registry.tool_names() == [
-            "terminal/create",
-            "terminal/wait_for_exit",
-            "terminal/release",
-        ]
-        assert registry.calls[-1][1] == {"terminal_id": "term_1"}
+        assert registry.tool_names() == [LIST_FILES_TOOL]
+        name, arguments, subject = registry.calls[0]
+        assert arguments == {}
+        assert subject is ToolInvocationSubject.CONTEXT
 
-    async def test_releases_terminal_when_wait_fails(self, tmp_path) -> None:
-        """Терминал освобождается и на неуспешном ожидании — иначе alias утечёт."""
-        registry = _RecordingRegistry(wait_fails=True)
+    async def test_context_path_never_touches_terminal(self, tmp_path) -> None:
+        """Гейт: путь сборки контекста не вызывает `terminal/*` ни на каком исходе.
+
+        Право запускать команду исчезло по построению: команду формирует
+        владелец возможности, а сборщик её не передаёт и передать не может.
+        """
+        for listing_fails in (False, True):
+            registry = _RecordingRegistry(listing_fails=listing_fails)
+            gatherer = _make_gatherer(registry)
+
+            await gatherer._bootstrap_project_files(_make_session(tmp_path))
+
+            assert not [name for name in registry.tool_names() if name.startswith("terminal/")]
+            assert not any(
+                "command" in arguments for _, arguments, _ in registry.calls
+            ), "сборщик контекста не вправе передавать команду"
+
+    async def test_failed_listing_degrades_gracefully(self, tmp_path) -> None:
+        """Отказ перечисления не роняет горячий путь — структура просто пуста."""
+        registry = _RecordingRegistry(listing_fails=True)
         gatherer = _make_gatherer(registry)
 
-        files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
+        assert await gatherer._bootstrap_project_files(_make_session(tmp_path)) == []
 
-        assert files == []
-        assert "terminal/release" in registry.tool_names()
-
-    async def test_failed_release_does_not_break_gathering(self, tmp_path) -> None:
-        """Неудачное освобождение не отменяет уже собранную структуру."""
-        registry = _RecordingRegistry(release_fails=True)
+    async def test_empty_output_is_not_a_structure(self, tmp_path) -> None:
+        """Пустой вывод перечисления не сохраняется как структура проекта."""
+        registry = _RecordingRegistry(output="")
         gatherer = _make_gatherer(registry)
 
-        files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
-
-        assert files
-        assert "terminal/release" in registry.tool_names()
-
-    async def test_no_release_without_terminal_id(self, tmp_path) -> None:
-        """Без полученного alias'а освобождать нечего — лишнего вызова нет."""
-
-        class _NoIdRegistry(_RecordingRegistry):
-            async def execute_tool(
-        self,
-        session_id: str,
-        tool_name: str,
-        arguments: dict,
-        session: Any = None,
-        subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
-    ) -> ToolExecutionResult:
-                self.calls.append((tool_name, arguments))
-                if tool_name == "terminal/create":
-                    return ToolExecutionResult(success=True, raw_output={}, metadata={})
-                return ToolExecutionResult(success=False, error="unexpected call")
-
-        registry = _NoIdRegistry()
-        gatherer = _make_gatherer(registry)
-
-        files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
-
-        assert files == []
-        assert registry.tool_names() == ["terminal/create"]
+        assert await gatherer._bootstrap_project_files(_make_session(tmp_path)) == []
 
 
 class TestBootstrapStructureStillSaved:
-    """Освобождение терминала не должно ломать основной результат bootstrap'а."""
+    """Сужение полномочия не изменило основной результат bootstrap'а."""
 
     async def test_structure_written_to_session(self, tmp_path) -> None:
         """Структура проекта по-прежнему сохраняется в носитель состояния."""
@@ -165,13 +143,11 @@ class TestBootstrapStructureStillSaved:
         assert config_id == "project_structure"
         assert json.loads(raw_value) == files
 
+    async def test_output_parsed_as_before(self, tmp_path) -> None:
+        """Формат вывода возможности — тот же, что давал `find`: пути с `./`."""
+        registry = _RecordingRegistry()
+        gatherer = _make_gatherer(registry)
 
-@pytest.mark.parametrize("wait_fails", [False, True])
-async def test_exactly_one_release_per_bootstrap(tmp_path, wait_fails: bool) -> None:
-    """Один bootstrap — ровно одно освобождение, независимо от исхода ожидания."""
-    registry = _RecordingRegistry(wait_fails=wait_fails)
-    gatherer = _make_gatherer(registry)
+        files = await gatherer._bootstrap_project_files(_make_session(tmp_path))
 
-    await gatherer._bootstrap_project_files(_make_session(tmp_path))
-
-    assert registry.tool_names().count("terminal/release") == 1
+        assert files == ["lib/main.dart", "pubspec.yaml"]

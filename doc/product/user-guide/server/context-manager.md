@@ -190,7 +190,8 @@ items = await gatherer.gather(profile, session, options=options)
 `ACPContextGatherer` выполняет пайплайн:
 
 1. **Загрузка структуры проекта** — `project_tree()` через `ToolRegistry`
-   (берётся из кэша сессии, при необходимости — bootstrap через `find . -type f`);
+   (берётся из кэша сессии, при необходимости — bootstrap возможностью `project/list_files`:
+   перечисление файлов проекта, команду формирует сервер);
 2. **Отбор кандидатов** — `target_modules` + `search_terms` → `search()`;
 3. **Чтение файлов** — `read_file()` для каждого кандидата;
 4. **Парсинг импортов** — `dependency_graph.parse_imports(content)`;

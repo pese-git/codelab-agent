@@ -112,6 +112,7 @@ class PromptOrchestrator:
         if self.client_rpc_service is not None:
             from ...tools.definitions import (
                 FileSystemToolDefinitions,
+                ProjectToolDefinitions,
                 TerminalToolDefinitions,
             )
             from ...tools.executors.decorators.project_structure import (
@@ -137,9 +138,10 @@ class PromptOrchestrator:
 
             FileSystemToolDefinitions.register_all(self.tool_registry, fs_executor)
             terminal_executor = TerminalToolExecutor(bridge, checker)
-            TerminalToolDefinitions.register_all(
-                self.tool_registry, ProjectStructureDecorator(terminal_executor)
-            )
+            decorated_terminal = ProjectStructureDecorator(terminal_executor)
+            TerminalToolDefinitions.register_all(self.tool_registry, decorated_terminal)
+            # Тот же экземпляр: реестр alias'ов терминалов один на процесс.
+            ProjectToolDefinitions.register_all(self.tool_registry, decorated_terminal)
             logger.debug(
                 "PromptOrchestrator_registered tool executors",
                 tools_registered=len(self.tool_registry.get_available_tools("")),

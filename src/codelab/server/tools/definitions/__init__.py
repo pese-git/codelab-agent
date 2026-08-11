@@ -5,10 +5,12 @@
 
 from codelab.server.tools.definitions.filesystem import FileSystemToolDefinitions
 from codelab.server.tools.definitions.plan import PlanToolDefinitions
+from codelab.server.tools.definitions.project import ProjectToolDefinitions
 from codelab.server.tools.definitions.terminal import TerminalToolDefinitions
 
 __all__ = [
     "FileSystemToolDefinitions",
     "PlanToolDefinitions",
+    "ProjectToolDefinitions",
     "TerminalToolDefinitions",
 ]

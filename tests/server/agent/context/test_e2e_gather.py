@@ -6,7 +6,8 @@ SingleStrategy → ExecutionEngine → ContextManager → сбор файлов
 Цель: точность сбора релевантных файлов ≥80%.
 
 ContextGatherer получает структуру проекта из session.config_values["project_structure"],
-которую агент сохраняет через terminal/create в рамках agent loop.
+которую агент сохраняет через terminal/create в рамках agent loop, либо
+сборщик — узкой возможностью `project/list_files` (ADR-009, раздел 6).
 """
 
 from __future__ import annotations
@@ -54,11 +55,10 @@ class MockToolRegistry:
         self,
         files: dict[str, str] | None = None,
         *,
-        terminal_output: str | None = None,
+        listing_output: str | None = None,
     ) -> None:
         self._files = files or {}
-        self._terminal_output = terminal_output
-        self._terminal_counter = 0
+        self._listing_output = listing_output
 
     def get_available_tools(self, session_id: str) -> list:
         return [_FakeTool("fs/read_text_file")]
@@ -78,17 +78,8 @@ class MockToolRegistry:
                 return ToolExecutionResult(success=True, output=content)
             return ToolExecutionResult(success=False, error="File not found")
 
-        if tool_name == "terminal/create":
-            self._terminal_counter += 1
-            terminal_id = f"mock-terminal-{self._terminal_counter}"
-            return ToolExecutionResult(
-                success=True,
-                raw_output={"terminal_id": terminal_id},
-                metadata={"terminal_id": terminal_id},
-            )
-
-        if tool_name == "terminal/wait_for_exit":
-            output = self._terminal_output or ""
+        if tool_name == "project/list_files":
+            output = self._listing_output or ""
             return ToolExecutionResult(
                 success=True,
                 raw_output={"output": output},
@@ -234,7 +225,7 @@ class TestContextGathererE2E:
 
     @pytest.mark.asyncio
     async def test_gather_without_project_structure(self):
-        """Без project_structure и без terminal gatherer возвращает пустой результат."""
+        """Без project_structure и без перечисления gatherer возвращает пустой результат."""
         files = {
             "src/auth.py": "def authenticate(): pass",
         }
@@ -262,15 +253,15 @@ class TestContextGathererE2E:
         assert len(items) == 0
 
     @pytest.mark.asyncio
-    async def test_gather_bootstraps_project_structure_via_terminal(self):
-        """Gatherer должен сам получить структуру через terminal, если её нет в сессии."""
-        terminal_output = "./lib/main.dart\n./lib/auth_service.dart\n./pubspec.yaml\n"
+    async def test_gather_bootstraps_project_structure_via_listing(self):
+        """Gatherer сам получает структуру перечислением, если её нет в сессии."""
+        listing_output = "./lib/main.dart\n./lib/auth_service.dart\n./pubspec.yaml\n"
         files = {
             "lib/main.dart": "void main() {}",
             "lib/auth_service.dart": "class AuthService {}",
             "pubspec.yaml": "name: test_app",
         }
-        tool_registry = MockToolRegistry(files, terminal_output=terminal_output)
+        tool_registry = MockToolRegistry(files, listing_output=listing_output)
         dep_graph = RegexDependencyGraph()
 
         gatherer = ACPContextGatherer(
@@ -304,10 +295,10 @@ class TestContextGathererE2E:
         Manager молча оставался без структуры проекта — так и было в проде после
         флипа turn-пути на доменный агрегат (ADR-006, фаза D шаг 3).
         """
-        terminal_output = "./lib/main.dart\n./pubspec.yaml\n"
+        listing_output = "./lib/main.dart\n./pubspec.yaml\n"
         tool_registry = MockToolRegistry(
             {"lib/main.dart": "void main() {}", "pubspec.yaml": "name: test_app"},
-            terminal_output=terminal_output,
+            listing_output=listing_output,
         )
         gatherer = ACPContextGatherer(
             tool_registry=tool_registry,
