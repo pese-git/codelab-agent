@@ -61,6 +61,14 @@ class TerminalToolExecutor(ToolExecutor):
         на границе turn'а, где освобождение убивает ещё идущую команду
         (`17-Schema.md:1060-1062`).
 
+        Запись эмитируется на **три** смены владения, а не на две: `create`, снятие
+        ожидания (`waited`) и `release`. Без `waited` завершение ожидания собственной
+        записи не порождало, и `unwaited` читался лишь в полях **следующей** записи —
+        а у последнего терминала процесса финальное состояние было ненаблюдаемо вовсе
+        (в прогоне 2026-08-10 таких 2 из 3). `TurnRuntime` принимает решение об
+        освобождении именно по этому признаку, поэтому его наблюдаемость перестала
+        быть случайной.
+
         Освобождать остаток здесь **нельзя**: владелец терминала, созданного по просьбе
         модели, — turn, а единственного шва его завершения сегодня нет (pipeline-close,
         `BackgroundExecutor`, отмена и транспорты — четыре выхода). Шов создаёт
@@ -328,6 +336,7 @@ class TerminalToolExecutor(ToolExecutor):
                 # Если терминал уже завершён — не нужно ждать
                 if is_complete and (exit_code is not None or signal is not None):
                     self._aliases.mark_waited(session, terminal_id)
+                    self._log_ownership(session, operation="waited", alias=terminal_id)
                     logger.debug(
                         "Терминал уже завершён (получено из terminal/output)",
                         extra={
@@ -376,6 +385,7 @@ class TerminalToolExecutor(ToolExecutor):
 
             resolved_exit_code = exit_code if exit_code is not None else -1
             self._aliases.mark_waited(session, terminal_id)
+            self._log_ownership(session, operation="waited", alias=terminal_id)
 
             logger.debug(
                 "Терминал завершен",

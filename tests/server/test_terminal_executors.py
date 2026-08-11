@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -610,6 +610,71 @@ class TestTerminalOwnershipMeasurement:
 
         alias = result.metadata["terminal_id"]
         assert executor._aliases.unwaited_aliases(session) == [alias]
+
+    @pytest.mark.asyncio
+    async def test_wait_completion_emits_ownership_record(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        """Завершение ожидания наблюдаемо своей записью, а не полями следующей.
+
+        Слепое пятно замера (найдено разбором прогона 2026-08-10): записи шли
+        только на `create` и `release`, поэтому снятие `unwaited` читалось лишь
+        в полях **следующей** записи того же процесса, а у последнего терминала
+        финальное состояние было ненаблюдаемо вовсе — 2 случая из 3. Решение об
+        освобождении `TurnRuntime` принимает по этому признаку.
+        """
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={"output": "", "is_complete": False, "exit_code": None, "signal": None}
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(  # type: ignore[method-assign]
+            return_value={"exit_code": 0, "signal": None}
+        )
+
+        with patch.object(executor, "_log_ownership") as record:
+            await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert [call.kwargs["operation"] for call in record.call_args_list] == ["waited"]
+        assert record.call_args_list[0].kwargs["alias"] == "term_001"
+
+    @pytest.mark.asyncio
+    async def test_already_finished_terminal_emits_ownership_record(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        """Ветка «уже завершён» тоже наблюдаема: иначе замер зависел бы от пути."""
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={
+                "output": "done",
+                "is_complete": True,
+                "exit_code": 0,
+                "signal": None,
+            }
+        )
+
+        with patch.object(executor, "_log_ownership") as record:
+            await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert [call.kwargs["operation"] for call in record.call_args_list] == ["waited"]
+
+    @pytest.mark.asyncio
+    async def test_failed_wait_emits_no_ownership_record(
+        self,
+        executor: TerminalToolExecutor,
+        session: DomainSession,
+    ) -> None:
+        """Неудачное ожидание записи не порождает: признак не менялся."""
+        executor._bridge.terminal_output = AsyncMock(  # type: ignore[method-assign]
+            return_value={"output": "", "is_complete": False, "exit_code": None, "signal": None}
+        )
+        executor._bridge.wait_terminal_exit = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        with patch.object(executor, "_log_ownership") as record:
+            await executor.execute_wait_for_exit(session=session, terminal_id="term_001")
+
+        assert record.call_args_list == []
 
     @pytest.mark.asyncio
     async def test_failed_wait_does_not_count_as_waited(
