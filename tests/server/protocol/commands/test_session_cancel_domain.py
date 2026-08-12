@@ -10,12 +10,10 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import structlog
 
-from codelab.server.client_rpc.service import ClientRPCService
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
@@ -24,12 +22,9 @@ from codelab.server.protocol.handlers.prompt_orchestrator import PromptOrchestra
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.session_factory import SessionFactory
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
-from codelab.server.protocol.turn_terminals import TurnTerminalReleaser
-from codelab.server.rpc_holder import ClientRPCServiceHolder
 from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.storage.base import SessionStorage
 from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
-from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
 
 class _CountingStorage(InMemoryStorage):
@@ -66,7 +61,6 @@ def _handler(
     storage: SessionStorage,
     orchestrator: PromptOrchestrator,
     llm_adapter: Any | None = None,
-    terminal_releaser: TurnTerminalReleaser | None = None,
 ) -> SessionCancelCommandHandler:
     async def provider() -> PromptOrchestrator:
         return orchestrator
@@ -75,7 +69,6 @@ def _handler(
         repository=SessionRepository(backend=storage),
         orchestrator_provider=provider,
         llm_adapter=llm_adapter,
-        terminal_releaser=terminal_releaser,
     )
 
 
@@ -254,54 +247,22 @@ class TestCancelTransaction:
 
         assert registry.is_cancelled(session.session_id, started) is True
 
-    async def test_terminal_remainder_is_released_after_the_transaction(self) -> None:
-        """Отмена доводит освобождение остатка до клиента — и только после записи.
+    async def test_cancel_makes_no_client_rpc(self) -> None:
+        """Отмена не делает agent→client RPC — иначе receive-цикл stdio встаёт.
 
-        Гейт на достижимость шва, а не на его наличие в коде: внутри области
-        транзакции RPC держал бы блокировку сессии на время сетевого обмена, поэтому
-        порядок «сначала запись, потом освобождение» проверяется явно (ADR-008, шаг 5.3).
+        stdio отправляет в фоновую задачу только `session/prompt` (`stdio.py:211`),
+        поэтому ответ на вызов, сделанный отсюда, прочитать некому: измерено живьём
+        2026-08-12 (`sess_937ff13e9d1b`) — освобождение остатка терминалов, стоявшее
+        здесь, повисло, и `session_cancel_handled` оказалась последней строкой лога.
+        Гейт на отсутствие: остаток сцеживается на следующем завершении turn'а.
         """
-        order: list[str] = []
-
-        class _OrderingStorage(InMemoryStorage):
-            async def save_session(self, document: SessionDocument) -> None:
-                order.append("save")
-                await super().save_session(document)
-
-        storage = _OrderingStorage()
+        storage = InMemoryStorage()
         session = _session_in_turn()
         await storage.save_session(session)
-        order.clear()
 
-        aliases = TerminalAliasRegistry(epoch="7")
-        domain = SessionMapper.to_domain(session)
-        waited = aliases.register(domain, "client-waited")
-        unwaited = aliases.register(domain, "client-unwaited")
-        aliases.mark_waited(domain, waited)
+        handler = _handler(storage, _orchestrator())
 
-        service = MagicMock(spec=ClientRPCService)
-
-        async def _release(**kwargs: Any) -> bool:
-            order.append("release")
-            return True
-
-        service.release_terminal = AsyncMock(side_effect=_release)
-        holder = ClientRPCServiceHolder()
-        holder.service = service
-        releaser = TurnTerminalReleaser(aliases=aliases, client_rpc_service_holder=holder)
-
-        await _handler(storage, _orchestrator(), terminal_releaser=releaser).handle(
-            ACPMessage.request(
-                "session/cancel",
-                {"sessionId": session.session_id},
-                request_id="cancel_1",
-            )
-        )
-
-        assert order == ["save", "release"]
-        # Незавершённое ожидание остаётся: освобождение убило бы идущую команду —
-        # окно наблюдалось живьём (`term_96847_1`, 2026-08-10).
-        assert aliases.known_aliases(domain) == [unwaited]
+        assert not hasattr(handler, "_terminal_releaser")
 
     async def test_domain_state_matches_mapper_round_trip(self) -> None:
         """Сохранённый документ — ровно то, что даёт маппер из агрегата."""

@@ -176,23 +176,29 @@ class TestHotPathNeverFails:
 
 
 class TestOnlyTurnEndPathsDrain:
-    """Дренаж вызывается только оттуда, где turn кончается по воле модели.
+    """Дренаж вызывается только из путей, исполняющихся в фоновой задаче.
 
-    Множество путей, снимающих turn, и множество путей, освобождающих терминалы, не
-    совпадают by design: переключение сессии оставляет терминалы прошлой сессии живыми
-    у клиента, а дисконнект не имеет адресата для RPC. Гейт того же рода, что
-    `test_seam_cannot_be_bypassed` у снятия turn'а (шаг 5.2): без него четвёртый путь
-    добавился бы молча.
+    Ограничение сильнее, чем «turn кончился по воле модели», и его задал транспорт, а
+    не вкус: stdio отправляет в фоновую задачу **только** `session/prompt`
+    (`stdio.py:211`), поэтому agent→client RPC из любого другого обработчика
+    взаимоблокируется — прочитать ответ может лишь тот receive-цикл, который этим
+    ожиданием заблокирован. Измерено живьём 2026-08-12 (`sess_937ff13e9d1b`): дренаж на
+    отмене повис, `session_cancel_handled` — последняя строка лога.
+
+    Отсюда два разрешённых шва: штатное завершение (фоновая задача завершения или
+    `BackgroundExecutor`) и ошибка пайплайна (внутри фоновой задачи `session/prompt`).
+    Остаток отменённого turn'а сцеживается на следующем завершении — дренаж
+    идемпотентен и накопителен. Гейт того же рода, что `test_seam_cannot_be_bypassed`
+    у снятия turn'а (шаг 5.2): без него inline-путь вернулся бы молча.
     """
 
     _ALLOWED = {
         "protocol/turn_terminals.py",
         "protocol/background_executor.py",
-        "protocol/commands/session_cancel.py",
         "protocol/handlers/prompt_orchestrator.py",
     }
 
-    def test_drain_is_called_only_from_the_three_seams(self) -> None:
+    def test_drain_is_called_only_from_background_task_seams(self) -> None:
         server_root = Path(__file__).resolve().parents[3] / "src" / "codelab" / "server"
         callers = {
             str(path.relative_to(server_root))

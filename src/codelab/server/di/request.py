@@ -112,7 +112,6 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         command_registry: CommandRegistry,
-        terminal_releaser: TurnTerminalReleaser,
     ) -> MethodCommandRegistry:
         """Создаёт CommandRegistry с CommandHandlers для текущего соединения.
 
@@ -212,7 +211,6 @@ class RequestProvider(Provider):
                 repository=repository,
                 orchestrator_provider=_make_async_provider(prompt_orchestrator),
                 llm_adapter=llm_adapter,
-                terminal_releaser=terminal_releaser,
             )
         )
         registry.register(
