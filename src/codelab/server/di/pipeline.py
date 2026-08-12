@@ -33,6 +33,7 @@ from ..protocol.orchestrator_builder import PromptOrchestratorBuilder
 from ..protocol.turn_cancellation import TurnCancellationRegistry
 from ..rpc_holder import ClientRPCServiceHolder
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
+from ..tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
 
 class PipelineProvider(Provider):
@@ -134,6 +135,18 @@ class PromptOrchestratorProvider(Provider):
         return ClientRPCServiceHolder()
 
     @provide(scope=Scope.APP)
+    def get_terminal_alias_registry(self) -> TerminalAliasRegistry:
+        """Процессный реестр alias'ов терминалов (ADR-007 шаг A, ADR-008 шаг 5.3).
+
+        APP-scope обязателен: связка alias → client terminalId не персистится, и
+        второй экземпляр означал бы alias, выданный одним и неразрешимый другим.
+        Прежде реестр создавался внутри executor'а, а единственность держалась на
+        том, что точка создания одна, — на дисциплине того же рода, что однажды не
+        сработала у `terminal_counter`.
+        """
+        return TerminalAliasRegistry()
+
+    @provide(scope=Scope.APP)
     def get_orchestrator_builder(
         self,
         tool_registry: ToolRegistryProtocol,
@@ -144,6 +157,7 @@ class PromptOrchestratorProvider(Provider):
         global_policy_manager: GlobalPolicyManager,
         session_file_cache_registry: SessionFileCacheRegistry,
         turn_cancellation: TurnCancellationRegistry,
+        terminal_aliases: TerminalAliasRegistry,
     ) -> PromptOrchestratorBuilder:
         """Создаёт PromptOrchestratorBuilder."""
         return PromptOrchestratorBuilder(
@@ -155,6 +169,7 @@ class PromptOrchestratorProvider(Provider):
             global_policy_manager=global_policy_manager,
             session_file_cache_registry=session_file_cache_registry,
             turn_cancellation=turn_cancellation,
+            terminal_aliases=terminal_aliases,
         )
 
     @provide(scope=Scope.APP)

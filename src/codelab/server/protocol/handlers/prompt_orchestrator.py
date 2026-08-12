@@ -33,6 +33,7 @@ from .turn_lifecycle_manager import TurnLifecycleManager
 if TYPE_CHECKING:
     from codelab.server.agent.context.file_cache import SessionFileCacheRegistry
     from codelab.server.mcp.manager import MCPManager
+    from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
     from .global_policy_manager import GlobalPolicyManager
 
@@ -64,6 +65,7 @@ class PromptOrchestrator:
         global_policy_manager: GlobalPolicyManager | None = None,
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
         turn_cancellation: TurnCancellationRegistry | None = None,
+        terminal_aliases: TerminalAliasRegistry | None = None,
     ):
         self.state_manager = state_manager
         self.turn_cancellation = turn_cancellation
@@ -76,6 +78,7 @@ class PromptOrchestrator:
         self.tool_registry = tool_registry
         self.global_policy_manager = global_policy_manager
         self._session_file_cache_registry = session_file_cache_registry
+        self._terminal_aliases = terminal_aliases
         self._tools_registered = False
 
         # Поддерживаем оба способа передачи сервиса
@@ -135,7 +138,7 @@ class PromptOrchestrator:
                 )
 
             FileSystemToolDefinitions.register_all(self.tool_registry, fs_executor)
-            terminal_executor = TerminalToolExecutor(bridge, checker)
+            terminal_executor = TerminalToolExecutor(bridge, checker, self._terminal_aliases)
             # У структуры проекта один писатель — `ContextGatherer` (P2-65). Оба
             # набора инструментов обслуживает один экземпляр executor'а: реестр
             # alias'ов терминалов один на процесс.

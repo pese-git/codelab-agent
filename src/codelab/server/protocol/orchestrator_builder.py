@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ..agent.registry import AgentRegistry
     from ..client_rpc.service import ClientRPCService
     from ..tools.base import ToolRegistry
+    from ..tools.executors.terminal_alias_registry import TerminalAliasRegistry
     from .handlers.global_policy_manager import GlobalPolicyManager
     from .handlers.pipeline.stages import LLMLoopStage
     from .handlers.prompt_orchestrator import PromptOrchestrator
@@ -50,6 +51,7 @@ class PromptOrchestratorBuilder:
         client_rpc_service: ClientRPCService | None = None,
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
         turn_cancellation: TurnCancellationRegistry | None = None,
+        terminal_aliases: TerminalAliasRegistry | None = None,
     ) -> None:
         """Инициализирует PromptOrchestratorBuilder.
 
@@ -63,6 +65,7 @@ class PromptOrchestratorBuilder:
             client_rpc_service: Сервис для agent->client RPC (опционально).
             turn_cancellation: Процессный реестр отмены turn'ов (P0-39).
             session_file_cache_registry: Реестр кэша файлов по сессиям (опционально).
+            terminal_aliases: Процессный реестр alias'ов терминалов (ADR-008, шаг 5.3).
         """
         self._tool_registry = tool_registry
         self._agent_registry = agent_registry
@@ -73,6 +76,7 @@ class PromptOrchestratorBuilder:
         self._client_rpc_service = client_rpc_service
         self._session_file_cache_registry = session_file_cache_registry
         self._turn_cancellation = turn_cancellation
+        self._terminal_aliases = terminal_aliases
 
     def build(self) -> PromptOrchestrator:
         """Собирает PromptOrchestrator со всеми зависимостями.
@@ -131,4 +135,5 @@ class PromptOrchestratorBuilder:
             pipeline=pipeline,
             session_file_cache_registry=self._session_file_cache_registry,
             turn_cancellation=self._turn_cancellation,
+            terminal_aliases=self._terminal_aliases,
         )

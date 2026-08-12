@@ -27,29 +27,35 @@ class TerminalToolExecutor(ToolExecutor):
 
     Интегрирует проверку разрешений, логирование и lifecycle management.
 
-    **Экземпляр обязан быть один на процесс.** С ADR-007 (шаг A) он владеет реестром
-    alias'ов терминалов, а тот больше не персистится: второй экземпляр означал бы
-    второй реестр, и alias, выданный одним, не разрешался бы другим. Сегодня это
-    обеспечено конструктивно — единственная точка создания
-    (`PromptOrchestrator._register_tool_executors`) сама живёт в `Scope.APP` и
-    защищена флагом `_tools_registered`. Если точек станет больше, реестр надо
-    поднять в DI-провайдер `Scope.APP`, как `TurnCancellationRegistry`.
+    **Реестр alias'ов executor'у больше не принадлежит (ADR-008, шаг 5.3).** С ADR-007
+    (шаг A) связка alias → client terminalId не персистится, поэтому второй реестр
+    означал бы alias, выданный одним экземпляром и неразрешимый другим. Пока реестр
+    создавался здесь, эта гарантия держалась на том, что точка создания executor'а
+    одна, — то есть на дисциплине, как держался `terminal_counter`, который однажды не
+    сработал. Реестр поднят в DI-провайдер `Scope.APP`, как `TurnCancellationRegistry`:
+    теперь единственность обеспечена областью видимости, а не числом вызовов
+    конструктора. Тому же реестру принадлежит признак `waited`, по которому решается
+    судьба остатка терминалов на границе turn'а.
     """
 
     def __init__(
         self,
         client_rpc_bridge: ClientRPCBridge,
         permission_checker: PermissionChecker,
+        aliases: TerminalAliasRegistry | None = None,
     ) -> None:
         """Инициализировать executor с зависимостями.
 
         Args:
             client_rpc_bridge: Адаптер для ClientRPCService.
             permission_checker: Адаптер для PermissionManager.
+            aliases: Процессный реестр alias'ов терминалов (`Scope.APP`). `None`
+                создаёт собственный — форма для тестов, которым реестр незачем
+                разделять; продакшен-путь всегда передаёт реестр из DI.
         """
         self._bridge = client_rpc_bridge
         self._permission_checker = permission_checker
-        self._aliases = TerminalAliasRegistry()
+        self._aliases = aliases if aliases is not None else TerminalAliasRegistry()
 
     def _log_ownership(self, session: Session, *, operation: str, alias: str) -> None:
         """Пишет остаток неосвобождённых терминалов после каждой смены владения.
@@ -70,9 +76,9 @@ class TerminalToolExecutor(ToolExecutor):
         быть случайной.
 
         Освобождать остаток здесь **нельзя**: владелец терминала, созданного по просьбе
-        модели, — turn, а единственного шва его завершения сегодня нет (pipeline-close,
-        `BackgroundExecutor`, отмена и транспорты — четыре выхода). Шов создаёт
-        `TurnRuntime`, и освобождение — его первый потребитель.
+        модели, — turn, а не отдельная операция над ним. Шов завершения turn'а есть
+        (`protocol/turn_runtime.finish_turn`, шаг 5.2), и освобождение остатка — его
+        первый потребитель; сам реестр для этого поднят в `Scope.APP` (шаг 5.3).
         """
         unwaited = self._aliases.unwaited_aliases(session)
         logger.info(
