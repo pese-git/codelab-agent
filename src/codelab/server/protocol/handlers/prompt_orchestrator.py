@@ -17,6 +17,7 @@ from ..session_commands import SessionCommands
 from ..state import LLMLoopResult, ProtocolOutcome
 from ..turn_cancellation import TurnCancellationRegistry
 from ..turn_runtime import TurnEndCause, finish_turn
+from ..turn_terminals import TurnTerminalReleaser
 from .event_history_writer import EventHistoryWriter
 from .permission_manager import PermissionManager
 from .pipeline import (
@@ -66,6 +67,7 @@ class PromptOrchestrator:
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
         turn_cancellation: TurnCancellationRegistry | None = None,
         terminal_aliases: TerminalAliasRegistry | None = None,
+        terminal_releaser: TurnTerminalReleaser | None = None,
     ):
         self.state_manager = state_manager
         self.turn_cancellation = turn_cancellation
@@ -79,6 +81,7 @@ class PromptOrchestrator:
         self.global_policy_manager = global_policy_manager
         self._session_file_cache_registry = session_file_cache_registry
         self._terminal_aliases = terminal_aliases
+        self._terminal_releaser = terminal_releaser
         self._tools_registered = False
 
         # Поддерживаем оба способа передачи сервиса
@@ -233,6 +236,13 @@ class PromptOrchestrator:
                     finish_turn(target, cause=TurnEndCause.PIPELINE_ERROR)
 
                 await commands.require_active_turn(_close_turn, name="turn_closed_on_error")
+                # Остаток терминалов освобождается и на ошибке: turn закончился,
+                # приобретателя у ресурса больше нет (ADR-008, шаг 5.3). Вне
+                # замыкания транзакции — это клиентский RPC, а не запись.
+                if self._terminal_releaser is not None:
+                    await self._terminal_releaser.release_turn_remainder(
+                        session, cause="pipeline_error"
+                    )
             # Не отправляем notifications при ошибке валидации
             return ProtocolOutcome(response=result.error_response, notifications=[])
 

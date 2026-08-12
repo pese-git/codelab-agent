@@ -128,3 +128,15 @@ class TerminalAliasRegistry:
         """Живые alias'ы, для которых `wait_for_exit` не завершался."""
         records = self._by_session.get(str(session.id), {})
         return [alias for alias in sorted(records) if not records[alias].waited]
+
+    def waited_aliases(self, session: Session) -> list[str]:
+        """Живые alias'ы с уже завершившейся командой — остаток, который можно освободить.
+
+        Дополнение к `unwaited_aliases`, а не его отрицание в вызывающем: решение
+        «освобождать ли терминал на границе turn'а» принимается по этому признаку
+        (ADR-008, шаг 5.3), и спрашивать его должен реестр, который признак и хранит.
+        Освобождение терминала с незавершённым ожиданием убило бы идущую команду —
+        `17-Schema.md:1060-1062`.
+        """
+        records = self._by_session.get(str(session.id), {})
+        return [alias for alias in sorted(records) if records[alias].waited]

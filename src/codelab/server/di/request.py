@@ -40,6 +40,7 @@ from ..protocol.mcp_session_manager import MCPSessionManager
 from ..protocol.pending_registry import PendingRequestRegistry
 from ..protocol.response_router import ResponseRouter
 from ..protocol.session_runtime import SessionRuntimeRegistry
+from ..protocol.turn_terminals import TurnTerminalReleaser
 from ..rpc_holder import ClientRPCServiceHolder
 from ..storage import SessionRepository, SessionStorage
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
@@ -111,6 +112,7 @@ class RequestProvider(Provider):
         require_auth: Annotated[bool, from_context(provides=bool)],
         auth_api_key: Annotated[str | None, from_context(provides=str | None)],
         command_registry: CommandRegistry,
+        terminal_releaser: TurnTerminalReleaser,
     ) -> MethodCommandRegistry:
         """Создаёт CommandRegistry с CommandHandlers для текущего соединения.
 
@@ -210,6 +212,7 @@ class RequestProvider(Provider):
                 repository=repository,
                 orchestrator_provider=_make_async_provider(prompt_orchestrator),
                 llm_adapter=llm_adapter,
+                terminal_releaser=terminal_releaser,
             )
         )
         registry.register(
@@ -256,6 +259,7 @@ class RequestProvider(Provider):
         prompt_orchestrator: PromptOrchestrator,
         mcp_session_manager: MCPSessionManager,
         runtime_registry: SessionRuntimeRegistry,
+        terminal_releaser: TurnTerminalReleaser,
     ) -> BackgroundExecutor:
         """Создаёт BackgroundExecutor для текущего соединения."""
         return BackgroundExecutor(
@@ -264,6 +268,7 @@ class RequestProvider(Provider):
             orchestrator_provider=_make_async_provider(prompt_orchestrator),
             mcp_provider=mcp_session_manager.ensure_initialized,
             runtime_registry=runtime_registry,
+            terminal_releaser=terminal_releaser,
         )
 
     @provide(scope=Scope.REQUEST)

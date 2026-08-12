@@ -16,16 +16,26 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from codelab.server.client_rpc.service import ClientRPCService
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.background_executor import BackgroundExecutor
 from codelab.server.protocol.session_runtime import SessionRuntimeRegistry
+from codelab.server.protocol.turn_terminals import TurnTerminalReleaser
+from codelab.server.rpc_holder import ClientRPCServiceHolder
 from codelab.server.storage import JsonFileStorage, SessionRepository
 from codelab.server.storage.document import ActiveTurnState, SessionDocument
+from codelab.server.tools.executors.terminal_alias_registry import TerminalAliasRegistry
 
 
-def _executor(storage: JsonFileStorage) -> BackgroundExecutor:
+def _executor(
+    storage: JsonFileStorage,
+    terminal_releaser: TurnTerminalReleaser | None = None,
+) -> BackgroundExecutor:
     async def orchestrator_provider() -> None:
         return None
 
@@ -38,6 +48,7 @@ def _executor(storage: JsonFileStorage) -> BackgroundExecutor:
         orchestrator_provider=orchestrator_provider,
         mcp_provider=mcp_provider,
         runtime_registry=SessionRuntimeRegistry(),
+        terminal_releaser=terminal_releaser,
     )
 
 
@@ -80,6 +91,42 @@ class TestTurnCompletionReachesDisk:
 
         after = (await JsonFileStorage(tmp_path).load_session("sess_t")).revision
         assert after == before
+
+    @pytest.mark.asyncio
+    async def test_terminal_remainder_is_released_after_the_write(self, tmp_path: Path) -> None:
+        """Штатное завершение доводит освобождение остатка до клиента (ADR-008, шаг 5.3).
+
+        Порядок проверяется явно: RPC обязан идти **после** записи снятия turn'а, иначе
+        сетевой обмен держал бы блокировку сессии. Остаток с незавершённым ожиданием
+        остаётся висеть — освобождение убило бы идущую команду.
+        """
+        storage = JsonFileStorage(tmp_path)
+        session = await _session_with_open_turn(storage)
+        domain = SessionMapper.to_domain(session)
+
+        aliases = TerminalAliasRegistry(epoch="7")
+        waited = aliases.register(domain, "client-waited")
+        unwaited = aliases.register(domain, "client-unwaited")
+        aliases.mark_waited(domain, waited)
+
+        service = MagicMock(spec=ClientRPCService)
+        released_at_revision: list[int | None] = []
+
+        async def _release(**kwargs: Any) -> bool:
+            stored = await JsonFileStorage(tmp_path).load_session("sess_t")
+            released_at_revision.append(stored.active_turn is None if stored else None)
+            return True
+
+        service.release_terminal = AsyncMock(side_effect=_release)
+        holder = ClientRPCServiceHolder()
+        holder.service = service
+        releaser = TurnTerminalReleaser(aliases=aliases, client_rpc_service_holder=holder)
+
+        response = await _executor(storage, releaser).complete_active_turn("sess_t")
+
+        assert response is not None
+        assert released_at_revision == [True], "освобождение обязано идти после записи снятия"
+        assert aliases.known_aliases(domain) == [unwaited]
 
     @pytest.mark.asyncio
     async def test_missing_session_is_not_resurrected(self, tmp_path: Path) -> None:

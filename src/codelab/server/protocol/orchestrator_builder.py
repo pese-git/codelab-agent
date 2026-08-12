@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .handlers.prompt_orchestrator import PromptOrchestrator
     from .handlers.slash_commands import CommandRegistry, SlashCommandRouter
     from .turn_cancellation import TurnCancellationRegistry
+    from .turn_terminals import TurnTerminalReleaser
 
 
 class PromptOrchestratorBuilder:
@@ -52,6 +53,7 @@ class PromptOrchestratorBuilder:
         session_file_cache_registry: SessionFileCacheRegistry | None = None,
         turn_cancellation: TurnCancellationRegistry | None = None,
         terminal_aliases: TerminalAliasRegistry | None = None,
+        terminal_releaser: TurnTerminalReleaser | None = None,
     ) -> None:
         """Инициализирует PromptOrchestratorBuilder.
 
@@ -66,6 +68,7 @@ class PromptOrchestratorBuilder:
             turn_cancellation: Процессный реестр отмены turn'ов (P0-39).
             session_file_cache_registry: Реестр кэша файлов по сессиям (опционально).
             terminal_aliases: Процессный реестр alias'ов терминалов (ADR-008, шаг 5.3).
+            terminal_releaser: Освобождение остатка терминалов turn'а (ADR-008, шаг 5.3).
         """
         self._tool_registry = tool_registry
         self._agent_registry = agent_registry
@@ -77,6 +80,7 @@ class PromptOrchestratorBuilder:
         self._session_file_cache_registry = session_file_cache_registry
         self._turn_cancellation = turn_cancellation
         self._terminal_aliases = terminal_aliases
+        self._terminal_releaser = terminal_releaser
 
     def build(self) -> PromptOrchestrator:
         """Собирает PromptOrchestrator со всеми зависимостями.
@@ -136,4 +140,5 @@ class PromptOrchestratorBuilder:
             session_file_cache_registry=self._session_file_cache_registry,
             turn_cancellation=self._turn_cancellation,
             terminal_aliases=self._terminal_aliases,
+            terminal_releaser=self._terminal_releaser,
         )

@@ -31,6 +31,7 @@ from ..protocol.handlers.tool_call_handler import ToolCallHandler
 from ..protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from ..protocol.orchestrator_builder import PromptOrchestratorBuilder
 from ..protocol.turn_cancellation import TurnCancellationRegistry
+from ..protocol.turn_terminals import TurnTerminalReleaser
 from ..rpc_holder import ClientRPCServiceHolder
 from ..tools.base import ToolRegistry as ToolRegistryProtocol
 from ..tools.executors.terminal_alias_registry import TerminalAliasRegistry
@@ -147,6 +148,21 @@ class PromptOrchestratorProvider(Provider):
         return TerminalAliasRegistry()
 
     @provide(scope=Scope.APP)
+    def get_turn_terminal_releaser(
+        self,
+        terminal_aliases: TerminalAliasRegistry,
+        holder: ClientRPCServiceHolder,
+    ) -> TurnTerminalReleaser:
+        """Освобождение остатка терминалов turn'а (ADR-008, шаг 5.3).
+
+        APP-scope следует за реестром: освобождать можно только то, что реестр знает.
+        """
+        return TurnTerminalReleaser(
+            aliases=terminal_aliases,
+            client_rpc_service_holder=holder,
+        )
+
+    @provide(scope=Scope.APP)
     def get_orchestrator_builder(
         self,
         tool_registry: ToolRegistryProtocol,
@@ -158,6 +174,7 @@ class PromptOrchestratorProvider(Provider):
         session_file_cache_registry: SessionFileCacheRegistry,
         turn_cancellation: TurnCancellationRegistry,
         terminal_aliases: TerminalAliasRegistry,
+        terminal_releaser: TurnTerminalReleaser,
     ) -> PromptOrchestratorBuilder:
         """Создаёт PromptOrchestratorBuilder."""
         return PromptOrchestratorBuilder(
@@ -170,6 +187,7 @@ class PromptOrchestratorProvider(Provider):
             session_file_cache_registry=session_file_cache_registry,
             turn_cancellation=turn_cancellation,
             terminal_aliases=terminal_aliases,
+            terminal_releaser=terminal_releaser,
         )
 
     @provide(scope=Scope.APP)

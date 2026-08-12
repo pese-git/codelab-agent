@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ..protocol.session_runtime import SessionRuntimeRegistry
     from ..storage import SessionRepository, SessionStorage
     from .handlers.prompt_orchestrator import PromptOrchestrator
+    from .turn_terminals import TurnTerminalReleaser
 
 logger = structlog.get_logger()
 
@@ -53,6 +54,7 @@ class BackgroundExecutor:
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
         mcp_provider: Callable[[DomainSession], Awaitable[MCPManager | None]],
         runtime_registry: SessionRuntimeRegistry,
+        terminal_releaser: TurnTerminalReleaser | None = None,
     ) -> None:
         """Инициализирует BackgroundExecutor.
 
@@ -62,12 +64,15 @@ class BackgroundExecutor:
             orchestrator_provider: Функция для получения PromptOrchestrator.
             mcp_provider: Функция для получения MCP manager для сессии.
             runtime_registry: Реестр runtime-состояний сессий.
+            terminal_releaser: Освобождение остатка терминалов turn'а (ADR-008,
+                шаг 5.3). `None` — освобождение не выполняется.
         """
         self._storage = storage
         self._repository = repository
         self._orchestrator_provider = orchestrator_provider
         self._mcp_provider = mcp_provider
         self._runtime_registry = runtime_registry
+        self._terminal_releaser = terminal_releaser
 
     async def execute_tool_in_background(
         self,
@@ -229,10 +234,19 @@ class BackgroundExecutor:
         # перезагружает сессию под блокировкой, и решение, принятое над копией из
         # `load_session`, на диск бы не уехало — ровно дефект P2-42.
         commands = SessionCommands(self._repository, session)
-        return await commands.apply(
+        completion = await commands.apply(
             lambda fresh: prompt.complete_active_turn(fresh, stop_reason=stop_reason),
             name="turn_completed",
         )
+
+        # Освобождение остатка терминалов — **после** команды: внутри замыкания
+        # транзакции сетевой вызов был бы неверен, а сама обязанность лежит на агенте
+        # (`10-Terminal.md:109-111`). Штатное завершение — путь, на котором остаток
+        # наблюдался пять прогонов из шести (ADR-008, шаг 5.3).
+        if self._terminal_releaser is not None:
+            await self._terminal_releaser.release_turn_remainder(session, cause="completed")
+
+        return completion
 
     async def should_auto_complete_active_turn(self, session_id: str) -> bool:
         """Возвращает `True`, если active turn можно безопасно автозавершить.

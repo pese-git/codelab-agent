@@ -14,6 +14,7 @@ from ...messages import ACPMessage
 from ...storage import SessionRepository
 from ..handlers.prompt_orchestrator import PromptOrchestrator
 from ..state import ProtocolOutcome
+from ..turn_terminals import TurnTerminalReleaser
 
 logger = structlog.get_logger()
 
@@ -40,6 +41,7 @@ class SessionCancelCommandHandler:
         repository: SessionRepository,
         orchestrator_provider: Callable[[], Awaitable[PromptOrchestrator]],
         llm_adapter: Any | None = None,
+        terminal_releaser: TurnTerminalReleaser | None = None,
     ) -> None:
         """Инициализирует обработчик.
 
@@ -47,10 +49,13 @@ class SessionCancelCommandHandler:
             repository: Доменный порт хранилища сессий.
             orchestrator_provider: Функция для получения PromptOrchestrator.
             llm_adapter: Адаптер LLM для cancellation.
+            terminal_releaser: Освобождение остатка терминалов turn'а (ADR-008,
+                шаг 5.3). `None` — освобождение не выполняется.
         """
         self._repository = repository
         self._orchestrator_provider = orchestrator_provider
         self._llm_adapter = llm_adapter
+        self._terminal_releaser = terminal_releaser
 
     async def handle(self, message: ACPMessage) -> ProtocolOutcome:
         """Обрабатывает метод session/cancel.
@@ -142,6 +147,14 @@ class SessionCancelCommandHandler:
                 phase_on_cancel=phase_on_cancel,
                 permission_tombstone_written=permission_id_on_cancel is not None,
             )
+
+        # Освобождение — **после** выхода из области транзакции: это клиентский RPC, а
+        # не запись состояния, и внутри области он держал бы блокировку сессии на
+        # время сетевого обмена. Отмена — тот путь, где остаток встречается чаще
+        # всего, и единственный, попадающий в окно живой команды: поэтому
+        # освобождается только дожданное (ADR-008, шаг 5.3).
+        if self._terminal_releaser is not None:
+            await self._terminal_releaser.release_turn_remainder(session, cause="cancelled")
 
         return ProtocolOutcome(
             response=cancel_response,
