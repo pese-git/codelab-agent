@@ -8,9 +8,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
+logger = structlog.get_logger()
+
 
 def normalize_stop_reason(stop_reason: str, supported_stop_reasons: set[str] | None = None) -> str:
     """Нормализует stopReason к поддерживаемому значению ACP.
+
+    Подмена значения логируется. Предупреждение пришло из второй копии этого
+    нормализатора в `turn_lifecycle_manager` (P2-54, 2026-08-12): копия удалена, а её
+    наблюдаемость перенесена сюда, а не потеряна вместе с ней. Молчаливая подмена
+    означала бы, что модель или директива запросили значение вне спецификации, а
+    клиент получил `end_turn` — и по логу этого не видно.
 
     Пример использования:
         reason = normalize_stop_reason("max_tokens")
@@ -27,6 +37,12 @@ def normalize_stop_reason(stop_reason: str, supported_stop_reasons: set[str] | N
 
     if stop_reason in supported_stop_reasons:
         return stop_reason
+
+    logger.warning(
+        "stop_reason_not_supported",
+        requested=stop_reason,
+        supported=sorted(supported_stop_reasons),
+    )
     return "end_turn"
 
 

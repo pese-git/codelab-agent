@@ -1,6 +1,18 @@
-"""Менеджер управления фазами и жизненным циклом prompt-turn.
+"""Создание и финализация prompt-turn — wire-поверхность вокруг доменного `TurnState`.
 
-Содержит логику управления состоянием turn'а, фазами и stop reasons.
+**Класс сведён к живому (P2-54, 2026-08-12).** Из восьми методов вызывающих в
+продакшене имели два; остальные шесть — `mark_cancel_requested`, `is_cancel_requested`,
+`set_turn_phase`, `get_turn_phase`, `resolve_stop_reason`, `should_handle_cancel` — не
+звал никто, только тесты. Это не случайный мусор, а след трёх переездов: фаза turn'а
+уехала в домен (`TurnState.transition_to`, ADR-008 шаг 2), снятие turn'а получило
+владельца (`turn_runtime.finish_turn`, шаг 5.2), а нормализация stop reason жила в
+`prompt.normalization` и использовалась живым путём оттуда. Каждый переезд оставлял
+здесь копию, и копии переставали вызываться, но не удалялись — тот же класс, что
+`finalize_active_turn` и `clear_active_turn`, удалённые шагом 5.2.
+
+Ответственность после сведения: создать `TurnState` и нормализовать stop reason на
+финализации. Проверка переходов фазы, снятие turn'а и его персистентность здесь не
+живут — у каждого из них свой владелец.
 """
 
 from __future__ import annotations
@@ -8,24 +20,16 @@ from __future__ import annotations
 import structlog
 
 from codelab.server.domain.session import Session, TurnState
-from codelab.server.domain.value_objects import Running, TurnPhase
+from codelab.server.domain.value_objects import Running
 
 from ...messages import JsonRpcId
-from ..state import PromptDirectives
+from .prompt.normalization import normalize_stop_reason
 
-# Используем structlog для структурированного логирования
 logger = structlog.get_logger()
 
 
 class TurnLifecycleManager:
-    """Управляет фазами и жизненным циклом prompt-turn.
-
-    Ответственность:
-    - Управление фазами turn (running → completed)
-    - Обработка cancel requests (set cancel_requested flag)
-    - Finalization с корректным stop reason
-    - Эмиссия финальных notifications
-    """
+    """Создаёт состояние turn'а и нормализует stop reason на финализации."""
 
     def create_active_turn(
         self,
@@ -53,129 +57,17 @@ class TurnLifecycleManager:
         )
         return turn
 
-    def mark_cancel_requested(self, session: Session) -> None:
-        """Устанавливает флаг cancel_requested в active turn.
-
-        Args:
-            session: Состояние сессии
-        """
-        if session.active_turn is None:
-            logger.warning(
-                "cannot mark cancel: no active turn",
-                session_id=str(session.id),
-            )
-            return
-
-        session.mark_turn_cancel_requested()
-        logger.debug(
-            "cancel requested marked",
-            session_id=str(session.id),
-        )
-
-    def is_cancel_requested(self, session: Session) -> bool:
-        """Проверяет, был ли запрошен cancel для активного turn.
-
-        Args:
-            session: Состояние сессии
-
-        Returns:
-            True если cancel был запрошен
-        """
-        if session.active_turn is None:
-            return False
-        return session.active_turn.cancel_requested
-
-    def set_turn_phase(
-        self,
-        session: Session,
-        phase: TurnPhase,
-    ) -> None:
-        """Переходит turn в новую фазу.
-
-        Проверка перехода принадлежит агрегату (`TurnState.transition_to`, ADR-008
-        шаг 2): раньше матрица жила здесь строками и **не применялась ни разу** —
-        у этого метода не было вызывающих в продакшене, а фазу писали прямыми
-        присваиваниями. Здесь остаётся wire-поверхность: проверка наличия turn'а.
-
-        Args:
-            session: Состояние сессии
-            phase: Новая фаза
-        """
-        if session.active_turn is None:
-            logger.warning(
-                "cannot set turn phase: no active turn",
-                session_id=str(session.id),
-            )
-            return
-
-        current_phase = session.active_turn.phase
-        if not session.active_turn.transition_to(phase):
-            return
-
-        logger.debug(
-            "turn phase changed",
-            session_id=str(session.id),
-            from_phase=current_phase.wire_name,
-            to_phase=phase.wire_name,
-        )
-
-    def get_turn_phase(self, session: Session) -> str:
-        """Возвращает имя текущей фазы turn.
-
-        Args:
-            session: Состояние сессии
-
-        Returns:
-            Имя фазы или 'unknown' если turn'а нет
-        """
-        if session.active_turn is None:
-            return "unknown"
-        return session.active_turn.phase.wire_name
-
-    def resolve_stop_reason(
-        self,
-        directives: PromptDirectives,
-        supported_reasons: set[str] | None = None,
-    ) -> str:
-        """Определяет stop reason для текущего turn.
-
-        Приоритет:
-        1. directives.forced_stop_reason (если установлен)
-        2. Производная от directives (cancel, tool_pending)
-        3. Default: 'end_turn'
-
-        Args:
-            directives: Исходящие директивы
-            supported_reasons: Поддерживаемые значения (default: ACP spec)
-
-        Returns:
-            Нормализованный stop reason
-        """
-        if supported_reasons is None:
-            supported_reasons = _get_supported_stop_reasons()
-
-        # Если явно установлен stop reason, используем его
-        if directives.forced_stop_reason:
-            return _normalize_stop_reason(
-                directives.forced_stop_reason,
-                supported_reasons,
-            )
-
-        # Определяем на основе директив
-        # ACP не определяет отдельный stop reason для pending-tool сценария,
-        # поэтому используем стандартное завершение turn.
-        if directives.keep_tool_pending:
-            return "end_turn"
-
-        # Default
-        return "end_turn"
-
     def finalize_turn(
         self,
         session: Session,
         stop_reason: str,
     ) -> str | None:
         """Финализирует active turn и возвращает нормализованный stop reason.
+
+        Нормализация идёт через `prompt.normalization.normalize_stop_reason` — тот же
+        нормализатор, которым пользуется живой путь ответа. Прежде здесь лежала вторая
+        копия с тем же множеством значений; предупреждение о подмене перенесено в общий
+        нормализатор, а не потеряно вместе с копией.
 
         Args:
             session: Состояние сессии
@@ -191,9 +83,7 @@ class TurnLifecycleManager:
             )
             return None
 
-        # Нормализуем stop reason
-        supported = _get_supported_stop_reasons()
-        normalized_reason = _normalize_stop_reason(stop_reason, supported)
+        normalized_reason = normalize_stop_reason(stop_reason)
 
         logger.debug(
             "turn finalized",
@@ -202,58 +92,3 @@ class TurnLifecycleManager:
         )
 
         return normalized_reason
-
-    def should_handle_cancel(self, session: Session) -> bool:
-        """Проверяет, нужно ли обрабатывать cancel.
-
-        Returns:
-            True если есть active_turn и cancel_requested=True
-        """
-        if session.active_turn is None:
-            return False
-        return session.active_turn.cancel_requested
-
-
-
-
-def _get_supported_stop_reasons() -> set[str]:
-    """Спецификация поддерживаемых stop reasons из ACP.
-
-    Returns:
-        Множество поддерживаемых stop reasons
-    """
-    return {
-        "end_turn",
-        "max_tokens",
-        "max_turn_requests",
-        "refusal",
-        "cancelled",
-    }
-
-
-def _normalize_stop_reason(
-    candidate: str,
-    supported: set[str],
-) -> str:
-    """Нормализует stop reason к поддерживаемому значению.
-
-    Если candidate не поддерживается, возвращает 'end_turn'.
-
-    Args:
-        candidate: Предложенный stop reason
-        supported: Множество поддерживаемых значений
-
-    Returns:
-        Нормализованный stop reason
-    """
-    if candidate in supported:
-        return candidate
-
-    logger.warning(
-        "stop reason not supported, using default",
-        requested=candidate,
-        supported=supported,
-    )
-    return "end_turn"
-
-

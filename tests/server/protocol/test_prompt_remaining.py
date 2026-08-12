@@ -293,6 +293,33 @@ class TestNormalizeStopReason:
         assert normalize_stop_reason("custom", {"custom"}) == "custom"
         assert normalize_stop_reason("other", {"custom"}) == "end_turn"
 
+    def test_substitution_is_logged(self) -> None:
+        """Подмена значения обязана быть видна в логе (P2-54, 2026-08-12).
+
+        Предупреждение перенесено сюда из второй копии нормализатора в
+        `turn_lifecycle_manager`, удалённой вместе с пятью другими мёртвыми методами:
+        наблюдаемость не должна уходить вместе с дублем. Молчаливая подмена означала бы,
+        что клиент получил `end_turn` вместо запрошенного значения, и по логу этого не
+        видно.
+        """
+        import structlog
+
+        with structlog.testing.capture_logs() as logs:
+            assert normalize_stop_reason("не_из_спецификации") == "end_turn"
+
+        warned = [e for e in logs if e["event"] == "stop_reason_not_supported"]
+        assert len(warned) == 1
+        assert warned[0]["requested"] == "не_из_спецификации"
+
+    def test_supported_reason_is_not_logged(self) -> None:
+        """Штатное значение строк не добавляет: иначе предупреждение обесценится."""
+        import structlog
+
+        with structlog.testing.capture_logs() as logs:
+            normalize_stop_reason("cancelled")
+
+        assert [e for e in logs if e["event"] == "stop_reason_not_supported"] == []
+
 
 class TestBuildExecutorToolExecutionUpdates:
     """Тесты build_executor_tool_execution_updates."""
