@@ -92,10 +92,13 @@ class TurnTerminalReleaser:
         if service is None:
             return 0
 
+        # Пустой остаток тоже пишет запись, и это не избыточность. Прогон 2026-08-12
+        # (`sess_f5f9b789397b`) закончился штатно с `live=0`: модель освободила все три
+        # терминала сама, освобождению делать было нечего — и молчание шва оказалось
+        # неотличимо от «шов не достигнут». Ровно то слепое пятно, которое шаг 5.1
+        # убрал у признака `waited`; повторять его у самого освобождения нельзя,
+        # приёмка шага держится на этой записи.
         remainder = self._aliases.waited_aliases(session)
-        if not remainder:
-            return 0
-
         bridge = ClientRPCBridge(service)
         released = 0
         for alias in remainder:

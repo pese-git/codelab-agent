@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import structlog
 
 from codelab.server.client_rpc import ClientRPCCancelledError
 from codelab.server.client_rpc.service import ClientRPCService
@@ -76,6 +77,24 @@ class TestWaitedRemainderIsReleased:
 
         assert await releaser.release_turn_remainder(session, cause="completed") == 0
         service.release_terminal.assert_not_awaited()
+
+    async def test_empty_remainder_is_still_observable(self, registry, session) -> None:
+        """Молчание шва неотличимо от «шов не достигнут» — и это уже стоило приёмки.
+
+        Прогон 2026-08-12 (`sess_f5f9b789397b`) закончился штатно с `live=0`: модель
+        освободила все три терминала сама. Записи не было, и по логу нельзя было
+        сказать, исполнился ли шов вообще. То же слепое пятно, которое шаг 5.1 убрал у
+        признака `waited`.
+        """
+        releaser, _ = _make_releaser(registry)
+
+        with structlog.testing.capture_logs() as logs:
+            await releaser.release_turn_remainder(session, cause="completed")
+
+        records = [entry for entry in logs if entry["event"] == "turn_terminals_released"]
+        assert len(records) == 1
+        assert records[0]["released"] == 0
+        assert records[0]["cause"] == "completed"
 
     async def test_release_is_idempotent_across_two_turn_ends(self, registry, session) -> None:
         alias = registry.register(session, "client-1")
