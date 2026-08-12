@@ -94,13 +94,12 @@ def _finalize_turn(session: DomainSession, *, stop_reason: str = "end_turn") -> 
 
     Доменный аналог `prompt.turn_state.finalize_active_turn`: очистка turn'а —
     операция агрегата, а сборка JSON-RPC ответа остаётся wire.
-    """
-    # Порядок сохранён дословно: turn без идентификатора исходного запроса прежний
-    # вызывающий **не снимал** — снятие здесь было бы изменением поведения, а шаг
-    # обязан быть нулевым. Асимметрия отмечена как хвост для шага 5.3.
-    if session.active_turn is not None and session.active_turn.prompt_request_id is None:
-        return None
 
+    Turn **без** идентификатора исходного запроса снимается тоже (P2-54, 2026-08-12):
+    прежде guard выходил раньше снятия, и на диске оставался `active_turn` с фазой
+    `waiting_client_rpc` у turn'а, чей клиентский запрос уже разрешён. Ответа при этом
+    не строится — `finish_turn` вернёт `None`, потому что отвечать некому.
+    """
     return finish_turn(
         session,
         cause=TurnEndCause.CLIENT_RPC_FINISHED,

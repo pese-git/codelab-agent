@@ -59,6 +59,34 @@ async def _session_with_open_turn(storage: JsonFileStorage) -> SessionDocument:
     return session
 
 
+class TestTurnWithoutRequestIdIsCleared:
+    """Turn без идентификатора исходного запроса снимается тоже (P2-54).
+
+    Прежде guard в `finalize_active_turn` выходил раньше снятия, и на диске оставался
+    `active_turn` с фазой паузы — ровно симптом, ради которого заведён P2-54. Асимметрия
+    была отложена шагом 5.2 ADR-008 как «вопрос для 5.3» и там не закрыта.
+
+    Случай латентный: с Zed промпт всегда приходит запросом с id (`answered=True` в
+    `turn_finished`). Но правдивость состояния на диске не может зависеть от того,
+    наблюдается ли ложь у сегодняшнего клиента, — и гейта на это поведение не было
+    вовсе: снятие guard'а не сломало ни одного теста из 786.
+    """
+
+    @pytest.mark.asyncio
+    async def test_turn_without_request_id_leaves_no_active_turn(self, tmp_path: Path) -> None:
+        storage = JsonFileStorage(tmp_path)
+        session = SessionDocument(session_id="sess_t", cwd="/work", mcp_servers=[])
+        session.active_turn = ActiveTurnState(prompt_request_id=None, session_id="sess_t")
+        await storage.save_session(session)
+
+        # Отвечать некому, поэтому ответа нет — но turn обязан быть снят.
+        assert await _executor(storage).complete_active_turn("sess_t") is None
+
+        stored = await JsonFileStorage(tmp_path).load_session("sess_t")
+        assert stored is not None
+        assert stored.active_turn is None, "turn без request_id обязан сниматься тоже"
+
+
 class TestTurnCompletionReachesDisk:
     @pytest.mark.asyncio
     async def test_active_turn_is_gone_from_disk(self, tmp_path: Path) -> None:

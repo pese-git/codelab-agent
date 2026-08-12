@@ -30,7 +30,9 @@ from codelab.server.storage.document import (
 )
 
 
-def _session_awaiting(kind: str, **pending: Any) -> SessionDocument:
+def _session_awaiting(
+    kind: str, *, prompt_request_id: str | None = "req_1", **pending: Any
+) -> SessionDocument:
     session = SessionDocument(session_id="sess_x", cwd="/w", mcp_servers=[])
     session.tool_calls["call_001"] = ToolCallState(
         tool_call_id="call_001",
@@ -41,7 +43,7 @@ def _session_awaiting(kind: str, **pending: Any) -> SessionDocument:
     )
     session.tool_call_counter = 1
     session.active_turn = ActiveTurnState(
-        prompt_request_id="req_1",
+        prompt_request_id=prompt_request_id,
         session_id="sess_x",
         pending_client_request=PendingClientRequestState(
             request_id="rpc_1",
@@ -82,6 +84,24 @@ class TestClientRpcResponseReachesDisk:
         assert stored.tool_calls["call_001"].status == "completed"
         assert stored.active_turn is None, "turn завершён — active_turn не должен остаться"
         assert [m.id for m in outcome.followup_responses] == ["req_1"]
+
+    async def test_turn_without_request_id_is_cleared_too(self, tmp_path: Path) -> None:
+        """Turn без идентификатора исходного запроса снимается тоже (P2-54).
+
+        Прежде guard в `_finalize_turn` выходил раньше снятия, и на диске оставался
+        `active_turn` с фазой `waiting_client_rpc` у turn'а, чей запрос уже разрешён.
+        Отвечать некому — followup пуст, но turn обязан быть снят.
+        """
+        storage = JsonFileStorage(tmp_path)
+        await storage.save_session(_session_awaiting("fs_read", prompt_request_id=None))
+
+        outcome = await _respond(storage, {"content": "содержимое файла"})
+
+        stored = await storage.load_session("sess_x")
+        assert stored is not None
+        assert stored.tool_calls["call_001"].status == "completed"
+        assert stored.active_turn is None, "turn без request_id обязан сниматься тоже"
+        assert outcome.followup_responses == []
 
     async def test_terminal_chain_persists_next_pending(self, tmp_path: Path) -> None:
         """Цепочка terminal: следующий ожидаемый запрос переживает ответ.
