@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import pytest
 
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.storage.document import SessionDocument
+from tests.server._domain_sessions import make_domain_session
 
 
 @pytest.fixture
@@ -264,3 +266,30 @@ class TestDomainJournalCarrier:
         )
 
         assert domain.runtime.events_history[0]["data"]["content"] == content
+
+
+class TestSaveUnexecutedToolCallAnswer:
+    """Ответ модели на невыполненный вызов — событие журнала (ADR-008, шаг 4)."""
+
+    def test_saves_domain_shape(self, history_writer: EventHistoryWriter) -> None:
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
+
+        history_writer.save_unexecuted_tool_call_answer(
+            session, "llm_7", "Вызов не выполнялся: turn отменён пользователем."
+        )
+
+        record = session.runtime.events_history[0]
+        assert record["event"] == "unexecuted_tool_call_answered"
+        assert record["data"] == {
+            "tool_call_id": "llm_7",
+            "text": "Вызов не выполнялся: turn отменён пользователем.",
+        }
+
+    def test_is_not_replayed(self, history_writer: EventHistoryWriter) -> None:
+        """Клиент про эти вызовы не знал — реплеить нечего."""
+        session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
+        history_writer.save_unexecuted_tool_call_answer(session, "llm_7", "текст")
+
+        entry = JournalMapper.from_wire(session.runtime.events_history[0])
+        assert entry is not None
+        assert JournalMapper.to_replay_update(entry.event) is None

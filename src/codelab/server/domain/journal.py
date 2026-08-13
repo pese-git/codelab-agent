@@ -33,6 +33,7 @@ __all__ = [
     "SessionInfoRecorded",
     "ToolCallStarted",
     "ToolCallStatusChanged",
+    "UnexecutedToolCallAnswered",
     "UnknownUpdateRecorded",
     "UserMessageRecorded",
 ]
@@ -84,6 +85,31 @@ class ToolCallStatusChanged:
 
 
 @dataclass(frozen=True)
+class UnexecutedToolCallAnswered:
+    """Модель получила ответ на вызов, который не выполнялся.
+
+    Такой ответ уходит вызовам, которых нет ни в `tool_calls`, ни в остальных
+    событиях журнала: остатку прерванного батча, отложенному хвосту после
+    permission и вызову без имени инструмента. Контракт LLM-API требует
+    `role: tool` на каждый id из assistant-сообщения, поэтому ответ обязателен
+    даже там, где `ToolCall` никогда не заводился.
+
+    Событие введено потому, что без него проекция `history` **невыводима**:
+    измерения показали 26 записей `role=tool` против 23 вызовов, затем 28/26 и
+    39/35 — лишние отвечали ровно этим, незарегистрированным (ADR-008, шаг 4).
+
+    `tool_call_id` — адресат ответа (`answer_id`), то есть идентификатор из
+    ответа модели, а не `ToolCallId` реестра: сущности реестра здесь нет.
+
+    Реплей-формы у события нет: ACP `session/update` для tool-ответа модели не
+    предусматривает, а клиент про эти вызовы ничего и не знал.
+    """
+
+    tool_call_id: str
+    text: str
+
+
+@dataclass(frozen=True)
 class PlanRecorded:
     """Полный снимок плана. ACP передаёт план целиком, а не приращением."""
 
@@ -124,6 +150,7 @@ type SessionEvent = (
     | AgentMessageRecorded
     | ToolCallStarted
     | ToolCallStatusChanged
+    | UnexecutedToolCallAnswered
     | PlanRecorded
     | SessionInfoRecorded
     | UnknownUpdateRecorded

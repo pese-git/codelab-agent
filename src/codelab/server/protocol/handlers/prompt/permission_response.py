@@ -13,6 +13,7 @@ from ...state import PendingToolExecution, ProtocolOutcome
 from ...turn_runtime import TurnEndCause, finish_turn
 from ..permissions import build_permission_options
 from ..session import session_info_notification
+from ..tool_call_handler import ToolCallHandler
 from .tool_call_updates import tool_call_status_notification
 
 logger = structlog.get_logger()
@@ -103,7 +104,11 @@ def resolve_permission_response_impl(
     if not should_allow:
         # Отказ обрывает turn: отложенный хвост батча (P2-40) не выполнится, и без
         # ответа его вызовы остались бы без `role: tool`.
-        session.answer_deferred_batch(reason="в разрешении отказано")
+        ToolCallHandler().answer_unexecuted_tool_calls(
+            session,
+            session.take_deferred_batch_ids(),
+            reason="в разрешении отказано",
+        )
 
         cancelled = finish_turn(
             session,

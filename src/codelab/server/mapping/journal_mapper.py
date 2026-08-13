@@ -36,6 +36,7 @@ from codelab.server.domain.journal import (
     SessionInfoRecorded,
     ToolCallStarted,
     ToolCallStatusChanged,
+    UnexecutedToolCallAnswered,
     UnknownUpdateRecorded,
     UserMessageRecorded,
 )
@@ -50,6 +51,7 @@ _EVENT_NAMES: dict[type, str] = {
     AgentMessageRecorded: "agent_message_recorded",
     ToolCallStarted: "tool_call_started",
     ToolCallStatusChanged: "tool_call_status_changed",
+    UnexecutedToolCallAnswered: "unexecuted_tool_call_answered",
     PlanRecorded: "plan_recorded",
     SessionInfoRecorded: "session_info_recorded",
     UnknownUpdateRecorded: "acp_update_verbatim",
@@ -81,12 +83,17 @@ class JournalMapper:
         return wire
 
     @staticmethod
-    def to_acp_update(event: SessionEvent) -> dict[str, Any]:
-        """Событие как ACP `session/update`.
+    def to_acp_update(event: SessionEvent) -> dict[str, Any] | None:
+        """Событие как ACP `session/update`; `None` — у события нет ACP-формы.
 
         Порядок ключей повторяет прежнего писателя, а опциональные поля
         опускаются, а не заполняются `null`: элемент попадает в документ, и
         стабильность его формы — часть обратной совместимости.
+
+        `None` возвращается для факта, которого в ACP нет вовсе: ответ модели на
+        невыполненный вызов адресован LLM-истории, а не клиенту. Это не то же
+        самое, что «событие не реплеится» (`to_replay_update`): `session_info`
+        ACP-форму имеет, просто не воспроизводится.
         """
         match event:
             case UserMessageRecorded(content=content):
@@ -96,25 +103,27 @@ class JournalMapper:
             case ToolCallStarted(
                 tool_call_id=tool_call_id, title=title, kind=kind, status=status, content=content
             ):
-                update: dict[str, Any] = {
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": tool_call_id,
-                    "title": title,
-                    "kind": kind,
-                    "status": status,
-                }
-                if content:
-                    update["content"] = content
-                return update
+                return _with_content(
+                    {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": tool_call_id,
+                        "title": title,
+                        "kind": kind,
+                        "status": status,
+                    },
+                    content,
+                )
             case ToolCallStatusChanged(tool_call_id=tool_call_id, status=status, content=content):
-                changed: dict[str, Any] = {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": tool_call_id,
-                    "status": status,
-                }
-                if content:
-                    changed["content"] = content
-                return changed
+                return _with_content(
+                    {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": tool_call_id,
+                        "status": status,
+                    },
+                    content,
+                )
+            case UnexecutedToolCallAnswered():
+                return None
             case PlanRecorded(entries=entries):
                 return {"sessionUpdate": "plan", "entries": entries}
             case SessionInfoRecorded(title=title, updated_at=updated_at):
@@ -130,12 +139,13 @@ class JournalMapper:
     def to_replay_update(event: SessionEvent) -> dict[str, Any] | None:
         """Событие как нотификация реплея; `None` — событие в реплей не входит.
 
-        `SessionInfoRecorded` реплей-формы не имеет (см. его докстринг). Для
-        нераспознанной записи решение принимается по её `sessionUpdate`: так
-        сохраняется прежний набор реплеируемых видов для старых сессий.
+        `SessionInfoRecorded` реплей-формы не имеет (см. его докстринг), а
+        `UnexecutedToolCallAnswered` не имеет и ACP-формы. Для нераспознанной
+        записи решение принимается по её `sessionUpdate`: так сохраняется прежний
+        набор реплеируемых видов для старых сессий.
         """
         match event:
-            case SessionInfoRecorded():
+            case SessionInfoRecorded() | UnexecutedToolCallAnswered():
                 return None
             case UnknownUpdateRecorded(update=raw):
                 if raw.get("sessionUpdate") in _REPLAYABLE_UNKNOWN_KINDS:
@@ -190,6 +200,19 @@ _TOOL_CALL_KEYS: frozenset[str] = frozenset(
 _TOOL_CALL_UPDATE_KEYS: frozenset[str] = frozenset({"sessionUpdate", "toolCallId", "status"})
 
 
+def _with_content(
+    projection: dict[str, Any], content: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """Дописать контент, если он есть.
+
+    Пустой контент опускается, а не заполняется `null`: проекция попадает в
+    документ, и стабильность её формы — часть обратной совместимости.
+    """
+    if content:
+        projection["content"] = content
+    return projection
+
+
 def _data_of(event: SessionEvent) -> dict[str, Any]:
     """Полезная нагрузка события в форме v11 — доменные имена, `snake_case`.
 
@@ -216,6 +239,8 @@ def _data_of(event: SessionEvent) -> dict[str, Any]:
             if content:
                 changed["content"] = content
             return changed
+        case UnexecutedToolCallAnswered(tool_call_id=tool_call_id, text=text):
+            return {"tool_call_id": tool_call_id, "text": text}
         case PlanRecorded(entries=entries):
             return {"entries": entries}
         case SessionInfoRecorded(title=title, updated_at=updated_at):
@@ -262,6 +287,14 @@ def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
                     tool_call_id=data["tool_call_id"],
                     status=data["status"],
                     content=data.get("content"),
+                ),
+                timestamp,
+            )
+        case "unexecuted_tool_call_answered" if _strings(data, "tool_call_id", "text"):
+            return JournalEntry(
+                UnexecutedToolCallAnswered(
+                    tool_call_id=data["tool_call_id"],
+                    text=data["text"],
                 ),
                 timestamp,
             )

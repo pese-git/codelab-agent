@@ -258,6 +258,11 @@ class ToolCallProcessor:
         Ответ правдивый: вызов НЕ выполнялся, и если он всё ещё нужен, модель должна
         запросить его снова. Переписывать assistant-сообщение задним числом нельзя —
         модель действительно эти вызовы запрашивала.
+
+        Сам ответ и его запись в журнал принадлежат
+        `ToolCallHandler.answer_unexecuted_tool_calls`: эти вызовы не заведены в
+        реестре, поэтому без события журнала проекция `history` их не выведет
+        (ADR-008, шаг 4).
         """
         if not tool_calls:
             return
@@ -273,23 +278,17 @@ class ToolCallProcessor:
         # Ответы на неисполненные вызовы — одна команда: они описывают одно решение
         # («батч дальше не идёт»), и частично записанный набор оставил бы часть
         # вызовов без `role: tool` — ровно то, что здесь и лечится (P2-38).
-        def _answer(target: Session) -> None:
-            for tool_call_id_from_llm in answers:
-                self._add_tool_result_to_history(
-                    target,
-                    tool_call_id_from_llm,
-                    False,
-                    None,
-                    f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
-                )
-
-        await commands.apply(_answer, name="unprocessed_tool_calls_answered")
-        answered = len(answers)
+        await commands.apply(
+            lambda target: self._tool_call_handler.answer_unexecuted_tool_calls(
+                target, answers, reason=reason
+            ),
+            name="unprocessed_tool_calls_answered",
+        )
 
         logger.info(
             "tool_calls_left_unprocessed",
             session_id=session_id,
-            count=answered,
+            count=len(answers),
             reason=reason,
         )
 
@@ -307,12 +306,12 @@ class ToolCallProcessor:
         if not tool_call_id_from_llm:
             return
         await commands.apply(
-            lambda target: self._add_tool_result_to_history(
+            lambda target: self._tool_call_handler.answer_unexecuted_tool_calls(
                 target,
-                tool_call_id_from_llm,
-                False,
-                None,
-                "Вызов не выполнялся: в запросе не указано имя инструмента.",
+                [tool_call_id_from_llm],
+                reason="в запросе не указано имя инструмента",
+                # Повтор в прежнем виде не поможет: имени в нём по-прежнему нет.
+                retry_hint=False,
             ),
             name="nameless_tool_call_answered",
         )

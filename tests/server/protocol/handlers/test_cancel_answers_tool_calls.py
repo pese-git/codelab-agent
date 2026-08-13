@@ -227,7 +227,9 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
     def test_cancel_answers_deferred_batch(self) -> None:
         session = self._session_with_deferred_batch()
 
-        answered = session.answer_deferred_batch(reason="turn отменён пользователем")
+        answered = ToolCallHandler().answer_unexecuted_tool_calls(
+            session, session.take_deferred_batch_ids(), reason="turn отменён пользователем"
+        )
 
         assert answered == 2
         ids = {m.tool_call_id for m in _answers(session)}
@@ -240,7 +242,9 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
 
         session = self._session_with_deferred_batch()
 
-        session.answer_deferred_batch(reason="в разрешении отказано")
+        ToolCallHandler().answer_unexecuted_tool_calls(
+            session, session.take_deferred_batch_ids(), reason="в разрешении отказано"
+        )
 
         assert len(_answers(session)) == 2
         assert all("отказано" in m.content.text for m in _answers(session))
@@ -259,7 +263,12 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
         session.active_turn = TurnState(prompt_request_id="req_1", session_id="s")
 
-        assert session.answer_deferred_batch(reason="неважно") == 0
+        assert (
+            ToolCallHandler().answer_unexecuted_tool_calls(
+                session, session.take_deferred_batch_ids(), reason="неважно"
+            )
+            == 0
+        )
         assert _answers(session) == []
 
     def test_call_without_id_is_skipped_not_crashed(self) -> None:
@@ -268,7 +277,12 @@ class TestDeferredBatchIsAnsweredWhenTurnEnds:
         session = self._session_with_deferred_batch()
         session.active_turn.pending_batch.append({"name": "fs_read_text_file"})
 
-        assert session.answer_deferred_batch(reason="turn отменён пользователем") == 2
+        assert (
+            ToolCallHandler().answer_unexecuted_tool_calls(
+                session, session.take_deferred_batch_ids(), reason="turn отменён пользователем"
+            )
+            == 2
+        )
 
 
 class TestRealPathsAnswerDeferredBatch:
@@ -392,3 +406,40 @@ class TestSingleAnswerPerToolCall:
         answers = _domain_answers(session)
         assert len(answers) == 1
         assert "терминала" in answers[0].content.text
+
+
+class TestCancelAnswerIsJournalled:
+    """Ответ метёлки `session/cancel` тоже обязан быть событием журнала.
+
+    Измерено на `sess_8fa73fe08f55` (2026-08-13): 25 вызовов, 25 ответов, дублей 0 —
+    но текст двух ответов (`call_003`, `call_009`) журналом не описан: статус метёлка
+    выставляет без контента, а ответ писала напрямую. Последняя дыра выводимости
+    `history` перед шагом 4 ADR-008.
+    """
+
+    def test_answer_text_is_derivable_from_journal(self) -> None:
+        session = _domain_session_with_pending_call()
+
+        ToolCallHandler().cancel_active_tools(session, "s")
+
+        events = [
+            e
+            for e in session.runtime.events_history
+            if e["event"] == "unexecuted_tool_call_answered"
+        ]
+        assert len(events) == 1
+        assert events[0]["data"]["tool_call_id"] == "chatcmpl-tool-abc"
+        assert events[0]["data"]["text"] == _domain_answers(session)[0].content.text
+
+    def test_in_flight_call_is_still_left_to_its_executor(self) -> None:
+        """Правка P2-63 не тронута: за вызов в полёте метёлка по-прежнему молчит."""
+        session = _domain_session_with_pending_call("in_progress")
+
+        ToolCallHandler().cancel_active_tools(session, "s")
+
+        assert _domain_answers(session) == []
+        assert not [
+            e
+            for e in session.runtime.events_history
+            if e["event"] == "unexecuted_tool_call_answered"
+        ]

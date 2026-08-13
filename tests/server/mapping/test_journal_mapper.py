@@ -30,6 +30,7 @@ from codelab.server.domain.journal import (
     SessionInfoRecorded,
     ToolCallStarted,
     ToolCallStatusChanged,
+    UnexecutedToolCallAnswered,
     UnknownUpdateRecorded,
     UserMessageRecorded,
 )
@@ -188,7 +189,35 @@ class TestReplayProjection:
         event = SessionInfoRecorded(title="изучи проект", updated_at=TS)
 
         assert JournalMapper.to_replay_update(event) is None
-        assert JournalMapper.to_acp_update(event)["sessionUpdate"] == "session_info_update"
+        acp = JournalMapper.to_acp_update(event)
+        assert acp is not None
+        assert acp["sessionUpdate"] == "session_info_update"
+
+    def test_unexecuted_answer_has_no_acp_form_at_all(self) -> None:
+        """Ответ модели на невыполненный вызов адресован LLM-истории, не клиенту."""
+        event = UnexecutedToolCallAnswered(
+            tool_call_id="llm_7", text="Вызов не выполнялся: отмена."
+        )
+
+        assert JournalMapper.to_acp_update(event) is None
+        assert JournalMapper.to_replay_update(event) is None
+
+    def test_unexecuted_answer_survives_round_trip(self) -> None:
+        """Событие обязано читаться с диска: из него выводится запись `role: tool`."""
+        event = UnexecutedToolCallAnswered(
+            tool_call_id="llm_7", text="Вызов не выполнялся: отмена."
+        )
+
+        wire = JournalMapper.to_wire(JournalEntry(event, datetime.now(UTC)))
+        assert wire["event"] == "unexecuted_tool_call_answered"
+        assert wire["data"] == {
+            "tool_call_id": "llm_7",
+            "text": "Вызов не выполнялся: отмена.",
+        }
+
+        restored = JournalMapper.from_wire(wire)
+        assert restored is not None
+        assert restored.event == event
 
     @pytest.mark.parametrize(
         "event",

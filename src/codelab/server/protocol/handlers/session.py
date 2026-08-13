@@ -25,6 +25,7 @@ from ..state import ProtocolOutcome
 from ..turn_runtime import TurnEndCause, finish_turn
 from .event_history_writer import EventHistoryWriter
 from .session_replayer import SessionReplayer
+from .tool_call_handler import ToolCallHandler
 
 # Используем structlog для структурированного логирования
 logger = structlog.get_logger()
@@ -90,29 +91,36 @@ def _cleanup_session_state(session: DomainSession) -> None:
 
         # Отложенный хвост батча (P2-40) не выполнится после переключения сессии.
         # Обязательно до очистки: `pending_batch` живёт в `active_turn`.
-        session.answer_deferred_batch(reason="сессия была переключена")
+        ToolCallHandler().answer_unexecuted_tool_calls(
+            session,
+            session.take_deferred_batch_ids(),
+            reason="сессия была переключена",
+        )
 
         finish_turn(session, cause=TurnEndCause.SESSION_SWITCHED)
 
     # Отметить все pending tool calls как cancelled
     history_writer = EventHistoryWriter()
+    tool_call_handler = ToolCallHandler()
     for tool_call in session.tool_calls.get_all():
-        if tool_call.status == ToolCallStatus.PENDING:
-            tool_call_id = tool_call.id
-            session.tool_calls.update_status(tool_call_id, ToolCallStatus.CANCELLED)
-            history_writer.save_tool_call_update(
-                session,
-                tool_call_id=tool_call_id,
-                status="cancelled",
-            )
-            # Ответ модели на отменённый вызов: без него он остаётся без `role: tool`
-            # и при следующем запросе история нарушает контракт LLM-API
-            # (tech-debt P2-38, источник 2).
-            session.add_tool_result(
-                tool_call.answer_id,
-                "Вызов не выполнялся: сессия была переключена. "
-                "Запроси его снова, если он всё ещё нужен.",
-            )
+        if tool_call.status != ToolCallStatus.PENDING:
+            continue
+
+        reason = "сессия была переключена"
+        session.tool_calls.update_status(tool_call.id, ToolCallStatus.CANCELLED)
+        history_writer.save_tool_call_update(
+            session,
+            tool_call_id=tool_call.id,
+            status="cancelled",
+        )
+        # Ответ модели на отменённый вызов: без него он остаётся без `role: tool`
+        # и при следующем запросе история нарушает контракт LLM-API
+        # (tech-debt P2-38, источник 2). Через дверь, а не напрямую: текст ответа
+        # обязан попасть в журнал, иначе проекция `history` его не выведет — статус
+        # эта метёлка пишет без контента (ADR-008, шаг 4a).
+        tool_call_handler.answer_unexecuted_tool_calls(
+            session, [tool_call.answer_id], reason=reason
+        )
 
 
 def session_new(

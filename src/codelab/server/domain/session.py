@@ -582,41 +582,28 @@ class Session:
         """Снять активный turn (идемпотентно)."""
         self.active_turn = None
 
-    def answer_deferred_batch(self, *, reason: str) -> int:
-        """Ответить модели на вызовы, отложенные в `active_turn.pending_batch`.
+    def take_deferred_batch_ids(self) -> list[str]:
+        """Забрать и очистить id вызовов, отложенных в `active_turn.pending_batch`.
 
-        Парный сейм к `prompt.turn_state.answer_deferred_batch`. Хвост батча ждёт
-        возобновления после permission (P2-40); если turn обрывается, эти вызовы
-        не выполнятся никогда, а их id уже лежат в assistant-сообщении истории.
-        Без ответа они остаются без `role: tool`, и модель повторяет их (P2-38).
+        Хвост батча ждёт возобновления после permission (P2-40); если turn
+        обрывается, эти вызовы не выполнятся никогда, а их id уже лежат в
+        assistant-сообщении истории. Отвечает им
+        `ToolCallHandler.answer_unexecuted_tool_calls` — ответ обязан попасть в
+        журнал, а форма записи журнала домену не принадлежит (ADR-008, шаг 4).
+        Домену остаётся то, что действительно его: снять состояние turn'а.
+
+        Вызовы без id пропускаются: отвечать нечему — адресата у ответа нет.
 
         Returns:
-            Число отвеченных вызовов.
+            Идентификаторы отложенных вызовов в исходном порядке.
         """
         active_turn = self.active_turn
         if active_turn is None or not active_turn.pending_batch:
-            return 0
+            return []
 
-        answered = 0
-        for call in active_turn.pending_batch:
-            tool_call_id = call.get("id")
-            if not tool_call_id:
-                continue
-            self.add_tool_result(
-                tool_call_id,
-                f"Вызов не выполнялся: {reason}. Запроси его снова, если он всё ещё нужен.",
-            )
-            answered += 1
-
+        ids = [str(call["id"]) for call in active_turn.pending_batch if call.get("id")]
         active_turn.pending_batch = []
-        if answered:
-            logger.info(
-                "deferred_tool_calls_answered_on_turn_end",
-                session_id=str(self.id),
-                count=answered,
-                reason=reason,
-            )
-        return answered
+        return ids
 
     def set_available_commands(self, commands: Sequence[dict[str, Any]]) -> None:
         """Заменить набор доступных slash-команд (available_commands — opaque wire-DTO)."""
@@ -661,8 +648,13 @@ class Session:
         """Значение config_values по ключу (persistent session-config)."""
         return self.config.config_values.get(key, default)
 
-    def add_tool_result(self, tool_call_id: str, content: str) -> None:
+    def add_tool_result(self, tool_call_id: str, content: str) -> bool:
         """Добавить результат инструмента как ответ модели.
+
+        Returns:
+            True, если ответ записан; False — ответ на этот `tool_call_id` уже
+            был, и второй отклонён. Признак нужен журналу: событие пишется ровно
+            там, где запись состоялась, иначе журнал описал бы подавленный дубль.
 
         Парный сейм к `SessionDocument.add_tool_result`: контракт LLM-API требует
         `role: tool` на каждый `tool_call_id` из assistant-сообщения. `timestamp`
@@ -691,7 +683,7 @@ class Session:
                     session_id=str(self.id),
                     tool_call_id=tool_call_id,
                 )
-                return
+                return False
 
         self.history.add(
             ConversationMessage(
@@ -700,6 +692,7 @@ class Session:
                 tool_call_id=tool_call_id,
             )
         )
+        return True
 
     def set_title(self, title: str) -> None:
         """Установить заголовок сессии."""

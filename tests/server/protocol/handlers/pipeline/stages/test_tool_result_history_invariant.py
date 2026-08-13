@@ -28,6 +28,7 @@ from codelab.server.domain.session import TurnState
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
 from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
@@ -38,7 +39,10 @@ def _make_processor(
 ) -> ToolCallProcessor:
     return ToolCallProcessor(
         tool_registry=MagicMock(),
-        tool_call_handler=MagicMock(),
+        # Ответ на невыполненный вызов и запись его в журнал принадлежат
+        # обработчику (ADR-008, шаг 4), поэтому здесь он настоящий: с заглушкой
+        # инвариант «на каждый вызов ответ» проверялся бы мимо владельца.
+        tool_call_handler=ToolCallHandler(),
         permission_manager=MagicMock(),
         content_extractor=AsyncMock(),
         content_validator=MagicMock(),
@@ -298,3 +302,71 @@ class TestInterruptedBatchIsFullyAnswered:
         )
 
         assert _tool_answers(session) == []
+
+
+class TestAnswerIsAJournalEvent:
+    """Ответ на невыполненный вызов — событие журнала (ADR-008, шаг 4).
+
+    Требование найдено живым прогоном и воспроизведено трижды: 26 записей
+    `role=tool` против 23 вызовов, затем 28/26 и 39/35. Лишние отвечали вызовам,
+    которых нет ни в `tool_calls`, ни в журнале, — значит проекция `history` из
+    журнала невыводима, пока такой ответ не является событием.
+    """
+
+    @staticmethod
+    def _answer_events(session: DomainSession) -> list[dict[str, Any]]:
+        return [
+            e
+            for e in session.runtime.events_history
+            if e.get("event") == "unexecuted_tool_call_answered"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_interrupted_batch_is_journalled(self) -> None:
+        processor = _make_processor()
+        session = _session(mode="standard")
+
+        await processor._answer_unprocessed_tool_calls(
+            make_commands(session), "s", [_Call("llm_1"), _Call("llm_2")], reason="отмена"
+        )
+
+        events = self._answer_events(session)
+        assert [e["data"]["tool_call_id"] for e in events] == ["llm_1", "llm_2"]
+        # Текст в журнале — тот же, что уехал модели: иначе проекция `history`
+        # выдала бы не то, что видела модель.
+        answers = _tool_answers(session)
+        assert [e["data"]["text"] for e in events] == [m["content"] for m in answers]
+
+    @pytest.mark.asyncio
+    async def test_nameless_call_is_journalled(self) -> None:
+        processor = _make_processor()
+        session = _session(mode="standard")
+
+        await processor.process_batch(
+            make_commands(session), "s", [_Call("llm_x", name="")], AsyncMock(), None
+        )
+
+        events = self._answer_events(session)
+        assert len(events) == 1
+        assert events[0]["data"]["tool_call_id"] == "llm_x"
+
+    @pytest.mark.asyncio
+    async def test_suppressed_duplicate_is_not_journalled(self) -> None:
+        """Подавленный дубль ответа события не порождает.
+
+        Иначе журнал описывал бы запись, которой в истории нет, и проекция
+        разошлась бы с состоянием во второй раз — уже в другую сторону (P2-63).
+        """
+        processor = _make_processor()
+        session = _session(mode="standard")
+        commands = make_commands(session)
+
+        await processor._answer_unprocessed_tool_calls(
+            commands, "s", [_Call("llm_1")], reason="отмена"
+        )
+        await processor._answer_unprocessed_tool_calls(
+            commands, "s", [_Call("llm_1")], reason="сессия была переключена"
+        )
+
+        assert len(self._answer_events(session)) == 1
+        assert len(_tool_answers(session)) == 1

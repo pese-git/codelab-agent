@@ -375,7 +375,11 @@ class PromptOrchestrator:
 
         # Отложенный хвост батча (P2-40) не выполнится — отвечаем модели, иначе
         # вызовы останутся без `role: tool` (найдено на `sess_a98dab30f7c3`).
-        session.answer_deferred_batch(reason="turn отменён пользователем")
+        self.tool_call_handler.answer_unexecuted_tool_calls(
+            session,
+            session.take_deferred_batch_ids(),
+            reason="turn отменён пользователем",
+        )
 
         # Сохраняем prompt response до очистки active_turn. `stop_reason` —
         # ACP-значение `cancelled`, нормализация не нужна (литерал уже валиден).

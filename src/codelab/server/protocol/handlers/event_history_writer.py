@@ -32,6 +32,7 @@ from ...domain.journal import (
     SessionInfoRecorded,
     ToolCallStarted,
     ToolCallStatusChanged,
+    UnexecutedToolCallAnswered,
     UserMessageRecorded,
 )
 from ...domain.session import Session as DomainSession
@@ -137,6 +138,26 @@ class EventHistoryWriter:
                 content=content,
             ),
         )
+
+    def save_unexecuted_tool_call_answer(
+        self,
+        session: DomainSession,
+        tool_call_id: str,
+        text: str,
+    ) -> None:
+        """Сохраняет ответ модели на невыполненный вызов в events_history.
+
+        Второе после `session_info_update` событие журнала, которое не
+        реплеится, и единственное — без ACP-формы вовсе: адресат этого факта не
+        клиент, а LLM-история. Без записи проекция `history` невыводима (ADR-008,
+        шаг 4).
+
+        Args:
+            session: Состояние сессии
+            tool_call_id: Адресат ответа (`answer_id` вызова из ответа модели)
+            text: Текст ответа, ушедший модели
+        """
+        self._append(session, UnexecutedToolCallAnswered(tool_call_id=tool_call_id, text=text))
 
     def save_plan(
         self,

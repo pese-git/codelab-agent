@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -16,6 +17,7 @@ from ...domain.value_objects import (
     ToolCallStatus,
 )
 from ...messages import ACPMessage
+from .event_history_writer import EventHistoryWriter
 
 logger = structlog.get_logger()
 
@@ -54,6 +56,12 @@ class ToolCallHandler:
         "switch_mode": "Tool mode switch",
         "other": "Tool operation",
     }
+
+    def __init__(self) -> None:
+        # Писатель журнала без состояния, поэтому создаётся здесь, а не
+        # прокидывается: ответ модели на невыполненный вызов и запись этого факта
+        # неразделимы (см. `answer_unexecuted_tool_calls`).
+        self._history_writer = EventHistoryWriter()
 
     def create_tool_call(
         self,
@@ -207,6 +215,59 @@ class ToolCallHandler:
             raw_output=raw_output,
         )
 
+    def answer_unexecuted_tool_calls(
+        self,
+        session: DomainSession,
+        tool_call_ids: Sequence[str],
+        *,
+        reason: str,
+        retry_hint: bool = True,
+    ) -> int:
+        """Ответить модели на вызовы, которые выполнены не будут, и записать это.
+
+        Единственная дверь для ответов вызовам, которых нет в `tool_calls`:
+        остаток прерванного батча, отложенный после permission хвост и вызов без
+        имени инструмента. Их id уже лежат в assistant-сообщении истории, а
+        контракт LLM-API требует `role: tool` на каждый (P2-38).
+
+        Дверь одна потому, что ответ и запись в журнал — одно решение: событие
+        `UnexecutedToolCallAnswered` пишется ровно там, где ответ состоялся, и
+        только там. Без него проекция `history` невыводима — этих вызовов нет ни
+        в реестре, ни в остальных событиях (ADR-008, шаг 4). Разложить пару по
+        трём вызывающим значило бы снова договариваться дисциплиной — так уже
+        разошлись шесть писателей ответа (P2-63).
+
+        Args:
+            session: Доменный агрегат сессии
+            tool_call_ids: Адресаты ответов (`answer_id` из ответа модели)
+            reason: Причина в терминах пользователя — уезжает модели в тексте
+            retry_hint: Приглашать ли модель повторить вызов. `False` — когда
+                повтор в прежнем виде заведомо не поможет: вызову без имени
+                инструмента подсказка «запроси снова» была бы вредным советом.
+
+        Returns:
+            Число записанных ответов (дубли не считаются: побеждает первый ответ).
+        """
+        text = f"Вызов не выполнялся: {reason}."
+        if retry_hint:
+            text += " Запроси его снова, если он всё ещё нужен."
+
+        answered = 0
+        for tool_call_id in tool_call_ids:
+            if not session.add_tool_result(tool_call_id, text):
+                continue
+            self._history_writer.save_unexecuted_tool_call_answer(session, tool_call_id, text)
+            answered += 1
+
+        if answered:
+            logger.info(
+                "unexecuted_tool_calls_answered",
+                session_id=str(session.id),
+                count=answered,
+                reason=reason,
+            )
+        return answered
+
     def cancel_active_tools(
         self,
         session: DomainSession,
@@ -272,10 +333,14 @@ class ToolCallHandler:
             # assistant-сообщении истории, а контракт LLM-API требует `role: tool`
             # на каждый `tool_call_id`. Без этого вызов оставался без ответа
             # навсегда — и модель повторяла его (tech-debt P2-38, источник 2).
-            session.add_tool_result(
-                tool_call.answer_id,
-                "Вызов не выполнялся: turn отменён пользователем. "
-                "Запроси его снова, если он всё ещё нужен.",
+            #
+            # Через дверь, а не напрямую: статус эта метёлка выставляет **без
+            # контента**, поэтому текст ответа journal'ом не описан и проекция
+            # `history` его не выведет. Измерено на `sess_8fa73fe08f55`
+            # (2026-08-13): 2 ответа из 25 оставались невыводимыми — `call_003` и
+            # `call_009`, оба отменены здесь. Текст совпадает дословно с прежним.
+            self.answer_unexecuted_tool_calls(
+                session, [tool_call.answer_id], reason="turn отменён пользователем"
             )
 
         logger.debug(

@@ -285,8 +285,8 @@ class TestSessionTurnLifecycleSeams:
 
         assert session.active_turn is None
 
-    def test_answer_deferred_batch_answers_each_call(self) -> None:
-        """Каждый отложенный вызов получает `role: tool` (P2-40/P2-38)."""
+    def test_take_deferred_batch_ids_returns_and_clears(self) -> None:
+        """Хвост снимается целиком и в исходном порядке (P2-40)."""
         session = self._session_in_turn()
         assert session.active_turn is not None
         session.active_turn.pending_batch = [
@@ -294,25 +294,20 @@ class TestSessionTurnLifecycleSeams:
             {"id": "llm_2", "name": "terminal_create", "arguments": {}},
         ]
 
-        answered = session.answer_deferred_batch(reason="turn отменён пользователем")
-
-        assert answered == 2
+        assert session.take_deferred_batch_ids() == ["llm_1", "llm_2"]
         assert session.active_turn.pending_batch == []
-        tool_messages = [m for m in session.history.get_messages() if m.role == MessageRole.TOOL]
-        assert [m.tool_call_id for m in tool_messages] == ["llm_1", "llm_2"]
-        assert "отменён" in tool_messages[0].content.text
 
-    def test_answer_deferred_batch_skips_calls_without_id(self) -> None:
+    def test_take_deferred_batch_ids_skips_calls_without_id(self) -> None:
         session = self._session_in_turn()
         assert session.active_turn is not None
         session.active_turn.pending_batch = [{"name": "fs_read_text_file"}]
 
-        assert session.answer_deferred_batch(reason="отмена") == 0
+        assert session.take_deferred_batch_ids() == []
 
-    def test_answer_deferred_batch_without_turn(self) -> None:
+    def test_take_deferred_batch_ids_without_turn(self) -> None:
         session = Session(id=SessionId("sess_1"), config=SessionConfig(cwd="/tmp"))
 
-        assert session.answer_deferred_batch(reason="отмена") == 0
+        assert session.take_deferred_batch_ids() == []
 
 
 class TestPermissionState:
