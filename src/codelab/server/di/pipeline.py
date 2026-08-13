@@ -104,6 +104,7 @@ class PipelineProvider(Provider):
         tool_registry: ToolRegistryProtocol,
         permission_manager: PermissionManager,
         llm_loop_stage: LLMLoopStage,
+        terminal_releaser: TurnTerminalReleaser,
     ) -> PromptPipeline:
         """Собирает PromptPipeline из всех стадий."""
         from ..protocol.handlers.pipeline import (
@@ -122,7 +123,11 @@ class PipelineProvider(Provider):
                 TurnLifecycleStage(turn_lifecycle_manager, action="open"),
                 DirectivesStage(tool_registry, permission_manager),
                 llm_loop_stage,
-                TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+                TurnLifecycleStage(
+                    turn_lifecycle_manager,
+                    action="close",
+                    terminal_releaser=terminal_releaser,
+                ),
             ]
         )
 

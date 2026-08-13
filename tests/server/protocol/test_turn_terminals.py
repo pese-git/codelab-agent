@@ -185,8 +185,12 @@ class TestOnlyTurnEndPathsDrain:
     ожиданием заблокирован. Измерено живьём 2026-08-12 (`sess_937ff13e9d1b`): дренаж на
     отмене повис, `session_cancel_handled` — последняя строка лога.
 
-    Отсюда два разрешённых шва: штатное завершение (фоновая задача завершения или
-    `BackgroundExecutor`) и ошибка пайплайна (внутри фоновой задачи `session/prompt`).
+    Отсюда три разрешённых шва, и все они исполняются внутри фоновой задачи
+    `session/prompt`: штатное завершение (отложенная задача через `BackgroundExecutor`),
+    закрытие turn'а стадией пайплайна и ошибка пайплайна. Третий шов добавлен
+    2026-08-13: turn без единой паузы на разрешении закрывает стадия, отложенной задачи
+    не возникает, и дренаж не срабатывал вовсе (`sess_8fa73fe08f55`, `live=2` при нуле
+    освобождений).
     Остаток отменённого turn'а сцеживается на следующем завершении — дренаж
     идемпотентен и накопителен. Гейт того же рода, что `test_seam_cannot_be_bypassed`
     у снятия turn'а (шаг 5.2): без него inline-путь вернулся бы молча.
@@ -196,6 +200,7 @@ class TestOnlyTurnEndPathsDrain:
         "protocol/turn_terminals.py",
         "protocol/background_executor.py",
         "protocol/handlers/prompt_orchestrator.py",
+        "protocol/handlers/pipeline/stages/turn_lifecycle.py",
     }
 
     def test_drain_is_called_only_from_background_task_seams(self) -> None:
@@ -207,3 +212,52 @@ class TestOnlyTurnEndPathsDrain:
         }
 
         assert callers == self._ALLOWED
+
+
+class TestPipelineCloseDrainsRemainder:
+    """Turn, закрытый стадией пайплайна, тоже обязан сцедить остаток.
+
+    Дыра найдена разбором `sess_8fa73fe08f55` (2026-08-13): turn, завершившийся
+    ответом модели без единой паузы на разрешении, снят с `cause=pipeline_closed`,
+    и `turn_terminals_released` не сработал вовсе — два дожданных терминала
+    остались `live=2`.
+
+    Причина — дренаж висел только на отложенной задаче завершения
+    (`transport/stdio.py`: она создаётся, если `session/prompt` вернул пустой
+    ответ), а `BackgroundExecutor.complete_active_turn` выходит сразу, если
+    `active_turn` уже снят. Приёмка шага 5.3 (`released=15`) оказалась снята на
+    подмножестве путей: в том прогоне каждый turn проходил через возобновление
+    после разрешения.
+    """
+
+    async def test_close_stage_releases_waited_remainder(self, registry, session) -> None:
+        from codelab.server.protocol.handlers.pipeline.context import PromptContext
+        from codelab.server.protocol.handlers.pipeline.stages.turn_lifecycle import (
+            TurnLifecycleStage,
+        )
+        from codelab.server.protocol.session_commands import SessionCommands
+        from tests.server._domain_sessions import make_commands
+
+        alias = registry.register(session, "client-1")
+        registry.mark_waited(session, alias)
+        releaser, service = _make_releaser(registry)
+
+        commands: SessionCommands = make_commands(session)
+        stage = TurnLifecycleStage(
+            MagicMock(),
+            action="close",
+            terminal_releaser=releaser,
+        )
+        await stage.process(
+            PromptContext(
+                session_id=str(session.id),
+                session=session,
+                commands=commands,
+                request_id="req_1",
+                params={},
+                raw_text="",
+            )
+        )
+
+        service.release_terminal.assert_awaited_once()
+        assert registry.known_aliases(session) == []

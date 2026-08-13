@@ -120,7 +120,11 @@ class PromptOrchestratorBuilder:
                 TurnLifecycleStage(turn_lifecycle_manager, action="open"),
                 DirectivesStage(self._tool_registry, permission_manager),
                 self._llm_loop_stage,
-                TurnLifecycleStage(turn_lifecycle_manager, action="close"),
+                TurnLifecycleStage(
+                    turn_lifecycle_manager,
+                    action="close",
+                    terminal_releaser=self._terminal_releaser,
+                ),
             ]
         )
 
