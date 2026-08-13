@@ -56,8 +56,7 @@ class TestEndToEndWithStorage:
         user_prompt = [{"type": "text", "text": "Hello!"}]
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
-        for block in user_prompt:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Assert - Проверяем формат события в memory
         assert len(session.runtime.events_history) == 1
@@ -71,8 +70,8 @@ class TestEndToEndWithStorage:
         assert event["event"] == "user_message_recorded"
         assert "sessionUpdate" not in event["data"]
 
-        update = event["data"]
-        assert update["content"]["text"] == "Hello!"
+        # Блоки внутри одного события: граница сообщения — факт журнала (шаг 4e).
+        assert [block["text"] for block in event["data"]["blocks"]] == ["Hello!"]
 
     def test_agent_message_event_format(
         self,
@@ -94,7 +93,7 @@ class TestEndToEndWithStorage:
 
         # Act
         agent_text = "I can help you!"
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_text}
         )
 
@@ -133,8 +132,7 @@ class TestEndToEndWithStorage:
         user_prompt = [{"type": "text", "text": "Test message"}]
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
-        for block in user_prompt:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Сериализуем как JSON (как делает JsonFileStorage)
         json_str = json.dumps({"events_history": session.runtime.events_history})
@@ -145,7 +143,7 @@ class TestEndToEndWithStorage:
         # Assert - Проверяем что формат сохранен
         event = deserialized["events_history"][0]
         assert event["event"] == "user_message_recorded"
-        assert event["data"]["content"]["text"] == "Test message"
+        assert event["data"]["blocks"][0]["text"] == "Test message"
 
     @pytest.mark.asyncio
     async def test_session_load_works_with_new_format_events(
@@ -175,8 +173,7 @@ class TestEndToEndWithStorage:
         user_prompt = [{"type": "text", "text": "Question"}]
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
-        for block in user_prompt:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Сохраняем обновлённую сессию
         await storage.save_session(SessionMapper.to_protocol(session))

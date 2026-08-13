@@ -26,12 +26,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from codelab.server.domain.journal import (
     AgentMessageRecorded,
     JournalEntry,
     PlanRecorded,
+    RequestedToolCall,
     SessionEvent,
     SessionInfoRecorded,
     ToolCallAnswered,
@@ -83,8 +84,13 @@ class JournalMapper:
         return wire
 
     @staticmethod
-    def to_acp_update(event: SessionEvent) -> dict[str, Any] | None:
-        """Событие как ACP `session/update`; `None` — у события нет ACP-формы.
+    def to_acp_updates(event: SessionEvent) -> list[dict[str, Any]]:
+        """Событие как ACP `session/update`; пустой список — ACP-формы нет.
+
+        Список, а не одна нотификация: событие описывает **сообщение**, а ACP
+        передаёт текст чанками — многоблочный промпт даёт по чанку на блок
+        (шаг 4e). Прежняя подпись `dict | None` этого выразить не могла, и именно
+        поэтому пользовательская сторона хранила событие на блок.
 
         Порядок ключей повторяет прежнего писателя, а опциональные поля
         опускаются, а не заполняются `null`: элемент попадает в документ, и
@@ -96,48 +102,60 @@ class JournalMapper:
         ACP-форму имеет, просто не воспроизводится.
         """
         match event:
-            case UserMessageRecorded(content=content):
-                return {"sessionUpdate": "user_message_chunk", "content": content}
+            case UserMessageRecorded(blocks=blocks):
+                return [
+                    {"sessionUpdate": "user_message_chunk", "content": block} for block in blocks
+                ]
             case AgentMessageRecorded(content=content):
-                return {"sessionUpdate": "agent_message_chunk", "content": content}
+                # Вызовы модели ACP-формы не имеют: клиент узнаёт о них
+                # нотификациями `tool_call`, а не чанком сообщения.
+                if content is None:
+                    return []
+                return [{"sessionUpdate": "agent_message_chunk", "content": content}]
             case ToolCallStarted(
                 tool_call_id=tool_call_id, title=title, kind=kind, status=status, content=content
             ):
-                return _with_content(
-                    {
-                        "sessionUpdate": "tool_call",
-                        "toolCallId": tool_call_id,
-                        "title": title,
-                        "kind": kind,
-                        "status": status,
-                    },
-                    content,
+                return _one(
+                    _with_content(
+                        {
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": tool_call_id,
+                            "title": title,
+                            "kind": kind,
+                            "status": status,
+                        },
+                        content,
+                    )
                 )
             case ToolCallStatusChanged(tool_call_id=tool_call_id, status=status, content=content):
-                return _with_content(
-                    {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": tool_call_id,
-                        "status": status,
-                    },
-                    content,
+                return _one(
+                    _with_content(
+                        {
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": tool_call_id,
+                            "status": status,
+                        },
+                        content,
+                    )
                 )
             case ToolCallAnswered():
-                return None
+                return []
             case PlanRecorded(entries=entries):
-                return {"sessionUpdate": "plan", "entries": entries}
+                return _one({"sessionUpdate": "plan", "entries": entries})
             case SessionInfoRecorded(title=title, updated_at=updated_at):
-                return {
-                    "sessionUpdate": "session_info_update",
-                    "title": title,
-                    "updatedAt": updated_at,
-                }
+                return _one(
+                    {
+                        "sessionUpdate": "session_info_update",
+                        "title": title,
+                        "updatedAt": updated_at,
+                    }
+                )
             case UnknownUpdateRecorded(update=raw):
-                return raw
+                return _one(raw)
 
     @staticmethod
-    def to_replay_update(event: SessionEvent) -> dict[str, Any] | None:
-        """Событие как нотификация реплея; `None` — событие в реплей не входит.
+    def to_replay_updates(event: SessionEvent) -> list[dict[str, Any]]:
+        """Событие как нотификации реплея; пустой список — событие не реплеится.
 
         `SessionInfoRecorded` реплей-формы не имеет (см. его докстринг), а
         `ToolCallAnswered` не имеет и ACP-формы. Для нераспознанной
@@ -146,13 +164,13 @@ class JournalMapper:
         """
         match event:
             case SessionInfoRecorded() | ToolCallAnswered():
-                return None
+                return []
             case UnknownUpdateRecorded(update=raw):
                 if raw.get("sessionUpdate") in _REPLAYABLE_UNKNOWN_KINDS:
-                    return raw
-                return None
+                    return [raw]
+                return []
             case _:
-                return JournalMapper.to_acp_update(event)
+                return JournalMapper.to_acp_updates(event)
 
     @staticmethod
     def from_wire(wire: dict[str, Any]) -> JournalEntry | None:
@@ -213,6 +231,29 @@ def _with_content(
     return projection
 
 
+def _agent_data(
+    content: dict[str, Any] | None, tool_calls: list[RequestedToolCall]
+) -> dict[str, Any]:
+    """Полезная нагрузка ответа модели: текст и запрошенные вызовы.
+
+    Отсутствующие части опускаются, а не заполняются `null`: запись попадает в
+    документ, и стабильность её формы — часть обратной совместимости.
+    """
+    data: dict[str, Any] = {}
+    if content is not None:
+        data["content"] = content
+    if tool_calls:
+        data["tool_calls"] = [
+            {"id": call.id, "name": call.name, "arguments": call.arguments} for call in tool_calls
+        ]
+    return data
+
+
+def _one(update: dict[str, Any]) -> list[dict[str, Any]]:
+    """Событие с единственной ACP-формой. Явная обёртка вместо ветвления у вызывающего."""
+    return [update]
+
+
 def _data_of(event: SessionEvent) -> dict[str, Any]:
     """Полезная нагрузка события в форме v11 — доменные имена, `snake_case`.
 
@@ -220,25 +261,24 @@ def _data_of(event: SessionEvent) -> dict[str, Any]:
     домен их не переписывает (см. `domain/journal.py`).
     """
     match event:
-        case UserMessageRecorded(content=content) | AgentMessageRecorded(content=content):
-            return {"content": content}
+        case UserMessageRecorded(blocks=blocks):
+            return {"blocks": blocks}
+        case AgentMessageRecorded(content=content, tool_calls=tool_calls):
+            return _agent_data(content, tool_calls)
         case ToolCallStarted(
             tool_call_id=tool_call_id, title=title, kind=kind, status=status, content=content
         ):
-            data: dict[str, Any] = {
-                "tool_call_id": tool_call_id,
-                "title": title,
-                "kind": kind,
-                "status": status,
-            }
-            if content:
-                data["content"] = content
-            return data
+            return _with_content(
+                {
+                    "tool_call_id": tool_call_id,
+                    "title": title,
+                    "kind": kind,
+                    "status": status,
+                },
+                content,
+            )
         case ToolCallStatusChanged(tool_call_id=tool_call_id, status=status, content=content):
-            changed: dict[str, Any] = {"tool_call_id": tool_call_id, "status": status}
-            if content:
-                changed["content"] = content
-            return changed
+            return _with_content({"tool_call_id": tool_call_id, "status": status}, content)
         case ToolCallAnswered(tool_call_id=tool_call_id, text=text):
             return {"tool_call_id": tool_call_id, "text": text}
         case PlanRecorded(entries=entries):
@@ -262,14 +302,13 @@ def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
         return None
 
     timestamp = _timestamp_from_wire(wire.get("at"))
-    content = data.get("content")
     entries = data.get("entries")
 
+    message = _message_entry_from_v11(wire["event"], data, timestamp)
+    if message is not None:
+        return message
+
     match wire["event"]:
-        case "user_message_recorded" if isinstance(content, dict):
-            return JournalEntry(UserMessageRecorded(content=content), timestamp)
-        case "agent_message_recorded" if isinstance(content, dict):
-            return JournalEntry(AgentMessageRecorded(content=content), timestamp)
         case "tool_call_started" if _strings(data, "tool_call_id", "title", "kind", "status"):
             return JournalEntry(
                 ToolCallStarted(
@@ -317,6 +356,68 @@ def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
     return None
 
 
+def _message_entry_from_v11(
+    kind: object, data: dict[str, Any], timestamp: datetime | None
+) -> JournalEntry | None:
+    """Записи сообщений диалога; `None` — вид записи не про сообщение.
+
+    Вынесено из общего разбора, потому что у обеих сторон есть форма до шага 4e и
+    после, и ветвление читается только рядом само с собой.
+    """
+    content = data.get("content")
+    blocks = data.get("blocks")
+
+    match kind:
+        case "user_message_recorded" if isinstance(blocks, list):
+            return JournalEntry(UserMessageRecorded(blocks=blocks), timestamp)
+        # Форма v13 и раньше: событие на блок. Такая запись читается как сообщение
+        # из одного блока — это всё, что о её границах известно. Промпт из
+        # нескольких блоков, записанный прежней версией, останется разложенным на
+        # сообщения: границу восстановить нечем, и притворяться, что можно, хуже.
+        case "user_message_recorded" if isinstance(content, dict):
+            return JournalEntry(UserMessageRecorded(blocks=[content]), timestamp)
+        case "agent_message_recorded" if isinstance(content, dict) or data.get("tool_calls"):
+            return JournalEntry(
+                AgentMessageRecorded(
+                    content=content if isinstance(content, dict) else None,
+                    tool_calls=_requested_calls(data.get("tool_calls")),
+                ),
+                timestamp,
+            )
+    return None
+
+
+def _requested_calls(raw: object) -> list[RequestedToolCall]:
+    """Вызовы, запрошенные моделью; нераспознанная запись даёт пустой список.
+
+    Пустой список неотличим от отсутствия поля намеренно: assistant-сообщение без
+    вызовов — обычный случай, и `tool_calls` в такой записи не пишется вовсе.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    calls: list[RequestedToolCall] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        # Элемент прочитан с диска, поэтому его тип известен только по проверке
+        # выше; поля валидируются здесь же, ниже.
+        fields = cast(dict[str, Any], item)
+        call_id = fields.get("id")
+        name = fields.get("name")
+        arguments = fields.get("arguments")
+        if not isinstance(call_id, str) or not isinstance(name, str):
+            continue
+        calls.append(
+            RequestedToolCall(
+                id=call_id,
+                name=name,
+                arguments=arguments if isinstance(arguments, dict) else {},
+            )
+        )
+    return calls
+
+
 def _strings(update: dict[str, Any], *names: str) -> bool:
     """Все перечисленные поля — строки."""
     return all(isinstance(update.get(name), str) for name in names)
@@ -347,7 +448,7 @@ def _event_from_update(update: dict[str, Any]) -> SessionEvent:
         case "user_message_chunk" if keys == {"sessionUpdate", "content"}:
             content = update["content"]
             if isinstance(content, dict):
-                return UserMessageRecorded(content=content)
+                return UserMessageRecorded(blocks=[content])
         case "agent_message_chunk" if keys == {"sessionUpdate", "content"}:
             content = update["content"]
             if isinstance(content, dict):

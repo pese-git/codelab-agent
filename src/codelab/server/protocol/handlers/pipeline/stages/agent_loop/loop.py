@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codelab.server.domain.journal import RequestedToolCall
 from codelab.server.domain.tool_call import ToolCall as DomainToolCall
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.content.extractor import ContentExtractor
@@ -336,13 +337,24 @@ class AgentLoop:
             DomainToolCall(id=tc.id, tool_name=tc.name, arguments=tc.arguments)
             for tc in response.tool_calls
         ]
+        journalled_calls = [
+            RequestedToolCall(id=tc.id, name=tc.name, arguments=tc.arguments)
+            for tc in response.tool_calls
+        ]
+        text_block = {"type": "text", "text": agent_text} if agent_text else None
         if agent_text or requested_calls:
-            await commands.apply(
-                lambda target: target.add_assistant_tool_call_message(
-                    agent_text or "", requested_calls
-                ),
-                name="assistant_message",
-            )
+
+            def _record_assistant_message(target: Session) -> None:
+                target.add_assistant_tool_call_message(agent_text or "", requested_calls)
+                # Запись истории и событие журнала описывают одно высказывание
+                # модели, поэтому пишутся одной командой и с одной границей: без
+                # вызовов и без этой границы assistant-запись из журнала
+                # невыводима (шаг 4e, замер — батчи до десяти вызовов).
+                self._history_writer.save_agent_message(
+                    target, text_block, tool_calls=journalled_calls
+                )
+
+            await commands.apply(_record_assistant_message, name="assistant_message")
 
         # Нет tool_calls → завершить
         if not has_tool_calls:
@@ -464,7 +476,12 @@ class AgentLoop:
         sink: SessionUpdateSink,
         streamed: bool,
     ) -> None:
-        """Эмитировать текст ассистента (если не стримился) и записать его в журнал.
+        """Эмитировать текст ассистента клиенту, если он не стримился.
+
+        **Журнал здесь не пишет** (шаг 4e): текст и запрошенные моделью вызовы —
+        одно её высказывание, и событие журнала пишется там же, где запись
+        истории, одной командой. Прежде текст уезжал в журнал отдельным чанком, и
+        проекция не могла узнать, к какому запросу вызовов он относится.
 
         **Историю здесь не пишет.** У неё в turn-цикле один писатель —
         `add_assistant_tool_call_message`, который несёт и текст, и `tool_calls`. Раньше
@@ -478,9 +495,6 @@ class AgentLoop:
         # не было (провайдер без стрима) — эмитим полный текст.
         if not streamed:
             await sink.emit_agent_message(session_id, agent_text)
-        # Сохранить в events_history для replay при session/load
-        # (полный текст одним chunk'ом — авторитетно для реплея).
-        await sink.save_agent_message_chunk({"type": "text", "text": agent_text})
 
     async def _emit_response_plan(
         self,

@@ -61,8 +61,8 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay сообщений пользователя и агента."""
         # Сохраняем историю
-        history_writer.save_user_message_chunk(session, {"type": "text", "text": "User question"})
-        history_writer.save_agent_message_chunk(session, {"type": "text", "text": "Agent answer"})
+        history_writer.save_user_message(session, [{"type": "text", "text": "User question"}])
+        history_writer.save_agent_message(session, {"type": "text", "text": "Agent answer"})
 
         # Воспроизводим
         notifications = replayer.replay_history(session)
@@ -122,7 +122,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет replay полной беседы с tool calls."""
         # Симулируем полную беседу
-        history_writer.save_user_message_chunk(session, {"type": "text", "text": "Read file.txt"})
+        history_writer.save_user_message(session, [{"type": "text", "text": "Read file.txt"}])
         history_writer.save_tool_call(
             session=session,
             tool_call_id="call_001",
@@ -135,7 +135,7 @@ class TestReplayHistory:
             tool_call_id="call_001",
             status="completed",
         )
-        history_writer.save_agent_message_chunk(
+        history_writer.save_agent_message(
             session, {"type": "text", "text": "Here is the file content..."}
         )
         history_writer.save_session_info_update(
@@ -174,7 +174,7 @@ class TestReplayHistory:
             }
         )
         # И валидное событие
-        history_writer.save_user_message_chunk(session, {"type": "text", "text": "Hello"})
+        history_writer.save_user_message(session, [{"type": "text", "text": "Hello"}])
 
         notifications = replayer.replay_history(session)
 
@@ -299,8 +299,8 @@ class TestIntegrationWithSessionLoad:
         """Проверяет полный сценарий replay для session/load."""
         # Симулируем историю сессии
         # Turn 1: Пользователь спрашивает, агент отвечает
-        history_writer.save_user_message_chunk(
-            session, {"type": "text", "text": "What is in config.json?"}
+        history_writer.save_user_message(
+            session, [{"type": "text", "text": "What is in config.json?"}]
         )
         history_writer.save_tool_call(
             session=session,
@@ -320,13 +320,13 @@ class TestIntegrationWithSessionLoad:
             status="completed",
             content=[{"type": "text", "text": '{"key": "value"}'}],
         )
-        history_writer.save_agent_message_chunk(
+        history_writer.save_agent_message(
             session, {"type": "text", "text": "The config contains..."}
         )
 
         # Turn 2: Пользователь просит изменить
-        history_writer.save_user_message_chunk(
-            session, {"type": "text", "text": "Change key to newvalue"}
+        history_writer.save_user_message(
+            session, [{"type": "text", "text": "Change key to newvalue"}]
         )
         history_writer.save_tool_call(
             session=session,
@@ -340,7 +340,7 @@ class TestIntegrationWithSessionLoad:
             tool_call_id="call_002",
             status="completed",
         )
-        history_writer.save_agent_message_chunk(
+        history_writer.save_agent_message(
             session, {"type": "text", "text": "Done! The file has been updated."}
         )
 

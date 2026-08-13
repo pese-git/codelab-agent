@@ -205,8 +205,10 @@ class PromptOrchestrator:
         def _accept_prompt(target: DomainSession) -> None:
             self.state_manager.update_session_title(target, text_preview)
             self.state_manager.add_user_message(target, prompt)
-            for block in prompt:
-                self._history_writer.save_user_message_chunk(target, block)
+            # Одно событие на промпт: `add_user_message` кладёт одно сообщение из
+            # всех блоков, и запись журнала обязана иметь ту же границу — иначе
+            # проекция `history` восстановит N сообщений вместо одного (шаг 4e).
+            self._history_writer.save_user_message(target, prompt)
             self.state_manager.update_session_timestamp(target)
 
         await commands.apply(_accept_prompt, name="prompt_received")

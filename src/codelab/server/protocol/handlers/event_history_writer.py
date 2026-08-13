@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,6 +29,7 @@ from ...domain.journal import (
     AgentMessageRecorded,
     JournalEntry,
     PlanRecorded,
+    RequestedToolCall,
     SessionEvent,
     SessionInfoRecorded,
     ToolCallAnswered,
@@ -49,34 +51,45 @@ class EventHistoryWriter:
         >>> writer.save_tool_call(session, "call_001", "Read file", "read", "pending")
     """
 
-    def save_user_message_chunk(
+    def save_user_message(
         self,
         session: DomainSession,
-        content: dict[str, Any],
+        blocks: Sequence[dict[str, Any]],
     ) -> None:
-        """Сохраняет user_message_chunk в events_history.
+        """Сохраняет промпт пользователя — одним событием на сообщение.
 
-        Пишется по одному событию на блок промпта: реплей отдаёт клиенту блоки
-        в исходном порядке, поэтому склейка недопустима.
+        Прежде писалось событие на блок, и проекция `history` из такой записи
+        восстанавливала N сообщений вместо одного (шаг 4e). Реплей по-прежнему
+        отдаёт клиенту по чанку на блок — это делает проекция.
 
         Args:
             session: Состояние сессии
-            content: Content block промпта (text/resource/image)
+            blocks: Content-блоки промпта в исходном порядке (text/resource/image)
         """
-        self._append(session, UserMessageRecorded(content=content))
+        self._append(session, UserMessageRecorded(blocks=list(blocks)))
 
-    def save_agent_message_chunk(
+    def save_agent_message(
         self,
         session: DomainSession,
-        content: dict[str, Any],
+        content: dict[str, Any] | None = None,
+        *,
+        tool_calls: Sequence[RequestedToolCall] = (),
     ) -> None:
-        """Сохраняет agent_message_chunk в events_history.
+        """Сохраняет ответ модели: текст и запрошенные ею вызовы — одним событием.
+
+        Вызовы попали сюда потому, что без них assistant-запись `history`
+        невыводима: у неё нет ни идентификаторов модели, ни аргументов, ни границ
+        батча (шаг 4e; замер дал батчи до десяти вызовов).
 
         Args:
             session: Состояние сессии
-            content: Content block (например, {"type": "text", "text": "..."})
+            content: Content block текста (`None` — модель прислала только вызовы)
+            tool_calls: Вызовы в том виде, в каком их запросила модель
         """
-        self._append(session, AgentMessageRecorded(content=content))
+        self._append(
+            session,
+            AgentMessageRecorded(content=content, tool_calls=list(tool_calls)),
+        )
 
     def save_tool_call(
         self,

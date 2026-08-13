@@ -259,7 +259,7 @@ class LLMLoopStage(PromptStage):
                     )
                 )
                 def _ack(target: DomainSession) -> None:
-                    self._history_writer.save_agent_message_chunk(target, ack_content)
+                    self._history_writer.save_agent_message(target, ack_content)
                     self._state_manager.add_assistant_message(target, ack_text)
 
                 await context.commands.apply(_ack, name="demo_ack")

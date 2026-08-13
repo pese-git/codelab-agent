@@ -43,7 +43,7 @@ class SessionReplayer:
 
         Прежний фильтр по набору строк `_REPLAYABLE_UPDATE_TYPES` снят: какие
         события реплеятся, теперь решает наличие реплей-формы у события
-        (`JournalMapper.to_replay_update`) — то есть модель, а не список имён в
+        (`JournalMapper.to_replay_updates`) — то есть модель, а не список имён в
         читателе. Единственное событие без такой формы — `SessionInfoRecorded`:
         исторические метаданные устарели уже к моменту загрузки, а `session/load`
         в конце реплея сам эмитит свежий `session_info_update`. Отсюда постоянная
@@ -64,16 +64,15 @@ class SessionReplayer:
             if entry is None:
                 continue
 
-            update_data = JournalMapper.to_replay_update(entry.event)
-            if update_data is None:
-                continue
-
-            notifications.append(
-                ACPMessage.notification(
-                    "session/update",
-                    {"sessionId": session_id, "update": update_data},
+            # Событие описывает сообщение, а ACP передаёт его чанками, поэтому
+            # проекция отдаёт список: многоблочный промпт — по чанку на блок.
+            for update_data in JournalMapper.to_replay_updates(entry.event):
+                notifications.append(
+                    ACPMessage.notification(
+                        "session/update",
+                        {"sessionId": session_id, "update": update_data},
+                    )
                 )
-            )
 
         logger.debug(
             "replay_history completed",

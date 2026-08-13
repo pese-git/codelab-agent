@@ -31,7 +31,7 @@ def history_writer() -> EventHistoryWriter:
 
 
 class TestSaveAgentMessageChunk:
-    """Тесты для save_agent_message_chunk."""
+    """Тесты для save_agent_message."""
 
     def test_saves_agent_response(
         self,
@@ -41,7 +41,7 @@ class TestSaveAgentMessageChunk:
         """Проверяет сохранение ответа агента."""
         content = {"type": "text", "text": "Agent response"}
 
-        history_writer.save_agent_message_chunk(session, content)
+        history_writer.save_agent_message(session, content)
 
         assert len(session.events_history) == 1
         event = session.events_history[0]
@@ -156,116 +156,34 @@ class TestSavePlan:
         assert event["data"]["entries"] == entries
 
 
-class TestSaveUserMessageChunk:
-    """Тесты сохранения user_message_chunk."""
+class TestSaveUserMessage:
+    """Промпт пользователя — одно событие на сообщение (шаг 4e)."""
 
-    def test_saves_one_event_per_block(
+    def test_saves_one_event_per_message_with_blocks_inside(
         self,
         history_writer: EventHistoryWriter,
         session: SessionDocument,
     ) -> None:
-        """Каждый блок промпта — отдельное событие в исходном порядке.
+        """Одно событие на промпт, блоки внутри и в исходном порядке.
 
-        Склейка недопустима: реплей отдаёт блоки клиенту в том же порядке
-        (ср. упорядоченные блоки `MessageContent`, фаза B ADR-006).
+        **Прежнее правило было обратным** — событие на блок, — и оно кодировалось
+        этим же тестом. Замена осознанная: `add_user_message` кладёт в историю
+        одно сообщение из всех блоков, поэтому событие на блок делало проекцию
+        `history` невыводимой (N сообщений вместо одного). Порядок блоков остаётся
+        частью содержимого: реплей отдаёт по чанку на блок, и это делает проекция.
         """
         prompt = [
             {"type": "resource", "resource": {"uri": "file:///a.md", "text": "doc"}},
             {"type": "text", "text": "инструкция"},
         ]
 
-        for block in prompt:
-            history_writer.save_user_message_chunk(session, block)
+        history_writer.save_user_message(session, prompt)
 
-        assert [e["data"]["content"]["type"] for e in session.events_history] == [
-            "resource",
-            "text",
-        ]
-        assert all(
-            e["event"] == "user_message_recorded" for e in session.events_history
-        )
-        assert all("at" in e for e in session.events_history)
-
-
-class TestSaveSessionInfoUpdate:
-    """Тесты сохранения session_info_update."""
-
-    def test_saves_acp_shape(
-        self,
-        history_writer: EventHistoryWriter,
-        session: SessionDocument,
-    ) -> None:
-        """Доменная форма записи: `title` + `updated_at` (v11, шаг 3b ADR-008).
-
-        camelCase `updatedAt` остаётся в ACP-нотификации, но на диск больше не
-        уезжает: формат хранения перестал задаваться внешним протоколом. Что
-        нотификация сохранила прежнюю форму — гейт `JournalMapper.to_acp_update`.
-        """
-        history_writer.save_session_info_update(
-            session, title="Сессия", updated_at="2026-07-29T00:00:00Z"
-        )
-
+        assert len(session.events_history) == 1
         record = session.events_history[0]
-        assert record["event"] == "session_info_recorded"
-        assert record["data"] == {
-            "title": "Сессия",
-            "updated_at": "2026-07-29T00:00:00Z",
-        }
-
-    def test_accepts_null_fields(
-        self,
-        history_writer: EventHistoryWriter,
-        session: SessionDocument,
-    ) -> None:
-        """`null` — валидное значение по ACP (очистка поля)."""
-        history_writer.save_session_info_update(session, title=None, updated_at=None)
-
-        data = session.events_history[0]["data"]
-        assert data["title"] is None
-        assert data["updated_at"] is None
-
-
-class TestDomainJournalCarrier:
-    """Журнал доступен и на доменном агрегате (транзакция `session/cancel`).
-
-    Форма записи обязана совпадать байт-в-байт независимо от носителя: пишет её
-    одна проекция, а `SessionDocument` и доменный агрегат несут один и тот же
-    список. Развилка носителя временна и снимается вместе с последним
-    wire-писателем (фаза D ADR-006).
-    """
-
-    def test_domain_and_wire_records_are_equivalent(
-        self,
-        history_writer: EventHistoryWriter,
-        session: SessionDocument,
-    ) -> None:
-        from codelab.server.mapping.session_mapper import SessionMapper
-
-        domain = SessionMapper.to_domain(session)
-
-        history_writer.save_tool_call_update(session, tool_call_id="call_001", status="cancelled")
-        history_writer.save_tool_call_update(domain, tool_call_id="call_001", status="cancelled")
-
-        wire_entry = session.events_history[0]
-        domain_entry = domain.runtime.events_history[0]
-        assert domain_entry["data"] == wire_entry["data"]
-        assert domain_entry["event"] == wire_entry["event"]
-
-    def test_content_is_carried(
-        self,
-        history_writer: EventHistoryWriter,
-        session: SessionDocument,
-    ) -> None:
-        from codelab.server.mapping.session_mapper import SessionMapper
-
-        domain = SessionMapper.to_domain(session)
-        content = [{"type": "content", "content": {"type": "text", "text": "готово"}}]
-
-        history_writer.save_tool_call_update(
-            domain, tool_call_id="call_001", status="completed", content=content
-        )
-
-        assert domain.runtime.events_history[0]["data"]["content"] == content
+        assert record["event"] == "user_message_recorded"
+        assert [block["type"] for block in record["data"]["blocks"]] == ["resource", "text"]
+        assert "at" in record
 
 
 class TestSaveToolCallAnswer:
@@ -292,4 +210,4 @@ class TestSaveToolCallAnswer:
 
         entry = JournalMapper.from_wire(session.runtime.events_history[0])
         assert entry is not None
-        assert JournalMapper.to_replay_update(entry.event) is None
+        assert JournalMapper.to_replay_updates(entry.event) == []

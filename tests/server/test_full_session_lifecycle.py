@@ -61,14 +61,13 @@ class TestFullSessionLifecycle:
         user_prompt = [{"type": "text", "text": "Hello, how are you?"}]
         orchestrator.state_manager.add_user_message(session, user_prompt)
 
-        for block in user_prompt:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Добавляем agent message и сохраняем в events_history
         agent_response = "I'm doing great, thank you!"
         orchestrator.state_manager.add_assistant_message(session, agent_response)
 
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_response}
         )
 
@@ -161,14 +160,13 @@ class TestFullSessionLifecycle:
         user_prompt_1 = [{"type": "text", "text": "What is Python?"}]
         orchestrator.state_manager.add_user_message(session, user_prompt_1)
 
-        for block in user_prompt_1:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt_1)
 
         # Act - Первый turn (агент)
         agent_response_1 = "Python is a programming language"
         orchestrator.state_manager.add_assistant_message(session, agent_response_1)
 
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_response_1}
         )
 
@@ -176,14 +174,13 @@ class TestFullSessionLifecycle:
         user_prompt_2 = [{"type": "text", "text": "What are its features?"}]
         orchestrator.state_manager.add_user_message(session, user_prompt_2)
 
-        for block in user_prompt_2:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, user_prompt_2)
 
         # Act - Второй turn (агент)
         agent_response_2 = "Python has many great features like simplicity and readability"
         orchestrator.state_manager.add_assistant_message(session, agent_response_2)
 
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_response_2}
         )
 
@@ -266,12 +263,11 @@ class TestFullSessionLifecycle:
                 prompt = [{"type": "text", "text": text}]
                 orchestrator.state_manager.add_user_message(session, prompt)
 
-                for block in prompt:
-                    EventHistoryWriter().save_user_message_chunk(session, block)
+                EventHistoryWriter().save_user_message(session, prompt)
             else:
                 orchestrator.state_manager.add_assistant_message(session, text)
 
-                EventHistoryWriter().save_agent_message_chunk(
+                EventHistoryWriter().save_agent_message(
                     session, {"type": "text", "text": text}
                 )
 

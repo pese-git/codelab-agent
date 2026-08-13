@@ -150,10 +150,10 @@ class SessionUpdateSink:
         """
         await self._send_immediately(self.build_agent_message_chunk(session_id, text))
 
-    async def save_agent_message_chunk(self, content: dict[str, Any]) -> None:
+    async def save_agent_message(self, content: dict[str, Any]) -> None:
         """Сохранить agent_message_chunk в events_history для replay."""
         await self._commands.apply(
-            lambda session: self._history_writer.save_agent_message_chunk(session, content),
+            lambda session: self._history_writer.save_agent_message(session, content),
             name="agent_message_chunk",
         )
 

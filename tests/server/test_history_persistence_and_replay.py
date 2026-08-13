@@ -58,23 +58,18 @@ class TestUserMessageChunkPersistence:
         orchestrator.state_manager.add_user_message(session, prompt)
 
         # Добавляем events как делает handle_prompt
-        for block in prompt:
-            EventHistoryWriter().save_user_message_chunk(session, block)
+        EventHistoryWriter().save_user_message(session, prompt)
 
-        # Assert
-        assert len(session.runtime.events_history) >= 2
-
-        # Проверяем, что события сохранены в правильном формате
+        # Assert: одно событие на промпт, блоки внутри (шаг 4e ADR-008). Прежде
+        # тест требовал события на блок — правило заменено осознанно, потому что
+        # `add_user_message` кладёт в историю одно сообщение из всех блоков.
         user_message_events = [
-            e
-            for e in session.runtime.events_history
-            if e.get("event") == "user_message_recorded"
+            e for e in session.runtime.events_history if e.get("event") == "user_message_recorded"
         ]
-        assert len(user_message_events) == 2
+        assert len(user_message_events) == 1
 
-        # Проверяем содержимое
-        assert user_message_events[0]["data"]["content"]["text"] == "Hello, assistant!"
-        assert user_message_events[1]["data"]["content"]["text"] == "How are you?"
+        blocks = user_message_events[0]["data"]["blocks"]
+        assert [block["text"] for block in blocks] == ["Hello, assistant!", "How are you?"]
 
 
 class TestAgentMessageChunkFormat:
@@ -111,7 +106,7 @@ class TestAgentMessageChunkFormat:
 
         # Act - добавляем agent message и event как делает handle_prompt
         orchestrator.state_manager.add_assistant_message(session, agent_response)
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_response}
         )
 
@@ -140,7 +135,7 @@ class TestAgentMessageChunkFormat:
 
         # Act
         orchestrator.state_manager.add_assistant_message(session, agent_response)
-        EventHistoryWriter().save_agent_message_chunk(
+        EventHistoryWriter().save_agent_message(
             session, {"type": "text", "text": agent_response}
         )
 

@@ -129,7 +129,7 @@ class TestNothingIsLost:
         for record in migrated:
             entry = JournalMapper.from_wire(record)
             assert entry is not None
-            restored.append(JournalMapper.to_acp_update(entry.event))
+            restored.extend(JournalMapper.to_acp_updates(entry.event))
 
         assert restored == [e["update"] for e in V10_JOURNAL]
 
@@ -247,4 +247,4 @@ class TestVerbatimReplay:
 
         assert entry is not None
         assert isinstance(entry.event, UnknownUpdateRecorded)
-        assert JournalMapper.to_replay_update(entry.event) == update
+        assert JournalMapper.to_replay_updates(entry.event) == [update]

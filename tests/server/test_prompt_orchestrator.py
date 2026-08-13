@@ -232,6 +232,40 @@ class TestPromptOrchestratorHandlePrompt:
         assert session.active_turn is None  # Должен быть очищен после завершения
 
     @pytest.mark.asyncio
+    async def test_multiblock_prompt_is_one_journal_event(
+        self,
+        orchestrator: PromptOrchestrator,
+        session: DomainSession,
+        sessions: dict[str, DomainSession],
+    ) -> None:
+        """Многоблочный промпт даёт одну запись истории и одно событие журнала.
+
+        Гейт стоит на настоящем шве (`handle_prompt`), а не на его имитации:
+        прежняя проверка этого правила пересобирала записи писателем вручную и
+        поэтому не поймала бы возврат дефекта — событие на блок. Соответствие
+        границ обязательно, иначе проекция `history` восстановит N сообщений
+        вместо одного и изменит форму диалога (шаг 4e ADR-008).
+        """
+        prompt = [
+            {"type": "text", "text": "посмотри"},
+            {"type": "resource_link", "uri": "file:///a.py", "name": "a.py"},
+        ]
+
+        await orchestrator.handle_prompt("req_1", {"prompt": prompt}, make_commands(session))
+
+        user_messages = [m for m in wire_history(session) if m.get("role") == "user"]
+        user_events = [
+            e for e in session.runtime.events_history if e.get("event") == "user_message_recorded"
+        ]
+
+        assert len(user_messages) == 1
+        assert len(user_events) == 1
+        assert [block["type"] for block in user_events[0]["data"]["blocks"]] == [
+            "text",
+            "resource_link",
+        ]
+
+    @pytest.mark.asyncio
     async def test_handle_prompt_updates_session_state(
         self,
         orchestrator: PromptOrchestrator,

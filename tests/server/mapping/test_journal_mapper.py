@@ -26,6 +26,7 @@ from codelab.server.domain.journal import (
     AgentMessageRecorded,
     JournalEntry,
     PlanRecorded,
+    RequestedToolCall,
     SessionEvent,
     SessionInfoRecorded,
     ToolCallAnswered,
@@ -84,7 +85,7 @@ class TestRoundTrip:
         )
 
         assert entry is not None
-        assert JournalMapper.to_acp_update(entry.event) == update
+        assert JournalMapper.to_acp_updates(entry.event) == [update]
 
     @pytest.mark.parametrize("update", RECORDED_UPDATES, ids=lambda u: u["sessionUpdate"])
     def test_recorded_update_is_modelled(self, update: dict[str, Any]) -> None:
@@ -123,7 +124,7 @@ class TestRoundTrip:
 
         assert again is not None
         assert JournalMapper.to_wire(again) == v11
-        assert JournalMapper.to_acp_update(again.event) == update
+        assert JournalMapper.to_acp_updates(again.event) == [update]
 
 
 class TestWireForm:
@@ -131,14 +132,14 @@ class TestWireForm:
 
     def test_entry_shape_is_domain_envelope(self) -> None:
         entry = JournalEntry(
-            event=UserMessageRecorded(content={"type": "text", "text": "привет"}),
+            event=UserMessageRecorded(blocks=[{"type": "text", "text": "привет"}]),
             timestamp=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
         )
 
         assert JournalMapper.to_wire(entry) == {
             "event": "user_message_recorded",
             "at": TS,
-            "data": {"content": {"type": "text", "text": "привет"}},
+            "data": {"blocks": [{"type": "text", "text": "привет"}]},
         }
 
     def test_tool_call_kind_does_not_collide_with_record_kind(self) -> None:
@@ -179,7 +180,7 @@ class TestWireForm:
     )
     def test_empty_content_is_omitted_not_null(self, event: SessionEvent) -> None:
         """Прежний писатель опускал пустой контент; `null` изменил бы документ."""
-        assert "content" not in JournalMapper.to_acp_update(event)
+        assert "content" not in JournalMapper.to_acp_updates(event)[0]
 
 
 class TestReplayProjection:
@@ -188,17 +189,16 @@ class TestReplayProjection:
     def test_session_info_has_no_replay_form(self) -> None:
         event = SessionInfoRecorded(title="изучи проект", updated_at=TS)
 
-        assert JournalMapper.to_replay_update(event) is None
-        acp = JournalMapper.to_acp_update(event)
-        assert acp is not None
-        assert acp["sessionUpdate"] == "session_info_update"
+        assert JournalMapper.to_replay_updates(event) == []
+        acp = JournalMapper.to_acp_updates(event)
+        assert acp[0]["sessionUpdate"] == "session_info_update"
 
     def test_answer_has_no_acp_form_at_all(self) -> None:
         """Ответ модели на вызов адресован LLM-истории, а не клиенту."""
         event = ToolCallAnswered(tool_call_id="llm_7", text="Вызов не выполнялся: отмена.")
 
-        assert JournalMapper.to_acp_update(event) is None
-        assert JournalMapper.to_replay_update(event) is None
+        assert JournalMapper.to_acp_updates(event) == []
+        assert JournalMapper.to_replay_updates(event) == []
 
     def test_answer_survives_round_trip(self) -> None:
         """Событие обязано читаться с диска: из него выводится запись `role: tool`."""
@@ -237,7 +237,7 @@ class TestReplayProjection:
     @pytest.mark.parametrize(
         "event",
         [
-            UserMessageRecorded(content={"type": "text", "text": "a"}),
+            UserMessageRecorded(blocks=[{"type": "text", "text": "a"}]),
             AgentMessageRecorded(content={"type": "text", "text": "b"}),
             ToolCallStarted(tool_call_id="c", title="t", kind="read", status="pending"),
             ToolCallStatusChanged(tool_call_id="c", status="completed"),
@@ -245,7 +245,7 @@ class TestReplayProjection:
         ],
     )
     def test_conversation_events_replay_as_written(self, event: SessionEvent) -> None:
-        assert JournalMapper.to_replay_update(event) == JournalMapper.to_acp_update(event)
+        assert JournalMapper.to_replay_updates(event) == JournalMapper.to_acp_updates(event)
 
 
 class TestToleranceToRecordedSessions:
@@ -270,7 +270,7 @@ class TestToleranceToRecordedSessions:
 
         assert entry is not None
         assert isinstance(entry.event, UnknownUpdateRecorded)
-        assert JournalMapper.to_replay_update(entry.event) == update
+        assert JournalMapper.to_replay_updates(entry.event) == [update]
 
     def test_unknown_kind_is_not_replayed(self) -> None:
         update = {"sessionUpdate": "current_mode_update", "currentModeId": "ask"}
@@ -278,7 +278,7 @@ class TestToleranceToRecordedSessions:
         entry = JournalMapper.from_wire({"type": "session_update", "update": update})
 
         assert entry is not None
-        assert JournalMapper.to_replay_update(entry.event) is None
+        assert JournalMapper.to_replay_updates(entry.event) == []
 
     @pytest.mark.parametrize(
         "wire",
@@ -322,7 +322,7 @@ class TestToleranceToRecordedSessions:
         assert v11["data"]["update"] == update
         again = JournalMapper.from_wire(v11)
         assert again is not None
-        assert JournalMapper.to_replay_update(again.event) == update
+        assert JournalMapper.to_replay_updates(again.event) == [update]
 
     def test_unknown_v11_record_kind_is_skipped_not_fatal(self) -> None:
         """Документ мог записать более новая версия: теряем запись, а не сессию."""
@@ -344,4 +344,90 @@ class TestToleranceToRecordedSessions:
 
         assert entry is not None
         assert isinstance(entry.event, UnknownUpdateRecorded)
-        assert JournalMapper.to_replay_update(entry.event) == update
+        assert JournalMapper.to_replay_updates(entry.event) == [update]
+
+
+class TestMessageGranularity:
+    """Граница сообщения — факт журнала, а не догадка проекции (шаг 4e).
+
+    Оба дефекта, которые здесь закрыты, невидимы на однобочных сообщениях, и
+    именно поэтому прожили до шага 4: во всех наблюдавшихся промптах был ровно
+    один блок, а замер батчей дал `[1, 1, 4, 4, 10, …]` только на большой сессии.
+    """
+
+    def test_multiblock_prompt_is_one_event_and_many_chunks(self) -> None:
+        blocks = [
+            {"type": "text", "text": "посмотри"},
+            {"type": "resource_link", "uri": "file:///tmp/a.py", "name": "a.py"},
+        ]
+        entry = JournalEntry(UserMessageRecorded(blocks=blocks))
+
+        wire = JournalMapper.to_wire(entry)
+        assert wire["data"] == {"blocks": blocks}
+
+        restored = JournalMapper.from_wire(wire)
+        assert restored is not None
+        assert restored.event == UserMessageRecorded(blocks=blocks)
+
+        # ACP передаёт сообщение чанками — по одному на блок, порядок сохранён.
+        assert JournalMapper.to_acp_updates(restored.event) == [
+            {"sessionUpdate": "user_message_chunk", "content": blocks[0]},
+            {"sessionUpdate": "user_message_chunk", "content": blocks[1]},
+        ]
+
+    def test_batch_of_calls_stays_one_assistant_message(self) -> None:
+        """Десять вызовов — один ход модели; склейка по вызову дала бы десять."""
+        calls = [
+            RequestedToolCall(id=f"chatcmpl-{i}", name="terminal_create", arguments={"n": i})
+            for i in range(10)
+        ]
+        event = AgentMessageRecorded(content={"type": "text", "text": "сейчас"}, tool_calls=calls)
+
+        wire = JournalMapper.to_wire(JournalEntry(event))
+        restored = JournalMapper.from_wire(wire)
+
+        assert restored is not None
+        assert restored.event == event
+        assert len(wire["data"]["tool_calls"]) == 10
+
+    def test_requested_calls_carry_what_acp_does_not(self) -> None:
+        """Имя для модели расходится с ACP-именем — вывести его из `title` нельзя."""
+        event = AgentMessageRecorded(
+            tool_calls=[
+                RequestedToolCall(
+                    id="chatcmpl-tool-813c", name="terminal_create", arguments={"command": "ls -la"}
+                )
+            ]
+        )
+
+        wire = JournalMapper.to_wire(JournalEntry(event))
+
+        assert wire["data"] == {
+            "tool_calls": [
+                {
+                    "id": "chatcmpl-tool-813c",
+                    "name": "terminal_create",
+                    "arguments": {"command": "ls -la"},
+                }
+            ]
+        }
+        # Текста нет — значит и ACP-чанка нет: клиент узнаёт о вызовах
+        # нотификациями `tool_call`.
+        assert JournalMapper.to_acp_updates(event) == []
+
+    def test_legacy_per_block_prompt_is_still_read(self) -> None:
+        """Запись v13 (событие на блок) читается как сообщение из одного блока.
+
+        Склеивать соседние записи миграция не вправе: два события могут быть и
+        одним промптом из двух блоков, и двумя промптами, а ошибка молча изменила
+        бы историю диалога.
+        """
+        wire = {
+            "event": "user_message_recorded",
+            "data": {"content": {"type": "text", "text": "привет"}},
+        }
+
+        restored = JournalMapper.from_wire(wire)
+
+        assert restored is not None
+        assert restored.event == UserMessageRecorded(blocks=[{"type": "text", "text": "привет"}])
