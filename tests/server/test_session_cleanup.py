@@ -74,10 +74,14 @@ class TestSessionCleanup:
         _cleanup_session_state(session)
 
         # Assert
-        # Только pending должен стать cancelled
+        # Снимаются все нефинальные вызовы, а не только pending: вызов в полёте
+        # исполняет процесс, которого после загрузки уже нет, и его ответ не напишет
+        # никто (P2-67, измерено на `sess_5fee83e9bc32`). Прежнее правило «in_progress
+        # остаётся без изменений» и было дефектом: статус оставался нефинальным
+        # навсегда, а вызов — без `role: tool`.
         assert session.tool_calls.get("call_1").status.value == "cancelled"
-        # in_progress и completed остаются без изменений
-        assert session.tool_calls.get("call_2").status.value == "in_progress"
+        assert session.tool_calls.get("call_2").status.value == "cancelled"
+        # Финальный статус не переписывается.
         assert session.tool_calls.get("call_3").status.value == "completed"
 
     def test_cleanup_adds_permission_request_to_cancelled_set(self) -> None:

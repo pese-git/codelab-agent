@@ -408,6 +408,55 @@ class TestSingleAnswerPerToolCall:
         assert "терминала" in answers[0].content.text
 
 
+class TestOrphanedInFlightCallIsAnsweredOnLoad:
+    """Вызов в полёте, чей исполнитель умер, обязан получить ответ при загрузке.
+
+    Найдено живым прогоном `sess_5fee83e9bc32` (2026-08-13): `call_034`
+    (`terminal/wait_for_exit`) ушёл в `in_progress` за 3 мс до смерти процесса,
+    следующий `session/cancel` пометил его `cancelled` и промолчал — предикат
+    `is_in_flight` пропускает ответ вперёд исполнителю (P2-63), а исполнителя уже
+    нет. Итог: 41 заявленный вызов против 40 ответов, дефект лежал на диске и
+    переживал рестарт. Оборотная сторона правки P2-63.
+    """
+
+    def test_in_flight_call_is_cancelled_and_answered(self) -> None:
+        session = SessionMapper.to_domain(_session_with_pending_call("in_progress"))
+
+        _cleanup_session_state(session)
+
+        call = session.tool_calls.get("call_001")
+        assert call is not None
+        # Вечный `in_progress` в документе сессии без процесса — второй след той же
+        # причины, и он снимается здесь же.
+        assert call.is_terminal
+        answers = _answers(session)
+        assert [m.tool_call_id for m in answers] == ["chatcmpl-tool-abc"]
+        assert "прервано" in answers[0].content.text
+
+    def test_answer_is_journalled(self) -> None:
+        """Текст ответа обязан попасть в журнал: статус метёлка пишет без контента."""
+        session = SessionMapper.to_domain(_session_with_pending_call("in_progress"))
+
+        _cleanup_session_state(session)
+
+        events = [
+            e
+            for e in session.runtime.events_history
+            if e["event"] == "unexecuted_tool_call_answered"
+        ]
+        assert len(events) == 1
+        assert events[0]["data"]["tool_call_id"] == "chatcmpl-tool-abc"
+        assert events[0]["data"]["text"] == _answers(session)[0].content.text
+
+    def test_pending_call_keeps_its_reason(self) -> None:
+        """«Не начинался» и «прервано» — разные факты, текст их различает."""
+        session = SessionMapper.to_domain(_session_with_pending_call("pending"))
+
+        _cleanup_session_state(session)
+
+        assert "переключена" in _answers(session)[0].content.text
+
+
 class TestCancelAnswerIsJournalled:
     """Ответ метёлки `session/cancel` тоже обязан быть событием журнала.
 

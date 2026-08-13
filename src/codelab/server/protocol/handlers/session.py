@@ -99,14 +99,29 @@ def _cleanup_session_state(session: DomainSession) -> None:
 
         finish_turn(session, cause=TurnEndCause.SESSION_SWITCHED)
 
-    # Отметить все pending tool calls как cancelled
+    # Снять все нефинальные tool calls, а не только `pending`. Вызов в полёте
+    # исполняет процесс, которого здесь уже нет: его ответ принадлежал исполнителю
+    # (предикат `is_in_flight`, P2-63), и если тот умер, ответа не напишет никто.
+    # Измерено живьём (`sess_5fee83e9bc32`, 2026-08-13): `call_034`
+    # (`terminal/wait_for_exit`) ушёл в `in_progress` за 3 мс до смерти процесса,
+    # следующий `session/cancel` пометил его `cancelled` и промолчал — 41 заявленный
+    # вызов против 40 ответов. Дефект переживал рестарт: он лежал на диске.
+    #
+    # Отсюда же снимается второй след той же причины — вечный `in_progress` в
+    # документе сессии, у которой нет процесса.
     history_writer = EventHistoryWriter()
     tool_call_handler = ToolCallHandler()
     for tool_call in session.tool_calls.get_all():
-        if tool_call.status != ToolCallStatus.PENDING:
+        if tool_call.is_terminal:
             continue
 
-        reason = "сессия была переключена"
+        # Причина честная: «не начинался» и «прервано» — разные факты, и модель
+        # вправе различать их, решая, повторять ли вызов.
+        reason = (
+            "сессия была переключена"
+            if tool_call.status == ToolCallStatus.PENDING
+            else "исполнение прервано, результат потерян"
+        )
         session.tool_calls.update_status(tool_call.id, ToolCallStatus.CANCELLED)
         history_writer.save_tool_call_update(
             session,
