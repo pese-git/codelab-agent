@@ -442,7 +442,7 @@ class TestOrphanedInFlightCallIsAnsweredOnLoad:
         events = [
             e
             for e in session.runtime.events_history
-            if e["event"] == "unexecuted_tool_call_answered"
+            if e["event"] == "tool_call_answered"
         ]
         assert len(events) == 1
         assert events[0]["data"]["tool_call_id"] == "chatcmpl-tool-abc"
@@ -474,7 +474,7 @@ class TestCancelAnswerIsJournalled:
         events = [
             e
             for e in session.runtime.events_history
-            if e["event"] == "unexecuted_tool_call_answered"
+            if e["event"] == "tool_call_answered"
         ]
         assert len(events) == 1
         assert events[0]["data"]["tool_call_id"] == "chatcmpl-tool-abc"
@@ -490,5 +490,5 @@ class TestCancelAnswerIsJournalled:
         assert not [
             e
             for e in session.runtime.events_history
-            if e["event"] == "unexecuted_tool_call_answered"
+            if e["event"] == "tool_call_answered"
         ]

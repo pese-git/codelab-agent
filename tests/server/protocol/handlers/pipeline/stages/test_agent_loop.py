@@ -12,6 +12,7 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop import (
     AgentLoopResult,
     ToolProcessingResult,
 )
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.tools.base import ToolExecutionResult
 from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
@@ -46,7 +47,12 @@ def mock_dependencies():
     mock_spb.build.return_value = "You are a helpful assistant."
     return {
         "tool_registry": MagicMock(),
-        "tool_call_handler": MagicMock(),
+        # `wraps` вместо чистой заглушки: ответ модели и его запись в журнал
+        # неразделимы и живут в `ToolCallHandler.answer_tool_call` (ADR-008,
+        # шаг 4), поэтому подменённая дверь превращала «ответ записан» в
+        # «заглушка вызвана» — тот же класс, что описан у фикстуры `session`.
+        # Настройки вида `create_tool_call.return_value` продолжают работать.
+        "tool_call_handler": MagicMock(wraps=ToolCallHandler()),
         "permission_manager": MagicMock(),
         "state_manager": MagicMock(),
         "content_extractor": AsyncMock(),

@@ -28,9 +28,9 @@ from codelab.server.domain.journal import (
     PlanRecorded,
     SessionEvent,
     SessionInfoRecorded,
+    ToolCallAnswered,
     ToolCallStarted,
     ToolCallStatusChanged,
-    UnexecutedToolCallAnswered,
     UnknownUpdateRecorded,
     UserMessageRecorded,
 )
@@ -193,23 +193,19 @@ class TestReplayProjection:
         assert acp is not None
         assert acp["sessionUpdate"] == "session_info_update"
 
-    def test_unexecuted_answer_has_no_acp_form_at_all(self) -> None:
-        """Ответ модели на невыполненный вызов адресован LLM-истории, не клиенту."""
-        event = UnexecutedToolCallAnswered(
-            tool_call_id="llm_7", text="Вызов не выполнялся: отмена."
-        )
+    def test_answer_has_no_acp_form_at_all(self) -> None:
+        """Ответ модели на вызов адресован LLM-истории, а не клиенту."""
+        event = ToolCallAnswered(tool_call_id="llm_7", text="Вызов не выполнялся: отмена.")
 
         assert JournalMapper.to_acp_update(event) is None
         assert JournalMapper.to_replay_update(event) is None
 
-    def test_unexecuted_answer_survives_round_trip(self) -> None:
+    def test_answer_survives_round_trip(self) -> None:
         """Событие обязано читаться с диска: из него выводится запись `role: tool`."""
-        event = UnexecutedToolCallAnswered(
-            tool_call_id="llm_7", text="Вызов не выполнялся: отмена."
-        )
+        event = ToolCallAnswered(tool_call_id="llm_7", text="Вызов не выполнялся: отмена.")
 
         wire = JournalMapper.to_wire(JournalEntry(event, datetime.now(UTC)))
-        assert wire["event"] == "unexecuted_tool_call_answered"
+        assert wire["event"] == "tool_call_answered"
         assert wire["data"] == {
             "tool_call_id": "llm_7",
             "text": "Вызов не выполнялся: отмена.",
@@ -218,6 +214,25 @@ class TestReplayProjection:
         restored = JournalMapper.from_wire(wire)
         assert restored is not None
         assert restored.event == event
+
+    def test_legacy_answer_vid_is_still_read(self) -> None:
+        """Документы шага 4a лежат на диске с прежним именем вида — оно читается.
+
+        Событий ответа было два, и различались они лишь тем, выполнялся ли вызов;
+        обобщение в одно (шаг 4) миграции не требует — форма данных та же, — но
+        терять записи уже записанных сессий не должно.
+        """
+        wire = {
+            "event": "unexecuted_tool_call_answered",
+            "data": {"tool_call_id": "llm_7", "text": "Вызов не выполнялся: отмена."},
+        }
+
+        restored = JournalMapper.from_wire(wire)
+
+        assert restored is not None
+        assert restored.event == ToolCallAnswered(
+            tool_call_id="llm_7", text="Вызов не выполнялся: отмена."
+        )
 
     @pytest.mark.parametrize(
         "event",

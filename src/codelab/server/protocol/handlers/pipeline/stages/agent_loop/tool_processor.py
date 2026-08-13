@@ -1206,8 +1206,11 @@ class ToolCallProcessor:
 
         final_content = content or ""
         # Форма записи принадлежит носителю состояния (history-seam, фаза B ADR-006):
-        # тот же сейм зовут пути отмены, поэтому она одна для всех писателей.
-        session.add_tool_result(tool_call_id, final_content)
+        # тот же сейм зовут пути отмены, поэтому она одна для всех писателей. Дверь
+        # `answer_tool_call` добавляет к записи событие журнала: текст ответа не
+        # выводится из ACP-контента вызова, поэтому без события проекция `history`
+        # невыводима (ADR-008, шаг 4).
+        self._tool_call_handler.answer_tool_call(session, tool_call_id, final_content)
 
         preview = final_content[:200].replace("\n", " ⏎ ")
         logger.info(

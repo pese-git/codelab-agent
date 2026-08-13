@@ -24,15 +24,23 @@ from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
 )
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.storage import JsonFileStorage, SessionRepository
 from tests.server._domain_sessions import make_domain_session
 
 
 def _processor() -> ToolCallProcessor:
+    # `kind` — строка, а не мок: настоящая дверь заводит вызов доменным
+    # `create_tool_call`, а форма записи вызова типизирована (`ToolCallState`).
+    tool_registry = MagicMock()
+    tool_registry.get.return_value.kind = "read"
     return ToolCallProcessor(
-        tool_registry=MagicMock(),
-        tool_call_handler=MagicMock(),
+        tool_registry=tool_registry,
+        # `wraps`, а не заглушка: ответ модели и запись события журнала живут в
+        # `ToolCallHandler.answer_tool_call` (ADR-008, шаг 4), и подменённая дверь
+        # обнулила бы именно то, что этот гейт проверяет, — ответ на диске.
+        tool_call_handler=MagicMock(wraps=ToolCallHandler()),
         permission_manager=MagicMock(),
         content_extractor=AsyncMock(),
         content_validator=MagicMock(),

@@ -34,9 +34,9 @@ from codelab.server.domain.journal import (
     PlanRecorded,
     SessionEvent,
     SessionInfoRecorded,
+    ToolCallAnswered,
     ToolCallStarted,
     ToolCallStatusChanged,
-    UnexecutedToolCallAnswered,
     UnknownUpdateRecorded,
     UserMessageRecorded,
 )
@@ -51,7 +51,7 @@ _EVENT_NAMES: dict[type, str] = {
     AgentMessageRecorded: "agent_message_recorded",
     ToolCallStarted: "tool_call_started",
     ToolCallStatusChanged: "tool_call_status_changed",
-    UnexecutedToolCallAnswered: "unexecuted_tool_call_answered",
+    ToolCallAnswered: "tool_call_answered",
     PlanRecorded: "plan_recorded",
     SessionInfoRecorded: "session_info_recorded",
     UnknownUpdateRecorded: "acp_update_verbatim",
@@ -91,7 +91,7 @@ class JournalMapper:
         стабильность его формы — часть обратной совместимости.
 
         `None` возвращается для факта, которого в ACP нет вовсе: ответ модели на
-        невыполненный вызов адресован LLM-истории, а не клиенту. Это не то же
+        вызов адресован LLM-истории, а не клиенту. Это не то же
         самое, что «событие не реплеится» (`to_replay_update`): `session_info`
         ACP-форму имеет, просто не воспроизводится.
         """
@@ -122,7 +122,7 @@ class JournalMapper:
                     },
                     content,
                 )
-            case UnexecutedToolCallAnswered():
+            case ToolCallAnswered():
                 return None
             case PlanRecorded(entries=entries):
                 return {"sessionUpdate": "plan", "entries": entries}
@@ -140,12 +140,12 @@ class JournalMapper:
         """Событие как нотификация реплея; `None` — событие в реплей не входит.
 
         `SessionInfoRecorded` реплей-формы не имеет (см. его докстринг), а
-        `UnexecutedToolCallAnswered` не имеет и ACP-формы. Для нераспознанной
+        `ToolCallAnswered` не имеет и ACP-формы. Для нераспознанной
         записи решение принимается по её `sessionUpdate`: так сохраняется прежний
         набор реплеируемых видов для старых сессий.
         """
         match event:
-            case SessionInfoRecorded() | UnexecutedToolCallAnswered():
+            case SessionInfoRecorded() | ToolCallAnswered():
                 return None
             case UnknownUpdateRecorded(update=raw):
                 if raw.get("sessionUpdate") in _REPLAYABLE_UNKNOWN_KINDS:
@@ -239,7 +239,7 @@ def _data_of(event: SessionEvent) -> dict[str, Any]:
             if content:
                 changed["content"] = content
             return changed
-        case UnexecutedToolCallAnswered(tool_call_id=tool_call_id, text=text):
+        case ToolCallAnswered(tool_call_id=tool_call_id, text=text):
             return {"tool_call_id": tool_call_id, "text": text}
         case PlanRecorded(entries=entries):
             return {"entries": entries}
@@ -290,9 +290,15 @@ def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
                 ),
                 timestamp,
             )
-        case "unexecuted_tool_call_answered" if _strings(data, "tool_call_id", "text"):
+        # Старое имя вида читается наравне с нынешним: событий ответа было два, и
+        # различались они лишь тем, выполнялся ли вызов (шаг 4a). Обобщение в одно
+        # (шаг 4) не должно терять записи документов, уже лежащих на диске, —
+        # миграции у него нет и не нужно, форма данных та же.
+        case "tool_call_answered" | "unexecuted_tool_call_answered" if _strings(
+            data, "tool_call_id", "text"
+        ):
             return JournalEntry(
-                UnexecutedToolCallAnswered(
+                ToolCallAnswered(
                     tool_call_id=data["tool_call_id"],
                     text=data["text"],
                 ),

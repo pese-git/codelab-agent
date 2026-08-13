@@ -215,6 +215,39 @@ class ToolCallHandler:
             raw_output=raw_output,
         )
 
+    def answer_tool_call(
+        self,
+        session: DomainSession,
+        tool_call_id: str,
+        text: str,
+    ) -> bool:
+        """Ответить модели на вызов и записать этот ответ в журнал.
+
+        Единственная дверь для записи `role: tool`, откуда бы ответ ни шёл:
+        результат исполнения, ошибка, отмена, остаток прерванного батча, вызов без
+        имени инструмента. Ответ и событие журнала — одно решение, поэтому они
+        неразделимы: событие пишется ровно там, где `add_tool_result` подтвердил
+        запись, и подавленный дубль в журнал не попадает.
+
+        Дверь существует потому, что текст ответа **не выводится** из ACP-контента
+        вызова (замер — в докстринге `ToolCallAnswered`), а проекция `history`
+        обязана его выдать. До шага 4 в журнал попадали только ответы
+        невыполненным вызовам, и выводимость держалась на совпадении текстов.
+
+        Args:
+            session: Доменный агрегат сессии
+            tool_call_id: Адресат ответа (`answer_id` из ответа модели)
+            text: Текст, который увидит модель
+
+        Returns:
+            True, если ответ записан; False — ответ этому адресату уже был, и
+            второй отклонён (побеждает первый, см. `Session.add_tool_result`).
+        """
+        if not session.add_tool_result(tool_call_id, text):
+            return False
+        self._history_writer.save_tool_call_answer(session, tool_call_id, text)
+        return True
+
     def answer_unexecuted_tool_calls(
         self,
         session: DomainSession,
@@ -230,12 +263,10 @@ class ToolCallHandler:
         имени инструмента. Их id уже лежат в assistant-сообщении истории, а
         контракт LLM-API требует `role: tool` на каждый (P2-38).
 
-        Дверь одна потому, что ответ и запись в журнал — одно решение: событие
-        `UnexecutedToolCallAnswered` пишется ровно там, где ответ состоялся, и
-        только там. Без него проекция `history` невыводима — этих вызовов нет ни
-        в реестре, ни в остальных событиях (ADR-008, шаг 4). Разложить пару по
-        трём вызывающим значило бы снова договариваться дисциплиной — так уже
-        разошлись шесть писателей ответа (P2-63).
+        Текст ответа принадлежит этой двери — она единственная его знает, — а
+        неразделимость ответа и записи обеспечивает `answer_tool_call`. Разложить
+        пару по трём вызывающим значило бы снова договариваться дисциплиной — так
+        уже разошлись шесть писателей ответа (P2-63).
 
         Args:
             session: Доменный агрегат сессии
@@ -254,10 +285,8 @@ class ToolCallHandler:
 
         answered = 0
         for tool_call_id in tool_call_ids:
-            if not session.add_tool_result(tool_call_id, text):
-                continue
-            self._history_writer.save_unexecuted_tool_call_answer(session, tool_call_id, text)
-            answered += 1
+            if self.answer_tool_call(session, tool_call_id, text):
+                answered += 1
 
         if answered:
             logger.info(

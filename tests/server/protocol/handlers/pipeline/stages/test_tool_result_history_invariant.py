@@ -318,7 +318,7 @@ class TestAnswerIsAJournalEvent:
         return [
             e
             for e in session.runtime.events_history
-            if e.get("event") == "unexecuted_tool_call_answered"
+            if e.get("event") == "tool_call_answered"
         ]
 
     @pytest.mark.asyncio
@@ -370,3 +370,86 @@ class TestAnswerIsAJournalEvent:
 
         assert len(self._answer_events(session)) == 1
         assert len(_tool_answers(session)) == 1
+
+
+class TestAnswerTextIsDerivableFromJournal:
+    """Текст ответа модели — факт журнала, а не функция ACP-контента (шаг 4).
+
+    Замер на двух документах с диска: 7 ответов из 30 и 2 из 5 не выводились из
+    журнала текстом. Причина не в потерянной записи, а в конструкции —
+    исполнитель намеренно говорит клиенту и модели разное: `terminal/create`
+    отдаёт в ACP-контент «Terminal … created for command …» рядом с блоком
+    `terminal`, а модели — «Терминал создан с ID …» (`terminal_executor.py`).
+    Тот же класс дают непустые `content_items` результатов MCP и дописанное
+    описание нетекстовых блоков.
+
+    Гейт держит **оба** утверждения: текст ответа описан событием и при этом из
+    контента статуса не выводится. Без второго проверка была бы бессмысленной на
+    подавляющем большинстве вызовов, где тексты совпадают, — и дефект снова
+    прятался бы, как спрятался от счётчиков «ответов против вызовов».
+    """
+
+    _FOR_MODEL = "Терминал создан с ID: term_1"
+    _FOR_CLIENT = "Terminal term_1 created for command: ls"
+
+    def _processor_with_divergent_executor(self) -> ToolCallProcessor:
+        processor = _make_processor()
+        definition = processor._tool_registry.get.return_value
+        definition.requires_permission = False
+        definition.kind = "execute"
+        content_items = [
+            {"type": "content", "content": {"type": "text", "text": self._FOR_CLIENT}}
+        ]
+        processor._tool_registry.execute_tool = AsyncMock(
+            return_value=ToolExecutionResult(
+                success=True,
+                output=self._FOR_MODEL,
+                content=content_items,
+            )
+        )
+        extracted = MagicMock()
+        extracted.content_items = content_items
+        processor._content_extractor.extract_from_result = AsyncMock(return_value=extracted)
+        processor._content_validator.validate_content_list.return_value = (True, [])
+        return processor
+
+    @pytest.mark.asyncio
+    async def test_answer_is_journalled_even_when_it_differs_from_acp_content(self) -> None:
+        processor = self._processor_with_divergent_executor()
+        session = _session(mode="bypass")
+
+        await processor.process_batch(
+            make_commands(session), "s", [_Call("llm_1", name="terminal/create")], AsyncMock(), None
+        )
+
+        assert [m["content"] for m in _tool_answers(session)] == [self._FOR_MODEL]
+        answered = [
+            e for e in session.runtime.events_history if e.get("event") == "tool_call_answered"
+        ]
+        assert [e["data"]["text"] for e in answered] == [self._FOR_MODEL]
+
+    @pytest.mark.asyncio
+    async def test_acp_content_alone_would_not_yield_the_answer(self) -> None:
+        """Вторая половина гейта: из ACP-контента тот же текст не выводится.
+
+        Контент берётся из вызова `SessionUpdateSink.emit_and_save_tool_update` —
+        именно он уносит контент в журнал. Реестр вызовов здесь не годится: в него
+        кладётся текст `output`, то есть **совпадающий** с ответом, и гейт на нём
+        оказался бы зелёным по неверной причине.
+        """
+        processor = self._processor_with_divergent_executor()
+        session = _session(mode="bypass")
+        sink = AsyncMock()
+
+        await processor.process_batch(
+            make_commands(session), "s", [_Call("llm_1", name="terminal/create")], sink, None
+        )
+
+        recorded = [
+            block["content"]["text"]
+            for call in sink.emit_and_save_tool_update.await_args_list
+            for block in (call.kwargs.get("content") or [])
+            if block.get("type") == "content"
+        ]
+        assert self._FOR_CLIENT in recorded
+        assert self._FOR_MODEL not in recorded

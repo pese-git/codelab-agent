@@ -23,6 +23,7 @@ from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import Running, ToolCallStatus
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
+from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.stop_reasons import StopReason
 from codelab.server.storage.memory import InMemoryStorage
 from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
@@ -119,7 +120,8 @@ class TestAgentLoopEventBusPath:
         mock_tool_result.error = None
         mock_tool_registry.execute_tool = AsyncMock(return_value=mock_tool_result)
 
-        mock_tool_call_handler = MagicMock()
+        # `wraps`: дверь `answer_tool_call` пишет ответ и событие журнала (ADR-008, шаг 4).
+        mock_tool_call_handler = MagicMock(wraps=ToolCallHandler())
         mock_tool_call_handler.create_tool_call.return_value = "tc_1"
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
         mock_tool_call_handler.build_tool_update_notification.return_value = MagicMock()
@@ -207,7 +209,8 @@ class TestAgentLoopPermissionFlow:
         mock_tool_result.error = None
         mock_tool_registry.execute_tool = AsyncMock(return_value=mock_tool_result)
 
-        mock_tool_call_handler = MagicMock()
+        # `wraps`: дверь `answer_tool_call` пишет ответ и событие журнала (ADR-008, шаг 4).
+        mock_tool_call_handler = MagicMock(wraps=ToolCallHandler())
         mock_tool_call_handler.create_tool_call.return_value = "tc_1"
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
         mock_tool_call_handler.build_tool_update_notification.return_value = MagicMock()
@@ -298,7 +301,8 @@ class TestAgentLoopCancellation:
 
         mock_tool_registry = MagicMock()
         mock_tool_registry.get.return_value = mock_tool_def
-        mock_tool_call_handler = MagicMock()
+        # `wraps`: дверь `answer_tool_call` пишет ответ и событие журнала (ADR-008, шаг 4).
+        mock_tool_call_handler = MagicMock(wraps=ToolCallHandler())
         mock_tool_call_handler.create_tool_call.return_value = "tc_1"
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
 
@@ -376,7 +380,8 @@ class TestAgentLoopMaxTurnRequests:
         mock_tool_result.error = None
         mock_tool_registry.execute_tool = AsyncMock(return_value=mock_tool_result)
 
-        mock_tool_call_handler = MagicMock()
+        # `wraps`: дверь `answer_tool_call` пишет ответ и событие журнала (ADR-008, шаг 4).
+        mock_tool_call_handler = MagicMock(wraps=ToolCallHandler())
         mock_tool_call_handler.create_tool_call.return_value = "tc_1"
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
         mock_tool_call_handler.build_tool_update_notification.return_value = MagicMock()
@@ -473,7 +478,8 @@ class TestAgentLoopErrorHandling:
         mock_tool_registry.get.return_value = mock_tool_def
         mock_tool_registry.execute_tool = AsyncMock(side_effect=RuntimeError("Tool crashed"))
 
-        mock_tool_call_handler = MagicMock()
+        # `wraps`: дверь `answer_tool_call` пишет ответ и событие журнала (ADR-008, шаг 4).
+        mock_tool_call_handler = MagicMock(wraps=ToolCallHandler())
         mock_tool_call_handler.create_tool_call.return_value = "tc_1"
         mock_tool_call_handler.build_tool_call_notification.return_value = MagicMock()
         mock_tool_call_handler.build_tool_update_notification.return_value = MagicMock()
