@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any, cast
 
 from codelab.server.agent.config.models import SessionMetrics
+from codelab.server.domain.history_projection import project_history
 from codelab.server.domain.session import (
     AgentPlan,
     ConversationHistory,
@@ -22,6 +23,7 @@ from codelab.server.domain.session import (
 )
 from codelab.server.domain.value_objects import PermissionWait, SessionId, turn_phase_from_wire
 from codelab.server.mapping.history_mapper import HistoryMapper
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.mapping.tool_call_mapper import ToolCallMapper
 from codelab.server.models import HistoryMessage, PlanStep
@@ -48,12 +50,18 @@ class SessionMapper:
         Returns:
             Protocol SessionDocument для сериализации
         """
-        # История сообщений: делегируем в lossless HistoryMapper (единый путь
-        # сериализации истории — write-фаза D2-b, ADR-006). Тело сообщения (блочный
-        # content, плоский text, embedded LLM tool_calls) сохраняется без потерь.
-        history: list[HistoryMessage] = [
-            HistoryMapper.to_protocol(msg) for msg in session.history.get_messages()
-        ]
+        # История на диск не уезжает: она проекция журнала (шаг 4f ADR-008), и
+        # хранить её значило бы держать вторую копию тех же данных — ровно тот
+        # рассинхрон, ради устранения которого шаг делался.
+        #
+        # Исключение — легаси-документы, которые уже несут историю: их журнал
+        # диалог целиком не описывает, поэтому коллекция остаётся источником и
+        # продолжает писаться. Признак несёт сам документ, а не версия схемы.
+        history: list[HistoryMessage] = (
+            [HistoryMapper.to_protocol(msg) for msg in session.history.get_messages()]
+            if session.history_is_source
+            else []
+        )
 
         # Конвертируем tool calls (делегируем ToolCallMapper — round-trip без потерь, D4-b/b3)
         tool_calls = {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
@@ -213,6 +221,7 @@ class SessionMapper:
             schema_version=state.schema_version,
             revision=state.revision,
             available_commands=SessionMapper.normalize_commands(state.available_commands),
+            history_is_source=bool(state.history),
         )
 
     @staticmethod
@@ -293,15 +302,37 @@ class SessionMapper:
 
     @staticmethod
     def _build_history(state: SessionDocument) -> ConversationHistory:
-        """Собирает ConversationHistory из protocol-history, делегируя в lossless HistoryMapper.
+        """История сессии: проекция журнала, а для легаси-документов — их коллекция.
 
-        Единый путь десериализации истории (write-фаза D2-b, ADR-006). Форма записи
-        одна: `SessionDocument.history` типизирована `HistoryMessage`, а документы
-        прошлых версий приводятся к ней валидацией при загрузке.
+        Шаг 4f ADR-008: `history` перестала быть источником и стала видом. Новые
+        документы её не несут вовсе, поэтому признак легаси — **само наличие
+        коллекции**, а не версия схемы: замер показал документ v14, чей журнал
+        дописан кодом до 4e, то есть версия о полноте журнала не говорит.
+
+        Такие документы читаются как раньше и остаются со своей историей до конца:
+        события до 4e не несут ни границ сообщения, ни вызовов модели, и проекция
+        восстановила бы из них 5 сообщений вместо 14 (замер на `sess_cfa80d9edd84`).
+
+        Проекция сверена с сохранённой историей на сессии, записанной после 4e:
+        10 записей против 10, роли, содержимое, вызовы и адресаты ответов совпали;
+        разошлись только метки времени — на микросекунды, потому что история
+        ставила свою в момент вызова сейма, а журнал — в момент записи события. В
+        payload модели метка не попадает (`HistoryBuilder` её не читает).
         """
+        if state.history:
+            history = ConversationHistory()
+            for msg_data in state.history:
+                history.add(HistoryMapper.to_domain(msg_data))
+            return history
+
+        entries = [
+            entry
+            for entry in (JournalMapper.from_wire(dict(record)) for record in state.events_history)
+            if entry is not None
+        ]
         history = ConversationHistory()
-        for msg_data in state.history:
-            history.add(HistoryMapper.to_domain(msg_data))
+        for message in project_history(entries):
+            history.add(message)
         return history
 
     @staticmethod

@@ -20,6 +20,7 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.session import TurnState
+from codelab.server.domain.value_objects import MessageRole
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor import (
     ToolCallProcessor,
@@ -96,10 +97,11 @@ class TestEveryStepReachesDisk:
         )
 
         stored = await _on_disk(repository)
+        # Ответы читаются из восстановленного агрегата: с шага 4f ADR-008 историю
+        # несёт журнал, а не коллекция документа, — гейт по-прежнему про диск, но
+        # источник у него один.
         answered = [
-            message
-            for message in SessionMapper.to_protocol(stored).history
-            if getattr(message, "role", None) == "tool"
+            message for message in stored.history.get_messages() if message.role == MessageRole.TOOL
         ]
         assert len(answered) == 2, "оба вызова отвечены модели и это видно на диске"
 

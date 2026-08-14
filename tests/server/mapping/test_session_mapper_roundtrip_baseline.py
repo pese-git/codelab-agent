@@ -8,9 +8,12 @@
 
 from codelab.server.domain.conversation import (
     ConversationMessage,
-    Image,
     MessageContent,
-    TextBlock,
+)
+from codelab.server.domain.journal import (
+    JournalEntry,
+    RequestedToolCall,
+    UserMessageRecorded,
 )
 from codelab.server.domain.plan import PlanEntry
 from codelab.server.domain.session import (
@@ -31,7 +34,9 @@ from codelab.server.domain.value_objects import (
     PlanStatus,
     SessionId,
 )
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.mapping.session_mapper import SessionMapper
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.storage.document import CURRENT_SCHEMA_VERSION
 
 
@@ -58,6 +63,15 @@ def _rich_session() -> Session:
         history=history,
         tool_calls=tool_calls,
     )
+
+    # Журнал заполняется настоящим писателем, как в продакшене: с шага 4f ADR-008
+    # разговор переживает хранилище **через журнал**, а не через коллекцию
+    # `history` — она перестала персистироваться. Фикстура, писавшая только
+    # историю, проверяла бы round-trip мимо источника.
+    writer = EventHistoryWriter()
+    writer.save_user_message(session, [{"type": "text", "text": "hi"}])
+    writer.save_agent_message(session, {"type": "text", "text": "hello"})
+    writer.save_tool_call_answer(session, "call_001", "tool result")
     session.plan.add_step(
         PlanEntry(content="step 1", priority=PlanPriority.HIGH, status=PlanStatus.PENDING)
     )
@@ -327,13 +341,21 @@ class TestRoundtripPrepFields:
         assert rt.multi_agent.sliced_summary == "summary"
 
     def test_history_timestamp_none_preserved(self) -> None:
-        """None timestamp остаётся None (не синтезируется) — ACP updatedAt-семантика."""
-        history = ConversationHistory()
-        history.add(
-            ConversationMessage(role=MessageRole.USER, content=MessageContent.from_text("a"))
+        """`None` остаётся `None` и не синтезируется — ACP updatedAt-семантика.
+
+        С шага 4f метку времени сообщения несёт **журнал**: история выводится из
+        него, поэтому запись без метки обязана дать сообщение без метки. Прежде
+        метка лежала в самой записи истории; инвариант тот же, источник другой.
+        """
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"))
+        record = JournalMapper.to_wire(
+            JournalEntry(UserMessageRecorded(blocks=[{"type": "text", "text": "a"}]))
         )
-        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+        session.runtime.events_history.append(record)
+
         rt = _roundtrip(session)
+
+        assert "at" not in record
         assert rt.history.get_messages()[0].timestamp is None
 
 
@@ -454,16 +476,15 @@ class TestRoundtripHistoryBody:
 
     def test_multimodal_history_preserved(self) -> None:
         """Мультимодальный контент истории (images) переживает round-trip."""
-        history = ConversationHistory()
-        history.add(
-            ConversationMessage(
-                role=MessageRole.USER,
-                content=MessageContent(
-                    blocks=(TextBlock(text="see"), Image(data="B64", mime_type="image/png"))
-                ),
-            )
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"))
+        EventHistoryWriter().save_user_message(
+            session,
+            [
+                {"type": "text", "text": "see"},
+                {"type": "image", "data": "B64", "mimeType": "image/png"},
+            ],
         )
-        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+
         rt = _roundtrip(session)
         msg = rt.history.get_messages()[0]
         assert msg.content.text == "see"
@@ -472,17 +493,13 @@ class TestRoundtripHistoryBody:
 
     def test_assistant_text_and_tool_calls_preserved(self) -> None:
         """Плоский assistant-текст и embedded LLM tool_calls переживают round-trip."""
-        from codelab.server.domain.tool_call import ToolCall
-
-        history = ConversationHistory()
-        history.add(
-            ConversationMessage(
-                role=MessageRole.ASSISTANT,
-                content=MessageContent.from_text("plan"),
-                tool_calls=[ToolCall(id="c1", tool_name="update_plan", arguments={"e": 1})],
-            )
+        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"))
+        EventHistoryWriter().save_agent_message(
+            session,
+            {"type": "text", "text": "plan"},
+            tool_calls=[RequestedToolCall(id="c1", name="update_plan", arguments={"e": 1})],
         )
-        session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"), history=history)
+
         rt = _roundtrip(session)
         msg = rt.history.get_messages()[0]
         assert msg.role == MessageRole.ASSISTANT

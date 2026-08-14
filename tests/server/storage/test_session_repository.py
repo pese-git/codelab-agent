@@ -6,14 +6,9 @@
 Резидентный кэш — отдельный осознанный шаг D4-d2, здесь его быть не должно.
 """
 
-from codelab.server.domain.conversation import (
-    ConversationMessage,
-    Image,
-    MessageContent,
-    TextBlock,
-)
 from codelab.server.domain.session import Session, SessionConfig
-from codelab.server.domain.value_objects import MessageRole, SessionId
+from codelab.server.domain.value_objects import SessionId
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.storage import InMemoryStorage, SessionRepository
 from codelab.server.storage.document import SessionDocument
 
@@ -56,11 +51,11 @@ class TestDomainTyping:
         repository = SessionRepository(backend=backend)
 
         session = Session(id=SessionId("sess_rt"), config=SessionConfig(cwd="/work"))
-        session.add_message(
-            ConversationMessage(
-                role=MessageRole.USER,
-                content=MessageContent(blocks=(TextBlock(text="see"), Image(data="B64"))),
-            )
+        # Разговор доезжает до диска журналом, а не коллекцией `history`: с шага 4f
+        # ADR-008 история — проекция, и документ её не несёт.
+        EventHistoryWriter().save_user_message(
+            session,
+            [{"type": "text", "text": "see"}, {"type": "image", "data": "B64"}],
         )
         session.set_permission_policy("read", "allow_always")
         session.set_config_value("mode", "plan")

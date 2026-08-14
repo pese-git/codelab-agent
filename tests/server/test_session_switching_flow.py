@@ -7,6 +7,7 @@
 import pytest
 from _protocol_factory import build_protocol
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 
 
@@ -37,7 +38,8 @@ async def test_session_switching_flow_preserves_history() -> None:
     # Проверяем, что история добавлена
     session_1_state = await protocol._storage.load_session(session_1_id)
     assert session_1_state is not None
-    assert len(session_1_state.history) >= 2  # user + agent message
+    # История выводится из журнала (шаг 4f ADR-008): документ её не несёт.
+    assert len(SessionMapper.to_domain(session_1_state).history.get_messages()) >= 2
 
     # === ЭТАП 3: Создание SESSION_2 ===
     created_2 = await protocol.handle(

@@ -41,8 +41,14 @@ def test_projection_satisfies_the_port() -> None:
     assert _accepts_port(DomainSessionView(session)) == "sess_1"
 
 
-def test_reads_match_what_goes_to_storage() -> None:
-    """Ядро через проекцию читает то же, что маппер отдаёт в wire-документ."""
+def test_core_sees_the_conversation_that_the_document_no_longer_carries() -> None:
+    """Ядро читает историю сессии, а документ её больше не несёт (шаг 4f ADR-008).
+
+    Прежде тест требовал равенства `view.history` и `state.history` — и это
+    равенство было формой той самой второй копии, которую шаг убрал: история
+    стала проекцией журнала и на диск не уезжает. Инвариант остался прежним по
+    смыслу — ядро видит разговор целиком, — но источник у него теперь один.
+    """
     session = _domain_session()
     session.add_user_message([{"type": "text", "text": "привет"}])
     session.add_assistant_tool_call_message(
@@ -56,9 +62,8 @@ def test_reads_match_what_goes_to_storage() -> None:
     assert view.session_id == state.session_id
     assert view.cwd == state.cwd
     assert view.config_values == state.config_values
-    assert [entry.model_dump() for entry in view.history] == [
-        entry.model_dump() for entry in state.history
-    ]
+    assert [message.role for message in view.history] == ["user", "assistant", "tool"]
+    assert state.history == []
 
 
 def test_capabilities_satisfy_the_port_without_conversion() -> None:

@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from codelab.server.domain.value_objects import MessageRole
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.models import HistoryMessage
 from codelab.server.protocol.commands.session_load import SessionLoadCommandHandler
@@ -30,15 +32,16 @@ from codelab.server.storage.document import (
 
 
 def _tool_answers(session: SessionDocument) -> list[tuple[str, str]]:
-    """Ответы `role: tool` из истории.
-    
-    Форма одна: после снятия союза `HistoryMessage | dict` (ADR-006, фаза D
-    шаг 4) и свежая запись, и прочитанная с диска — одна и та же модель.
+    """Ответы `role: tool`, восстановленные из документа.
+
+    Источник — журнал: с шага 4f ADR-008 история стала проекцией и в документе не
+    хранится, поэтому читать `session.history` значило бы проверять отсутствие
+    коллекции. Гейт по-прежнему про диск — документ приходит из хранилища.
     """
     return [
-        (message.tool_call_id or "", str(message.content or ""))
-        for message in session.history
-        if message.role == "tool"
+        (message.tool_call_id or "", message.content.text)
+        for message in SessionMapper.to_domain(session).history.get_messages()
+        if message.role == MessageRole.TOOL
     ]
 
 
@@ -288,8 +291,6 @@ class TestDomainRoundTripDoesNotRewriteFormat:
         `raw_input`. Вторая нормализация: запись истории без ключа `arguments`
         получает `arguments: {}`.
         """
-        from codelab.server.mapping.session_mapper import SessionMapper
-
         state = SessionDocument(session_id="s", cwd="/w", mcp_servers=[])
         state.tool_calls["c1"] = ToolCallState(
             tool_call_id="c1",

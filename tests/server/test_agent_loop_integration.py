@@ -21,6 +21,7 @@ from codelab.server.di import make_container
 from codelab.server.domain.session import TurnState
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import Running, ToolCallStatus
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.protocol.handlers.pipeline.stages.llm_loop import LLMLoopStage
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
@@ -146,7 +147,10 @@ class TestAgentLoopEventBusPath:
             state_manager=MagicMock(),
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -250,7 +254,10 @@ class TestAgentLoopPermissionFlow:
             state_manager=MagicMock(),
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -322,7 +329,10 @@ class TestAgentLoopCancellation:
             state_manager=MagicMock(),
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -399,7 +409,10 @@ class TestAgentLoopMaxTurnRequests:
             state_manager=MagicMock(),
             content_extractor=mock_content_extractor,
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
             max_turn_requests=3,  # Ограничиваем до 3
@@ -433,7 +446,10 @@ class TestAgentLoopErrorHandling:
             state_manager=MagicMock(),
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -492,7 +508,10 @@ class TestAgentLoopErrorHandling:
             state_manager=MagicMock(),
             content_extractor=AsyncMock(),
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )
@@ -602,7 +621,10 @@ class TestAssistantHistorySingleWriter:
             state_manager=MagicMock(),
             content_extractor=extractor,
             content_validator=MagicMock(),
-            history_writer=MagicMock(),
+            # Настоящий писатель: с шага 4f ADR-008 история переживает команду
+            # только через журнал, поэтому заглушка здесь стирала бы
+            # записанное на следующей же транзакции.
+            history_writer=EventHistoryWriter(),
             plan_builder=MagicMock(),
             system_prompt_builder=MagicMock(),
         )

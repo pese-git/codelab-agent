@@ -15,6 +15,7 @@ from codelab.server.domain.value_objects import (
     ToolCallStatus,
 )
 from codelab.server.mapping.session_mapper import SessionMapper
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.storage.document import (
     ClientRuntimeCapabilities,
     SessionDocument,
@@ -37,28 +38,41 @@ class TestSessionMapperToProtocol:
         assert state.tool_calls == {}
         assert state.tool_call_counter == 0
 
-    def test_with_history(self) -> None:
-        """Тест конвертации с историей сообщений."""
+    def test_projected_history_does_not_reach_the_document(self) -> None:
+        """История в документ не уезжает: она проекция журнала (шаг 4f ADR-008).
+
+        Прежде тест требовал обратного — и это требование было формой второй копии
+        тех же данных, которую шаг убрал. Что разговор доезжает до диска и
+        обратно, проверяют гейты round-trip: там источником выступает журнал.
+        """
         config = SessionConfig(cwd="/tmp")
         session = Session(id=SessionId("sess_1"), config=config)
-
-        msg = ConversationMessage(
-            role=MessageRole.USER,
-            content=MessageContent.from_text("hello"),
+        session.add_message(
+            ConversationMessage(role=MessageRole.USER, content=MessageContent.from_text("hello"))
         )
-        session.add_message(msg)
 
         state = SessionMapper.to_protocol(session)
 
-        assert len(state.history) == 1
-        # history содержит HistoryMessage объекты; user-контент едет блоками
-        # (единый lossless путь HistoryMapper — write-фаза D2-b, ADR-006).
-        history_msg = state.history[0]
-        assert hasattr(history_msg, "role")
-        assert history_msg.role == "user"
-        # Блок едет дословно: `data: None` в ожидании был артефактом коэрции в
-        # снятую wire-модель MessageContent (она же теряла payload resource).
-        assert history_msg.model_dump()["content"] == [{"type": "text", "text": "hello"}]
+        assert state.history == []
+
+    def test_legacy_document_keeps_writing_its_history(self) -> None:
+        """Документ, уже несущий историю, продолжает её писать.
+
+        Журнал таких сессий диалог целиком не описывает (события до 4e не несут ни
+        границ сообщения, ни вызовов модели), поэтому коллекция остаётся их
+        источником — иначе разговор прежних сессий пропал бы. Признак несёт сам
+        документ, а не версия схемы: замерен документ v14 с журналом от прежнего кода.
+        """
+        legacy = SessionDocument(
+            session_id="sess_1",
+            cwd="/tmp",
+            history=[{"role": "user", "content": "hello"}],
+        )
+
+        state = SessionMapper.to_protocol(SessionMapper.to_domain(legacy))
+
+        assert [message.role for message in state.history] == ["user"]
+        assert state.history[0].model_dump()["content"] == [{"type": "text", "text": "hello"}]
 
     def test_with_tool_calls(self) -> None:
         """Тест конвертации с tool calls."""
@@ -286,12 +300,9 @@ class TestSessionMapperRoundTrip:
         )
         session = Session(id=SessionId("sess_1"), config=config)
 
-        # Добавляем данные
-        msg = ConversationMessage(
-            role=MessageRole.USER,
-            content=MessageContent.from_text("hello"),
-        )
-        session.add_message(msg)
+        # Разговор доезжает до диска журналом: история — проекция (шаг 4f ADR-008),
+        # и документ её не несёт, поэтому фикстура пишет то, что пишет продакшен.
+        EventHistoryWriter().save_user_message(session, [{"type": "text", "text": "hello"}])
 
         tc = session.create_tool_call("read_file", {"path": "/tmp"})
         session.update_tool_call(tc.id, status=ToolCallStatus.COMPLETED)
@@ -315,8 +326,9 @@ class TestSessionMapperRoundTrip:
         assert restored.config.cwd == session.config.cwd
         assert restored.config.config_values == session.config.config_values
 
-        # Проверяем историю
-        assert len(restored.history.get_messages()) == len(session.history.get_messages())
+        # Проверяем историю: восстановлена из журнала, а не из коллекции документа
+        assert state.history == []
+        assert [message.content.text for message in restored.history.get_messages()] == ["hello"]
 
         # Проверяем tool calls
         assert restored.tool_calls.counter == session.tool_calls.counter

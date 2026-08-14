@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from codelab.server.domain.session import Session
+from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.storage import InMemoryStorage, SessionRepository, SessionStorage
@@ -97,11 +98,19 @@ def make_commands(
 
 
 def wire_history(session: Session) -> list[dict[str, Any]]:
-    """История агрегата в том виде, в каком она уезжает на диск.
+    """История агрегата в wire-форме — той, что уезжает модели и клиенту.
 
     Сверять запись turn'а с wire-формой, а не с доменными полями, — сознательно:
-    расхождение «в памяти одно, на диске другое» и было корнем P1-45, поэтому
-    тесты истории смотрят именно на то, что уедет в документ сессии.
+    расхождение «в памяти одно, на диске другое» и было корнем P1-45.
+
+    **С шага 4f ADR-008 источник другой, а форма та же.** История перестала
+    персистироваться: документ её не несёт, потому что она проекция журнала.
+    Поэтому помощник рендерит сообщения агрегата тем же маппером, вместо чтения
+    `SessionDocument.history`, — иначе он проверял бы отсутствие коллекции, а не
+    содержание разговора. Что разговор доезжает до диска и обратно, проверяют
+    гейты round-trip: там источником выступает журнал.
     """
-    protocol = SessionMapper.to_protocol(session)
-    return [entry.model_dump(exclude_none=True) for entry in protocol.history]
+    return [
+        HistoryMapper.to_protocol(message).model_dump(exclude_none=True)
+        for message in session.history.get_messages()
+    ]
