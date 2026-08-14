@@ -432,7 +432,7 @@ class TestAnswerTextIsDerivableFromJournal:
     async def test_acp_content_alone_would_not_yield_the_answer(self) -> None:
         """Вторая половина гейта: из ACP-контента тот же текст не выводится.
 
-        Контент берётся из вызова `SessionUpdateSink.emit_and_save_tool_update` —
+        Контент берётся из вызова `SessionUpdateSink.emit_tool_update` —
         именно он уносит контент в журнал. Реестр вызовов здесь не годится: в него
         кладётся текст `output`, то есть **совпадающий** с ответом, и гейт на нём
         оказался бы зелёным по неверной причине.
@@ -445,10 +445,12 @@ class TestAnswerTextIsDerivableFromJournal:
             make_commands(session), "s", [_Call("llm_1", name="terminal/create")], sink, None
         )
 
+        # Контент читается из самой нотификации: с шага 4g ADR-008 sink принимает
+        # только её — статус и его событие журнала остались за дверью перехода.
         recorded = [
             block["content"]["text"]
-            for call in sink.emit_and_save_tool_update.await_args_list
-            for block in (call.kwargs.get("content") or [])
+            for call in sink.emit_tool_update.await_args_list
+            for block in ((call.args[0].params or {}).get("update", {}).get("content") or [])
             if block.get("type") == "content"
         ]
         assert self._FOR_CLIENT in recorded

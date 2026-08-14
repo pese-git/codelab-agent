@@ -26,6 +26,7 @@ from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..state import ProtocolOutcome
 from ..turn_runtime import TurnEndCause, finish_turn
+from .prompt.tool_call_state import update_tool_call_status
 from .prompt.tool_call_updates import tool_call_status_notification
 from .session import session_info_notification
 
@@ -170,8 +171,8 @@ def _handle_fs_read(
             },
         }
     ]
-    changed = session.tool_calls.update_status(
-        pending.tool_call_id, ToolCallStatus.COMPLETED, content=content
+    changed = update_tool_call_status(
+        session, pending.tool_call_id, ToolCallStatus.COMPLETED, content=content
     )
     return _ContinueToCompletion(
         _status_notifications(
@@ -214,8 +215,8 @@ def _handle_fs_write(
             "newText": new_text,
         }
     ]
-    changed = session.tool_calls.update_status(
-        pending.tool_call_id, ToolCallStatus.COMPLETED, content=diff_content
+    changed = update_tool_call_status(
+        session, pending.tool_call_id, ToolCallStatus.COMPLETED, content=diff_content
     )
     return _ContinueToCompletion(
         _status_notifications(
@@ -243,7 +244,7 @@ def _handle_terminal_create(
     if isinstance(result, dict) and isinstance(result.get("terminalId"), str):
         terminal_id = result["terminalId"]
     if terminal_id is None:
-        changed = session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.FAILED)
+        changed = update_tool_call_status(session, pending.tool_call_id, ToolCallStatus.FAILED)
         notifications: list[ACPMessage] = _status_notifications(
             session=session,
             changed=changed,
@@ -257,7 +258,7 @@ def _handle_terminal_create(
             followup_responses=[done] if done is not None else [],
         )
 
-    changed = session.tool_calls.update_status(pending.tool_call_id, ToolCallStatus.IN_PROGRESS)
+    changed = update_tool_call_status(session, pending.tool_call_id, ToolCallStatus.IN_PROGRESS)
     notifications = _status_notifications(
         session=session,
         changed=changed,
@@ -498,7 +499,8 @@ def _handle_terminal_release(
             },
         },
     ]
-    changed = session.tool_calls.update_status(
+    changed = update_tool_call_status(
+        session,
         pending.tool_call_id,
         ToolCallStatus.COMPLETED,
         content=completed_content,
@@ -621,7 +623,7 @@ def finalize_failed_client_rpc_request(
             failure_text="Invalid terminal/output response.",
         )
     """
-    changed = session.tool_calls.update_status(tool_call_id, ToolCallStatus.FAILED)
+    changed = update_tool_call_status(session, tool_call_id, ToolCallStatus.FAILED)
     failure_notifications = _status_notifications(
         session=session,
         changed=changed,

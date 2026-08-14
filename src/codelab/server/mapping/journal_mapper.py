@@ -265,18 +265,8 @@ def _data_of(event: SessionEvent) -> dict[str, Any]:
             return {"blocks": blocks}
         case AgentMessageRecorded(content=content, tool_calls=tool_calls):
             return _agent_data(content, tool_calls)
-        case ToolCallStarted(
-            tool_call_id=tool_call_id, title=title, kind=kind, status=status, content=content
-        ):
-            return _with_content(
-                {
-                    "tool_call_id": tool_call_id,
-                    "title": title,
-                    "kind": kind,
-                    "status": status,
-                },
-                content,
-            )
+        case ToolCallStarted():
+            return _started_data(event)
         case ToolCallStatusChanged(tool_call_id=tool_call_id, status=status, content=content):
             return _with_content({"tool_call_id": tool_call_id, "status": status}, content)
         case ToolCallAnswered(tool_call_id=tool_call_id, text=text):
@@ -287,6 +277,30 @@ def _data_of(event: SessionEvent) -> dict[str, Any]:
             return {"title": title, "updated_at": updated_at}
         case UnknownUpdateRecorded(update=raw):
             return {"update": raw}
+
+
+def _started_data(event: ToolCallStarted) -> dict[str, Any]:
+    """Полезная нагрузка `tool_call_started`.
+
+    Поля без значения не пишутся: у вызовов client-RPC их нет вовсе, и `None` в
+    документе от их отсутствия ничем бы не отличался.
+    """
+    data = _with_content(
+        {
+            "tool_call_id": event.tool_call_id,
+            "title": event.title,
+            "kind": event.kind,
+            "status": event.status,
+        },
+        event.content,
+    )
+    if event.tool_name is not None:
+        data["tool_name"] = event.tool_name
+    if event.arguments is not None:
+        data["arguments"] = event.arguments
+    if event.tool_call_id_from_llm is not None:
+        data["tool_call_id_from_llm"] = event.tool_call_id_from_llm
+    return data
 
 
 def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
@@ -317,6 +331,9 @@ def _entry_from_v11(wire: dict[str, Any]) -> JournalEntry | None:
                     kind=data["kind"],
                     status=data["status"],
                     content=data.get("content"),
+                    tool_name=_optional_str(data.get("tool_name")),
+                    arguments=_optional_dict(data.get("arguments")),
+                    tool_call_id_from_llm=_optional_str(data.get("tool_call_id_from_llm")),
                 ),
                 timestamp,
             )
@@ -421,6 +438,20 @@ def _requested_calls(raw: object) -> list[RequestedToolCall]:
 def _strings(update: dict[str, Any], *names: str) -> bool:
     """Все перечисленные поля — строки."""
     return all(isinstance(update.get(name), str) for name in names)
+
+
+def _optional_str(raw: object) -> str | None:
+    """Строка либо `None`; чужая форма — как отсутствие поля.
+
+    Запись могла прийти от более новой версии или от чужого писателя, и ронять
+    на ней загрузку сессии нельзя: потеря вызова дешевле потери сессии.
+    """
+    return raw if isinstance(raw, str) else None
+
+
+def _optional_dict(raw: object) -> dict[str, Any] | None:
+    """Словарь либо `None`; чужая форма — как отсутствие поля."""
+    return dict(raw) if isinstance(raw, dict) else None
 
 
 def _content_ok(update: dict[str, Any]) -> bool:

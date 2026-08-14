@@ -235,7 +235,9 @@ class TestAgentLoopPermissionFlow:
             phase=Running(),
         )
 
-        # Вызов для resume — доменный: носитель turn-пути агрегат (ADR-006)
+        # Вызов для resume — доменный: носитель turn-пути агрегат (ADR-006).
+        # Вместе с событием журнала: с шага 4g ADR-008 реестр — проекция, и вызов
+        # без события не переживает первую же команду.
         session.tool_calls.calls["tc_1"] = ToolCall(
             id="tc_1",
             tool_name="dangerous_tool",
@@ -244,6 +246,16 @@ class TestAgentLoopPermissionFlow:
             kind="terminal",
             tool_call_id_from_llm="call_1",
             status=ToolCallStatus.PENDING,
+        )
+        EventHistoryWriter().save_tool_call(
+            session,
+            tool_call_id="tc_1",
+            title="dangerous_tool",
+            kind="terminal",
+            status="pending",
+            tool_name="dangerous_tool",
+            arguments={},
+            tool_call_id_from_llm="call_1",
         )
 
         loop = AgentLoop(

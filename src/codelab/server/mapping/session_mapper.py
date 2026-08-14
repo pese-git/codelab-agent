@@ -21,6 +21,7 @@ from codelab.server.domain.session import (
     ToolCallRegistry,
     TurnState,
 )
+from codelab.server.domain.tool_call_projection import project_tool_calls
 from codelab.server.domain.value_objects import PermissionWait, SessionId, turn_phase_from_wire
 from codelab.server.mapping.history_mapper import HistoryMapper
 from codelab.server.mapping.journal_mapper import JournalMapper
@@ -63,8 +64,14 @@ class SessionMapper:
             else []
         )
 
-        # Конвертируем tool calls (делегируем ToolCallMapper — round-trip без потерь, D4-b/b3)
-        tool_calls = {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
+        # Вызовы — вид журнала и на диск не уезжают (шаг 4g ADR-008). Исключение то
+        # же, что у истории: легаси-документ, чья коллекция уже на диске, остаётся
+        # источником — журнал таких сессий вызов целиком не описывает.
+        tool_calls = (
+            {tc.id: ToolCallMapper.to_protocol(tc) for tc in session.tool_calls.get_all()}
+            if session.tool_calls_are_source
+            else {}
+        )
 
         # Конвертируем plan (делегируем PlanMapper — единственный шов Plan↔ACP).
         # `to_acp` всегда отдаёт dict-записи; поле `latest_plan` шире (PlanStep | dict) —
@@ -222,6 +229,7 @@ class SessionMapper:
             revision=state.revision,
             available_commands=SessionMapper.normalize_commands(state.available_commands),
             history_is_source=bool(state.history),
+            tool_calls_are_source=bool(state.tool_calls),
         )
 
     @staticmethod
@@ -337,11 +345,38 @@ class SessionMapper:
 
     @staticmethod
     def _build_tool_calls(state: SessionDocument) -> ToolCallRegistry:
-        """Собирает ToolCallRegistry из protocol tool_calls (делегируя ToolCallMapper)."""
+        """Реестр вызовов: проекция журнала, а для легаси-документов — их коллекция.
+
+        Шаг 4g ADR-008, по образцу `_build_history`: признак легаси — **само
+        наличие коллекции**, а не версия схемы. Новые документы `tool_calls` не
+        несут вовсе; документ v14, записанный кодом до 4g, несёт её и читается
+        как раньше.
+
+        Различение обязательно, а не перестраховка: журнал до 4g не нёс ни имени
+        инструмента, ни аргументов, ни связки с идентификатором вызова у модели.
+        Проекция такого документа вернула бы вызов с пустым именем, и
+        `execute_pending` после рестарта исполнил бы пустоту — а решение по
+        разрешению рестарт переживает (замер на `sess_20bdcb3e0350`: журнал из
+        11 записей, вызов с `tool_name` только в коллекции).
+
+        Счётчик берётся из документа в обеих ветках: он персистится своим полем
+        и из числа вызовов не выводится.
+        """
         tool_calls = ToolCallRegistry()
         tool_calls.counter = state.tool_call_counter
-        for tc_id, tc_state in state.tool_calls.items():
-            tool_calls.calls[tc_id] = ToolCallMapper.to_domain(tc_state)
+
+        if state.tool_calls:
+            tool_calls.restore(
+                {tc_id: ToolCallMapper.to_domain(tc) for tc_id, tc in state.tool_calls.items()}
+            )
+            return tool_calls
+
+        entries = [
+            entry
+            for entry in (JournalMapper.from_wire(dict(record)) for record in state.events_history)
+            if entry is not None
+        ]
+        tool_calls.restore(project_tool_calls(entries))
         return tool_calls
 
     @staticmethod

@@ -69,6 +69,18 @@ def _rich_session() -> Session:
     # `history` — она перестала персистироваться. Фикстура, писавшая только
     # историю, проверяла бы round-trip мимо источника.
     writer = EventHistoryWriter()
+    # Вызов тоже переживает хранилище через журнал (шаг 4g ADR-008): коллекция
+    # `tool_calls` перестала персистироваться, и фикстура без парного события
+    # проверяла бы round-trip мимо источника — ровно как было с историей на 4f.
+    writer.save_tool_call(
+        session,
+        tool_call_id="call_001",
+        title="grep",
+        kind="other",
+        status="pending",
+        tool_name="grep",
+        arguments={"q": "x"},
+    )
     writer.save_user_message(session, [{"type": "text", "text": "hi"}])
     writer.save_agent_message(session, {"type": "text", "text": "hello"})
     writer.save_tool_call_answer(session, "call_001", "tool result")
@@ -249,37 +261,71 @@ class TestRoundtripTurnAndRuntime:
 class TestRoundtripToolCallFields:
     """D4-b/b3: tool_call wire-поля (kind/title/content/...) — round-trip без потерь (ADR-006)."""
 
-    def test_tool_call_rich_fields_preserved(self) -> None:
-        from codelab.server.domain.tool_call import ToolCall, ToolResult
-        from codelab.server.domain.value_objects import FileLocation, ToolCallStatus
+    def _completed_call_session(self) -> Session:
+        """Сессия с завершённым вызовом, заведённым через журнал.
 
-        session = _rich_session()
-        session.tool_calls.calls["call_001"] = ToolCall(
-            id="call_001",
+        Прежняя редакция писала вызов прямо в `ToolCallRegistry.calls`. С шага 4g
+        ADR-008 это не round-trip, а обход источника: реестр — проекция журнала,
+        коллекция на диск не уезжает.
+        """
+        session = Session(
+            id=SessionId("sess_rt_tc"),
+            config=SessionConfig(cwd="/tmp/proj"),
+        )
+        writer = EventHistoryWriter()
+        writer.save_tool_call(
+            session,
+            tool_call_id="call_001",
+            title="Reading /a.py",
+            kind="read",
+            status="pending",
             tool_name="read_file",
             arguments={"path": "/a.py"},
-            status=ToolCallStatus.COMPLETED,
-            kind="read",
-            title="Reading /a.py",
             tool_call_id_from_llm="chatcmpl-xyz",
-            result=ToolResult(
-                locations=[FileLocation(path="/a.py", line=10)],
-                raw_output={"bytes": 42},
-                content=[{"type": "text", "text": "file body"}],
-            ),
         )
-        rt = _roundtrip(session)
+        writer.save_tool_call_update(
+            session,
+            tool_call_id="call_001",
+            status="completed",
+            content=[{"type": "text", "text": "file body"}],
+        )
+        return session
+
+    def test_tool_call_rich_fields_preserved(self) -> None:
+        from codelab.server.domain.value_objects import ToolCallStatus
+
+        rt = _roundtrip(self._completed_call_session())
+
         tc = rt.tool_calls.get("call_001")
         assert tc is not None
         assert tc.kind == "read"
         assert tc.title == "Reading /a.py"
+        assert tc.tool_name == "read_file"
         assert tc.tool_call_id_from_llm == "chatcmpl-xyz"
         assert tc.status == ToolCallStatus.COMPLETED
         assert tc.arguments == {"path": "/a.py"}
         assert tc.result is not None
         assert tc.result.content == [{"type": "text", "text": "file body"}]
-        assert tc.result.raw_output == {"bytes": 42}
-        assert [(loc.path, loc.line) for loc in tc.result.locations] == [("/a.py", 10)]
+
+    def test_locations_and_raw_output_are_not_restored(self) -> None:
+        """Два поля проекция не несёт — потому что в продакшене они пусты всегда.
+
+        `ToolCallRegistry.create` не принимает `raw_output`, `update_status` лишь
+        копирует прежний результат, а `Session.update_tool_call` не имеет ни
+        одного продакшн-вызывающего. То `raw_output`, что производят
+        `terminal_executor` и MCP, живёт в `ToolExecutionResult` и в нотификации
+        клиенту и до `ToolCall` не доходит (замер 14.08.2026, шаг 4g ADR-008).
+
+        Гейт нужен именно как гейт: если какое-то из полей станет настоящим, его
+        придётся сначала записать в журнал — иначе оно потеряется молча.
+        """
+        rt = _roundtrip(self._completed_call_session())
+
+        tc = rt.tool_calls.get("call_001")
+        assert tc is not None
+        assert tc.result is not None
+        assert tc.result.raw_output == {}
+        assert tc.result.locations == []
 
 
 class TestRoundtripPrepFields:

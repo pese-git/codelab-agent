@@ -584,12 +584,7 @@ class AgentLoop:
             status=status,
             content=tool_result.content,
         )
-        await sink.emit_and_save_tool_update(
-            notification,
-            tool_call_id=tool_call_id,
-            status=status,
-            content=tool_result.content,
-        )
+        await sink.emit_tool_update(notification)
 
         logger.info(
             "resume_after_permission: notification built with content",

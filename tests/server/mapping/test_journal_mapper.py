@@ -183,6 +183,98 @@ class TestWireForm:
         assert "content" not in JournalMapper.to_acp_updates(event)[0]
 
 
+class TestToolCallIdentity:
+    """Шаг 4g ADR-008: журнал несёт имя, аргументы и id вызова у модели.
+
+    До 4g связки внутреннего `call_NNN` с идентификатором вызова у модели не
+    нёс ни один вид записи, поэтому `tool_calls` из журнала не выводилась.
+    """
+
+    def _started(self, **kwargs: Any) -> ToolCallStarted:
+        return ToolCallStarted(
+            tool_call_id="call_001",
+            title="fs/read_text_file",
+            kind="read",
+            status="pending",
+            **kwargs,
+        )
+
+    def test_identity_survives_round_trip(self) -> None:
+        event = self._started(
+            tool_name="fs/read_text_file",
+            arguments={"path": "lib/main.dart"},
+            tool_call_id_from_llm="chatcmpl-tool-a898aba0",
+        )
+
+        again = JournalMapper.from_wire(JournalMapper.to_wire(JournalEntry(event=event)))
+
+        assert again is not None
+        assert again.event == event
+
+    def test_client_rpc_call_writes_no_empty_fields(self) -> None:
+        """У вызовов client-RPC имени и аргументов нет; `null` в документе — шум."""
+        data = JournalMapper.to_wire(JournalEntry(event=self._started()))["data"]
+
+        assert "tool_name" not in data
+        assert "arguments" not in data
+        assert "tool_call_id_from_llm" not in data
+
+    def test_identity_does_not_leak_into_acp(self) -> None:
+        """ACP-формы у этих полей нет: контракт `tool_call` не меняется."""
+        event = self._started(
+            tool_name="fs/read_text_file",
+            arguments={"path": "lib/main.dart"},
+            tool_call_id_from_llm="chatcmpl-tool-a898aba0",
+        )
+
+        update = JournalMapper.to_acp_updates(event)[0]
+
+        assert set(update) == {"sessionUpdate", "toolCallId", "title", "kind", "status"}
+
+    def test_pre_4g_record_reads_without_identity(self) -> None:
+        """Записи до 4g этих полей не несут — читаются как отсутствие, а не отказ."""
+        entry = JournalMapper.from_wire(
+            {
+                "event": "tool_call_started",
+                "at": TS,
+                "data": {
+                    "tool_call_id": "call_001",
+                    "title": "fs/read_text_file",
+                    "kind": "read",
+                    "status": "pending",
+                },
+            }
+        )
+
+        assert entry is not None
+        assert isinstance(entry.event, ToolCallStarted)
+        assert entry.event.tool_name is None
+        assert entry.event.arguments is None
+        assert entry.event.tool_call_id_from_llm is None
+
+    def test_alien_field_shape_is_read_as_absent(self) -> None:
+        """Чужая форма поля не роняет загрузку: потеря вызова дешевле потери сессии."""
+        entry = JournalMapper.from_wire(
+            {
+                "event": "tool_call_started",
+                "at": TS,
+                "data": {
+                    "tool_call_id": "call_001",
+                    "title": "fs/read_text_file",
+                    "kind": "read",
+                    "status": "pending",
+                    "tool_name": 42,
+                    "arguments": ["path"],
+                },
+            }
+        )
+
+        assert entry is not None
+        assert isinstance(entry.event, ToolCallStarted)
+        assert entry.event.tool_name is None
+        assert entry.event.arguments is None
+
+
 class TestReplayProjection:
     """Реплеируемость определяется наличием формы, а не списком имён."""
 

@@ -114,6 +114,16 @@ class ToolCallStarted:
     один из писателей (`prompt_orchestrator`, ретрансляция при resume) передаёт
     строку из чужой нотификации, и коэрция на горячем пути дала бы новую точку
     отказа там, где сейчас значение проходит дословно.
+
+    `tool_name`, `arguments` и `tool_call_id_from_llm` ACP-формы не имеют и
+    клиенту не уходят: они нужны, чтобы `tool_calls` стала проекцией журнала
+    (шаг 4g ADR-008). Без них журнал вызов не восстанавливает — связки
+    внутреннего `call_NNN` с идентификатором вызова у модели не несло ни одно
+    событие, а `execute_pending` читает из восстановленного реестра ровно
+    `tool_name` и `arguments`, и решение по разрешению переживает рестарт.
+
+    Поля опциональны, потому что вызовы client-RPC (`prompt.client_requests`)
+    инструментом не являются: у них нет ни имени, ни аргументов.
     """
 
     tool_call_id: str
@@ -121,6 +131,9 @@ class ToolCallStarted:
     kind: str
     status: str
     content: list[dict[str, Any]] | None = None
+    tool_name: str | None = None
+    arguments: dict[str, Any] | None = None
+    tool_call_id_from_llm: str | None = None
 
 
 @dataclass(frozen=True)

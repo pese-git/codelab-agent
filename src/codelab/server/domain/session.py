@@ -121,6 +121,18 @@ class ToolCallRegistry:
         self.calls[tool_call_id] = tool_call
         return tool_call
 
+    def restore(self, calls: dict[str, ToolCall]) -> None:
+        """Заполнить реестр восстановленными вызовами.
+
+        Дверь для восстановления сессии: `create` здесь не годится — он выдаёт
+        новую идентичность через счётчик, а у восстановленного вызова она уже
+        есть. Раньше `SessionMapper` писал в `calls` напрямую, в обход агрегата.
+
+        Счётчик не трогается: он персистится своим полем документа и не
+        выводится из числа вызовов — вызов мог быть создан и не сохранён.
+        """
+        self.calls = dict(calls)
+
     def get(self, tool_call_id: str) -> ToolCall | None:
         """Получить tool call по ID."""
         return self.calls.get(tool_call_id)
@@ -458,6 +470,11 @@ class Session:
     # уезжает вовсе — ADR-008, шаг 4f. Версия схемы признаком быть не может:
     # замер показал документ v14 с журналом, дописанным прежним кодом.
     history_is_source: bool = False
+    # Парный признак для реестра вызовов (ADR-008, шаг 4g). Отдельный от
+    # `history_is_source`, а не общий «документ легаси»: границы у них разные —
+    # журнал научился описывать диалог на 4e, а вызов целиком только на 4g,
+    # поэтому существует документ, чья история выводится, а вызовы ещё нет.
+    tool_calls_are_source: bool = False
 
     def add_message(self, message: ConversationMessage) -> None:
         """Добавить сообщение в историю."""

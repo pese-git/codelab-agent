@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.messages import ACPMessage
 from codelab.server.protocol.pending_registry import PendingRequestRegistry
 from codelab.server.protocol.response_router import ResponseRouter
@@ -204,7 +205,11 @@ class TestClientRpcCallStartsInProgress:
     def test_call_starts_in_progress_not_pending(self, kind: str) -> None:
         session, messages = _session_via_production_builder(kind)
 
-        assert session.tool_calls["call_001"].status == "in_progress"
+        # Статус читается через проекцию: с шага 4g ADR-008 документ коллекцию
+        # вызовов не несёт, и обращение к ней проверяло бы пустоту вместо статуса.
+        restored = SessionMapper.to_domain(session).tool_calls.get("call_001")
+        assert restored is not None
+        assert restored.status.value == "in_progress"
         created = messages[0].params["update"]
         assert created["sessionUpdate"] == "tool_call"
         assert created["status"] == "in_progress", "wire и состояние обязаны совпадать сразу"
@@ -238,7 +243,11 @@ class TestStatusOnDiskMatchesWhatClientWasTold:
         stored = await storage.load_session("sess_x")
         assert stored is not None
         assert sent == ["completed"]
-        assert stored.tool_calls["call_001"].status == "completed"
+        # «На диске» с шага 4g ADR-008 значит «в журнале»: коллекция вызовов
+        # документом не несётся, статус восстанавливается проекцией.
+        restored = SessionMapper.to_domain(stored).tool_calls.get("call_001")
+        assert restored is not None
+        assert restored.status.value == "completed"
         assert stored.active_turn is None
 
     async def test_rejected_transition_does_not_lie_to_client(self, tmp_path: Path) -> None:

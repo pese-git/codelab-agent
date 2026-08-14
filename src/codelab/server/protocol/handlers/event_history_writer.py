@@ -100,6 +100,9 @@ class EventHistoryWriter:
         status: str,
         *,
         content: list[dict[str, Any]] | None = None,
+        tool_name: str | None = None,
+        arguments: dict[str, Any] | None = None,
+        tool_call_id_from_llm: str | None = None,
     ) -> None:
         """Сохраняет tool_call в events_history.
 
@@ -110,6 +113,9 @@ class EventHistoryWriter:
             kind: Категория tool (read, edit, execute, etc.)
             status: Начальный статус (обычно "pending")
             content: Опциональный контент tool call
+            tool_name: Имя инструмента в реестре (нет у вызовов client-RPC)
+            arguments: Аргументы вызова (нет у вызовов client-RPC)
+            tool_call_id_from_llm: ID вызова у модели — связка с историей LLM
         """
         self._append(
             session,
@@ -119,6 +125,9 @@ class EventHistoryWriter:
                 kind=kind,
                 status=status,
                 content=content,
+                tool_name=tool_name,
+                arguments=arguments,
+                tool_call_id_from_llm=tool_call_id_from_llm,
             ),
         )
 

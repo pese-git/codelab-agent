@@ -101,6 +101,21 @@ class ToolCallHandler:
             tool_call_id_from_llm=tool_call_id_from_llm,
             locations=locations,
         )
+        # Событие пишется здесь же, а не следующей командой (шаг 4g ADR-008): с 4g
+        # реестр — проекция журнала, и между созданием и записью появлялось окно, в
+        # котором вызова нет ни на диске, ни в журнале. В нём `_request_permission`
+        # не находил вызов и запрос разрешения не уходил вовсе — воспроизвелось
+        # сразу, на ask-flow.
+        self._history_writer.save_tool_call(
+            session,
+            tool_call_id=tool_call.id,
+            title=title,
+            kind=kind,
+            status=tool_call.status.value,
+            tool_name=tool_name,
+            arguments=tool_arguments,
+            tool_call_id_from_llm=tool_call_id_from_llm,
+        )
         return tool_call.id
 
     def update_tool_call_status(
@@ -110,6 +125,7 @@ class ToolCallHandler:
         status: str,
         *,
         content: list[dict[str, Any]] | None = None,
+        journal_content: list[dict[str, Any]] | None = None,
     ) -> None:
         """Обновляет статус tool call с проверкой допустимых переходов.
 
@@ -120,17 +136,41 @@ class ToolCallHandler:
 
         Если переход невалиден, игнорирует обновление (отказ логирует домен).
 
+        Событие журнала пишется здесь же и только при принятом переходе (шаг 4g
+        ADR-008). Раньше его писал sink следующей командой, и между сменой
+        статуса и записью агрегат успевал перезагрузиться — статус терялся, а
+        завершение упиралось в запрет `pending → completed`. Дыру же в sink
+        нельзя было и увидеть: тест, подменивший писателя моком, продолжал
+        проходить, пока коллекция вызовов персистилась.
+
+        Содержимое у состояния и у журнала **разное**, и это не описка. Замер
+        14.08.2026 на живой сессии: в состоянии лежит сводка для модели
+        (`{"type": "content", ...}`), а клиенту уходят извлечённые блоки
+        (`{"type": "text", ...}`, а у терминала — ещё и вложение). Журнал
+        описывает то, что видел клиент, потому что его читает реплей; поэтому
+        `journal_content` задаётся отдельно и по умолчанию совпадает с
+        `content`. Асимметрия существовала и до 4g — раньше её просто некому
+        было заметить, потому что состояние и журнал писались порознь.
+
         Args:
             session: Доменный агрегат сессии
             tool_call_id: ID tool call'а для обновления
             status: Новый статус (wire-строка; `ToolCallStatus` — StrEnum)
-            content: Опциональный контент (результат tool call)
+            content: Опциональный контент результата — в состояние
+            journal_content: Контент для журнала и реплея; по умолчанию `content`
         """
-        session.tool_calls.update_status(
+        changed = session.tool_calls.update_status(
             tool_call_id,
             ToolCallStatus(status),
             content=content,
         )
+        if changed:
+            self._history_writer.save_tool_call_update(
+                session,
+                tool_call_id=tool_call_id,
+                status=status,
+                content=journal_content if journal_content is not None else content,
+            )
 
     def build_tool_call_notification(
         self,

@@ -14,6 +14,7 @@ from ...turn_runtime import TurnEndCause, finish_turn
 from ..permissions import build_permission_options
 from ..session import session_info_notification
 from ..tool_call_handler import ToolCallHandler
+from .tool_call_state import update_tool_call_status
 from .tool_call_updates import tool_call_status_notification
 
 logger = structlog.get_logger()
@@ -85,7 +86,10 @@ def resolve_permission_response_impl(
         outcome_value == "selected" and selected_option_kind in {"allow_once", "allow_always"}
     )
     status = ToolCallStatus.IN_PROGRESS if should_allow else ToolCallStatus.CANCELLED
-    session.tool_calls.update_status(tool_call_id, status)
+    # Через дверь, а не напрямую: с шага 4g ADR-008 статус — проекция журнала, и
+    # решение по разрешению, записанное только в реестр, терялось бы на
+    # следующей команде — ровно там, где turn возобновляют.
+    update_tool_call_status(session, tool_call_id, status.value)
     notifications.append(
         tool_call_status_notification(
             session_id=session_id, tool_call_id=tool_call_id, status=status.value

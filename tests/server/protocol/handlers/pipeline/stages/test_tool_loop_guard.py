@@ -59,4 +59,4 @@ class TestProcessorLoopGuardIntegration:
         assert "Терминал создан" in result.error
         assert result.tool_call_id == "llm_1"
         p._tool_registry.execute_tool.assert_not_called()
-        sink.emit_and_save_tool_update.assert_awaited_once()
+        sink.emit_tool_update.assert_awaited_once()

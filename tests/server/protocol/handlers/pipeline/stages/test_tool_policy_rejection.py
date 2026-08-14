@@ -87,7 +87,7 @@ class TestPolicyRejectionCarriesReason:
         ]
         text = content[0]["content"]["text"]
         assert "plan" in text
-        sink.emit_and_save_tool_update.assert_awaited_once()
+        sink.emit_tool_update.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_rejection_is_logged_with_reason_and_mode(self) -> None:

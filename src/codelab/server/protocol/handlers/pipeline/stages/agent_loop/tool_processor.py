@@ -382,13 +382,7 @@ class ToolCallProcessor:
             title=acp_tool_name,
             kind=tool_kind,
         )
-        await sink.emit_and_save_tool_call(
-            tool_call_notification,
-            tool_call_id=tool_call_id,
-            title=acp_tool_name,
-            kind=tool_kind,
-            status="pending",
-        )
+        await sink.emit_tool_call(tool_call_notification)
 
         logger.info(
             "tool_call_deciding_execution",
@@ -576,12 +570,7 @@ class ToolCallProcessor:
             status="failed",
             content=rejection_content,
         )
-        await sink.emit_and_save_tool_update(
-            rejection_notification,
-            tool_call_id=tool_call_id,
-            status="failed",
-            content=rejection_content,
-        )
+        await sink.emit_tool_update(rejection_notification)
         return ToolResult(
             tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
@@ -654,12 +643,7 @@ class ToolCallProcessor:
             status="failed",
             content=error_content,
         )
-        await sink.emit_and_save_tool_update(
-            notification,
-            tool_call_id=tool_call_id,
-            status="failed",
-            content=error_content,
-        )
+        await sink.emit_tool_update(notification)
         return ToolResult(
             tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
@@ -714,12 +698,7 @@ class ToolCallProcessor:
             status="failed",
             content=error_content,
         )
-        await sink.emit_and_save_tool_update(
-            notification,
-            tool_call_id=tool_call_id,
-            status="failed",
-            content=error_content,
-        )
+        await sink.emit_tool_update(notification)
         return ToolResult(
             tool_call_id=answer_tool_call_id(tool_call_id_from_llm, tool_call_id),
             tool_name=acp_tool_name,
@@ -762,11 +741,7 @@ class ToolCallProcessor:
                 tool_call_id=tool_call_id,
                 status="in_progress",
             )
-            await sink.emit_and_save_tool_update(
-                in_progress_notification,
-                tool_call_id=tool_call_id,
-                status="in_progress",
-            )
+            await sink.emit_tool_update(in_progress_notification)
 
             result = await self._run_tool(
                 session, session_id, acp_tool_name, tool_arguments, is_mcp, mcp_manager
@@ -797,12 +772,21 @@ class ToolCallProcessor:
                 success_content = None
                 status = "cancelled" if result.cancelled else "failed"
 
+            # Содержимое для клиента считается до коммита: с шага 4g ADR-008
+            # событие статуса пишется в той же команде, что и переход, а реплею
+            # нужно именно то, что увидел клиент, — не сводка для модели.
+            notification_content = self._build_notification_content(extracted_content, result)
+
             # Итог вызова — одна команда: содержимое, статус и ответ модели
             # описывают один результат.
             def _commit_result(target: Session) -> None:
                 _carry_executor_changes(source=session, target=target)
                 self._tool_call_handler.update_tool_call_status(
-                    target, tool_call_id, status, content=success_content
+                    target,
+                    tool_call_id,
+                    status,
+                    content=success_content,
+                    journal_content=notification_content,
                 )
                 self._add_tool_result_to_history(
                     target,
@@ -815,20 +799,13 @@ class ToolCallProcessor:
 
             await commands.apply(_commit_result, name="tool_call_result")
 
-            notification_content = self._build_notification_content(extracted_content, result)
-
             tool_update_notification = self._tool_call_handler.build_tool_update_notification(
                 session_id=session_id,
                 tool_call_id=tool_call_id,
                 status=status,
                 content=notification_content,
             )
-            await sink.emit_and_save_tool_update(
-                tool_update_notification,
-                tool_call_id=tool_call_id,
-                status=status,
-                content=notification_content,
-            )
+            await sink.emit_tool_update(tool_update_notification)
 
             await self._emit_plan_notification_if_needed(session_id, acp_tool_name, result, sink)
 
@@ -858,15 +835,11 @@ class ToolCallProcessor:
             # только в буфер. Иначе в стриминге карточка tool'а висит «в процессе» до
             # конца turn'а и порядок живых событий может нарушиться. emit() безопасен в
             # except: _send_immediately сам ловит свои ошибки и падает в буфер.
-            await sink.emit_and_save_tool_update(
-                self._tool_call_handler.build_tool_update_notification(
+            await sink.emit_tool_update(self._tool_call_handler.build_tool_update_notification(
                     session_id=session_id,
                     tool_call_id=tool_call_id,
                     status="failed",
-                ),
-                tool_call_id=tool_call_id,
-                status="failed",
-            )
+                ))
             return ToolResult(
                 tool_call_id=effective_id,
                 tool_name=acp_tool_name,

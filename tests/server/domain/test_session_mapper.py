@@ -75,22 +75,33 @@ class TestSessionMapperToProtocol:
         assert state.history[0].model_dump()["content"] == [{"type": "text", "text": "hello"}]
 
     def test_with_tool_calls(self) -> None:
-        """Тест конвертации с tool calls."""
+        """Вызов доезжает до документа журналом, а не коллекцией (шаг 4g ADR-008)."""
         config = SessionConfig(cwd="/tmp")
         session = Session(id=SessionId("sess_1"), config=config)
 
         tc = session.create_tool_call("read_file", {"path": "/tmp"})
+        writer = EventHistoryWriter()
+        writer.save_tool_call(
+            session,
+            tool_call_id=tc.id,
+            title="read_file",
+            kind="other",
+            status="pending",
+            tool_name="read_file",
+            arguments={"path": "/tmp"},
+        )
         session.update_tool_call(tc.id, status=ToolCallStatus.COMPLETED)
+        writer.save_tool_call_update(session, tool_call_id=tc.id, status="completed")
 
         state = SessionMapper.to_protocol(session)
 
-        assert len(state.tool_calls) == 1
-        assert "call_001" in state.tool_calls
-        tc_state = state.tool_calls["call_001"]
-        assert tc_state.tool_call_id == "call_001"
-        assert tc_state.tool_name == "read_file"
-        assert tc_state.status == "completed"
+        assert state.tool_calls == {}
         assert state.tool_call_counter == 1
+
+        restored = SessionMapper.to_domain(state).tool_calls.get("call_001")
+        assert restored is not None
+        assert restored.tool_name == "read_file"
+        assert restored.status == ToolCallStatus.COMPLETED
 
     def test_with_permissions(self) -> None:
         """Тест конвертации с разрешениями."""
@@ -302,10 +313,23 @@ class TestSessionMapperRoundTrip:
 
         # Разговор доезжает до диска журналом: история — проекция (шаг 4f ADR-008),
         # и документ её не несёт, поэтому фикстура пишет то, что пишет продакшен.
-        EventHistoryWriter().save_user_message(session, [{"type": "text", "text": "hello"}])
+        writer = EventHistoryWriter()
+        writer.save_user_message(session, [{"type": "text", "text": "hello"}])
 
+        # Вызов — тоже проекция журнала (шаг 4g ADR-008): без парного события он
+        # не пережил бы документ, как и сообщение без `save_user_message`.
         tc = session.create_tool_call("read_file", {"path": "/tmp"})
+        writer.save_tool_call(
+            session,
+            tool_call_id=tc.id,
+            title="read_file",
+            kind="other",
+            status="pending",
+            tool_name="read_file",
+            arguments={"path": "/tmp"},
+        )
         session.update_tool_call(tc.id, status=ToolCallStatus.COMPLETED)
+        writer.save_tool_call_update(session, tool_call_id=tc.id, status="completed")
 
         session.set_permission_policy("read", "allow")
 

@@ -367,6 +367,20 @@ def _stored_session(tmp_cwd: Path, session_id: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _projected_tool_calls(stored: dict) -> dict[str, str]:
+    """Вызовы сессии со статусами — так, как их увидит сервер после загрузки.
+
+    С шага 4g ADR-008 документ коллекцию `tool_calls` не несёт: реестр —
+    проекция журнала. Читать сырое поле значило бы проверять пустоту, поэтому
+    сверка идёт через тот же путь, которым сессию поднимает сам сервер.
+    """
+    from codelab.server.mapping.session_mapper import SessionMapper
+    from codelab.server.storage.document import SessionDocument
+
+    session = SessionMapper.to_domain(SessionDocument.model_validate(stored))
+    return {call.id: call.status.value for call in session.tool_calls.get_all()}
+
+
 def _last_wire_status(stored: dict, tool_call_id: str) -> str | None:
     """Последний статус tool call, который ушёл клиенту и лёг в журнал.
 
@@ -409,15 +423,15 @@ async def test_permission_approved_tool_status_persisted(tmp_cwd: Path) -> None:
         assert "fs/read_text_file" in rpc
 
     stored = _stored_session(tmp_cwd, session_id)
-    tool_calls = stored["tool_calls"]
-    assert tool_calls, "tool call не сохранён в состоянии сессии"
+    tool_calls = _projected_tool_calls(stored)
+    assert tool_calls, "tool call не восстанавливается из журнала сессии"
 
-    for tool_call_id, state in tool_calls.items():
+    for tool_call_id, status in tool_calls.items():
         wire_status = _last_wire_status(stored, tool_call_id)
-        assert state["status"] == wire_status, (
-            f"{tool_call_id}: в истории {wire_status}, в состоянии {state['status']}"
+        assert status == wire_status, (
+            f"{tool_call_id}: в истории {wire_status}, в состоянии {status}"
         )
-        assert state["status"] == "completed"
+        assert status == "completed"
 
 
 @pytest.mark.asyncio
@@ -437,8 +451,8 @@ async def test_cancelled_tool_status_reaches_replay_history(tmp_cwd: Path) -> No
     stored = _stored_session(tmp_cwd, session_id)
     cancelled = [
         tool_call_id
-        for tool_call_id, state in stored["tool_calls"].items()
-        if state["status"] == "cancelled"
+        for tool_call_id, status in _projected_tool_calls(stored).items()
+        if status == "cancelled"
     ]
     assert cancelled, "отмена не отражена в состоянии сессии"
 

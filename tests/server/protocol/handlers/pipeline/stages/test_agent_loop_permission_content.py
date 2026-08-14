@@ -16,9 +16,35 @@ from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.domain.session import ToolCallRegistry
 from codelab.server.domain.tool_call import ToolCall
 from codelab.server.domain.value_objects import ToolCallStatus
+from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
 from codelab.server.tools.base import ToolExecutionResult
 from tests.server._domain_sessions import make_commands, make_domain_session
+
+
+def _seed_tool_call(session, call: ToolCall) -> None:
+    """Посеять вызов так, как его сеет продакшен, — вместе с событием журнала.
+
+    С шага 4g ADR-008 реестр — проекция журнала, и вызов, посеянный только в
+    `ToolCallRegistry.calls`, исчезает на первой же команде: команда загружает
+    свежий агрегат, а в документе коллекции вызовов больше нет.
+    """
+    registry = ToolCallRegistry()
+    registry.calls[call.id] = call
+    session.tool_calls = registry
+
+    writer = EventHistoryWriter()
+    writer.save_tool_call(
+        session,
+        tool_call_id=call.id,
+        title=call.title or call.tool_name,
+        kind=call.kind,
+        status="pending",
+        tool_name=call.tool_name,
+        arguments=call.arguments,
+    )
+    if call.status is not ToolCallStatus.PENDING:
+        writer.save_tool_call_update(session, tool_call_id=call.id, status=call.status.value)
 
 
 @pytest.fixture
@@ -66,16 +92,17 @@ class TestAgentLoopPermissionFlowTerminalContent:
         """_execute_pending_tool() возвращает ToolResult с content."""
         # Arrange
         tool_call_id = "tc_001"
-        registry = ToolCallRegistry()
-        registry.calls[tool_call_id] = ToolCall(
-            id=tool_call_id,
-            tool_name="terminal/create",
-            arguments={},
-            title="terminal/create",
-            kind="execute",
-            status=ToolCallStatus("pending"),
+        _seed_tool_call(
+            session,
+            ToolCall(
+                id=tool_call_id,
+                tool_name="terminal/create",
+                arguments={},
+                title="terminal/create",
+                kind="execute",
+                status=ToolCallStatus("pending"),
+            ),
         )
-        session.tool_calls = registry
 
         # Tool execution result
         mock_dependencies["tool_registry"].execute_tool = AsyncMock(
@@ -115,16 +142,17 @@ class TestAgentLoopPermissionFlowTerminalContent:
         """resume_after_permission() отправляет notification с terminal content."""
         # Arrange
         tool_call_id = "tc_001"
-        registry = ToolCallRegistry()
-        registry.calls[tool_call_id] = ToolCall(
-            id=tool_call_id,
-            tool_name="terminal/create",
-            arguments={"operation": "create", "command": "ls"},
-            title="terminal/create",
-            kind="execute",
-            status=ToolCallStatus("pending"),
+        _seed_tool_call(
+            session,
+            ToolCall(
+                id=tool_call_id,
+                tool_name="terminal/create",
+                arguments={"operation": "create", "command": "ls"},
+                title="terminal/create",
+                kind="execute",
+                status=ToolCallStatus("pending"),
+            ),
         )
-        session.tool_calls = registry
 
         # Tool execution result
         mock_dependencies["tool_registry"].execute_tool = AsyncMock(
@@ -192,17 +220,18 @@ class TestAgentLoopPermissionFlowTerminalContent:
         `success` дал бы `failed` — и разошёлся бы с тем, что лежит на диске.
         """
         tool_call_id = "tc_cancelled"
-        registry = ToolCallRegistry()
-        registry.calls[tool_call_id] = ToolCall(
-            id=tool_call_id,
-            tool_name="terminal/wait_for_exit",
-            arguments={"operation": "wait_for_exit", "terminal_id": "term_1"},
-            title="terminal/wait_for_exit",
-            kind="read",
-            # Статус, который проставил исполнитель вызова
-            status=ToolCallStatus.CANCELLED,
+        _seed_tool_call(
+            session,
+            ToolCall(
+                id=tool_call_id,
+                tool_name="terminal/wait_for_exit",
+                arguments={"operation": "wait_for_exit", "terminal_id": "term_1"},
+                title="terminal/wait_for_exit",
+                kind="read",
+                # Статус, который проставил исполнитель вызова
+                status=ToolCallStatus.CANCELLED,
+            ),
         )
-        session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = False
@@ -233,22 +262,29 @@ class TestAgentLoopPermissionFlowTerminalContent:
         assert handler.build_tool_update_notification.call_args.kwargs["status"] == "cancelled"
 
     @pytest.mark.asyncio
-    async def test_resume_after_permission_saves_to_replay(
+    async def test_resume_after_permission_commits_status_through_the_door(
         self, mock_strategy, session, mock_dependencies
     ) -> None:
-        """resume_after_permission() сохраняет tool_call_update в replay."""
+        """resume_after_permission() проводит итог через дверь смены статуса.
+
+        До 4g итог писался в журнал отдельно, из sink, и тест сверял писателя
+        sink'а. С шага 4g ADR-008 переход и его событие неразделимы и живут в
+        `ToolCallHandler.update_tool_call_status`; что дверь пишет событие,
+        проверяется её собственным тестом, а sink обязан не писать ничего.
+        """
         # Arrange
         tool_call_id = "tc_replay"
-        registry = ToolCallRegistry()
-        registry.calls[tool_call_id] = ToolCall(
-            id=tool_call_id,
-            tool_name="terminal/create",
-            arguments={"operation": "create", "command": "ls"},
-            title="terminal/create",
-            kind="execute",
-            status=ToolCallStatus("pending"),
+        _seed_tool_call(
+            session,
+            ToolCall(
+                id=tool_call_id,
+                tool_name="terminal/create",
+                arguments={"operation": "create", "command": "ls"},
+                title="terminal/create",
+                kind="execute",
+                status=ToolCallStatus("pending"),
+            ),
         )
-        session.tool_calls = registry
 
         mock_tool_result = MagicMock()
         mock_tool_result.success = True
@@ -279,8 +315,10 @@ class TestAgentLoopPermissionFlowTerminalContent:
         await loop.resume_after_permission(commands, "test_session", tool_call_id, None)
 
         # Assert
-        mock_dependencies["history_writer"].save_tool_call_update.assert_called()
-        call_kwargs = mock_dependencies["history_writer"].save_tool_call_update.call_args.kwargs
-        assert call_kwargs["tool_call_id"] == tool_call_id
-        assert call_kwargs["status"] == "completed"
-        assert call_kwargs["content"] == terminal_content
+        handler = mock_dependencies["tool_call_handler"]
+        handler.update_tool_call_status.assert_called()
+        args, kwargs = handler.update_tool_call_status.call_args
+        assert args[1] == tool_call_id
+        assert args[2] == "completed"
+        assert kwargs["content"] == terminal_content
+        mock_dependencies["history_writer"].save_tool_call_update.assert_not_called()

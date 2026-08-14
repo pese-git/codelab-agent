@@ -188,44 +188,23 @@ class SessionUpdateSink:
 
         session.plan = AgentPlan(steps=PlanMapper.from_acp(list(entries)))
 
-    async def emit_and_save_tool_call(
-        self,
-        notification: ACPMessage,
-        *,
-        tool_call_id: str,
-        title: str,
-        kind: str,
-        status: str,
-    ) -> None:
-        """Отправить tool_call-notification и сохранить создание tool call в replay."""
-        await self.emit(notification)
-        await self._commands.apply(
-            lambda session: self._history_writer.save_tool_call(
-                session=session,
-                tool_call_id=tool_call_id,
-                title=title,
-                kind=kind,
-                status=status,
-            ),
-            name="tool_call_created_event",
-        )
+    async def emit_tool_call(self, notification: ACPMessage) -> None:
+        """Отправить клиенту tool_call-notification.
 
-    async def emit_and_save_tool_update(
-        self,
-        notification: ACPMessage,
-        *,
-        tool_call_id: str,
-        status: str,
-        content: list[dict[str, Any]] | None = None,
-    ) -> None:
-        """Отправить tool_call_update-notification и сохранить статус в replay."""
+        Событие журнала здесь не пишется: с шага 4g ADR-008 его пишет сама дверь
+        создания (`ToolCallHandler.create_tool_call`) — в одной команде с
+        созданием, иначе между ними появляется окно, в котором вызова нет нигде.
+        Прежнее имя `emit_and_save_tool_call` описывало бы работу, которой метод
+        больше не делает.
+        """
         await self.emit(notification)
-        await self._commands.apply(
-            lambda session: self._history_writer.save_tool_call_update(
-                session=session,
-                tool_call_id=tool_call_id,
-                status=status,
-                content=content,
-            ),
-            name="tool_call_update_event",
-        )
+
+    async def emit_tool_update(self, notification: ACPMessage) -> None:
+        """Отправить клиенту tool_call_update-notification.
+
+        Событие журнала пишет дверь смены статуса
+        (`ToolCallHandler.update_tool_call_status`) — в одной команде с самим
+        переходом (шаг 4g ADR-008). Здесь его писать нельзя: между переходом и
+        записью агрегат перезагружается, и статус пропадает.
+        """
+        await self.emit(notification)

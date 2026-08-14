@@ -87,25 +87,25 @@ def test_buffer_only_never_delivers_immediately() -> None:
 
 
 @pytest.mark.asyncio
-async def test_emit_and_save_tool_update_order_emit_before_replay() -> None:
-    calls: list[str] = []
+async def test_emit_tool_update_does_not_write_journal() -> None:
+    """Sink только отправляет: событие статуса пишет дверь перехода (шаг 4g ADR-008).
+
+    Пока запись жила здесь, между сменой статуса и событием успевала пройти
+    перезагрузка агрегата, и статус терялся. Хуже того, дыра была невидима:
+    тест, подменивший писателя моком, продолжал проходить.
+    """
+    delivered: list[str] = []
 
     async def callback(_msg: ACPMessage) -> None:
-        calls.append("emit")
+        delivered.append("emit")
 
     replay = MagicMock()
-    replay.save_tool_call_update.side_effect = lambda **_: calls.append("replay")
     sink = SessionUpdateSink(replay, callback, [], make_commands(make_domain_session()))
 
-    await sink.emit_and_save_tool_update(
-        _notification(),
-        tool_call_id="call_1",
-        status="completed",
-        content=None,
-    )
+    await sink.emit_tool_update(_notification())
 
-    assert calls == ["emit", "replay"]
-    replay.save_tool_call_update.assert_called_once()
+    assert delivered == ["emit"]
+    replay.save_tool_call_update.assert_not_called()
 
 
 @pytest.mark.asyncio
