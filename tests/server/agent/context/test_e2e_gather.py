@@ -59,9 +59,14 @@ class MockToolRegistry:
     ) -> None:
         self._files = files or {}
         self._listing_output = listing_output
+        self.invocations: list[str] = []
 
     def get_available_tools(self, session_id: str) -> list:
         return [_FakeTool("fs/read_text_file")]
+
+    def count(self, tool_name: str) -> int:
+        """Сколько раз исполнялся инструмент — гейт против возврата к циклу чтений."""
+        return self.invocations.count(tool_name)
 
     async def execute_tool(
         self,
@@ -71,6 +76,18 @@ class MockToolRegistry:
         session: Any = None,
         subject: ToolInvocationSubject = ToolInvocationSubject.UNKNOWN,
     ) -> ToolExecutionResult:
+        self.invocations.append(tool_name)
+
+        if tool_name == "project/search_content":
+            # Возможность отдаёт пути, а не содержимое: регистронезависимое
+            # совпадение подстроки — ровно то, что делает `grep -ilF` у владельца.
+            term = str(arguments.get("term", "")).lower()
+            found = [path for path, content in self._files.items() if term in content.lower()]
+            return ToolExecutionResult(
+                success=True,
+                output="".join(f"./{path}\n" for path in found),
+            )
+
         if tool_name == "fs/read_text_file":
             path = arguments.get("path", "")
             content = self._files.get(path)
@@ -229,7 +246,13 @@ class TestContextGathererE2E:
 
     @pytest.mark.asyncio
     async def test_gather_without_project_structure(self):
-        """Если перечисление ничего не вернуло, сбор даёт пустой результат."""
+        """Пустое перечисление больше не обнуляет поиск по содержимому.
+
+        Область поиска принадлежит владельцу возможности `project/search_content`,
+        а не списку файлов у потребителя (P2-57). Поэтому найденное существует
+        независимо от того, что вернуло перечисление, — прежде тот же файл
+        терялся, потому что поиск умел смотреть только в этот список.
+        """
         files = {
             "src/auth.py": "def authenticate(): pass",
         }
@@ -254,7 +277,7 @@ class TestContextGathererE2E:
 
         items = await gatherer.gather(profile, session)
 
-        assert len(items) == 0
+        assert [item.id for item in items] == ["src/auth.py"]
 
     @pytest.mark.asyncio
     async def test_gather_bootstraps_project_structure_via_listing(self):
@@ -583,6 +606,65 @@ class TestImprovedSearch:
         session = _make_session("test_session")
         results = await gatherer._search_in_files("authorization", project_files, session)
         assert "lib/main.dart" in results
+
+    @pytest.mark.asyncio
+    async def test_search_reads_nothing(self):
+        """Поиск не читает файлы: ему нужны пути, а не содержимое (P2-57).
+
+        Гейт против возврата к прежнему циклу. До сужения полномочия каждый
+        термин стоил 30 исполнений `fs/read_text_file`, содержимое которых
+        сборщик выбрасывал; гейту разрешений при этом предъявлялось чтение файла
+        вместо поиска.
+        """
+        files = {
+            "lib/main.dart": "class AuthorizationService {}",
+            "lib/weather_service.dart": "class WeatherService {}",
+        }
+        tool_registry = MockToolRegistry(files)
+        gatherer = ACPContextGatherer(
+            tool_registry=tool_registry,
+            dependency_graph=RegexDependencyGraph(),
+            session_id="test_session",
+        )
+
+        await gatherer._search_in_files(
+            "authorization", list(files.keys()), _make_session("test_session")
+        )
+
+        assert tool_registry.count("fs/read_text_file") == 0
+        assert tool_registry.count("project/search_content") == 1
+
+    @pytest.mark.asyncio
+    async def test_gather_reads_only_what_it_collects(self):
+        """Чтений за сборку — по числу собранных файлов, а не по числу терминов.
+
+        Критерий приёмки P2-57: «число `fs/read_text_file` за turn сопоставимо с
+        числом собранных файлов (единицы, а не сотни)».
+        """
+        files = {f"src/module_{index}.py": "def handler(): pass" for index in range(40)}
+        tool_registry = MockToolRegistry(files)
+        gatherer = ACPContextGatherer(
+            tool_registry=tool_registry,
+            dependency_graph=RegexDependencyGraph(),
+            session_id="test_session",
+        )
+
+        profile = TaskProfile(
+            task_type=TaskType.FEATURE,
+            search_terms=["handler", "def", "module", "python", "source"],
+            target_modules=[],
+            investigation_depth=1,
+            needs_tests=False,
+        )
+
+        items = await gatherer.gather(
+            profile, _make_session("test_session"), options=BuildOptions(max_files=5)
+        )
+
+        # Не больше одного поиска на термин: совпадений по пути может хватить и
+        # без обращения к содержимому.
+        assert tool_registry.count("project/search_content") <= len(profile.search_terms)
+        assert tool_registry.count("fs/read_text_file") == len(items) == 5
 
     @pytest.mark.asyncio
     async def test_gather_dart_project_with_python_hallucination(self):

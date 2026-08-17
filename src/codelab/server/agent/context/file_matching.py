@@ -111,12 +111,18 @@ def is_empty(content: str) -> bool:
     return len(content.strip()) == 0
 
 
-def parse_find_output(output: str) -> list[str]:
-    """Парсить вывод find команды в список путей."""
+def parse_path_listing(output: str) -> list[str]:
+    """Парсить вывод перечисляющей команды в список путей.
+
+    Обслуживает обе возможности над проектом — `project/list_files` (`find`) и
+    `project/search_content` (`grep -l`): у них общий формат вывода (путь на
+    строку) и общий способ сообщить о недоступном каталоге — диагностика с
+    префиксом имени утилиты, приходящая тем же потоком.
+    """
     paths = []
     for line in output.split("\n"):
         line = line.strip()
-        if not line or line.startswith("find:"):
+        if not line or line.startswith(("find:", "grep:")):
             continue
         if line.startswith("./"):
             line = line[2:]

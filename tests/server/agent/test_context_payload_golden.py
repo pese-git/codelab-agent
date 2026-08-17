@@ -24,7 +24,7 @@ import pytest
 from codelab.server.agent.context.file_matching import (
     filter_paths,
     normalize_path,
-    parse_find_output,
+    parse_path_listing,
 )
 from codelab.server.agent.context.manager_helpers import split_baseline_tail
 from codelab.server.agent.context.models import PayloadEnvelope
@@ -62,14 +62,14 @@ FILE_B = "<file path=\"lib/app.dart\">class App {}</file>"
 class TestEnumerationGolden:
     """Набор путей — чистая функция вывода команды (ADR-009, шаг 2).
 
-    Цепочка `parse_find_output → normalize_path → filter_paths` целиком
+    Цепочка `parse_path_listing → normalize_path → filter_paths` целиком
     детерминирована, поэтому фиксируется значением, а не свойством: при переносе
     команды за узкую возможность подменяется **носитель**, и именно равенство
     результата доказывает, что перенос ничего не сдвинул.
     """
 
     def test_find_output_yields_exact_file_list(self) -> None:
-        raw = parse_find_output(FIND_OUTPUT)
+        raw = parse_path_listing(FIND_OUTPUT)
         normalized = [normalize_path(path, "/work") for path in raw]
 
         assert filter_paths(normalized) == EXPECTED_FILES
@@ -78,14 +78,27 @@ class TestEnumerationGolden:
         """Клиент может отдать абсолютные пути — набор обязан совпасть с относительным."""
         absolute = FIND_OUTPUT.replace("./", "/work/")
 
-        raw = parse_find_output(absolute)
+        raw = parse_path_listing(absolute)
         normalized = [normalize_path(path, "/work") for path in raw]
 
         assert filter_paths(normalized) == EXPECTED_FILES
 
+    def test_search_output_shares_the_chain(self) -> None:
+        """Поиск возвращает пути тем же форматом — цепочка разбора у них одна.
+
+        Диагностика утилиты приходит тем же потоком, что и пути, и путём быть не
+        должна: `grep: lib/gen: Is a directory` — не файл проекта.
+        """
+        search_output = "./lib/main.dart\ngrep: lib/gen: Is a directory\n./lib/app.dart\n"
+
+        raw = parse_path_listing(search_output)
+        normalized = [normalize_path(path, "/work") for path in raw]
+
+        assert filter_paths(normalized) == ["lib/main.dart", "lib/app.dart"]
+
     def test_order_is_preserved(self) -> None:
         """Порядок — часть payload: он определяет порядок файлов в baseline."""
-        raw = parse_find_output(FIND_OUTPUT)
+        raw = parse_path_listing(FIND_OUTPUT)
         normalized = [normalize_path(path, "/work") for path in raw]
 
         assert filter_paths(normalized)[0] == "lib/main.dart"

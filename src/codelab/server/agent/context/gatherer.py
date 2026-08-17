@@ -28,7 +28,7 @@ from codelab.server.agent.context.file_matching import (
     is_binary,
     is_empty,
     normalize_path,
-    parse_find_output,
+    parse_path_listing,
 )
 from codelab.server.agent.context.interfaces import ContextGatherer
 from codelab.server.agent.context.models import (
@@ -507,7 +507,7 @@ class ACPContextGatherer(ContextGatherer):
                 )
                 return []
 
-            raw_files = parse_find_output(result.output)
+            raw_files = parse_path_listing(result.output)
             project_root = getattr(session, "cwd", None)
             # Нормализуем пути относительно корня проекта
             normalized_files = [normalize_path(f, project_root) for f in raw_files]
@@ -543,6 +543,13 @@ class ACPContextGatherer(ContextGatherer):
     ) -> list[str]:
         """Найти файлы по термину: сначала по пути, затем по содержимому.
 
+        Поиск по содержимому — узкая возможность `project/search_content`
+        (ADR-009, раздел 6), а не цикл чтений здесь: сборщику нужны пути, а не
+        содержимое 30 файлов, которое он всё равно выбрасывал (P2-57). Вместе с
+        циклом ушла и область поиска — она принадлежит владельцу возможности,
+        поэтому прежний хвост списка файлов за тридцатым элементом больше не
+        является для поиска невидимым.
+
         Args:
             term: Поисковый термин
             project_files: Список путей
@@ -561,34 +568,64 @@ class ACPContextGatherer(ContextGatherer):
             return matches[:10]
 
         found_paths = set(matches)
-        content_search_limit = 30
-        files_to_check = [f for f in project_files if f not in found_paths]
-
-        logger.info(
-            "context.gather.content_search.start",
-            session_id=self._session_id,
-            term=term,
-            path_matches=len(matches),
-            files_to_check=min(len(files_to_check), content_search_limit),
-        )
-
-        for file_path in files_to_check[:content_search_limit]:
-            if is_binary(file_path):
+        for file_path in await self._search_content(term, session):
+            if file_path in found_paths or is_binary(file_path):
                 continue
-
-            content = await self._read_file(file_path, session)
-            if content is None or is_empty(content):
-                continue
-
-            if term_lower in content.lower():
-                matches.append(file_path)
-                logger.info(
-                    "context.gather.content_search.match",
-                    session_id=self._session_id,
-                    term=term,
-                    file_path=file_path,
-                )
-                if len(matches) >= 10:
-                    break
+            found_paths.add(file_path)
+            matches.append(file_path)
+            if len(matches) >= 10:
+                break
 
         return matches[:10]
+
+    async def _search_content(self, term: str, session: Any) -> list[str]:
+        """Пути файлов, содержащих термин, через `project/search_content`.
+
+        Пустой результат и отказ возможности неразличимы для вызывающего
+        намеренно: и то, и другое означает «кандидатов по этому термину нет», а
+        горячий путь сборки не вправе падать.
+        """
+        try:
+            result = await self._tool_registry.execute_tool(
+                self._session_id,
+                # Имя возможности литералом, как и остальные инструменты здесь:
+                # пакет контекста не зависит от `server.tools` (направление слоёв).
+                "project/search_content",
+                {"term": term},
+                session=session,
+                subject=ToolInvocationSubject.CONTEXT,
+            )
+        except Exception:
+            logger.exception(
+                "context.gather.content_search.error",
+                session_id=self._session_id,
+                term=term,
+            )
+            return []
+
+        if not result.success:
+            # Не `debug`: отказ возможности — это отказ целой половины сбора, и
+            # на уровне `debug` он невидим в файле лога. Первый же живой прогон
+            # показал, зачем это нужно: 44 вызова из 44 отказали молча, и
+            # причину пришлось бы искать догадками (P2-57).
+            logger.warning(
+                "context.gather.content_search.failed",
+                session_id=self._session_id,
+                term=term,
+                error=result.error,
+            )
+            return []
+
+        project_root = getattr(session, "cwd", None)
+        raw_paths = parse_path_listing(result.output or "")
+        found = filter_paths([normalize_path(path, project_root) for path in raw_paths])
+
+        logger.info(
+            "context.gather.content_search.complete",
+            session_id=self._session_id,
+            term=term,
+            raw_count=len(raw_paths),
+            found_count=len(found),
+            found=found[:5],
+        )
+        return found
