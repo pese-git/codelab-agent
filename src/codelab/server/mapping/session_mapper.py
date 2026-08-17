@@ -4,11 +4,13 @@
 и protocol моделью SessionDocument (Pydantic BaseModel для сериализации).
 """
 
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any, cast
 
 from codelab.server.agent.config.models import SessionMetrics
 from codelab.server.domain.history_projection import project_history
+from codelab.server.domain.journal import JournalEntry, SessionJournal
 from codelab.server.domain.session import (
     AgentPlan,
     ConversationHistory,
@@ -121,9 +123,14 @@ class SessionMapper:
         if session.active_turn is not None:
             state.active_turn = SessionMapper._turn_to_protocol(session.active_turn)
 
+        # Журнал: доменные записи → wire-форма документа. Обратный разбор
+        # (`_build_journal`) проверен на записанных сессиях — 0 нераспознанных
+        # записей и 0 расхождений при round-trip, поэтому сериализация здесь
+        # безопасна и не теряет записей, которых домен не знает.
+        state.events_history = [JournalMapper.to_wire(entry) for entry in session.journal.entries()]
+
         # Рантайм-состояние (доменный SessionRuntime VO → плоские поля SessionDocument)
         runtime = session.runtime
-        state.events_history = [dict(e) for e in runtime.events_history]
         state.cancelled_client_rpc_requests = set(runtime.cancelled_client_rpc_requests)  # type: ignore[arg-type]
         state.pending_prompt_response = (
             dict(runtime.pending_prompt_response)
@@ -185,8 +192,14 @@ class SessionMapper:
             mcp_servers=[dict(s) for s in state.mcp_servers],
         )
 
-        history = SessionMapper._build_history(state)
-        tool_calls = SessionMapper._build_tool_calls(state)
+        # Журнал разбирается **один раз** и дальше используется как домен: до 6a
+        # каждая проекция парсила wire заново, то есть форма записи была известна
+        # трём читателям вместо одного.
+        journal = SessionMapper._build_journal(state)
+        entries = journal.entries()
+
+        history = SessionMapper._build_history(state, entries)
+        tool_calls = SessionMapper._build_tool_calls(state, entries)
 
         # Создаем PermissionState
         permissions = PermissionState(
@@ -222,6 +235,7 @@ class SessionMapper:
             plan=plan,
             multi_agent=multi_agent,
             active_turn=active_turn,
+            journal=journal,
             runtime=runtime,
             title=state.title,
             updated_at=state.updated_at,
@@ -274,10 +288,26 @@ class SessionMapper:
         )
 
     @staticmethod
+    def _build_journal(state: SessionDocument) -> SessionJournal:
+        """Собирает доменный журнал из wire-записей документа.
+
+        Нераспознанная запись пропускается — так же, как её пропускали реплей и
+        обе проекции до 6a. Разница в том, что теперь пропуск виден один раз и в
+        одном месте, а не трижды в трёх читателях. Замер на записанных сессиях
+        (живой документ и `recorded_session_v14`) дал 0 таких записей.
+        """
+        journal = SessionJournal()
+        journal.restore(
+            entry
+            for entry in (JournalMapper.from_wire(dict(record)) for record in state.events_history)
+            if entry is not None
+        )
+        return journal
+
+    @staticmethod
     def _build_runtime(state: SessionDocument) -> SessionRuntime:
         """Собирает доменный SessionRuntime VO из плоских runtime-полей SessionDocument."""
         return SessionRuntime(
-            events_history=[dict(e) for e in state.events_history],
             cancelled_client_rpc_requests=set(state.cancelled_client_rpc_requests),
             pending_prompt_response=(
                 dict(state.pending_prompt_response)
@@ -309,7 +339,9 @@ class SessionMapper:
         )
 
     @staticmethod
-    def _build_history(state: SessionDocument) -> ConversationHistory:
+    def _build_history(
+        state: SessionDocument, entries: Sequence[JournalEntry]
+    ) -> ConversationHistory:
         """История сессии: проекция журнала, а для легаси-документов — их коллекция.
 
         Шаг 4f ADR-008: `history` перестала быть источником и стала видом. Новые
@@ -333,18 +365,15 @@ class SessionMapper:
                 history.add(HistoryMapper.to_domain(msg_data))
             return history
 
-        entries = [
-            entry
-            for entry in (JournalMapper.from_wire(dict(record)) for record in state.events_history)
-            if entry is not None
-        ]
         history = ConversationHistory()
         for message in project_history(entries):
             history.add(message)
         return history
 
     @staticmethod
-    def _build_tool_calls(state: SessionDocument) -> ToolCallRegistry:
+    def _build_tool_calls(
+        state: SessionDocument, entries: Sequence[JournalEntry]
+    ) -> ToolCallRegistry:
         """Реестр вызовов: проекция журнала, а для легаси-документов — их коллекция.
 
         Шаг 4g ADR-008, по образцу `_build_history`: признак легаси — **само
@@ -371,11 +400,6 @@ class SessionMapper:
             )
             return tool_calls
 
-        entries = [
-            entry
-            for entry in (JournalMapper.from_wire(dict(record)) for record in state.events_history)
-            if entry is not None
-        ]
         tool_calls.restore(project_tool_calls(entries))
         return tool_calls
 

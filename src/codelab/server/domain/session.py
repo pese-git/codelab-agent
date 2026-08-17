@@ -23,6 +23,7 @@ import structlog
 from codelab.shared.capabilities import ClientCapabilities
 
 from .conversation import ConversationMessage, MessageContent
+from .journal import SessionJournal
 from .plan import PlanEntry
 from .tool_call import ToolCall, ToolResult
 from .value_objects import (
@@ -416,10 +417,14 @@ class TurnState:
 class SessionRuntime:
     """Рантайм-состояние сессии как доменный VO (ADR-006, write-фаза).
 
-    Переезжает из плоских runtime-полей `protocol.state.SessionDocument`
-    (`events_history`, ...). Персистируемо (часть агрегата), кроме чисто transient
+    Переезжает из плоских runtime-полей `protocol.state.SessionDocument`.
+    Персистируемо (часть агрегата), кроме чисто transient
     `mcp_prompt_handlers` (`exclude=True`), который в домен НЕ переезжает и
     восстанавливается в `SessionRuntime`-компаньоне протокола.
+
+    Журнала здесь больше нет: он переехал в агрегат отдельной коллекцией
+    `Session.journal` (шаг 6a ADR-008). Место было выбрано неверно — журнал не
+    рантайм-состояние, а источник, из которого выводятся история и вызовы.
 
     Не всё «рантайм» здесь: состояние, которое не переживает рестарт по смыслу
     (связка alias'ов терминалов), живёт в процессных реестрах, а не в агрегате —
@@ -429,7 +434,6 @@ class SessionRuntime:
     plain dict — данные, не wire-семантика.
     """
 
-    events_history: list[dict[str, Any]] = field(default_factory=list)
     cancelled_client_rpc_requests: set[str | int] = field(default_factory=set)
     pending_prompt_response: dict[str, Any] | None = None
     session_metrics: dict[str, Any] | None = None
@@ -452,6 +456,10 @@ class Session:
     plan: AgentPlan = field(default_factory=AgentPlan)
     multi_agent: MultiAgentState = field(default_factory=MultiAgentState)
     active_turn: TurnState | None = None
+    # Журнал — источник, из которого выводятся `history` и `tool_calls` (шаги 4f,
+    # 4g). Поэтому он стоит рядом с ними в агрегате, а не внутри `runtime`, куда
+    # попал на фазе B ADR-006 вместе с прочими плоскими полями документа.
+    journal: SessionJournal = field(default_factory=SessionJournal)
     runtime: SessionRuntime = field(default_factory=SessionRuntime)
     # Storage-мета. Несётся round-trip как есть; `updated_at` НЕ регенерируется
     # при пересборке (регенерация = ложная «last activity», см. ACP updatedAt).

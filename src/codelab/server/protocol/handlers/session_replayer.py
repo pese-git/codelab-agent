@@ -59,11 +59,7 @@ class SessionReplayer:
         notifications: list[ACPMessage] = []
         session_id = str(session.id)
 
-        for wire in session.runtime.events_history:
-            entry = JournalMapper.from_wire(wire)
-            if entry is None:
-                continue
-
+        for entry in session.journal.entries():
             # Событие описывает сообщение, а ACP передаёт его чанками, поэтому
             # проекция отдаёт список: многоблочный промпт — по чанку на блок.
             for update_data in JournalMapper.to_replay_updates(entry.event):
@@ -77,7 +73,7 @@ class SessionReplayer:
         logger.debug(
             "replay_history completed",
             session_id=session_id,
-            events_count=len(session.runtime.events_history),
+            events_count=len(session.journal),
             notifications_count=len(notifications),
         )
 

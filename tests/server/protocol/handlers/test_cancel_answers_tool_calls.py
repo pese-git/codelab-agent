@@ -24,7 +24,7 @@ from codelab.server.models import HistoryMessage
 from codelab.server.protocol.handlers.session import _cleanup_session_state
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.storage.document import ActiveTurnState, SessionDocument, ToolCallState
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 
 def _session_with_pending_call(status: str = "pending") -> SessionDocument:
@@ -152,7 +152,7 @@ class TestSessionSwitchAnswersToolCalls:
 
         replayed = [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e.get("event") == "tool_call_status_changed"
         ]
         assert len(replayed) == 1
@@ -441,7 +441,7 @@ class TestOrphanedInFlightCallIsAnsweredOnLoad:
 
         events = [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e["event"] == "tool_call_answered"
         ]
         assert len(events) == 1
@@ -473,7 +473,7 @@ class TestCancelAnswerIsJournalled:
 
         events = [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e["event"] == "tool_call_answered"
         ]
         assert len(events) == 1
@@ -489,6 +489,6 @@ class TestCancelAnswerIsJournalled:
         assert _domain_answers(session) == []
         assert not [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e["event"] == "tool_call_answered"
         ]

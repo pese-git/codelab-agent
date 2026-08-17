@@ -37,10 +37,10 @@ import pytest
 
 from codelab.server.domain.session import Session as DomainSession
 from codelab.server.domain.value_objects import ToolCallStatus
-from codelab.server.mapping.journal_mapper import JournalMapper
+from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.handlers.session import _replay_tool_calls_fallback
 from codelab.server.protocol.handlers.session_replayer import SessionReplayer
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 SESSION_ID = "sess_golden_load"
 TS = "2026-08-06T12:00:00+00:00"
@@ -49,6 +49,17 @@ TS = "2026-08-06T12:00:00+00:00"
 def _event(update: dict[str, Any]) -> dict[str, Any]:
     """Элемент журнала в его нынешней форме: готовая ACP-нотификация плюс метка времени."""
     return {"type": "session_update", "update": update, "timestamp": TS}
+
+
+def _rewritten_as_v11(session: DomainSession) -> DomainSession:
+    """Та же сессия, чей журнал записан в форме v11.
+
+    Прежде тест переписывал записи в журнале на месте: журнал был списком
+    wire-записей, и подменить их форму мог кто угодно. С шага 6a форму знает
+    только маппер, поэтому «записать в v11» выражается единственным честным
+    способом — прогнать сессию через запись и чтение документа.
+    """
+    return SessionMapper.to_domain(SessionMapper.to_protocol(session))
 
 
 def _session_with_all_event_kinds() -> DomainSession:
@@ -196,7 +207,7 @@ class TestReplayHistoryGolden:
         kinds = [msg.params["update"]["sessionUpdate"] for msg in replayer.replay_history(session)]
 
         assert "session_info_update" not in kinds
-        assert len(session.runtime.events_history) == 7
+        assert len(wire_journal(session)) == 7
 
     def test_timestamp_does_not_reach_wire(self, replayer: SessionReplayer) -> None:
         """Метка времени — поле журнала, а не нотификации: в wire её быть не должно."""
@@ -235,11 +246,8 @@ class TestReplayHistoryFromV11Golden:
 
     def test_stream_is_identical_to_v10(self, replayer: SessionReplayer) -> None:
         v10_session = _session_with_all_event_kinds()
-        v11_session = _session_with_all_event_kinds()
-        v11_session.runtime.events_history = [
-            JournalMapper.to_wire(JournalMapper.from_wire(record))
-            for record in v11_session.runtime.events_history
-        ]
+        v11_session = _rewritten_as_v11(_session_with_all_event_kinds())
+        assert all("event" in record for record in wire_journal(v11_session))
 
         from_v10 = [msg.params for msg in replayer.replay_history(v10_session)]
         from_v11 = [msg.params for msg in replayer.replay_history(v11_session)]
@@ -291,12 +299,8 @@ class TestToolCallFallbackGolden:
         обычному реплею — клиент увидел бы каждый вызов дважды. Случая v11 в гейте
         не было, поэтому поломку он бы не поймал; добавлен вместе с 3b.
         """
-        session = _session_with_all_event_kinds()
-        session.runtime.events_history = [
-            JournalMapper.to_wire(JournalMapper.from_wire(record))
-            for record in session.runtime.events_history
-        ]
-        assert all("event" in record for record in session.runtime.events_history)
+        session = _rewritten_as_v11(_session_with_all_event_kinds())
+        assert all("event" in record for record in wire_journal(session))
         call = session.tool_calls.create(
             "terminal/create", {"command": "ls"}, title="terminal/create", kind="execute"
         )

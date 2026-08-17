@@ -229,29 +229,25 @@ class EventHistoryWriter:
         Метка времени — свойство записи журнала, не факта диалога, поэтому её
         ставит писатель, а не вызывающий.
         """
-        entry = JournalEntry(event=event, timestamp=datetime.now(UTC))
-        wire = JournalMapper.to_wire(entry)
-        events, session_id = _journal_of(session)
-        events.append(wire)
+        timestamp = datetime.now(UTC)
+
+        if isinstance(session, SessionDocument):
+            # Ветка wire-DTO: у документа доменного журнала нет, форму записи ему
+            # по-прежнему отдаёт проекция. Живёт ровно до конца фазы D ADR-006 —
+            # снять её значит убрать последнего писателя с `SessionDocument`.
+            session.events_history.append(JournalMapper.to_wire(JournalEntry(event, timestamp)))
+            seq = len(session.events_history)
+            session_id = session.session_id
+        else:
+            # Доменная ветка: писатель кладёт **событие**, а не запись. Формы wire
+            # он больше не касается — её знает маппер на границе хранилища
+            # (шаг 6a ADR-008).
+            seq = session.journal.append(event, timestamp)
+            session_id = str(session.id)
 
         logger.debug(
             "event appended to session journal",
             session_id=session_id,
             event_type=type(event).__name__,
-            record_kind=wire["event"],
+            seq=seq,
         )
-
-
-def _journal_of(
-    session: SessionDocument | DomainSession,
-) -> tuple[list[dict[str, Any]], str]:
-    """Журнал событий и id сессии — из wire-DTO либо доменного агрегата.
-
-    Развилка носителя временна и живёт ровно до конца фазы D ADR-006: в обеих
-    моделях это один и тот же список записей журнала, а форму записи знает
-    проекция. Снять развилку = оставить доменную ветку, когда последний писатель
-    уедет с `SessionDocument`.
-    """
-    if isinstance(session, SessionDocument):
-        return session.events_history, session.session_id
-    return session.runtime.events_history, str(session.id)

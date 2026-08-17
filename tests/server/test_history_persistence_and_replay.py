@@ -16,7 +16,7 @@ from codelab.server.protocol.handlers.event_history_writer import EventHistoryWr
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.storage import SessionRepository
 from codelab.server.storage.document import SessionDocument
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 
 class TestUserMessageChunkPersistence:
@@ -64,7 +64,7 @@ class TestUserMessageChunkPersistence:
         # тест требовал события на блок — правило заменено осознанно, потому что
         # `add_user_message` кладёт в историю одно сообщение из всех блоков.
         user_message_events = [
-            e for e in session.runtime.events_history if e.get("event") == "user_message_recorded"
+            e for e in wire_journal(session) if e.get("event") == "user_message_recorded"
         ]
         assert len(user_message_events) == 1
 
@@ -112,9 +112,9 @@ class TestAgentMessageChunkFormat:
 
         # Assert
         # Проверяем, что событие содержит правильную структуру
-        assert len(session.runtime.events_history) > 0
+        assert len(wire_journal(session)) > 0
 
-        agent_event = session.runtime.events_history[-1]
+        agent_event = wire_journal(session)[-1]
         assert agent_event["event"] == "agent_message_recorded"
 
         update = agent_event["data"]
@@ -140,7 +140,7 @@ class TestAgentMessageChunkFormat:
         )
 
         # Assert
-        event = session.runtime.events_history[-1]
+        event = wire_journal(session)[-1]
         assert "at" in event
         assert isinstance(event["at"], str)
 

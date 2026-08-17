@@ -9,7 +9,7 @@ import pytest
 from codelab.server.agent.core.agent_base import AgentResponse
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.pipeline.stages.agent_loop import AgentLoop
-from tests.server._domain_sessions import make_commands, make_domain_session
+from tests.server._domain_sessions import make_commands, make_domain_session, wire_journal
 
 
 class TestAgentMessageChunkPreservation:
@@ -59,12 +59,12 @@ class TestAgentMessageChunkPreservation:
 
         # Assert
         assert result.stop_reason.value == "end_turn"
-        assert len(session.runtime.events_history) > 0
+        assert len(wire_journal(session)) > 0
 
         # Проверяем, что agent_message_chunk сохранён
         agent_chunks = [
             event
-            for event in session.runtime.events_history
+            for event in wire_journal(session)
             if event.get("event") == "agent_message_recorded"
         ]
         assert len(agent_chunks) > 0
@@ -136,7 +136,7 @@ class TestAgentMessageChunkPreservation:
         # Assert
         agent_chunks = [
             event
-            for event in session.runtime.events_history
+            for event in wire_journal(session)
             if event.get("event") == "agent_message_recorded"
         ]
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from codelab.server.domain.session import Session
 from codelab.server.mapping.history_mapper import HistoryMapper
+from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.mapping.session_mapper import SessionMapper
 from codelab.server.protocol.session_commands import SessionCommands
 from codelab.server.storage import InMemoryStorage, SessionRepository, SessionStorage
@@ -114,3 +115,18 @@ def wire_history(session: Session) -> list[dict[str, Any]]:
         HistoryMapper.to_protocol(message).model_dump(exclude_none=True)
         for message in session.history.get_messages()
     ]
+
+
+def wire_journal(session: Session) -> list[dict[str, Any]]:
+    """Журнал агрегата в wire-форме — той, что уезжает на диск.
+
+    Парный к `wire_history` и по той же причине. С шага 6a ADR-008 журнал —
+    доменная коллекция `SessionJournal`, а не список wire-записей в
+    `SessionRuntime`, поэтому тест, читавший журнал через прежнее поле рантайма,
+    читал бы теперь несуществующее.
+
+    Помощник рендерит записи тем же маппером, каким их пишет хранилище. Так
+    тесты продолжают проверять **содержание** журнала — то, что уедет на диск и
+    вернётся, — а не устройство контейнера, в котором он лежит в памяти.
+    """
+    return [JournalMapper.to_wire(entry) for entry in session.journal.entries()]

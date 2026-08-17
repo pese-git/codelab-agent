@@ -35,7 +35,12 @@ from codelab.server.protocol.handlers.state_manager import StateManager
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.handlers.turn_lifecycle_manager import TurnLifecycleManager
 from codelab.server.tools.registry import SimpleToolRegistry
-from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
+from tests.server._domain_sessions import (
+    make_commands,
+    make_domain_session,
+    wire_history,
+    wire_journal,
+)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -255,7 +260,7 @@ class TestPromptOrchestratorHandlePrompt:
 
         user_messages = [m for m in wire_history(session) if m.get("role") == "user"]
         user_events = [
-            e for e in session.runtime.events_history if e.get("event") == "user_message_recorded"
+            e for e in wire_journal(session) if e.get("event") == "user_message_recorded"
         ]
 
         assert len(user_messages) == 1

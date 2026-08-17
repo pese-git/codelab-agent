@@ -17,7 +17,6 @@ from codelab.server.storage.document import ClientRuntimeCapabilities
 from ...domain.journal import ToolCallStarted
 from ...domain.session import Session as DomainSession
 from ...domain.value_objects import ToolCallStatus, TurnCancelled
-from ...mapping.journal_mapper import JournalMapper
 from ...messages import ACPMessage, JsonRpcId
 from ...storage import SessionRepository
 from ..session_factory import SessionFactory
@@ -251,9 +250,7 @@ def _replay_tool_calls_fallback(session: DomainSession, session_id: str) -> list
     # проверка по ней тихо решила бы, что вызовов в журнале не было, — клиент
     # получил бы их дважды, обычным реплеем и этой веткой.
     has_tool_call_events = any(
-        isinstance(entry.event, ToolCallStarted)
-        for entry in (JournalMapper.from_wire(record) for record in session.runtime.events_history)
-        if entry is not None
+        isinstance(entry.event, ToolCallStarted) for entry in session.journal.entries()
     )
     if has_tool_call_events or not session.tool_calls.get_all():
         return []
@@ -427,7 +424,7 @@ async def session_load(
         history_notifications=len(history_notifications),
         plan_replayed=plan_notification is not None,
         tool_call_fallback_used=bool(fallback_notifications),
-        events_history=len(session.runtime.events_history),
+        events_history=len(session.journal),
         tool_calls=len(session.tool_calls.get_all()),
     )
 

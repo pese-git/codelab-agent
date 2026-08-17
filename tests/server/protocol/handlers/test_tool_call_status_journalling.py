@@ -14,11 +14,11 @@ from codelab.server.domain.journal import ToolCallStatusChanged
 from codelab.server.domain.value_objects import ToolCallStatus
 from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 
 def _events(session: Any) -> list[ToolCallStatusChanged]:
-    entries = [JournalMapper.from_wire(record) for record in session.runtime.events_history]
+    entries = [JournalMapper.from_wire(record) for record in wire_journal(session)]
     return [
         entry.event
         for entry in entries

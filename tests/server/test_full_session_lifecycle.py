@@ -17,6 +17,7 @@ from codelab.server.protocol.handlers.event_history_writer import EventHistoryWr
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
 from codelab.server.storage import SessionRepository
+from tests.server._domain_sessions import wire_journal
 
 
 class TestFullSessionLifecycle:
@@ -72,18 +73,18 @@ class TestFullSessionLifecycle:
         )
 
         # Assert - Проверяем что события сохранены
-        assert len(session.runtime.events_history) >= 2
+        assert len(wire_journal(session)) >= 2
 
         user_events = [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e.get("event") == "user_message_recorded"
         ]
         assert len(user_events) == 1
 
         agent_events = [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e.get("event") == "agent_message_recorded"
         ]
         assert len(agent_events) == 1
@@ -185,7 +186,7 @@ class TestFullSessionLifecycle:
         )
 
         # Assert - Проверяем что все события сохранены
-        assert len(session.runtime.events_history) == 4  # 2 user + 2 agent
+        assert len(wire_journal(session)) == 4  # 2 user + 2 agent
 
         # Сохраняем сессию в storage
         from codelab.server.storage import InMemoryStorage

@@ -18,6 +18,7 @@ from codelab.server.protocol.handlers.session import (
     session_new,
 )
 from codelab.server.storage.document import SessionDocument, ToolCallState
+from tests.server._domain_sessions import wire_journal
 
 
 class TestSerializeAvailableCommands:
@@ -282,7 +283,7 @@ class TestSessionLoadEdgeCases:
         # оставит историю и состояние согласованными.
         recorded = [
             event["data"]
-            for event in domain_session.runtime.events_history
+            for event in wire_journal(domain_session)
             if event.get("event") == "tool_call_status_changed"
         ]
         assert [u["status"] for u in recorded] == ["cancelled"]

@@ -31,7 +31,12 @@ from codelab.server.protocol.handlers.pipeline.stages.agent_loop.tool_processor 
 from codelab.server.protocol.handlers.tool_call_handler import ToolCallHandler
 from codelab.server.protocol.turn_cancellation import TurnCancellationRegistry
 from codelab.server.tools.base import ToolExecutionResult
-from tests.server._domain_sessions import make_commands, make_domain_session, wire_history
+from tests.server._domain_sessions import (
+    make_commands,
+    make_domain_session,
+    wire_history,
+    wire_journal,
+)
 
 
 def _make_processor(
@@ -317,7 +322,7 @@ class TestAnswerIsAJournalEvent:
     def _answer_events(session: DomainSession) -> list[dict[str, Any]]:
         return [
             e
-            for e in session.runtime.events_history
+            for e in wire_journal(session)
             if e.get("event") == "tool_call_answered"
         ]
 
@@ -424,7 +429,7 @@ class TestAnswerTextIsDerivableFromJournal:
 
         assert [m["content"] for m in _tool_answers(session)] == [self._FOR_MODEL]
         answered = [
-            e for e in session.runtime.events_history if e.get("event") == "tool_call_answered"
+            e for e in wire_journal(session) if e.get("event") == "tool_call_answered"
         ]
         assert [e["data"]["text"] for e in answered] == [self._FOR_MODEL]
 

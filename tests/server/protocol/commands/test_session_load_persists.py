@@ -80,12 +80,13 @@ async def _load(
     storage: JsonFileStorage,
     cwd: str = "/work",
     pending_registry: PendingRequestRegistry | None = None,
+    session_id: str = "sess_x",
 ) -> None:
     outcome = await _handler(storage, pending_registry).handle(
         ACPMessage(
             id="req_2",
             method="session/load",
-            params={"sessionId": "sess_x", "cwd": cwd, "mcpServers": []},
+            params={"sessionId": session_id, "cwd": cwd, "mcpServers": []},
         )
     )
     assert outcome.response is not None
@@ -248,6 +249,9 @@ class TestDomainRoundTripDoesNotRewriteFormat:
             ),
             HistoryMessage(role="tool", tool_call_id="llm_1", content="res"),
         ]
+        # Запись в форме v10 — намеренно: она проверяет, что старый носитель
+        # читается. Что запись **v11** переживает загрузку без изменений, проверяет
+        # `test_v11_journal_is_not_rewritten` ниже.
         session.events_history = [
             {"type": "session_update", "update": {"sessionUpdate": "tool_call", "toolCallId": "c1"}}
         ]
@@ -272,11 +276,50 @@ class TestDomainRoundTripDoesNotRewriteFormat:
 
         # Транзакция меняет только то, что решила: turn и updated_at
         changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        # revision растёт на каждой записи — это и есть механизм CAS (ADR-007)
-        assert changed <= {"active_turn", "updated_at", "revision"}, (
+        # revision растёт на каждой записи — это и есть механизм CAS (ADR-007);
+        # `events_history` — нормализация формы записи v10 → v11 (шаг 6a): журнал
+        # стал доменной коллекцией, поэтому на диск он уезжает в единственной
+        # форме, которую пишет маппер. Разовая и только для записей до 3b.
+        assert changed <= {"active_turn", "updated_at", "revision", "events_history"}, (
             f"перезаписаны лишние поля: {changed}"
         )
         assert after["revision"] == before["revision"] + 1
+        # `acp_update_verbatim`, а не `tool_call_started`: у записи нет ни `title`,
+        # ни `kind`, ни `status`, поэтому вызовом она не распознаётся и сохраняется
+        # непрозрачно (`UnknownUpdateRecorded`). Содержимое при этом не теряется —
+        # теряется только запись, которая журналом не является вовсе.
+        assert [record["event"] for record in after["events_history"]] == ["acp_update_verbatim"]
+        assert after["events_history"][0]["data"]["update"] == {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "c1",
+        }
+
+    @pytest.mark.asyncio
+    async def test_v11_journal_is_not_rewritten(self, tmp_path: Path) -> None:
+        """Журнал в текущей форме переживает загрузку **байт-в-байт**.
+
+        Пара к тесту выше: нормализация v10 → v11 разовая и касается только
+        записей, созданных до шага 3b. Документы, которые лежат в
+        `~/.codelab/data/sessions` сегодня, состоят из записей v11 — замер на
+        живой сессии (71 запись) и на `recorded_session_v14` (24) дал 0
+        расхождений при round-trip, и этот гейт держит результат.
+        """
+        storage = JsonFileStorage(tmp_path)
+        session = SessionDocument(session_id="sess_v11", cwd="/work", mcp_servers=[])
+        session.events_history = [
+            {
+                "event": "user_message_recorded",
+                "at": "2026-08-17T05:45:40.677000+00:00",
+                "data": {"blocks": [{"type": "text", "text": "привет"}]},
+            }
+        ]
+        await storage.save_session(session)
+        before = (await JsonFileStorage(tmp_path).load_session("sess_v11")).model_dump(mode="json")
+
+        await _load(storage, cwd="/work", session_id="sess_v11")
+
+        after = (await JsonFileStorage(tmp_path).load_session("sess_v11")).model_dump(mode="json")
+        assert after["events_history"] == before["events_history"]
 
     def test_known_normalizations_of_hand_built_records(self) -> None:
         """Известные нормализации маппера — зафиксированы осознанно.

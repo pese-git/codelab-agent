@@ -11,7 +11,7 @@ import pytest
 from codelab.server.mapping.journal_mapper import JournalMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.storage.document import SessionDocument
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 
 @pytest.fixture
@@ -196,7 +196,7 @@ class TestSaveToolCallAnswer:
             session, "llm_7", "Вызов не выполнялся: turn отменён пользователем."
         )
 
-        record = session.runtime.events_history[0]
+        record = wire_journal(session)[0]
         assert record["event"] == "tool_call_answered"
         assert record["data"] == {
             "tool_call_id": "llm_7",
@@ -208,6 +208,6 @@ class TestSaveToolCallAnswer:
         session = make_domain_session(session_id="s", cwd="/tmp", mcp_servers=[])
         history_writer.save_tool_call_answer(session, "llm_7", "текст")
 
-        entry = JournalMapper.from_wire(session.runtime.events_history[0])
+        entry = JournalMapper.from_wire(wire_journal(session)[0])
         assert entry is not None
         assert JournalMapper.to_replay_updates(entry.event) == []

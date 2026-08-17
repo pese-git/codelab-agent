@@ -246,16 +246,53 @@ class TestRoundtripTurnAndRuntime:
     def test_runtime_preserved(self) -> None:
         session = _rich_session()
         session.runtime = SessionRuntime(
-            events_history=[{"type": "session_update", "n": 1}],
             cancelled_client_rpc_requests={"rpc_1", 42},
             pending_prompt_response={"request_id": "p1"},
             correlation_id="corr_1",
         )
         rt = _roundtrip(session)
-        assert rt.runtime.events_history == [{"type": "session_update", "n": 1}]
         assert rt.runtime.cancelled_client_rpc_requests == {"rpc_1", 42}
         assert rt.runtime.pending_prompt_response == {"request_id": "p1"}
         assert rt.runtime.correlation_id == "corr_1"
+
+    def test_journal_preserved(self) -> None:
+        """Журнал переживает round-trip как доменная коллекция (шаг 6a ADR-008).
+
+        Прежняя редакция держала журнал в `SessionRuntime` списком wire-записей и
+        проверяла, что непрозрачный dict доезжает обратно байт-в-байт. С 6a
+        журнал — доменная коллекция, и её round-trip проверяется по событиям.
+        """
+        session = _rich_session()
+        before = len(session.journal)
+        writer = EventHistoryWriter()
+        writer.save_user_message(session, [{"type": "text", "text": "привет"}])
+        writer.save_agent_message(session, {"type": "text", "text": "ответ"})
+        assert len(session.journal) == before + 2
+
+        rt = _roundtrip(session)
+
+        assert [type(e.event) for e in rt.journal.entries()] == [
+            type(e.event) for e in session.journal.entries()
+        ]
+        assert rt.journal.last_seq == session.journal.last_seq
+
+    def test_record_the_journal_cannot_read_is_dropped(self) -> None:
+        """Запись, не являющаяся событием журнала, на следующей записи исчезает.
+
+        Осознанная смена контракта шага 6a. До него такая запись копировалась на
+        диск непрозрачно и жила вечно, хотя **ни один** читатель её не
+        использовал: и реплей, и обе проекции пропускали её ещё до 6a. Замер на
+        записанных сессиях (живой документ `sess_d89850dfbde1`, 71 запись, и
+        `recorded_session_v14`, 24) дал 0 таких записей, поэтому цена смены
+        измерена, а не оценена.
+        """
+        doc = SessionMapper.to_protocol(_rich_session())
+        doc.events_history = [{"type": "session_update", "n": 1}]
+
+        session = SessionMapper.to_domain(doc)
+
+        assert len(session.journal) == 0
+        assert SessionMapper.to_protocol(session).events_history == []
 
 
 class TestRoundtripToolCallFields:
@@ -394,14 +431,12 @@ class TestRoundtripPrepFields:
         метка лежала в самой записи истории; инвариант тот же, источник другой.
         """
         session = Session(id=SessionId("s"), config=SessionConfig(cwd="/t"))
-        record = JournalMapper.to_wire(
-            JournalEntry(UserMessageRecorded(blocks=[{"type": "text", "text": "a"}]))
-        )
-        session.runtime.events_history.append(record)
+        entry = JournalEntry(UserMessageRecorded(blocks=[{"type": "text", "text": "a"}]))
+        session.journal.restore([entry])
 
         rt = _roundtrip(session)
 
-        assert "at" not in record
+        assert "at" not in JournalMapper.to_wire(entry)
         assert rt.history.get_messages()[0].timestamp is None
 
 

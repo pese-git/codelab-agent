@@ -14,7 +14,7 @@ from codelab.server.domain.session import Session as DomainSession
 from codelab.server.mapping.plan_mapper import PlanMapper
 from codelab.server.protocol.handlers.event_history_writer import EventHistoryWriter
 from codelab.server.protocol.handlers.session_replayer import SessionReplayer
-from tests.server._domain_sessions import make_domain_session
+from tests.server._domain_sessions import make_domain_session, wire_journal
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ class TestReplayHistory:
     ) -> None:
         """Проверяет что запись без реплей-формы в поток не попадает."""
         # Добавляем событие напрямую в events_history с неизвестным типом
-        session.runtime.events_history.append(
+        wire_journal(session).append(
             {
                 "type": "session_update",
                 "update": {"sessionUpdate": "unknown_type", "data": "test"},

@@ -21,6 +21,7 @@ Types, домен их не интерпретирует и не пересоб�
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -28,6 +29,7 @@ from typing import Any
 __all__ = [
     "AgentMessageRecorded",
     "JournalEntry",
+    "SessionJournal",
     "PlanRecorded",
     "RequestedToolCall",
     "SessionEvent",
@@ -250,3 +252,64 @@ class JournalEntry:
 
     event: SessionEvent
     timestamp: datetime | None = None
+
+
+@dataclass
+class SessionJournal:
+    """Журнал сессии — упорядоченная append-only коллекция событий (шаг 6a ADR-008).
+
+    До этого шага журнал жил в `SessionRuntime` как `list[dict]` в **wire-форме**:
+    домен хранил записи протокола, которых не понимал, а конвертировал их каждый
+    читатель сам. Отсюда два следствия, которые шаг снимает.
+
+    Первое: писатель, изменивший состояние и не дописавший событие, терял
+    изменение молча — класс дефектов, найденный в 4f и 4g четырежды и закрытый
+    структурными гейтами по `ast`. Гейт ловит непарного писателя, но не делает
+    его невозможным; невозможным его делает единственный владелец дописывания.
+
+    Второе: `seq`. Дописывать можно, только зная, какие события новые, а
+    `list[dict]` курсора не несёт. Здесь `seq` — позиция записи, 1-based:
+    журнал append-only, записи не удаляются и не переставляются, поэтому позиция
+    устойчива и на диск отдельным полем не уезжает. Формат документа шаг не
+    меняет — носитель меняет 6b.
+    """
+
+    _entries: list[JournalEntry] = field(default_factory=list)
+
+    def append(self, event: SessionEvent, timestamp: datetime | None = None) -> int:
+        """Дописать событие; возвращает его `seq`.
+
+        Единственный способ пополнить журнал: `entries()` отдаёт кортеж, поэтому
+        дописать мимо этого метода нельзя даже по неосторожности.
+        """
+        self._entries.append(JournalEntry(event=event, timestamp=timestamp))
+        return len(self._entries)
+
+    def entries(self) -> tuple[JournalEntry, ...]:
+        """Все записи в хронологическом порядке."""
+        return tuple(self._entries)
+
+    def after(self, seq: int) -> tuple[JournalEntry, ...]:
+        """Записи с `seq` больше указанного — то, что осталось дописать.
+
+        Потребитель появится в 6b (`append_events` с курсором последнего
+        сохранённого `seq`); метод вводится здесь вместе с `seq`, потому что
+        именно он объясняет, зачем `seq` нужен.
+        """
+        return tuple(self._entries[max(seq, 0) :])
+
+    def restore(self, entries: Iterable[JournalEntry]) -> None:
+        """Заполнить журнал при сборке агрегата из документа.
+
+        Отдельно от `append`: восстановление несёт метки времени с диска, а
+        `append` ставит свои. Зовёт только маппер.
+        """
+        self._entries = list(entries)
+
+    @property
+    def last_seq(self) -> int:
+        """`seq` последней записи; 0 — журнал пуст."""
+        return len(self._entries)
+
+    def __len__(self) -> int:
+        return len(self._entries)

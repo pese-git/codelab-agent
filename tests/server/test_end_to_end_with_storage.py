@@ -14,6 +14,7 @@ from codelab.server.protocol.handlers.event_history_writer import EventHistoryWr
 from codelab.server.protocol.handlers.session import session_load
 from codelab.server.protocol.session_factory import SessionFactory
 from codelab.server.storage import SessionRepository
+from tests.server._domain_sessions import wire_journal
 
 
 class TestEndToEndWithStorage:
@@ -59,8 +60,8 @@ class TestEndToEndWithStorage:
         EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Assert - Проверяем формат события в memory
-        assert len(session.runtime.events_history) == 1
-        event = session.runtime.events_history[0]
+        assert len(wire_journal(session)) == 1
+        event = wire_journal(session)[0]
 
         # Запись журнала v11: доменный вид + полезная нагрузка (шаг 3b ADR-008).
         # Прежнее утверждение «поля `event` быть не должно» снято осознанно: оно
@@ -98,7 +99,7 @@ class TestEndToEndWithStorage:
         )
 
         # Assert - Проверяем структуру
-        event = session.runtime.events_history[0]
+        event = wire_journal(session)[0]
 
         assert event["event"] == "agent_message_recorded"
         update = event["data"]
@@ -135,7 +136,7 @@ class TestEndToEndWithStorage:
         EventHistoryWriter().save_user_message(session, user_prompt)
 
         # Сериализуем как JSON (как делает JsonFileStorage)
-        json_str = json.dumps({"events_history": session.runtime.events_history})
+        json_str = json.dumps({"events_history": wire_journal(session)})
 
         # Десериализуем обратно
         deserialized = json.loads(json_str)
