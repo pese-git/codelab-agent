@@ -361,10 +361,26 @@ async def test_slash_context_via_stdio(tmp_cwd: Path) -> None:
 
 
 def _stored_session(tmp_cwd: Path, session_id: str) -> dict:
-    """Читает сессию из persistent-хранилища сервера."""
-    path = tmp_cwd / ".codelab" / "data" / "sessions" / f"{session_id}.json"
+    """Читает сессию из persistent-хранилища сервера — снимок плюс журнал.
+
+    С шага 6b ADR-008 сессия лежит в двух файлах: снимок в `.json`, журнал в
+    `.jsonl`. Тест собирает их так же, как хранилище, потому что проверяет он
+    **содержимое сессии**, а не раскладку файлов; за раскладку отвечают гейты
+    самого хранилища.
+    """
+    sessions = tmp_cwd / ".codelab" / "data" / "sessions"
+    path = sessions / f"{session_id}.json"
     assert path.exists(), f"сессия не сохранена: {path}"
-    return json.loads(path.read_text(encoding="utf-8"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+
+    journal = sessions / f"{session_id}.jsonl"
+    assert journal.exists(), f"журнал сессии не сохранён: {journal}"
+    stored["events_history"] = [
+        json.loads(line)
+        for line in journal.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return stored
 
 
 def _projected_tool_calls(stored: dict) -> dict[str, str]:
