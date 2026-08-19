@@ -54,8 +54,10 @@ codelab serve --port 9000
 # Внешний доступ
 codelab serve --host 0.0.0.0 --port 8765
 
-# С подробным логированием
-codelab serve --verbose
+# С подробным логированием (-v — глобальный флаг, до подкоманды)
+codelab -v serve
+# либо явным уровнем
+codelab serve --log-level DEBUG
 ```
 
 ## Переменные окружения
@@ -77,9 +79,9 @@ codelab serve --verbose
 | `CODELAB_LLM_BASE_URL` | Base URL (для OpenAI-совместимых) | — |
 | `CODELAB_LLM_TEMPERATURE` | Temperature (0.0-1.0) | `0.7` |
 | `CODELAB_LLM_MAX_TOKENS` | Максимум токенов | `8192` |
-| `CODELAB_FALLBACK_ENABLED` | Включить fallback | `false` |
-| `CODELAB_FALLBACK_STRATEGY` | Стратегия fallback | `sequential` |
-| `CODELAB_FALLBACK_ORDER` | Порядок провайдеров (через запятую) | — |
+| `CODELAB_FALLBACK_ENABLED` ⚠️ не читается | Включить fallback | `false` |
+| `CODELAB_FALLBACK_STRATEGY` ⚠️ не читается | Стратегия fallback | `sequential` |
+| `CODELAB_FALLBACK_ORDER` ⚠️ не читается | Порядок провайдеров (через запятую) | — |
 
 **Поддерживаемые провайдеры:**
 

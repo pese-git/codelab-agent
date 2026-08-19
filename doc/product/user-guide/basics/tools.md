@@ -37,9 +37,14 @@ graph LR
 
 | Тип | Описание | Примеры |
 |-----|----------|---------|
-| **File System** | Чтение/запись файлов | `read_text_file`, `write_text_file` |
-| **Terminal** | Выполнение команд | `terminal/create`, `terminal/output` |
+| **File System** | Чтение/запись файлов | `fs/read_text_file`, `fs/write_text_file` |
+| **Terminal** | Выполнение команд | `terminal/create`, `terminal/wait_for_exit` |
+| **Plan** | Ведение плана работ | `update_plan` |
 | **MCP** | Внешние сервисы через MCP | `mcp:github:create_issue` |
+
+Отдельно существуют **внутренние возможности** `project/list_files` и
+`project/search_content`: ими пользуется сборщик контекста, модели они не
+предъявляются и набор её инструментов не меняют.
 
 ## File System
 
@@ -47,8 +52,8 @@ graph LR
 
 | Операция | Описание |
 |----------|----------|
-| `read_text_file` | Чтение текстовых файлов |
-| `write_text_file` | Запись/обновление файлов |
+| `fs/read_text_file` | Чтение текстовых файлов |
+| `fs/write_text_file` | Запись/обновление файлов |
 
 ### Чтение файлов
 
@@ -56,7 +61,7 @@ graph LR
 
 ```json
 {
-  "tool": "read_text_file",
+  "tool": "fs/read_text_file",
   "params": {
     "path": "src/main.py",
     "line": 1,
@@ -75,7 +80,7 @@ graph LR
 **Отображение в UI:**
 
 ```
-📖 read_text_file: src/main.py
+📖 fs/read_text_file: src/main.py
    Lines 1-50 of 120
    ─────────────────────────
    1 │ #!/usr/bin/env python
@@ -90,7 +95,7 @@ graph LR
 
 ```json
 {
-  "tool": "write_text_file",
+  "tool": "fs/write_text_file",
   "params": {
     "path": "src/utils.py",
     "content": "def helper():\n    pass\n"
@@ -107,7 +112,7 @@ graph LR
 **Отображение в UI (diff):**
 
 ```
-✏️ write_text_file: src/utils.py
+✏️ fs/write_text_file: src/utils.py
    ─────────────────────────
    @@ -1,3 +1,5 @@
    +def helper():
@@ -121,13 +126,17 @@ graph LR
 
 ### Операции
 
-| Операция | Описание |
-|----------|----------|
+Модели предъявляются три инструмента:
+
+| Инструмент | Описание |
+|------------|----------|
 | `terminal/create` | Создание терминала и выполнение команды |
-| `terminal/output` | Получение текущего вывода |
-| `terminal/wait_for_exit` | Ожидание завершения процесса |
-| `terminal/kill` | Принудительное завершение процесса |
+| `terminal/wait_for_exit` | Ожидание завершения процесса (возвращает и накопленный вывод) |
 | `terminal/release` | Освобождение ресурсов терминала |
+
+`terminal/output` — **метод ACP к клиенту**, а не инструмент модели: его вызывает сам
+сервер внутри `wait_for_exit`, чтобы получить вывод (см. «Terminal Output Flow» ниже).
+`terminal/kill` в наборе инструментов сервера не зарегистрирован.
 
 ### Выполнение команд
 
@@ -207,18 +216,6 @@ graph LR
 }
 ```
 
-### Принудительное завершение (terminal/kill)
-
-```json
-{
-  "tool": "terminal/kill",
-  "params": {
-    "terminal_id": "term-123",
-    "signal": "SIGTERM"
-  }
-}
-```
-
 ### Освобождение терминала
 
 ```json
@@ -252,10 +249,10 @@ Tool Panel отображает результаты выполнения:
 │    Status: ✅ Completed (exit code: 0)          │
 │    Duration: 1.23s                              │
 │                                                 │
-│ 📖 read_text_file: src/main.py                  │
+│ 📖 fs/read_text_file: src/main.py                  │
 │    Lines: 1-50 of 120                           │
 │                                                 │
-│ ✏️ write_text_file: src/utils.py                │
+│ ✏️ fs/write_text_file: src/utils.py                │
 │    Changes: +15 -3 lines                        │
 │                                                 │
 └─────────────────────────────────────────────────┘
@@ -270,37 +267,47 @@ Tool Panel отображает результаты выполнения:
 
 ### File System
 
-| Операция | Требует разрешение |
-|----------|-------------------|
-| `read_text_file` | Да |
-| `write_text_file` | Да |
+| Инструмент | Требует разрешение |
+|------------|-------------------|
+| `fs/read_text_file` | Да |
+| `fs/write_text_file` | Да |
 
 ### Terminal
 
-| Операция | Требует разрешение |
-|----------|-------------------|
-| `execute_command` | Да |
-| `wait_for_exit` | Нет |
-| `release` | Нет |
+| Инструмент | Требует разрешение |
+|------------|-------------------|
+| `terminal/create` | Да |
+| `terminal/wait_for_exit` | Нет |
+| `terminal/release` | Нет |
+
+### Plan
+
+| Инструмент | Требует разрешение |
+|------------|-------------------|
+| `update_plan` | Нет |
 
 ### Политики
 
-Настройте автоматические разрешения:
+Разрешение можно выдать **навсегда** прямо в диалоге запроса: варианты
+`allow_always` и `reject_always` сохраняются в глобальную политику и применяются
+автоматически при следующих вызовах.
 
-```json
-{
-  "tool_policies": {
-    "read_text_file": {
-      "paths": ["src/**/*", "docs/**/*"],
-      "action": "allow"
-    },
-    "execute_command": {
-      "commands": ["pytest *", "npm test"],
-      "action": "allow"
-    }
-  }
-}
-```
+Политика хранится по **виду инструмента** (`kind`), а не по имени и не по пути:
+
+| Вид (`kind`) | Инструменты |
+|--------------|-------------|
+| `read` | `fs/read_text_file`, `project/list_files`, `project/search_content` |
+| `edit` | `fs/write_text_file` |
+| `execute` | `terminal/create` |
+| `think` | `update_plan` |
+
+Файл политики: `<CODELAB_HOME>/data/policies/global_permissions.json`
+(по умолчанию `~/.codelab/data/policies/`). Допустимые решения — только
+`allow_always` и `reject_always`; разовые ответы в файл не попадают.
+
+> **Чего пока нет:** правил с glob-паттернами по путям или командам
+> (`"paths": ["src/**"]`, `"commands": ["pytest *"]`). Формат таких правил —
+> отдельное решение вместе с их миграцией, см. ADR-009.
 
 ## Статусы выполнения
 

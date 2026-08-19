@@ -72,6 +72,7 @@ graph TB
             FV_VM["FileViewerViewModel<br/>file preview"]
             PERM_VM["PermissionViewModel<br/>permission modal"]
             TERMLOG_VM["TerminalLogViewModel<br/>terminal log"]
+            SELECT_VM["5 селекторов<br/>Model, Mode, Agent<br/>Strategy, ConfigOption"]
             OBS["Observable&lt;T&gt;<br/>ObservableCommand"]
         end
 
@@ -114,8 +115,8 @@ graph TB
         end
 
         APP --> COMPONENTS --> CTRL & THEME
-        COMPONENTS --> UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM
-        UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM --> OBS
+        COMPONENTS --> UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM & SELECT_VM
+        UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM & SELECT_VM --> OBS
         UI_VM & SESSION_VM & CHAT_VM & PLAN_VM & TERM_VM & FS_VM & FV_VM & PERM_VM & TERMLOG_VM --> INIT_UC & CREATE_UC & LOAD_UC & SEND_UC & LIST_UC
         INIT_UC & CREATE_UC & LOAD_UC & SEND_UC & LIST_UC --> COORD & SM & PH
         PH & SM --> DI_CLIENT
@@ -148,7 +149,7 @@ graph TB
         end
 
         subgraph PROTOCOL["Protocol Layer (REQUEST scope)"]
-            AP["ACPProtocol (Facade)<br/>method dispatcher<br/>~331 LOC (core.py<br/>декомпозирован 2030→331)"]
+            AP["ACPProtocol (Facade)<br/>method dispatcher<br/>core.py 383 LOC<br/>(декомпозирован с 2030)"]
             CMD_REG["CommandRegistry<br/>(Command Pattern)"]
             RESP_ROUTER["ResponseRouter<br/>(response routing)"]
             BG_EXEC["BackgroundExecutor<br/>(async tool execution)"]
@@ -158,7 +159,7 @@ graph TB
         end
 
         subgraph ORCHESTRATION["Orchestration (APP scope)"]
-            PO["PromptOrchestrator<br/>10+ dependencies"]
+            PO["PromptOrchestrator<br/>9 обязательных +<br/>7 опциональных"]
             PIPELINE["PromptPipeline<br/>7 стадий"]
         end
 
@@ -692,8 +693,8 @@ chat_vm = ChatViewModel(
 - `SessionController` — операции с сессиями
 - `ChatController` — операции чата (clear_chat и др.)
 - `ConfigOptionsController` — конфигурационные опции
-- `ToolCallHandler` (`presentation/chat/handlers/`) — обработка `tool_call`, `tool_call_update`
-  и результатов (вынесен из `app.py`)
+- `parse_tool_call_file_change()` (`tui/controllers/tool_call_parser.py`) — чистый разбор
+  tool call в описание изменения файла для предпросмотра (вынесен из `app.py`)
 
 > **Удалено (P2-17):** `tui/navigation/` (`NavigationManager`, `NavigationOperations`,
 > `NavigationQueue`, `NavigationTracker`) — неадоптированная абстракция, не подключена,

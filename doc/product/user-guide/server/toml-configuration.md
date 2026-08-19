@@ -359,10 +359,18 @@ api_key = "${ANTHROPIC_API_KEY}"
 
 ## Custom путь к конфигурации
 
-Используйте CLI аргумент `--config` для указания кастомного TOML файла:
+Загрузчик конфигурации поддерживает custom-путь с наивысшим приоритетом, но
+**через реальную точку входа он не передаётся**: у `codelab serve` флага `--config`
+нет (флаг принадлежит недостижимой `server/cli.py`, tech-debt P2-43).
+
+Доступные сегодня способы подменить конфигурацию:
 
 ```bash
-codelab serve --config /path/to/custom-config.toml
+# Отдельный CODELAB_HOME со своим codelab.toml
+CODELAB_HOME=/path/to/env codelab serve
+
+# Project-local override рядом с проектом
+# codelab.local.toml подхватывается автоматически
 ```
 
 Это полезно для:

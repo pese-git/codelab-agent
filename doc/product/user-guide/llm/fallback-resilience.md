@@ -1,6 +1,12 @@
 # Fallback и устойчивость LLM
 
-CodeLab поддерживает автоматическую fallback цепочку для обеспечения устойчивости при ошибках LLM провайдеров.
+> ⚠️ **Функция не подключена к исполнению.** Пакет `server/llm/fallback/`
+> (`FallbackOrchestrator`, `SequentialFallback`, `CircuitBreaker`) реализован и покрыт
+> тестами, секция `[llm.fallback]` разбирается из TOML — но в рантайме цепочка **не
+> используется**: `di/llm.py` выбирает один активный провайдер. При `enabled = true`
+> сервер пишет в лог предупреждение «llm fallback configured but not active».
+> Ниже описан замысел и конфигурация, к которой функция будет подключена
+> (tech-debt P2-24).
 
 ## Концепция
 
@@ -63,11 +69,8 @@ retry_on = ["rate_limit", "timeout", "internal_error"]
 
 ### Через переменные окружения
 
-```bash
-export CODELAB_FALLBACK_ENABLED=true
-export CODELAB_FALLBACK_STRATEGY=sequential
-export CODELAB_FALLBACK_ORDER=openai,openrouter,ollama
-```
+Не поддерживается: `CODELAB_FALLBACK_*` не читаются (у настроек не задан
+`env_nested_delimiter`, tech-debt P1-33). Секция задаётся только в TOML.
 
 ## Стратегии fallback
 

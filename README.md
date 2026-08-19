@@ -99,7 +99,7 @@ codelab-agent/
 │   │   ├── protocol/       # ACPProtocol (Facade) + decomposed компоненты
 │   │   │                   # CommandRegistry, ResponseRouter, BackgroundExecutor
 │   │   │                   # MCPSessionManager, ConfigSpecBuilder, NotificationBus
-│   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
+│   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentRunner, стратегии)
 │   │   │   ├── context/    # Context Manager (сбор, бюджет, наблюдаемость)
 │   │   ├── tools/          # Инструменты (fs, terminal, plan)
 │   │   │   ├── executors/decorators/  # Декораторы инструментов (метрики, трейсинг, таймауты, retry)
@@ -206,12 +206,12 @@ cp .env.example .env
 |------------|----------|--------------|
 | `CODELAB_LLM_PROVIDER` | Активный провайдер LLM | `mock` |
 | `CODELAB_LLM_MODEL` | Модель в формате `"provider/model"` | `mock/mock-model` |
-| `CODELAB_LLM_PROVIDERS` | Список провайдеров через запятую | `openai,mock` |
+| `CODELAB_LLM_PROVIDERS` ⚠️ не читается | Список провайдеров через запятую | `openai,mock` |
 | `OPENAI_API_KEY` | API ключ OpenAI | - |
 | `ANTHROPIC_API_KEY` | API ключ Anthropic | - |
-| `CODELAB_FALLBACK_ENABLED` | Включить fallback | `false` |
-| `CODELAB_FALLBACK_STRATEGY` | Стратегия fallback | `sequential` |
-| `CODELAB_FALLBACK_ORDER` | Порядок провайдеров через запятую | - |
+| `CODELAB_FALLBACK_ENABLED` ⚠️ не читается | Включить fallback | `false` |
+| `CODELAB_FALLBACK_STRATEGY` ⚠️ не читается | Стратегия fallback | `sequential` |
+| `CODELAB_FALLBACK_ORDER` ⚠️ не читается | Порядок провайдеров через запятую | - |
 | `CODELAB_PORT` | Порт сервера | `8765` |
 | `CODELAB_HOST` | Хост сервера | `127.0.0.1` |
 | `CODELAB_LOG_LEVEL` | Уровень логирования | `INFO` |
@@ -268,8 +268,13 @@ max_output_tokens = 64000
 
 При ошибках основного провайдера можно настроить fallback цепочку:
 
-```bash
-codelab serve --fallback-enabled --fallback-strategy sequential --fallback-order openai,openrouter,ollama
+```toml
+# ~/.codelab/codelab.toml
+[llm.fallback]
+enabled = true
+strategy = "sequential"
+order = ["openai", "openrouter", "ollama"]
+retry_on = ["rate_limit", "timeout"]
 ```
 
 Fallback перебирает провайдеры по порядку при retryable ошибках (rate_limit, timeout, internal_error).

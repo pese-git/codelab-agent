@@ -107,7 +107,8 @@ CODELAB_LLM_MODEL=ollama/llama3.1:70b
 **Симптом:** При ошибке основного провайдера fallback не переключается на резервный.
 
 **Решение:**
-1. Проверьте `CODELAB_FALLBACK_ENABLED=true`
+1. Учтите: fallback-цепочка пока не подключена к исполнению (P2-24), а
+   `CODELAB_FALLBACK_ENABLED` не читается — секция задаётся в TOML
 2. Убедитесь что резервные провайдеры зарегистрированы
 3. Проверьте `retry_on` — ошибка должна быть retryable (`rate_limit`, `timeout`, `internal_error`, `service_unavailable`)
 

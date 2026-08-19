@@ -392,33 +392,34 @@ CodeLab автоматически определяет тип MCP инстру�
 graph TD
     A[MCP Tool Annotations] -->|readOnlyHint=true| B[read]
     A -->|destructiveHint=true| C[execute]
-    A -->|idempotentHint=true| D[edit]
-    
-    E[Имя инструмента] -->|read_*, get_*, list_*| B
-    E -->|write_*, create_*, delete_*| C
-    E -->|update_*, modify_*| D
-    
-    F[Fallback] --> G[other]
+    A -->|destructiveHint + delete/remove/rm в имени| D[delete]
+
+    E[Префикс имени] -->|read, get, list, cat, show| B
+    E -->|fetch, download, http, web, url| F[fetch]
+    E -->|search, find, grep, query| G[search]
+    E -->|write, create, update, edit, modify, append| C
+    E -->|delete, remove, rm| D
+    E -->|move, rename, mv| H[move]
+    E -->|exec, run| I[execute]
+
+    J[Fallback] --> K[other]
 ```
 
 **Приоритет определения:**
-1. **MCP ToolAnnotations** (`readOnlyHint`, `destructiveHint`, и т.д.)
-2. **Эвристика по имени** (`read_file` → read, `execute_command` → execute)
+1. **MCP ToolAnnotations:** `readOnlyHint=true` → `read`; `destructiveHint=true` →
+   `delete`, если в имени есть `delete`/`remove`/`rm`, иначе `edit`
+2. **Эвристика по префиксу имени** (список выше, сопоставление идёт по началу имени)
 3. **Fallback** → `other`
 
 ### Политики для MCP
 
-```toml
-[tool_policies]
-# Разрешить чтение всех MCP инструментов
-"mcp:*:read_*" = "allow"
+Отдельного формата правил для MCP нет: MCP-инструменты проходят тот же гейт
+разрешений, что и встроенные, и политика хранится по **виду** инструмента
+(`kind`), выведенному выше. Поэтому ответ `allow_always` на MCP-инструмент вида
+`read` распространяется на все инструменты этого вида — и встроенные, и MCP.
 
-# Запрашивать разрешение на запись
-"mcp:*:write_*" = "ask"
-
-# Запретить удаление
-"mcp:*:delete_*" = "deny"
-```
+Правил с glob-паттернами (`"mcp:*:read_*" = "allow"`) в конфигурации не
+существует; их формат — отдельное решение вместе с миграцией (ADR-009).
 
 ## Отображение в TUI
 

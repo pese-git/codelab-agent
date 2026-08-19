@@ -2,6 +2,13 @@
 
 Полный справочник всех настроек CodeLab.
 
+> **Не действуют через окружение.** Переменные вида `CODELAB_FALLBACK_*`,
+> `CODELAB_AGENTS_*` и `CODELAB_OBSERVABILITY_*` **не читаются**: у настроек не задан
+> `env_nested_delimiter`, поэтому вложенные секции из окружения не заполняются
+> (проверено на реальном пути загрузки `AppConfig.load()`). Задавайте их в TOML —
+> `[llm.fallback]`, `[agents]`, `[observability]`. Причина — две параллельные
+> конфиг-системы, tech-debt P1-33.
+
 ## Файлы конфигурации
 
 CodeLab поддерживает два формата конфигурации:
@@ -58,9 +65,9 @@ CodeLab поддерживает два формата конфигурации:
 
 | Опция | Значения | По умолчанию | Описание |
 |-------|----------|--------------|----------|
-| `CODELAB_FALLBACK_ENABLED` | `true`, `false` | `false` | Включить fallback цепочку |
-| `CODELAB_FALLBACK_STRATEGY` | `sequential` | `sequential` | Стратегия fallback |
-| `CODELAB_FALLBACK_ORDER` | `openai,openrouter,ollama` | — | Порядок провайдеров |
+| `CODELAB_FALLBACK_ENABLED` ⚠️ не читается | `true`, `false` | `false` | Включить fallback цепочку |
+| `CODELAB_FALLBACK_STRATEGY` ⚠️ не читается | `sequential` | `sequential` | Стратегия fallback |
+| `CODELAB_FALLBACK_ORDER` ⚠️ не читается | `openai,openrouter,ollama` | — | Порядок провайдеров |
 
 ## Конфигурация сервера
 
@@ -76,8 +83,8 @@ CodeLab поддерживает два формата конфигурации:
 |-------|--------------|----------|
 | `CODELAB_LLM_TIMEOUT_CONNECT` | `30.0` | Таймаут подключения к LLM API (секунды) |
 | `CODELAB_LLM_TIMEOUT_READ` | `300.0` | Таймаут ожидания ответа от LLM API (секунды) |
-| `CODELAB_LLM_TIMEOUT_WRITE` | `30.0` | Таймаут отправки запроса к LLM API (секунды) |
-| `CODELAB_LLM_TIMEOUT_POOL` | `30.0` | Таймаут ожидания соединения из пула (секунды) |
+| `CODELAB_LLM_TIMEOUT_WRITE` ⚠️ не читается | `30.0` | Таймаут отправки запроса к LLM API (секунды) |
+| `CODELAB_LLM_TIMEOUT_POOL` ⚠️ не читается | `30.0` | Таймаут ожидания соединения из пула (секунды) |
 
 ### TOML секция таймаутов
 
@@ -93,10 +100,10 @@ pool = 30.0
 
 | Опция | По умолчанию | Описание |
 |-------|--------------|----------|
-| `CODELAB_AGENTS_STRATEGY` | `single` | Стратегия выполнения: `single`, `multi_orchestrated`, `hierarchical` |
-| `CODELAB_AGENTS_FALLBACK_STRATEGY` | `single` | Fallback стратегия если нет нужных агентов |
-| `CODELAB_AGENTS_DEFAULT_MODEL` | `provider/model` | _(выводится из `CODELAB_LLM_PROVIDER`/`CODELAB_LLM_MODEL`)_ | Модель по умолчанию для агентов. Явное значение переопределя derivation |
-| `CODELAB_AGENTS_MAX_STEPS` | `7` | Максимальное количество шагов мультиагентного выполнения |
+| `CODELAB_AGENTS_STRATEGY` ⚠️ не читается | `single` | Стратегия выполнения: `single`, `multi_orchestrated`, `hierarchical` |
+| `CODELAB_AGENTS_FALLBACK_STRATEGY` ⚠️ не читается | `single` | Fallback стратегия если нет нужных агентов |
+| `CODELAB_AGENTS_DEFAULT_MODEL` ⚠️ не читается | `provider/model` | _(выводится из `CODELAB_LLM_PROVIDER`/`CODELAB_LLM_MODEL`)_ | Модель по умолчанию для агентов. Явное значение переопределя derivation |
+| `CODELAB_AGENTS_MAX_STEPS` ⚠️ не читается | `7` | Максимальное количество шагов мультиагентного выполнения |
 
 ### TOML секция `[agents]`
 
@@ -175,10 +182,10 @@ permissions:
 
 | Опция | По умолчанию | Описание |
 |-------|--------------|----------|
-| `CODELAB_OBSERVABILITY_ENABLED` | `true` | Включить экспорт observability данных в файлы |
-| `CODELAB_OBSERVABILITY_EXPORT_DIR` | `~/.codelab/data/observability` | Базовая директория для экспорта |
-| `CODELAB_OBSERVABILITY_FLUSH_INTERVAL` | `60` | Интервал flush в секундах |
-| `CODELAB_OBSERVABILITY_MAX_FILE_SIZE` | `10485760` | Максимальный размер файла перед ротацией (байты) |
+| `CODELAB_OBSERVABILITY_ENABLED` ⚠️ не читается | `true` | Включить экспорт observability данных в файлы |
+| `CODELAB_OBSERVABILITY_EXPORT_DIR` ⚠️ не читается | `~/.codelab/data/observability` | Базовая директория для экспорта |
+| `CODELAB_OBSERVABILITY_FLUSH_INTERVAL` ⚠️ не читается | `60` | Интервал flush в секундах |
+| `CODELAB_OBSERVABILITY_MAX_FILE_SIZE` ⚠️ не читается | `10485760` | Максимальный размер файла перед ротацией (байты) |
 
 ### TOML секция observability
 

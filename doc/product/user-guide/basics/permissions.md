@@ -91,16 +91,18 @@ sequenceDiagram
 
 ### File System
 
-| Операция | Описание | Уровень риска |
-|----------|----------|---------------|
-| `read` | Чтение файлов | 🟢 Низкий |
-| `write` | Запись/изменение файлов | 🟡 Средний |
+| Вид (`kind`) | Инструмент | Уровень риска |
+|--------------|------------|---------------|
+| `read` | `fs/read_text_file` | 🟢 Низкий |
+| `edit` | `fs/write_text_file` | 🟡 Средний |
 
 ### Terminal
 
-| Операция | Описание | Уровень риска |
-|----------|----------|---------------|
-| `execute` | Выполнение команд | 🔴 Высокий |
+| Вид (`kind`) | Инструмент | Уровень риска |
+|--------------|------------|---------------|
+| `execute` | `terminal/create` | 🔴 Высокий |
+
+`terminal/wait_for_exit` и `terminal/release` разрешения не требуют.
 
 ## Диалог разрешения
 
@@ -119,12 +121,16 @@ sequenceDiagram
 
 ### Варианты ответа
 
-| Кнопка | Действие | Область |
-|--------|----------|---------|
-| **Allow** | Разрешить один раз | Только этот запрос |
-| **Allow All** | Разрешить все похожие | Текущая сессия |
-| **Always Allow** | Всегда разрешать | Глобально |
-| **Deny** | Отклонить | Только этот запрос |
+| optionId | Название | Действие | Область |
+|----------|----------|----------|---------|
+| `allow_once` | Allow once | Разрешить один раз | Только этот запрос |
+| `allow_always` | Allow always | Разрешать этот **вид** инструмента | Сессия и глобальная политика |
+| `reject_once` | Reject once | Отклонить один раз | Только этот запрос |
+| `reject_always` | Reject always | Отклонять этот **вид** инструмента | Сессия и глобальная политика |
+
+Запоминаемое решение привязано к **виду** (`kind`) инструмента — `read`, `edit`,
+`execute`, `delete`, `search`, `fetch`, `move`, `think`, `other`, — а не к его имени и
+не к пути.
 
 ## Политики разрешений
 
@@ -142,184 +148,70 @@ graph TD
 
 ### Глобальные политики
 
-Сохраняются в `~/.codelab/data/policies/global_policies.json`:
+Сохраняются в `<CODELAB_HOME>/data/policies/global_permissions.json`
+(по умолчанию `~/.codelab/data/policies/`). Формат — решения по видам инструментов:
 
 ```json
 {
-  "rules": [
-    {
-      "operation": "read",
-      "pattern": "*.md",
-      "action": "allow"
-    },
-    {
-      "operation": "write",
-      "pattern": "node_modules/*",
-      "action": "deny"
-    }
-  ]
-}
-```
-
-### Политики сессии
-
-Действуют только в текущей сессии и сбрасываются при её закрытии.
-
-## Паттерны путей
-
-Политики поддерживают glob-паттерны:
-
-| Паттерн | Описание |
-|---------|----------|
-| `*.py` | Все Python файлы |
-| `src/**/*` | Все файлы в src и вложенных |
-| `test_*.py` | Файлы начинающиеся с test_ |
-| `!*.secret` | Исключение файлов |
-
-### Примеры
-
-```json
-{
-  "rules": [
-    {
-      "operation": "read",
-      "pattern": "**/*.py",
-      "action": "allow",
-      "comment": "Читать все Python файлы"
-    },
-    {
-      "operation": "write",
-      "pattern": "src/**/*",
-      "action": "allow",
-      "comment": "Писать в src/"
-    },
-    {
-      "operation": "*",
-      "pattern": ".env*",
-      "action": "deny",
-      "comment": "Никогда не трогать .env файлы"
-    }
-  ]
-}
-```
-
-## Терминальные разрешения
-
-### Безопасные команды
-
-Команды с низким риском могут быть разрешены по умолчанию:
-
-```json
-{
-  "terminal_rules": [
-    {
-      "command_pattern": "ls *",
-      "action": "allow"
-    },
-    {
-      "command_pattern": "cat *",
-      "action": "allow"
-    },
-    {
-      "command_pattern": "python -m pytest *",
-      "action": "allow"
-    }
-  ]
-}
-```
-
-### Опасные команды
-
-Рекомендуется всегда блокировать:
-
-```json
-{
-  "terminal_rules": [
-    {
-      "command_pattern": "rm -rf *",
-      "action": "deny"
-    },
-    {
-      "command_pattern": "sudo *",
-      "action": "deny"
-    },
-    {
-      "command_pattern": "* > /dev/*",
-      "action": "deny"
-    }
-  ]
-}
-```
-
-## Режимы безопасности
-
-### Paranoid Mode
-
-Запрашивать разрешение на каждую операцию:
-
-```json
-{
-  "mode": "paranoid",
-  "default_action": "ask"
-}
-```
-
-### Standard Mode (по умолчанию)
-
-Спрашивать для write/execute, разрешать read:
-
-```json
-{
-  "mode": "standard",
-  "default_actions": {
-    "read": "allow",
-    "write": "ask",
-    "execute": "ask"
+  "version": 1,
+  "policies": {
+    "read": "allow_always",
+    "execute": "reject_always"
+  },
+  "metadata": {
+    "updated_at": "2026-08-17T12:00:00+00:00",
+    "updated_by": "system"
   }
 }
 ```
 
-### Trusted Mode
+Запись атомарная: сначала во временный файл, затем переименование.
 
-Разрешать большинство операций (только для доверенных проектов):
+### Политики сессии
 
-```json
-{
-  "mode": "trusted",
-  "default_action": "allow",
-  "exceptions": ["rm *", "sudo *"]
-}
-```
+Те же решения по видам, но в документе сессии: действуют в текущей сессии и проверяются
+**раньше** глобальных. Порядок проверки — сессия → глобальная политика → спросить
+пользователя.
+
+> **Чего пока нет:** правил по путям и командам, glob-паттернов, решений `ask`/`deny` в
+> файле, отдельных правил для MCP-серверов. Допустимых решений два — `allow_always` и
+> `reject_always`. Формат более выразительных правил вместе с их миграцией — отдельное
+> решение (ADR-009).
+
+## Режимы сессии
+
+Режим задаёт уровень автономности агента и переключается командой `/mode` или
+методом `session/set_mode`. Режимов три:
+
+| Режим | Поведение |
+|-------|-----------|
+| `plan` | Read-only: инструменты видов `edit`/`execute`/`delete` заблокированы, агент только рассуждает и планирует |
+| `standard` (по умолчанию) | Запрос разрешения перед каждым изменяющим или исполняющим вызовом |
+| `bypass` | Автоматическое исполнение без подтверждения |
+
+Старые имена режимов (`ask`, `code`, `architect`, `debug`) читаются из сохранённых
+сессий и приводятся к новым: `ask` → `standard`, `code` → `bypass`,
+`architect` → `plan`, `debug` → `standard`.
+
+> **Чего пока нет:** правил по командам терминала (`"rm -rf *" → deny`), режимов
+> «paranoid»/«trusted» и списков безопасных команд. Ограничение исполнения сегодня —
+> это режим сессии и решение по виду инструмента, а не разбор командной строки.
 
 ## Управление политиками
 
-Политики разрешений управляются через UI и сохраняются в сессии. Глобальные политики хранятся в `~/.codelab/data/policies/global_permissions.json`.
+Политики выдаются ответом в диалоге разрешения (`allow_always` / `reject_always`) и
+сохраняются автоматически. Отдельных CLI-команд для них нет: у `codelab` два
+подкоманды — `serve` и `connect`.
 
 ### Уровни политик
 
-1. **Глобальные политики** — применяются ко всем сессиям
-2. **Сессионные политики** — применяются только к текущей сессии
-3. **Запрос разрешения** — спрашивает пользователя при каждом вызове
+1. **Политика сессии** — проверяется первой, живёт в документе сессии;
+2. **Глобальная политика** — `<CODELAB_HOME>/data/policies/global_permissions.json`;
+3. **Запрос пользователю** — если ни там, ни там решения нет.
 
 ### Сброс политик
 
-```bash
-# Сбросить глобальные политики
-codelab permissions reset --global
-
-# Сбросить политики сессии
-# (происходит автоматически при закрытии сессии)
-```
-
-### Экспорт/импорт
-
-```bash
-# Экспорт
-codelab permissions export > policies.json
-
-# Импорт
-codelab permissions import policies.json
-```
+Глобальные — удалением файла `global_permissions.json`; сессионные — вместе с сессией.
 
 ## Inline разрешения
 
@@ -344,11 +236,16 @@ codelab permissions import policies.json
 cat ~/.codelab/logs/codelab.log | grep "permission"
 ```
 
-Формат лога:
+Каждая инвокация инструмента пишет `tool_invocation_probe` — что исполняется, от чьего
+имени и прошло ли решение через гейт:
+
 ```
-2024-01-15 10:30:00 [INFO] permission.request operation=read path=/src/main.py
-2024-01-15 10:30:02 [INFO] permission.response action=allow user_choice=allow_all
+[info] tool_invocation_probe acp_tool_name=fs/read_text_file subject=model
+       requires_permission=True gated=True inside_cwd=True path=src/main.py
 ```
+
+`subject` различает вызывающего (`model` — turn-путь, `context` — сборка контекста),
+`gated` показывает, спрашивалось ли разрешение фактически.
 
 ## Рекомендации по безопасности
 
@@ -374,23 +271,15 @@ cat ~/.codelab/logs/codelab.log | grep "permission"
 
 ### Слишком много запросов
 
-Настройте политики для часто используемых путей:
-
-```json
-{
-  "rules": [
-    {"operation": "read", "pattern": "src/**/*", "action": "allow"}
-  ]
-}
-```
+Ответьте `allow_always` на первый запрос нужного вида — решение сохранится и для
+остальных инструментов этого вида. Для доверенного проекта переключите режим сессии
+в `bypass` командой `/mode`.
 
 ### Агент не может работать
 
-Проверьте, нет ли слишком строгих политик:
-
-```bash
-codelab permissions show | grep deny
-```
+Проверьте режим сессии (`plan` блокирует запись и исполнение) и файл
+`~/.codelab/data/policies/global_permissions.json` — там мог остаться
+`reject_always` по нужному виду.
 
 ## MCP разрешения
 
@@ -403,9 +292,10 @@ MCP инструменты проходят через ту же систему 
 | MCP Annotation | ACP Kind | Описание |
 |----------------|----------|----------|
 | `readOnlyHint: true` | `read` | Только чтение |
-| `destructiveHint: true` | `execute` | Разрушительное действие |
-| `idempotentHint: true` | `edit` | Изменяемое, но идемпотентное |
-| `openWorldHint: true` | `execute` | Внешний мир (API, веб) |
+| `destructiveHint: true` + `delete`/`remove`/`rm` в имени | `delete` | Удаление |
+| `destructiveHint: true` (иначе) | `edit` | Изменяющее действие |
+
+`idempotentHint` и `openWorldHint` на вывод вида не влияют.
 
 ### Эвристика по имени
 
@@ -413,39 +303,25 @@ MCP инструменты проходят через ту же систему 
 
 | Префикс имени | ACP Kind |
 |---------------|----------|
-| `read_*`, `get_*`, `list_*`, `fetch_*` | `read` |
-| `write_*`, `create_*`, `delete_*`, `remove_*` | `execute` |
-| `update_*`, `modify_*`, `set_*` | `edit` |
+| `read`, `get`, `list`, `cat`, `show` | `read` |
+| `fetch`, `download`, `http`, `web`, `url` | `fetch` |
+| `search`, `find`, `grep`, `query` | `search` |
+| `write`, `create`, `update`, `edit`, `modify`, `append` | `edit` |
+| `delete`, `remove`, `rm` | `delete` |
+| `move`, `rename`, `mv` | `move` |
+| `exec`, `run` | `execute` |
 | Остальные | `other` |
 
 ### Политики для MCP
 
-Глобальные политики поддерживают glob-паттерны для MCP инструментов:
+Отдельного формата правил для MCP нет: MCP-инструменты проходят тот же гейт, что и
+встроенные, и решение сохраняется по **виду** инструмента, а не по его имени или
+серверу. Ответ `allow_always` на MCP-инструмент вида `read` действует и на все
+остальные инструменты этого вида.
 
-```json
-{
-  "rules": [
-    {
-      "operation": "read",
-      "pattern": "mcp:*:read_*",
-      "action": "allow",
-      "comment": "Разрешить все MCP read инструменты"
-    },
-    {
-      "operation": "execute",
-      "pattern": "mcp:github:*",
-      "action": "ask",
-      "comment": "Спрашивать для GitHub операций"
-    },
-    {
-      "operation": "*",
-      "pattern": "mcp:*:delete_*",
-      "action": "deny",
-      "comment": "Запретить удаление через MCP"
-    }
-  ]
-}
-```
+> **Чего пока нет:** правил с glob-паттернами (`"mcp:*:read_*"`), политик по серверу и
+> решения `deny`/`ask` в файле политики. Допустимых решений два — `allow_always` и
+> `reject_always`; формат более выразительных правил — отдельное решение (ADR-009).
 
 ### Диалог разрешения для MCP
 
@@ -459,25 +335,6 @@ MCP инструменты проходят через ту же систему 
 │                                                            │
 │  [Allow]  [Allow All]  [Always Allow]  [Deny]             │
 └────────────────────────────────────────────────────────────┘
-```
-
-### Примеры MCP политик
-
-**Разрешить чтение всех MCP:**
-```json
-{"operation": "read", "pattern": "mcp:*:*", "action": "allow"}
-```
-
-**Спрашивать для конкретных серверов:**
-```json
-{"operation": "*", "pattern": "mcp:github:*", "action": "ask"}
-{"operation": "*", "pattern": "mcp:playwright:*", "action": "ask"}
-```
-
-**Разрешить безопасные команды:**
-```json
-{"operation": "read", "pattern": "mcp:filesystem:read_*", "action": "allow"}
-{"operation": "read", "pattern": "mcp:git:*", "action": "allow"}
 ```
 
 ## См. также

@@ -114,8 +114,8 @@ CODELAB_LOG_LEVEL=INFO
 | `OPENAI_API_KEY` | API ключ OpenAI | — |
 | `ANTHROPIC_API_KEY` | API ключ Anthropic | — |
 | `OPENROUTER_API_KEY` | API ключ OpenRouter | — |
-| `CODELAB_FALLBACK_ENABLED` | Включить fallback | `false` |
-| `CODELAB_FALLBACK_ORDER` | Порядок fallback провайдеров | — |
+| `CODELAB_FALLBACK_ENABLED` ⚠️ не читается | Включить fallback | `false` |
+| `CODELAB_FALLBACK_ORDER` ⚠️ не читается | Порядок fallback провайдеров | — |
 | `CODELAB_PORT` | Порт сервера | `8765` |
 | `CODELAB_HOST` | Хост сервера | `127.0.0.1` |
 | `CODELAB_LOG_LEVEL` | Уровень логов | `INFO` |
