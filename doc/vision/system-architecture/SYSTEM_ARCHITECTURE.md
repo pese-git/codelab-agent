@@ -515,10 +515,10 @@ sequenceDiagram
 
 | Компонент | Назначение | Статус |
 |-----------|------------|--------|
-| `SkillRegistry` | Реестр skills | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
+| `SkillRegistry` | Реестр skills | ✅ [Спецификация](../../../openspec/backlog/skills-system-support/specs/skills-system/spec.md) |
 | `SkillContextSource` | Каталог skills как контекст | ✅ [Документация](./CONTEXT_LIFECYCLE.md#skillcontextsource) |
-| `SkillDeployer` | Деплой ресурсов skills | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
-| `SkillCatalogBuilder` | Построение каталога | ✅ [Спецификация](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) |
+| `SkillDeployer` | Деплой ресурсов skills | ✅ [Спецификация](../../../openspec/backlog/skills-system-support/specs/skills-system/spec.md) |
+| `SkillCatalogBuilder` | Построение каталога | ✅ [Спецификация](../../../openspec/backlog/skills-system-support/specs/skills-system/spec.md) |
 
 #### Verification
 
@@ -752,7 +752,7 @@ class ContextManager:
 
 **Документация:**
 - ❌ [GIT_AWARENESS.md](./GIT_AWARENESS.md) — GitDiffAnalyzer, GitStatusProvider
-- ❌ [Skills System Spec](../../../openspec/changes/skills-system-support/specs/skills-system/spec.md) — SkillRegistry, SkillContextSource, SkillDeployer
+- ❌ [Skills System Spec](../../../openspec/backlog/skills-system-support/specs/skills-system/spec.md) — SkillRegistry, SkillContextSource, SkillDeployer
 - ❌ [VERIFICATION_LAYER.md](./VERIFICATION_LAYER.md) — TestRunner, BuildVerifier, LintVerifier
 - ❌ [MEMORY_LAYER.md](./MEMORY_LAYER.md) — TaskMemory, SessionMemory, ProjectMemory
 

@@ -8,7 +8,7 @@
 - `openspec/changes/acp-independent-agent-core/` — спецификация OpenSpec (proposal/design/tasks + spec-дельты)
 - ADR-003 — миграция `SessionState` в domain (вариант B, read-фаза = порт `SessionView`)
 - ADR-006 — write-фаза варианта B (**выполнена** 2026-08-03: сняла остаток протечек, закрыла долг ADR-003)
-- `openspec/changes/agent-domain-emission/` — вынесенный остаток: доменная эмиссия `UpdateSink`, прод turn-loop через `AgentRunner`, P1-4
+- `openspec/backlog/agent-domain-emission/` — вынесенный остаток: доменная эмиссия `UpdateSink`, прод turn-loop через `AgentRunner`, P1-4
 - ADR-001 — `LLMAdapter` single-call (уже существующая граница LLM)
 - `src/codelab/server/agent/` — ядро: `ExecutionEngine`, `strategies`, `system_prompt_builder`, `history_builder`, `context/`
 - `src/codelab/server/agent/contracts/ports.py` — объявленные порты ядра
@@ -26,7 +26,7 @@
 >
 > **Что осталось и почему это отдельный change.** Доменная эмиссия (`UpdateSink.emit_plan` /
 > `emit_tool_call` / `emit_tool_update`), унификация success/exception буферизации (P1-4) и
-> прод-вход turn-loop через `AgentRunner` вынесены в `openspec/changes/agent-domain-emission/` и
+> прод-вход turn-loop через `AgentRunner` вынесены в `openspec/backlog/agent-domain-emission/` и
 > **заблокированы до появления потребителя**: форму доменных `emit_*` должен диктовать вызывающий,
 > иначе это спекулятивная абстракция на горячем пути с риском для байт-идентичности
 > `session/update`. Turn-loop сам является ACP-адаптером, поэтому то, что он строит wire, границу
