@@ -20,7 +20,7 @@ graph TB
     PO --> SM[StateManager]
     PO --> PM[PermissionManager]
     PO --> TCH[ToolCallHandler]
-    PO --> CRH[ClientRPCHandler]
+    PO --> CRH[ClientRPCService]
     PO --> GPM[GlobalPolicyManager]
 ```
 
@@ -182,20 +182,26 @@ class GlobalPolicyManager:
         ...
 ```
 
-### ClientRPCHandler
+### ClientRPCService
 
-Обработка agent→client RPC:
+Исходящие вызовы agent→client и приём ответов на них:
 
 ```python
-class ClientRPCHandler:
-    async def handle_response(self, response: ACPMessage) -> None:
-        """Обработать ответ от клиента."""
-        ...
-    
-    async def handle_permission_response(self, response: ACPMessage) -> None:
-        """Обработать ответ на запрос разрешения."""
-        ...
+class ClientRPCService:
+    async def read_text_file(self, session_id: str, path: str, ...) -> str: ...
+    async def create_terminal(self, session_id: str, command: str,
+                              args: list[str] | None = None, ...) -> str: ...
+
+    def handle_response(self, response: dict) -> None:
+        """Сопоставить ответ клиента с ожидающим future."""
+
+    def has_pending_request(self, request_id: JsonRpcId | None) -> bool: ...
+    def cancel_all_pending_requests(self, reason: str | None = None) -> int: ...
 ```
+
+Ответы клиента маршрутизирует `ResponseRouter`: сначала он спрашивает процессный реестр
+ожидающих RPC (`has_pending_request`) и только потом сканирует состояние сессий —
+живой путь `fs/*` и `terminal/*` идёт через сервис и полного скана не платит (P2-52).
 
 ## Pipeline стадии
 
@@ -315,24 +321,25 @@ class LLMLoopStage(PipelineStage):
 ### Базовый класс
 
 ```python
-class SlashCommandHandler(ABC):
-    @property
+class CommandHandler(ABC):
+    """Базовый класс slash-команд (`protocol/handlers/slash_commands/base.py`)."""
+
     @abstractmethod
-    def name(self) -> str: ...
-    
-    @property
+    def execute(self, args: list[str], session: Session) -> CommandResult: ...
+
     @abstractmethod
-    def description(self) -> str: ...
-    
-    @abstractmethod
-    async def execute(self, context: CommandContext) -> CommandResult: ...
+    def get_definition(self) -> AvailableCommand: ...
 ```
+
+> Не путать с `CommandHandler` из `protocol/commands/base.py`: там — протокол обработчиков
+> **ACP-методов** (`method_name` + `async handle`), здесь — базовый класс **slash-команд**
+> (`execute` + `get_definition`). Имена совпадают, абстракции разные.
 
 ### Встроенные команды
 
 **StatusCommandHandler:**
 ```python
-class StatusCommandHandler(SlashCommandHandler):
+class StatusCommandHandler(CommandHandler):
     name = "status"
     description = "Показать состояние сессии"
     
@@ -347,7 +354,7 @@ class StatusCommandHandler(SlashCommandHandler):
 
 **ModeCommandHandler:**
 ```python
-class ModeCommandHandler(SlashCommandHandler):
+class ModeCommandHandler(CommandHandler):
     name = "mode"
     description = "Переключить режим сессии"
     
@@ -359,7 +366,7 @@ class ModeCommandHandler(SlashCommandHandler):
 
 **HelpCommandHandler:**
 ```python
-class HelpCommandHandler(SlashCommandHandler):
+class HelpCommandHandler(CommandHandler):
     name = "help"
     description = "Показать список команд"
     
@@ -375,11 +382,11 @@ class HelpCommandHandler(SlashCommandHandler):
 ### Создание новой команды
 
 1. Создайте файл в `handlers/slash_commands/builtin/`
-2. Наследуйте `SlashCommandHandler`
+2. Унаследуйте `CommandHandler` (`protocol/handlers/slash_commands/base.py`)
 3. Зарегистрируйте в `SlashCommandsProvider`:
 
 ```python
-class MyCommandHandler(SlashCommandHandler):
+class MyCommandHandler(CommandHandler):
     @property
     def name(self) -> str:
         return "mycommand"

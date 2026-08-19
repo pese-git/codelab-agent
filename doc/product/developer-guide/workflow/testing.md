@@ -131,15 +131,14 @@ async def test_session_lifecycle():
 ```python
 @pytest.mark.asyncio
 async def test_e2e_text_content():
-    # ToolExecutor → ContentExtractor → ContentValidator → ContentFormatter
+    # ToolExecutor → ContentExtractor → ContentValidator → describe_acp_content
     result = await executor.execute("fs/read_text_file", {"path": "test.txt"})
     content = extractor.extract(result)
     validation = validator.validate(content)
-    formatted = formatter.format_for_openai(content, "call_123")
-    
+    described = describe_acp_content(content)
+
     assert validation.is_valid
-    assert formatted["role"] == "tool"
-    assert "content" in formatted
+    assert described
 ```
 
 ## Категории тестов
@@ -209,9 +208,8 @@ def content_extractor():
 def content_validator():
     return ContentValidator()
 
-@pytest.fixture
-def content_formatter():
-    return ContentFormatter()
+# Отдельной фикстуры для описания контента нет: `describe_acp_content` —
+# чистая функция без состояния, её вызывают напрямую.
 ```
 
 ## Написание тестов

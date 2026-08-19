@@ -168,7 +168,7 @@ async def create_session(
 | Тип | Стиль | Пример |
 |-----|-------|--------|
 | Модули | snake_case | `session_handler.py` |
-| Классы | PascalCase | `SessionHandler` |
+| Классы | PascalCase | `SessionNotificationBus` |
 | Функции | snake_case | `create_session` |
 | Константы | UPPER_SNAKE | `DEFAULT_TIMEOUT` |
 | Переменные | snake_case | `session_id` |

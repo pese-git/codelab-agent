@@ -157,7 +157,7 @@ graph TB
         TLCM[TurnLifecycleManager]
         TCH[ToolCallHandler]
         PM[PermissionManager]
-        CRH[ClientRPCHandler]
+        CRH[ClientRPCService]
         GPM[GlobalPolicyManager]
     end
     
@@ -223,7 +223,7 @@ graph TB
 | `TurnLifecycleManager` | Жизненный цикл prompt-turn |
 | `ToolCallHandler` | Обработка tool calls |
 | `PermissionManager` | Управление разрешениями |
-| `ClientRPCHandler` | Обработка agent→client RPC |
+| `ClientRPCService` | Обработка agent→client RPC |
 | `GlobalPolicyManager` | Глобальные политики разрешений |
 
 **Pipeline стадии:**

@@ -40,7 +40,7 @@ graph TB
         TLCM[TurnLifecycleManager]
         TCH[ToolCallHandler]
         PM[PermissionManager]
-        CRH[ClientRPCHandler]
+        CRH[ClientRPCService]
         GPM[GlobalPolicyManager]
     end
     
@@ -102,15 +102,17 @@ container = make_container(
 
 | Провайдер | Создаёт |
 |-----------|---------|
-| `ManagersProvider` | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ClientRPCHandler |
+| `ManagersProvider` | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager |
 | `SlashCommandsProvider` | CommandRegistry (Status, Mode, Help), SlashCommandRouter |
 | `StorageProvider` | GlobalPolicyStorage, GlobalPolicyManager |
 | `LLMProvider_` | LLMProviderRegistry (8+ провайдеров) |
 | `ToolsProvider` | SimpleToolRegistry |
-| `AgentProvider` | ExecutionEngine, LLMAdapter, AgentEventBus, AgentRegistry |
+| `EventBusProvider` | AgentEventBus |
+| `MultiAgentProvider` | ContextManager, ExecutionEngine, AgentFactory, StrategyDispatcher, AgentRegistry |
 | `PipelineProvider` | LLMLoopStage, PromptPipeline (7 стадий) |
 | `PromptOrchestratorProvider` | ClientRPCServiceHolder, PromptOrchestratorBuilder, PromptOrchestrator |
-| `ProtocolComponentsProvider` | ResponseRouter, BackgroundExecutor, MCPSessionManager, ConfigSpecBuilder |
+| `ConfigSpecProvider` | ConfigSpecBuilder |
+| `RequestProvider` | ResponseRouter, BackgroundExecutor, MCPSessionManager, ACPProtocol |
 | `RequestProvider` | ACPProtocol (per-connection, Facade) |
 
 ### Holder паттерн
@@ -194,7 +196,6 @@ class PromptOrchestrator:
         turn_lifecycle_manager: TurnLifecycleManager,
         tool_call_handler: ToolCallHandler,
         permission_manager: PermissionManager,
-        client_rpc_handler: ClientRPCHandler,
         tool_registry: ToolRegistry,
         llm_loop_stage: LLMLoopStage,
         client_rpc_service_holder: ClientRPCServiceHolder,
@@ -324,9 +325,9 @@ class LLMLoopStage:
 ### Создание новой команды
 
 ```python
-from codelab.server.protocol.handlers.slash_commands.base import SlashCommandHandler
+from codelab.server.protocol.handlers.slash_commands.base import CommandHandler
 
-class MyCommandHandler(SlashCommandHandler):
+class MyCommandHandler(CommandHandler):
     @property
     def name(self) -> str:
         return "mycommand"
@@ -1105,31 +1106,31 @@ class ContentValidator:
         return ValidationResult(success=True)
 ```
 
-### ContentFormatter
+### describe_acp_content
 
-Форматирование в LLM-специфичные форматы:
+Описание нетекстовых блоков словами — один рендер на всех получателей
+(`shared/content/description.py`):
 
 ```python
-class ContentFormatter:
-    def format_for_openai(self, content: list[ContentBlock], tool_call_id: str) -> dict:
-        return {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": self._to_text(content),
-        }
-    
-    def format_for_anthropic(self, content: list[ContentBlock], tool_use_id: str) -> dict:
-        return {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": self._to_anthropic_content(content),
-                }
-            ],
-        }
+def describe_acp_content(content_items: list[dict[str, Any]]) -> str:
+    """Описать ACP-блоки текстом, сохраняя их порядок."""
+    parts: list[str] = []
+    for item in content_items:
+        rendered = _describe_item(item)   # text — как есть, image/audio — описанием
+        if rendered:
+            parts.append(rendered)
+    return "\n\n".join(parts)
 ```
+
+Описание **дописывается** к тексту исполнителя, а не заменяет его: инструмент, вернувший
+одно изображение, прежде давал модели пустой результат и `"Success"` в истории.
+Порядок блоков сохраняется — он часть содержимого, а не деталь представления;
+неизвестные типы пропускаются, чтобы расширение протокола не роняло путь результата.
+
+> **Провайдерного форматирования здесь нет.** Класс `ContentFormatter` с методами
+> `format_for_openai` / `format_for_anthropic` удалён: его формы дублировали
+> `HistoryBuilder`, а возвращаемое значение никто не присваивал. Конвертация в форму
+> конкретного API — дело `HistoryBuilder` и адаптера провайдера.
 
 ## Client RPC
 

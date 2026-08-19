@@ -97,8 +97,8 @@ graph TB
             NOTIF_Q["notification_queue<br/>session/update, fs/*, terminal/*"]
             PERM_Q["permission_queue<br/>session/request_permission"]
             EVENT_BUS["EventBus<br/>19 Domain Events"]
-            FS_HANDLER["FileSystemHandler<br/>+ Executor"]
-            TERM_HANDLER["TerminalHandler<br/>+ Executor"]
+            FS_HANDLER["FileSystemHandler<br/>FsRead/FsWriteHandler"]
+            TERM_HANDLER["TerminalCreate/Output/<br/>Wait/ReleaseHandler"]
         end
 
         subgraph DOMAIN["Domain Layer"]
@@ -180,7 +180,7 @@ graph TB
             TLCM[TurnLifecycleManager]
             TCH[ToolCallHandler]
             PM[PermissionManager]
-            CRH[ClientRPCHandler]
+            CRH[ClientRPCService]
             GPM[GlobalPolicyManager]
         end
 
@@ -267,7 +267,7 @@ graph TB
         subgraph CONTENT["Content Pipeline"]
             EXTRACTOR[ContentExtractor]
             VALIDATOR[ContentValidator]
-            FORMATTER["ContentFormatter<br/>OpenAI/Anthropic"]
+            DESCRIBER["describe_acp_content<br/>shared/content"]
             CONTENT_TYPES["6 Content Types<br/>Text, Diff, Image<br/>Audio, Embedded, ResourceLink"]
         end
 
@@ -319,7 +319,7 @@ graph TB
         AP --> STORAGE_IF --> MEM & JSON & CACHED
         PM --> GPS
         CRH --> RPC_SERVICE & RPC_MODELS
-        LL --> EXTRACTOR & VALIDATOR & FORMATTER & CONTENT_TYPES
+        LL --> EXTRACTOR & VALIDATOR & DESCRIBER & CONTENT_TYPES
         PO --> SRR & RPC_HOLDER
         SRR --> SRS
         HTTP_SERVER --> APP_CFG --> LLM_CFG & AGENT_CFG & STORAGE_CFG & WS_CFG
@@ -509,8 +509,8 @@ graph TB
 **EventBus** — pub/sub система для domain events с поддержкой sync/async handlers.
 
 **Handlers:**
-- `FileSystemHandler` + `FileSystemExecutor` — fs/read_text_file, fs/write_text_file
-- `TerminalHandler` + `TerminalExecutor` — terminal/create, output, wait_for_exit, release, kill
+- `FileSystemToolDefinitions` + `FileSystemToolExecutor` — fs/read_text_file, fs/write_text_file
+- `TerminalToolDefinitions` + `TerminalToolExecutor` — terminal/create, output, wait_for_exit, release, kill
 
 ### Presentation Layer (`client/presentation/`)
 
@@ -681,7 +681,7 @@ chat_vm = ChatViewModel(
 - **Сообщения:** `MessageBubble`, `MessageList`, `StreamingText`, `ThinkingIndicator`
 - **Инструменты:** `ToolCallCard`, `ToolCallList`, `TerminalOutputPanel`, `TerminalLogModal`
 - **Разрешения:** `PermissionModal`, `PermissionBadge`, `InlinePermissionWidget`
-- **Файлы:** `FileViewer`, `FileChangePreview`, `FileChangePreviewModal`
+- **Файлы:** `FileViewerModal`, `FileChangePreview`, `FileChangePreviewModal`
 - **Навигация:** `CommandPalette`, `Tabs`, `CollapsiblePanel`, `ContextMenu`
 - **Утилиты:** `Toast`, `Spinner`, `Progress`, `SearchInput`, `StatusLine`, `KeyboardManager`, `MarkdownViewer`
 - **Макет:** `MainLayout` (OpenCode-style: sidebar, content, dock regions)
@@ -692,7 +692,8 @@ chat_vm = ChatViewModel(
 - `SessionController` — операции с сессиями
 - `ChatController` — операции чата (clear_chat и др.)
 - `ConfigOptionsController` — конфигурационные опции
-- `ToolCallParser` — парсер tool-call (вынесен из `app.py`)
+- `ToolCallHandler` (`presentation/chat/handlers/`) — обработка `tool_call`, `tool_call_update`
+  и результатов (вынесен из `app.py`)
 
 > **Удалено (P2-17):** `tui/navigation/` (`NavigationManager`, `NavigationOperations`,
 > `NavigationQueue`, `NavigationTracker`) — неадоптированная абстракция, не подключена,
@@ -712,16 +713,19 @@ chat_vm = ChatViewModel(
 
 | Провайдер | Скоуп | Создаёт |
 |-----------|-------|---------|
-| `ManagersProvider` | APP | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ClientRPCHandler |
+| `ManagersProvider` | APP | StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager |
 | `SlashCommandsProvider` | APP | CommandRegistry, SlashCommandRouter |
 | `StorageProvider` | APP | GlobalPolicyStorage, GlobalPolicyManager |
-| `LLMProvider_` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
-| `ToolsProvider` | APP | SimpleToolRegistry, MCPToolExecutor |
-| `AgentProvider` | APP | ExecutionEngine, LLMAdapter, AgentEventBus, AgentRegistry |
-| `PipelineProvider` | APP | LLMLoopStage, PromptPipeline (7 стадий) |
-| `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, PromptOrchestratorBuilder, PromptOrchestrator |
-| `ProtocolComponentsProvider` | APP | ResponseRouter, BackgroundExecutor, MCPSessionManager, ConfigSpecBuilder |
-| `RequestProvider` | REQUEST | ACPProtocol (Facade, per-connection) |
+| `LLMProvider_` / `RegistryProvider` | APP | LLMProviderRegistry (8+ провайдеров: OpenAI, Anthropic, OpenRouter, Zen, Go, Ollama, LMStudio, Mock) |
+| `ToolsProvider` | APP | ToolRegistryProtocol (`SimpleToolRegistry`) |
+| `EventBusProvider` | APP | AgentEventBus |
+| `MultiAgentProvider` | APP | ContextCompactor, DefaultContextManager, SessionFileCacheRegistry, InvalidationSignalBus, ContentCodec, ExecutionEngine, AgentFactory, StrategyRegistry/Dependencies/Dispatcher, AgentRegistry |
+| `PipelineProvider` | APP | SystemPromptBuilder, LLMLoopStage, TurnCancellationRegistry, PromptPipeline |
+| `PromptOrchestratorProvider` | APP | ClientRPCServiceHolder, TerminalAliasRegistry, TurnTerminalReleaser, PromptOrchestratorBuilder, PromptOrchestrator |
+| `ConfigSpecProvider` | APP | ConfigSpecBuilder |
+| `ObservabilityProvider` / `ObservabilityFlushProvider` | APP | телеметрия и её сброс |
+| `RuntimeRegistryProvider` | REQUEST | SessionRuntimeRegistry |
+| `RequestProvider` | REQUEST | PendingRequestRegistry, ResponseRouter, MethodCommandRegistry, MCPSessionManager, BackgroundExecutor, ACPProtocol (Facade, per-connection) |
 
 **Holder паттерн:** `ClientRPCServiceHolder` — мост между APP и REQUEST scope. `ClientRPCService` создаётся вручную в `handle_ws_request` и устанавливается в holder перед REQUEST scope.
 
@@ -756,7 +760,7 @@ chat_vm = ChatViewModel(
 | `session/set_config_option` | `handlers/config.py` | Установка опции |
 | `session/set_mode` | `handlers/config.py` | Установка режима |
 
-**PromptOrchestrator** — центральный координатор prompt-turn. Инжектирует 10+ зависимостей: StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ClientRPCHandler, ToolRegistry, LLMLoopStage, ClientRPCServiceHolder, GlobalPolicyManager, CommandRegistry, PromptPipeline.
+**PromptOrchestrator** — центральный координатор prompt-turn. Инжектирует 9 обязательных зависимостей (StateManager, PlanBuilder, TurnLifecycleManager, ToolCallHandler, PermissionManager, ToolRegistry, LLMLoopStage, CommandRegistry, PromptPipeline) и 7 опциональных (ClientRPCServiceHolder, GlobalPolicyManager, SessionFileCacheRegistry, TurnCancellationRegistry, TerminalAliasRegistry, TurnTerminalReleaser и `client_rpc_service` — оставлен ради обратной совместимости).
 
 ### Pipeline система (`protocol/handlers/pipeline/`)
 

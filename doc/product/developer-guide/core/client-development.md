@@ -291,7 +291,8 @@ await modal.open_model_selector()
 - `SessionController` — операции с сессиями
 - `ChatController` — операции чата (clear_chat, ...)
 - `ConfigOptionsController` — конфигурационные опции
-- `ToolCallParser` — парсер tool-call (вынесен из `app.py` для снижения сложности)
+- `ToolCallHandler` (`presentation/chat/handlers/`) — обработка `tool_call`, `tool_call_update`
+  и результатов (вынесен из `app.py` для снижения сложности)
 
 ## EventBus
 

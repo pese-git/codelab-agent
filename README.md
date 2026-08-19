@@ -102,14 +102,14 @@ codelab-agent/
 │   │   ├── agent/          # LLM-агент (ExecutionEngine, AgentLoop)
 │   │   │   ├── context/    # Context Manager (сбор, бюджет, наблюдаемость)
 │   │   ├── tools/          # Инструменты (fs, terminal, plan)
-│   │   │   ├── executors/decorators/  # Декораторы инструментов (метрики, трейсинг, структура проекта)
+│   │   │   ├── executors/decorators/  # Декораторы инструментов (метрики, трейсинг, таймауты, retry)
 │   │   ├── storage/        # Хранилище сессий
 │   │   ├── llm/            # LLM-провайдеры (9+, включая ScriptedMock)
 │   │   ├── mcp/            # MCP интеграция (Manager, Client, Adapters)
 │   │   └── observability/  # Tracing, Metrics, Timeline
 │   ├── shared/             # Общие модули (messages, logging, content, web_ui)
 │   └── cli.py              # CLI точка входа
-├── tests/                  # Тесты (~7250, 7254 passed на 2026-07-16)
+├── tests/                  # Тесты (7880 passed на 2026-08-17)
 ├── doc/
 │   ├── product/            # Продуктовая документация (для website)
 │   │   ├── overview/       # Введение, архитектура, сценарии
@@ -346,7 +346,7 @@ graph TD
             TLCM[TurnLifecycleManager]
             TCH[ToolCallHandler]
             PM[PermissionManager]
-            CRH[ClientRPCHandler]
+            CRH[ClientRPCService]
         end
 
         subgraph SlashCommands["SlashCommandsProvider"]
@@ -487,7 +487,7 @@ graph TD
 | `WebSocketTransport` | `server/transport/websocket.py` | aiohttp WebSocket, Web UI, подписка на NotificationBus |
 | `WebSocketConnection` | `server/transport/websocket_connection.py` | Protocol-абстракция для тестируемости |
 | `StdioServerTransport` | `server/transport/stdio.py` | stdin/stdout, newline-delimited JSON-RPC, подписка на NotificationBus |
-| `StdioRunner` | `server/transport/stdio_runner.py` | Запуск stdio сервера с DI |
+| `run_stdio_server()` | `server/transport/stdio_runner.py` | Запуск stdio сервера с DI |
 
 ### AgentLoop — унифицированный цикл итераций LLM
 
@@ -591,7 +591,13 @@ reserved_tokens = 4096
 - [Руководство пользователя](doc/product/user-guide/server/context-manager.md) — назначение, конфигурация, `/context`, рецепты, troubleshooting.
 - [Реализация и расширение](doc/product/developer-guide/extending/context-manager.md) — устройство подсистем и точки расширения (для разработчиков).
 
-**ProjectStructureDecorator** — декоратор инструментов, автоматически извлекающий структуру проекта из вывода `terminal/create` + `terminal/wait_for_exit` (команды `find`/`ls`). Сохраняет в `session.config_values["project_structure"]`.
+**Структура проекта** перечисляется узкой возможностью `project/list_files` (ADR-009, раздел 6):
+команду формирует сервер, сборщик контекста её не передаёт и права запускать произвольные команды
+не имеет. Результат живёт в процессном кэше и **в документ сессии не пишется** — он производен от
+файловой системы и восстановим одним перечислением (P2-66).
+
+**Поиск по содержимому** — возможность `project/search_content` того же владельца: вызывающий
+передаёт только термин, файлы ради поиска не читаются (P2-57).
 
 ### Токен-стриминг
 
@@ -636,7 +642,7 @@ graph TD
             FSE[FileSystemExecutor]
             FSH[FileSystemHandler]
             TE[TerminalExecutor]
-            TH[TerminalHandler]
+            TH[TerminalToolExecutor]
 
             subgraph CoreSvcs["CoreServices  ⟳ двухфазная инициализация"]
                 SC[SessionCoordinator]
@@ -742,8 +748,8 @@ graph LR
         MM[MCPManager]
         MC[MCPClient]
         MT[MCPToolAdapter]
-        MR[MCPResourceMapper]
-        MP[MCPPromptMapper]
+        MR[resource_mapper]
+        MP[prompt_mapper]
     end
     
     subgraph Tools["ToolRegistry"]
@@ -762,9 +768,9 @@ graph LR
 - `MCPManager` — управление несколькими MCP-серверами на сессию, auto-reconnect с backoff
 - `MCPClient` — клиент для одного MCP-сервера с state machine
 - `MCPToolAdapter` — адаптация MCP инструментов к ACP ToolDefinition, kind inference
-- `MCPResourceMapper` — маппинг MCP resources → ACP ResourceLinkContent
-- `MCPPromptMapper` — маппинг MCP prompts → slash commands
-- `MCPContentMapper` — конвертация MCP content → ACP content
+- `mcp_resource_to_resource_link()` (`mcp/resource_mapper.py`) — MCP resources → ACP ResourceLinkContent
+- `mcp_prompt_to_available_command()` (`mcp/prompt_mapper.py`) — MCP prompts → slash commands
+- `mcp_content_to_acp_list()` (`mcp/content_mapper.py`) — MCP content → ACP content
 - `StdioTransport` / `HttpTransport` / `SseTransport` — транспорты для MCP-серверов
 
 **Функциональность:**
@@ -805,12 +811,16 @@ CodeLab поддерживает все типы контента ACP:
 
 **Pipeline обработки:**
 ```
-ToolExecutor → ContentExtractor → ContentValidator → ContentFormatter → LLM
+ToolExecutor → ContentExtractor → ContentValidator → describe_acp_content → LLM
 ```
 
 - `ContentExtractor` — извлечение content из tool results
 - `ContentValidator` — валидация согласно ACP спецификации
-- `ContentFormatter` — форматирование в LLM-специфичные форматы (OpenAI/Anthropic)
+- `describe_acp_content` (`shared/content/description.py`) — словесное описание нетекстовых
+  блоков, **дописываемое** к тексту исполнителя одним рендером на всех получателей
+
+Провайдерного форматирования на этом пути нет: конвертация в форму конкретного API —
+дело `HistoryBuilder` и адаптера провайдера, а не обработки результата инструмента.
 
 ## Проверки
 
